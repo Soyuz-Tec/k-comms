@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/materialize.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.bootstrap/trigger-materialize'
+      - '.github/workflows/materialize.yml'
   workflow_dispatch:
 
 permissions:
@@ -23,6 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main
 
       - name: Decode and validate bootstrap archive
         shell: bash
