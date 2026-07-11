@@ -1,0 +1,109 @@
+name: Materialize development scaffold
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/materialize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-k-comms
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decode and validate bootstrap archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(.bootstrap/part-*.b64)
+          if (( ${#parts[@]} == 0 )); then
+            echo 'No bootstrap archive parts found.' >&2
+            exit 1
+          fi
+
+          cat "${parts[@]}" | tr -d '\r\n' | base64 --decode > /tmp/k-comms.payload
+          mkdir -p /tmp/k-comms-unpacked
+
+          if tar -tzf /tmp/k-comms.payload > /tmp/archive-list 2>/dev/null; then
+            if grep -Eq '(^/|(^|/)\.\.(/|$))' /tmp/archive-list; then
+              echo 'Unsafe path found in bootstrap archive.' >&2
+              exit 1
+            fi
+            tar -xzf /tmp/k-comms.payload -C /tmp/k-comms-unpacked
+          elif tar -tf /tmp/k-comms.payload > /tmp/archive-list 2>/dev/null; then
+            if grep -Eq '(^/|(^|/)\.\.(/|$))' /tmp/archive-list; then
+              echo 'Unsafe path found in bootstrap archive.' >&2
+              exit 1
+            fi
+            tar -xf /tmp/k-comms.payload -C /tmp/k-comms-unpacked
+          elif unzip -tq /tmp/k-comms.payload >/dev/null 2>&1; then
+            unzip -q /tmp/k-comms.payload -d /tmp/k-comms-unpacked
+          else
+            echo 'Unsupported or corrupt bootstrap archive.' >&2
+            file /tmp/k-comms.payload || true
+            exit 1
+          fi
+
+      - name: Locate and verify project root
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir=/tmp/k-comms-unpacked
+          if [[ ! -f "$source_dir/mix.exs" ]]; then
+            mapfile -t candidates < <(find "$source_dir" -mindepth 1 -maxdepth 1 -type d | sort)
+            for candidate in "${candidates[@]}"; do
+              if [[ -f "$candidate/mix.exs" ]]; then
+                source_dir="$candidate"
+                break
+              fi
+            done
+          fi
+
+          required=(
+            README.md
+            mix.exs
+            apps/comms_core/mix.exs
+            apps/comms_web/mix.exs
+            .github/workflows/ci.yml
+            DOCUMENTATION-MAP.md
+            contracts
+            docs
+          )
+          for path in "${required[@]}"; do
+            if [[ ! -e "$source_dir/$path" ]]; then
+              echo "Required project path missing from archive: $path" >&2
+              exit 1
+            fi
+          done
+          echo "source_dir=$source_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Replace bootstrap tree with project files
+        shell: bash
+        env:
+          SOURCE_DIR: ${{ steps.project.outputs.source_dir }}
+        run: |
+          set -euo pipefail
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a "$SOURCE_DIR"/. .
+          rm -rf .bootstrap .github/workflows/materialize.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Materialize K-Comms development scaffold'
+          git push origin HEAD:main
