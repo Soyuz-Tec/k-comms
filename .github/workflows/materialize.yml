@@ -41,7 +41,17 @@ jobs:
             exit 1
           fi
 
-          cat "${parts[@]}" | tr -d '\r\n' | base64 --decode > /tmp/k-comms.payload
+          # First try a single Base64 stream split across text files.
+          if ! cat "${parts[@]}" | tr -d '\r\n' | base64 --decode > /tmp/k-comms.payload 2>/tmp/base64-error; then
+            echo 'Combined Base64 stream was not valid; trying independently encoded parts.'
+            : > /tmp/k-comms.payload
+            for part in "${parts[@]}"; do
+              base64 --decode "$part" >> /tmp/k-comms.payload
+            done
+          fi
+
+          echo "Decoded payload bytes: $(wc -c < /tmp/k-comms.payload)"
+          file /tmp/k-comms.payload
           mkdir -p /tmp/k-comms-unpacked
 
           if tar -tzf /tmp/k-comms.payload > /tmp/archive-list 2>/dev/null; then
@@ -60,7 +70,7 @@ jobs:
             unzip -q /tmp/k-comms.payload -d /tmp/k-comms-unpacked
           else
             echo 'Unsupported or corrupt bootstrap archive.' >&2
-            file /tmp/k-comms.payload || true
+            xxd -l 32 /tmp/k-comms.payload || true
             exit 1
           fi
 
