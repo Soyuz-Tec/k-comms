@@ -32,47 +32,7 @@ jobs:
 
       - name: Decode and validate bootstrap archive
         shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          parts=(.bootstrap/part-*.b64)
-          if (( ${#parts[@]} == 0 )); then
-            echo 'No bootstrap archive parts found.' >&2
-            exit 1
-          fi
-
-          # First try a single Base64 stream split across text files.
-          if ! cat "${parts[@]}" | tr -d '\r\n' | base64 --decode > /tmp/k-comms.payload 2>/tmp/base64-error; then
-            echo 'Combined Base64 stream was not valid; trying independently encoded parts.'
-            : > /tmp/k-comms.payload
-            for part in "${parts[@]}"; do
-              base64 --decode "$part" >> /tmp/k-comms.payload
-            done
-          fi
-
-          echo "Decoded payload bytes: $(wc -c < /tmp/k-comms.payload)"
-          file /tmp/k-comms.payload
-          mkdir -p /tmp/k-comms-unpacked
-
-          if tar -tzf /tmp/k-comms.payload > /tmp/archive-list 2>/dev/null; then
-            if grep -Eq '(^/|(^|/)\.\.(/|$))' /tmp/archive-list; then
-              echo 'Unsafe path found in bootstrap archive.' >&2
-              exit 1
-            fi
-            tar -xzf /tmp/k-comms.payload -C /tmp/k-comms-unpacked
-          elif tar -tf /tmp/k-comms.payload > /tmp/archive-list 2>/dev/null; then
-            if grep -Eq '(^/|(^|/)\.\.(/|$))' /tmp/archive-list; then
-              echo 'Unsafe path found in bootstrap archive.' >&2
-              exit 1
-            fi
-            tar -xf /tmp/k-comms.payload -C /tmp/k-comms-unpacked
-          elif unzip -tq /tmp/k-comms.payload >/dev/null 2>&1; then
-            unzip -q /tmp/k-comms.payload -d /tmp/k-comms-unpacked
-          else
-            echo 'Unsupported or corrupt bootstrap archive.' >&2
-            xxd -l 32 /tmp/k-comms.payload || true
-            exit 1
-          fi
+        run: bash .bootstrap/materialize.sh
 
       - name: Locate and verify project root
         id: project
