@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+  labels:
+    app.kubernetes.io/component: configuration
+data:
+  PORT: "4000"
+  PHX_HOST: k-comms.example.invalid
+  POOL_SIZE: "20"
+  DATABASE_SSL: "false"
+  ALLOW_BOOTSTRAP: "false"
+  ACCESS_TOKEN_TTL_SECONDS: "900"
+  SESSION_TTL_SECONDS: "2592000"
+  CORS_ORIGINS: https://k-comms.example.invalid
+  HSTS_ENABLED: "true"
+  CSP_CONNECT_SOURCES: "'self' wss://k-comms.example.invalid https://k-comms.example.invalid https://objects.example.invalid"
+  S3_PUBLIC_ENDPOINT: https://objects.example.invalid
+  S3_INTERNAL_SCHEME: http
+  S3_INTERNAL_HOST: minio
+  S3_INTERNAL_PORT: "9000"
+  S3_INTERNAL_ENDPOINT: http://minio:9000
+  S3_BUCKET: k-comms-staging
+  S3_REGION: us-east-1
+  S3_URL_TTL_SECONDS: "900"
+  MINIO_API_CORS_ALLOW_ORIGIN: https://k-comms.example.invalid

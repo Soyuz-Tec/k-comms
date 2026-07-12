@@ -3,13 +3,16 @@
 | Event type | Durable | Ordered scope | Typical consumers |
 |---|---:|---|---|
 | `message.created.v1` | Yes | Conversation | Clients, search, notifications, webhooks |
-| `message.revised.v1` | Yes | Conversation | Clients, search, audit |
+| `message.updated.v1` | Yes | Conversation | Clients, search, audit |
 | `message.deleted.v1` | Yes | Conversation | Clients, search, retention |
-| `reaction.changed.v1` | Yes | Conversation | Clients, projections |
-| `membership.changed.v1` | Yes | Conversation | Clients, authorization caches |
-| `read_cursor.advanced.v1` | Yes | User/conversation | Clients, unread projections |
-| `presence.diff.v1` | No | Topic | Connected clients |
-| `typing.changed.v1` | No | Topic | Connected clients |
-| `attachment.ready.v1` | Yes | Attachment | Clients, message projection |
+| `message.reaction_added.v1` | No | Conversation | Connected clients |
+| `message.reaction_removed.v1` | No | Conversation | Connected clients |
+| `conversation.created.v1` | Yes | Conversation | Audit and future projections |
+| `membership.changed.v1` | Yes | Conversation | Clients, authorization, audit |
+| `conversation.read.v1` | No | User/conversation | Connected clients, unread projections |
+| `presence_state` / `presence_diff` | No | Topic | Connected clients |
+| `typing.start` / `typing.stop` | No | Topic | Connected clients |
 
-Each event must have a JSON schema, ownership, retention classification, compatibility policy, and representative examples.
+Durable message events are written to the transactional outbox. The AsyncAPI
+contract is canonical for client-visible payloads; durable event types require
+schema compatibility review before change.

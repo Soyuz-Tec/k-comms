@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  PHX_HOST: comms.staging.example.invalid
+  CORS_ORIGINS: https://comms.staging.example.invalid
+  HSTS_ENABLED: "true"
+  CSP_CONNECT_SOURCES: "'self' wss://comms.staging.example.invalid https://comms.staging.example.invalid https://objects.staging.example.invalid"
+  S3_PUBLIC_ENDPOINT: https://objects.staging.example.invalid
+  S3_BUCKET: k-comms-staging
+  MINIO_API_CORS_ALLOW_ORIGIN: https://comms.staging.example.invalid

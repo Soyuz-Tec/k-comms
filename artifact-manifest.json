@@ -1,18 +1,23 @@
 {
-  "artifact": "k-comms development scaffold",
-  "status": "architecture-and-executable-bootstrap",
-  "remote_materialized": true,
+  "artifact": "K-Comms MVP and staging-ready package",
+  "version": "0.2.0",
+  "status": "mvp-complete-staging-package-ready",
+  "source_materialized": true,
   "runtime": {
     "erlang_otp": "29.0",
     "elixir": "1.20.1",
-    "phoenix": "1.8.1"
+    "phoenix": "1.8.9",
+    "node": "22"
   },
-  "file_count": 247,
+  "file_count": 347,
   "validation": {
     "contracts": "passed",
-    "documentation_links": "passed",
-    "json_yaml_parse": "passed",
-    "shell_syntax": "passed",
-    "beam_compile": "pending GitHub Actions"
+    "documentation": "passed (144 Markdown files)",
+    "web": "passed (lint, typecheck, build, production dependency audit)",
+    "beam": "passed (format, warnings-as-errors compile, 30 tests, Hex audit)",
+    "release_container": "passed (non-root, migrations, readiness, bootstrap, idempotency, replay)",
+    "object_storage": "passed (signed-header MinIO PUT and verified HEAD)",
+    "kubernetes": "passed (25 strict Kubernetes 1.34 resources)",
+    "live_staging_environment": "pending environment-specific cluster, DNS, TLS, ingress, and rollback gates"
   }
 }

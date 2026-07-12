@@ -1,0 +1,113 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-default-deny
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: k-comms
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-dns-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: k-comms
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-edge-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: edge
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 4000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-cluster-traffic
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k-comms
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: k-comms
+      ports:
+        - { protocol: TCP, port: 4369 }
+        - { protocol: TCP, port: 9100 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: k-comms
+      ports:
+        - { protocol: TCP, port: 4369 }
+        - { protocol: TCP, port: 9100 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-data-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k-comms
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: minio
+      ports:
+        - { protocol: TCP, port: 9000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-external-https-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k-comms
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }

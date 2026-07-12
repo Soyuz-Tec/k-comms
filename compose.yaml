@@ -1,29 +1,136 @@
 name: k-comms
+
+x-app-environment: &app-environment
+  DATABASE_URL: ${DATABASE_URL:-ecto://postgres:postgres@postgres:5432/k_comms_dev}
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:-6KCL3mQG1j2dQME5wy6R5A0j2xzx9azR6fCP5MwlENiB3IKd1k7A5QfP1QW5m3RF}
+  PHX_HOST: ${PHX_HOST:-localhost}
+  PORT: "4000"
+  POOL_SIZE: ${POOL_SIZE:-10}
+  K_COMMS_ROLE: all
+  ALLOW_BOOTSTRAP: ${ALLOW_BOOTSTRAP:-true}
+  ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-3600}
+  SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-2592000}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+  HSTS_ENABLED: ${HSTS_ENABLED:-false}
+  CSP_CONNECT_SOURCES: ${CSP_CONNECT_SOURCES:-'self' http://localhost:4000 ws://localhost:4000 http://localhost:9000}
+  S3_PUBLIC_HOST: ${S3_PUBLIC_HOST:-localhost}
+  S3_PUBLIC_PORT: ${S3_PUBLIC_PORT:-9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_INTERNAL_SCHEME: ${S3_INTERNAL_SCHEME:-http}
+  S3_INTERNAL_HOST: ${S3_INTERNAL_HOST:-minio}
+  S3_INTERNAL_PORT: ${S3_INTERNAL_PORT:-9000}
+  S3_INTERNAL_ENDPOINT: ${S3_INTERNAL_ENDPOINT:-http://minio:9000}
+  S3_BUCKET: ${S3_BUCKET:-k-comms-dev}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-kcomms}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-change-this-local-password}
+
 services:
   postgres:
-    image: postgres:17-alpine
-    environment: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: k_comms_dev }
-    ports: ["5432:5432"]
-    volumes: ["postgres-data:/var/lib/postgresql/data"]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U postgres -d k_comms_dev"], interval: 5s, timeout: 5s, retries: 20 }
+    image: docker.io/library/postgres:17.10-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-k_comms_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   minio:
-    image: minio/minio:latest
+    image: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kcomms}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-password}
-    ports: ["9000:9000", "9001:9001"]
-    volumes: ["minio-data:/data"]
-  app:
-    build: { context: ., target: dev }
-    env_file: [.env]
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:4000}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing "local/$${S3_BUCKET}"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-ecto://postgres:postgres@postgres/k_comms_dev}
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
-    command: sh -lc "mix ecto.migrate && mix phx.server"
-    ports: ["4000:4000"]
-    volumes: [".:/workspace", "deps:/workspace/deps", "build:/workspace/_build"]
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kcomms}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-password}
+      S3_BUCKET: ${S3_BUCKET:-k-comms-dev}
     depends_on:
-      postgres: { condition: service_healthy }
-      minio: { condition: service_started }
-volumes: { postgres-data: {}, minio-data: {}, deps: {}, build: {} }
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: dev
+    environment:
+      <<: *app-environment
+      MIX_ENV: dev
+    command: >-
+      sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && mix phx.server"
+    ports:
+      - "${APP_PORT:-4000}:4000"
+    volumes:
+      - .:/workspace
+      - deps:/workspace/deps
+      - build:/workspace/_build
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:4000/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  web:
+    image: docker.io/library/node:22-bookworm-slim
+    working_dir: /workspace/clients/web
+    command: >-
+      sh -lc "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_ORIGIN: ${VITE_API_ORIGIN:-http://localhost:4000}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./clients/web:/workspace/clients/web
+      - web-node-modules:/workspace/clients/web/node_modules
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:5173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data: {}
+  minio-data: {}
+  deps: {}
+  build: {}
+  web-node-modules: {}

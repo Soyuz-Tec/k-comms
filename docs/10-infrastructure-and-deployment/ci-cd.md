@@ -10,6 +10,14 @@
 6. Migration safety analysis.
 7. Ephemeral-environment smoke tests where practical.
 
+Pull requests run the container smoke gate with read-only repository access and
+never authenticate to a registry. A push to `main`, or an explicitly requested
+`workflow_dispatch` run, builds and smokes the exact image tagged
+`ghcr.io/soyuz-tec/k-comms:sha-<full-commit-sha>`, then authenticates with the
+job-scoped `GITHUB_TOKEN`, pushes it, records the registry digest, and publishes
+GitHub build-provenance attestations. The workflow pins every publication action
+to a reviewed commit and grants write permissions only to the publication job.
+
 ## Deployment pipeline
 
 - Promote the same immutable artifact between environments.
