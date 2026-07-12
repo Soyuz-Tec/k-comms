@@ -20,10 +20,10 @@ erl_crash.dump
 *.tfstate.*
 .terraform.lock.hcl
 deploy/k8s/overlays/*/secrets.env
+deploy/k8s/overlays/*/bootstrap-secrets.env
 clients/web/node_modules/
 clients/web/.vite/
 clients/web/dist/
-deploy/k8s/overlays/*/secrets.env
 *.pem
 *.key
 *.p12

@@ -8,3 +8,4 @@
 - [ ] Telemetry and runbook impact considered
 - [ ] Security and privacy checklist completed
 - [ ] Rollout and rollback plan included
+- [ ] Approved rendered bundle, secret rotation/restart, and backup restore evidence addressed for deployment changes

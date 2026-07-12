@@ -8,6 +8,7 @@ defmodule CommsCore.Accounts do
   alias CommsCore.Security.Password
 
   @session_bytes 32
+  @bootstrap_lock_key 1_449_769_383
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
     with :ok <- validate_password(value(attrs, :password)) do
@@ -110,6 +111,46 @@ defmodule CommsCore.Accounts do
 
         {:error, _step, reason, _changes} ->
           {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Creates the first tenant owner without creating a browser session.
+
+  The operation is serialized in PostgreSQL so a retried release Job is safe.
+  Once a tenant exists, only the same normalized tenant slug and owner email are
+  accepted as an idempotent retry; a different bootstrap identity fails closed.
+  """
+  def bootstrap_tenant_once(attrs) when is_map(attrs) do
+    password = value(attrs, :password)
+
+    with :ok <- validate_password(password) do
+      identity = bootstrap_identity(attrs)
+      password_hash = Password.hash(password)
+
+      Repo.transaction(fn ->
+        Ecto.Adapters.SQL.query!(
+          Repo,
+          "SELECT pg_advisory_xact_lock($1::bigint)",
+          [@bootstrap_lock_key]
+        )
+
+        case Repo.get_by(Tenant, slug: identity.tenant_slug) do
+          %Tenant{} = tenant ->
+            existing_bootstrap(tenant, identity)
+
+          nil ->
+            if Repo.exists?(Tenant) do
+              Repo.rollback(:bootstrap_identity_conflict)
+            else
+              create_one_time_bootstrap(attrs, identity, password_hash)
+            end
+        end
+      end)
+      |> case do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -386,6 +427,135 @@ defmodule CommsCore.Accounts do
 
   defp validate_password(password) do
     if Password.valid_password?(password), do: :ok, else: {:error, :weak_password}
+  end
+
+  defp create_one_time_bootstrap(attrs, identity, password_hash) do
+    now = now()
+    tenant_id = Ecto.UUID.generate()
+    user_id = Ecto.UUID.generate()
+    conversation_id = Ecto.UUID.generate()
+
+    tenant =
+      insert_or_rollback(
+        Tenant.changeset(%Tenant{id: tenant_id}, %{
+          name: value(attrs, :tenant_name),
+          slug: identity.tenant_slug,
+          status: :active
+        })
+      )
+
+    user =
+      insert_or_rollback(
+        User.changeset(%User{id: user_id}, %{
+          tenant_id: tenant_id,
+          external_subject: "local:#{identity.owner_email}",
+          display_name: value(attrs, :display_name),
+          email: identity.owner_email,
+          password_hash: password_hash,
+          role: :owner,
+          status: :active
+        })
+      )
+
+    conversation =
+      insert_or_rollback(
+        Conversation.changeset(%Conversation{id: conversation_id}, %{
+          tenant_id: tenant_id,
+          created_by_user_id: user_id,
+          kind: :channel,
+          title: "General",
+          visibility: :tenant,
+          next_sequence: 1
+        })
+      )
+
+    _membership =
+      insert_or_rollback(
+        Membership.changeset(%Membership{}, %{
+          tenant_id: tenant_id,
+          conversation_id: conversation_id,
+          user_id: user_id,
+          role: :owner,
+          joined_at: now,
+          last_read_sequence: 0
+        })
+      )
+
+    _audit =
+      insert_or_rollback(
+        AuditEvent.changeset(%AuditEvent{}, %{
+          tenant_id: tenant_id,
+          actor_user_id: user_id,
+          action: "tenant.bootstrap",
+          resource_type: "tenant",
+          resource_id: tenant_id,
+          metadata: %{initial_conversation_id: conversation_id, source: "release"}
+        })
+      )
+
+    %{status: :created, tenant: tenant, user: user, conversation: conversation}
+  end
+
+  defp existing_bootstrap(tenant, identity) do
+    owner =
+      Repo.one(
+        from(u in User,
+          where:
+            u.tenant_id == ^tenant.id and u.role == :owner and u.status == :active and
+              fragment("lower(?)", u.email) == ^identity.owner_email,
+          limit: 1
+        )
+      )
+
+    case owner do
+      %User{} = user ->
+        conversation =
+          Repo.one(
+            from(c in Conversation,
+              where:
+                c.tenant_id == ^tenant.id and c.created_by_user_id == ^user.id and
+                  c.kind == :channel and c.title == "General",
+              order_by: [asc: c.inserted_at],
+              limit: 1
+            )
+          )
+
+        if conversation do
+          %{status: :existing, tenant: tenant, user: user, conversation: conversation}
+        else
+          Repo.rollback(:bootstrap_identity_conflict)
+        end
+
+      nil ->
+        Repo.rollback(:bootstrap_identity_conflict)
+    end
+  end
+
+  defp bootstrap_identity(attrs) do
+    tenant_slug =
+      attrs
+      |> value(:tenant_slug)
+      |> to_string()
+      |> String.downcase()
+      |> String.trim()
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+
+    owner_email =
+      attrs
+      |> value(:email)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    %{tenant_slug: tenant_slug, owner_email: owner_email}
+  end
+
+  defp insert_or_rollback(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, value} -> value
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp assignable_role(role) when role in [:member, :admin], do: role

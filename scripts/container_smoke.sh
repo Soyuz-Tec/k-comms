@@ -3,6 +3,9 @@ set -euo pipefail
 
 engine="${CONTAINER_ENGINE:-podman}"
 image="${IMAGE:-localhost/k-comms:smoke}"
+oci_source="${OCI_SOURCE:-https://github.com/Soyuz-Tec/k-comms}"
+oci_revision="${OCI_REVISION:-unknown}"
+oci_version="${OCI_VERSION:-dev}"
 suffix="${RANDOM:-0}-$$"
 network="k-comms-smoke-${suffix}"
 postgres="k-comms-smoke-postgres-${suffix}"
@@ -16,12 +19,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-build_args=(build --target runtime --tag "${image}")
+build_args=(
+  build
+  --target runtime
+  --tag "${image}"
+  --build-arg "OCI_SOURCE=${oci_source}"
+  --build-arg "OCI_REVISION=${oci_revision}"
+  --build-arg "OCI_VERSION=${oci_version}"
+)
 if [[ "$(basename "${engine}")" == "podman" || "$(basename "${engine}")" == "podman.exe" ]]; then
   # Podman's default OCI format discards Dockerfile HEALTHCHECK metadata.
   build_args+=(--format docker)
 fi
 "${engine}" "${build_args[@]}" .
+
+assert_image_label() {
+  local label="$1"
+  local expected="$2"
+  local actual
+  actual="$("${engine}" image inspect --format "{{ index .Config.Labels \"${label}\" }}" "${image}")"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "image label ${label} was ${actual@Q}; expected ${expected@Q}" >&2
+    exit 1
+  fi
+}
+
+assert_image_label "org.opencontainers.image.source" "${oci_source}"
+assert_image_label "org.opencontainers.image.revision" "${oci_revision}"
+assert_image_label "org.opencontainers.image.version" "${oci_version}"
+
 "${engine}" network create "${network}" >/dev/null
 "${engine}" run --detach --name "${postgres}" --network "${network}" \
   --env POSTGRES_USER=postgres \

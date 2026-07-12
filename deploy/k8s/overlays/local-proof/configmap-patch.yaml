@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  PHX_HOST: comms.k-comms.test
+  CORS_ORIGINS: https://comms.k-comms.test
+  HSTS_ENABLED: "true"
+  CSP_CONNECT_SOURCES: "'self' wss://comms.k-comms.test https://comms.k-comms.test https://objects.k-comms.test"
+  S3_PUBLIC_ENDPOINT: https://objects.k-comms.test
+  S3_INTERNAL_ENDPOINT: http://minio:9000
+  MINIO_API_CORS_ALLOW_ORIGIN: https://comms.k-comms.test

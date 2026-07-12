@@ -9,6 +9,8 @@
 - The web client passes lint, type checking, and production build checks.
 - OpenAPI, AsyncAPI, JSON Schema, documentation, release, OCI, Compose, and Kustomize checks pass.
 - The OCI release starts against disposable dependencies and passes bootstrap, authenticated send, replay, and readiness smoke checks.
+- The staging release bootstrap is sessionless, idempotent for the same tenant identity, and fails closed for a different identity.
+- Main and bootstrap Kustomizations render with HTTP bootstrap disabled and a 32 MiB ingress budget for the 25,000,000-byte application limit.
 
 ## Production gate
 
@@ -16,8 +18,8 @@
 - Approved SLOs are met at expected peak plus headroom.
 - Single application-node and single-zone failures preserve acknowledged messages.
 - Tenant-isolation and session-revocation suites pass.
-- Backup restore and regional recovery procedures are demonstrated.
-- Production deployment and rollback are rehearsed.
+- PostgreSQL and object-storage backup restore plus regional recovery procedures are demonstrated.
+- Production deployment, rollback, and return-to-current roll-forward are rehearsed from retained approved manifests.
 - Critical alerts route to on-call and reference valid runbooks.
 - No unresolved critical security findings remain.
 

@@ -63,7 +63,8 @@ kube-validate:
 		created=0; \
 		if [ ! -f "$$secrets" ]; then cp "$$secrets.example" "$$secrets"; created=1; fi; \
 		trap 'if [ "$$created" = 1 ]; then rm -f "$$secrets"; fi' EXIT; \
-		kubectl kustomize "$(KUBE_OVERLAY)" >/dev/null
+		kubectl kustomize "$(KUBE_OVERLAY)" >/dev/null; \
+		kubectl kustomize "$(KUBE_OVERLAY)/bootstrap" >/dev/null
 
 release:
 	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime --tag $(IMAGE) .

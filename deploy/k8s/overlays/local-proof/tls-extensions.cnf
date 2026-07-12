@@ -1,0 +1,4 @@
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:comms.k-comms.test,DNS:objects.k-comms.test

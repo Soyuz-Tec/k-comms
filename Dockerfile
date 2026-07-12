@@ -1,6 +1,9 @@
 ARG ELIXIR_IMAGE=elixir:1.20.1-otp-29-slim
 ARG NODE_IMAGE=node:22-bookworm-slim
 ARG RUNTIME_IMAGE=debian:trixie-slim
+ARG OCI_SOURCE=https://github.com/Soyuz-Tec/k-comms
+ARG OCI_REVISION=unknown
+ARG OCI_VERSION=dev
 
 FROM ${ELIXIR_IMAGE} AS beam-base
 ENV LANG=C.UTF-8
@@ -40,6 +43,12 @@ RUN mix compile --warnings-as-errors \
 # Keep the release OS aligned with the current official Elixir slim image.
 # The previous Bookworm runtime could not run ERTS built on Trixie (GLIBC_2.38).
 FROM ${RUNTIME_IMAGE} AS runtime
+ARG OCI_SOURCE
+ARG OCI_REVISION
+ARG OCI_VERSION
+LABEL org.opencontainers.image.source="${OCI_SOURCE}" \
+      org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.version="${OCI_VERSION}"
 ENV LANG=C.UTF-8 \
     HOME=/tmp \
     PORT=4000 \

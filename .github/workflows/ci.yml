@@ -95,11 +95,25 @@ jobs:
   manifests:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      KUBECONFORM_VERSION: 0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
         with:
           version: v1.34.1
+      - name: Install checksum-verified kubeconform
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/kubeconform.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  ${archive}" | sha256sum --check --strict
+          tar --extract --gzip --file "$archive" --directory "$RUNNER_TEMP" kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Render staging manifests
         shell: bash
         run: |
@@ -108,6 +122,20 @@ jobs:
           cp "$overlay/secrets.env.example" "$overlay/secrets.env"
           trap 'rm -f "$overlay/secrets.env"' EXIT
           kubectl kustomize "$overlay" > "$RUNNER_TEMP/k-comms-staging.yaml"
+          kubectl kustomize "$overlay/bootstrap" > "$RUNNER_TEMP/k-comms-bootstrap.yaml"
           test -s "$RUNNER_TEMP/k-comms-staging.yaml"
+          test -s "$RUNNER_TEMP/k-comms-bootstrap.yaml"
           grep -q '^kind: Deployment$' "$RUNNER_TEMP/k-comms-staging.yaml"
           grep -q '^kind: Job$' "$RUNNER_TEMP/k-comms-staging.yaml"
+          grep -q '^  name: k-comms-bootstrap$' "$RUNNER_TEMP/k-comms-bootstrap.yaml"
+          grep -q 'CommsCore.Release.bootstrap()' "$RUNNER_TEMP/k-comms-bootstrap.yaml"
+      - name: Validate staging manifests against pinned Kubernetes schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubeconform \
+            -strict \
+            -summary \
+            -kubernetes-version 1.34.0 \
+            "$RUNNER_TEMP/k-comms-staging.yaml" \
+            "$RUNNER_TEMP/k-comms-bootstrap.yaml"

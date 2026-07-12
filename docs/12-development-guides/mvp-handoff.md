@@ -12,6 +12,8 @@
 - React/TypeScript reference client
 - Podman Compose local environment
 - Kubernetes-neutral Kustomize staging overlay
+- Sessionless, idempotent release bootstrap Job with an ephemeral owner Secret
+- Isolated PostgreSQL and MinIO restore-verification and manifest-based rollback procedures
 - CI for backend, web, contracts, Kubernetes rendering, OCI build, and release
 
 ## Intentional production gates

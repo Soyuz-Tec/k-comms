@@ -22,6 +22,9 @@ secretGenerator:
   - name: k-comms-secrets
     envs:
       - secrets.env
+    options:
+      labels:
+        app.kubernetes.io/component: runtime-secrets
 generatorOptions:
   disableNameSuffixHash: true
   labels:

@@ -24,23 +24,87 @@ on:
       - "clients/web/**"
       - "config/**"
       - "scripts/container_smoke.sh"
-
-permissions:
-  contents: read
+      - ".github/workflows/container.yml"
+  workflow_dispatch:
 
 concurrency:
   group: container-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  runtime-smoke:
+  pull-request-smoke:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build, migrate, boot, and smoke the runtime image
         shell: bash
         env:
           CONTAINER_ENGINE: docker
           IMAGE: k-comms:ci
+          OCI_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          OCI_REVISION: ${{ github.sha }}
+          OCI_VERSION: pr-${{ github.event.pull_request.number }}-${{ github.sha }}
         run: bash scripts/container_smoke.sh
+
+  publish:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Define immutable image coordinates
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          tag="sha-${GITHUB_SHA}"
+          echo "repository=${repository}" >> "${GITHUB_OUTPUT}"
+          echo "image=${repository}:${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${tag}" >> "${GITHUB_OUTPUT}"
+      - name: Build, migrate, boot, and smoke the exact publication image
+        shell: bash
+        env:
+          CONTAINER_ENGINE: docker
+          IMAGE: ${{ steps.image.outputs.image }}
+          OCI_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          OCI_REVISION: ${{ github.sha }}
+          OCI_VERSION: ${{ steps.image.outputs.version }}
+        run: bash scripts/container_smoke.sh
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push image and capture registry digest
+        id: push
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          push_log="${RUNNER_TEMP}/k-comms-container-push.log"
+          docker push "${IMAGE}" 2>&1 | tee "${push_log}"
+          digest="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' "${push_log}" | tail -n 1)"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "docker push did not return a valid sha256 digest" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          echo "Published ${IMAGE}@${digest}" >> "${GITHUB_STEP_SUMMARY}"
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

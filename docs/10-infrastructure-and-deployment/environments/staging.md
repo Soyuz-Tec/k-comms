@@ -31,10 +31,16 @@ Keep these unchecked until verified against the target cluster:
 - [ ] Ingress class `nginx` exists, or the overlay has been adapted
 - [ ] DNS names resolve to the staging ingress
 - [ ] TLS secret `k-comms-staging-tls` contains the approved certificate chain
-- [ ] Real secrets are supplied outside Git and have been rotation-tested
-- [ ] PostgreSQL and MinIO backup/restore evidence is retained
+- [ ] Runtime and bootstrap env files contain no empty or `CHANGE_ME` values
+- [ ] The rendered staging ConfigMap is applied before MinIO starts
+- [ ] HTTP bootstrap remains disabled and the one-time release bootstrap succeeds
+- [ ] The ephemeral bootstrap Secret and local env file are deleted afterward
+- [ ] Real runtime secrets are supplied outside Git, rotation-tested, and followed by explicit rollout restarts
+- [ ] PostgreSQL and MinIO isolated backup/restore evidence and checksums are retained
+- [ ] The ingress accepts an attachment at the 25,000,000-byte application limit
+- [ ] Current and previous approved rendered bundles are retained in restricted storage
 - [ ] Alert routes and log retention are tested
-- [ ] Migration, rollout, synthetic smoke, and rollback exercises pass
+- [ ] Migration, rollout, synthetic smoke, rollback, and roll-forward exercises pass
 
 Exact configure, migration, deploy, smoke, and rollback commands are maintained
 in `deploy/k8s/overlays/staging/README.md`.

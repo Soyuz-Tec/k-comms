@@ -71,13 +71,19 @@ make kube-validate
 ```bash
 cp deploy/k8s/overlays/staging/secrets.env.example \
   deploy/k8s/overlays/staging/secrets.env
-$EDITOR deploy/k8s/overlays/staging/secrets.env
-kubectl kustomize deploy/k8s/overlays/staging | kubectl apply --server-side -f -
+cp deploy/k8s/overlays/staging/bootstrap-secrets.env.example \
+  deploy/k8s/overlays/staging/bootstrap-secrets.env
+python scripts/validate_staging_secrets.py \
+  deploy/k8s/overlays/staging/secrets.env \
+  deploy/k8s/overlays/staging/bootstrap-secrets.env
 ```
 
 The staging overlay is portable and intentionally includes single-node
 PostgreSQL and MinIO. Replace them with an approved production data-services
-overlay before launch. See `docs/12-development-guides/mvp-handoff.md` and
+overlay before launch. Do not apply the abbreviated example directly: follow
+the ordered [staging runbook](deploy/k8s/overlays/staging/README.md) for image
+pinning, bootstrap, backup/restore verification, deployment, and rollback. See
+also `docs/12-development-guides/mvp-handoff.md` and
 `docs/09-security-and-compliance/tls-pki-certificate-lifecycle.md`.
 
 ## Security and licensing

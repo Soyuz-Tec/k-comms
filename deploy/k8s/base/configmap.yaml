@@ -2,6 +2,8 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: k-comms-config
+  labels:
+    app.kubernetes.io/component: configuration
 data:
   PORT: "4000"
   PHX_HOST: k-comms.example.invalid
