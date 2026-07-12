@@ -2,9 +2,10 @@ defmodule CommsCore.Messaging do
   import Ecto.Query
 
   alias CommsCore.{Attachments, Authorization, Outbox, Repo}
+  alias CommsCore.Accounts.User
   alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.Conversation
-  alias CommsCore.Messaging.{Message, MessageRevision, Reaction}
+  alias CommsCore.Conversations.{Conversation, Membership}
+  alias CommsCore.Messaging.{Message, MessageMention, MessageRevision, Reaction}
 
   @max_metadata_bytes 65_536
   @required [:tenant_id, :conversation_id, :sender_user_id, :sender_device_id, :client_message_id]
@@ -39,12 +40,14 @@ defmodule CommsCore.Messaging do
     )
     |> order_by([m], asc: m.conversation_sequence)
     |> limit(^clamp_limit(limit))
-    |> preload([:attachments, :reactions])
     |> Repo.all()
+    |> hydrate_messages()
   end
 
   def list_history(conversation_id, subject, opts \\ []) do
-    with :ok <- Authorization.authorize(:read_conversation, subject, %{id: conversation_id}) do
+    authorize = Keyword.get(opts, :authorize, &Authorization.authorize/3)
+
+    with :ok <- authorize.(:read_conversation, subject, %{id: conversation_id}) do
       after_sequence = integer(Keyword.get(opts, :after_sequence, 0), 0)
       before_sequence = Keyword.get(opts, :before_sequence)
       max_limit = if Keyword.get(opts, :probe_more, false), do: 501, else: 500
@@ -61,9 +64,64 @@ defmodule CommsCore.Messaging do
         |> maybe_before(before_sequence)
         |> order_by([m], asc: m.conversation_sequence)
         |> limit(^limit_count)
-        |> preload([:attachments, :reactions])
 
-      {:ok, Repo.all(query)}
+      {:ok, query |> Repo.all() |> hydrate_messages()}
+    end
+  end
+
+  def get_thread(conversation_id, message_id, subject, opts \\ []) do
+    target =
+      Repo.get_by(Message,
+        id: message_id,
+        tenant_id: value(subject, :tenant_id),
+        conversation_id: conversation_id
+      )
+
+    with %Message{} = target <- target,
+         :ok <- Authorization.authorize(:read_conversation, subject, %{id: conversation_id}) do
+      root_id = target.thread_root_message_id || target.id
+      limit_count = clamp_limit(Keyword.get(opts, :limit, 50), 100)
+      before_sequence = integer(Keyword.get(opts, :before_sequence), nil)
+
+      root =
+        Repo.get_by!(Message,
+          id: root_id,
+          tenant_id: value(subject, :tenant_id),
+          conversation_id: conversation_id
+        )
+        |> hydrate_message()
+
+      replies_query =
+        from(message in Message,
+          where:
+            message.tenant_id == ^value(subject, :tenant_id) and
+              message.conversation_id == ^conversation_id and
+              message.thread_root_message_id == ^root_id,
+          order_by: [desc: message.conversation_sequence],
+          limit: ^(limit_count + 1)
+        )
+        |> maybe_thread_before(before_sequence)
+
+      fetched = replies_query |> Repo.all() |> hydrate_messages()
+      has_more = length(fetched) > limit_count
+      replies = fetched |> Enum.take(limit_count) |> Enum.reverse()
+
+      next_before_sequence =
+        if has_more,
+          do: replies |> List.first() |> then(&if(&1, do: &1.conversation_sequence)),
+          else: nil
+
+      {:ok,
+       %{
+         root: root,
+         replies: replies,
+         reply_count: root.thread_reply_count,
+         has_more: has_more,
+         next_before_sequence: next_before_sequence
+       }}
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = error -> error
     end
   end
 
@@ -98,7 +156,7 @@ defmodule CommsCore.Messaging do
               revision: revision
             })
 
-            Repo.preload(updated, [:attachments, :reactions])
+            hydrate_message(updated)
 
           {:error, reason} ->
             Repo.rollback(reason)
@@ -124,7 +182,7 @@ defmodule CommsCore.Messaging do
             conversation_sequence: updated.conversation_sequence
           })
 
-          Repo.preload(updated, [:attachments, :reactions])
+          hydrate_message(updated)
 
         {:error, reason} ->
           Repo.rollback(reason)
@@ -201,10 +259,10 @@ defmodule CommsCore.Messaging do
               ),
           order_by: [desc: m.inserted_at],
           limit: ^limit_count,
-          preload: [:attachments, :reactions]
+          preload: []
         )
 
-      {:ok, Repo.all(query)}
+      {:ok, query |> Repo.all() |> hydrate_messages()}
     end
   end
 
@@ -225,7 +283,7 @@ defmodule CommsCore.Messaging do
       ) || Repo.rollback(:conversation_not_found)
 
     case authorize.(:send_message, subject, conversation) do
-      :ok -> {Repo.preload(message, [:attachments, :reactions]), :duplicate}
+      :ok -> {hydrate_message(message), :duplicate}
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -255,7 +313,9 @@ defmodule CommsCore.Messaging do
       ) || Repo.rollback(:conversation_not_found)
 
     with :ok <- authorize.(:send_message, subject, conversation),
-         :ok <- validate_reply(attrs, conversation) do
+         {:ok, thread_root_message_id} <- resolve_thread_root(attrs, conversation),
+         :ok <- validate_mentions(attrs, conversation) do
+      attrs = Map.put(attrs, :thread_root_message_id, thread_root_message_id)
       persist(attrs, subject, conversation)
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -286,15 +346,27 @@ defmodule CommsCore.Messaging do
       |> Repo.insert!()
 
     :ok = Attachments.attach_ready(attrs.attachment_ids, message, subject)
+    persist_mentions(message, attrs.mentioned_user_ids)
 
     insert_event(message, "message.created.v1", subject, %{
       conversation_sequence: sequence,
       sender_user_id: message.sender_user_id,
       reply_to_message_id: message.reply_to_message_id,
+      thread_root_message_id: message.thread_root_message_id,
+      mentioned_user_ids: attrs.mentioned_user_ids,
       body: message.body
     })
 
-    Repo.preload(message, [:attachments, :reactions])
+    if attrs.mentioned_user_ids != [] do
+      insert_event(message, "mention.created.v1", subject, %{
+        conversation_sequence: sequence,
+        sender_user_id: message.sender_user_id,
+        thread_root_message_id: message.thread_root_message_id,
+        mentioned_user_ids: attrs.mentioned_user_ids
+      })
+    end
+
+    hydrate_message(message)
   end
 
   defp insert_event(message, event_type, subject, payload) do
@@ -374,6 +446,15 @@ defmodule CommsCore.Messaging do
       invalid_optional_uuid?(attrs.reply_to_message_id) ->
         {:error, :invalid_reply_target}
 
+      not is_list(attrs.mentioned_user_ids) ->
+        {:error, :invalid_mentions}
+
+      attrs.mentioned_user_count > 50 ->
+        {:error, :too_many_mentions}
+
+      Enum.any?(attrs.mentioned_user_ids, &invalid_uuid?/1) ->
+        {:error, :invalid_mention_id}
+
       length(attrs.attachment_ids) > 20 ->
         {:error, :too_many_attachments}
 
@@ -394,17 +475,71 @@ defmodule CommsCore.Messaging do
     end
   end
 
-  defp validate_reply(%{reply_to_message_id: nil}, _), do: :ok
+  defp resolve_thread_root(%{reply_to_message_id: nil}, _conversation), do: {:ok, nil}
 
-  defp validate_reply(attrs, conversation) do
-    case Repo.get_by(Message,
-           id: attrs.reply_to_message_id,
-           tenant_id: conversation.tenant_id,
-           conversation_id: conversation.id
-         ) do
-      %Message{} -> :ok
+  defp resolve_thread_root(attrs, conversation) do
+    parent =
+      Repo.one(
+        from(message in Message,
+          where:
+            message.id == ^attrs.reply_to_message_id and
+              message.tenant_id == ^conversation.tenant_id and
+              message.conversation_id == ^conversation.id,
+          lock: "FOR SHARE"
+        )
+      )
+
+    case parent do
+      %Message{} -> {:ok, parent.thread_root_message_id || parent.id}
       nil -> {:error, :invalid_reply_target}
     end
+  end
+
+  defp validate_mentions(%{mentioned_user_ids: []}, _conversation), do: :ok
+
+  defp validate_mentions(attrs, conversation) do
+    valid_user_ids =
+      Repo.all(
+        from(membership in Membership,
+          join: user in User,
+          on:
+            user.id == membership.user_id and user.tenant_id == membership.tenant_id and
+              user.status == :active,
+          where:
+            membership.tenant_id == ^conversation.tenant_id and
+              membership.conversation_id == ^conversation.id and
+              membership.user_id in ^attrs.mentioned_user_ids and is_nil(membership.left_at),
+          select: membership.user_id
+        )
+      )
+
+    if MapSet.new(valid_user_ids) == MapSet.new(attrs.mentioned_user_ids),
+      do: :ok,
+      else: {:error, :invalid_mentions}
+  end
+
+  defp persist_mentions(_message, []), do: :ok
+
+  defp persist_mentions(message, mentioned_user_ids) do
+    timestamp = now()
+
+    rows =
+      Enum.map(mentioned_user_ids, fn user_id ->
+        %{
+          id: Ecto.UUID.generate(),
+          tenant_id: message.tenant_id,
+          message_id: message.id,
+          user_id: user_id,
+          inserted_at: timestamp
+        }
+      end)
+
+    Repo.insert_all(MessageMention, rows,
+      on_conflict: :nothing,
+      conflict_target: [:message_id, :user_id]
+    )
+
+    :ok
   end
 
   defp normalize(attrs) do
@@ -414,11 +549,15 @@ defmodule CommsCore.Messaging do
       :sender_user_id,
       :sender_device_id,
       :reply_to_message_id,
+      :mentioned_user_ids,
       :client_message_id,
       :body,
       :metadata,
       :attachment_ids
     ]
+
+    raw_mentions =
+      Map.get(attrs, :mentioned_user_ids) || Map.get(attrs, "mentioned_user_ids") || []
 
     normalized =
       Map.new(keys, fn key ->
@@ -429,6 +568,14 @@ defmodule CommsCore.Messaging do
     |> Map.update(:body, nil, fn body -> if is_binary(body), do: String.trim(body), else: body end)
     |> Map.update(:metadata, %{}, fn value -> if is_map(value), do: value, else: %{} end)
     |> Map.update(:attachment_ids, [], fn value -> if is_list(value), do: value, else: [] end)
+    |> Map.put(
+      :mentioned_user_count,
+      if(is_list(raw_mentions), do: length(raw_mentions), else: 0)
+    )
+    |> Map.put(
+      :mentioned_user_ids,
+      if(is_list(raw_mentions), do: Enum.uniq(raw_mentions), else: raw_mentions)
+    )
   end
 
   defp maybe_before(query, nil), do: query
@@ -438,6 +585,43 @@ defmodule CommsCore.Messaging do
       nil -> query
       sequence -> where(query, [m], m.conversation_sequence < ^sequence)
     end
+  end
+
+  defp maybe_thread_before(query, nil), do: query
+
+  defp maybe_thread_before(query, sequence) do
+    where(query, [message], message.conversation_sequence < ^sequence)
+  end
+
+  defp hydrate_message(%Message{} = message) do
+    [hydrated] = hydrate_messages([message])
+    hydrated
+  end
+
+  defp hydrate_messages([]), do: []
+
+  defp hydrate_messages(messages) do
+    messages = Repo.preload(messages, [:attachments, :reactions, :mentions], force: true)
+
+    root_ids =
+      messages
+      |> Enum.map(&(&1.thread_root_message_id || &1.id))
+      |> Enum.uniq()
+
+    counts =
+      Repo.all(
+        from(message in Message,
+          where: message.thread_root_message_id in ^root_ids,
+          group_by: message.thread_root_message_id,
+          select: {message.thread_root_message_id, count(message.id)}
+        )
+      )
+      |> Map.new()
+
+    Enum.map(messages, fn message ->
+      root_id = message.thread_root_message_id || message.id
+      %{message | thread_reply_count: Map.get(counts, root_id, 0)}
+    end)
   end
 
   defp validate_body(body) when not is_binary(body), do: {:error, :message_body_required}

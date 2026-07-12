@@ -13,7 +13,7 @@ defmodule CommsWeb.Token do
       token_type: "Bearer",
       expires_in: ttl,
       tenant: CommsWeb.Presenter.tenant(result.tenant),
-      user: CommsWeb.Presenter.user(result.user),
+      user: CommsWeb.Presenter.identity_user(result.user),
       device: CommsWeb.Presenter.device(result.device)
     }
   end

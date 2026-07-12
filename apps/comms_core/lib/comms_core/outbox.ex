@@ -10,7 +10,7 @@ defmodule CommsCore.Outbox do
       |> OutboxEvent.changeset(attrs)
       |> Repo.insert!()
 
-    %{"event_id" => event.id}
+    %{"event_id" => event.id, "tenant_id" => event.tenant_id}
     |> Oban.Job.new(worker: @worker, queue: :outbox)
     |> Repo.insert!()
 

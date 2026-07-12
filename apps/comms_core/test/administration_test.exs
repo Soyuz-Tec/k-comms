@@ -1,0 +1,558 @@
+defmodule CommsCore.AdministrationTest do
+  use CommsCore.DataCase, async: false
+
+  alias CommsCore.{Accounts, Administration, Governance, Repo}
+  alias CommsCore.Administration.Invitation
+  alias CommsCore.Accounts.{Session, SocketTicket}
+  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Security.Password
+  alias CommsTestSupport.Fixtures
+
+  test "invitations are tenant-scoped, idempotent, revocable, and accepted once" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    attrs = %{
+      email: "invited@example.test",
+      role: "moderator",
+      idempotency_key: "invite-001"
+    }
+
+    assert {:ok, first} = Accounts.create_invitation(attrs, subject)
+    assert first.replayed == false
+    assert is_binary(first.token)
+    assert first.invitation.role == :moderator
+
+    assert {:ok, replay} = Accounts.create_invitation(attrs, subject)
+    assert replay.replayed == true
+    assert replay.invitation.id == first.invitation.id
+    assert replay.token == nil
+    assert Repo.aggregate(Invitation, :count) == 1
+
+    assert {:ok, invited_user} =
+             Accounts.accept_invitation(%{
+               token: first.token,
+               display_name: "Invited Moderator",
+               password: "correct-horse-invited-password"
+             })
+
+    assert invited_user.tenant_id == account.tenant.id
+    assert invited_user.role == :moderator
+    assert Password.verify("correct-horse-invited-password", invited_user.password_hash)
+
+    assert {:error, :invalid_invitation} =
+             Accounts.accept_invitation(%{
+               token: first.token,
+               password: "correct-horse-another-password",
+               display_name: "Again"
+             })
+  end
+
+  test "expired invitations are materialized and do not block re-invitation" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, first} =
+             Accounts.create_invitation(
+               %{
+                 email: "expiring-invite@example.test",
+                 role: "member",
+                 idempotency_key: "expiring-invite-1"
+               },
+               subject
+             )
+
+    expired_at = DateTime.add(DateTime.utc_now(), -60, :second) |> DateTime.truncate(:microsecond)
+
+    first.invitation
+    |> Invitation.changeset(%{expires_at: expired_at})
+    |> Repo.update!()
+
+    assert {:ok, replacement} =
+             Accounts.create_invitation(
+               %{
+                 email: "expiring-invite@example.test",
+                 role: "member",
+                 idempotency_key: "expiring-invite-2"
+               },
+               subject
+             )
+
+    assert replacement.invitation.id != first.invitation.id
+    assert Repo.get!(Invitation, first.invitation.id).status == :expired
+  end
+
+  test "user lifecycle uses versions and preserves an active owner" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:error, :last_owner_required} =
+             Accounts.change_user(
+               account.user.id,
+               %{version: 1, status: "suspended", reason: "owner safety test"},
+               subject
+             )
+
+    assert {:ok, second_owner} =
+             Accounts.create_user(
+               %{
+                 display_name: "Second owner",
+                 email: "second-owner@example.test",
+                 password: "correct-horse-second-owner",
+                 role: "admin"
+               },
+               subject
+             )
+
+    assert {:ok, promoted} =
+             Accounts.change_user(
+               second_owner.id,
+               %{version: 1, role: "owner", reason: "establish second owner"},
+               subject
+             )
+
+    assert promoted.role == :owner
+    assert promoted.lock_version == 2
+
+    assert {:error, :stale_version} =
+             Accounts.change_user(
+               promoted.id,
+               %{version: 1, status: "suspended", reason: "stale lifecycle test"},
+               subject
+             )
+
+    assert {:ok, demoted} =
+             Accounts.change_user(
+               account.user.id,
+               %{version: 1, role: "admin", reason: "transfer tenant ownership"},
+               subject
+             )
+
+    assert demoted.role == :admin
+    assert Repo.get!(CommsCore.Accounts.User, promoted.id).status == :active
+
+    assert {:ok, managed_member} =
+             Accounts.create_user(
+               %{
+                 display_name: "Managed member",
+                 email: "managed-member@example.test",
+                 password: "correct-horse-managed-member",
+                 role: "member"
+               },
+               subject
+             )
+
+    assert {:ok, managed_login} =
+             Accounts.authenticate(
+               account.tenant.slug,
+               managed_member.email,
+               "correct-horse-managed-member",
+               %{name: "Managed browser", platform: "test"}
+             )
+
+    assert {:ok, effects} =
+             Accounts.change_user_with_effects(
+               managed_member.id,
+               %{
+                 version: managed_member.lock_version,
+                 status: "suspended",
+                 reason: "suspend compromised account"
+               },
+               subject
+             )
+
+    assert managed_login.session.id in effects.revoked_session_ids
+    assert {:error, :session_expired} = Accounts.get_active_session(managed_login.session.id)
+  end
+
+  test "profile, password, device, and session self-service are audited" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, second_login} =
+             Accounts.authenticate(
+               account.tenant.slug,
+               account.user.email,
+               fixture_password(account),
+               %{name: "Second device", platform: "test"}
+             )
+
+    assert {:ok, updated} =
+             Accounts.update_profile(%{display_name: "Updated Owner"}, subject)
+
+    assert updated.display_name == "Updated Owner"
+
+    assert {:ok, _} =
+             Accounts.change_password(
+               %{
+                 current_password: fixture_password(account),
+                 new_password: "correct-horse-new-owner-password"
+               },
+               subject
+             )
+
+    assert {:error, :session_expired} = Accounts.get_active_session(second_login.session.id)
+    assert {:ok, device_result} = Accounts.revoke_device(account.device.id, subject)
+    assert account.session.id in device_result.revoked_session_ids
+
+    assert Repo.exists?(
+             from(e in AuditEvent,
+               where: e.tenant_id == ^account.tenant.id and e.action == "user.password_change"
+             )
+           )
+  end
+
+  test "privileged lifecycle, session, and invitation revocations require step-up and a normalized reason" do
+    account = Fixtures.account_fixture()
+    privileged_subject = Fixtures.step_up(account)
+
+    assert {:ok, managed_user} =
+             Accounts.create_user(
+               %{
+                 display_name: "Reasoned member",
+                 email: "reasoned-member@example.test",
+                 password: "correct-horse-reasoned-member",
+                 role: "member"
+               },
+               privileged_subject
+             )
+
+    assert {:ok, managed_login} =
+             Accounts.authenticate(
+               account.tenant.slug,
+               managed_user.email,
+               "correct-horse-reasoned-member",
+               %{name: "Reasoned member browser", platform: "test"}
+             )
+
+    assert {:ok, invitation_result} =
+             Accounts.create_invitation(
+               %{
+                 email: "reasoned-invitation@example.test",
+                 role: "member",
+                 idempotency_key: "reasoned-invitation"
+               },
+               privileged_subject
+             )
+
+    invitation = invitation_result.invitation
+
+    from(session in Session, where: session.id == ^account.session.id)
+    |> Repo.update_all(set: [step_up_at: nil])
+
+    subject = Fixtures.subject(account)
+
+    assert {:error, :step_up_required} =
+             Accounts.change_user(
+               managed_user.id,
+               %{version: 1, status: "suspended", reason: "security response"},
+               subject
+             )
+
+    assert {:error, :step_up_required} =
+             Accounts.admin_revoke_session(
+               managed_user.id,
+               managed_login.session.id,
+               %{reason: "security response"},
+               subject
+             )
+
+    assert {:error, :step_up_required} =
+             Accounts.revoke_invitation(
+               invitation.id,
+               %{version: 1, reason: "security response"},
+               subject
+             )
+
+    subject = Fixtures.step_up(account, subject)
+
+    assert {:error, :reason_required} =
+             Accounts.change_user(managed_user.id, %{version: 1, status: "suspended"}, subject)
+
+    assert {:error, :reason_required} =
+             Accounts.admin_revoke_session(
+               managed_user.id,
+               managed_login.session.id,
+               %{},
+               subject
+             )
+
+    assert {:error, :reason_required} =
+             Accounts.revoke_invitation(invitation.id, %{version: 1}, subject)
+
+    assert {:ok, _session} =
+             Accounts.admin_revoke_session(
+               managed_user.id,
+               managed_login.session.id,
+               %{reason: "  revoke compromised browser  "},
+               subject
+             )
+
+    assert {:ok, _user} =
+             Accounts.change_user(
+               managed_user.id,
+               %{version: 1, status: "suspended", reason: "  suspend compromised account  "},
+               subject
+             )
+
+    assert {:ok, _invitation} =
+             Accounts.revoke_invitation(
+               invitation.id,
+               %{version: 1, reason: "  invitation no longer required  "},
+               subject
+             )
+
+    assert Repo.one!(
+             from(event in AuditEvent,
+               where:
+                 event.tenant_id == ^account.tenant.id and
+                   event.action == "session.admin_revoke",
+               select: event.metadata
+             )
+           )["reason"] == "revoke compromised browser"
+
+    assert Repo.one!(
+             from(event in AuditEvent,
+               where:
+                 event.tenant_id == ^account.tenant.id and
+                   event.action == "user.lifecycle_update" and
+                   event.resource_id == ^managed_user.id,
+               select: event.metadata
+             )
+           )["reason"] == "suspend compromised account"
+
+    assert Repo.one!(
+             from(event in AuditEvent,
+               where:
+                 event.tenant_id == ^account.tenant.id and
+                   event.action == "invitation.revoke",
+               select: event.metadata
+             )
+           )["reason"] == "invitation no longer required"
+  end
+
+  test "socket tickets are short-lived, hashed, and consumed exactly once" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    stale_id = Ecto.UUID.generate()
+
+    stale_at =
+      DateTime.add(DateTime.utc_now(), -7_200, :second) |> DateTime.truncate(:microsecond)
+
+    assert {:ok, _stale} =
+             %SocketTicket{id: stale_id}
+             |> SocketTicket.changeset(%{
+               tenant_id: account.tenant.id,
+               user_id: account.user.id,
+               device_id: account.device.id,
+               session_id: account.session.id,
+               token_hash: :crypto.hash(:sha256, "stale-ticket-secret"),
+               expires_at: stale_at,
+               consumed_at: stale_at
+             })
+             |> Repo.insert()
+
+    assert {:ok, issued} = Accounts.issue_socket_ticket(subject)
+    refute Repo.get(SocketTicket, stale_id)
+    assert is_binary(issued.ticket)
+    assert issued.expires_in <= 120
+
+    [ticket_id, _secret] = String.split(issued.ticket, ".", parts: 2)
+    stored = Repo.get!(SocketTicket, ticket_id)
+    refute issued.ticket =~ Base.url_encode64(stored.token_hash, padding: false)
+    assert is_nil(stored.consumed_at)
+
+    assert {:ok, consumed_subject} = Accounts.consume_socket_ticket(issued.ticket)
+    assert consumed_subject.user_id == account.user.id
+    assert Repo.get!(SocketTicket, ticket_id).consumed_at
+
+    assert {:error, :invalid_socket_ticket} = Accounts.consume_socket_ticket(issued.ticket)
+
+    assert 1 ==
+             Repo.aggregate(
+               from(e in AuditEvent,
+                 where: e.tenant_id == ^account.tenant.id and e.action == "socket_ticket.issue"
+               ),
+               :count
+             )
+
+    assert 1 ==
+             Repo.aggregate(
+               from(e in AuditEvent,
+                 where: e.tenant_id == ^account.tenant.id and e.action == "socket_ticket.consume"
+               ),
+               :count
+             )
+  end
+
+  test "tenant settings use optimistic versioning and privileged audit search" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, initial} = Administration.get_tenant_settings(subject)
+    assert initial.settings.lock_version == 1
+
+    assert {:ok, updated} =
+             Administration.update_tenant_settings(
+               %{
+                 version: 1,
+                 name: "Governed Workspace",
+                 allow_public_channels: false,
+                 default_retention_days: 365
+               },
+               subject
+             )
+
+    assert updated.tenant.name == "Governed Workspace"
+    assert updated.settings.allow_public_channels == false
+    assert updated.settings.default_retention_days == 365
+
+    assert {:error, :stale_version} =
+             Administration.update_tenant_settings(
+               %{version: 1, max_attachment_bytes: 1000},
+               subject
+             )
+
+    assert {:ok, audit} =
+             Administration.list_audit_events(%{action: "tenant.settings_update"}, subject)
+
+    assert [%AuditEvent{resource_id: tenant_id}] = audit.events
+    assert tenant_id == account.tenant.id
+  end
+
+  test "audit reads are audited and compound cursors do not skip equal timestamps" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    ids = [Ecto.UUID.generate(), Ecto.UUID.generate()]
+
+    rows =
+      Enum.map(ids, fn id ->
+        %{
+          id: id,
+          tenant_id: account.tenant.id,
+          actor_user_id: account.user.id,
+          action: "cursor-test",
+          resource_type: "tenant",
+          resource_id: account.tenant.id,
+          metadata: %{},
+          request_id: "cursor-test",
+          inserted_at: timestamp
+        }
+      end)
+
+    assert {2, nil} = Repo.insert_all(AuditEvent, rows)
+
+    assert {:ok, first_page} =
+             Administration.list_audit_events(%{action: "cursor-test", limit: 1}, subject)
+
+    assert [first] = first_page.events
+    assert is_binary(first_page.next_cursor)
+
+    assert {:ok, second_page} =
+             Administration.list_audit_events(
+               %{action: "cursor-test", limit: 1, cursor: first_page.next_cursor},
+               subject
+             )
+
+    assert [second] = second_page.events
+    refute first.id == second.id
+
+    assert 2 ==
+             Repo.aggregate(
+               from(e in AuditEvent,
+                 where: e.tenant_id == ^account.tenant.id and e.action == "audit.read"
+               ),
+               :count
+             )
+  end
+
+  test "compliance and security authority remain separate from tenant administration" do
+    account = Fixtures.account_fixture()
+    owner_subject = Fixtures.step_up(account)
+
+    assert {:ok, admin} =
+             Accounts.create_user(
+               %{
+                 display_name: "Tenant Admin",
+                 email: "separated-admin@example.test",
+                 password: "correct-horse-separated-admin",
+                 role: "admin"
+               },
+               owner_subject
+             )
+
+    assert {:ok, compliance} =
+             Accounts.create_user(
+               %{
+                 display_name: "Compliance Admin",
+                 email: "compliance@example.test",
+                 password: "correct-horse-compliance-admin",
+                 role: "compliance_admin"
+               },
+               owner_subject
+             )
+
+    assert {:ok, security} =
+             Accounts.create_user(
+               %{
+                 display_name: "Security Admin",
+                 email: "security@example.test",
+                 password: "correct-horse-security-admin",
+                 role: "security_admin"
+               },
+               owner_subject
+             )
+
+    admin_subject = login_subject(account, admin, "correct-horse-separated-admin")
+    compliance_subject = login_subject(account, compliance, "correct-horse-compliance-admin")
+    security_subject = login_subject(account, security, "correct-horse-security-admin")
+
+    assert {:error, :forbidden} = Governance.list_legal_holds(%{}, admin_subject)
+    assert {:error, :step_up_required} = Governance.list_legal_holds(%{}, compliance_subject)
+
+    assert {:ok, _} =
+             Accounts.step_up(
+               %{current_password: "correct-horse-compliance-admin"},
+               compliance_subject
+             )
+
+    assert {:ok, []} = Governance.list_legal_holds(%{}, compliance_subject)
+
+    assert {:ok, _} =
+             Accounts.step_up(
+               %{current_password: "correct-horse-security-admin"},
+               security_subject
+             )
+
+    assert {:error, :forbidden} =
+             Accounts.list_user_sessions(account.user.id, security_subject)
+
+    assert {:error, :forbidden} = Governance.list_legal_holds(%{}, security_subject)
+
+    assert Repo.exists?(
+             from(e in AuditEvent,
+               where:
+                 e.tenant_id == ^account.tenant.id and e.actor_user_id == ^admin.id and
+                   e.action == "authorization.denied"
+             )
+           )
+  end
+
+  defp fixture_password(account) do
+    suffix = account.tenant.slug |> String.split("-") |> List.last()
+    "correct-horse-battery-#{suffix}"
+  end
+
+  defp login_subject(account, user, password) do
+    {:ok, login} =
+      Accounts.authenticate(account.tenant.slug, user.email, password, %{
+        name: "Role test browser",
+        platform: "test"
+      })
+
+    Accounts.subject_for_session(login.session)
+  end
+end

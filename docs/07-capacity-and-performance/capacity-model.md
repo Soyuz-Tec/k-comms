@@ -1,6 +1,21 @@
 # Capacity Model
 
-**Status:** Formula draft; replace assumptions with measured benchmark inputs.
+**Status:** Implemented formula and executable local regression profile;
+production demand inputs remain an explicit environment-owner launch gate.
+
+## Local qualification input
+
+The versioned local profile runs 300 canonical messages over 60 seconds with a
+maximum concurrency of 6, ten idempotency replays, a 750 ms p95 regression
+threshold, and zero acknowledged-message loss. The runner records p50, p95,
+p99, error rate, achieved throughput, ordered-history reconciliation, and
+cleanup outcome. Store the aggregate `RESULT` line with the commit, image
+digest, topology, host resources, and timestamp using
+[`local-staging-qualification.md`](local-staging-qualification.md).
+
+This profile validates repeatability and detects regressions in the local
+Podman staging candidate. It does not establish per-node safe capacity,
+multi-node fan-out limits, failure headroom, or production SLO compliance.
 
 ## Primary variables
 
@@ -29,12 +44,16 @@ worker_concurrency = peak_job_arrival_rate × target_processing_time × h
 
 | Input | Launch | Growth | Stress |
 |---|---:|---:|---:|
-| MAU | TBD | TBD | TBD |
-| Peak concurrent fraction | TBD | TBD | TBD |
-| Peak messages/sec | TBD | TBD | TBD |
-| Average online recipients | TBD | TBD | TBD |
-| Maximum channel size | TBD | TBD | TBD |
-| Daily attachment volume | TBD | TBD | TBD |
+| MAU | External forecast | External forecast | Approved stress scenario |
+| Peak concurrent fraction | Measured launch forecast | Measured growth forecast | Approved stress scenario |
+| Peak messages/sec | Measured launch forecast | Measured growth forecast | Approved stress scenario |
+| Average online recipients | Measured launch forecast | Measured growth forecast | Approved stress scenario |
+| Maximum channel size | Tenant limit, default 250 | Approved growth limit | Maximum tested limit |
+| Daily attachment volume | External forecast | External forecast | Approved stress scenario |
+
+Do not populate this launch/growth/stress table from the local qualification
+run. Those inputs require an approved workload forecast and representative
+multi-node tests.
 
 ## Required output
 

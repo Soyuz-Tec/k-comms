@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  NOTIFICATION_PROVIDER_MODE: http
+  NOTIFICATION_PROVIDER_ENDPOINT: https://notifications.example.invalid/v1/deliver
+  NOTIFICATION_PROVIDER_NAME: approved-provider
+  NOTIFICATION_PROVIDER_ALLOWED_HOSTS: notifications.example.invalid
+  NOTIFICATION_PROVIDER_TIMEOUT_MS: "10000"
+  # Public half only. The matching VAPID private key remains in the provider.
+  WEB_PUSH_VAPID_PUBLIC_KEY: REPLACE_WITH_PROVIDER_VAPID_PUBLIC_KEY
+  ATTACHMENT_SCANNER_MODE: http
+  ATTACHMENT_SCANNER_ENDPOINT: https://scanner.example.invalid/v1/scan
+  ATTACHMENT_SCANNER_PROVIDER_NAME: approved-scanner
+  ATTACHMENT_SCANNER_ALLOWED_HOSTS: scanner.example.invalid
+  ATTACHMENT_SCANNER_TIMEOUT_MS: "30000"
+  WEBHOOK_PROVIDER_MODE: http
+  WEBHOOK_ALLOWED_HOSTS: hooks.customer-a.example,hooks.customer-b.example
+  WEBHOOK_TIMEOUT_MS: "10000"

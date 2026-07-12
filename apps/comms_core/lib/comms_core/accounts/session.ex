@@ -9,6 +9,7 @@ defmodule CommsCore.Accounts.Session do
     field(:expires_at, :utc_datetime_usec)
     field(:last_used_at, :utc_datetime_usec)
     field(:revoked_at, :utc_datetime_usec)
+    field(:step_up_at, :utc_datetime_usec)
     timestamps()
   end
 
@@ -21,7 +22,8 @@ defmodule CommsCore.Accounts.Session do
       :refresh_token_hash,
       :expires_at,
       :last_used_at,
-      :revoked_at
+      :revoked_at,
+      :step_up_at
     ])
     |> validate_required([
       :tenant_id,

@@ -3,6 +3,8 @@ import Config
 config :comms_core,
   ecto_repos: [CommsCore.Repo],
   authorization_adapter: CommsCore.Authorization.Database,
+  notification_availability_notifier: CommsWeb.NotificationAvailabilityNotifier,
+  push_delivery_status: :unavailable,
   session_ttl_seconds: 2_592_000
 
 config :comms_core, CommsCore.Repo,
@@ -15,10 +17,13 @@ config :comms_core, Oban,
   plugins: [{Oban.Plugins.Pruner, max_age: 86_400}]
 
 config :comms_integrations,
+  allow_insecure_local_object_storage: false,
   notification_adapter: CommsIntegrations.Notifications.Log,
   object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
+  scanner_adapter: CommsIntegrations.Scanner.Log,
   webhook_adapter: CommsIntegrations.Webhooks.Http,
-  webhook_allowed_hosts: []
+  webhook_allowed_hosts: [],
+  webhook_http: [allowed_hosts: [], allowed_ports: [443], timeout_ms: 10_000]
 
 config :comms_web,
   generators: [binary_id: true],

@@ -1,20 +1,31 @@
 # Functional Requirements
 
-**Status:** Draft seed list
+**Status:** K-Comms 0.3.0 application scope implemented and locally
+staging-qualified. Rows with a residual qualifier require a real external
+provider, independently sealed exact-commit review evidence, or another named
+production gate; they are not missing local UI/API surfaces.
 
-| ID | Requirement | Priority | Acceptance summary |
-|---|---|---|---|
-| FR-ID-001 | Authenticate users and bind sessions to devices. | Must | Revocation prevents further authenticated commands. |
-| FR-TEN-001 | Isolate tenant data and policy. | Must | Cross-tenant access tests fail closed. |
-| FR-CONV-001 | Create direct, group, public, and private conversations. | Must | Membership and visibility rules are enforced. |
-| FR-MSG-001 | Send a durable message with a client idempotency key. | Must | Retries return the same canonical message. |
-| FR-MSG-002 | Edit and delete messages according to policy. | Must | History/tombstone behavior matches retention rules. |
-| FR-MSG-003 | Support replies, reactions, mentions, and threads. | Should | Events and projections remain ordered and recoverable. |
-| FR-RT-001 | Deliver authorized live events to connected clients. | Must | Events include stable identifiers and sequence positions. |
-| FR-SYNC-001 | Recover missed durable events after reconnect. | Must | Client resumes from a stored cursor without gaps. |
-| FR-PRES-001 | Show approximate online/presence state. | Should | Stale state expires and never implies durable delivery. |
-| FR-FILE-001 | Upload, scan, process, and download attachments. | Must | Unscanned objects cannot be downloaded as ready. |
-| FR-NOTIF-001 | Generate push and email notifications from policy. | Must | Retries are idempotent where possible. |
-| FR-SRCH-001 | Search only content visible to the requesting user. | Must | Permission changes remove unauthorized results. |
-| FR-ADM-001 | Administer users, channels, policies, and moderation. | Must | Every privileged action creates an audit event. |
-| FR-INT-001 | Expose versioned APIs and signed webhooks. | Should | Contracts are schema-validated and rate-limited. |
+| ID | Requirement | Priority | Implemented acceptance evidence | Status |
+|---|---|---|---|---|
+| FR-ID-001 | Authenticate human users and bind rotating sessions to devices. | Must | Password, recovery, refresh rotation, socket ticket, logout, device/session revocation, and negative-boundary tests | Implemented |
+| FR-TEN-001 | Isolate tenant data and policy. | Must | Tenant-scoped authorization, memberships, composite constraints, quotas, and cross-tenant negative tests | Implemented baseline; independent security review pending |
+| FR-CONV-001 | Create direct, group, public-channel, and private conversations. | Must | Membership, visibility, public discovery/join/leave, archive, role, and quota tests | Implemented |
+| FR-MSG-001 | Send a durable ordered message with a client idempotency key. | Must | Transactional acceptance, canonical sequence, duplicate replay, outbox, load reconciliation, and node replacement | Implemented |
+| FR-MSG-002 | Edit and delete messages according to tenant policy. | Must | Edit-window, author/moderator authorization, revision, tombstone, governance, and retention tests | Implemented |
+| FR-MSG-003 | Support replies, reactions, mentions, and canonical threads. | Should | Ordered thread/reply, mention validation, reaction, notification, and browser journeys | Implemented |
+| FR-RT-001 | Deliver authorized live events to connected clients. | Must | Phoenix join/command authorization, Presence/typing, one-time socket tickets, and disconnect tests | Implemented; production fan-out capacity pending |
+| FR-SYNC-001 | Recover missed durable events after reconnect. | Must | REST and Phoenix replay, paging, sequence ordering, disconnect/reconnect, and idempotent retry tests | Implemented |
+| FR-PRES-001 | Show approximate presence and typing state without treating it as durable delivery. | Should | Presence/typing channel behavior and client state tests | Implemented |
+| FR-FILE-001 | Upload, verify, scan, quarantine, download, and delete attachments. | Must | Signed checksum, version ID/ETag, exact-version scan/download/delete, stale-object, malicious-object, 25 MB ingress, quota tests, and guarded integrated restored-version remap proof | Application and portable staging restore implemented; production provider-native recovery qualification pending |
+| FR-NOTIF-001 | Generate in-app, email, and browser-push notification intents from user policy. | Must | Durable intent/attempt ledger, in-app state, encrypted per-device push registration, retry/idempotency, and redacted log-adapter acceptance | Application implemented; real email/push provider delivery pending |
+| FR-SRCH-001 | Search only active content visible to the requesting identity. | Must | PostgreSQL FTS with tenant, active membership, archived conversation, message status, and service-scope checks | Implemented |
+| FR-ADM-001 | Administer users, invitations, channels, tenant policy, roles, sessions, and quotas. | Must | Separate admin UI, last-owner rules, role boundaries, optimistic versions, server-side recent step-up controls, audit, and admission tests | Implemented baseline; closure of the separately sealed exact-commit Codex Security result is a promotion gate |
+| FR-MOD-001 | Report and manage moderation cases and attachment safety. | Must | Reporter/moderator boundaries, case actions, scan inventory/retry, quarantine, and audit tests | Implemented; real scanner qualification pending |
+| FR-GOV-001 | Manage retention, legal holds, deletion requests, and audit export. | Must | Step-up authorization, state transitions, legal-hold blocking, object deletion evidence, and bounded formula-neutralized CSV tests | Implemented baseline; compliance approval and production retention pending |
+| FR-INT-001 | Expose versioned APIs, signed webhooks, and safe provider adapters. | Should | OpenAPI/AsyncAPI/JSON Schema validation, encrypted webhook secrets, DNS/IP-pinned HTTPS, delivery claims, retry/replay, and SSRF tests | Implemented adapters; real provider and distributed edge rate-limit qualification pending |
+| FR-SVC-001 | Provide scoped non-human communication credentials. | Should | One-time service credential, separate route boundary, scope/membership enforcement, expiry, rotation/revocation, idempotent send, and search tests | Implemented; production credential operations pending |
+| FR-OPS-001 | Provide content-blind tenant and platform operations views. | Must | Separate `/ops` UI, persisted platform-role checks, protected metrics, provider/queue/health projections, and no-content response tests | Implemented package; alert routing and staffed operations pending |
+
+Voice/video, federation, active-active multi-region writes, OIDC/SAML/SCIM,
+MFA/passkeys, and true end-to-end encryption are outside the 0.3.0 scope unless
+introduced through a dedicated requirement and ADR.

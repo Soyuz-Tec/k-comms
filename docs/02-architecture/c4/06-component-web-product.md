@@ -1,0 +1,36 @@
+# C4 Level 3 — Web Product Components
+
+```mermaid
+flowchart LR
+    Shell[Session and Route Shell]
+    User[User Workspace]
+    Admin[Tenant Administration]
+    Ops[Platform Operations]
+    API[Typed REST Client]
+    Realtime[Realtime and Replay Client]
+    Local[Draft and Offline State]
+    Design[Accessible Design System]
+
+    Shell --> User
+    Shell --> Admin
+    Shell --> Ops
+    User --> API
+    User --> Realtime
+    User --> Local
+    Admin --> API
+    Ops --> API
+    User --> Design
+    Admin --> Design
+    Ops --> Design
+```
+
+## Rules
+
+- The server-provided identity and permission set controls available routes and
+  actions; hidden controls are not an authorization boundary.
+- Durable messages and read state reconcile from server cursors after every
+  reconnect. Local drafts and retries never become authoritative history.
+- The user workspace may render authorized message content. Tenant-admin and
+  operations queries return only the content required by their explicit policy.
+- Shared API, error, loading, keyboard, focus, responsive, and accessibility
+  behavior belongs in the shell/design platform rather than each feature.

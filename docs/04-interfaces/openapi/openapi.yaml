@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: K-Comms API
-  version: 0.2.0
-  description: Tenant-scoped authentication, conversations, messaging, replay, search, and attachments.
+  version: 0.3.0
+  description: Tenant-scoped communication, administration, governance, integrations, safety, and operations.
 servers:
   - url: /
 tags:
@@ -12,6 +12,11 @@ tags:
   - name: Conversations
   - name: Messages
   - name: Attachments
+  - name: Administration
+  - name: Governance
+  - name: Integrations
+  - name: Operations
+  - name: Service API
 paths:
   /health/live:
     get:
@@ -33,6 +38,7 @@ paths:
     get:
       tags: [System]
       operationId: metrics
+      security: [{metricsBearer: []}]
       responses:
         '200':
           description: Prometheus text exposition for internal scraping
@@ -45,7 +51,7 @@ paths:
       operationId: status
       responses:
         '200':
-          description: Service version and node
+          description: Service version and public capability availability
   /api/v1/bootstrap:
     post:
       tags: [Sessions]
@@ -110,6 +116,43 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
           $ref: '#/components/responses/Error'
+  /api/v1/password-recovery/requests:
+    post:
+      tags: [Sessions]
+      operationId: requestPasswordRecovery
+      summary: Queue password recovery without revealing whether the account exists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRecoveryRequest'
+      responses:
+        '202':
+          description: Request accepted for both known and unknown identities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordRecoveryAccepted'
+        '429':
+          $ref: '#/components/responses/Error'
+  /api/v1/password-recovery/resets:
+    post:
+      tags: [Sessions]
+      operationId: resetPasswordWithRecoveryToken
+      summary: Consume a one-time recovery token and revoke existing access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordRecoveryReset'
+      responses:
+        '204': {description: Password changed; no session is created}
+        '400': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /api/v1/sessions/current:
     delete:
       tags: [Sessions]
@@ -133,20 +176,6 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '200': {description: Tenant users}
-    post:
-      tags: [Users]
-      operationId: createUser
-      security: [{bearerAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateUserRequest'
-      responses:
-        '201': {description: Tenant user created}
-        '403': {$ref: '#/components/responses/Error'}
-        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations:
     get:
       tags: [Conversations]
@@ -166,8 +195,84 @@ paths:
               $ref: '#/components/schemas/CreateConversationRequest'
       responses:
         '201': {description: Conversation created}
+        '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+  /api/v1/channels/discover:
+    get:
+      tags: [Conversations]
+      operationId: discoverPublicChannels
+      summary: Discover non-archived tenant-visible channels in the current tenant
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 160}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Tenant-scoped public-channel discovery page with current membership state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicChannelDiscoveryPage'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/channels/{channelId}/join:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [Conversations]
+      operationId: joinPublicChannel
+      summary: Idempotently join a tenant-visible channel as the current user
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Existing active membership returned without another event
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicChannelMembershipResponse'}
+        '201':
+          description: Membership created or reactivated atomically
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicChannelMembershipResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/channels/{channelId}/membership:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    delete:
+      tags: [Conversations]
+      operationId: leavePublicChannel
+      summary: Leave a tenant-visible channel as the current user
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version]
+              properties:
+                version: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Versioned membership is inactive; repeated deletes are replay-safe
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicChannelMembershipResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -178,6 +283,22 @@ paths:
       responses:
         '200': {description: Conversation visible to the current user}
         '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [Conversations]
+      operationId: updateConversation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateConversationRequest'}
+      responses:
+        '200': {description: Versioned conversation settings updated}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/members:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -205,6 +326,9 @@ paths:
       responses:
         '201': {description: Member added}
         '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/members/{userId}:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -212,13 +336,37 @@ paths:
         in: path
         required: true
         schema: {type: string, format: uuid}
+    patch:
+      tags: [Conversations]
+      operationId: updateConversationMemberRole
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateConversationMemberRequest'}
+      responses:
+        '200': {description: Versioned membership role updated}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
     delete:
       tags: [Conversations]
       operationId: removeConversationMember
       security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VersionRequest'}
       responses:
         '204': {description: Member removed}
         '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/messages:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -282,6 +430,29 @@ paths:
                 sequence: {type: integer, minimum: 0}
       responses:
         '200': {description: Stored monotonic read cursor}
+  /api/v1/conversations/{conversationId}/messages/{messageId}/thread:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/MessageId'
+    get:
+      tags: [Messages]
+      operationId: getMessageThread
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: before_sequence
+          in: query
+          schema: {type: integer, minimum: 1}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Canonical thread root and ascending bounded reply page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageThreadResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /api/v1/messages/{messageId}:
     parameters:
       - $ref: '#/components/parameters/MessageId'
@@ -329,6 +500,25 @@ paths:
                 emoji: {type: string, minLength: 1, maxLength: 32}
       responses:
         '201': {description: Reaction added idempotently}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/messages/{messageId}/reactions/{emoji}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/MessageId'
+      - name: emoji
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 32}
+    delete:
+      tags: [Messages]
+      operationId: removeReaction
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Reaction removed idempotently}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /api/v1/search:
     get:
       tags: [Messages]
@@ -356,7 +546,16 @@ paths:
             schema:
               $ref: '#/components/schemas/AttachmentIntentRequest'
       responses:
-        '201': {description: Attachment metadata and signed upload intent}
+        '201':
+          description: Attachment metadata and signed upload intent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, upload]
+                properties:
+                  data: {type: object}
+                  upload: {$ref: '#/components/schemas/PresignDescriptor'}
   /api/v1/attachments/{attachmentId}/complete:
     parameters:
       - $ref: '#/components/parameters/AttachmentId'
@@ -375,15 +574,973 @@ paths:
       operationId: getAttachment
       security: [{bearerAuth: []}]
       responses:
-        '200': {description: Authorized attachment and signed download intent}
+        '200':
+          description: Authorized attachment and optional signed download intent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: {type: object}
+                  download: {$ref: '#/components/schemas/PresignDescriptor'}
         '404': {$ref: '#/components/responses/Error'}
+  /api/v1/invitations/accept:
+    post:
+      tags: [Sessions]
+      operationId: acceptInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, display_name, password]
+              properties:
+                token: {type: string}
+                display_name: {type: string, minLength: 1, maxLength: 120}
+                password: {type: string, minLength: 12, maxLength: 256}
+      responses:
+        '201': {description: Invitation accepted and session created}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/socket-tickets:
+    post:
+      tags: [Sessions]
+      operationId: createSocketTicket
+      security: [{bearerAuth: []}]
+      responses:
+        '201':
+          description: Short-lived one-time WebSocket handshake ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [ticket, expires_in]
+                    properties:
+                      ticket: {type: string, minLength: 40}
+                      expires_in: {type: integer, minimum: 10, maximum: 120}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/me/step-up:
+    post:
+      tags: [Sessions]
+      operationId: stepUpSession
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: {type: string}
+      responses:
+        '200': {description: Session elevated for a bounded sensitive-operation window}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+
+  /api/v1/me/profile:
+    patch:
+      tags: [Users]
+      operationId: updateCurrentProfile
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateProfileRequest'}
+      responses:
+        '200': {description: Updated profile}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/me/password:
+    put:
+      tags: [Users]
+      operationId: changeCurrentPassword
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      responses:
+        '204': {description: Password changed and other sessions revoked}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/me/devices:
+    get:
+      tags: [Users]
+      operationId: listCurrentDevices
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Current user devices}
+  /api/v1/me/devices/{deviceId}:
+    parameters:
+      - {name: deviceId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      tags: [Users]
+      operationId: revokeCurrentDevice
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Device and its sessions revoked}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/me/sessions:
+    get:
+      tags: [Users]
+      operationId: listCurrentSessions
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Current user sessions}
+  /api/v1/me/sessions/{sessionId}:
+    parameters:
+      - {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      tags: [Users]
+      operationId: revokeSession
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Session revoked}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/notification-preferences:
+    get:
+      tags: [Users]
+      operationId: getNotificationPreferences
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Current user notification preferences}
+    put:
+      tags: [Users]
+      operationId: updateNotificationPreferences
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationPreferences'}
+      responses:
+        '200': {description: Updated notification preferences}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/me/push-subscriptions/config:
+    get:
+      tags: [Users]
+      operationId: getPushSubscriptionConfig
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Current browser Web Push registration configuration
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushSubscriptionConfigResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/me/push-subscriptions:
+    get:
+      tags: [Users]
+      operationId: listPushSubscriptions
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Redacted push subscriptions for the authenticated device
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushSubscriptionListResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Users]
+      operationId: registerPushSubscription
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PushSubscriptionRegistrationRequest'}
+      responses:
+        '200':
+          description: Idempotently replayed registration for this device
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushSubscriptionRegistrationResponse'}
+        '201':
+          description: Encrypted push subscription registered for this device
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushSubscriptionRegistrationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/me/push-subscriptions/{subscriptionId}:
+    parameters:
+      - {name: subscriptionId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      tags: [Users]
+      operationId: revokePushSubscription
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Push subscription revoked for the authenticated device
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PushSubscriptionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/notifications:
+    get:
+      tags: [Integrations]
+      operationId: listNotifications
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Authorized durable notification intents}
+  /api/v1/in-app-notifications:
+    get:
+      tags: [Users]
+      operationId: listInAppNotifications
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Current user's non-dismissed in-app notifications and unread count
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InAppNotificationListResponse'}
+  /api/v1/in-app-notifications/unread-count:
+    get:
+      tags: [Users]
+      operationId: getInAppNotificationUnreadCount
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Fresh unread in-app notification count for the current user
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InAppNotificationUnreadResponse'}
+  /api/v1/in-app-notifications/read-all:
+    post:
+      tags: [Users]
+      operationId: markAllInAppNotificationsRead
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Current user's unread in-app notifications marked read
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InAppNotificationBulkReadResponse'}
+  /api/v1/in-app-notifications/{notificationId}/read:
+    parameters:
+      - {name: notificationId, in: path, required: true, schema: {type: string, format: uuid}}
+    patch:
+      tags: [Users]
+      operationId: markInAppNotificationRead
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Idempotently marked read in-app notification owned by the current user
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InAppNotificationResponse'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/in-app-notifications/{notificationId}:
+    parameters:
+      - {name: notificationId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      tags: [Users]
+      operationId: dismissInAppNotification
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Idempotently dismissed in-app notification owned by the current user
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InAppNotificationResponse'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/notification-attempts:
+    get:
+      tags: [Integrations]
+      operationId: listNotificationAttempts
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Redacted provider delivery attempts}
+  /api/v1/notification-intents/{intentId}/retry:
+    parameters:
+      - {name: intentId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Integrations]
+      operationId: retryNotificationIntent
+      security: [{bearerAuth: []}]
+      responses:
+        '202': {description: Notification retry accepted}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [Conversations]
+      operationId: archiveConversation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VersionRequest'}
+      responses:
+        '200': {description: Conversation archived}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/moderation/cases:
+    get:
+      tags: [Governance]
+      operationId: listModerationCases
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Authorized moderation cases}
+    post:
+      tags: [Governance]
+      operationId: createModerationCase
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/OptionalIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateModerationCaseRequest'}
+      responses:
+        '200': {description: Existing moderation case returned for an idempotent replay}
+        '201': {description: Moderation case created and audited}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/moderation/cases/{caseId}:
+    parameters:
+      - {name: caseId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      tags: [Governance]
+      operationId: getModerationCase
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Moderation case and action history}
+  /api/v1/moderation/cases/{caseId}/actions:
+    parameters:
+      - {name: caseId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Governance]
+      operationId: addModerationAction
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateModerationActionRequest'}
+      responses:
+        '200': {description: Audited moderation action recorded and updated case returned}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/tenant:
+    get:
+      tags: [Administration]
+      operationId: getTenantSettings
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Tenant, versioned settings, and current admission usage
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TenantAdministrationResponse'}
+    patch:
+      tags: [Administration]
+      operationId: updateTenantSettings
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateTenantSettingsRequest'}
+      responses:
+        '200':
+          description: Updated tenant settings and recalculated admission usage
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TenantAdministrationResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/users:
+    get:
+      tags: [Administration]
+      operationId: adminListUsers
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant user lifecycle inventory}
+  /api/v1/admin/users/{userId}:
+    parameters:
+      - {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    patch:
+      tags: [Administration]
+      operationId: adminUpdateUser
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateAdminUserRequest'}
+      responses:
+        '200': {description: Updated user role or status}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/users/{userId}/sessions:
+    parameters:
+      - {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      tags: [Administration]
+      operationId: adminListUserSessions
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Target user sessions}
+  /api/v1/admin/users/{userId}/sessions/{sessionId}:
+    parameters:
+      - {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      tags: [Administration]
+      operationId: adminRevokeUserSession
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReasonRequest'}
+      responses:
+        '204': {description: Target session revoked}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/service-accounts:
+    get:
+      tags: [Administration]
+      operationId: listServiceAccounts
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Tenant service-account inventory without raw credentials
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceAccountListResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Administration]
+      operationId: createServiceAccount
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateServiceAccountRequest'}
+      responses:
+        '201':
+          description: Service account and one-time credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceAccountCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/audit-events/export:
+    post:
+      tags: [Administration]
+      operationId: exportAuditEvents
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AuditExportRequest'}
+      responses:
+        '200':
+          description: Injection-safe CSV containing the most recent matching tenant audit events, capped at 5000 rows
+          headers:
+            Content-Disposition: {schema: {type: string}}
+            X-Export-Row-Count: {schema: {type: string}}
+            X-Export-Truncated: {schema: {type: string, enum: ['true', 'false']}}
+          content:
+            text/csv:
+              schema: {type: string}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/service-accounts/{serviceAccountId}/rotate:
+    parameters:
+      - {name: serviceAccountId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Administration]
+      operationId: rotateServiceAccountCredential
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VersionedReasonRequest'}
+      responses:
+        '200':
+          description: Rotated service account and replacement one-time credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceAccountCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/service-accounts/{serviceAccountId}/revoke:
+    parameters:
+      - {name: serviceAccountId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Administration]
+      operationId: revokeServiceAccount
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VersionedReasonRequest'}
+      responses:
+        '200':
+          description: Revoked service account
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceAccountResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/invitations:
+    get:
+      tags: [Administration]
+      operationId: listInvitations
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant invitations}
+    post:
+      tags: [Administration]
+      operationId: createInvitation
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/OptionalIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInvitationRequest'}
+      responses:
+        '200': {description: Existing invitation returned for an idempotent replay; no token is reissued}
+        '201': {description: Invitation and one-time acceptance token}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/invitations/{invitationId}/revoke:
+    parameters:
+      - {name: invitationId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Administration]
+      operationId: revokeInvitation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VersionedReasonRequest'}
+      responses:
+        '200': {description: Invitation revoked}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/audit-events:
+    get:
+      tags: [Governance]
+      operationId: listAuditEvents
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Redacted tenant privileged audit events}
+  /api/v1/admin/retention-policies:
+    get:
+      tags: [Governance]
+      operationId: listRetentionPolicies
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant and conversation retention policies}
+    post:
+      tags: [Governance]
+      operationId: createRetentionPolicy
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/OptionalIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateRetentionPolicyRequest'}
+      responses:
+        '200': {description: Existing retention policy returned for an idempotent replay}
+        '201': {description: Retention policy created}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/retention-policies/{policyId}:
+    parameters:
+      - {name: policyId, in: path, required: true, schema: {type: string, format: uuid}}
+    patch:
+      tags: [Governance]
+      operationId: updateRetentionPolicy
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateRetentionPolicyRequest'}
+      responses:
+        '200': {description: Versioned retention policy updated}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/legal-holds:
+    get:
+      tags: [Governance]
+      operationId: listLegalHolds
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant legal holds}
+    post:
+      tags: [Governance]
+      operationId: createLegalHold
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/OptionalIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateLegalHoldRequest'}
+      responses:
+        '200': {description: Existing legal hold returned for an idempotent replay}
+        '201': {description: Legal hold created}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/legal-holds/{holdId}/release:
+    parameters:
+      - {name: holdId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Governance]
+      operationId: releaseLegalHold
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReleaseLegalHoldRequest'}
+      responses:
+        '200': {description: Legal hold released}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/deletion-requests:
+    get:
+      tags: [Governance]
+      operationId: listDeletionRequests
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Audited deletion workflow requests}
+    post:
+      tags: [Governance]
+      operationId: createDeletionRequest
+      security: [{bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/OptionalIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateDeletionRequest'}
+      responses:
+        '200': {description: Existing deletion request returned for an idempotent replay}
+        '201': {description: Deletion request created}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/deletion-requests/{requestId}:
+    parameters:
+      - {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
+    patch:
+      tags: [Governance]
+      operationId: updateDeletionRequest
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TransitionDeletionRequest'}
+      responses:
+        '200': {description: Deletion workflow status updated}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/webhooks:
+    get:
+      tags: [Integrations]
+      operationId: listWebhookEndpoints
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Redacted tenant webhook endpoints}
+    post:
+      tags: [Integrations]
+      operationId: createWebhookEndpoint
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateWebhookEndpointRequest'}
+      responses:
+        '201': {description: Endpoint and one-time signing secret}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/webhooks/{endpointId}:
+    parameters:
+      - {name: endpointId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      tags: [Integrations]
+      operationId: getWebhookEndpoint
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Redacted webhook endpoint}
+    patch:
+      tags: [Integrations]
+      operationId: updateWebhookEndpoint
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateWebhookEndpointRequest'}
+      responses:
+        '200': {description: Updated endpoint and subscriptions}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Integrations]
+      operationId: disableWebhookEndpoint
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Endpoint disabled}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/webhooks/{endpointId}/rotate-secret:
+    parameters:
+      - {name: endpointId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Integrations]
+      operationId: rotateWebhookSecret
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: New one-time signing secret}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/webhook-deliveries:
+    get:
+      tags: [Integrations]
+      operationId: listWebhookDeliveries
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Redacted webhook delivery ledger}
+  /api/v1/admin/webhook-deliveries/{deliveryId}/replay:
+    parameters:
+      - {name: deliveryId, in: path, required: true, schema: {type: string, format: uuid}}
+    post:
+      tags: [Integrations]
+      operationId: replayWebhookDelivery
+      security: [{bearerAuth: []}]
+      responses:
+        '202': {description: Webhook replay accepted}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/attachment-safety:
+    get:
+      tags: [Attachments, Administration]
+      operationId: listAttachmentSafety
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant attachment scan and quarantine state}
+  /api/v1/admin/attachment-safety/{attachmentId}/retry:
+    parameters:
+      - {$ref: '#/components/parameters/AttachmentId'}
+    post:
+      tags: [Attachments, Administration]
+      operationId: retryAttachmentScan
+      security: [{bearerAuth: []}]
+      responses:
+        '202': {description: Scan retry accepted}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/service/conversations:
+    get:
+      tags: [Service API]
+      operationId: listServiceConversations
+      security: [{serviceAccountAuth: []}]
+      x-required-scope: conversations:read
+      responses:
+        '200':
+          description: Active conversations visible to the service principal
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceConversationListResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/service/conversations/{conversation_id}/messages:
+    parameters:
+      - {name: conversation_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      tags: [Service API]
+      operationId: listServiceConversationMessages
+      security: [{serviceAccountAuth: []}]
+      x-required-scope: messages:read
+      parameters:
+        - {name: after_sequence, in: query, schema: {type: integer, minimum: 0}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        '200':
+          description: Membership-filtered durable message history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessagePage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Service API]
+      operationId: sendServiceConversationMessage
+      security: [{serviceAccountAuth: []}]
+      x-required-scope: messages:write
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ServiceSendMessageRequest'}
+      responses:
+        '200': {description: Existing canonical message returned for an idempotent replay}
+        '201': {description: Canonical message committed}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/service/search:
+    get:
+      tags: [Service API]
+      operationId: searchServiceMessages
+      security: [{serviceAccountAuth: []}]
+      x-required-scope: search:read
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 500}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: Search matches restricted to readable service-principal memberships
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ServiceSearchResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/ops:
+    get:
+      tags: [Operations]
+      operationId: getOperationsSnapshot
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Content-free tenant operations snapshot and provider state}
+  /api/v1/ops/retry:
+    post:
+      tags: [Operations]
+      operationId: retryOperationalResource
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RetryOperationalResourceRequest'}
+      responses:
+        '202': {description: Retry accepted}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/platform/ops:
+    get:
+      tags: [Operations]
+      operationId: getPlatformOperationsSnapshot
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: "Content-free global health snapshot for platform, support, and security operators"}
+        '403': {$ref: '#/components/responses/Error'}
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: K-Comms signed access token
+    metricsBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Dedicated metrics scraper token
+    serviceAccountAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: kcsa_<uuid>.<one-time-secret>
+      description: Dedicated service credential; never accepted on human, admin, platform, refresh, or WebSocket routes.
   parameters:
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     ConversationId:
       name: conversationId
       in: path
@@ -399,6 +1556,12 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    OptionalIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional replay key; a successful replay returns the existing resource and never reissues a one-time secret.
+      schema: {type: string, minLength: 1, maxLength: 200}
   responses:
     Error:
       description: Structured request failure
@@ -444,15 +1607,437 @@ components:
             id: {type: string, format: uuid}
             name: {type: string}
             platform: {type: string}
-    CreateUserRequest:
+    PasswordRecoveryRequest:
       type: object
       additionalProperties: false
-      required: [display_name, email, password]
+      required: [tenant_slug, email]
+      properties:
+        tenant_slug: {type: string, minLength: 1, maxLength: 80}
+        email: {type: string, format: email, maxLength: 320}
+    PasswordRecoveryAccepted:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status: {const: accepted}
+    PasswordRecoveryReset:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token: {type: string, minLength: 40, maxLength: 512}
+        new_password: {type: string, minLength: 12, maxLength: 256}
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
       properties:
         display_name: {type: string, minLength: 1, maxLength: 120}
         email: {type: string, format: email}
-        password: {type: string, minLength: 12, maxLength: 256}
-        role: {enum: [member, admin], default: member}
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string}
+        new_password: {type: string, minLength: 12, maxLength: 256}
+    VersionRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: {type: integer, minimum: 1}
+    ReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 3, maxLength: 1000}
+    UpdateAdminUserRequest:
+      type: object
+      additionalProperties: false
+      required: [version, reason]
+      properties:
+        role: {enum: [member, moderator, admin, compliance_admin, security_admin, owner]}
+        status: {enum: [active, suspended, deleted]}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        version: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 3, maxLength: 1000}
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: {type: string, format: email}
+        role: {enum: [member, moderator, admin, compliance_admin, security_admin], default: member}
+    CreateModerationCaseRequest:
+      type: object
+      additionalProperties: false
+      required: [category, summary]
+      anyOf:
+        - required: [subject_user_id]
+        - required: [conversation_id]
+        - required: [message_id]
+      properties:
+        subject_user_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        category: {type: string, minLength: 2, maxLength: 80}
+        summary: {type: string, minLength: 3, maxLength: 240}
+        details: {type: string, maxLength: 10000}
+        priority: {enum: [low, normal, high, urgent], default: normal}
+    CreateModerationActionRequest:
+      type: object
+      additionalProperties: false
+      required: [action_type, version]
+      allOf:
+        - if:
+            properties:
+              action_type: {const: assign}
+            required: [action_type]
+          then:
+            required: [assigned_to_user_id]
+      properties:
+        action_type: {enum: [note, assign, start_review, resolve, dismiss, reopen]}
+        assigned_to_user_id: {type: string, format: uuid}
+        note: {type: string, maxLength: 4000}
+        version: {type: integer, minimum: 1}
+    CreateRetentionPolicyRequest:
+      type: object
+      additionalProperties: false
+      required: [name, retention_days]
+      allOf:
+        - if:
+            required: [conversation_id]
+          then:
+            required: [scope_type]
+            properties:
+              scope_type: {const: conversation}
+        - if:
+            required: [scope_type]
+            properties:
+              scope_type: {const: conversation}
+          then:
+            required: [conversation_id]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 120}
+        scope_type: {enum: [tenant, conversation], default: tenant}
+        conversation_id: {type: string, format: uuid}
+        retention_days: {type: integer, minimum: 1, maximum: 36500}
+        delete_attachments: {type: boolean, default: true}
+        status: {enum: [active, disabled], default: active}
+    UpdateRetentionPolicyRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 120}
+        scope_type: {enum: [tenant, conversation]}
+        conversation_id: {type: [string, 'null'], format: uuid}
+        retention_days: {type: integer, minimum: 1, maximum: 36500}
+        delete_attachments: {type: boolean}
+        status: {enum: [active, disabled]}
+        version: {type: integer, minimum: 1}
+    CreateLegalHoldRequest:
+      type: object
+      additionalProperties: false
+      required: [name, reason, scope_type]
+      oneOf:
+        - properties:
+            scope_type: {const: tenant}
+          not:
+            anyOf:
+              - required: [subject_user_id]
+              - required: [conversation_id]
+        - required: [subject_user_id]
+          properties:
+            scope_type: {const: user}
+          not:
+            required: [conversation_id]
+        - required: [conversation_id]
+          properties:
+            scope_type: {const: conversation}
+          not:
+            required: [subject_user_id]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 160}
+        reason: {type: string, minLength: 3, maxLength: 4000}
+        scope_type: {enum: [tenant, user, conversation]}
+        subject_user_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+    ReleaseLegalHoldRequest:
+      type: object
+      additionalProperties: false
+      required: [version, release_reason]
+      properties:
+        version: {type: integer, minimum: 1}
+        release_reason: {type: string, minLength: 3, maxLength: 1000}
+    CreateDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [target_type, reason]
+      oneOf:
+        - required: [subject_user_id]
+          properties:
+            target_type: {const: user}
+          not:
+            anyOf:
+              - required: [conversation_id]
+              - required: [message_id]
+        - required: [conversation_id]
+          properties:
+            target_type: {const: conversation}
+          not:
+            anyOf:
+              - required: [subject_user_id]
+              - required: [message_id]
+        - required: [message_id]
+          properties:
+            target_type: {const: message}
+          not:
+            anyOf:
+              - required: [subject_user_id]
+              - required: [conversation_id]
+      properties:
+        target_type: {enum: [user, conversation, message]}
+        subject_user_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        reason: {type: string, minLength: 3, maxLength: 4000}
+        scheduled_for: {type: string, format: date-time}
+    TransitionDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [status, version, transition_reason]
+      properties:
+        status: {enum: [approved, rejected, cancelled]}
+        version: {type: integer, minimum: 1}
+        transition_reason: {type: string, minLength: 3, maxLength: 1000}
+        scheduled_for: {type: string, format: date-time}
+    CreateWebhookEndpointRequest:
+      type: object
+      additionalProperties: false
+      required: [name, url, event_types]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        url: {type: string, format: uri, pattern: '^https://', maxLength: 2048}
+        event_types:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {type: string, pattern: '^[a-z][a-z0-9_.-]{2,119}$'}
+    UpdateWebhookEndpointRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        url: {type: string, format: uri, pattern: '^https://', maxLength: 2048}
+        status: {enum: [active, disabled]}
+        event_types:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {type: string, pattern: '^[a-z][a-z0-9_.-]{2,119}$'}
+    RetryOperationalResourceRequest:
+      type: object
+      additionalProperties: false
+      required: [resource_type, id]
+      properties:
+        resource_type: {enum: [notification, webhook, attachment_scan]}
+        id: {type: string, format: uuid}
+    TenantSettings:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, allow_public_channels, message_edit_window_seconds, max_attachment_bytes, default_retention_days, max_active_users, max_active_conversations, max_conversation_members, version]
+      properties:
+        tenant_id: {type: string, format: uuid}
+        allow_public_channels: {type: boolean}
+        message_edit_window_seconds: {type: integer, minimum: 0}
+        max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
+        default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
+        max_active_users: {type: integer, minimum: 1, maximum: 1000000, default: 500}
+        max_active_conversations: {type: integer, minimum: 1, maximum: 10000000, default: 2000}
+        max_conversation_members: {type: integer, minimum: 2, maximum: 100000, default: 250}
+        version: {type: integer, minimum: 1}
+    TenantQuotaFlags:
+      type: object
+      additionalProperties: false
+      required: [active_users, active_conversations, conversation_members, any]
+      properties:
+        active_users: {type: boolean}
+        active_conversations: {type: boolean}
+        conversation_members: {type: boolean}
+        any: {type: boolean}
+    TenantQuotaUsage:
+      type: object
+      additionalProperties: false
+      required: [active_users, active_conversations, largest_conversation_members, limits, at_capacity, over_limit]
+      properties:
+        active_users: {type: integer, minimum: 0}
+        active_conversations: {type: integer, minimum: 0}
+        largest_conversation_members: {type: integer, minimum: 0}
+        limits:
+          type: object
+          additionalProperties: false
+          required: [max_active_users, max_active_conversations, max_conversation_members]
+          properties:
+            max_active_users: {type: integer, minimum: 1, maximum: 1000000}
+            max_active_conversations: {type: integer, minimum: 1, maximum: 10000000}
+            max_conversation_members: {type: integer, minimum: 2, maximum: 100000}
+        at_capacity: {$ref: '#/components/schemas/TenantQuotaFlags'}
+        over_limit: {$ref: '#/components/schemas/TenantQuotaFlags'}
+    TenantAdministrationResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [tenant, settings, usage]
+          properties:
+            tenant:
+              type: object
+              additionalProperties: false
+              required: [id, name, slug, status]
+              properties:
+                id: {type: string, format: uuid}
+                name: {type: string, minLength: 1, maxLength: 120}
+                slug: {type: string}
+                status: {enum: [active, suspended, deleting]}
+            settings: {$ref: '#/components/schemas/TenantSettings'}
+            usage: {$ref: '#/components/schemas/TenantQuotaUsage'}
+    UpdateTenantSettingsRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        allow_public_channels: {type: boolean}
+        message_edit_window_seconds: {type: integer, minimum: 0, maximum: 2592000}
+        max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
+        default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
+        max_active_users: {type: integer, minimum: 1, maximum: 1000000}
+        max_active_conversations: {type: integer, minimum: 1, maximum: 10000000}
+        max_conversation_members: {type: integer, minimum: 2, maximum: 100000}
+        version: {type: integer, minimum: 1}
+    ServiceAccountScope:
+      type: string
+      enum: [conversations:read, messages:read, messages:write, search:read]
+    AuditExportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        q: {type: string, maxLength: 200}
+        action: {type: string, maxLength: 200}
+        resource_type: {type: string, maxLength: 200}
+        actor_user_id: {type: string, format: uuid}
+        request_id: {type: string, maxLength: 200}
+        after: {type: string, format: date-time}
+        before: {type: string, format: date-time}
+        limit: {type: integer, minimum: 1, maximum: 5000, default: 1000}
+    ServiceAccount:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, user_id, device_id, name, credential_prefix, secret_hint, scopes, status, expires_at, last_rotated_at, version, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        user_id: {type: string, format: uuid}
+        device_id: {type: string, format: uuid}
+        name: {type: string, minLength: 1, maxLength: 120}
+        credential_prefix: {type: string, pattern: '^kcsa_[0-9a-fA-F-]{36}$'}
+        secret_hint: {type: string, minLength: 4, maxLength: 4}
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ServiceAccountScope'}
+        status: {enum: [active, revoked, expired]}
+        expires_at: {type: string, format: date-time}
+        last_used_at: {type: [string, 'null'], format: date-time}
+        last_rotated_at: {type: string, format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateServiceAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [name, scopes, reason]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 120}
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ServiceAccountScope'}
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to 90 days and cannot exceed one year from creation.
+        reason: {type: string, minLength: 3, maxLength: 1000}
+    VersionedReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [version, reason]
+      properties:
+        version: {type: integer, minimum: 1}
+        reason: {type: string, minLength: 3, maxLength: 1000}
+    ServiceAccountResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/ServiceAccount'}
+    ServiceAccountCredentialResponse:
+      allOf:
+        - {$ref: '#/components/schemas/ServiceAccountResponse'}
+        - type: object
+          required: [credential]
+          properties:
+            credential:
+              type: string
+              pattern: '^kcsa_[0-9a-fA-F-]{36}\.[A-Za-z0-9_-]{32,}$'
+              description: One-time value returned only by create or rotate.
+    ServiceAccountListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/ServiceAccount'}
+    ServiceSendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 65535}
+        reply_to_message_id: {type: [string, 'null'], format: uuid}
+        metadata: {type: object, maxProperties: 32}
+    ServiceConversationListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Conversation'}
+    ServiceSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
     CreateConversationRequest:
       type: object
       additionalProperties: false
@@ -465,6 +2050,72 @@ components:
           type: array
           uniqueItems: true
           items: {type: string, format: uuid}
+    Conversation:
+      type: object
+      required: [id, tenant_id, kind, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        kind: {enum: [direct, group, channel]}
+        title: {type: [string, 'null'], maxLength: 160}
+        visibility: {enum: [private, tenant]}
+        latest_sequence: {type: integer, minimum: 0}
+        archived_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    MembershipSummary:
+      type: object
+      additionalProperties: false
+      required: [id, role, joined_at, left_at, last_read_sequence, version]
+      properties:
+        id: {type: string, format: uuid}
+        role: {enum: [member, moderator, owner]}
+        joined_at: {type: string, format: date-time}
+        left_at: {type: [string, 'null'], format: date-time}
+        last_read_sequence: {type: integer, minimum: 0}
+        version: {type: integer, minimum: 1}
+    PublicChannel:
+      allOf:
+        - $ref: '#/components/schemas/Conversation'
+        - type: object
+          required: [joined, member_count, membership]
+          properties:
+            joined: {type: boolean}
+            member_count: {type: integer, minimum: 1}
+            membership:
+              anyOf:
+                - $ref: '#/components/schemas/MembershipSummary'
+                - type: 'null'
+    PublicChannelDiscoveryPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/PublicChannel'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [limit, has_more, next_cursor]
+          properties:
+            limit: {type: integer, minimum: 1, maximum: 100}
+            has_more: {type: boolean}
+            next_cursor: {type: [string, 'null']}
+    PublicChannelMembershipResponse:
+      type: object
+      additionalProperties: false
+      required: [data, replayed]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [conversation, membership]
+          properties:
+            conversation: {$ref: '#/components/schemas/Conversation'}
+            membership: {$ref: '#/components/schemas/MembershipSummary'}
+        replayed: {type: boolean}
     SendMessageRequest:
       type: object
       additionalProperties: false
@@ -472,6 +2123,11 @@ components:
       properties:
         body: {type: string, minLength: 1, maxLength: 65535}
         reply_to_message_id: {type: [string, 'null'], format: uuid}
+        mentioned_user_ids:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, format: uuid}
         attachment_ids:
           type: array
           maxItems: 20
@@ -480,15 +2136,24 @@ components:
         metadata: {type: object, maxProperties: 32}
     Message:
       type: object
-      required: [id, conversation_id, conversation_sequence, sender_user_id, client_message_id, status, inserted_at]
+      additionalProperties: false
+      required: [id, tenant_id, conversation_id, conversation_sequence, sender_user_id, sender_device_id, client_message_id, reply_to_message_id, thread_root_message_id, thread_reply_count, mentioned_user_ids, body, metadata, status, edited_at, deleted_at, inserted_at, attachments, reactions]
       properties:
         id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
         conversation_id: {type: string, format: uuid}
         conversation_sequence: {type: integer, minimum: 1}
         sender_user_id: {type: string, format: uuid}
         sender_device_id: {type: string, format: uuid}
         client_message_id: {type: string}
         reply_to_message_id: {type: [string, 'null'], format: uuid}
+        thread_root_message_id: {type: [string, 'null'], format: uuid}
+        thread_reply_count: {type: integer, minimum: 0}
+        mentioned_user_ids:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, format: uuid}
         body: {type: [string, 'null']}
         metadata: {type: object}
         status: {enum: [active, deleted, moderated]}
@@ -511,15 +2176,180 @@ components:
             has_more: {type: boolean}
             next_after_sequence: {type: [integer, 'null']}
             reset_required: {type: boolean}
+    MessageThreadResponse:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [root, replies, reply_count]
+          properties:
+            root: {$ref: '#/components/schemas/Message'}
+            replies:
+              type: array
+              items: {$ref: '#/components/schemas/Message'}
+            reply_count: {type: integer, minimum: 0}
+        page:
+          type: object
+          additionalProperties: false
+          required: [has_more, next_before_sequence]
+          properties:
+            has_more: {type: boolean}
+            next_before_sequence: {type: [integer, 'null'], minimum: 1}
+    InAppNotification:
+      type: object
+      additionalProperties: false
+      required: [id, event_type, title, body, conversation_id, message_id, action_url, read_at, inserted_at]
+      properties:
+        id: {type: string, format: uuid}
+        event_type: {type: string, minLength: 1, maxLength: 120}
+        title: {type: string}
+        body: {type: string}
+        conversation_id: {type: [string, 'null'], format: uuid}
+        message_id: {type: [string, 'null'], format: uuid}
+        action_url: {type: [string, 'null'], pattern: '^/app(?:[/?].*)?$'}
+        read_at: {type: [string, 'null'], format: date-time}
+        inserted_at: {type: string, format: date-time}
+    InAppNotificationResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/InAppNotification'}
+    InAppNotificationListResponse:
+      type: object
+      additionalProperties: false
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/InAppNotification'}
+        meta:
+          type: object
+          additionalProperties: false
+          required: [unread_count]
+          properties:
+            unread_count: {type: integer, minimum: 0}
+    InAppNotificationUnreadResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [unread_count]
+          properties:
+            unread_count: {type: integer, minimum: 0}
+    InAppNotificationBulkReadResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [updated_count, unread_count]
+          properties:
+            updated_count: {type: integer, minimum: 0}
+            unread_count: {type: integer, minimum: 0}
     AttachmentIntentRequest:
       type: object
       additionalProperties: false
-      required: [file_name, content_type, byte_size]
+      required: [file_name, content_type, byte_size, checksum_sha256]
       properties:
         file_name: {type: string, minLength: 1, maxLength: 255}
         content_type: {type: string, minLength: 1, maxLength: 120}
-        byte_size: {type: integer, minimum: 1, maximum: 25000000}
-        checksum_sha256: {type: [string, 'null'], pattern: '^[a-fA-F0-9]{64}$'}
+        byte_size: {type: integer, minimum: 1, maximum: 1073741824}
+        checksum_sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+    PresignDescriptor:
+      type: object
+      additionalProperties: false
+      required: [method, url, approved_origin, development_http, headers, expires_in]
+      properties:
+        method: {type: string, enum: [GET, PUT, DELETE]}
+        url: {type: string, format: uri}
+        approved_origin: {type: string, format: uri}
+        development_http: {type: boolean}
+        headers:
+          type: object
+          additionalProperties: {type: string}
+        expires_in: {type: integer, minimum: 1, maximum: 3600}
+    NotificationPreferences:
+      type: object
+      additionalProperties: false
+      properties:
+        email_enabled: {type: boolean}
+        push_enabled: {type: boolean}
+        in_app_enabled: {type: boolean}
+        muted_event_types:
+          type: array
+          uniqueItems: true
+          maxItems: 100
+          items: {type: string, minLength: 1, maxLength: 120}
+    PushSubscriptionRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [endpoint, keys]
+      properties:
+        endpoint: {type: string, format: uri, pattern: '^https://', maxLength: 2048}
+        expiration_time: {type: [integer, 'null'], format: int64, minimum: 1}
+        keys:
+          type: object
+          additionalProperties: false
+          required: [p256dh, auth]
+          properties:
+            p256dh: {type: string, pattern: '^[A-Za-z0-9_-]{87,88}$', maxLength: 128}
+            auth: {type: string, pattern: '^[A-Za-z0-9_-]{22}$', maxLength: 64}
+    PushSubscription:
+      type: object
+      additionalProperties: false
+      required: [id, device_id, endpoint_hint, status, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        device_id: {type: string, format: uuid}
+        endpoint_hint: {type: string, minLength: 1, maxLength: 255}
+        status: {enum: [active, revoked, expired, stale]}
+        expires_at: {type: [string, 'null'], format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+        stale_at: {type: [string, 'null'], format: date-time}
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    PushSubscriptionConfigResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [available, vapid_public_key]
+          properties:
+            available: {type: boolean}
+            vapid_public_key: {type: [string, 'null'], pattern: '^[A-Za-z0-9_-]{87,88}$'}
+    PushSubscriptionResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/PushSubscription'}
+    PushSubscriptionListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/PushSubscription'}
+    PushSubscriptionRegistrationResponse:
+      type: object
+      additionalProperties: false
+      required: [data, replayed]
+      properties:
+        data: {$ref: '#/components/schemas/PushSubscription'}
+        replayed: {type: boolean}
     TokenResponse:
       type: object
       required: [access_token, refresh_token, token_type, expires_in, tenant, user, device]
@@ -529,5 +2359,10 @@ components:
         token_type: {const: Bearer}
         expires_in: {type: integer, minimum: 1}
         tenant: {type: object}
-        user: {type: object}
+        user:
+          type: object
+          properties:
+            platform_role:
+              type: [string, 'null']
+              enum: [platform_operator, support_operator, security_operator, null]
         device: {type: object}

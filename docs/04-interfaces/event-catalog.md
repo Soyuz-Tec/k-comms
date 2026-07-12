@@ -3,15 +3,17 @@
 | Event type | Durable | Ordered scope | Typical consumers |
 |---|---:|---|---|
 | `message.created.v1` | Yes | Conversation | Clients, search, notifications, webhooks |
+| `mention.created.v1` | Yes | Message | Human-recipient notification fanout; IDs only, no body |
 | `message.updated.v1` | Yes | Conversation | Clients, search, audit |
 | `message.deleted.v1` | Yes | Conversation | Clients, search, retention |
 | `message.reaction_added.v1` | No | Conversation | Connected clients |
 | `message.reaction_removed.v1` | No | Conversation | Connected clients |
 | `conversation.created.v1` | Yes | Conversation | Audit and future projections |
-| `membership.changed.v1` | Yes | Conversation | Clients, authorization, audit |
+| `membership.changed.v1` | Yes | Conversation | Clients, authorization, audit; content-free administrative and self-service membership deltas |
 | `conversation.read.v1` | No | User/conversation | Connected clients, unread projections |
 | `presence_state` / `presence_diff` | No | Topic | Connected clients |
 | `typing.start` / `typing.stop` | No | Topic | Connected clients |
+| `notification.available.v1` | No | User | Content-free notification-center refresh |
 
 Durable message events are written to the transactional outbox. The AsyncAPI
 contract is canonical for client-visible payloads; durable event types require

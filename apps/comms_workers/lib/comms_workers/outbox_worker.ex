@@ -4,8 +4,9 @@ defmodule CommsWorkers.OutboxWorker do
   import Ecto.Query
 
   alias CommsCore.Events.OutboxEvent
+  alias CommsCore.Integrations
+  alias CommsCore.Notifications
   alias CommsCore.Repo
-  alias CommsIntegrations.Notifications
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"event_id" => event_id}}) do
@@ -17,13 +18,10 @@ defmodule CommsWorkers.OutboxWorker do
         :ok
 
       %OutboxEvent{} = event ->
-        payload =
-          event.payload
-          |> Map.put_new("tenant_id", event.tenant_id)
-          |> Map.put_new("event_type", event.event_type)
-
-        case Notifications.deliver(payload) do
-          :ok -> mark_published(event.id)
+        with :ok <- Notifications.enqueue_for_event(event),
+             :ok <- Integrations.enqueue_for_event(event) do
+          mark_published(event.id)
+        else
           {:error, reason} -> record_attempt(event.id, reason)
         end
     end

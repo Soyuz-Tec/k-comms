@@ -15,3 +15,49 @@ groups:
         annotations:
           summary: Durable work has been queued for more than five minutes
           runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+      - alert: KCommsDiscardedJobs
+        expr: k_comms_oban_jobs_discarded > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Durable jobs have reached a discarded terminal state
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+      - alert: KCommsOutboxBacklog
+        expr: k_comms_outbox_pending > 100
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Transactional outbox publication is falling behind
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+      - alert: KCommsAttachmentQuarantineBacklog
+        expr: k_comms_attachments_quarantined > 50
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: Attachment quarantine backlog requires provider or worker review
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/object-storage-failure.md
+      - alert: KCommsProviderDeliveryFailures
+        expr: k_comms_notification_failures + k_comms_webhook_failures > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Notification or webhook deliveries require provider review
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+      - alert: KCommsAttachmentScanFailures
+        expr: k_comms_attachment_scan_failures > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Attachment scanner failures are withholding downloads
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/object-storage-failure.md
+      - alert: KCommsAuthenticationFailureRatio
+        expr: |
+          sum(rate(k_comms_auth_failure_total[10m]))
+          /
+          clamp_min(sum(rate(k_comms_auth_failure_total[10m])) + sum(rate(k_comms_auth_success_total[10m])), 0.001)
+          > 0.25
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 25 percent of authentication attempts are failing
+          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/service-degradation.md

@@ -4,7 +4,7 @@ defmodule CommsWeb.MixProject do
   def project do
     [
       app: :comms_web,
-      version: "0.2.0",
+      version: "0.3.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
       deps_path: "../../deps",
@@ -31,7 +31,8 @@ defmodule CommsWeb.MixProject do
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.7"},
       {:bandit, "~> 1.8"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:sobelow, "0.14.1", only: [:dev, :test], runtime: false}
     ]
   end
 end

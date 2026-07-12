@@ -7,8 +7,20 @@ defmodule CommsCore.Accounts.User do
     field(:display_name, :string)
     field(:email, :string)
     field(:password_hash, :string, redact: true)
-    field(:role, Ecto.Enum, values: [:member, :admin, :owner], default: :member)
+    field(:account_type, Ecto.Enum, values: [:human, :service], default: :human)
+
+    field(:role, Ecto.Enum,
+      values: [:member, :moderator, :admin, :compliance_admin, :security_admin, :owner],
+      default: :member
+    )
+
     field(:status, Ecto.Enum, values: [:active, :suspended, :deleted], default: :active)
+
+    field(:platform_role, Ecto.Enum,
+      values: [:platform_operator, :support_operator, :security_operator]
+    )
+
+    field(:lock_version, :integer, default: 1)
     timestamps()
   end
 
@@ -20,8 +32,10 @@ defmodule CommsCore.Accounts.User do
       :display_name,
       :email,
       :password_hash,
+      :account_type,
       :role,
-      :status
+      :status,
+      :lock_version
     ])
     |> update_change(:email, &normalize_email/1)
     |> validate_required([
@@ -32,10 +46,23 @@ defmodule CommsCore.Accounts.User do
       :role,
       :status
     ])
+    |> check_constraint(:account_type, name: :users_account_type_allowed)
     |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/)
+    |> validate_change(:email, fn :email, email ->
+      if is_binary(email) and String.ends_with?(String.downcase(email), "@service.invalid"),
+        do: [email: "uses a reserved service-identity domain"],
+        else: []
+    end)
     |> validate_length(:display_name, min: 1, max: 120)
     |> unique_constraint([:tenant_id, :external_subject])
     |> unique_constraint(:email, name: :users_tenant_email_unique)
+  end
+
+  def platform_role_changeset(value, attrs) do
+    value
+    |> cast(attrs, [:platform_role])
+    |> validate_inclusion(:account_type, [:human])
+    |> check_constraint(:platform_role, name: :users_platform_role_allowed)
   end
 
   defp normalize_email(value) when is_binary(value),

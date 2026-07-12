@@ -4,9 +4,20 @@ metadata:
   name: k-comms-config
 data:
   PHX_HOST: comms.staging.example.invalid
+  PUBLIC_APP_URL: https://comms.staging.example.invalid
   CORS_ORIGINS: https://comms.staging.example.invalid
   HSTS_ENABLED: "true"
   CSP_CONNECT_SOURCES: "'self' wss://comms.staging.example.invalid https://comms.staging.example.invalid https://objects.staging.example.invalid"
   S3_PUBLIC_ENDPOINT: https://objects.staging.example.invalid
   S3_BUCKET: k-comms-staging
   MINIO_API_CORS_ALLOW_ORIGIN: https://comms.staging.example.invalid
+  # Portable staging uses content-free local qualification adapters. Replace
+  # these with the reviewed provider patch before any production promotion.
+  ALLOW_DEVELOPMENT_ADAPTERS: "true"
+  NOTIFICATION_PROVIDER_MODE: log
+  ATTACHMENT_SCANNER_MODE: allow_all
+  WEBHOOK_PROVIDER_MODE: log
+  WEBHOOK_ALLOWED_HOSTS: webhook.staging.example.invalid
+  # Public application-server key for the portable staging profile. The matching
+  # private VAPID key remains provider-owned and is never stored by K-Comms.
+  WEB_PUSH_VAPID_PUBLIC_KEY: BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo

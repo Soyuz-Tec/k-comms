@@ -38,11 +38,18 @@ spec:
           envFrom:
             - configMapRef:
                 name: k-comms-config
+            - secretRef:
+                name: k-comms-provider-secrets
+                optional: true
           env:
             - name: K_COMMS_ROLE
               value: worker
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: CLUSTER_DNS_QUERY
-              value: k-comms-cluster
+              value: k-comms-cluster.$(POD_NAMESPACE).svc.cluster.local
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -68,6 +75,11 @@ spec:
                 secretKeyRef:
                   name: k-comms-secrets
                   key: SECRET_KEY_BASE
+            - name: PASSWORD_RECOVERY_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: PASSWORD_RECOVERY_SIGNING_KEY
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -78,6 +90,30 @@ spec:
                 secretKeyRef:
                   name: k-comms-secrets
                   key: S3_SECRET_ACCESS_KEY
+            - name: WEBHOOK_SECRET_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: WEBHOOK_SECRET_ENCRYPTION_KEY
+                  optional: true
+            - name: WEBHOOK_SECRET_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: WEBHOOK_SECRET_ENCRYPTION_KEYS
+                  optional: true
+            - name: PUSH_SUBSCRIPTION_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: PUSH_SUBSCRIPTION_ENCRYPTION_KEY
+                  optional: true
+            - name: PUSH_SUBSCRIPTION_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: PUSH_SUBSCRIPTION_ENCRYPTION_KEYS
+                  optional: true
           ports:
             - name: epmd
               containerPort: 4369

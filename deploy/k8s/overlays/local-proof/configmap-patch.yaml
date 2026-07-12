@@ -4,9 +4,18 @@ metadata:
   name: k-comms-config
 data:
   PHX_HOST: comms.k-comms.test
-  CORS_ORIGINS: https://comms.k-comms.test
+  PUBLIC_APP_URL: https://comms.k-comms.test:8444
+  CORS_ORIGINS: https://comms.k-comms.test:8444,http://localhost:4187,http://127.0.0.1:4187
   HSTS_ENABLED: "true"
-  CSP_CONNECT_SOURCES: "'self' wss://comms.k-comms.test https://comms.k-comms.test https://objects.k-comms.test"
-  S3_PUBLIC_ENDPOINT: https://objects.k-comms.test
+  CSP_CONNECT_SOURCES: "'self' wss://comms.k-comms.test:8444 https://comms.k-comms.test:8444 https://objects.k-comms.test:8444 ws://localhost:4187 http://localhost:4187 ws://127.0.0.1:4187 http://127.0.0.1:4187"
+  S3_PUBLIC_ENDPOINT: https://objects.k-comms.test:8444
   S3_INTERNAL_ENDPOINT: http://minio:9000
-  MINIO_API_CORS_ALLOW_ORIGIN: https://comms.k-comms.test
+  MINIO_API_CORS_ALLOW_ORIGIN: https://comms.k-comms.test:8444
+  ALLOW_DEVELOPMENT_ADAPTERS: "true"
+  NOTIFICATION_PROVIDER_MODE: log
+  ATTACHMENT_SCANNER_MODE: allow_all
+  WEBHOOK_PROVIDER_MODE: log
+  WEBHOOK_ALLOWED_HOSTS: webhook.k-comms.test
+  # Non-secret qualification key; the local log adapter does not hold a VAPID
+  # private key or contact an external push provider.
+  WEB_PUSH_VAPID_PUBLIC_KEY: BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo

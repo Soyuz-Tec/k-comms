@@ -5,15 +5,31 @@
   "additionalProperties": false,
   "required": [
     "id",
+    "tenant_id",
     "conversation_id",
     "conversation_sequence",
     "sender_user_id",
+    "sender_device_id",
     "client_message_id",
+    "reply_to_message_id",
+    "thread_root_message_id",
+    "thread_reply_count",
+    "mentioned_user_ids",
+    "body",
+    "metadata",
     "status",
-    "inserted_at"
+    "edited_at",
+    "deleted_at",
+    "inserted_at",
+    "attachments",
+    "reactions"
   ],
   "properties": {
     "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
       "type": "string",
       "format": "uuid"
     },
@@ -41,6 +57,23 @@
     "reply_to_message_id": {
       "type": ["string", "null"],
       "format": "uuid"
+    },
+    "thread_root_message_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "thread_reply_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "mentioned_user_ids": {
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
     },
     "body": {
       "type": ["string", "null"]

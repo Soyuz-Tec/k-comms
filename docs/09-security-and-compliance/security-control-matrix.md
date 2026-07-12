@@ -1,14 +1,28 @@
-# Security Control Matrix
+# K-Comms 0.3.0 Security Control Matrix
 
-| Control area | Objective | Proposed implementation | Evidence | Owner | Status |
-|---|---|---|---|---|---|
-| Authentication | Verify user/device identity | OIDC, MFA/passkeys option, short-lived access tokens, refresh rotation | Auth test suite and IdP config | Identity | Draft |
-| Authorization | Prevent unauthorized operations | Tenant context, policy module, per-command membership checks | Negative tests and code review | Domain/Security | Draft |
-| Tenant isolation | Prevent cross-tenant data access | Scoped queries, composite constraints, optional RLS, storage prefixes | Isolation test pack | Data/Security | Draft |
-| Encryption in transit | Protect network data | TLS externally and internally where applicable | Scanner/config evidence | Platform | Draft |
-| Encryption at rest | Protect stored data and backups | Managed database/storage encryption and key policy | Cloud/KMS evidence | Platform/Security | Draft |
-| Secret management | Prevent secret disclosure | Managed secret store, rotation, no image/source embedding | Rotation test | Platform | Draft |
-| Audit | Record privileged and security-relevant actions | Append-oriented audit events and restricted access | Audit queries and retention | Compliance | Draft |
-| Abuse prevention | Bound malicious/accidental load | IP/user/device/tenant quotas and payload limits | Abuse/load tests | Security/SRE | Draft |
-| Secure delivery | Detect vulnerable code/artifacts | SAST, dependency, secret, image, and IaC scanning | CI reports | AppSec | Draft |
-| Incident response | Contain and learn from events | Security runbooks, evidence preservation, notification workflow | Exercise report | Security | Draft |
+**Status:** Current implementation record. `Implemented` means the repository
+contains and tests the control. `Partial` means the application baseline exists
+but an environment, provider, or independent-review gate remains. `Production
+pending` means the control cannot be claimed from the local proof.
+
+| Control area | Implemented baseline and evidence | Residual gate | Owner | Status |
+|---|---|---|---|---|
+| Human authentication | Password hashing, identical public recovery response padded to a 500 ms minimum plus 0–50 ms jitter, short-lived access tokens, hashed rotating refresh tokens, device/session binding, and revocation tests | OIDC, MFA/passkeys, production anomaly detection, and statistical recovery-timing review through the real ingress remain outside the verified 0.3.0 baseline | Identity/Security | Partial |
+| Service authentication | Separate `kcsa_` credentials, hash-only storage, scopes, expiry, rotation/revocation, membership checks, and human-route denial tests | Production credential distribution and rotation rehearsal | Identity/Integrations | Partial |
+| Authorization and tenant isolation | Explicit tenant/actor context, active-state and membership checks, role separation, composite constraints, server-side recent step-up for sensitive mutations, negative tests, and content-blind platform views | Sealed exact-commit Codex Security evidence and production-composition authorization review are promotion gates | Domain/Security | Partial |
+| Privileged administration | Server-side recent session step-up for lifecycle, tenant settings, integrations, attachment safety, moderation, audit, governance, service accounts, and controlled platform-role operations; reasons, optimistic versions, and audit events where defined | Platform-role expiry/JIT approval is not implemented; independent review remains required | Identity/Security | Partial |
+| Encryption in transit | HTTPS origins, TLS ingress manifests, HSTS/CSP, HTTPS-only provider adapters, pinned TLS hostname verification | Approved public/internal certificate topology and internal service encryption evidence | Platform/Security | Partial |
+| Encryption at rest | Context-bound AES-256-GCM for webhook secrets and push subscriptions; provider requirements for database, object, and backup encryption | Managed KMS/key policy, storage encryption evidence, and recovery after key rotation | Platform/Security | Production pending |
+| Secret management | No secrets in images/source, validated ignored env inventories, Kubernetes Secret references, versioned application keyrings, and short-lived operation secrets | External secret manager, access policy, automated rotation, and production readback evidence | Platform/Security | Partial |
+| Attachment safety | Signed checksum and version identity, quarantine-first workflow, exact-version scanner/download/delete, retry ledger, malicious/stale-object tests, and guarded integrated restored-version remap proof | Approved scanner/object provider, outage behavior, and provider-native recovery qualification | Security/Media | Partial |
+| Outbound request safety | Explicit DNS allowlists, HTTPS port 443, public-address checks, DNS-to-IP pinning, bounded responses, and egress policies | Provider-specific egress review and monitored DNS/provider change process | Platform/Security | Partial |
+| Audit and governance | Append-oriented audit events, restricted step-up reads, bounded neutralized CSV, moderation, retention, legal hold, and deletion evidence tests | Production retention, immutable export storage, compliance approval, and administrator-level database controls | Compliance/Security | Partial |
+| Abuse prevention | Payload limits, authentication/account buckets, tenant admission quotas, trusted-proxy CIDR and spoof-resistance tests, production auth-ingress connection/rate/burst limits, bounded search/listing, reconnect control, and local load tests | Provider-specific globally distributed edge semantics/load proof, large-room/reconnect-storm capacity, and abuse monitoring | Security/SRE | Partial |
+| Privacy and logging | Server-readable content is excluded from ordinary structured logs; one-time credentials and recovery intents are redacted from list/ops APIs; redaction tests exist | Production log/trace sampling, DLP policy, data processing approval, and provider privacy review | Privacy/SRE | Partial |
+| Secure software delivery | Locked dependencies, 23 SHA-pinned GitHub Action uses, formatting, warnings-as-errors, unit/browser/contract/docs tests, Sobelow, dependency audits, Trivy filesystem vulnerability/secret, IaC and image gates, CodeQL JavaScript/TypeScript, non-root OCI runtime, digest-pinned build/data/qualification inputs, and semantic manifest checks | Sealed exact-commit Codex Security evidence, provenance/signature, owner license decision, and production registry policy are separate promotion gates | AppSec/Release | Partial |
+| Backup and recovery | Restricted checksummed quiesced PostgreSQL/object backup, isolated restore, fail-closed guarded exact-version remap, audit evidence, restored UI visibility, and authenticated SHA-256-matching attachment download | Independent backup retention, managed PITR, provider-native recovery rehearsal, and approved RPO/RTO | Data/Platform/Security | Partial |
+| Incident response | Security contact/process documents and content-blind operational read models | Staffed ownership, alert routing, evidence-retention exercise, breach workflow, and game day | Security/SRE | Production pending |
+
+The independent security review and every production-pending row are release
+inputs. They must not be replaced by a general statement that CI or the local
+staging proof is a complete security assessment.

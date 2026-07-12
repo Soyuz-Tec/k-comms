@@ -59,4 +59,14 @@ defmodule CommsTestSupport.Fixtures do
       overrides
     )
   end
+
+  def step_up(account, subject \\ nil) do
+    subject = subject || subject(account)
+    suffix = account.tenant.slug |> String.split("-") |> List.last()
+
+    {:ok, _session} =
+      Accounts.step_up(%{current_password: "correct-horse-battery-#{suffix}"}, subject)
+
+    subject
+  end
 end

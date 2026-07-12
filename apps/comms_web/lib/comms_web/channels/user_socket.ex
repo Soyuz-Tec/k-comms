@@ -2,6 +2,7 @@ defmodule CommsWeb.UserSocket do
   use Phoenix.Socket
 
   channel("conversation:*", CommsWeb.ConversationChannel)
+  channel("user:*", CommsWeb.UserChannel)
 
   @impl true
   def connect(params, socket, connect_info) do

@@ -3,6 +3,7 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
 
   test "bootstrap, send, replay, idempotency, and logout form a runnable journey" do
     suffix = System.unique_integer([:positive, :monotonic])
+    owner_password = "correct-horse-battery-#{suffix}"
 
     response =
       build_conn()
@@ -11,7 +12,7 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
         tenant_slug: "web-test-#{suffix}",
         display_name: "Owner",
         email: "owner-#{suffix}@example.test",
-        password: "correct-horse-battery-#{suffix}"
+        password: owner_password
       })
       |> json_response(201)
 
@@ -23,13 +24,24 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
 
     member_password = "correct-member-password-#{suffix}"
 
-    member =
+    authenticated_conn(token)
+    |> post("/api/v1/me/step-up", %{current_password: owner_password})
+    |> json_response(200)
+
+    invitation =
       authenticated_conn(token)
-      |> post("/api/v1/users", %{
-        display_name: "Member",
+      |> post("/api/v1/admin/invitations", %{
         email: "member-#{suffix}@example.test",
-        password: member_password,
         role: "member"
+      })
+      |> json_response(201)
+
+    member =
+      build_conn()
+      |> post("/api/v1/invitations/accept", %{
+        token: invitation["invitation_token"],
+        display_name: "Member",
+        password: member_password
       })
       |> json_response(201)
 
@@ -65,7 +77,7 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
              email: "forbidden-#{suffix}@example.test",
              password: "forbidden-user-password-#{suffix}"
            })
-           |> response(403)
+           |> response(404)
 
     checksum = String.duplicate("a", 64)
 
@@ -81,14 +93,32 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
 
     assert attachment["upload"]["method"] == "PUT"
 
-    completed_attachment =
+    uploaded_attachment =
       authenticated_conn(token)
       |> post("/api/v1/attachments/#{attachment["data"]["id"]}/complete", %{
         checksum_sha256: checksum
       })
       |> json_response(200)
 
+    assert uploaded_attachment["data"]["status"] == "uploaded"
+    assert uploaded_attachment["data"]["scan_status"] == "pending"
+
+    {:ok, scanning} = CommsCore.Attachments.claim_scan(attachment["data"]["id"])
+
+    {:ok, _ready} =
+      CommsCore.Attachments.record_scan(
+        scanning,
+        {:ok, %{verdict: :clean, provider: "controller-test"}}
+      )
+
+    completed_attachment =
+      authenticated_conn(token)
+      |> get("/api/v1/attachments/#{attachment["data"]["id"]}")
+      |> json_response(200)
+
     assert completed_attachment["data"]["status"] == "ready"
+    assert completed_attachment["data"]["scan_status"] == "clean"
+    assert completed_attachment["download"]["method"] == "GET"
 
     first =
       authenticated_conn(token)

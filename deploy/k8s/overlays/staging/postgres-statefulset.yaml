@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: docker.io/library/postgres:17.10-alpine
+          image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
           imagePullPolicy: IfNotPresent
           env:
             - name: POSTGRES_USER

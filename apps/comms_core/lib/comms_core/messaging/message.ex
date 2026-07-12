@@ -7,6 +7,7 @@ defmodule CommsCore.Messaging.Message do
     belongs_to(:sender_user, CommsCore.Accounts.User)
     belongs_to(:sender_device, CommsCore.Accounts.Device)
     belongs_to(:reply_to_message, __MODULE__)
+    belongs_to(:thread_root_message, __MODULE__)
     field(:client_message_id, :string)
     field(:conversation_sequence, :integer)
     field(:body, :string)
@@ -16,6 +17,8 @@ defmodule CommsCore.Messaging.Message do
     field(:deleted_at, :utc_datetime_usec)
     has_many(:attachments, CommsCore.Attachments.Attachment)
     has_many(:reactions, CommsCore.Messaging.Reaction)
+    has_many(:mentions, CommsCore.Messaging.MessageMention)
+    field(:thread_reply_count, :integer, virtual: true, default: 0)
     timestamps(updated_at: false)
   end
 
@@ -27,6 +30,7 @@ defmodule CommsCore.Messaging.Message do
       :sender_user_id,
       :sender_device_id,
       :reply_to_message_id,
+      :thread_root_message_id,
       :client_message_id,
       :conversation_sequence,
       :body,

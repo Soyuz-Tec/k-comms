@@ -1,0 +1,290 @@
+defmodule CommsCore.ModerationAndGovernanceTest do
+  use CommsCore.DataCase, async: false
+
+  alias CommsCore.{Accounts, Governance, Messaging, Moderation}
+  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Repo
+  alias CommsTestSupport.Fixtures
+
+  test "members report idempotently and moderators resolve with version checks" do
+    account = Fixtures.account_fixture()
+    member = Fixtures.user_fixture(account)
+    owner_subject = Fixtures.step_up(account)
+
+    assert {:ok, conversation} =
+             CommsCore.Conversations.create(
+               %{
+                 title: "Safety",
+                 kind: "group",
+                 member_ids: [member.user.id]
+               },
+               owner_subject
+             )
+
+    member_subject = authenticated_subject(account, member.user, "member-browser")
+
+    attrs = %{
+      conversation_id: conversation.id,
+      subject_user_id: account.user.id,
+      category: "harassment",
+      summary: "Repeated unwanted messages",
+      details: "Reported through the in-product safety workflow",
+      idempotency_key: "report-001"
+    }
+
+    assert {:ok, first} = Moderation.create_case(attrs, member_subject)
+    assert first.replayed == false
+    assert {:ok, replay} = Moderation.create_case(attrs, member_subject)
+    assert replay.replayed == true
+    assert replay.case.id == first.case.id
+
+    assert {:error, :forbidden} = Moderation.list_cases(%{}, member_subject)
+    assert {:ok, [_]} = Moderation.list_cases(%{status: "open"}, owner_subject)
+
+    assert {:ok, result} =
+             Moderation.add_action(
+               first.case.id,
+               %{version: 1, action_type: "resolve", note: "Reviewed and resolved"},
+               owner_subject
+             )
+
+    assert result.case.status == :resolved
+    assert result.case.lock_version == 2
+    assert result.action.action_type == :resolve
+
+    assert {:error, :stale_version} =
+             Moderation.add_action(
+               first.case.id,
+               %{version: 1, action_type: "reopen"},
+               owner_subject
+             )
+  end
+
+  test "legal holds block deletion completion until released" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    deletion_target = Fixtures.user_fixture(account)
+
+    assert {:ok, policy_result} =
+             Governance.create_retention_policy(
+               %{
+                 name: "Default retention",
+                 scope_type: "tenant",
+                 retention_days: 365,
+                 delete_attachments: false,
+                 idempotency_key: "retention-001"
+               },
+               subject
+             )
+
+    assert policy_result.policy.retention_days == 365
+    assert policy_result.policy.delete_attachments == false
+
+    assert {:ok, policy_replay} =
+             Governance.create_retention_policy(
+               %{
+                 name: "Default retention",
+                 scope_type: "tenant",
+                 retention_days: 365,
+                 delete_attachments: false,
+                 idempotency_key: "retention-001"
+               },
+               subject
+             )
+
+    assert policy_replay.replayed
+
+    assert {:error, :reason_required} =
+             Governance.update_retention_policy(
+               policy_result.policy.id,
+               %{version: policy_result.policy.lock_version, status: "disabled"},
+               subject
+             )
+
+    assert {:ok, disabled_policy} =
+             Governance.update_retention_policy(
+               policy_result.policy.id,
+               %{
+                 version: policy_result.policy.lock_version,
+                 status: "disabled",
+                 reason: "Workspace retention policy paused for review"
+               },
+               subject
+             )
+
+    assert disabled_policy.status == :disabled
+
+    retention_audit =
+      Repo.get_by!(AuditEvent,
+        action: "retention_policy.update",
+        resource_id: disabled_policy.id
+      )
+
+    assert (retention_audit.metadata["reason"] || retention_audit.metadata[:reason]) ==
+             "Workspace retention policy paused for review"
+
+    assert {:ok, hold_result} =
+             Governance.create_legal_hold(
+               %{
+                 name: "Investigation hold",
+                 reason: "Preserve evidence for an active investigation",
+                 scope_type: "user",
+                 subject_user_id: deletion_target.user.id,
+                 idempotency_key: "hold-001"
+               },
+               subject
+             )
+
+    assert {:ok, request_result} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "user",
+                 subject_user_id: deletion_target.user.id,
+                 reason: "Verified account deletion request",
+                 idempotency_key: "delete-001"
+               },
+               subject
+             )
+
+    request = request_result.request
+
+    assert {:ok, _approved} =
+             Governance.transition_deletion_request(
+               request.id,
+               %{version: 1, status: "approved", transition_reason: "Deletion request verified"},
+               subject
+             )
+
+    assert {:error, :legal_hold_active} =
+             Governance.claim_deletion_request(
+               request.id,
+               :"Elixir.CommsWorkers.DeletionWorker"
+             )
+
+    assert {:ok, released} =
+             Governance.release_legal_hold(
+               hold_result.hold.id,
+               %{version: hold_result.hold.lock_version, release_reason: "Investigation closed"},
+               subject
+             )
+
+    assert released.status == :released
+
+    assert {:ok, claim} =
+             Governance.claim_deletion_request(
+               request.id,
+               :"Elixir.CommsWorkers.DeletionWorker"
+             )
+
+    assert claim.request.status == :in_progress
+
+    assert {:error, :invalid_status} =
+             Governance.transition_deletion_request(
+               request.id,
+               %{
+                 version: claim.request.lock_version,
+                 status: "completed",
+                 transition_reason: "Client must not certify completion"
+               },
+               subject
+             )
+
+    assert {:ok, completion} =
+             Governance.complete_deletion_request(
+               request.id,
+               claim.request.lock_version,
+               %{deleted_object_count: 0},
+               :"Elixir.CommsWorkers.DeletionWorker"
+             )
+
+    assert completion.request.status == :completed
+
+    assert (completion.request.evidence[:executor] || completion.request.evidence["executor"]) ==
+             "CommsWorkers.DeletionWorker"
+  end
+
+  test "governance targets cannot cross tenants" do
+    account = Fixtures.account_fixture()
+    other = Fixtures.account_fixture()
+
+    assert {:error, :invalid_governance_target} =
+             Governance.create_legal_hold(
+               %{
+                 name: "Invalid hold",
+                 reason: "Attempted cross-tenant target",
+                 scope_type: "user",
+                 subject_user_id: other.user.id
+               },
+               Fixtures.step_up(account)
+             )
+  end
+
+  test "a user legal hold blocks deletion of that user's message" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, message} =
+             Messaging.accept_message(
+               %{
+                 tenant_id: account.tenant.id,
+                 conversation_id: account.conversation.id,
+                 sender_user_id: account.user.id,
+                 sender_device_id: account.device.id,
+                 client_message_id: "held-message-#{System.unique_integer([:positive])}",
+                 body: "preserved evidence"
+               },
+               subject
+             )
+
+    assert {:ok, _hold} =
+             Governance.create_legal_hold(
+               %{
+                 name: "User evidence hold",
+                 reason: "Preserve all content authored by this user",
+                 scope_type: "user",
+                 subject_user_id: account.user.id
+               },
+               subject
+             )
+
+    assert {:ok, request_result} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "message",
+                 message_id: message.id,
+                 reason: "Requested message deletion"
+               },
+               subject
+             )
+
+    assert {:ok, _approved} =
+             Governance.transition_deletion_request(
+               request_result.request.id,
+               %{
+                 version: request_result.request.lock_version,
+                 status: "approved",
+                 transition_reason: "Request identity verified"
+               },
+               subject
+             )
+
+    assert {:error, :legal_hold_active} =
+             Governance.claim_deletion_request(
+               request_result.request.id,
+               :"Elixir.CommsWorkers.DeletionWorker"
+             )
+  end
+
+  defp authenticated_subject(account, user, device_name) do
+    password_suffix = user.email |> String.split(["member-", "@"], trim: true) |> hd()
+    password = "correct-horse-battery-#{password_suffix}"
+
+    {:ok, result} =
+      Accounts.authenticate(account.tenant.slug, user.email, password, %{
+        name: device_name,
+        platform: "test"
+      })
+
+    Accounts.subject_for_session(result.session)
+  end
+end

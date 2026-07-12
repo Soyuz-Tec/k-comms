@@ -1,6 +1,8 @@
 defmodule CommsIntegrations.Notifications do
-  @callback deliver(map()) :: :ok | {:error, term()}
+  @callback deliver(map()) :: :ok | {:ok, map()} | {:error, term()}
+  @callback status() :: map()
   def deliver(payload), do: adapter().deliver(payload)
+  def status, do: adapter().status()
 
   defp adapter,
     do:

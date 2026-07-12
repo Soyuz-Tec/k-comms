@@ -2,6 +2,7 @@ defmodule CommsCore.MessagingTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Administration
   alias CommsCore.Conversations.Membership
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Messaging
@@ -131,7 +132,7 @@ defmodule CommsCore.MessagingTest do
     assert %Oban.Job{} =
              Repo.get_by(Oban.Job,
                worker: "CommsWorkers.OutboxWorker",
-               args: %{"event_id" => outbox.id}
+               args: %{"event_id" => outbox.id, "tenant_id" => account.tenant.id}
              )
 
     assert 1 ==
@@ -188,5 +189,32 @@ defmodule CommsCore.MessagingTest do
     assert {:ok, deleted} = Messaging.delete_message(message.id, subject)
     assert deleted.status == :deleted
     assert is_nil(deleted.body)
+  end
+
+  test "tenant edit-window policy is enforced for message authors" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, message} =
+             Messaging.accept_message(
+               %{
+                 tenant_id: account.tenant.id,
+                 conversation_id: account.conversation.id,
+                 sender_user_id: account.user.id,
+                 sender_device_id: account.device.id,
+                 client_message_id: "edit-window-policy-message",
+                 body: "immutable after policy change"
+               },
+               subject
+             )
+
+    assert {:ok, _settings} =
+             Administration.update_tenant_settings(
+               %{version: 1, message_edit_window_seconds: 0},
+               subject
+             )
+
+    assert {:error, :edit_window_expired} =
+             Messaging.edit_message(message.id, "must be rejected", subject)
   end
 end

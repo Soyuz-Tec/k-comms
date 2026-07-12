@@ -66,6 +66,10 @@ done
 common_env=(
   --env "DATABASE_URL=ecto://postgres:postgres@${postgres}:5432/k_comms_smoke"
   --env "SECRET_KEY_BASE=${secret_key_base}"
+  --env "PUBLIC_APP_URL=https://localhost"
+  --env "PASSWORD_RECOVERY_SIGNING_KEY=container-smoke-password-recovery-signing-key-32-bytes"
+  --env "PUSH_SUBSCRIPTION_ENCRYPTION_KEY=push-subscription-test-key-32byt"
+  --env "WEB_PUSH_VAPID_PUBLIC_KEY=BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
   --env "PHX_HOST=localhost"
   --env "PORT=4000"
   --env "K_COMMS_ROLE=all"
@@ -120,6 +124,13 @@ fi
   http://127.0.0.1:4000/health/ready >/dev/null
 "${engine}" exec "${app}" curl --fail --silent --show-error \
   http://127.0.0.1:4000/app/index.html >/dev/null
+"${engine}" exec "${app}" sh -lc '
+  curl --fail --silent --show-error --dump-header /tmp/k-comms-sw.headers \
+    --output /tmp/k-comms-sw.js http://127.0.0.1:4000/app/k-comms-sw.js
+  grep -Eiq "^content-type: (text|application)/javascript" /tmp/k-comms-sw.headers
+  grep -Fq "safeActionUrl" /tmp/k-comms-sw.js
+  ! grep -Eiq "<!doctype html|<html" /tmp/k-comms-sw.js
+'
 
 bootstrap_payload='{"tenant_name":"Container Smoke","tenant_slug":"container-smoke","display_name":"Smoke Owner","email":"owner@container-smoke.test","password":"correct-horse-battery-smoke"}'
 bootstrap_response="$("${engine}" exec "${app}" curl --fail-with-body --silent --show-error \

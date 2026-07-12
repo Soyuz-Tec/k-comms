@@ -1,5 +1,60 @@
 defmodule CommsWorkers.WebhookWorker do
   use Oban.Worker, queue: :webhooks, max_attempts: 12
+
+  alias CommsCore.Integrations
+  alias CommsCore.Integrations.WebhookDelivery
+  alias CommsIntegrations.Webhooks
+
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}), do: CommsIntegrations.Webhooks.deliver(args)
+  def perform(%Oban.Job{args: %{"delivery_id" => delivery_id}}) do
+    case Integrations.claim_delivery(delivery_id) do
+      {:ok, {:already_delivered, _delivery}} ->
+        :ok
+
+      {:ok, %WebhookDelivery{} = delivery} ->
+        with {:ok, request} <- Integrations.delivery_request(delivery) do
+          result = Webhooks.deliver(request)
+
+          case Integrations.record_delivery(delivery, result) do
+            {:ok, _updated} -> worker_result(result)
+            {:error, :stale_delivery_claim} -> :ok
+            {:error, reason} -> {:error, safe_reason(reason)}
+          end
+        else
+          {:error, reason} -> record_internal_failure(delivery, reason)
+        end
+
+      {:error, :not_found} ->
+        {:discard, :delivery_not_found}
+
+      {:error, :endpoint_disabled} ->
+        {:discard, :endpoint_disabled}
+
+      {:error, :not_claimable} ->
+        {:snooze, 30}
+
+      {:error, reason} ->
+        {:error, safe_reason(reason)}
+    end
+  end
+
+  def perform(_), do: {:discard, :delivery_id_required}
+
+  defp record_internal_failure(delivery, reason) do
+    result = {:error, safe_reason(reason)}
+
+    case Integrations.record_delivery(delivery, result) do
+      {:ok, _updated} -> {:error, safe_reason(reason)}
+      {:error, :stale_delivery_claim} -> :ok
+      {:error, record_reason} -> {:error, safe_reason(record_reason)}
+    end
+  end
+
+  defp worker_result(:ok), do: :ok
+  defp worker_result({:ok, _}), do: :ok
+  defp worker_result({:error, :permanent, reason}), do: {:discard, safe_reason(reason)}
+  defp worker_result({:error, reason}), do: {:error, safe_reason(reason)}
+  defp safe_reason(reason) when is_atom(reason), do: reason
+  defp safe_reason({kind, status}) when is_atom(kind) and is_integer(status), do: {kind, status}
+  defp safe_reason(_), do: :provider_error
 end

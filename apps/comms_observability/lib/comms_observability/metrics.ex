@@ -22,7 +22,14 @@ defmodule CommsObservability.Metrics do
 
   def record(_event, _measurements), do: :ok
 
-  def render(queue_age_seconds \\ 0) do
+  def render(gauges \\ %{})
+
+  def render(queue_age_seconds) when is_number(queue_age_seconds),
+    do: render(%{queue_age_seconds: queue_age_seconds})
+
+  def render(gauges) when is_map(gauges) do
+    queue_age_seconds = Map.get(gauges, :queue_age_seconds, 0)
+
     lines = [
       "# HELP k_comms_auth_success_total Successful session authentications.",
       "# TYPE k_comms_auth_success_total counter",
@@ -45,7 +52,34 @@ defmodule CommsObservability.Metrics do
       "k_comms_message_commit_duration_seconds_count #{value(:message_commit_count)}",
       "# HELP k_comms_oban_queue_age_seconds Age of the oldest runnable durable job.",
       "# TYPE k_comms_oban_queue_age_seconds gauge",
-      "k_comms_oban_queue_age_seconds #{queue_age_seconds}"
+      "k_comms_oban_queue_age_seconds #{queue_age_seconds}",
+      "# HELP k_comms_oban_jobs_pending Runnable or retryable durable jobs.",
+      "# TYPE k_comms_oban_jobs_pending gauge",
+      "k_comms_oban_jobs_pending #{Map.get(gauges, :jobs_pending, 0)}",
+      "# HELP k_comms_oban_jobs_discarded Discarded durable jobs requiring review.",
+      "# TYPE k_comms_oban_jobs_discarded gauge",
+      "k_comms_oban_jobs_discarded #{Map.get(gauges, :jobs_discarded, 0)}",
+      "# HELP k_comms_outbox_pending Unpublished transactional outbox events.",
+      "# TYPE k_comms_outbox_pending gauge",
+      "k_comms_outbox_pending #{Map.get(gauges, :outbox_pending, 0)}",
+      "# HELP k_comms_attachments_quarantined Attachments awaiting or failing safety approval.",
+      "# TYPE k_comms_attachments_quarantined gauge",
+      "k_comms_attachments_quarantined #{Map.get(gauges, :attachments_quarantined, 0)}",
+      "# HELP k_comms_notification_failures Durable notification intents in failed state.",
+      "# TYPE k_comms_notification_failures gauge",
+      "k_comms_notification_failures #{Map.get(gauges, :notification_failures, 0)}",
+      "# HELP k_comms_webhook_failures Durable webhook deliveries in failed state.",
+      "# TYPE k_comms_webhook_failures gauge",
+      "k_comms_webhook_failures #{Map.get(gauges, :webhook_failures, 0)}",
+      "# HELP k_comms_attachment_scan_failures Attachments with a failed scanner attempt.",
+      "# TYPE k_comms_attachment_scan_failures gauge",
+      "k_comms_attachment_scan_failures #{Map.get(gauges, :attachment_scan_failures, 0)}",
+      "# HELP k_comms_beam_process_count Current BEAM process count.",
+      "# TYPE k_comms_beam_process_count gauge",
+      "k_comms_beam_process_count #{:erlang.system_info(:process_count)}",
+      "# HELP k_comms_beam_memory_bytes Total memory allocated by the BEAM runtime.",
+      "# TYPE k_comms_beam_memory_bytes gauge",
+      "k_comms_beam_memory_bytes #{:erlang.memory(:total)}"
     ]
 
     Enum.join(lines ++ buckets ++ tail, "\n") <> "\n"

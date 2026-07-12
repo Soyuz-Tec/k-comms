@@ -83,9 +83,6 @@ function readConfiguration(env = process.env) {
   const tenantSlug = requiredEnv(env, "K_COMMS_TENANT_SLUG");
   const ownerEmail = requiredEnv(env, "K_COMMS_OWNER_EMAIL");
   const ownerPassword = requiredEnv(env, "K_COMMS_OWNER_PASSWORD");
-  const conversationId = env.K_COMMS_CONVERSATION_ID?.trim() || null;
-  if (conversationId) assertUuid(conversationId, "K_COMMS_CONVERSATION_ID");
-
   return {
     baseUrl,
     objectUrl,
@@ -93,7 +90,7 @@ function readConfiguration(env = process.env) {
     tenantSlug,
     ownerEmail,
     ownerPassword,
-    conversationId,
+    conversationId: null,
     timeoutMs: parseTimeout(env.K_COMMS_TIMEOUT_MS),
     attachmentByteSize: parseAttachmentBytes(env.K_COMMS_ATTACHMENT_BYTES)
   };
@@ -153,6 +150,57 @@ function redactText(value, secrets = []) {
   return output.slice(0, 1_000);
 }
 
+function sleep(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+async function pollUntil(
+  label,
+  operation,
+  predicate,
+  { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = 250 } = {}
+) {
+  assertString(label, "poll label");
+  assert(typeof operation === "function", "poll operation must be a function");
+  assert(typeof predicate === "function", "poll predicate must be a function");
+  assert(Number.isInteger(timeoutMs) && timeoutMs >= 1, "poll timeout must be a positive integer");
+  assert(Number.isInteger(intervalMs) && intervalMs >= 1, "poll interval must be a positive integer");
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await operation();
+    if (await predicate(value)) return value;
+    await sleep(Math.min(intervalMs, Math.max(1, deadline - Date.now())));
+  }
+
+  throw new AcceptanceError(`${label} did not reach the expected durable state before timeout`);
+}
+
+function assertNoSensitiveValues(value, secrets, label = "response") {
+  const serialized = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
+  for (const secret of secrets) {
+    if (typeof secret === "string" && secret.length > 0) {
+      assert(!serialized.includes(secret), `${label} exposed a protected value`);
+    }
+  }
+  return value;
+}
+
+function createSafeLogger(secrets = new Set(), sink = console) {
+  const values = () => [...secrets];
+  return {
+    ok(label) {
+      sink.log(`ok - ${redactText(label, values())}`);
+    },
+    info(label) {
+      sink.log(redactText(label, values()));
+    },
+    fail(error) {
+      sink.error(`FAIL - ${redactText(error, values())}`);
+    }
+  };
+}
+
 class ApiClient {
   constructor(baseUrl, timeoutMs) {
     this.baseUrl = baseUrl;
@@ -206,7 +254,7 @@ class ApiClient {
 }
 
 class PhoenixChannel {
-  constructor(socketUrl, accessToken, timeoutMs) {
+  constructor(socketUrl, socketTicket, timeoutMs) {
     this.timeoutMs = timeoutMs;
     this.ref = 0;
     this.pending = new Map();
@@ -218,7 +266,7 @@ class PhoenixChannel {
 
     const authenticatedUrl = new URL(socketUrl);
     authenticatedUrl.searchParams.set("vsn", "2.0.0");
-    authenticatedUrl.searchParams.set("access_token", accessToken);
+    authenticatedUrl.searchParams.set("socket_ticket", socketTicket);
     this.socket = new WebSocket(authenticatedUrl);
 
     this.closedPromise = new Promise((resolveClose) => {
@@ -410,6 +458,21 @@ class PhoenixChannel {
   }
 }
 
+async function issueSocketTicket(api, accessToken) {
+  const response = await api.request("/api/v1/socket-tickets", {
+    method: "POST",
+    token: accessToken,
+    expected: 201
+  });
+  const payload = assertRecord(response.payload, "socket ticket response");
+  const data = assertRecord(payload.data, "socket ticket data");
+  assert(
+    Number.isInteger(data.expires_in) && data.expires_in > 0 && data.expires_in <= 120,
+    "socket ticket expiry is outside the accepted short-lived range"
+  );
+  return assertString(data.ticket, "socket ticket");
+}
+
 function commandEnvelope(commandId, type, payload) {
   return { command_id: commandId, type, payload, client_time: new Date().toISOString() };
 }
@@ -430,6 +493,23 @@ async function fetchSigned(descriptor, bytes, objectBaseUrl, timeoutMs, label, f
   const rawUrl = target.url || target.upload_url || target.href;
   assertString(rawUrl, `${label} URL`);
   const signedUrl = assertSignedTarget(rawUrl, objectBaseUrl, label);
+  const approvedOrigin = new URL(assertString(target.approved_origin, `${label} approved origin`));
+  const localDevelopmentOrigin =
+    approvedOrigin.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "::1"].includes(approvedOrigin.hostname);
+  assert(
+    approvedOrigin.protocol === "https:" || localDevelopmentOrigin,
+    `${label} approved origin must use HTTPS outside local development`
+  );
+  assert(
+    approvedOrigin.origin === objectBaseUrl.origin,
+    `${label} approved origin does not match the configured object service`
+  );
+  assert(!signedUrl.username && !signedUrl.password, `${label} URL must not contain credentials`);
+  assert(
+    approvedOrigin.origin === signedUrl.origin,
+    `${label} URL origin does not match its approved origin`
+  );
   const headers = new Headers(assertRecord(target.headers || {}, `${label} headers`));
   let body = bytes;
   let method = target.method || (bytes === undefined ? "GET" : "PUT");
@@ -452,17 +532,8 @@ async function fetchSigned(descriptor, bytes, objectBaseUrl, timeoutMs, label, f
   return response;
 }
 
-async function selectConversation(api, config, token, runId) {
-  if (config.conversationId) {
-    const { payload } = await api.request(`/api/v1/conversations/${config.conversationId}`, { token });
-    return assertRecord(assertRecord(payload, "conversation response").data, "conversation");
-  }
-
-  const { payload } = await api.request("/api/v1/conversations", { token });
-  const conversations = assertRecord(payload, "conversation list").data;
-  assert(Array.isArray(conversations), "conversation list data must be an array");
-  if (conversations.length > 0) return assertRecord(conversations[0], "conversation");
-
+async function createSyntheticConversation(api, token, runId) {
+  assertUuid(runId, "acceptance run id");
   const created = await api.request("/api/v1/conversations", {
     method: "POST",
     token,
@@ -474,7 +545,244 @@ async function selectConversation(api, config, token, runId) {
       member_ids: []
     }
   });
-  return assertRecord(assertRecord(created.payload, "created conversation response").data, "created conversation");
+  const conversation = assertRecord(
+    assertRecord(created.payload, "created conversation response").data,
+    "created conversation"
+  );
+  assertUuid(conversation.id, "created conversation id");
+  assert(Number.isInteger(conversation.version) && conversation.version > 0, "created conversation version is invalid");
+  return conversation;
+}
+
+async function waitForAttachmentReady(api, attachmentId, token, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await api.request(`/api/v1/attachments/${attachmentId}`, { token });
+    const payload = assertRecord(response.payload, "attachment status response");
+    const attachment = assertRecord(payload.data, "attachment status");
+
+    if (attachment.status === "ready" && payload.download) return { attachment, payload };
+
+    if (["blocked", "failed"].includes(attachment.scan_status)) {
+      throw new AcceptanceError(
+        `attachment scan did not approve the object (${attachment.scan_status})`
+      );
+    }
+
+    await sleep(250);
+  }
+
+  throw new AcceptanceError("attachment scan did not complete before the acceptance timeout");
+}
+
+function attachmentEnteredSafetyWorkflow(status) {
+  return ["uploaded", "quarantined", "ready"].includes(status);
+}
+
+async function runAttachmentAcceptance(
+  api,
+  { token, objectUrl, timeoutMs, attachmentByteSize = null, runId, namePrefix = "staging-acceptance" }
+) {
+  const attachmentMarker = Buffer.from(`K-Comms staging attachment ${runId}\n`, "utf8");
+  const attachmentBytes = attachmentByteSize
+    ? Buffer.alloc(attachmentByteSize, 0x4b)
+    : attachmentMarker;
+  attachmentMarker.copy(attachmentBytes, 0, 0, Math.min(attachmentMarker.length, attachmentBytes.length));
+  const checksum = createHash("sha256").update(attachmentBytes).digest("hex");
+  const fileName = `${namePrefix}-${runId}.txt`;
+  const attachmentIntent = await api.request("/api/v1/attachments", {
+    method: "POST",
+    token,
+    expected: 201,
+    body: {
+      file_name: fileName,
+      content_type: "text/plain",
+      byte_size: attachmentBytes.length,
+      checksum_sha256: checksum
+    }
+  });
+  const intent = assertRecord(attachmentIntent.payload, "attachment intent");
+  const attachmentId = assertUuid(assertRecord(intent.data, "attachment intent data").id, "attachment id");
+  await fetchSigned(intent.upload, attachmentBytes, objectUrl, timeoutMs, "signed upload", fileName);
+
+  const completedResponse = await api.request(`/api/v1/attachments/${attachmentId}/complete`, {
+    method: "POST",
+    token,
+    body: { checksum_sha256: checksum }
+  });
+  const completed = assertRecord(
+    assertRecord(completedResponse.payload, "attachment completion").data,
+    "completed attachment"
+  );
+  assert(completed.id === attachmentId, "completed attachment id changed");
+  assert(
+    attachmentEnteredSafetyWorkflow(completed.status),
+    "completed attachment did not enter the safety workflow"
+  );
+  assert(completed.checksum_sha256 === checksum, "completed attachment checksum changed");
+
+  const { attachment, payload: download } = await waitForAttachmentReady(
+    api,
+    attachmentId,
+    token,
+    timeoutMs
+  );
+  assert(assertRecord(download.data, "download attachment").id === attachmentId, "download attachment id changed");
+  const objectResponse = await fetchSigned(
+    download.download,
+    undefined,
+    objectUrl,
+    timeoutMs,
+    "signed download",
+    fileName
+  );
+  const downloadedBytes = Buffer.from(await objectResponse.arrayBuffer());
+  assert(downloadedBytes.equals(attachmentBytes), "downloaded attachment bytes do not match the uploaded bytes");
+
+  return {
+    attachment,
+    attachmentId,
+    byteSize: attachmentBytes.length,
+    checksum,
+    fileName
+  };
+}
+
+async function stepUp(api, token, password) {
+  const response = await api.request("/api/v1/me/step-up", {
+    method: "POST",
+    token,
+    body: { current_password: password }
+  });
+  const data = assertRecord(assertRecord(response.payload, "step-up response").data, "step-up data");
+  assertString(data.step_up_at, "step-up timestamp");
+}
+
+async function deleteSyntheticConversation(api, token, conversationId, runId, timeoutMs) {
+  const reason = `Staging acceptance cleanup ${runId}`;
+  const created = await api.request("/api/v1/admin/deletion-requests", {
+    method: "POST",
+    token,
+    expected: [200, 201],
+    headers: { "Idempotency-Key": `staging-acceptance-delete-${conversationId}` },
+    body: {
+      target_type: "conversation",
+      conversation_id: conversationId,
+      reason
+    }
+  });
+  const request = assertRecord(
+    assertRecord(created.payload, "conversation deletion response").data,
+    "conversation deletion request"
+  );
+  const requestId = assertUuid(request.id, "conversation deletion request id");
+  assert(Number.isInteger(request.version) && request.version > 0, "conversation deletion request version is invalid");
+
+  await api.request(`/api/v1/admin/deletion-requests/${requestId}`, {
+    method: "PATCH",
+    token,
+    body: {
+      status: "approved",
+      version: request.version,
+      transition_reason: reason
+    }
+  });
+
+  await pollUntil(
+    "synthetic conversation deletion",
+    async () => {
+      const response = await api.request("/api/v1/admin/deletion-requests?target_type=conversation&limit=100", {
+        token
+      });
+      const requests = assertRecord(response.payload, "conversation deletion list").data;
+      assert(Array.isArray(requests), "conversation deletion list data must be an array");
+      return requests;
+    },
+    (requests) => requests.some((candidate) => candidate?.id === requestId && candidate.status === "completed"),
+    { timeoutMs, intervalMs: 500 }
+  );
+}
+
+async function cleanupSyntheticResources(api, config, state, runId) {
+  const result = {
+    errors: [],
+    conversationArchived: false,
+    conversationDeleted: false,
+    deviceRevoked: false,
+    sessionLoggedOut: false,
+    socketRevoked: false
+  };
+  const attempt = async (label, operation) => {
+    try {
+      await operation();
+      return true;
+    } catch {
+      result.errors.push(label);
+      return false;
+    }
+  };
+  let socketClose = null;
+
+  try {
+    if (state.accessToken && state.conversation) {
+      result.conversationArchived = await attempt("conversation archive", async () => {
+        await api.request(`/api/v1/conversations/${state.conversation.id}/archive`, {
+          method: "POST",
+          token: state.accessToken,
+          body: { version: state.conversation.version }
+        });
+      });
+
+      result.conversationDeleted = await attempt("conversation deletion", async () => {
+        await stepUp(api, state.accessToken, config.ownerPassword);
+        await deleteSyntheticConversation(
+          api,
+          state.accessToken,
+          state.conversation.id,
+          runId,
+          config.timeoutMs
+        );
+      });
+    }
+
+    socketClose =
+      state.channel?.isOpen() === true
+        ? state.channel.waitForClose().then(
+            () => true,
+            () => false
+          )
+        : null;
+
+    if (state.accessToken && state.deviceId) {
+      result.deviceRevoked = await attempt("run device revocation", async () => {
+        await api.request(`/api/v1/me/devices/${state.deviceId}`, {
+          method: "DELETE",
+          token: state.accessToken,
+          expected: 204
+        });
+      });
+    }
+
+    if (state.accessToken && !result.deviceRevoked) {
+      result.sessionLoggedOut = await attempt("current session logout", async () => {
+        await api.request("/api/v1/sessions/current", {
+          method: "DELETE",
+          token: state.accessToken,
+          expected: [204, 401]
+        });
+      });
+    }
+
+    if (socketClose) {
+      result.socketRevoked = await socketClose;
+      if (!result.socketRevoked) result.errors.push("socket revocation");
+    }
+  } finally {
+    if (state.channel) await state.channel.close().catch(() => {});
+  }
+
+  return result;
 }
 
 async function runAcceptance(env = process.env) {
@@ -482,11 +790,28 @@ async function runAcceptance(env = process.env) {
   const sensitiveValues = new Set([config.ownerPassword]);
   const api = new ApiClient(config.baseUrl, config.timeoutMs);
   const runId = randomUUID();
-  let channel;
+  const state = {
+    accessToken: null,
+    refreshToken: null,
+    deviceId: null,
+    conversation: null,
+    channel: null
+  };
+  let failure = null;
+  let cleanupResult;
 
   try {
     await api.request("/health/ready");
     console.log("ok - readiness");
+
+    const statusResponse = await api.request("/api/v1/status");
+    const serviceStatus = assertRecord(statusResponse.payload, "service status");
+    assert(serviceStatus.status === "operational", "service did not report operational status");
+    assert(
+      assertRecord(serviceStatus.capabilities, "service capabilities").administration === true,
+      "administration capability is not enabled"
+    );
+    console.log("ok - public capability status");
 
     const login = await api.request("/api/v1/sessions", {
       method: "POST",
@@ -500,6 +825,12 @@ async function runAcceptance(env = process.env) {
     const session = assertRecord(login.payload, "login response");
     const accessToken = assertString(session.access_token, "login response access token");
     const refreshToken = assertString(session.refresh_token, "login response refresh token");
+    state.accessToken = accessToken;
+    state.refreshToken = refreshToken;
+    state.deviceId = assertUuid(
+      assertRecord(session.device, "login device").id,
+      "login device id"
+    );
     sensitiveValues.add(accessToken);
     sensitiveValues.add(refreshToken);
     const loginUser = assertRecord(session.user, "login user");
@@ -518,13 +849,31 @@ async function runAcceptance(env = process.env) {
     assert(me.user.id === session.user.id, "me user id does not match the login session");
     console.log("ok - authenticated identity");
 
-    const conversation = await selectConversation(api, config, accessToken, runId);
+    const tenantAdmin = await api.request("/api/v1/admin/tenant", { token: accessToken });
+    assertRecord(assertRecord(tenantAdmin.payload, "tenant admin response").data, "tenant admin data");
+
+    const ops = await api.request("/api/v1/ops", { token: accessToken });
+    assertRecord(assertRecord(ops.payload, "operations response").data, "operations data");
+
+    const preferences = await api.request("/api/v1/notification-preferences", {
+      token: accessToken
+    });
+    assertRecord(
+      assertRecord(preferences.payload, "notification preferences response").data,
+      "notification preferences"
+    );
+    console.log("ok - tenant administration, operations, and notification preferences");
+
+    const conversation = await createSyntheticConversation(api, accessToken, runId);
+    state.conversation = conversation;
     const conversationId = assertUuid(conversation.id, "conversation id");
     const latestSequence = Number.isInteger(conversation.latest_sequence) ? conversation.latest_sequence : 0;
 
-    channel = new PhoenixChannel(config.socketUrl, accessToken, config.timeoutMs);
-    await channel.connect();
-    const join = await channel.join(`conversation:${conversationId}`, {
+    const firstSocketTicket = await issueSocketTicket(api, accessToken);
+    sensitiveValues.add(firstSocketTicket);
+    state.channel = new PhoenixChannel(config.socketUrl, firstSocketTicket, config.timeoutMs);
+    await state.channel.connect();
+    const join = await state.channel.join(`conversation:${conversationId}`, {
       protocol_version: 1,
       after_sequence: latestSequence,
       client_capabilities: ["message_revisions", "attachment_v2"]
@@ -539,8 +888,8 @@ async function runAcceptance(env = process.env) {
       body: messageBody,
       attachment_ids: []
     });
-    const firstMessage = assertMessage(await channel.push("command", envelope), "first message reply");
-    const secondMessage = assertMessage(await channel.push("command", envelope), "duplicate message reply");
+    const firstMessage = assertMessage(await state.channel.push("command", envelope), "first message reply");
+    const secondMessage = assertMessage(await state.channel.push("command", envelope), "duplicate message reply");
     assert(firstMessage.id === secondMessage.id, "duplicate command returned a different message id");
     assert(
       firstMessage.conversation_sequence === secondMessage.conversation_sequence,
@@ -548,10 +897,10 @@ async function runAcceptance(env = process.env) {
     );
     assert(firstMessage.client_message_id === commandId, "message did not retain the command id");
     assert(firstMessage.body === messageBody, "message body does not match the command");
-    await channel.waitForEvent("message.created.v1", (payload) => payload?.id === firstMessage.id);
+    await state.channel.waitForEvent("message.created.v1", (payload) => payload?.id === firstMessage.id);
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
     assert(
-      channel.eventCount("message.created.v1", (payload) => payload?.id === firstMessage.id) === 1,
+      state.channel.eventCount("message.created.v1", (payload) => payload?.id === firstMessage.id) === 1,
       "idempotent duplicate emitted more than one creation event"
     );
     console.log("ok - idempotent realtime send");
@@ -568,10 +917,12 @@ async function runAcceptance(env = process.env) {
       "REST replay did not contain exactly one canonical message"
     );
 
-    await channel.close();
-    channel = new PhoenixChannel(config.socketUrl, accessToken, config.timeoutMs);
-    await channel.connect();
-    const replayJoin = await channel.join(`conversation:${conversationId}`, {
+    await state.channel.close();
+    const replaySocketTicket = await issueSocketTicket(api, accessToken);
+    sensitiveValues.add(replaySocketTicket);
+    state.channel = new PhoenixChannel(config.socketUrl, replaySocketTicket, config.timeoutMs);
+    await state.channel.connect();
+    const replayJoin = await state.channel.join(`conversation:${conversationId}`, {
       protocol_version: 1,
       after_sequence: replayAfter,
       client_capabilities: ["message_revisions", "attachment_v2"]
@@ -583,74 +934,66 @@ async function runAcceptance(env = process.env) {
     );
     console.log("ok - durable REST and Phoenix replay");
 
-    const attachmentMarker = Buffer.from(`K-Comms staging attachment ${runId}\n`, "utf8");
-    const attachmentBytes = config.attachmentByteSize
-      ? Buffer.alloc(config.attachmentByteSize, 0x4b)
-      : attachmentMarker;
-    attachmentMarker.copy(attachmentBytes, 0, 0, Math.min(attachmentMarker.length, attachmentBytes.length));
-    const checksum = createHash("sha256").update(attachmentBytes).digest("hex");
-    const fileName = `staging-acceptance-${runId}.txt`;
-    const attachmentIntent = await api.request("/api/v1/attachments", {
-      method: "POST",
+    const attachment = await runAttachmentAcceptance(api, {
       token: accessToken,
-      expected: 201,
-      body: {
-        file_name: fileName,
-        content_type: "text/plain",
-        byte_size: attachmentBytes.length,
-        checksum_sha256: checksum
-      }
+      objectUrl: config.objectUrl,
+      timeoutMs: config.timeoutMs,
+      attachmentByteSize: config.attachmentByteSize,
+      runId
     });
-    const intent = assertRecord(attachmentIntent.payload, "attachment intent");
-    const attachmentId = assertUuid(assertRecord(intent.data, "attachment intent data").id, "attachment id");
-    await fetchSigned(intent.upload, attachmentBytes, config.objectUrl, config.timeoutMs, "signed upload", fileName);
-
-    const completedResponse = await api.request(`/api/v1/attachments/${attachmentId}/complete`, {
-      method: "POST",
-      token: accessToken,
-      body: { checksum_sha256: checksum }
-    });
-    const completed = assertRecord(
-      assertRecord(completedResponse.payload, "attachment completion").data,
-      "completed attachment"
+    console.log(
+      `ok - signed attachment upload, quarantine, scan, and download (${attachment.byteSize} bytes)`
     );
-    assert(completed.id === attachmentId, "completed attachment id changed");
-    assert(completed.status === "ready", "completed attachment is not ready");
-    assert(completed.checksum_sha256 === checksum, "completed attachment checksum changed");
 
-    const downloadResponse = await api.request(`/api/v1/attachments/${attachmentId}`, { token: accessToken });
-    const download = assertRecord(downloadResponse.payload, "attachment download response");
-    assert(assertRecord(download.data, "download attachment").id === attachmentId, "download attachment id changed");
-    const objectResponse = await fetchSigned(
-      download.download,
-      undefined,
-      config.objectUrl,
-      config.timeoutMs,
-      "signed download",
-      fileName
+    const attachmentCommandId = `accept-attachment-${randomUUID()}`;
+    const attachmentMessage = assertMessage(
+      await state.channel.push(
+        "command",
+        commandEnvelope(attachmentCommandId, "message.send.v1", {
+          body: `K-Comms staging attachment ${runId}`,
+          attachment_ids: [attachment.attachmentId]
+        })
+      ),
+      "attachment message reply"
     );
-    const downloadedBytes = Buffer.from(await objectResponse.arrayBuffer());
-    assert(downloadedBytes.equals(attachmentBytes), "downloaded attachment bytes do not match the uploaded bytes");
-    console.log(`ok - signed attachment upload, verification, and download (${attachmentBytes.length} bytes)`);
-
-    assert(channel.isOpen(), "WebSocket closed before logout");
-    const socketRevoked = channel.waitForClose();
-    await api.request("/api/v1/sessions/current", { method: "DELETE", token: accessToken, expected: 204 });
-    await socketRevoked;
-
-    await api.request("/api/v1/me", { token: accessToken, expected: 401 });
-    await api.request("/api/v1/sessions/refresh", {
-      method: "POST",
-      expected: 401,
-      body: { refresh_token: refreshToken }
-    });
-    console.log("ok - logout and session revocation");
-    console.log("PASS - K-Comms staging acceptance completed");
+    assert(
+      attachmentMessage.attachments?.some((candidate) => candidate?.id === attachment.attachmentId),
+      "ready attachment was not linked to its synthetic conversation message"
+    );
+    await state.channel.waitForEvent("message.created.v1", (payload) => payload?.id === attachmentMessage.id);
+    console.log("ok - attachment linked to the synthetic conversation");
+    assert(state.channel.isOpen(), "WebSocket closed before cleanup revocation");
   } catch (error) {
-    throw new AcceptanceError(redactText(error, [...sensitiveValues]));
+    failure = new AcceptanceError(redactText(error, [...sensitiveValues]));
   } finally {
-    if (channel) await channel.close().catch(() => {});
+    cleanupResult = await cleanupSyntheticResources(api, config, state, runId);
   }
+
+  if (!failure && cleanupResult.errors.length === 0) {
+    try {
+      assert(cleanupResult.conversationArchived, "synthetic conversation was not archived");
+      assert(cleanupResult.conversationDeleted, "synthetic conversation content was not deleted");
+      assert(cleanupResult.deviceRevoked, "synthetic acceptance device was not revoked");
+      assert(cleanupResult.socketRevoked, "WebSocket did not close after device revocation");
+      await api.request("/api/v1/me", { token: state.accessToken, expected: 401 });
+      await api.request("/api/v1/sessions/refresh", {
+        method: "POST",
+        expected: 401,
+        body: { refresh_token: state.refreshToken }
+      });
+      console.log("ok - run-scoped conversation cleanup and session revocation");
+    } catch (error) {
+      failure = new AcceptanceError(redactText(error, [...sensitiveValues]));
+    }
+  }
+
+  const cleanupFailure = cleanupResult.errors.join(", ");
+  if (failure && cleanupFailure) {
+    throw new AcceptanceError(`${failure.message}; cleanup failed for ${cleanupFailure}`);
+  }
+  if (failure) throw failure;
+  if (cleanupFailure) throw new AcceptanceError(`cleanup failed for ${cleanupFailure}`);
+  console.log("PASS - K-Comms staging acceptance completed");
 }
 
 function printHelp() {
@@ -664,13 +1007,16 @@ Required environment variables:
   K_COMMS_OWNER_PASSWORD   Existing staging owner password
 
 Optional environment variables:
-  K_COMMS_CONVERSATION_ID  Existing conversation UUID; otherwise the first is used or one is created
   K_COMMS_SOCKET_URL       WebSocket endpoint ending in /socket or /socket/websocket
   K_COMMS_TIMEOUT_MS       Per-operation timeout, 1000-120000 (default 15000)
   K_COMMS_ATTACHMENT_BYTES Attachment size, 1-25000000 (default: small probe)
 
 For private certificate authorities, use NODE_EXTRA_CA_CERTS rather than disabling TLS verification.
-The runner never prints credentials, bearer tokens, refresh tokens, or signed object URLs.`);
+The runner always creates and cleans up a UUID-scoped private conversation. It never selects
+or writes to an existing conversation and never prints credentials, bearer tokens, refresh
+tokens, or signed object URLs. If an upload fails before it can be linked, at most one
+UUID-named staging attachment intent remains for administrative cleanup; the public API has
+no individual attachment deletion operation.`);
 }
 
 function isDirectInvocation(moduleUrl, argvPath, realpath = realpathSync) {
@@ -697,10 +1043,31 @@ if (directlyInvoked) {
 
 export {
   AcceptanceError,
+  ApiClient,
+  PhoenixChannel,
+  assert,
+  assertMessage,
+  assertNoSensitiveValues,
+  assertRecord,
   assertSignedTarget,
+  assertString,
+  assertUuid,
+  attachmentEnteredSafetyWorkflow,
   buildSocketUrl,
+  commandEnvelope,
+  cleanupSyntheticResources,
+  createSyntheticConversation,
+  createSafeLogger,
+  deleteSyntheticConversation,
+  fetchSigned,
   isDirectInvocation,
+  issueSocketTicket,
+  parseTimeout,
+  pollUntil,
   readConfiguration,
   redactText,
-  runAcceptance
+  runAttachmentAcceptance,
+  runAcceptance,
+  sleep,
+  waitForAttachmentReady
 };

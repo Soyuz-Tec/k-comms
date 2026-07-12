@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart TB
-    Client[Web / Desktop / Mobile Clients]
+    Client[Web Product\nUser + Tenant Admin + Operations]
     Edge[Elixir Edge/API Runtime\nPhoenix HTTP + Channels]
     Worker[Elixir Worker Runtime\nOban + Domain Workers]
     Admin[Administrative Runtime\nMigrations + Scheduled Work]
@@ -36,3 +36,8 @@ flowchart TB
 | PostgreSQL | Authoritative transactional state | Large binary attachments |
 | Object storage | Binary objects and variants | Membership or authorization truth |
 | Search | Query-optimized derived content | Canonical message state |
+
+The web product is one build with separate `/app`, `/admin`, and `/ops` route
+and authorization boundaries. Operations APIs expose health and control state,
+not routine tenant message content. Native desktop or mobile clients may reuse
+the same public REST and realtime contracts later.

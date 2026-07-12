@@ -24,10 +24,14 @@ x-app-environment: &app-environment
   S3_REGION: ${S3_REGION:-us-east-1}
   S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-kcomms}
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-change-this-local-password}
+  PUSH_SUBSCRIPTION_ENCRYPTION_KEY: ${PUSH_SUBSCRIPTION_ENCRYPTION_KEY:-push-subscription-test-key-32byt}
+  PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID: ${PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID:-primary}
+  PUSH_SUBSCRIPTION_ENCRYPTION_KEYS: ${PUSH_SUBSCRIPTION_ENCRYPTION_KEYS:-}
+  WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo}
 
 services:
   postgres:
-    image: docker.io/library/postgres:17.10-alpine
+    image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -43,7 +47,7 @@ services:
       retries: 20
 
   minio:
-    image: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kcomms}
@@ -61,12 +65,13 @@ services:
       retries: 20
 
   minio-init:
-    image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
-        mc mb --ignore-existing "local/$${S3_BUCKET}"
+        mc mb --ignore-existing "local/$${S3_BUCKET}" &&
+        mc version enable "local/$${S3_BUCKET}"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kcomms}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-password}
@@ -104,12 +109,12 @@ services:
       start_period: 15s
 
   web:
-    image: docker.io/library/node:22-bookworm-slim
+    image: docker.io/library/node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
     working_dir: /workspace/clients/web
     command: >-
       sh -lc "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
     environment:
-      VITE_API_ORIGIN: ${VITE_API_ORIGIN:-http://localhost:4000}
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://app:4000}
     ports:
       - "${WEB_PORT:-5173}:5173"
     volumes:

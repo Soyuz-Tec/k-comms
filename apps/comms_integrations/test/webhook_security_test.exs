@@ -13,14 +13,14 @@ defmodule CommsIntegrations.WebhookSecurityTest do
       end
     end)
 
-    assert {:error, :webhook_destination_not_allowed} =
+    assert {:error, :permanent, :webhook_destination_not_allowed} =
              CommsIntegrations.Webhooks.Http.deliver(%{
                "url" => "http://hooks.example.test/events",
                "secret" => "test-secret",
                "body" => %{}
              })
 
-    assert {:error, :webhook_destination_not_allowed} =
+    assert {:error, :permanent, :webhook_destination_not_allowed} =
              CommsIntegrations.Webhooks.Http.deliver(%{
                "url" => "https://127.0.0.1/events",
                "secret" => "test-secret",

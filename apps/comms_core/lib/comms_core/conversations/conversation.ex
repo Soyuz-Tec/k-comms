@@ -10,6 +10,7 @@ defmodule CommsCore.Conversations.Conversation do
     field(:direct_key, :string)
     field(:next_sequence, :integer, default: 1)
     field(:archived_at, :utc_datetime_usec)
+    field(:lock_version, :integer, default: 1)
     timestamps()
   end
 
@@ -23,7 +24,8 @@ defmodule CommsCore.Conversations.Conversation do
       :visibility,
       :direct_key,
       :next_sequence,
-      :archived_at
+      :archived_at,
+      :lock_version
     ])
     |> validate_required([:tenant_id, :created_by_user_id, :kind, :visibility, :next_sequence])
     |> validate_number(:next_sequence, greater_than: 0)

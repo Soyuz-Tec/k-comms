@@ -204,9 +204,118 @@ trap - EXIT
 ```
 
 The approved manifest remains the backup for portable bucket configuration.
-If object versioning, retention, replication, IAM, or lifecycle policies are
-added, extend this procedure; a plain mirror covers current object data, not
-those service-level policies or historical object versions.
+Object versioning is enabled by the staging MinIO initialization Job. Extend
+this procedure when retention, replication, IAM, or lifecycle policies change;
+a plain mirror covers current object data, not those service-level policies or
+historical object versions.
+
+### Restoring mirrored attachment objects safely
+
+`mc mirror` restores object bytes but assigns new version IDs. K-Comms pins
+downloads and scanner reads to the version ID recorded in PostgreSQL, so a
+database restored beside a mirrored bucket must not be exposed to application
+traffic until those IDs are reconciled. A volume snapshot of the complete
+MinIO data directory can preserve MinIO's internal version metadata locally,
+but it is storage-layout-dependent and is not the portable backup described
+above. Production should prefer provider-native, version-aware replication or
+snapshots. For the portable staging proof, use the guarded remap below.
+
+This is an actual restore/rehearsal sequence, not part of every pre-deploy
+backup verification:
+
+1. Keep edge and worker deployments scaled to zero. Restore PostgreSQL into a
+   new database and create a new empty MinIO bucket.
+2. Enable versioning on the new bucket **before** mirroring objects into it.
+   Restore the approved backup directory, then repeat the SHA-256 manifest
+   comparison from the isolated verification procedure.
+3. Point `k-comms-secrets` at the new database and point `k-comms-config` at
+   the new bucket. Run the current release's migration Job against the restored
+   database while application deployments remain stopped.
+4. Run the one-shot attachment version remap with the same immutable image that
+   will run the restored application. Do not start application pods if it
+   fails.
+5. Start the restored application and complete the existing-attachment smoke
+   described below before accepting traffic.
+
+The one-shot operation HEADs each current object, requires the restored byte
+size, compares normalized ETags when they are trustworthy content MD5 values,
+then streams the exact returned version through SHA-256. Its checksum must
+equal `verified_checksum_sha256` and that verified checksum must still equal
+the attachment's declared checksum. It obtains the replacement version ID
+from the S3 response. Every candidate must verify before one PostgreSQL
+transaction locks the candidate rows, remaps changed IDs, and writes per-file
+and per-tenant audit events. A missing object, changed byte count, trustworthy
+ETag mismatch, checksum mismatch, missing version response, or concurrent row
+change aborts without a partial database remap. Opaque or encrypted-provider
+ETags are reported as untrusted and never substitute for the streamed SHA-256
+proof.
+
+Prepare the short-lived audit context outside the repository from
+`deploy/k8s/operations/attachment-restore-remap/restore-remap-context.env.example`.
+Use a new UUID for every attempt and an approved operator identity and reason.
+The confirmation value is fixed in the reviewed Job and the release function
+also refuses to run unless `K_COMMS_RUNTIME_PURPOSE=one_shot`.
+
+```bash
+export RESTORE_OPERATION=deploy/k8s/operations/attachment-restore-remap
+export RESTORE_CONTEXT="$EVIDENCE_DIR/restore-remap-context-${BACKUP_STAMP}.env"
+export RESTORE_IMAGE='<approved immutable image digest>'
+export RESTORE_JOB_BUNDLE="$EVIDENCE_DIR/restore-remap-job-${BACKUP_STAMP}.yaml"
+
+test -s "$RESTORE_CONTEXT"
+chmod 0600 "$RESTORE_CONTEXT"
+! grep -q 'CHANGE_ME' "$RESTORE_CONTEXT"
+grep -Eq '^OPERATION_ID=[0-9a-fA-F-]{36}$' "$RESTORE_CONTEXT"
+grep -Eq '^ACTOR=.+$' "$RESTORE_CONTEXT"
+grep -Eq '^REASON=.+$' "$RESTORE_CONTEXT"
+
+kubectl -n "$NAMESPACE" create secret generic k-comms-restore-remap \
+  --from-env-file="$RESTORE_CONTEXT" --dry-run=client -o yaml | \
+  kubectl apply --server-side -f -
+kubectl -n "$NAMESPACE" delete job k-comms-attachment-restore-remap \
+  --ignore-not-found
+kubectl set image --local \
+  -f "$RESTORE_OPERATION/restore-remap-job.yaml" \
+  restore-remap="$RESTORE_IMAGE" -o yaml > "$RESTORE_JOB_BUNDLE"
+chmod 0600 "$RESTORE_JOB_BUNDLE"
+kubectl -n "$NAMESPACE" apply --server-side -f "$RESTORE_JOB_BUNDLE"
+
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete \
+  job/k-comms-attachment-restore-remap --timeout=60m; then
+  kubectl -n "$NAMESPACE" logs job/k-comms-attachment-restore-remap || true
+  kubectl -n "$NAMESPACE" delete secret k-comms-restore-remap --ignore-not-found
+  rm -f "$RESTORE_CONTEXT"
+  exit 1
+fi
+
+kubectl -n "$NAMESPACE" logs job/k-comms-attachment-restore-remap | \
+  tee "$EVIDENCE_DIR/attachment-restore-remap-${BACKUP_STAMP}.txt"
+kubectl -n "$NAMESPACE" delete secret k-comms-restore-remap
+rm -f "$RESTORE_CONTEXT"
+```
+
+The log contains aggregate counts only. Retain it with the Job bundle checksum
+and confirm `attachment.restore_version_remapped` and
+`attachment.restore_version_remap_completed` events in the restored audit
+ledger. Investigate every nonzero `unversioned_fail_closed` count; such rows
+remain non-downloadable and are never guessed or remapped.
+
+After the Job succeeds, deploy the restored app but keep ingress out of normal
+service. Select at least one attachment that was `ready` and `clean` before the
+backup. Through an authenticated user session in the restored application:
+
+1. Open the original message/file and request `GET /api/v1/attachments/:id`.
+2. Confirm a version-bound download descriptor is returned. Do not copy its
+   signed URL into logs or tickets.
+3. Download through that descriptor and compare the downloaded bytes' SHA-256
+   with the same row's `verified_checksum_sha256` in the restored database.
+4. Confirm the file opens through the user interface and the audit summary
+   carries the restore operation ID.
+
+A newly uploaded file is not a substitute for this smoke: it must exercise an
+attachment that crossed the database-and-object restore boundary. Only after
+this integrated check and the normal authenticated smoke suite pass may ingress
+return to service.
 
 ## 4. Migrate and run the one-time bootstrap
 
@@ -296,6 +405,24 @@ must also be exercised through the client before promotion.
 Set the environment documented by `node scripts/staging_acceptance.mjs --help`,
 then capture the result of `node scripts/staging_acceptance.mjs` as smoke evidence.
 
+Next run `node scripts/staging_product_acceptance.mjs` with the same run-scoped
+credential environment. It qualifies invitation and second-user lifecycle,
+public channels, disconnect replay, inactive-conversation activity, mentions,
+threads, in-app state, browser-push intent delivery, service accounts,
+content-blind platform operations, bounded audit export, and two 12-socket
+reconnect waves. A successful run also verifies bounded cleanup of only its
+UUID-scoped synthetic resources. Never retain its credential environment or
+one-time values in logs.
+
+After functional acceptance, set the credential environment documented by
+`node scripts/staging_load.mjs --help` and run the proposed bounded local or
+staging qualification profile from
+`docs/07-capacity-and-performance/local-staging-qualification.md`. Retain only
+the aggregate `RESULT` line plus commit, image digest, topology, host resources,
+and timestamp. Do not retain shell history or output containing credential
+environment values. This runner creates and archives its own private
+conversation; it never deletes existing tenant data.
+
 ## 7. Rotate runtime secrets
 
 `disableNameSuffixHash: true` keeps stable Secret names, so updating the Secret
@@ -303,7 +430,13 @@ does **not** restart pods. Coordinate provider-side password/key changes first,
 validate the env file again, update the Secret, and explicitly restart every
 consumer. Rotating `SECRET_KEY_BASE` invalidates sessions; rotating
 `RELEASE_COOKIE` temporarily prevents old and new nodes from clustering, so do
-both only in an approved maintenance window.
+both only in an approved maintenance window. Rotating
+`PASSWORD_RECOVERY_SIGNING_KEY` invalidates every outstanding recovery link.
+Platform-role management secrets must never be added to `secrets.env` or the
+edge/worker environments. Render the restricted Job in
+`deploy/k8s/operations/platform-role`, create its short-lived Secret from
+`platform-role-secrets.env.example`, run it, verify the audit record, and delete
+both resources immediately.
 
 ```bash
 python scripts/validate_staging_secrets.py "$OVERLAY/secrets.env"

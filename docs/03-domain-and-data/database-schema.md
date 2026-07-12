@@ -6,10 +6,15 @@
 
 ```text
 tenants
+tenant_settings
 users
 identities
 devices
 sessions
+socket_tickets
+password_recovery_requests
+service_accounts
+invitations
 
 conversations
 conversation_members
@@ -24,16 +29,48 @@ read_cursors
 
 attachments
 attachment_variants
+attachment_scan_attempts
 
 notification_preferences
+notification_intents
+notification_attempts
 webhook_endpoints
+webhook_subscriptions
+webhook_secret_versions
 webhook_deliveries
 
 outbox_events
 background_jobs
 audit_events
 retention_policies
+legal_holds
+deletion_requests
+moderation_cases
+moderation_actions
 ```
+
+`tenant_settings` stores the versioned admission limits
+`max_active_users`, `max_active_conversations`, and
+`max_conversation_members`. Database checks keep them within reviewed bounds;
+the member minimum is two so direct conversations remain possible. Admission
+counts are evaluated under a tenant-scoped transaction advisory lock rather
+than inferred from cached UI state.
+
+`password_recovery_requests` is tenant/user scoped and stores only a reset-token
+hash, expiry, consumption time, invalidation time, and timestamps. A new request
+invalidates prior outstanding rows for the user. Raw tokens and action URLs are
+never database fields; notification intents persist only the non-secret
+recovery request UUID.
+
+`service_accounts` is tenant scoped and references its dedicated internal user
+and device. The linked `users.account_type` is `service`, its internal address
+uses the non-routable `.invalid` namespace, and presenters never expose that
+address. The account stores name, credential prefix/hint, a 32-byte SHA-256
+secret digest, bounded scopes,
+status, expiry, last-use, rotation/revocation timestamps, optimistic version,
+and timestamps. Raw `kcsa_` credentials are never persisted. Composite foreign
+keys keep tenant, user, and device ownership aligned; the credential prefix is
+globally unique and active/expiry indexes support authentication.
 
 ## Required key patterns
 
@@ -46,12 +83,26 @@ UNIQUE (conversation_id, conversation_sequence)
 
 -- One membership per user per conversation
 UNIQUE (conversation_id, user_id)
+
+-- One explicit mention per user and message
+UNIQUE (message_id, user_id)
+
+-- A canonical thread root cannot cross tenant or conversation ownership
+FOREIGN KEY (tenant_id, conversation_id, thread_root_message_id)
+  REFERENCES messages (tenant_id, conversation_id, id)
 ```
+
+Replies retain the immediate `reply_to_message_id` and denormalize the
+top-level `thread_root_message_id` for bounded indexed reads. Mention rows have
+composite tenant/message and tenant/user foreign keys. `notification_intents`
+stores `read_at` and `dismissed_at` only when `channel = 'in_app'`; dismissal
+requires read state, and a partial tenant/user index serves unread counts.
 
 ## Indexing principles
 
 - Lead tenant-scoped queries with `tenant_id` where useful for isolation and locality.
 - Index synchronization by `(conversation_id, conversation_sequence)`.
+- Index threads by `(conversation_id, thread_root_message_id, conversation_sequence)`.
 - Index user inbox queries by membership/user and last activity.
 - Keep partial indexes for active sessions, pending jobs, and live webhook deliveries.
 - Avoid indexing large message bodies unless required by the selected search approach.

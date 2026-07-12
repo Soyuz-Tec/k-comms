@@ -41,6 +41,8 @@ spec:
           env:
             - name: K_COMMS_ROLE
               value: worker
+            - name: K_COMMS_RUNTIME_PURPOSE
+              value: one_shot
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -51,6 +53,11 @@ spec:
                 secretKeyRef:
                   name: k-comms-secrets
                   key: SECRET_KEY_BASE
+            - name: PASSWORD_RECOVERY_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: PASSWORD_RECOVERY_SIGNING_KEY
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

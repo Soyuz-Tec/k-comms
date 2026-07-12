@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  PHX_HOST: comms.example.invalid
+  PUBLIC_APP_URL: https://comms.example.invalid
+  POOL_SIZE: "30"
+  DATABASE_SSL: "true"
+  ALLOW_BOOTSTRAP: "false"
+  ACCESS_TOKEN_TTL_SECONDS: "900"
+  SESSION_TTL_SECONDS: "2592000"
+  CORS_ORIGINS: https://comms.example.invalid
+  HSTS_ENABLED: "true"
+  TRUSTED_PROXY_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  CSP_CONNECT_SOURCES: "'self' wss://comms.example.invalid https://comms.example.invalid https://objects.example.invalid"
+  S3_PUBLIC_ENDPOINT: https://objects.example.invalid
+  S3_INTERNAL_SCHEME: https
+  S3_INTERNAL_HOST: objects.example.invalid
+  S3_INTERNAL_PORT: "443"
+  S3_INTERNAL_ENDPOINT: https://objects.example.invalid
+  S3_BUCKET: k-comms-production
+  S3_REGION: us-east-1
+  S3_URL_TTL_SECONDS: "300"

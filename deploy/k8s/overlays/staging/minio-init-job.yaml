@@ -27,7 +27,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: create-bucket
-          image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          image: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
@@ -37,6 +37,7 @@ spec:
                 sleep 2
               done
               mc mb --ignore-existing "local/$S3_BUCKET"
+              mc version enable "local/$S3_BUCKET"
           env:
             - name: MC_CONFIG_DIR
               value: /tmp/.mc

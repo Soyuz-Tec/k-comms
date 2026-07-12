@@ -9,4 +9,9 @@
 | Conversation join | p95 750 ms | Join request through authorization and initial sync |
 | Background notification | 95% within 30 seconds | Commit to provider acceptance |
 
-These values are placeholders and require product approval, network assumptions, and benchmark evidence.
+These are proposed product budgets and still require product approval,
+representative network assumptions, and production-like benchmark evidence.
+The executable local staging profile uses an intentionally separate p95
+message-acceptance regression gate of 750 ms with zero acknowledged-message
+loss. Passing that local gate is package qualification evidence only; it does
+not approve or prove the 250 ms product target.
