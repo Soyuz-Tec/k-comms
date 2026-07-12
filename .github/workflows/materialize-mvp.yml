@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - '.mvp-payload/**'
+      - '.mvp-payload/ready'
 
 permissions:
   contents: write
@@ -39,13 +39,11 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Download and verify source package
+      - name: Decode and verify source package
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 --retry-all-errors \
-            'https://drive.google.com/uc?export=download&id=1d98P_hKyZiefkmqfjlfDozohRNb0mKSM' \
-            --output /tmp/k-comms-mvp.tar.gz
+          cat .mvp-payload/part-* | base64 --decode > /tmp/k-comms-mvp.tar.gz
           echo 'e9dbbbafc70e1f404e32b2e5953e5e3f7f66116b37df1bdcbda35283c9da9390  /tmp/k-comms-mvp.tar.gz' | sha256sum --check --strict
           mkdir -p /tmp/k-comms-source
           tar -xzf /tmp/k-comms-mvp.tar.gz -C /tmp/k-comms-source
