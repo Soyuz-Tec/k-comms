@@ -1,0 +1,115 @@
+name: Materialize validated MVP
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.mvp-payload/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-mvp-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: k_comms_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d k_comms_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      MIX_ENV: test
+      DATABASE_URL: ecto://postgres:postgres@localhost:5432/k_comms_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Decode and verify source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .mvp-payload/part-* | base64 --decode > /tmp/k-comms-mvp.tar.gz
+          echo 'e9dbbbafc70e1f404e32b2e5953e5e3f7f66116b37df1bdcbda35283c9da9390  /tmp/k-comms-mvp.tar.gz' | sha256sum --check --strict
+          mkdir -p /tmp/k-comms-source
+          tar -xzf /tmp/k-comms-mvp.tar.gz -C /tmp/k-comms-source
+          test -f /tmp/k-comms-source/mix.exs
+          test -f /tmp/k-comms-source/clients/web/package-lock.json
+          test -f /tmp/k-comms-source/deploy/k8s/base/kustomization.yaml
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29.0'
+          elixir-version: '1.20.1'
+          version-type: strict
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: /tmp/k-comms-source/clients/web/package-lock.json
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Validate and normalize backend
+        working-directory: /tmp/k-comms-source
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix format
+          mix compile --warnings-as-errors
+          mix ecto.create
+          mix ecto.migrate
+          mix test --warnings-as-errors
+          mix hex.audit
+          MIX_ENV=prod mix deps.get --only prod
+          MIX_ENV=prod mix compile --warnings-as-errors
+          MIX_ENV=prod mix release k_comms
+
+      - name: Validate and build web client
+        working-directory: /tmp/k-comms-source/clients/web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run lint
+          npm run typecheck
+          npm run build
+
+      - name: Validate contracts, documentation, and Kubernetes manifests
+        working-directory: /tmp/k-comms-source
+        run: |
+          pip install --disable-pip-version-check pyyaml jsonschema
+          python3 scripts/validate_contracts.py
+          python3 scripts/validate_docs.py
+          cp deploy/k8s/overlays/staging/secrets.env.example deploy/k8s/overlays/staging/secrets.env
+          kubectl kustomize deploy/k8s/overlays/staging > /tmp/k-comms-staging.yaml
+          test -s /tmp/k-comms-staging.yaml
+          rm deploy/k8s/overlays/staging/secrets.env
+
+      - name: Replace payload branch with validated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude='.git' /tmp/k-comms-source/ ./
+          rm -rf .mvp-payload .github/workflows/materialize-mvp.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Implement runnable K-Comms MVP and Kubernetes staging package'
+          git push origin HEAD:${{ github.head_ref }}
