@@ -87,19 +87,19 @@ spec:
               protocol: TCP
           startupProbe:
             exec:
-              command: ["/app/bin/k_comms", "rpc", "System.schedulers_online() > 0"]
+              command: ["/bin/sh", "-ec", "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'"]
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 30
           readinessProbe:
             exec:
-              command: ["/app/bin/k_comms", "rpc", "System.schedulers_online() > 0"]
+              command: ["/bin/sh", "-ec", "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'"]
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
             exec:
-              command: ["/app/bin/k_comms", "rpc", "System.schedulers_online() > 0"]
+              command: ["/bin/sh", "-ec", "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'"]
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3

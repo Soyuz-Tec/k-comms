@@ -14,6 +14,8 @@
 - Kubernetes-neutral Kustomize staging overlay
 - Sessionless, idempotent release bootstrap Job with an ephemeral owner Secret
 - Isolated PostgreSQL and MinIO restore-verification and manifest-based rollback procedures
+- Dependency-free staging acceptance for auth, realtime idempotency/replay, the 25 MB attachment ceiling, and revocation
+- A kind-based local staging proof overlay for TLS, ingress, DNS, migration, rotation, restore, and rollback rehearsal
 - CI for backend, web, contracts, Kubernetes rendering, OCI build, and release
 
 ## Intentional production gates

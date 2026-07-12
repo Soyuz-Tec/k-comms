@@ -35,7 +35,9 @@ spec:
             - name: K_COMMS_OBJECT_URL
               value: https://objects.k-comms.test
             - name: K_COMMS_TIMEOUT_MS
-              value: "30000"
+              value: "120000"
+            - name: K_COMMS_ATTACHMENT_BYTES
+              value: "25000000"
             - name: NODE_EXTRA_CA_CERTS
               value: /ca/ca.crt
             - name: K_COMMS_TENANT_SLUG

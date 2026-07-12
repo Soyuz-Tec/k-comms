@@ -129,6 +129,7 @@ jobs:
           grep -q '^kind: Job$' "$RUNNER_TEMP/k-comms-staging.yaml"
           grep -q '^  name: k-comms-bootstrap$' "$RUNNER_TEMP/k-comms-bootstrap.yaml"
           grep -q 'CommsCore.Release.bootstrap()' "$RUNNER_TEMP/k-comms-bootstrap.yaml"
+          test "$(grep -c 'ERL_AFLAGS= /app/bin/k_comms rpc' "$RUNNER_TEMP/k-comms-staging.yaml")" -eq 3
       - name: Validate staging manifests against pinned Kubernetes schemas
         shell: bash
         run: |

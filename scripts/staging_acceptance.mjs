@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import { createHash, randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 120_000;
+const MAX_ATTACHMENT_BYTES = 25_000_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class AcceptanceError extends Error {
@@ -57,10 +59,20 @@ function parseHttpUrl(value, name) {
 
 function parseTimeout(value) {
   if (!value) return DEFAULT_TIMEOUT_MS;
-  const parsed = Number.parseInt(value, 10);
+  const parsed = Number(value);
   assert(
     Number.isInteger(parsed) && parsed >= 1_000 && parsed <= MAX_TIMEOUT_MS,
     `K_COMMS_TIMEOUT_MS must be between 1000 and ${MAX_TIMEOUT_MS}`
+  );
+  return parsed;
+}
+
+function parseAttachmentBytes(value) {
+  if (!value) return null;
+  const parsed = Number(value);
+  assert(
+    Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_ATTACHMENT_BYTES,
+    `K_COMMS_ATTACHMENT_BYTES must be between 1 and ${MAX_ATTACHMENT_BYTES}`
   );
   return parsed;
 }
@@ -82,7 +94,8 @@ function readConfiguration(env = process.env) {
     ownerEmail,
     ownerPassword,
     conversationId,
-    timeoutMs: parseTimeout(env.K_COMMS_TIMEOUT_MS)
+    timeoutMs: parseTimeout(env.K_COMMS_TIMEOUT_MS),
+    attachmentByteSize: parseAttachmentBytes(env.K_COMMS_ATTACHMENT_BYTES)
   };
 }
 
@@ -570,7 +583,11 @@ async function runAcceptance(env = process.env) {
     );
     console.log("ok - durable REST and Phoenix replay");
 
-    const attachmentBytes = Buffer.from(`K-Comms staging attachment ${runId}\n`, "utf8");
+    const attachmentMarker = Buffer.from(`K-Comms staging attachment ${runId}\n`, "utf8");
+    const attachmentBytes = config.attachmentByteSize
+      ? Buffer.alloc(config.attachmentByteSize, 0x4b)
+      : attachmentMarker;
+    attachmentMarker.copy(attachmentBytes, 0, 0, Math.min(attachmentMarker.length, attachmentBytes.length));
     const checksum = createHash("sha256").update(attachmentBytes).digest("hex");
     const fileName = `staging-acceptance-${runId}.txt`;
     const attachmentIntent = await api.request("/api/v1/attachments", {
@@ -614,7 +631,7 @@ async function runAcceptance(env = process.env) {
     );
     const downloadedBytes = Buffer.from(await objectResponse.arrayBuffer());
     assert(downloadedBytes.equals(attachmentBytes), "downloaded attachment bytes do not match the uploaded bytes");
-    console.log("ok - signed attachment upload, verification, and download");
+    console.log(`ok - signed attachment upload, verification, and download (${attachmentBytes.length} bytes)`);
 
     assert(channel.isOpen(), "WebSocket closed before logout");
     const socketRevoked = channel.waitForClose();
@@ -650,12 +667,23 @@ Optional environment variables:
   K_COMMS_CONVERSATION_ID  Existing conversation UUID; otherwise the first is used or one is created
   K_COMMS_SOCKET_URL       WebSocket endpoint ending in /socket or /socket/websocket
   K_COMMS_TIMEOUT_MS       Per-operation timeout, 1000-120000 (default 15000)
+  K_COMMS_ATTACHMENT_BYTES Attachment size, 1-25000000 (default: small probe)
 
 For private certificate authorities, use NODE_EXTRA_CA_CERTS rather than disabling TLS verification.
 The runner never prints credentials, bearer tokens, refresh tokens, or signed object URLs.`);
 }
 
-const directlyInvoked = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+function isDirectInvocation(moduleUrl, argvPath, realpath = realpathSync) {
+  if (!argvPath) return false;
+
+  try {
+    return realpath(fileURLToPath(moduleUrl)) === realpath(resolve(argvPath));
+  } catch {
+    return moduleUrl === pathToFileURL(resolve(argvPath)).href;
+  }
+}
+
+const directlyInvoked = isDirectInvocation(import.meta.url, process.argv[1]);
 if (directlyInvoked) {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     printHelp();
@@ -671,6 +699,7 @@ export {
   AcceptanceError,
   assertSignedTarget,
   buildSocketUrl,
+  isDirectInvocation,
   readConfiguration,
   redactText,
   runAcceptance

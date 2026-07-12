@@ -1,13 +1,25 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   AcceptanceError,
   assertSignedTarget,
   buildSocketUrl,
+  isDirectInvocation,
   readConfiguration,
   redactText
 } from "./staging_acceptance.mjs";
+
+test("isDirectInvocation resolves Kubernetes ConfigMap symlinks", () => {
+  const targetPath = resolve("mounted", "..data", "staging_acceptance.mjs");
+  const linkPath = resolve("mounted", "staging_acceptance.mjs");
+  const realpath = (path) => (path === linkPath ? targetPath : path);
+
+  assert.equal(isDirectInvocation(pathToFileURL(targetPath).href, linkPath, realpath), true);
+  assert.equal(isDirectInvocation(pathToFileURL(targetPath).href, undefined, realpath), false);
+});
 
 test("buildSocketUrl derives the Phoenix V2 WebSocket endpoint", () => {
   assert.equal(
@@ -53,6 +65,27 @@ test("readConfiguration rejects missing credentials and malformed conversation i
         K_COMMS_CONVERSATION_ID: "invalid"
       }),
     /must be a UUID/
+  );
+
+  const valid = {
+    K_COMMS_BASE_URL: "https://comms.example.test",
+    K_COMMS_OBJECT_URL: "https://objects.example.test",
+    K_COMMS_TENANT_SLUG: "staging",
+    K_COMMS_OWNER_EMAIL: "owner@example.test",
+    K_COMMS_OWNER_PASSWORD: "not-printed"
+  };
+  assert.equal(readConfiguration({ ...valid, K_COMMS_ATTACHMENT_BYTES: "25000000" }).attachmentByteSize, 25_000_000);
+  assert.throws(
+    () => readConfiguration({ ...valid, K_COMMS_ATTACHMENT_BYTES: "25000001" }),
+    /K_COMMS_ATTACHMENT_BYTES/
+  );
+  assert.throws(
+    () => readConfiguration({ ...valid, K_COMMS_ATTACHMENT_BYTES: "25MB" }),
+    /K_COMMS_ATTACHMENT_BYTES/
+  );
+  assert.throws(
+    () => readConfiguration({ ...valid, K_COMMS_ATTACHMENT_BYTES: "1.5" }),
+    /K_COMMS_ATTACHMENT_BYTES/
   );
 });
 

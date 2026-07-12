@@ -24,5 +24,8 @@ is the same as the staging runbook in `../staging/README.md`.
 For the full in-cluster acceptance pass, create `k-comms-acceptance-script`
 from `scripts/staging_acceptance.mjs` and `k-comms-local-ca` from the temporary
 CA certificate, then apply `acceptance-job.yaml`. The Job reads the short-lived
-bootstrap credentials from `k-comms-bootstrap`; delete that Secret immediately
-after the Job finishes.
+bootstrap credentials from `k-comms-bootstrap`. It exercises the configured
+25,000,000-byte application attachment ceiling through ingress as well as
+authentication, realtime delivery, replay, object verification, logout, and
+revocation. Retain the bootstrap Secret only through any planned rollback and
+roll-forward acceptance reruns, then delete it immediately.

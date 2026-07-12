@@ -44,3 +44,13 @@ Keep these unchecked until verified against the target cluster:
 
 Exact configure, migration, deploy, smoke, and rollback commands are maintained
 in `deploy/k8s/overlays/staging/README.md`.
+
+## Local executable proof
+
+`deploy/k8s/overlays/local-proof` exercises the package on kind with local DNS,
+a short-lived CA, ingress, persistent PostgreSQL and MinIO, secret rotation,
+isolated restores, and rollback/roll-forward acceptance. Its acceptance Job
+uses the full 25,000,000-byte attachment allowance. This is concrete runtime
+evidence for the portable package; it does not substitute for managed-cluster
+authority, public DNS/certificates, external alert routing, or multi-node
+failure testing in the selected staging environment.
