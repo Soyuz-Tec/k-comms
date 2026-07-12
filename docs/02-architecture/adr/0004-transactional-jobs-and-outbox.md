@@ -1,0 +1,31 @@
+# ADR-0004: Persist jobs and outbox records transactionally
+
+- **Status:** Proposed
+- **Date:** TBD
+- **Owners:** Architecture
+
+## Context
+
+The communication platform requires a design that is durable, operable, and able to evolve without premature distributed-system complexity.
+
+## Decision
+
+Write side-effect requests in the same database transaction as the business change. Workers execute idempotently with bounded retries and dead-letter handling.
+
+## Alternatives considered
+
+- Introduce independent services and dedicated infrastructure at initial launch.
+- Use in-memory or eventually durable state for the primary path.
+- Adopt a different mechanism based on future benchmark evidence.
+
+## Consequences
+
+- The initial system has fewer transactional and operational boundaries.
+- Boundaries must be enforced in code and CI rather than assumed from network separation.
+- The decision must be validated with representative load and failure testing.
+
+## Revisit triggers
+
+- Approved requirements cannot be met within the current boundary.
+- Benchmarks demonstrate a material scaling bottleneck.
+- Regulatory, residency, or ownership needs require isolation.

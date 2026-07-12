@@ -1,0 +1,22 @@
+site_name: K-Comms Engineering Plan
+site_description: Deployable Erlang/Elixir communications-platform plan
+repo_name: Soyuz-Tec/k-comms
+repo_url: https://github.com/Soyuz-Tec/k-comms
+docs_dir: docs
+nav:
+  - Home: index.md
+  - Documentation Map: documentation-map.md
+  - Architecture: 02-architecture/architecture-overview.md
+  - Domain and Data: 03-domain-and-data/domain-model.md
+  - Interfaces: 04-interfaces/api-guidelines.md
+  - Message Delivery: 05-message-delivery/delivery-semantics.md
+  - Stack: 06-platform-and-stack/software-stack.md
+  - Capacity: 07-capacity-and-performance/capacity-model.md
+  - Reliability: 08-reliability/slos-slas.md
+  - Security: 09-security-and-compliance/threat-model.md
+  - Infrastructure: 10-infrastructure-and-deployment/infrastructure-design.md
+  - Testing: 11-testing-and-quality/test-strategy.md
+  - Development: 12-development-guides/getting-started.md
+  - Delivery: 13-delivery-plan/implementation-roadmap.md
+  - Operations: 14-operations/operations-handbook.md
+markdown_extensions: [tables, admonition]

@@ -1,0 +1,14 @@
+sequenceDiagram
+participant C as Client
+participant E as Edge/API
+participant D as Messaging Domain
+participant P as PostgreSQL
+participant R as PubSub
+C->>E: send(client_message_id, content)
+E->>D: SubmitMessage
+D->>P: transaction(sequence + message + jobs)
+P-->>D: committed
+D-->>E: canonical id + sequence
+E-->>C: accepted
+D->>R: broadcast committed event
+R-->>C: message.created

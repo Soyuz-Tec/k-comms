@@ -1,0 +1,8 @@
+defmodule CommsWeb.Endpoint do
+  use Phoenix.Endpoint, otp_app: :comms_web
+  socket "/socket", CommsWeb.UserSocket, websocket: true, longpoll: false
+  plug Plug.RequestId
+  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug Plug.Parsers, parsers: [:urlencoded, :multipart, :json], pass: ["*/*"], json_decoder: Phoenix.json_library()
+  plug CommsWeb.Router
+end

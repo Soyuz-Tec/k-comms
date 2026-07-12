@@ -1,0 +1,10 @@
+.git
+.github
+_build
+deps
+cover
+doc
+.env
+*.log
+.terraform
+*.tfstate*

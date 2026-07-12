@@ -1,44 +1,49 @@
 # K-Comms
 
-A development-ready foundation for a multi-tenant real-time communication
-platform built with Erlang/OTP, Elixir, Phoenix, PostgreSQL, durable background
-work, and S3-compatible object storage.
+K-Comms is a development-ready foundation for a multi-tenant real-time
+communications platform built with Erlang/OTP, Elixir, Phoenix, PostgreSQL,
+durable background jobs, and S3-compatible object storage.
 
-> **Status:** architecture/bootstrap. The repository contains executable
-> scaffolding and an extensive deployable engineering plan; it is not yet a
-> production-ready communication service.
+> **Maturity:** executable architecture bootstrap. The repository contains
+> runnable application boundaries, database migrations, HTTP/WebSocket health
+> foundations, API contracts, local infrastructure, CI, and the deployable
+> engineering plan. Product authentication, production authorization policy,
+> moderation, notification providers, and end-user clients remain planned work.
 
 ## Architecture baseline
 
-- Modular Elixir umbrella with explicit domain, edge, worker, integration, and observability applications.
-- PostgreSQL as the authoritative store for accepted messages and membership state.
-- Phoenix Channels, PubSub, and Presence for real-time and ephemeral behavior.
-- Oban-backed durable jobs for notifications, webhooks, projections, and outbox processing.
-- S3-compatible object storage for attachments; MinIO is provided for local development.
-- Versioned OpenAPI, AsyncAPI, and JSON Schema contracts.
-- Separate release roles for all-in-one, edge, and worker deployments.
+- Modular Elixir umbrella with explicit core, web, worker, integration,
+  observability, and test-support applications.
+- PostgreSQL is authoritative for accepted messages, ordering, idempotency,
+  memberships, outbox events, and audit history.
+- Phoenix Channels, PubSub, and Presence provide real-time and ephemeral state.
+- Oban provides durable PostgreSQL-backed background execution.
+- S3-compatible storage holds attachments; MinIO supports local development.
+- OpenAPI, AsyncAPI, and JSON Schema contracts are version controlled.
+- Architecture, security, reliability, delivery, and operations live in `docs/`.
 
 ## Repository map
 
 | Path | Purpose |
 |---|---|
-| `apps/comms_core` | Tenant, identity, conversation, message, and persistence rules |
-| `apps/comms_web` | Phoenix HTTP, WebSocket, channel, presence, and health edge |
-| `apps/comms_workers` | Durable jobs, projections, notifications, and outbox processing |
-| `apps/comms_integrations` | Object storage, identity, push, email, and webhook adapters |
-| `apps/comms_observability` | Telemetry conventions and metric definitions |
-| `apps/comms_test_support` | Factories, fakes, deterministic clocks, and failure tools |
-| `contracts` | Canonical machine-readable API and event contracts |
-| `docs` | Architecture, data, delivery, security, reliability, and operating plan |
-| `infra` | Terraform module and environment boundaries |
-| `ops` | Machine-consumed dashboards, alerts, and runtime assets |
+| `apps/comms_core` | Tenant-scoped domain rules, persistence, message acceptance, and authorization boundary |
+| `apps/comms_web` | Phoenix HTTP API, WebSockets, Channels, Presence, and health endpoints |
+| `apps/comms_workers` | Durable notifications, webhooks, outbox, and attachment-processing jobs |
+| `apps/comms_integrations` | Fail-closed object-storage, notification, webhook, and identity adapters |
+| `apps/comms_observability` | Telemetry event and runtime metadata conventions |
+| `apps/comms_test_support` | Shared test IDs, factories, and helpers |
+| `contracts` | Canonical OpenAPI, AsyncAPI, and JSON Schemas |
+| `docs` | Deployable engineering plan and development guides |
+| `infra` | Terraform module contracts and environment composition |
+| `ops` | Alert rules, dashboards, container, and runtime guidance |
 | `scripts` | Bootstrap and validation automation |
 
-See [`DOCUMENTATION-MAP.md`](DOCUMENTATION-MAP.md) for the engineering-plan reading order.
+See [`DOCUMENTATION-MAP.md`](DOCUMENTATION-MAP.md) for the twelve engineering
+plan outputs and their approval evidence.
 
 ## Quick start
 
-Requirements: Docker with Compose and Git.
+Requirements: Git and Docker with Compose.
 
 ```bash
 git clone https://github.com/Soyuz-Tec/k-comms.git
@@ -48,45 +53,35 @@ make bootstrap
 make dev
 ```
 
-Endpoints after startup:
+Local endpoints:
 
 - `GET http://localhost:4000/health/live`
 - `GET http://localhost:4000/health/ready`
 - `GET http://localhost:4000/api/v1/status`
-- MinIO API: `http://localhost:9000`
-- MinIO console: `http://localhost:9001`
+- PostgreSQL: `localhost:5432`
+- MinIO API: `localhost:9000`
+- MinIO console: `localhost:9001`
 
-## Quality gate
+Native BEAM development uses the versions in `.tool-versions`:
+
+```bash
+mix local.hex --force
+mix local.rebar --force
+mix setup
+mix phx.server
+```
+
+## Quality gates
 
 ```bash
 make check
 make contracts
-python3 scripts/validate_docs.py
+make docs-check
 ```
 
-CI additionally compiles a production release and container. The dependency
-lockfile must be generated and committed from the first successful BEAM-enabled
-bootstrap before any release is tagged.
+The initial adapters intentionally deny work until approved implementations are
+configured. Do not weaken authentication, authorization, attachment signing, or
+outbound delivery merely to make a demonstration pass.
 
-## Intentional fail-closed boundaries
-
-Authentication, conversation authorization, notification delivery, object
-storage signing, and the transactional message command are represented by
-contracts that currently reject work. Implement them through reviewed issues
-and ADRs rather than weakening the defaults.
-
-## Key decisions still required
-
-- Product scope and target capacity
-- End-to-end encryption model
-- Voice/video and WebRTC media plane
-- Cloud provider and runtime orchestrator
-- Multi-region ownership and failover
-- Identity providers and enterprise provisioning
-- Licensing model for source redistribution and commercial use
-
-## Contributing and security
-
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`GOVERNANCE.md`](GOVERNANCE.md),
-and [`SECURITY.md`](SECURITY.md). Never place secrets, customer content, or
-production data in issues, commits, tests, or documentation.
+No redistribution license has been granted yet. See
+[`LICENSE-DECISION.md`](LICENSE-DECISION.md).

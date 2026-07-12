@@ -1,0 +1,68 @@
+openapi: 3.1.0
+info:
+  title: Communication Platform API
+  version: 0.1.0-draft
+servers:
+  - url: https://api.example.invalid
+paths:
+  /v1/conversations/{conversationId}/messages:
+    get:
+      summary: List messages after an optional conversation sequence
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: after_sequence
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Message page
+    post:
+      summary: Send a message idempotently
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message accepted and committed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+components:
+  schemas:
+    SendMessageRequest:
+      type: object
+      required: [client_message_id, body]
+      properties:
+        client_message_id: { type: string }
+        body: { type: string, maxLength: 65535 }
+        reply_to_message_id: { type: [string, 'null'], format: uuid }
+        attachment_ids:
+          type: array
+          items: { type: string, format: uuid }
+    Message:
+      type: object
+      required: [id, conversation_id, conversation_sequence, sender_user_id, inserted_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        conversation_sequence: { type: integer }
+        sender_user_id: { type: string, format: uuid }
+        body: { type: [string, 'null'] }
+        inserted_at: { type: string, format: date-time }

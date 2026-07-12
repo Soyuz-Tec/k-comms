@@ -1,0 +1,20 @@
+asyncapi: 3.0.0
+info:
+  title: K-Comms Realtime Events
+  version: 0.1.0-draft
+channels:
+  conversationEvents:
+    address: conversation/{conversationId}
+    parameters:
+      conversationId: { description: Conversation UUID }
+    messages:
+      messageCreated: { $ref: '#/components/messages/MessageCreated' }
+operations:
+  receiveConversationEvents:
+    action: receive
+    channel: { $ref: '#/channels/conversationEvents' }
+components:
+  messages:
+    MessageCreated:
+      name: message.created.v1
+      payload: { $ref: '../json-schema/message-created.v1.json' }

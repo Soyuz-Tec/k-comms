@@ -1,0 +1,31 @@
+asyncapi: 3.0.0
+info:
+  title: Communication Platform Realtime Events
+  version: 0.1.0-draft
+channels:
+  conversationEvents:
+    address: conversation/{conversationId}
+    parameters:
+      conversationId:
+        description: Opaque conversation identifier
+    messages:
+      messageCreated:
+        $ref: '#/components/messages/MessageCreated'
+operations:
+  receiveConversationEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/conversationEvents'
+components:
+  messages:
+    MessageCreated:
+      name: message.created.v1
+      payload:
+        type: object
+        required: [event_id, type, conversation_id, conversation_sequence, payload]
+        properties:
+          event_id: { type: string }
+          type: { const: message.created.v1 }
+          conversation_id: { type: string }
+          conversation_sequence: { type: integer }
+          payload: { type: object }

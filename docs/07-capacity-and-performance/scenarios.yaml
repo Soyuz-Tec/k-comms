@@ -1,0 +1,13 @@
+scenarios:
+  launch:
+    monthly_active_users: null
+    peak_concurrent_fraction: null
+    devices_per_user: null
+    peak_messages_per_second: null
+    average_online_recipients: null
+    max_channel_members: null
+    attachment_gb_per_day: null
+    headroom_multiplier: 1.5
+  stress:
+    multiplier_over_launch: 3
+    reconnect_percent_within_60_seconds: null

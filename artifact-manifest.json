@@ -1,0 +1,17 @@
+{
+  "artifact": "k-comms development scaffold",
+  "status": "architecture-and-executable-bootstrap",
+  "runtime": {
+    "erlang_otp": "29.0",
+    "elixir": "1.20.1",
+    "phoenix": "1.8.1"
+  },
+  "file_count": 247,
+  "validation": {
+    "contracts": "passed",
+    "documentation_links": "passed",
+    "json_yaml_parse": "passed",
+    "shell_syntax": "passed",
+    "beam_compile": "pending CI"
+  }
+}

@@ -1,0 +1,12 @@
+name: Design proposal
+description: Propose an architecture, protocol, data, security, or operational change
+title: "[Design]: "
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Problem and constraints }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Proposed decision and alternatives }
+    validations: { required: true }

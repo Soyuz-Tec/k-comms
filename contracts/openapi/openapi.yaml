@@ -1,0 +1,37 @@
+openapi: 3.1.0
+info:
+  title: K-Comms API
+  version: 0.1.0-draft
+paths:
+  /health/live:
+    get:
+      responses:
+        '200': { description: Process is live }
+  /health/ready:
+    get:
+      responses:
+        '200': { description: Required dependencies are ready }
+        '503': { description: A required dependency is unavailable }
+  /api/v1/status:
+    get:
+      responses:
+        '200': { description: Service status }
+  /api/v1/conversations/{conversationId}/messages:
+    post:
+      summary: Accept a message idempotently
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../json-schema/send-message.v1.json' }
+      responses:
+        '201': { description: Message committed }

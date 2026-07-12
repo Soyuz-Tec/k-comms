@@ -1,0 +1,6 @@
+flowchart LR
+User[User] -->|HTTPS / WebSocket| Platform[Communication Platform]
+Admin[Administrator] -->|Admin API| Platform
+Platform --> IdP[Identity Provider]
+Platform --> Store[Object Storage]
+Platform --> Providers[Notification / Integration Providers]

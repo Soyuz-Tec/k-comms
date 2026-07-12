@@ -1,0 +1,7 @@
+flowchart TB
+Client --> Edge[Edge/API]
+Edge --> DB[(PostgreSQL)]
+Worker --> DB
+Worker --> Search[(Search)]
+Worker --> Providers
+Edge --> Object[(Object Storage)]
