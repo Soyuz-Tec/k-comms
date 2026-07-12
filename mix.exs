@@ -4,7 +4,7 @@ defmodule KComms.MixProject do
   def project do
     [
       apps_path: "apps",
-      version: "0.1.0",
+      version: "0.2.0",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       releases: releases()
@@ -14,9 +14,17 @@ defmodule KComms.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run apps/comms_core/priv/repo/seeds.exs"],
+      "ecto.setup": [
+        "ecto.create",
+        "ecto.migrate",
+        "run apps/comms_core/priv/repo/seeds.exs"
+      ],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      check: ["format --check-formatted", "compile --warnings-as-errors", "test"]
+      check: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "test"
+      ]
     ]
   end
 

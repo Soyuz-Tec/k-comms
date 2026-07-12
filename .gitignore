@@ -19,3 +19,14 @@ erl_crash.dump
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+deploy/k8s/overlays/*/secrets.env
+clients/web/node_modules/
+clients/web/.vite/
+clients/web/dist/
+deploy/k8s/overlays/*/secrets.env
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+certs/private/

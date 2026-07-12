@@ -2,7 +2,8 @@ import Config
 
 config :comms_core,
   ecto_repos: [CommsCore.Repo],
-  authorization_adapter: CommsCore.Authorization.DenyAll
+  authorization_adapter: CommsCore.Authorization.Database,
+  session_ttl_seconds: 2_592_000
 
 config :comms_core, CommsCore.Repo,
   migration_primary_key: [name: :id, type: :binary_id],
@@ -14,11 +15,24 @@ config :comms_core, Oban,
   plugins: [{Oban.Plugins.Pruner, max_age: 86_400}]
 
 config :comms_integrations,
-  notification_adapter: CommsIntegrations.Notifications.DenyAll,
-  object_storage_adapter: CommsIntegrations.ObjectStorage.DenyAll,
-  webhook_adapter: CommsIntegrations.Webhooks.DenyAll
+  notification_adapter: CommsIntegrations.Notifications.Log,
+  object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
+  webhook_adapter: CommsIntegrations.Webhooks.Http,
+  webhook_allowed_hosts: []
 
-config :comms_web, generators: [binary_id: true]
+config :comms_web,
+  generators: [binary_id: true],
+  auth_adapter: CommsWeb.Auth.Token,
+  access_token_ttl_seconds: 900,
+  allow_bootstrap: false,
+  hsts: false,
+  csp_connect_sources: [
+    "'self'",
+    "http://localhost:4000",
+    "ws://localhost:4000",
+    "http://localhost:9000"
+  ],
+  cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 config :comms_web, CommsWeb.Endpoint,
   url: [host: "localhost"],
@@ -27,8 +41,7 @@ config :comms_web, CommsWeb.Endpoint,
   pubsub_server: CommsWeb.PubSub
 
 config :logger, :console,
-  format: "$time $metadata[$level] $message
-",
+  format: "$time $metadata[$level] $message\n",
   metadata: [:request_id, :tenant_id, :actor_id, :conversation_id, :job_id]
 
 import_config "#{config_env()}.exs"

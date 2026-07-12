@@ -1,31 +1,118 @@
 asyncapi: 3.0.0
 info:
-  title: Communication Platform Realtime Events
-  version: 0.1.0-draft
+  title: K-Comms Realtime Protocol
+  version: 0.2.0
+  description: Authenticated Phoenix Channel commands and tenant-authorized conversation events.
+defaultContentType: application/json
 channels:
-  conversationEvents:
-    address: conversation/{conversationId}
+  conversation:
+    address: conversation:{conversationId}
     parameters:
       conversationId:
-        description: Opaque conversation identifier
+        description: Conversation UUID authorized at join and for every command
     messages:
+      command:
+        $ref: '#/components/messages/Command'
       messageCreated:
         $ref: '#/components/messages/MessageCreated'
+      messageUpdated:
+        $ref: '#/components/messages/MessageUpdated'
+      messageDeleted:
+        $ref: '#/components/messages/MessageDeleted'
+      reactionAdded:
+        $ref: '#/components/messages/ReactionAdded'
+      reactionRemoved:
+        $ref: '#/components/messages/ReactionRemoved'
+      readCursor:
+        $ref: '#/components/messages/ReadCursor'
+      membershipChanged:
+        $ref: '#/components/messages/MembershipChanged'
+      typing:
+        $ref: '#/components/messages/Typing'
 operations:
-  receiveConversationEvents:
+  sendConversationCommand:
+    action: send
+    channel: {$ref: '#/channels/conversation'}
+    messages:
+      - {$ref: '#/channels/conversation/messages/command'}
+  receiveConversationEvent:
     action: receive
-    channel:
-      $ref: '#/channels/conversationEvents'
+    channel: {$ref: '#/channels/conversation'}
+    messages:
+      - {$ref: '#/channels/conversation/messages/messageCreated'}
+      - {$ref: '#/channels/conversation/messages/messageUpdated'}
+      - {$ref: '#/channels/conversation/messages/messageDeleted'}
+      - {$ref: '#/channels/conversation/messages/reactionAdded'}
+      - {$ref: '#/channels/conversation/messages/reactionRemoved'}
+      - {$ref: '#/channels/conversation/messages/readCursor'}
+      - {$ref: '#/channels/conversation/messages/membershipChanged'}
+      - {$ref: '#/channels/conversation/messages/typing'}
 components:
   messages:
+    Command:
+      name: command
+      payload:
+        type: object
+        additionalProperties: false
+        required: [command_id, type, payload]
+        properties:
+          command_id: {type: string, minLength: 8, maxLength: 128}
+          type:
+            enum: [message.send.v1, conversation.read.v1, typing.start.v1, typing.stop.v1]
+          payload: {type: object}
+          client_time: {type: [string, 'null'], format: date-time}
     MessageCreated:
       name: message.created.v1
       payload:
+        $ref: ../json-schema/message-created.v1.json
+    MessageUpdated:
+      name: message.updated.v1
+      payload:
+        $ref: ../json-schema/message-created.v1.json
+    MessageDeleted:
+      name: message.deleted.v1
+      payload:
+        $ref: ../json-schema/message-created.v1.json
+    ReactionAdded:
+      name: message.reaction_added.v1
+      payload:
         type: object
-        required: [event_id, type, conversation_id, conversation_sequence, payload]
+        required: [message_id, user_id, emoji]
         properties:
-          event_id: { type: string }
-          type: { const: message.created.v1 }
-          conversation_id: { type: string }
-          conversation_sequence: { type: integer }
-          payload: { type: object }
+          message_id: {type: string, format: uuid}
+          user_id: {type: string, format: uuid}
+          emoji: {type: string, minLength: 1, maxLength: 32}
+    ReactionRemoved:
+      name: message.reaction_removed.v1
+      payload:
+        type: object
+        required: [message_id, user_id, emoji]
+        properties:
+          message_id: {type: string, format: uuid}
+          user_id: {type: string, format: uuid}
+          emoji: {type: string, minLength: 1, maxLength: 32}
+    ReadCursor:
+      name: conversation.read.v1
+      payload:
+        type: object
+        required: [user_id, sequence]
+        properties:
+          user_id: {type: string, format: uuid}
+          sequence: {type: integer, minimum: 0}
+    MembershipChanged:
+      name: membership.changed.v1
+      payload:
+        type: object
+        required: [user_id, action]
+        properties:
+          user_id: {type: string, format: uuid}
+          action: {enum: [added, removed]}
+          role: {enum: [member, moderator, owner]}
+    Typing:
+      name: typing.v1
+      payload:
+        type: object
+        required: [user_id, state]
+        properties:
+          user_id: {type: string, format: uuid}
+          state: {enum: [started, stopped]}

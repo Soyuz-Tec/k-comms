@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: k-comms-staging
+resources:
+  - ../../base
+  - namespace.yaml
+  - postgres-service.yaml
+  - postgres-statefulset.yaml
+  - minio-service.yaml
+  - minio-statefulset.yaml
+  - minio-init-job.yaml
+  - migration-job.yaml
+  - data-network-policies.yaml
+  - ingress.yaml
+patches:
+  - path: configmap-patch.yaml
+images:
+  - name: ghcr.io/soyuz-tec/k-comms
+    newName: ghcr.io/soyuz-tec/k-comms
+    newTag: staging
+secretGenerator:
+  - name: k-comms-secrets
+    envs:
+      - secrets.env
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: k-comms
+    app.kubernetes.io/managed-by: kustomize

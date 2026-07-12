@@ -1,7 +1,9 @@
 defmodule CommsCore.MessageChangesetTest do
   use ExUnit.Case, async: true
+
   alias CommsCore.Messaging.Message
-  test "requires tenant, sender, idempotency, and sequence fields" do
+
+  test "requires tenant, sender, idempotency, sequence, and active content" do
     changeset = Message.changeset(%Message{}, %{body: "hello"})
     refute changeset.valid?
     assert Keyword.has_key?(changeset.errors, :tenant_id)

@@ -1,26 +1,73 @@
-.PHONY: bootstrap dev stop logs shell check test format contracts docs-check release clean
+CONTAINER_ENGINE ?= podman
+COMPOSE ?= $(CONTAINER_ENGINE) compose
+CONTAINER_BUILD_FLAGS ?= $(if $(filter podman podman.exe,$(notdir $(firstword $(CONTAINER_ENGINE)))),--format docker,)
+IMAGE ?= localhost/k-comms:dev
+PYTHON ?= python3
+KUBE_OVERLAY ?= deploy/k8s/overlays/staging
+TEST_DATABASE_URL ?= ecto://postgres:postgres@postgres:5432/k_comms_test
+
+.PHONY: bootstrap dev stop logs shell check test format web-check contracts docs-check \
+	validation-deps build container-smoke compose-validate kube-validate release clean
+
 bootstrap:
-	docker compose run --rm app sh -lc "mix local.hex --force && mix local.rebar --force && mix setup"
+	$(COMPOSE) up -d postgres minio minio-init
+	$(COMPOSE) run --rm app sh -lc "mix local.hex --force && mix local.rebar --force && mix setup"
+
 dev:
-	docker compose up --build
+	$(COMPOSE) up --build app web
+
 stop:
-	docker compose down
+	$(COMPOSE) down --remove-orphans
+
 logs:
-	docker compose logs -f app
+	$(COMPOSE) logs -f app web
+
 shell:
-	docker compose run --rm app iex -S mix
+	$(COMPOSE) run --rm app iex -S mix
+
 check:
-	docker compose run --rm -e MIX_ENV=test app mix check
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && mix check"
+
 test:
-	docker compose run --rm -e MIX_ENV=test app mix test
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && mix test --warnings-as-errors"
+
 format:
-	docker compose run --rm app mix format
+	$(COMPOSE) run --rm app mix format
+
+web-check:
+	$(COMPOSE) run --rm web sh -lc "npm ci --no-audit --no-fund && npm audit --omit=dev --audit-level=high && npm run lint && npm run typecheck && npm run build"
+
+validation-deps:
+	$(PYTHON) -m pip install -r requirements-validation.txt
+
 contracts:
-	python3 scripts/validate_contracts.py
+	$(PYTHON) scripts/validate_contracts.py
+
 docs-check:
-	python3 scripts/validate_docs.py
+	$(PYTHON) scripts/validate_docs.py
+
+build:
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime --tag $(IMAGE) .
+
+container-smoke:
+	CONTAINER_ENGINE=$(CONTAINER_ENGINE) IMAGE=$(IMAGE) bash scripts/container_smoke.sh
+
+compose-validate:
+	$(COMPOSE) config --quiet
+
+kube-validate:
+	@set -eu; \
+		secrets="$(KUBE_OVERLAY)/secrets.env"; \
+		created=0; \
+		if [ ! -f "$$secrets" ]; then cp "$$secrets.example" "$$secrets"; created=1; fi; \
+		trap 'if [ "$$created" = 1 ]; then rm -f "$$secrets"; fi' EXIT; \
+		kubectl kustomize "$(KUBE_OVERLAY)" >/dev/null
+
 release:
-	docker compose run --rm -e MIX_ENV=prod app mix release k_comms --overwrite
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime --tag $(IMAGE) .
+
 clean:
-	docker compose down -v --remove-orphans
-	rm -rf _build deps cover doc
+	$(COMPOSE) down -v --remove-orphans
+	rm -rf _build deps cover doc clients/web/node_modules clients/web/dist

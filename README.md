@@ -1,49 +1,44 @@
 # K-Comms
 
-K-Comms is a development-ready foundation for a multi-tenant real-time
-communications platform built with Erlang/OTP, Elixir, Phoenix, PostgreSQL,
-durable background jobs, and S3-compatible object storage.
+K-Comms is a multi-tenant real-time communication-platform MVP built with
+Erlang/OTP, Elixir, Phoenix, PostgreSQL, React/TypeScript, durable background
+jobs, and S3-compatible object storage.
 
-> **Maturity:** executable architecture bootstrap. The repository contains
-> runnable application boundaries, database migrations, HTTP/WebSocket health
-> foundations, API contracts, local infrastructure, CI, and the deployable
-> engineering plan. Product authentication, production authorization policy,
-> moderation, notification providers, and end-user clients remain planned work.
+## Implemented MVP
 
-## Architecture baseline
+- Workspace bootstrap, password authentication, device sessions, refresh rotation, and revocation
+- Tenant-scoped users, roles, conversations, and memberships
+- Ordered/idempotent durable messaging, history replay, edits, deletion tombstones, reactions, and replies
+- Phoenix Channels, Presence, typing events, reconnect replay, and read cursors
+- PostgreSQL full-text message search constrained by active membership
+- Attachment metadata and signed direct upload/download URLs for MinIO or another S3-compatible service
+- React/TypeScript reference web client
+- Podman-first local development and OCI builds
+- Kubernetes-neutral Kustomize staging package
+- Backend, web, contract, release, Kubernetes, and container CI gates
 
-- Modular Elixir umbrella with explicit core, web, worker, integration,
-  observability, and test-support applications.
-- PostgreSQL is authoritative for accepted messages, ordering, idempotency,
-  memberships, outbox events, and audit history.
-- Phoenix Channels, PubSub, and Presence provide real-time and ephemeral state.
-- Oban provides durable PostgreSQL-backed background execution.
-- S3-compatible storage holds attachments; MinIO supports local development.
-- OpenAPI, AsyncAPI, and JSON Schema contracts are version controlled.
-- Architecture, security, reliability, delivery, and operations live in `docs/`.
+Voice/video and true end-to-end encryption are explicitly deferred from this MVP.
+Messages are server-readable for authorized search, moderation, notifications,
+and multi-device recovery; TLS and encryption at rest are required.
 
 ## Repository map
 
 | Path | Purpose |
 |---|---|
-| `apps/comms_core` | Tenant-scoped domain rules, persistence, message acceptance, and authorization boundary |
-| `apps/comms_web` | Phoenix HTTP API, WebSockets, Channels, Presence, and health endpoints |
-| `apps/comms_workers` | Durable notifications, webhooks, outbox, and attachment-processing jobs |
-| `apps/comms_integrations` | Fail-closed object-storage, notification, webhook, and identity adapters |
-| `apps/comms_observability` | Telemetry event and runtime metadata conventions |
-| `apps/comms_test_support` | Shared test IDs, factories, and helpers |
-| `contracts` | Canonical OpenAPI, AsyncAPI, and JSON Schemas |
-| `docs` | Deployable engineering plan and development guides |
-| `infra` | Terraform module contracts and environment composition |
-| `ops` | Alert rules, dashboards, container, and runtime guidance |
-| `scripts` | Bootstrap and validation automation |
+| `apps/comms_core` | Authoritative identity, tenancy, conversations, messages, attachments, audit, and persistence |
+| `apps/comms_web` | REST API, access tokens, Phoenix Channels, Presence, and static client delivery |
+| `apps/comms_workers` | Durable outbox, notification, webhook, and attachment workers |
+| `apps/comms_integrations` | S3 signing, webhook delivery, and provider adapters |
+| `clients/web` | React/TypeScript reference client |
+| `contracts` | OpenAPI, AsyncAPI, and JSON Schema contracts |
+| `deploy/k8s` | Kubernetes-neutral Kustomize base and staging overlay |
+| `docs` | Architecture, security, reliability, testing, delivery, and operations plan |
+| `ops` | Alert, dashboard, and MinIO development assets |
 
-See [`DOCUMENTATION-MAP.md`](DOCUMENTATION-MAP.md) for the twelve engineering
-plan outputs and their approval evidence.
+## Local development with Podman
 
-## Quick start
-
-Requirements: Git and Docker with Compose.
+Requirements: Podman, a Compose provider available through `podman compose`,
+Git, and Python 3.
 
 ```bash
 git clone https://github.com/Soyuz-Tec/k-comms.git
@@ -53,35 +48,40 @@ make bootstrap
 make dev
 ```
 
-Local endpoints:
+Open:
 
-- `GET http://localhost:4000/health/live`
-- `GET http://localhost:4000/health/ready`
-- `GET http://localhost:4000/api/v1/status`
-- PostgreSQL: `localhost:5432`
-- MinIO API: `localhost:9000`
-- MinIO console: `localhost:9001`
+- Web client: `http://localhost:5173`
+- API: `http://localhost:4000/api/v1/status`
+- Health: `http://localhost:4000/health/ready`
+- MinIO console: `http://localhost:9001`
 
-Native BEAM development uses the versions in `.tool-versions`:
-
-```bash
-mix local.hex --force
-mix local.rebar --force
-mix setup
-mix phx.server
-```
+The first local user is created through the client’s **Create development
+workspace** form. Bootstrap is disabled by default in production.
 
 ## Quality gates
 
 ```bash
 make check
-make contracts
-make docs-check
+make build
+make kube-validate
 ```
 
-The initial adapters intentionally deny work until approved implementations are
-configured. Do not weaken authentication, authorization, attachment signing, or
-outbound delivery merely to make a demonstration pass.
+## Staging deployment
 
-No redistribution license has been granted yet. See
-[`LICENSE-DECISION.md`](LICENSE-DECISION.md).
+```bash
+cp deploy/k8s/overlays/staging/secrets.env.example \
+  deploy/k8s/overlays/staging/secrets.env
+$EDITOR deploy/k8s/overlays/staging/secrets.env
+kubectl kustomize deploy/k8s/overlays/staging | kubectl apply --server-side -f -
+```
+
+The staging overlay is portable and intentionally includes single-node
+PostgreSQL and MinIO. Replace them with an approved production data-services
+overlay before launch. See `docs/12-development-guides/mvp-handoff.md` and
+`docs/09-security-and-compliance/tls-pki-certificate-lifecycle.md`.
+
+## Security and licensing
+
+Never commit real secrets, TLS private keys, customer content, or production
+data. Use private vulnerability reporting for security issues. No redistribution
+license has been selected; see `LICENSE-DECISION.md`.

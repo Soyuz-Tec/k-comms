@@ -1,8 +1,9 @@
-# WebSocket Protocol Draft
+# WebSocket Protocol
 
 ## Connection
 
-A short-lived access token identifies tenant, user, device, session, and authentication assurance. Tokens are revalidated or refreshed without requiring indefinite trust in the initial connection.
+A short-lived access token identifies tenant, user, device, and session. The
+session and conversation membership are revalidated for every command.
 
 ## Topic namespaces
 
@@ -28,23 +29,28 @@ call:<call_id>
 
 ```json
 {
-  "command_id": "opaque-id",
+  "command_id": "device-generated-idempotency-key",
   "type": "message.send.v1",
-  "payload": {},
+  "payload": {"body": "Example message"},
   "client_time": "optional-iso-time"
 }
 ```
 
-## Event envelope
+Commands are sent with the Phoenix event name `command`. Supported command
+types are `message.send.v1`, `conversation.read.v1`, `typing.start.v1`, and
+`typing.stop.v1`.
+
+## Durable event payload
 
 ```json
 {
-  "event_id": "opaque-id",
-  "type": "message.created.v1",
-  "occurred_at": "server-time",
+  "id": "message-id",
   "conversation_id": "opaque-id",
   "conversation_sequence": 48292,
-  "payload": {}
+  "client_message_id": "device-generated-idempotency-key",
+  "body": "Example message",
+  "status": "active",
+  "inserted_at": "server-time"
 }
 ```
 
@@ -55,3 +61,4 @@ call:<call_id>
 - Durable events carry stable IDs and sequence positions.
 - Ephemeral events such as typing do not carry durability promises.
 - A reconnect always reconciles against durable state rather than assuming no messages were missed.
+- Session revocation or membership removal stops further commands and events.

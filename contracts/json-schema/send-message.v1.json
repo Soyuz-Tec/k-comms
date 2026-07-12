@@ -4,19 +4,30 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "client_message_id",
     "body"
   ],
   "properties": {
-    "client_message_id": {
-      "type": "string",
-      "minLength": 8,
-      "maxLength": 128
-    },
     "body": {
       "type": "string",
       "minLength": 1,
       "maxLength": 65535
+    },
+    "reply_to_message_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "attachment_ids": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "maxProperties": 32
     }
   }
 }

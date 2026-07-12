@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k-comms-edge
+  labels:
+    app.kubernetes.io/component: edge
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: edge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: edge
+    spec:
+      serviceAccountName: k-comms
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: edge
+      containers:
+        - name: edge
+          image: ghcr.io/soyuz-tec/k-comms:staging
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: k-comms-config
+          env:
+            - name: K_COMMS_ROLE
+              value: edge
+            - name: CLUSTER_DNS_QUERY
+              value: k-comms-cluster
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: RELEASE_DISTRIBUTION
+              value: name
+            - name: RELEASE_NODE
+              value: k_comms@$(POD_IP)
+            - name: RELEASE_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: RELEASE_COOKIE
+            - name: ERL_AFLAGS
+              value: -proto_dist inet_tcp -kernel inet_dist_listen_min 9100 inet_dist_listen_max 9100
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: DATABASE_URL
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: SECRET_KEY_BASE
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: S3_SECRET_ACCESS_KEY
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+            - name: epmd
+              containerPort: 4369
+              protocol: TCP
+            - name: distribution
+              containerPort: 9100
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

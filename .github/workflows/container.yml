@@ -1,13 +1,46 @@
 name: Container
+
 on:
   pull_request:
-    paths: [Dockerfile, compose.yaml, mix.exs, 'apps/**', 'config/**']
-permissions: { contents: read }
+    paths:
+      - Dockerfile
+      - compose.yaml
+      - mix.exs
+      - mix.lock
+      - "apps/**"
+      - "clients/web/**"
+      - "config/**"
+      - "deploy/k8s/**"
+      - "scripts/container_smoke.sh"
+      - ".github/workflows/container.yml"
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - compose.yaml
+      - mix.exs
+      - mix.lock
+      - "apps/**"
+      - "clients/web/**"
+      - "config/**"
+      - "scripts/container_smoke.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  runtime-smoke:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with: { context: ., target: runtime, push: false }
+      - name: Build, migrate, boot, and smoke the runtime image
+        shell: bash
+        env:
+          CONTAINER_ENGINE: docker
+          IMAGE: k-comms:ci
+        run: bash scripts/container_smoke.sh

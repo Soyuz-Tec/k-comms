@@ -1,37 +1,533 @@
 openapi: 3.1.0
 info:
   title: K-Comms API
-  version: 0.1.0-draft
+  version: 0.2.0
+  description: Tenant-scoped authentication, conversations, messaging, replay, search, and attachments.
+servers:
+  - url: /
+tags:
+  - name: System
+  - name: Sessions
+  - name: Users
+  - name: Conversations
+  - name: Messages
+  - name: Attachments
 paths:
   /health/live:
     get:
+      tags: [System]
+      operationId: live
       responses:
-        '200': { description: Process is live }
+        '200':
+          description: Process is live
   /health/ready:
     get:
+      tags: [System]
+      operationId: ready
       responses:
-        '200': { description: Required dependencies are ready }
-        '503': { description: A required dependency is unavailable }
+        '200':
+          description: Required dependencies are ready
+        '503':
+          $ref: '#/components/responses/Error'
+  /metrics:
+    get:
+      tags: [System]
+      operationId: metrics
+      responses:
+        '200':
+          description: Prometheus text exposition for internal scraping
+          content:
+            text/plain:
+              schema: {type: string}
   /api/v1/status:
     get:
+      tags: [System]
+      operationId: status
       responses:
-        '200': { description: Service status }
-  /api/v1/conversations/{conversationId}/messages:
+        '200':
+          description: Service version and node
+  /api/v1/bootstrap:
     post:
-      summary: Accept a message idempotently
-      parameters:
-        - name: conversationId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - name: Idempotency-Key
-          in: header
-          required: true
-          schema: { type: string, minLength: 8, maxLength: 128 }
+      tags: [Sessions]
+      operationId: bootstrapTenant
+      summary: Create a development workspace when bootstrap is enabled
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '../json-schema/send-message.v1.json' }
+            schema:
+              $ref: '#/components/schemas/BootstrapRequest'
       responses:
-        '201': { description: Message committed }
+        '201':
+          description: Workspace and owner session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/v1/sessions:
+    post:
+      tags: [Sessions]
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/sessions/refresh:
+    post:
+      tags: [Sessions]
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refresh_token]
+              properties:
+                refresh_token: {type: string, minLength: 40}
+      responses:
+        '200':
+          description: Rotated session credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/sessions/current:
+    delete:
+      tags: [Sessions]
+      operationId: revokeCurrentSession
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Session revoked}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: "Current tenant, user, and device"}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Tenant users}
+    post:
+      tags: [Users]
+      operationId: createUser
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201': {description: Tenant user created}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations:
+    get:
+      tags: [Conversations]
+      operationId: listConversations
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Conversations visible to the current user}
+    post:
+      tags: [Conversations]
+      operationId: createConversation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+      responses:
+        '201': {description: Conversation created}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Conversations]
+      operationId: getConversation
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Conversation visible to the current user}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Conversations]
+      operationId: listConversationMembers
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Active conversation members}
+    post:
+      tags: [Conversations]
+      operationId: addConversationMember
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [user_id]
+              properties:
+                user_id: {type: string, format: uuid}
+                role: {enum: [member, moderator, owner], default: member}
+      responses:
+        '201': {description: Member added}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - name: userId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    delete:
+      tags: [Conversations]
+      operationId: removeConversationMember
+      security: [{bearerAuth: []}]
+      responses:
+        '204': {description: Member removed}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Messages]
+      operationId: listMessages
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: after_sequence
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: before_sequence
+          in: query
+          schema: {type: integer, minimum: 1}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+      responses:
+        '200':
+          description: Ordered durable message page with an explicit continuation state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Messages]
+      operationId: createMessage
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201': {description: Canonical committed message}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/read-cursor:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    put:
+      tags: [Messages]
+      operationId: updateReadCursor
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sequence]
+              properties:
+                sequence: {type: integer, minimum: 0}
+      responses:
+        '200': {description: Stored monotonic read cursor}
+  /api/v1/messages/{messageId}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    patch:
+      tags: [Messages]
+      operationId: editMessage
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: {type: string, minLength: 1, maxLength: 65535}
+      responses:
+        '200': {description: Edited message}
+        '403': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Messages]
+      operationId: deleteMessage
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Message tombstone}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/messages/{messageId}/reactions:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      tags: [Messages]
+      operationId: addReaction
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [emoji]
+              properties:
+                emoji: {type: string, minLength: 1, maxLength: 32}
+      responses:
+        '201': {description: Reaction added idempotently}
+  /api/v1/search:
+    get:
+      tags: [Messages]
+      operationId: searchMessages
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        '200': {description: Membership-filtered message matches}
+  /api/v1/attachments:
+    post:
+      tags: [Attachments]
+      operationId: createAttachmentIntent
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentIntentRequest'
+      responses:
+        '201': {description: Attachment metadata and signed upload intent}
+  /api/v1/attachments/{attachmentId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/AttachmentId'
+    post:
+      tags: [Attachments]
+      operationId: completeAttachment
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Object verified and attachment marked ready}
+        '409': {$ref: '#/components/responses/Error'}
+  /api/v1/attachments/{attachmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AttachmentId'
+    get:
+      tags: [Attachments]
+      operationId: getAttachment
+      security: [{bearerAuth: []}]
+      responses:
+        '200': {description: Authorized attachment and signed download intent}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: K-Comms signed access token
+  parameters:
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Error:
+      description: Structured request failure
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, detail]
+          properties:
+            code: {type: string}
+            detail: {type: string}
+            meta: {}
+    BootstrapRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_name, tenant_slug, display_name, email, password]
+      properties:
+        tenant_name: {type: string, minLength: 2, maxLength: 120}
+        tenant_slug: {type: string, minLength: 2, maxLength: 80}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        email: {type: string, format: email}
+        password: {type: string, minLength: 12, maxLength: 256}
+        device_name: {type: string, maxLength: 120}
+        device_platform: {type: string, maxLength: 40}
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [tenant_slug, email, password]
+      properties:
+        tenant_slug: {type: string}
+        email: {type: string, format: email}
+        password: {type: string}
+        device:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+            platform: {type: string}
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, email, password]
+      properties:
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        email: {type: string, format: email}
+        password: {type: string, minLength: 12, maxLength: 256}
+        role: {enum: [member, admin], default: member}
+    CreateConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, member_ids]
+      properties:
+        title: {type: [string, 'null'], maxLength: 160}
+        kind: {enum: [direct, group, channel]}
+        visibility: {enum: [private, tenant], default: private}
+        member_ids:
+          type: array
+          uniqueItems: true
+          items: {type: string, format: uuid}
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 65535}
+        reply_to_message_id: {type: [string, 'null'], format: uuid}
+        attachment_ids:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items: {type: string, format: uuid}
+        metadata: {type: object, maxProperties: 32}
+    Message:
+      type: object
+      required: [id, conversation_id, conversation_sequence, sender_user_id, client_message_id, status, inserted_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        conversation_sequence: {type: integer, minimum: 1}
+        sender_user_id: {type: string, format: uuid}
+        sender_device_id: {type: string, format: uuid}
+        client_message_id: {type: string}
+        reply_to_message_id: {type: [string, 'null'], format: uuid}
+        body: {type: [string, 'null']}
+        metadata: {type: object}
+        status: {enum: [active, deleted, moderated]}
+        edited_at: {type: [string, 'null'], format: date-time}
+        deleted_at: {type: [string, 'null'], format: date-time}
+        inserted_at: {type: string, format: date-time}
+        attachments: {type: array, items: {type: object}}
+        reactions: {type: array, items: {type: object}}
+    MessagePage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        page:
+          type: object
+          required: [has_more, reset_required]
+          properties:
+            has_more: {type: boolean}
+            next_after_sequence: {type: [integer, 'null']}
+            reset_required: {type: boolean}
+    AttachmentIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [file_name, content_type, byte_size]
+      properties:
+        file_name: {type: string, minLength: 1, maxLength: 255}
+        content_type: {type: string, minLength: 1, maxLength: 120}
+        byte_size: {type: integer, minimum: 1, maximum: 25000000}
+        checksum_sha256: {type: [string, 'null'], pattern: '^[a-fA-F0-9]{64}$'}
+    TokenResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device]
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant: {type: object}
+        user: {type: object}
+        device: {type: object}
