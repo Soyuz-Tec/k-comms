@@ -10,6 +10,14 @@
 6. Migration safety analysis.
 7. Ephemeral-environment smoke tests where practical.
 
+The architecture gate runs `scripts/test_validate_architecture.py` followed by
+`scripts/validate_architecture.py`. It fails on unclassified umbrella apps,
+forbidden direct dependency edges, core references to adapter applications, and
+direct Repo access outside the non-release test-fixture allowlist. Health and
+metrics use narrowly named core read APIs rather than persistence exceptions.
+Architecture policy changes must update the accepted architecture documentation,
+validator, and regression tests together.
+
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested
 `workflow_dispatch` run, builds and smokes the exact image tagged

@@ -7,6 +7,19 @@ defmodule CommsCore.Operations do
   alias CommsCore.Integrations.WebhookDelivery
   alias CommsCore.Notifications.Intent
 
+  @runtime_gauges_sql """
+  SELECT
+    COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at)))::double precision, 0.0),
+    COUNT(*) FILTER (WHERE state IN ('available', 'scheduled', 'retryable')),
+    COUNT(*) FILTER (WHERE state = 'discarded'),
+    (SELECT COUNT(*) FROM outbox_events WHERE published_at IS NULL),
+    (SELECT COUNT(*) FROM attachments WHERE status = 'quarantined'),
+    (SELECT COUNT(*) FROM notification_intents WHERE status = 'failed'),
+    (SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'failed'),
+    (SELECT COUNT(*) FROM attachments WHERE scan_status = 'failed')
+  FROM oban_jobs
+  """
+
   def snapshot(subject) do
     with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
       tenant_id = value(subject, :tenant_id)
@@ -43,10 +56,60 @@ defmodule CommsCore.Operations do
   def retry("attachment_scan", id, subject), do: Attachments.retry_scan(id, subject)
   def retry(_, _, _), do: {:error, :unsupported_operation}
 
+  @doc """
+  Performs the bounded database probe used by the unauthenticated readiness
+  endpoint without exposing Repo access to the web adapter.
+  """
+  def database_readiness do
+    started = System.monotonic_time()
+
+    case Ecto.Adapters.SQL.query(Repo, "SELECT 1", [], timeout: 3_000) do
+      {:ok, _} -> {:ok, elapsed_milliseconds(started)}
+      {:error, _reason} -> {:error, :unavailable}
+    end
+  end
+
+  @doc """
+  Returns the fixed, content-free operational aggregates rendered by the
+  protected Prometheus endpoint.
+  """
+  def runtime_gauges do
+    case Ecto.Adapters.SQL.query(Repo, @runtime_gauges_sql, []) do
+      {:ok,
+       %{
+         rows: [
+           [
+             age,
+             pending,
+             discarded,
+             outbox,
+             quarantined,
+             notification_failures,
+             webhook_failures,
+             scan_failures
+           ]
+         ]
+       }} ->
+        %{
+          queue_age_seconds: age,
+          jobs_pending: pending,
+          jobs_discarded: discarded,
+          outbox_pending: outbox,
+          attachments_quarantined: quarantined,
+          notification_failures: notification_failures,
+          webhook_failures: webhook_failures,
+          attachment_scan_failures: scan_failures
+        }
+
+      _ ->
+        %{}
+    end
+  end
+
   defp database_health do
-    case Ecto.Adapters.SQL.query(Repo, "SELECT 1", []) do
-      {:ok, _} -> %{status: :available}
-      {:error, _} -> %{status: :unavailable}
+    case database_readiness() do
+      {:ok, _latency_ms} -> %{status: :available}
+      {:error, :unavailable} -> %{status: :unavailable}
     end
   end
 
@@ -104,4 +167,12 @@ defmodule CommsCore.Operations do
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+  defp elapsed_milliseconds(started) do
+    started
+    |> then(&(System.monotonic_time() - &1))
+    |> System.convert_time_unit(:native, :microsecond)
+    |> Kernel./(1_000)
+    |> Float.round(3)
+  end
 end

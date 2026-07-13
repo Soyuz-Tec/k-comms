@@ -1,8 +1,9 @@
 defmodule CommsCore.ModerationAndGovernanceTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Governance, Messaging, Moderation}
+  alias CommsCore.{Accounts, Governance, Messaging, Moderation, RuntimePorts}
   alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Governance.DeletionRequest
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -219,6 +220,84 @@ defmodule CommsCore.ModerationAndGovernanceTest do
              )
   end
 
+  test "unauthorized worker identities cannot mutate deletion or retention state" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    target = Fixtures.user_fixture(account)
+
+    assert {:ok, request_result} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "user",
+                 subject_user_id: target.user.id,
+                 reason: "Verify worker authorization boundary"
+               },
+               subject
+             )
+
+    assert {:ok, approved} =
+             Governance.transition_deletion_request(
+               request_result.request.id,
+               %{
+                 version: request_result.request.lock_version,
+                 status: "approved",
+                 transition_reason: "Request is ready for the authorized worker"
+               },
+               subject
+             )
+
+    audit_count = tenant_audit_count(account.tenant.id)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :forbidden} =
+             Governance.claim_deletion_request(approved.id, __MODULE__)
+
+    persisted_approved = Repo.get!(DeletionRequest, approved.id)
+    assert persisted_approved.status == :approved
+    assert persisted_approved.lock_version == approved.lock_version
+    assert persisted_approved.execution_attempts == approved.execution_attempts
+    assert tenant_audit_count(account.tenant.id) == audit_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+
+    assert {:ok, claim} =
+             Governance.claim_deletion_request(
+               approved.id,
+               RuntimePorts.job_worker!(:deletion)
+             )
+
+    audit_count = tenant_audit_count(account.tenant.id)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :forbidden} =
+             Governance.complete_deletion_request(
+               approved.id,
+               claim.request.lock_version,
+               %{deleted_object_count: 0},
+               __MODULE__
+             )
+
+    assert {:error, :forbidden} =
+             Governance.record_deletion_failure(
+               approved.id,
+               :unauthorized_failure,
+               __MODULE__
+             )
+
+    assert {:error, :forbidden} =
+             Governance.enqueue_due_retention(account.tenant.id, __MODULE__)
+
+    persisted_claim = Repo.get!(DeletionRequest, approved.id)
+    assert persisted_claim.status == :in_progress
+    assert persisted_claim.lock_version == claim.request.lock_version
+    assert persisted_claim.execution_attempts == claim.request.execution_attempts
+    assert is_nil(persisted_claim.execution_error)
+    assert is_nil(persisted_claim.completed_at)
+    assert persisted_claim.evidence == %{}
+    assert Repo.get!(CommsCore.Accounts.User, target.user.id).status == :active
+    assert tenant_audit_count(account.tenant.id) == audit_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+  end
+
   test "a user legal hold blocks deletion of that user's message" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
@@ -339,5 +418,9 @@ defmodule CommsCore.ModerationAndGovernanceTest do
       })
 
     Accounts.subject_for_session(result.session)
+  end
+
+  defp tenant_audit_count(tenant_id) do
+    Repo.aggregate(from(event in AuditEvent, where: event.tenant_id == ^tenant_id), :count)
   end
 end

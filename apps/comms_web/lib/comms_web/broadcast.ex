@@ -1,8 +1,5 @@
 defmodule CommsWeb.Broadcast do
-  import Ecto.Query
-
-  alias CommsCore.Conversations.Membership
-  alias CommsCore.Repo
+  alias CommsCore.Conversations
 
   def event(conversation_id, event, payload)
       when is_binary(conversation_id) and is_binary(event) do
@@ -18,7 +15,7 @@ defmodule CommsWeb.Broadcast do
     }
 
     conversation_id
-    |> active_member_ids()
+    |> Conversations.active_member_ids()
     |> Enum.each(&user(&1, "conversation.activity.v1", payload))
 
     :ok
@@ -35,7 +32,7 @@ defmodule CommsWeb.Broadcast do
   def conversation_memberships(conversation_id, action)
       when is_binary(conversation_id) and action in ["added", "removed"] do
     conversation_id
-    |> active_member_ids()
+    |> Conversations.active_member_ids()
     |> Enum.each(&conversation_membership(&1, conversation_id, action))
 
     :ok
@@ -44,14 +41,5 @@ defmodule CommsWeb.Broadcast do
   def user(user_id, event, payload)
       when is_binary(user_id) and is_binary(event) and is_map(payload) do
     CommsWeb.Endpoint.broadcast("user:#{user_id}", event, payload)
-  end
-
-  defp active_member_ids(conversation_id) do
-    Repo.all(
-      from(membership in Membership,
-        where: membership.conversation_id == ^conversation_id and is_nil(membership.left_at),
-        select: membership.user_id
-      )
-    )
   end
 end

@@ -8,13 +8,9 @@ defmodule CommsCore.Governance do
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Governance.{DeletionRequest, LegalHold, RetentionPolicy}
   alias CommsCore.Messaging.{Message, MessageRevision, Reaction}
-  alias CommsCore.{Authorization, Repo}
+  alias CommsCore.{Authorization, Repo, RuntimePorts}
 
   @max_limit 100
-  @deletion_worker "CommsWorkers.DeletionWorker"
-  @deletion_worker_module :"Elixir.CommsWorkers.DeletionWorker"
-  @retention_worker "CommsWorkers.RetentionWorker"
-  @retention_worker_module :"Elixir.CommsWorkers.RetentionWorker"
 
   def authorize_message_deletion(tenant_id, load_and_authorize)
       when is_binary(tenant_id) and is_function(load_and_authorize, 0) do
@@ -270,146 +266,159 @@ defmodule CommsCore.Governance do
     end
   end
 
-  def claim_deletion_request(id, @deletion_worker_module) do
-    Repo.transaction(fn ->
-      request =
-        Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-          Repo.rollback(:not_found)
+  def claim_deletion_request(id, caller) do
+    if RuntimePorts.authorized_job_worker?(:deletion, caller) do
+      Repo.transaction(fn ->
+        request =
+          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
+            Repo.rollback(:not_found)
 
-      governance_lock!(request.tenant_id)
+        governance_lock!(request.tenant_id)
 
-      if request.status not in [:approved, :in_progress], do: Repo.rollback(:not_claimable)
-      if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
-      ensure_deletion_preconditions!(request)
+        if request.status not in [:approved, :in_progress], do: Repo.rollback(:not_claimable)
+        if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
+        ensure_deletion_preconditions!(request)
 
-      claimed =
-        request
-        |> DeletionRequest.changeset(%{
-          status: :in_progress,
-          execution_started_at: request.execution_started_at || now(),
-          execution_attempts: request.execution_attempts + 1,
-          execution_error: nil
+        claimed =
+          request
+          |> DeletionRequest.changeset(%{
+            status: :in_progress,
+            execution_started_at: request.execution_started_at || now(),
+            execution_attempts: request.execution_attempts + 1,
+            execution_error: nil
+          })
+          |> Ecto.Changeset.optimistic_lock(:lock_version)
+          |> update_or_rollback()
+
+        audit_system!(claimed.tenant_id, "deletion_request.claim", claimed.id, %{
+          attempt: claimed.execution_attempts,
+          version: claimed.lock_version
         })
-        |> Ecto.Changeset.optimistic_lock(:lock_version)
-        |> update_or_rollback()
 
-      audit_system!(claimed.tenant_id, "deletion_request.claim", claimed.id, %{
-        attempt: claimed.execution_attempts,
-        version: claimed.lock_version
-      })
-
-      %{request: claimed, plan: deletion_plan(claimed)}
-    end)
-    |> transaction_result()
+        %{request: claimed, plan: deletion_plan(claimed)}
+      end)
+      |> transaction_result()
+    else
+      {:error, :forbidden}
+    end
   end
 
-  def claim_deletion_request(_id, _caller), do: {:error, :forbidden}
-
-  def complete_deletion_request(id, expected_version, worker_evidence, @deletion_worker_module)
+  def complete_deletion_request(id, expected_version, worker_evidence, caller)
       when is_map(worker_evidence) do
-    Repo.transaction(fn ->
-      request =
-        Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-          Repo.rollback(:not_found)
+    if RuntimePorts.authorized_job_worker?(:deletion, caller) do
+      Repo.transaction(fn ->
+        request =
+          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
+            Repo.rollback(:not_found)
 
-      governance_lock!(request.tenant_id)
+        governance_lock!(request.tenant_id)
 
-      if request.status == :completed, do: Repo.rollback(:already_delivered)
-      if request.status != :in_progress, do: Repo.rollback(:not_claimable)
-      verify_version!(request, expected_version)
-      if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
+        if request.status == :completed, do: Repo.rollback(:already_delivered)
+        if request.status != :in_progress, do: Repo.rollback(:not_claimable)
+        verify_version!(request, expected_version)
+        if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
 
-      plan = deletion_plan(request)
-      deleted_object_count = value(worker_evidence, :deleted_object_count)
+        plan = deletion_plan(request)
+        deleted_object_count = value(worker_evidence, :deleted_object_count)
 
-      unless is_integer(deleted_object_count) and deleted_object_count == length(plan.attachments),
-        do: Repo.rollback(:deletion_evidence_mismatch)
+        unless is_integer(deleted_object_count) and
+                 deleted_object_count == length(plan.attachments),
+               do: Repo.rollback(:deletion_evidence_mismatch)
 
-      results = apply_deletion!(request, plan)
+        results = apply_deletion!(request, plan)
 
-      evidence = %{
-        executor: @deletion_worker,
-        completed_at: DateTime.to_iso8601(now()),
-        target_type: request.target_type,
-        messages_tombstoned: results.messages_tombstoned,
-        attachments_deleted: results.attachments_deleted,
-        deleted_object_count: deleted_object_count,
-        target_digest: target_digest(request)
-      }
+        evidence = %{
+          executor: RuntimePorts.job_worker_name!(:deletion),
+          completed_at: DateTime.to_iso8601(now()),
+          target_type: request.target_type,
+          messages_tombstoned: results.messages_tombstoned,
+          attachments_deleted: results.attachments_deleted,
+          deleted_object_count: deleted_object_count,
+          target_digest: target_digest(request)
+        }
 
-      completed =
-        request
-        |> DeletionRequest.changeset(%{
-          status: :completed,
-          completed_at: now(),
-          evidence: evidence,
-          execution_error: nil
+        completed =
+          request
+          |> DeletionRequest.changeset(%{
+            status: :completed,
+            completed_at: now(),
+            evidence: evidence,
+            execution_error: nil
+          })
+          |> Ecto.Changeset.optimistic_lock(:lock_version)
+          |> update_or_rollback()
+
+        audit_system!(request.tenant_id, "deletion_request.completed", request.id, %{
+          version: completed.lock_version,
+          evidence: evidence
         })
-        |> Ecto.Changeset.optimistic_lock(:lock_version)
-        |> update_or_rollback()
 
-      audit_system!(request.tenant_id, "deletion_request.completed", request.id, %{
-        version: completed.lock_version,
-        evidence: evidence
-      })
-
-      %{request: completed, revoked_session_ids: results.revoked_session_ids}
-    end)
-    |> transaction_result()
+        %{request: completed, revoked_session_ids: results.revoked_session_ids}
+      end)
+      |> transaction_result()
+    else
+      {:error, :forbidden}
+    end
   end
 
   def complete_deletion_request(_id, _version, _evidence, _caller),
     do: {:error, :forbidden}
 
-  def record_deletion_failure(id, reason, @deletion_worker_module) do
-    safe_reason = reason |> inspect(limit: 20, printable_limit: 200) |> String.slice(0, 500)
+  def record_deletion_failure(id, reason, caller) do
+    if RuntimePorts.authorized_job_worker?(:deletion, caller) do
+      safe_reason = reason |> inspect(limit: 20, printable_limit: 200) |> String.slice(0, 500)
 
-    Repo.transaction(fn ->
-      request =
-        Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-          Repo.rollback(:not_found)
+      Repo.transaction(fn ->
+        request =
+          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
+            Repo.rollback(:not_found)
 
-      if request.status != :in_progress, do: Repo.rollback(:not_claimable)
+        if request.status != :in_progress, do: Repo.rollback(:not_claimable)
 
-      updated =
-        request
-        |> DeletionRequest.changeset(%{execution_error: safe_reason})
-        |> Ecto.Changeset.optimistic_lock(:lock_version)
-        |> update_or_rollback()
+        updated =
+          request
+          |> DeletionRequest.changeset(%{execution_error: safe_reason})
+          |> Ecto.Changeset.optimistic_lock(:lock_version)
+          |> update_or_rollback()
 
-      audit_system!(request.tenant_id, "deletion_request.failure", request.id, %{
-        attempt: request.execution_attempts,
-        error_code: "provider_failure"
-      })
+        audit_system!(request.tenant_id, "deletion_request.failure", request.id, %{
+          attempt: request.execution_attempts,
+          error_code: "provider_failure"
+        })
 
-      updated
-    end)
-    |> transaction_result()
+        updated
+      end)
+      |> transaction_result()
+    else
+      {:error, :forbidden}
+    end
   end
 
-  def record_deletion_failure(_id, _reason, _caller), do: {:error, :forbidden}
-
-  def enqueue_due_retention(tenant_id, @retention_worker_module) when is_binary(tenant_id) do
-    owner =
-      Repo.one(
-        from(u in User,
-          where: u.tenant_id == ^tenant_id and u.role == :owner and u.status == :active,
-          order_by: [asc: u.inserted_at],
-          limit: 1
+  def enqueue_due_retention(tenant_id, caller) when is_binary(tenant_id) do
+    if RuntimePorts.authorized_job_worker?(:retention, caller) do
+      owner =
+        Repo.one(
+          from(u in User,
+            where: u.tenant_id == ^tenant_id and u.role == :owner and u.status == :active,
+            order_by: [asc: u.inserted_at],
+            limit: 1
+          )
         )
-      )
 
-    if owner do
-      due = due_retention_messages(tenant_id, 100)
+      if owner do
+        due = due_retention_messages(tenant_id, 100)
 
-      enqueued =
-        Enum.count(due, fn candidate ->
-          enqueue_retention_deletion(owner, candidate)
-        end)
+        enqueued =
+          Enum.count(due, fn candidate ->
+            enqueue_retention_deletion(owner, candidate)
+          end)
 
-      {:ok, %{enqueued: enqueued, scanned: length(due), has_more: length(due) == 100}}
+        {:ok, %{enqueued: enqueued, scanned: length(due), has_more: length(due) == 100}}
+      else
+        {:error, :last_owner_required}
+      end
     else
-      {:error, :last_owner_required}
+      {:error, :forbidden}
     end
   end
 
@@ -597,7 +606,7 @@ defmodule CommsCore.Governance do
   defp enqueue_deletion!(request) do
     %{"deletion_request_id" => request.id, "tenant_id" => request.tenant_id}
     |> Oban.Job.new(
-      worker: @deletion_worker,
+      worker: RuntimePorts.job_worker_name!(:deletion),
       queue: :default,
       unique: [
         period: :infinity,
@@ -615,7 +624,7 @@ defmodule CommsCore.Governance do
   defp enqueue_retention_scan(tenant_id, scheduled_in \\ 0) do
     options =
       [
-        worker: @retention_worker,
+        worker: RuntimePorts.job_worker_name!(:retention),
         queue: :default,
         unique: [
           period: 300,

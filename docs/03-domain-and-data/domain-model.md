@@ -1,6 +1,6 @@
 # Domain Model
 
-**Status:** Draft
+**Status:** Accepted implementation baseline for K-Comms 0.3.0
 
 ## Bounded contexts
 
@@ -11,12 +11,10 @@
 | Messaging | Message, Mention, Thread, Revision, Reaction, Read Cursor | Ordering, idempotency, explicit recipients, canonical reply roots, edit/delete policy, durable history |
 | Attachments | Attachment, Variant | Ownership, scan state, availability, retention |
 | Notifications | Preference, Notification Intent | Recipient policy, suppression, provider delivery state, user-owned in-app read/dismiss state |
-| Integrations | Webhook Endpoint, Subscription, Secret Version, Delivery | Destination policy, secret rotation, retries, replay |
-| Administration | Tenant Settings, Admission Quota, Invitation, Audit Event | Lifecycle, atomic capacity admission, role assignment, privileged evidence |
+| Integrations | Application, Webhook Endpoint, Subscription, Secret Version, Delivery | Scope, destination policy, secret rotation, signatures, retries, replay, quotas |
+| Administration | Tenant Settings, Admission Quota, Invitation, Audit Event | Lifecycle, atomic capacity admission, policy and role assignment, privileged evidence |
 | Moderation | Case, Action | Reporting, assignment, reason-coded resolution |
 | Governance | Retention Policy, Legal Hold, Deletion Request | Policy precedence, preservation, reconciled deletion |
-| Integrations | Application, Webhook Endpoint, Delivery | Scope, signatures, retries, quotas |
-| Administration | Policy, Moderation Case, Audit Event | Privileged actions and compliance evidence |
 
 ## Aggregate rules
 

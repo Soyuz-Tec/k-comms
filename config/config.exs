@@ -4,6 +4,14 @@ config :comms_core,
   ecto_repos: [CommsCore.Repo],
   authorization_adapter: CommsCore.Authorization.Database,
   notification_availability_notifier: CommsWeb.NotificationAvailabilityNotifier,
+  job_workers: [
+    attachment_scan: CommsWorkers.AttachmentWorker,
+    deletion: CommsWorkers.DeletionWorker,
+    notification_delivery: CommsWorkers.NotificationWorker,
+    outbox_publication: CommsWorkers.OutboxWorker,
+    retention: CommsWorkers.RetentionWorker,
+    webhook_delivery: CommsWorkers.WebhookWorker
+  ],
   push_delivery_status: :unavailable,
   session_ttl_seconds: 2_592_000,
   session_absolute_ttl_seconds: 2_592_000

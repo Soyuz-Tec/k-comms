@@ -34,7 +34,7 @@ spec:
           command: ["/app/bin/k_comms"]
           args:
             - eval
-            - CommsCore.Release.remap_restored_attachment_versions()
+            - CommsWorkers.Release.remap_restored_attachment_versions()
           envFrom:
             - configMapRef:
                 name: k-comms-config

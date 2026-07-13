@@ -4,7 +4,6 @@ defmodule CommsCore.Release do
   alias CommsCore.Attachments.RestoreRemap
   alias CommsCore.{Accounts, Repo}
 
-  @object_storage_module :"Elixir.CommsIntegrations.ObjectStorage"
   @restore_remap_confirmation "remap-restored-attachment-versions"
 
   def migrate do
@@ -54,14 +53,13 @@ defmodule CommsCore.Release do
   normal application runtime and requires the documented one-shot environment
   confirmation plus an operation ID, actor, and reason for the audit ledger.
   """
-  def remap_restored_attachment_versions do
+  def remap_restored_attachment_versions(verifier) when is_function(verifier, 1) do
     with {:ok, context} <- validate_restore_remap_environment(&System.get_env/1) do
       load_app()
-      {:ok, _started} = Application.ensure_all_started(:comms_integrations)
 
       {:ok, result, _started_apps} =
         Ecto.Migrator.with_repo(Repo, fn _repo ->
-          RestoreRemap.run(&verify_restored_attachment/1, context)
+          RestoreRemap.run(verifier, context)
         end)
 
       case result do
@@ -167,10 +165,6 @@ defmodule CommsCore.Release do
 
   defp load_app do
     Application.load(@app)
-  end
-
-  defp verify_restored_attachment(attachment) do
-    apply(@object_storage_module, :verify_restored_object, [attachment])
   end
 
   defp valid_uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))

@@ -12,10 +12,9 @@ defmodule CommsCore.Integrations do
     WebhookSubscription
   }
 
-  alias CommsCore.Repo
+  alias CommsCore.{Repo, RuntimePorts}
   alias CommsCore.Security.SecretBox
 
-  @worker "CommsWorkers.WebhookWorker"
   @claim_timeout_seconds 300
   @max_list_limit 100
   @sensitive_keys ~w(authorization cookie password password_hash refresh_token secret token webhook_secret)
@@ -593,7 +592,7 @@ defmodule CommsCore.Integrations do
   defp enqueue_job(delivery) do
     %{"delivery_id" => delivery.id, "tenant_id" => delivery.tenant_id}
     |> Oban.Job.new(
-      worker: @worker,
+      worker: RuntimePorts.job_worker_name!(:webhook_delivery),
       queue: :webhooks,
       unique: [
         period: :infinity,

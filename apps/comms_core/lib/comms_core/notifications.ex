@@ -8,9 +8,8 @@ defmodule CommsCore.Notifications do
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Notifications.{Attempt, Intent, Preference}
   alias CommsCore.PushSubscriptions
-  alias CommsCore.Repo
+  alias CommsCore.{Repo, RuntimePorts}
 
-  @worker "CommsWorkers.NotificationWorker"
   @claim_timeout_seconds 300
   @max_list_limit 100
   @recovery_event_type "account.password_recovery.requested.v1"
@@ -398,7 +397,7 @@ defmodule CommsCore.Notifications do
       "dispatch_generation" => intent.claim_generation
     }
     |> Oban.Job.new(
-      worker: @worker,
+      worker: RuntimePorts.job_worker_name!(:notification_delivery),
       queue: :notifications,
       unique: [
         period: :infinity,

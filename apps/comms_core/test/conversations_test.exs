@@ -34,6 +34,51 @@ defmodule CommsCore.ConversationsTest do
     assert length(members) == 2
   end
 
+  test "active member ids support delivery fanout without leaking departed or unrelated members" do
+    account = Fixtures.account_fixture()
+    member = Fixtures.user_fixture(account)
+    unrelated_member = Fixtures.user_fixture(account)
+    subject = Fixtures.subject(account)
+
+    assert {:ok, conversation} =
+             Conversations.create(
+               %{
+                 title: "Delivery fanout",
+                 kind: "group",
+                 visibility: "private",
+                 member_ids: [member.user.id]
+               },
+               subject
+             )
+
+    assert {:ok, _unrelated_conversation} =
+             Conversations.create(
+               %{
+                 title: "Unrelated delivery fanout",
+                 kind: "group",
+                 visibility: "private",
+                 member_ids: [unrelated_member.user.id]
+               },
+               subject
+             )
+
+    assert MapSet.new(Conversations.active_member_ids(conversation.id)) ==
+             MapSet.new([account.user.id, member.user.id])
+
+    assert {:ok, memberships} = Conversations.list_members(conversation.id, subject)
+    member_membership = Enum.find(memberships, &(&1.user.id == member.user.id)).membership
+
+    assert {:ok, _removed} =
+             Conversations.remove_member(
+               conversation.id,
+               member.user.id,
+               %{version: member_membership.lock_version},
+               subject
+             )
+
+    assert Conversations.active_member_ids(conversation.id) == [account.user.id]
+  end
+
   test "updates and archives channels with versioned membership ownership" do
     account = Fixtures.account_fixture()
     member = Fixtures.user_fixture(account)

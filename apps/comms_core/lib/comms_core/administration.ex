@@ -4,12 +4,10 @@ defmodule CommsCore.Administration do
   alias CommsCore.Accounts.Tenant
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.Audit.AuditEvent
-  alias CommsCore.{AdmissionQuotas, Authorization, Repo}
+  alias CommsCore.{AdmissionQuotas, Authorization, Repo, RuntimePorts}
 
   @default_limit 50
   @max_limit 100
-  @retention_worker "CommsWorkers.RetentionWorker"
-
   def member_capabilities(subject) do
     tenant_id = value(subject, :tenant_id)
 
@@ -277,7 +275,7 @@ defmodule CommsCore.Administration do
   defp enqueue_retention!(tenant_id) do
     %{"tenant_id" => tenant_id}
     |> Oban.Job.new(
-      worker: @retention_worker,
+      worker: RuntimePorts.job_worker_name!(:retention),
       queue: :default,
       unique: [
         period: 300,

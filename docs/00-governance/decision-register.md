@@ -2,7 +2,7 @@
 
 | Decision | ADR | Status | Decision date | Revisit trigger |
 |---|---|---|---|---|
-| Modular monolith first | ADR-0001 | Accepted for MVP | 2026-07-12 | Independent deployment or scaling need |
+| Modular monolith first | ADR-0001 | Accepted | 2026-07-12 | Independent deployment or scaling need |
 | PostgreSQL source of truth | ADR-0002 | Accepted for MVP | 2026-07-12 | Proven write or geographic constraint |
 | Phoenix real-time stack | ADR-0003 | Accepted for MVP | 2026-07-12 | Connection/fan-out benchmark failure |
 | Transactional jobs/outbox | ADR-0004 | Accepted for MVP | 2026-07-12 | Cross-database event platform introduced |

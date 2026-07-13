@@ -1,7 +1,7 @@
 defmodule CommsWeb.HealthController do
   use CommsWeb, :controller
 
-  alias CommsCore.Repo
+  alias CommsCore.Operations
 
   def live(conn, _params), do: json(conn, %{status: "ok"})
 
@@ -20,13 +20,11 @@ defmodule CommsWeb.HealthController do
   end
 
   defp database_check do
-    started = System.monotonic_time()
+    case Operations.database_readiness() do
+      {:ok, latency_ms} ->
+        %{status: "ok", latency_ms: latency_ms}
 
-    case Ecto.Adapters.SQL.query(Repo, "SELECT 1", [], timeout: 3_000) do
-      {:ok, _} ->
-        %{status: "ok", latency_ms: elapsed_milliseconds(started)}
-
-      {:error, _reason} ->
+      {:error, :unavailable} ->
         %{status: "error"}
     end
   end
@@ -55,13 +53,5 @@ defmodule CommsWeb.HealthController do
     # readiness dependency: a provider outage must not stop durable text
     # messaging. The protected operations snapshot performs the deeper check.
     %{status: status}
-  end
-
-  defp elapsed_milliseconds(started) do
-    System.monotonic_time()
-    |> Kernel.-(started)
-    |> System.convert_time_unit(:native, :microsecond)
-    |> Kernel./(1_000)
-    |> Float.round(3)
   end
 end

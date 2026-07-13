@@ -1,7 +1,7 @@
 defmodule CommsCore.Attachments do
   import Ecto.Query
 
-  alias CommsCore.{Authorization, Repo}
+  alias CommsCore.{Authorization, Repo, RuntimePorts}
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.Attachments.{Attachment, ScanAttempt}
   alias CommsCore.Audit.AuditEvent
@@ -11,7 +11,6 @@ defmodule CommsCore.Attachments do
   @allowed_exact ["application/pdf", "application/zip", "application/json"]
   @default_max_bytes 26_214_400
   @schema_max_bytes 1_073_741_824
-  @scan_worker "CommsWorkers.AttachmentWorker"
   @scan_claim_timeout_seconds 300
 
   def create_intent(attrs, subject) do
@@ -320,7 +319,7 @@ defmodule CommsCore.Attachments do
       "dispatch_generation" => attachment.scan_generation
     }
     |> Oban.Job.new(
-      worker: @scan_worker,
+      worker: RuntimePorts.job_worker_name!(:attachment_scan),
       queue: :media,
       unique: [
         period: :infinity,

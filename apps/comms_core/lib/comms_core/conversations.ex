@@ -389,6 +389,15 @@ defmodule CommsCore.Conversations do
     end
   end
 
+  def active_member_ids(conversation_id) when is_binary(conversation_id) do
+    Repo.all(
+      from(m in Membership,
+        where: m.conversation_id == ^conversation_id and is_nil(m.left_at),
+        select: m.user_id
+      )
+    )
+  end
+
   def add_member(conversation_id, user_id, role, subject) do
     with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: conversation_id}),
          {:ok, assigned_role} <- membership_role(role) do
