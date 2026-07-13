@@ -13,6 +13,11 @@ from validate_production_bundle import validate, validate_documents, validate_pa
 VAPID_PUBLIC_KEY = "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
 DIGEST_IMAGE = "ghcr.io/soyuz-tec/k-comms@sha256:" + "a" * 64
 PRODUCTION_NAMESPACE = "k-comms-production"
+WORKER_RELEASE_RPC_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'",
+]
 CA_PEM = (
     Path(__file__).resolve().parents[1]
     / "apps"
@@ -191,6 +196,101 @@ class ValidateProductionBundleTest(unittest.TestCase):
                 self.assertTrue(
                     any(expected in error for error in validate_documents(documents))
                 )
+
+    def test_rejects_non_retained_worker_probe_commands(self) -> None:
+        invalid_commands = (
+            ["/bin/true"],
+            ["/app/bin/k_comms", "rpc", "System.schedulers_online() > 0"],
+            [
+                "/bin/sh",
+                "-ec",
+                "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() >= 0'",
+            ],
+        )
+        for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
+            for command in invalid_commands:
+                with self.subTest(probe=probe_name, command=command):
+                    documents = valid_documents()
+                    worker = find_document(
+                        documents, "Deployment", "k-comms-worker"
+                    )
+                    container = worker["spec"]["template"]["spec"]["containers"][0]
+                    container[probe_name]["exec"]["command"] = command
+
+                    self.assertTrue(
+                        any(
+                            "exact retained release RPC health-check command" in error
+                            for error in validate_documents(documents)
+                        )
+                    )
+
+    def test_rejects_wrong_or_missing_namespace_on_every_namespaced_resource(
+        self,
+    ) -> None:
+        additional_resources = [
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "Ingress",
+                "metadata": {
+                    "name": "k-comms-ingress",
+                    "namespace": PRODUCTION_NAMESPACE,
+                },
+                "spec": {},
+            },
+            {
+                "apiVersion": "v1",
+                "kind": "ServiceAccount",
+                "metadata": {
+                    "name": "k-comms",
+                    "namespace": PRODUCTION_NAMESPACE,
+                },
+            },
+        ]
+        namespaced_identities = [
+            (document["kind"], document["metadata"]["name"])
+            for document in valid_documents() + additional_resources
+        ]
+
+        for kind, name in namespaced_identities:
+            for namespace in (None, "other-namespace"):
+                with self.subTest(kind=kind, name=name, namespace=namespace):
+                    documents = valid_documents() + copy.deepcopy(
+                        additional_resources
+                    )
+                    document = find_document(documents, kind, name)
+                    if namespace is None:
+                        document["metadata"].pop("namespace")
+                    else:
+                        document["metadata"]["namespace"] = namespace
+
+                    self.assertTrue(
+                        any(
+                            f"{kind} {name}: namespace must match" in error
+                            for error in validate_documents(documents)
+                        )
+                    )
+
+    def test_excludes_cluster_scoped_resources_from_namespace_enforcement(
+        self,
+    ) -> None:
+        documents = valid_documents()
+        documents.extend(
+            [
+                {
+                    "apiVersion": "v1",
+                    "kind": "Namespace",
+                    "metadata": {"name": PRODUCTION_NAMESPACE},
+                },
+                {
+                    "apiVersion": "rbac.authorization.k8s.io/v1",
+                    "kind": "ClusterRole",
+                    "metadata": {"name": "k-comms-observer"},
+                    "rules": [],
+                },
+            ]
+        )
+
+        self.assertEqual(validate_documents(documents), [])
 
     def test_rejects_ineffective_disruption_budgets(self) -> None:
         cases = (("k-comms-edge", 1, "at least 2"), ("k-comms-worker", 0, "at least 1"))
@@ -810,7 +910,9 @@ def workload(kind: str, name: str) -> dict:
             )
         else:
             for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
-                container[probe] = {"exec": {"command": ["/app/bin/k_comms", "rpc"]}}
+                container[probe] = {
+                    "exec": {"command": list(WORKER_RELEASE_RPC_COMMAND)}
+                }
     else:
         document["spec"]["template"]["spec"]["restartPolicy"] = "Never"
     return document

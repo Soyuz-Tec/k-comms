@@ -17,6 +17,7 @@ import yaml
 
 IMAGE_DIGEST = re.compile(r"^.+@sha256:[a-f0-9]{64}$")
 PLACEHOLDER = re.compile(r"(?:\.invalid\b|CHANGE_ME|REPLACE_WITH)", re.IGNORECASE)
+PRODUCTION_NAMESPACE = "k-comms-production"
 DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
     re.IGNORECASE,
@@ -39,6 +40,50 @@ WORKLOAD_OR_SERVICE_KINDS = LONG_LIVED_WORKLOAD_KINDS | {
     "CronJob",
     "Service",
 }
+CLUSTER_SCOPED_RESOURCES = frozenset(
+    {
+        ("", "ComponentStatus"),
+        ("", "Namespace"),
+        ("", "Node"),
+        ("", "PersistentVolume"),
+        ("admissionregistration.k8s.io", "MutatingWebhookConfiguration"),
+        ("admissionregistration.k8s.io", "ValidatingAdmissionPolicy"),
+        ("admissionregistration.k8s.io", "ValidatingAdmissionPolicyBinding"),
+        ("admissionregistration.k8s.io", "ValidatingWebhookConfiguration"),
+        ("apiextensions.k8s.io", "CustomResourceDefinition"),
+        ("apiregistration.k8s.io", "APIService"),
+        ("authentication.k8s.io", "SelfSubjectReview"),
+        ("authentication.k8s.io", "TokenReview"),
+        ("authorization.k8s.io", "SelfSubjectAccessReview"),
+        ("authorization.k8s.io", "SelfSubjectRulesReview"),
+        ("authorization.k8s.io", "SubjectAccessReview"),
+        ("certificates.k8s.io", "CertificateSigningRequest"),
+        ("certificates.k8s.io", "ClusterTrustBundle"),
+        ("flowcontrol.apiserver.k8s.io", "FlowSchema"),
+        ("flowcontrol.apiserver.k8s.io", "PriorityLevelConfiguration"),
+        ("gateway.networking.k8s.io", "GatewayClass"),
+        ("networking.k8s.io", "IngressClass"),
+        ("networking.k8s.io", "IPAddress"),
+        ("networking.k8s.io", "ServiceCIDR"),
+        ("node.k8s.io", "RuntimeClass"),
+        ("policy", "PodSecurityPolicy"),
+        ("rbac.authorization.k8s.io", "ClusterRole"),
+        ("rbac.authorization.k8s.io", "ClusterRoleBinding"),
+        ("resource.k8s.io", "DeviceClass"),
+        ("resource.k8s.io", "ResourceSlice"),
+        ("scheduling.k8s.io", "PriorityClass"),
+        ("storage.k8s.io", "CSIDriver"),
+        ("storage.k8s.io", "CSINode"),
+        ("storage.k8s.io", "StorageClass"),
+        ("storage.k8s.io", "VolumeAttachment"),
+        ("storage.k8s.io", "VolumeAttributesClass"),
+    }
+)
+WORKER_RELEASE_RPC_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'",
+]
 APPLICATION_WORKLOADS = (
     ("Deployment", "k-comms-edge", "edge", True),
     ("Deployment", "k-comms-worker", "worker", True),
@@ -90,6 +135,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
         return ["rendered bundle: every YAML document must be a Kubernetes object"]
 
     validate_unique_resource_identities(documents, errors)
+    validate_resource_namespaces(documents, errors)
     config = named_document(documents, "ConfigMap", "k-comms-config")
 
     if not config:
@@ -195,6 +241,28 @@ def validate_unique_resource_identities(
                 f"{kind} {metadata['name']}: duplicate resource identity in namespace {namespace or '<cluster>'}"
             )
         identities.add(identity)
+
+
+def validate_resource_namespaces(documents: list[dict], errors: list[str]) -> None:
+    for document in documents:
+        api_version = document.get("apiVersion")
+        kind = document.get("kind")
+        metadata = document.get("metadata")
+        if (
+            not isinstance(api_version, str)
+            or not isinstance(kind, str)
+            or not isinstance(metadata, dict)
+            or not isinstance(metadata.get("name"), str)
+        ):
+            continue
+
+        group = api_version.split("/", 1)[0] if "/" in api_version else ""
+        if (group, kind) in CLUSTER_SCOPED_RESOURCES:
+            continue
+        if metadata.get("namespace") != PRODUCTION_NAMESPACE:
+            errors.append(
+                f"{kind} {metadata['name']}: namespace must match the production application namespace {PRODUCTION_NAMESPACE}"
+            )
 
 
 def validate_https_origin(data: dict, key: str, errors: list[str]):
@@ -500,12 +568,6 @@ def validate_workload_contracts(documents: list[dict], errors: list[str]) -> Non
         document = named_document(documents, kind, name)
         if not document:
             continue
-        namespace = document.get("metadata", {}).get("namespace")
-        if production_namespace and namespace != production_namespace:
-            errors.append(
-                f"{kind} {name}: namespace must match the production application namespace"
-            )
-
         pod_spec = _pod_spec(document)
         containers = pod_spec.get("containers")
         if (
@@ -610,12 +672,12 @@ def _validate_application_probes(
                 "Deployment k-comms-edge: probes must use the retained live/ready HTTP endpoints"
             )
     elif any(
-        not isinstance(probe.get("exec", {}).get("command"), list)
-        or not probe.get("exec", {}).get("command")
+        not isinstance(probe.get("exec"), dict)
+        or probe["exec"].get("command") != WORKER_RELEASE_RPC_COMMAND
         for probe in probes.values()
     ):
         errors.append(
-            "Deployment k-comms-worker: probes must execute the release RPC health check"
+            "Deployment k-comms-worker: probes must use the exact retained release RPC health-check command"
         )
 
 

@@ -11,8 +11,10 @@ non-secret promotion receipt fields and retains each receipt's digest.
 from __future__ import annotations
 
 import argparse
+import copy
 import ctypes
 import hashlib
+import ipaddress
 import json
 import os
 import platform
@@ -71,43 +73,42 @@ REQUIRED_PROMOTION_RECEIPTS = (
     "staging_load",
     "staging_product_acceptance",
 )
-PRODUCTION_CONTROL_RESOURCES = (
-    ("ConfigMap", "configmap", "k-comms-config", "data"),
-    ("Deployment", "deployment", "k-comms-edge", "spec"),
-    ("Deployment", "deployment", "k-comms-worker", "spec"),
-    (
-        "NetworkPolicy",
-        "networkpolicy",
-        "k-comms-managed-postgres-egress",
-        "spec",
-    ),
-    ("NetworkPolicy", "networkpolicy", "k-comms-edge-ingress", "spec"),
-    (
-        "PodDisruptionBudget",
-        "poddisruptionbudget",
-        "k-comms-edge",
-        "spec",
-    ),
-    (
-        "PodDisruptionBudget",
-        "poddisruptionbudget",
-        "k-comms-worker",
-        "spec",
-    ),
-    (
-        "HorizontalPodAutoscaler",
-        "horizontalpodautoscaler",
-        "k-comms-edge",
-        "spec",
-    ),
-    (
-        "HorizontalPodAutoscaler",
-        "horizontalpodautoscaler",
-        "k-comms-worker",
-        "spec",
-    ),
-    ("Job", "job", "k-comms-migrate", "spec"),
-)
+PRODUCTION_CONTROL_RESOURCE_TYPES = {
+    "ConfigMap": "configmap",
+    "Deployment": "deployment",
+    "HorizontalPodAutoscaler": "horizontalpodautoscaler",
+    "Ingress": "ingress",
+    "Job": "job",
+    "Namespace": "namespaces",
+    "NetworkPolicy": "networkpolicy",
+    "PodDisruptionBudget": "poddisruptionbudget",
+    "Service": "service",
+    "ServiceAccount": "serviceaccount",
+}
+PRODUCTION_CLUSTER_SCOPED_CONTROL_KINDS = {"Namespace"}
+PRODUCTION_SECRET_CONTROL_KINDS = {"Secret"}
+SERVER_MANAGED_METADATA_FIELDS = {
+    "creationTimestamp",
+    "deletionGracePeriodSeconds",
+    "deletionTimestamp",
+    "generation",
+    "managedFields",
+    "resourceVersion",
+    "selfLink",
+    "uid",
+}
+IGNORED_LIVE_CONTROL_ANNOTATIONS = {
+    "kubectl.kubernetes.io/last-applied-configuration",
+}
+STRICT_SPEC_CONTROL_KINDS = {"Ingress", "NetworkPolicy"}
+STRICT_WORKLOAD_CONTROL_KINDS = {"Deployment", "Job"}
+STRICT_NORMALIZED_CONTROL_KINDS = {
+    "HorizontalPodAutoscaler",
+    "Namespace",
+    "PodDisruptionBudget",
+    "Service",
+    "ServiceAccount",
+}
 
 CommandRunner = Callable[[Sequence[str], str], str]
 Clock = Callable[[], datetime]
@@ -527,28 +528,23 @@ def _collect_live_production_controls(
     bundle_documents: Sequence[Mapping[str, Any]],
     command_runner: CommandRunner,
 ) -> dict[str, Any]:
-    expected_controls = _expected_production_controls(bundle_documents)
+    expected_controls = _expected_production_controls(bundle_documents, namespace)
     revisions: list[dict[str, Any]] = []
+    live_controls: list[dict[str, Any]] = []
     migration_completed = False
 
-    for kind, resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
-        expected = next(
-            control
-            for control in expected_controls
-            if control["kind"] == kind and control["metadata"]["name"] == name
-        )
+    for expected in expected_controls:
+        kind = expected["kind"]
+        name = expected["metadata"]["name"]
+        resource_type = PRODUCTION_CONTROL_RESOURCE_TYPES[kind]
+        command = [kubectl_tool, "get", resource_type, name]
+        expected_namespace = expected["metadata"].get("namespace")
+        if expected_namespace:
+            command.extend(("--namespace", expected_namespace))
+        command.extend(("-o", "json"))
         live = _load_json(
             command_runner(
-                (
-                    kubectl_tool,
-                    "get",
-                    resource_type,
-                    name,
-                    "--namespace",
-                    namespace,
-                    "-o",
-                    "json",
-                ),
+                tuple(command),
                 f"live production control {kind} {name}",
             ),
             f"live production control {kind} {name}",
@@ -558,11 +554,13 @@ def _collect_live_production_controls(
             live_for_projection = dict(live)
             live_for_projection.setdefault("binaryData", {})
             live_for_projection.setdefault("data", {})
-        projected = _project_like_expected(expected, live_for_projection)
-        if projected != expected:
+        if not _live_control_matches_expected(expected, live_for_projection):
             raise CollectorError(
                 f"live {kind} {name} does not match the reviewed production bundle"
             )
+        if not isinstance(live, dict):
+            raise CollectorError("live production control response is malformed")
+        live_controls.append(_live_control_for_semantic_validation(expected, live))
 
         metadata = live.get("metadata") if isinstance(live, dict) else None
         if not isinstance(metadata, dict):
@@ -579,6 +577,7 @@ def _collect_live_production_controls(
             "generation": generation,
             "kind": kind,
             "name": name,
+            "namespace": expected_namespace,
             "uid": _stable_kubernetes_id(
                 metadata.get("uid"), "live production control metadata"
             ),
@@ -587,6 +586,9 @@ def _collect_live_production_controls(
             revision["migration_completion"] = _migration_completion(live)
             migration_completed = True
         revisions.append(revision)
+
+    if validate_production_documents(live_controls):
+        raise CollectorError("live production controls failed semantic validation")
 
     return {
         "bundle_sha256": _canonical_json_sha256(expected_controls),
@@ -598,46 +600,569 @@ def _collect_live_production_controls(
 
 def _expected_production_controls(
     bundle_documents: Sequence[Mapping[str, Any]],
+    namespace: str,
 ) -> list[dict[str, Any]]:
     controls: list[dict[str, Any]] = []
-    for kind, _resource_type, name, desired_field in PRODUCTION_CONTROL_RESOURCES:
-        matches = [
-            document
-            for document in bundle_documents
-            if document.get("kind") == kind
-            and isinstance(document.get("metadata"), dict)
-            and document["metadata"].get("name") == name
-        ]
-        if len(matches) != 1:
+    identities: set[tuple[str, str]] = set()
+
+    for document in bundle_documents:
+        kind = document.get("kind")
+        if kind in PRODUCTION_SECRET_CONTROL_KINDS:
+            continue
+        if kind not in PRODUCTION_CONTROL_RESOURCE_TYPES:
+            raise CollectorError(
+                "reviewed production bundle contains an unsupported non-secret resource kind"
+            )
+
+        metadata = document.get("metadata")
+        if not isinstance(metadata, dict):
+            raise CollectorError("reviewed production bundle control metadata is malformed")
+        name = metadata.get("name")
+        if not isinstance(name, str) or not KUBERNETES_STABLE_ID.fullmatch(name):
+            raise CollectorError("reviewed production bundle control metadata is malformed")
+
+        if kind in PRODUCTION_CLUSTER_SCOPED_CONTROL_KINDS:
+            if name != namespace or metadata.get("namespace") not in (None, ""):
+                raise CollectorError(
+                    "reviewed production bundle cluster-scoped control does not match the target namespace"
+                )
+        else:
+            if metadata.get("namespace") != namespace:
+                raise CollectorError(
+                    f"reviewed production bundle {kind} {name} does not target the production namespace"
+                )
+
+        identity = (kind, name)
+        if identity in identities:
             raise CollectorError(
                 f"reviewed production bundle must contain exactly one {kind} {name}"
             )
-        document = matches[0]
-        control: dict[str, Any] = {
-            "apiVersion": document.get("apiVersion"),
-            "kind": kind,
-            "metadata": {"name": name},
+        identities.add(identity)
+
+        control = {
+            key: value
+            for key, value in document.items()
+            if key not in ("metadata", "status")
         }
-        if kind == "ConfigMap":
-            control["binaryData"] = document.get("binaryData") or {}
-            control["data"] = document.get("data") or {}
-        else:
-            desired = document.get(desired_field)
+        control["metadata"] = {
+            key: value
+            for key, value in metadata.items()
+            if key not in SERVER_MANAGED_METADATA_FIELDS
+        }
+        if kind == "Deployment":
+            desired = control.get("spec")
             if not isinstance(desired, dict):
                 raise CollectorError(
                     f"reviewed production bundle {kind} {name} is malformed"
                 )
-            if kind == "Deployment":
-                # HPA legitimately changes this one field. Its own desired state is
-                # bound separately, and the observed topology enforces role minima.
-                control[desired_field] = {
-                    key: value for key, value in desired.items() if key != "replicas"
-                }
-            else:
-                control[desired_field] = desired
+            # HPA legitimately changes this one field. Its own desired state is
+            # bound separately, and the observed topology enforces role minima.
+            control["spec"] = {
+                key: value for key, value in desired.items() if key != "replicas"
+            }
         controls.append(control)
     return sorted(
-        controls, key=lambda control: (control["kind"], control["metadata"]["name"])
+        controls,
+        key=lambda control: (
+            control["kind"],
+            control["metadata"].get("namespace") or "",
+            control["metadata"]["name"],
+        ),
+    )
+
+
+def _live_control_matches_expected(
+    expected: Mapping[str, Any], live: Mapping[str, Any]
+) -> bool:
+    if _project_like_expected(expected, live) != expected:
+        return False
+
+    kind = expected.get("kind")
+    if kind == "ConfigMap":
+        if (live.get("data") or {}) != (expected.get("data") or {}):
+            return False
+        if (live.get("binaryData") or {}) != (expected.get("binaryData") or {}):
+            return False
+
+    if kind in STRICT_SPEC_CONTROL_KINDS and live.get("spec") != expected.get("spec"):
+        return False
+
+    if kind in STRICT_WORKLOAD_CONTROL_KINDS:
+        expected_spec = expected.get("spec")
+        live_spec = live.get("spec")
+        if not isinstance(expected_spec, dict) or not isinstance(live_spec, dict):
+            return False
+        if _normalized_live_workload_spec(kind, expected_spec, live_spec) != expected_spec:
+            return False
+
+    if kind in STRICT_NORMALIZED_CONTROL_KINDS:
+        if _normalized_live_control(expected, live) != expected:
+            return False
+
+    if kind == "Ingress":
+        expected_metadata = expected.get("metadata") or {}
+        live_metadata = live.get("metadata") or {}
+        if _control_annotations(live_metadata) != _control_annotations(expected_metadata):
+            return False
+
+    return True
+
+
+def _live_control_for_semantic_validation(
+    expected: Mapping[str, Any], live: Mapping[str, Any]
+) -> dict[str, Any]:
+    kind = expected.get("kind")
+    if kind in STRICT_WORKLOAD_CONTROL_KINDS:
+        document = copy.deepcopy(dict(live))
+        expected_spec = expected.get("spec")
+        live_spec = live.get("spec")
+        if isinstance(expected_spec, dict) and isinstance(live_spec, dict):
+            normalized_spec = _normalized_live_workload_spec(
+                str(kind), expected_spec, live_spec
+            )
+            if kind == "Deployment" and "replicas" in live_spec:
+                normalized_spec["replicas"] = live_spec["replicas"]
+            document["spec"] = normalized_spec
+        return document
+    if kind in STRICT_NORMALIZED_CONTROL_KINDS:
+        return _normalized_live_control(expected, live)
+    return copy.deepcopy(dict(live))
+
+
+def _control_annotations(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    annotations = metadata.get("annotations") or {}
+    if not isinstance(annotations, dict):
+        return {}
+    return {
+        key: value
+        for key, value in annotations.items()
+        if key not in IGNORED_LIVE_CONTROL_ANNOTATIONS
+    }
+
+
+def _normalized_live_control(
+    expected: Mapping[str, Any], live: Mapping[str, Any]
+) -> dict[str, Any]:
+    normalized = copy.deepcopy(dict(live))
+    normalized.pop("status", None)
+    live_metadata = normalized.get("metadata")
+    expected_metadata = expected.get("metadata")
+    if isinstance(live_metadata, dict) and isinstance(expected_metadata, dict):
+        for field in SERVER_MANAGED_METADATA_FIELDS:
+            live_metadata.pop(field, None)
+        annotations = live_metadata.get("annotations")
+        if isinstance(annotations, dict):
+            for annotation in IGNORED_LIVE_CONTROL_ANNOTATIONS:
+                annotations.pop(annotation, None)
+            if not annotations and "annotations" not in expected_metadata:
+                live_metadata.pop("annotations", None)
+
+        if expected.get("kind") == "Namespace":
+            expected_labels = expected_metadata.get("labels") or {}
+            live_labels = live_metadata.get("labels")
+            if isinstance(expected_labels, dict) and isinstance(live_labels, dict):
+                metadata_name = live_metadata.get("name")
+                if (
+                    "kubernetes.io/metadata.name" not in expected_labels
+                    and live_labels.get("kubernetes.io/metadata.name") == metadata_name
+                ):
+                    live_labels.pop("kubernetes.io/metadata.name", None)
+
+    if (
+        expected.get("kind") == "Namespace"
+        and "spec" not in expected
+        and normalized.get("spec") == {"finalizers": ["kubernetes"]}
+    ):
+        normalized.pop("spec", None)
+
+    if expected.get("kind") == "Service":
+        expected_spec = expected.get("spec")
+        live_spec = normalized.get("spec")
+        if isinstance(expected_spec, dict) and isinstance(live_spec, dict):
+            _normalize_live_service_spec(expected_spec, live_spec)
+    elif expected.get("kind") == "HorizontalPodAutoscaler":
+        expected_spec = expected.get("spec")
+        live_spec = normalized.get("spec")
+        if isinstance(expected_spec, dict) and isinstance(live_spec, dict):
+            _normalize_live_hpa_spec(expected_spec, live_spec)
+    return normalized
+
+
+def _normalize_live_service_spec(
+    expected_spec: Mapping[str, Any], live_spec: dict[str, Any]
+) -> None:
+    live_cluster_ip = live_spec.get("clusterIP")
+    expected_cluster_ip = expected_spec.get("clusterIP")
+    if "clusterIP" not in expected_spec and _is_allocated_service_ip(live_cluster_ip):
+        live_spec.pop("clusterIP", None)
+
+    if "clusterIPs" not in expected_spec:
+        live_cluster_ips = live_spec.get("clusterIPs")
+        if live_cluster_ips == [live_cluster_ip] and (
+            live_cluster_ip == expected_cluster_ip
+            or _is_allocated_service_ip(live_cluster_ip)
+        ):
+            live_spec.pop("clusterIPs", None)
+
+    if "ipFamilies" not in expected_spec and _valid_default_ip_families(
+        live_spec.get("ipFamilies"), live_cluster_ip
+    ):
+        live_spec.pop("ipFamilies", None)
+
+    for key, default in (
+        ("ipFamilyPolicy", "SingleStack"),
+        ("internalTrafficPolicy", "Cluster"),
+        ("sessionAffinity", "None"),
+        ("type", "ClusterIP"),
+    ):
+        _drop_known_live_default(live_spec, expected_spec, key, default)
+
+    _normalize_parallel_mapping_lists(
+        expected_spec, live_spec, "ports", _normalize_live_service_port
+    )
+
+
+def _normalize_live_service_port(
+    expected_port: Mapping[str, Any], live_port: dict[str, Any]
+) -> None:
+    _drop_known_live_default(live_port, expected_port, "protocol", "TCP")
+
+
+def _normalize_live_hpa_spec(
+    expected_spec: Mapping[str, Any], live_spec: dict[str, Any]
+) -> None:
+    expected_behavior = expected_spec.get("behavior")
+    live_behavior = live_spec.get("behavior")
+    if not isinstance(expected_behavior, dict) or not isinstance(live_behavior, dict):
+        return
+    defaults = {
+        "scaleUp": {
+            "policies": [
+                {"periodSeconds": 15, "type": "Pods", "value": 4},
+                {"periodSeconds": 15, "type": "Percent", "value": 100},
+            ],
+            "selectPolicy": "Max",
+        },
+        "scaleDown": {
+            "policies": [
+                {"periodSeconds": 15, "type": "Percent", "value": 100},
+            ],
+            "selectPolicy": "Max",
+        },
+    }
+    for direction, direction_defaults in defaults.items():
+        expected_direction = expected_behavior.get(direction)
+        live_direction = live_behavior.get(direction)
+        if not isinstance(expected_direction, dict) or not isinstance(
+            live_direction, dict
+        ):
+            continue
+        for key, default in direction_defaults.items():
+            _drop_known_live_default(live_direction, expected_direction, key, default)
+
+
+def _is_allocated_service_ip(value: Any) -> bool:
+    if not isinstance(value, str) or value == "None":
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _valid_default_ip_families(value: Any, cluster_ip: Any) -> bool:
+    if value not in (["IPv4"], ["IPv6"]):
+        return False
+    if cluster_ip == "None":
+        return True
+    if not _is_allocated_service_ip(cluster_ip):
+        return False
+    version = ipaddress.ip_address(cluster_ip).version
+    return value == (["IPv4"] if version == 4 else ["IPv6"])
+
+
+def _normalized_live_workload_spec(
+    kind: str,
+    expected_spec: Mapping[str, Any],
+    live_spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized = copy.deepcopy(dict(live_spec))
+
+    if kind == "Deployment":
+        normalized.pop("replicas", None)
+        for key, default in (
+            ("minReadySeconds", 0),
+            ("paused", False),
+            ("progressDeadlineSeconds", 600),
+            ("revisionHistoryLimit", 10),
+            (
+                "strategy",
+                {
+                    "rollingUpdate": {
+                        "maxSurge": "25%",
+                        "maxUnavailable": "25%",
+                    },
+                    "type": "RollingUpdate",
+                },
+            ),
+        ):
+            _drop_known_live_default(normalized, expected_spec, key, default)
+    elif kind == "Job":
+        for key, default in (
+            ("parallelism", 1),
+            ("completions", 1),
+            ("backoffLimit", 6),
+            ("completionMode", "NonIndexed"),
+            ("manualSelector", False),
+            ("podReplacementPolicy", "TerminatingOrFailed"),
+            ("suspend", False),
+        ):
+            _drop_known_live_default(normalized, expected_spec, key, default)
+        if "selector" not in expected_spec and _is_job_controller_selector(
+            normalized.get("selector")
+        ):
+            normalized.pop("selector", None)
+
+    expected_template = expected_spec.get("template")
+    live_template = normalized.get("template")
+    if isinstance(expected_template, dict) and isinstance(live_template, dict):
+        _normalize_live_template(kind, expected_template, live_template)
+
+    return normalized
+
+
+def _normalize_live_template(
+    kind: str,
+    expected_template: Mapping[str, Any],
+    live_template: dict[str, Any],
+) -> None:
+    expected_metadata = expected_template.get("metadata")
+    live_metadata = live_template.get("metadata")
+    if isinstance(expected_metadata, dict) and isinstance(live_metadata, dict):
+        _drop_known_live_default(
+            live_metadata, expected_metadata, "creationTimestamp", None
+        )
+        if kind == "Job":
+            expected_labels = expected_metadata.get("labels") or {}
+            live_labels = live_metadata.get("labels")
+            if isinstance(expected_labels, dict) and isinstance(live_labels, dict):
+                for label in (
+                    "batch.kubernetes.io/controller-uid",
+                    "batch.kubernetes.io/job-name",
+                    "controller-uid",
+                    "job-name",
+                ):
+                    if label not in expected_labels:
+                        live_labels.pop(label, None)
+
+    expected_pod_spec = expected_template.get("spec")
+    live_pod_spec = live_template.get("spec")
+    if isinstance(expected_pod_spec, dict) and isinstance(live_pod_spec, dict):
+        _normalize_live_pod_spec(expected_pod_spec, live_pod_spec)
+
+
+def _normalize_live_pod_spec(
+    expected_pod_spec: Mapping[str, Any], live_pod_spec: dict[str, Any]
+) -> None:
+    for key, default in (
+        ("dnsPolicy", "ClusterFirst"),
+        ("enableServiceLinks", True),
+        ("preemptionPolicy", "PreemptLowerPriority"),
+        ("restartPolicy", "Always"),
+        ("schedulerName", "default-scheduler"),
+        ("terminationGracePeriodSeconds", 30),
+        ("hostNetwork", False),
+        ("hostPID", False),
+        ("hostIPC", False),
+        ("shareProcessNamespace", False),
+        ("setHostnameAsFQDN", False),
+    ):
+        _drop_known_live_default(live_pod_spec, expected_pod_spec, key, default)
+
+    if "serviceAccount" not in expected_pod_spec:
+        expected_service_account = expected_pod_spec.get("serviceAccountName")
+        if live_pod_spec.get("serviceAccount") == expected_service_account:
+            live_pod_spec.pop("serviceAccount", None)
+
+    for key in ("initContainers", "ephemeralContainers"):
+        _drop_known_live_default(live_pod_spec, expected_pod_spec, key, [])
+
+    expected_security = expected_pod_spec.get("securityContext")
+    live_security = live_pod_spec.get("securityContext")
+    if isinstance(expected_security, dict) and isinstance(live_security, dict):
+        _drop_known_live_default(
+            live_security, expected_security, "fsGroupChangePolicy", "Always"
+        )
+        _drop_known_live_default(
+            live_security, expected_security, "supplementalGroupsPolicy", "Merge"
+        )
+
+    _normalize_parallel_mapping_lists(
+        expected_pod_spec, live_pod_spec, "containers", _normalize_live_container
+    )
+    _normalize_parallel_mapping_lists(
+        expected_pod_spec, live_pod_spec, "volumes", _normalize_live_volume
+    )
+    _normalize_parallel_mapping_lists(
+        expected_pod_spec,
+        live_pod_spec,
+        "topologySpreadConstraints",
+        _normalize_live_topology_spread_constraint,
+    )
+
+
+def _normalize_parallel_mapping_lists(
+    expected_parent: Mapping[str, Any],
+    live_parent: dict[str, Any],
+    key: str,
+    normalizer: Callable[[Mapping[str, Any], dict[str, Any]], None],
+) -> None:
+    expected_items = expected_parent.get(key)
+    live_items = live_parent.get(key)
+    if (
+        not isinstance(expected_items, list)
+        or not isinstance(live_items, list)
+        or len(expected_items) != len(live_items)
+    ):
+        return
+    for expected_item, live_item in zip(expected_items, live_items, strict=True):
+        if isinstance(expected_item, dict) and isinstance(live_item, dict):
+            normalizer(expected_item, live_item)
+
+
+def _normalize_live_container(
+    expected_container: Mapping[str, Any], live_container: dict[str, Any]
+) -> None:
+    for key, default in (
+        ("imagePullPolicy", "IfNotPresent"),
+        ("terminationMessagePath", "/dev/termination-log"),
+        ("terminationMessagePolicy", "File"),
+        ("stdin", False),
+        ("stdinOnce", False),
+        ("tty", False),
+    ):
+        _drop_known_live_default(live_container, expected_container, key, default)
+
+    expected_security = expected_container.get("securityContext")
+    live_security = live_container.get("securityContext")
+    if isinstance(expected_security, dict) and isinstance(live_security, dict):
+        for key, default in (
+            ("privileged", False),
+            ("procMount", "Default"),
+        ):
+            _drop_known_live_default(live_security, expected_security, key, default)
+        expected_capabilities = expected_security.get("capabilities")
+        live_capabilities = live_security.get("capabilities")
+        if isinstance(expected_capabilities, dict) and isinstance(
+            live_capabilities, dict
+        ):
+            _drop_known_live_default(
+                live_capabilities, expected_capabilities, "add", []
+            )
+
+    for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
+        expected_probe = expected_container.get(probe_name)
+        live_probe = live_container.get(probe_name)
+        if isinstance(expected_probe, dict) and isinstance(live_probe, dict):
+            for key, default in (
+                ("initialDelaySeconds", 0),
+                ("periodSeconds", 10),
+                ("timeoutSeconds", 1),
+                ("successThreshold", 1),
+                ("failureThreshold", 3),
+            ):
+                _drop_known_live_default(live_probe, expected_probe, key, default)
+            expected_http_get = expected_probe.get("httpGet")
+            live_http_get = live_probe.get("httpGet")
+            if isinstance(expected_http_get, dict) and isinstance(live_http_get, dict):
+                _drop_known_live_default(
+                    live_http_get, expected_http_get, "scheme", "HTTP"
+                )
+
+    _normalize_parallel_mapping_lists(
+        expected_container, live_container, "ports", _normalize_live_container_port
+    )
+    _normalize_parallel_mapping_lists(
+        expected_container,
+        live_container,
+        "volumeMounts",
+        _normalize_live_volume_mount,
+    )
+    _normalize_parallel_mapping_lists(
+        expected_container, live_container, "env", _normalize_live_env_var
+    )
+
+
+def _normalize_live_env_var(
+    expected_env: Mapping[str, Any], live_env: dict[str, Any]
+) -> None:
+    expected_value_from = expected_env.get("valueFrom")
+    live_value_from = live_env.get("valueFrom")
+    if not isinstance(expected_value_from, dict) or not isinstance(
+        live_value_from, dict
+    ):
+        return
+    expected_field_ref = expected_value_from.get("fieldRef")
+    live_field_ref = live_value_from.get("fieldRef")
+    if isinstance(expected_field_ref, dict) and isinstance(live_field_ref, dict):
+        _drop_known_live_default(
+            live_field_ref, expected_field_ref, "apiVersion", "v1"
+        )
+
+
+def _normalize_live_container_port(
+    expected_port: Mapping[str, Any], live_port: dict[str, Any]
+) -> None:
+    _drop_known_live_default(live_port, expected_port, "protocol", "TCP")
+
+
+def _normalize_live_volume_mount(
+    expected_mount: Mapping[str, Any], live_mount: dict[str, Any]
+) -> None:
+    _drop_known_live_default(live_mount, expected_mount, "readOnly", False)
+
+
+def _normalize_live_volume(
+    expected_volume: Mapping[str, Any], live_volume: dict[str, Any]
+) -> None:
+    for source_key in ("configMap", "secret", "projected", "downwardAPI"):
+        expected_source = expected_volume.get(source_key)
+        live_source = live_volume.get(source_key)
+        if isinstance(expected_source, dict) and isinstance(live_source, dict):
+            _drop_known_live_default(live_source, expected_source, "defaultMode", 420)
+
+
+def _normalize_live_topology_spread_constraint(
+    expected_constraint: Mapping[str, Any], live_constraint: dict[str, Any]
+) -> None:
+    for key, default in (
+        ("minDomains", 1),
+        ("nodeAffinityPolicy", "Honor"),
+        ("nodeTaintsPolicy", "Ignore"),
+    ):
+        _drop_known_live_default(live_constraint, expected_constraint, key, default)
+
+
+def _drop_known_live_default(
+    live: dict[str, Any],
+    expected: Mapping[str, Any],
+    key: str,
+    default: Any,
+) -> None:
+    if key not in expected and live.get(key) == default:
+        live.pop(key, None)
+
+
+def _is_job_controller_selector(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {"matchLabels"}:
+        return False
+    labels = value.get("matchLabels")
+    if not isinstance(labels, dict) or not labels:
+        return False
+    allowed = {"batch.kubernetes.io/controller-uid", "controller-uid"}
+    return set(labels).issubset(allowed) and all(
+        isinstance(label_value, str) and label_value for label_value in labels.values()
     )
 
 

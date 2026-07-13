@@ -91,6 +91,13 @@ migration, set the same production namespace, and make the database CA volume
 non-optional. Validate only the operation being run; both files above simply
 demonstrate the combined validation path.
 
+The semantic preflight requires every namespaced object to target
+`k-comms-production`; cluster-scoped objects are recognized explicitly. It
+also requires the worker startup, readiness, and liveness probes to retain the
+exact release RPC health command. A provider composition must change the
+namespace through an approved repository change rather than mixing namespaces
+inside a rendered bundle.
+
 The provider-neutral overlay is expected to fail this promotion preflight on
 its own. A passing composed bundle has HTTPS notification and scanner
 providers, explicit webhook hosts, a valid public VAPID key, production safety

@@ -18,10 +18,11 @@ import yaml
 
 from collect_release_evidence import (
     CollectorError,
-    PRODUCTION_CONTROL_RESOURCES,
+    PRODUCTION_CONTROL_RESOURCE_TYPES,
     PROMOTION_RECEIPT_MAX_BYTES,
     PROMOTION_RECEIPT_MAX_AGE_SECONDS,
     REQUIRED_PROMOTION_RECEIPTS,
+    _expected_production_controls,
     _load_production_bundle,
     _read_promotion_receipt,
     build_argument_parser,
@@ -39,7 +40,7 @@ MANIFEST_DIGEST = "sha256:" + "3" * 64
 REPOSITORY_DIGEST = "registry.example.com/k-comms@" + MANIFEST_DIGEST
 IMAGE = "registry.example.com/k-comms:release"
 PRODUCTION_IMAGE = REPOSITORY_DIGEST
-NAMESPACE = "k-comms-staging"
+NAMESPACE = "k-comms-production"
 ENVIRONMENT_ID = "production-us-east-1"
 CLUSTER_UID = "cluster-uid-sentinel"
 NAMESPACE_UID = "namespace-uid-sentinel"
@@ -863,6 +864,432 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
                     host_provider=fixed_host_summary,
                 )
 
+    def test_production_profile_rejects_additive_live_privileged_container(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Deployment", "k-comms-edge")]["spec"]["template"]["spec"][
+                "containers"
+            ][0]["securityContext"]["privileged"] = True
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Deployment k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_additive_live_host_network(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Deployment", "k-comms-edge")]["spec"]["template"]["spec"][
+                "hostNetwork"
+            ] = True
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Deployment k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_additive_live_command_override(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Deployment", "k-comms-edge")]["spec"]["template"]["spec"][
+                "containers"
+            ][0]["command"] = ["/bin/true"]
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Deployment k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_accepts_known_kubernetes_workload_defaults(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+
+            edge = controls[("Deployment", "k-comms-edge")]
+            edge["spec"]["progressDeadlineSeconds"] = 600
+            edge["spec"]["template"]["metadata"]["creationTimestamp"] = None
+            pod_spec = edge["spec"]["template"]["spec"]
+            pod_spec.update(
+                {
+                    "dnsPolicy": "ClusterFirst",
+                    "enableServiceLinks": True,
+                    "restartPolicy": "Always",
+                    "schedulerName": "default-scheduler",
+                    "serviceAccount": "k-comms",
+                    "terminationGracePeriodSeconds": 30,
+                }
+            )
+            container = pod_spec["containers"][0]
+            container.update(
+                {
+                    "imagePullPolicy": "IfNotPresent",
+                    "terminationMessagePath": "/dev/termination-log",
+                    "terminationMessagePolicy": "File",
+                }
+            )
+            for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
+                container[probe_name]["successThreshold"] = 1
+                container[probe_name]["httpGet"]["scheme"] = "HTTP"
+            next(
+                item
+                for item in container["env"]
+                if item["name"] == "POD_NAMESPACE"
+            )["valueFrom"]["fieldRef"]["apiVersion"] = "v1"
+
+            migration = controls[("Job", "k-comms-migrate")]
+            migration["spec"].update(
+                {
+                    "completionMode": "NonIndexed",
+                    "completions": 1,
+                    "manualSelector": False,
+                    "parallelism": 1,
+                    "podReplacementPolicy": "TerminatingOrFailed",
+                    "selector": {
+                        "matchLabels": {
+                            "batch.kubernetes.io/controller-uid": "job-controller-uid"
+                        }
+                    },
+                    "suspend": False,
+                }
+            )
+            migration["spec"]["template"]["metadata"]["labels"].update(
+                {
+                    "batch.kubernetes.io/controller-uid": "job-controller-uid",
+                    "batch.kubernetes.io/job-name": "k-comms-migrate",
+                }
+            )
+
+            edge_service = controls[("Service", "k-comms-edge")]["spec"]
+            edge_service.update(
+                {
+                    "clusterIP": "10.96.0.42",
+                    "clusterIPs": ["10.96.0.42"],
+                    "internalTrafficPolicy": "Cluster",
+                    "ipFamilies": ["IPv4"],
+                    "ipFamilyPolicy": "SingleStack",
+                    "sessionAffinity": "None",
+                    "type": "ClusterIP",
+                }
+            )
+            edge_service["ports"][0]["protocol"] = "TCP"
+
+            cluster_service = controls[("Service", "k-comms-cluster")]["spec"]
+            cluster_service.update(
+                {
+                    "clusterIPs": ["None"],
+                    "internalTrafficPolicy": "Cluster",
+                    "ipFamilies": ["IPv4"],
+                    "ipFamilyPolicy": "SingleStack",
+                    "sessionAffinity": "None",
+                    "type": "ClusterIP",
+                }
+            )
+            for port in cluster_service["ports"]:
+                port["protocol"] = "TCP"
+
+            for hpa_name in ("k-comms-edge", "k-comms-worker"):
+                behavior = controls[("HorizontalPodAutoscaler", hpa_name)]["spec"][
+                    "behavior"
+                ]
+                behavior["scaleUp"].update(
+                    {
+                        "policies": [
+                            {"periodSeconds": 15, "type": "Pods", "value": 4},
+                            {
+                                "periodSeconds": 15,
+                                "type": "Percent",
+                                "value": 100,
+                            },
+                        ],
+                        "selectPolicy": "Max",
+                    }
+                )
+                behavior["scaleDown"].update(
+                    {
+                        "policies": [
+                            {
+                                "periodSeconds": 15,
+                                "type": "Percent",
+                                "value": 100,
+                            }
+                        ],
+                        "selectPolicy": "Max",
+                    }
+                )
+
+            evidence = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                receipt_specs=receipt_specs,
+                command_runner=production_runner(live_controls=controls),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        self.assertTrue(evidence["promotion"]["promotion_ready"])
+
+    def test_production_profile_rejects_additive_live_service_external_ips(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Service", "k-comms-edge")]["spec"]["externalIPs"] = [
+                "203.0.113.10"
+            ]
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Service k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_binds_every_reviewed_safe_resource(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            documents = production_bundle_documents()
+            bundle = write_production_bundle(directory, documents)
+            runner = production_runner(bundle_documents=documents)
+
+            evidence = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                binding_only=True,
+                command_runner=runner,
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        expected = _expected_production_controls(documents, NAMESPACE)
+        self.assertEqual(
+            evidence["promotion"]["controls"]["resource_count"], len(expected)
+        )
+        for control in expected:
+            kind = control["kind"]
+            name = control["metadata"]["name"]
+            command = [
+                "kubectl",
+                "get",
+                PRODUCTION_CONTROL_RESOURCE_TYPES[kind],
+                name,
+            ]
+            if control["metadata"].get("namespace"):
+                command.extend(("--namespace", NAMESPACE))
+            command.extend(("-o", "json"))
+            self.assertIn(tuple(command), runner.calls)
+
+    def test_production_profile_rejects_live_database_ca_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("ConfigMap", "k-comms-database-ca")]["data"]["ca.crt"] += (
+                "\nUNREVIEWED"
+            )
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live ConfigMap k-comms-database-ca does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_live_ingress_annotation_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Ingress", "k-comms-auth-rate-limit")]["metadata"][
+                "annotations"
+            ]["nginx.ingress.kubernetes.io/ssl-redirect"] = "false"
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Ingress k-comms-auth-rate-limit does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_live_network_policy_allow_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("NetworkPolicy", "k-comms-default-deny")]["spec"][
+                "ingress"
+            ] = [{}]
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live NetworkPolicy k-comms-default-deny does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_live_control_namespace_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Service", "k-comms-edge")]["metadata"][
+                "namespace"
+            ] = "wrong-namespace"
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Service k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_live_namespace_policy_label_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            namespace = controls[("Namespace", NAMESPACE)]
+            namespace["metadata"]["labels"][
+                "pod-security.kubernetes.io/enforce-version"
+            ] = "v1.25"
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                f"live Namespace {NAMESPACE} does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_accepts_known_namespace_server_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            documents = production_bundle_documents()
+            bundle = write_production_bundle(directory, documents)
+            controls = live_control_documents(documents)
+            namespace = controls[("Namespace", NAMESPACE)]
+            namespace["metadata"]["labels"][
+                "kubernetes.io/metadata.name"
+            ] = NAMESPACE
+            namespace["spec"] = {"finalizers": ["kubernetes"]}
+            namespace["status"] = {"phase": "Active"}
+
+            evidence = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                binding_only=True,
+                command_runner=production_runner(live_controls=controls),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        self.assertFalse(evidence["promotion"]["promotion_ready"])
+
     def test_production_profile_rejects_an_incomplete_live_migration_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             bundle, receipt_specs, _binding = prepare_production_inputs(directory)
@@ -1194,18 +1621,21 @@ class FakeRunner:
             ],
         }
         self.control_responses: dict[tuple[str, ...], list[str]] = {}
-        for kind, resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
+        for expected in _expected_production_controls(bundle_documents, NAMESPACE):
+            kind = expected["kind"]
+            name = expected["metadata"]["name"]
+            resource_type = PRODUCTION_CONTROL_RESOURCE_TYPES[kind]
             key = (kind, name)
-            command = (
+            command_parts = [
                 "kubectl",
                 "get",
                 resource_type,
                 name,
-                "--namespace",
-                NAMESPACE,
-                "-o",
-                "json",
-            )
+            ]
+            if expected["metadata"].get("namespace"):
+                command_parts.extend(("--namespace", NAMESPACE))
+            command_parts.extend(("-o", "json"))
+            command = tuple(command_parts)
             self.control_responses[command] = [
                 json.dumps(first_controls[key]),
                 json.dumps(last_controls[key]),
@@ -1425,7 +1855,123 @@ def production_bundle_documents() -> list[dict]:
         find_document(documents, kind, name)["spec"]["template"]["spec"][
             "containers"
         ][0]["image"] = PRODUCTION_IMAGE
+    for name in ("k-comms-edge", "k-comms-worker"):
+        container = find_document(documents, "Deployment", name)["spec"]["template"][
+            "spec"
+        ]["containers"][0]
+        container.setdefault("env", []).append(
+            {
+                "name": "POD_NAMESPACE",
+                "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}},
+            }
+        )
+    find_document(documents, "HorizontalPodAutoscaler", "k-comms-edge")["spec"][
+        "behavior"
+    ] = {
+        "scaleDown": {"stabilizationWindowSeconds": 300},
+        "scaleUp": {"stabilizationWindowSeconds": 30},
+    }
+    find_document(documents, "HorizontalPodAutoscaler", "k-comms-worker")["spec"][
+        "behavior"
+    ] = {
+        "scaleDown": {"stabilizationWindowSeconds": 600},
+        "scaleUp": {"stabilizationWindowSeconds": 60},
+    }
+    documents.extend(additional_safe_production_controls())
     return documents
+
+
+def additional_safe_production_controls() -> list[dict]:
+    controls: list[dict] = [
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {"name": NAMESPACE, "labels": {"environment": "production"}},
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "ServiceAccount",
+            "metadata": {"name": "k-comms", "namespace": NAMESPACE},
+            "automountServiceAccountToken": False,
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": "k-comms-edge", "namespace": NAMESPACE},
+            "spec": {
+                "selector": {"app.kubernetes.io/component": "edge"},
+                "ports": [{"name": "http", "port": 4000, "targetPort": "http"}],
+            },
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": "k-comms-cluster", "namespace": NAMESPACE},
+            "spec": {
+                "clusterIP": "None",
+                "publishNotReadyAddresses": True,
+                "selector": {"app.kubernetes.io/name": "k-comms"},
+                "ports": [
+                    {"name": "epmd", "port": 4369, "targetPort": "epmd"},
+                    {
+                        "name": "distribution",
+                        "port": 9100,
+                        "targetPort": "distribution",
+                    },
+                ],
+            },
+        },
+    ]
+    for name in (
+        "k-comms",
+        "k-comms-auth-rate-limit",
+        "k-comms-service-auth-rate-limit",
+        "k-comms-socket-rate-limit",
+    ):
+        controls.append(
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "Ingress",
+                "metadata": {
+                    "name": name,
+                    "namespace": NAMESPACE,
+                    "annotations": {
+                        "nginx.ingress.kubernetes.io/ssl-redirect": "true"
+                    },
+                },
+                "spec": {
+                    "ingressClassName": "nginx",
+                    "tls": [
+                        {
+                            "hosts": ["comms.example.com"],
+                            "secretName": "k-comms-production-tls",
+                        }
+                    ],
+                    "rules": [{"host": "comms.example.com"}],
+                },
+            }
+        )
+    for name in (
+        "k-comms-default-deny",
+        "k-comms-dns-egress",
+        "k-comms-cluster-traffic",
+        "k-comms-data-egress",
+        "k-comms-external-https-egress",
+    ):
+        controls.append(
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {"name": name, "namespace": NAMESPACE},
+                "spec": {
+                    "podSelector": {
+                        "matchLabels": {"app.kubernetes.io/part-of": "k-comms"}
+                    },
+                    "policyTypes": ["Ingress", "Egress"],
+                },
+            }
+        )
+    return controls
 
 
 def write_production_bundle(directory: str, documents: list[dict] | None = None) -> Path:
@@ -1449,7 +1995,9 @@ def live_control_documents(
     bundle_documents: list[dict], *, resource_version: str = "100"
 ) -> dict[tuple[str, str], dict]:
     controls: dict[tuple[str, str], dict] = {}
-    for kind, _resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
+    for expected in _expected_production_controls(bundle_documents, NAMESPACE):
+        kind = expected["kind"]
+        name = expected["metadata"]["name"]
         document = copy.deepcopy(find_document(bundle_documents, kind, name))
         document.setdefault("metadata", {}).update(
             {

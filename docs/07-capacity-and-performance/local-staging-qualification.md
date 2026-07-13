@@ -165,13 +165,20 @@ python scripts/collect_release_evidence.py \
 
 The command runs the production bundle semantic preflight before cluster
 inspection. It then verifies the digest-pinned image and ready edge/worker
-topology, hashes the observed cluster and namespace UIDs, and compares the
-reviewed desired state with the live ConfigMap, edge and worker Deployments,
-NetworkPolicies, PodDisruptionBudgets, HorizontalPodAutoscalers, and completed
-migration Job. Deployment `.spec.replicas` is intentionally excluded because
-the bound HPAs own that field; all other reviewed Deployment spec fields,
-including container and pod security controls, remain bound. Kubernetes
-`resourceVersion` is also excluded from the stable control hash. The binding
+topology, hashes the observed cluster and namespace UIDs, and dynamically
+binds every supported non-secret resource in the reviewed bundle. That
+inventory includes the Namespace, application and database-CA ConfigMaps,
+ServiceAccount, Services, Deployments, completed migration Job, every Ingress
+and NetworkPolicy, PodDisruptionBudgets, and HorizontalPodAutoscalers. A
+missing resource, security-relevant additive drift, wrong namespace, or
+reviewed desired-state mismatch fails collection. Deployment `.spec.replicas`
+is intentionally excluded because the bound HPAs own that field; all other
+reviewed Deployment spec fields, including container and pod security
+controls, remain bound.
+Kubernetes server-managed metadata and `resourceVersion` are excluded from the
+stable control hash. Secret objects are deliberately not read back or emitted;
+their reviewed representation remains bound through the exact bundle hash and
+must be managed and attested by the approved secret system. The binding
 artifact has `promotion.mode: "binding"`, `promotion.promotion_ready: false`,
 no receipts, and the values each receipt must copy from:
 
