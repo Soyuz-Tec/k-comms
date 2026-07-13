@@ -32,6 +32,13 @@ jobs:
     env:
       MIX_ENV: test
       DATABASE_URL: ecto://postgres:postgres@localhost:5432/k_comms_test
+      K_COMMS_TEST_S3_HOST: 127.0.0.1
+      K_COMMS_TEST_S3_PORT: "9000"
+      K_COMMS_TEST_S3_BUCKET: k-comms-test
+      K_COMMS_TEST_S3_ACCESS_KEY_ID: kcomms-test
+      K_COMMS_TEST_S3_SECRET_ACCESS_KEY: k-comms-test-password
+      MINIO_IMAGE: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+      MINIO_MC_IMAGE: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
@@ -53,7 +60,55 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix ecto.create
       - run: mix ecto.migrate
+      - name: Start versioned S3 integration fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name k-comms-ci-minio \
+            --publish "127.0.0.1:${K_COMMS_TEST_S3_PORT}:9000" \
+            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
+            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
+            "$MINIO_IMAGE" server /data
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent \
+              "http://${K_COMMS_TEST_S3_HOST}:${K_COMMS_TEST_S3_PORT}/minio/health/ready" \
+              >/dev/null; then
+              break
+            fi
+
+            if [ "$attempt" -eq 30 ]; then
+              docker logs k-comms-ci-minio
+              exit 1
+            fi
+
+            sleep 1
+          done
+
+          docker run --rm --network host \
+            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
+            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
+            --env "S3_BUCKET=${K_COMMS_TEST_S3_BUCKET}" \
+            --env "S3_ENDPOINT=http://${K_COMMS_TEST_S3_HOST}:${K_COMMS_TEST_S3_PORT}" \
+            --entrypoint /bin/sh \
+            "$MINIO_MC_IMAGE" -c '
+              set -eu
+              mc alias set local "$S3_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              mc mb --ignore-existing "local/$S3_BUCKET"
+              mc version enable "local/$S3_BUCKET"
+              version_info="$(mc version info "local/$S3_BUCKET")"
+              printf "%s\n" "$version_info"
+              case "$version_info" in
+                *"versioning is enabled"*) ;;
+                *) echo "bucket versioning was not enabled" >&2; exit 1 ;;
+              esac
+            '
       - run: mix test --warnings-as-errors
+      - name: Stop S3 integration fixture
+        if: always()
+        shell: bash
+        run: docker rm --force k-comms-ci-minio >/dev/null 2>&1 || true
       - run: mix sobelow --root apps/comms_web --private --exit medium --threshold medium
       - run: mix hex.audit
       - run: MIX_ENV=prod mix deps.get --only prod --check-locked

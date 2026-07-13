@@ -218,19 +218,7 @@ defmodule CommsIntegrations.ObjectStorageTest do
     tenant_id = "tenant-#{System.unique_integer([:positive, :monotonic])}"
     object_key = "#{tenant_id}/object-#{System.unique_integer([:positive])}/evidence.txt"
 
-    Application.put_env(:comms_integrations, :s3,
-      scheme: "http",
-      host: "minio",
-      port: 9000,
-      internal_scheme: "http",
-      internal_host: "minio",
-      internal_port: 9000,
-      bucket: "k-comms-dev",
-      region: "us-east-1",
-      access_key_id: "kcomms",
-      secret_access_key: "change-this-local-password",
-      expires_in: 600
-    )
+    Application.put_env(:comms_integrations, :s3, s3_integration_config())
 
     on_exit(fn -> restore_env(:s3, previous) end)
 
@@ -279,19 +267,7 @@ defmodule CommsIntegrations.ObjectStorageTest do
     tenant_id = "restore-tenant-#{System.unique_integer([:positive, :monotonic])}"
     object_key = "#{tenant_id}/restore-#{System.unique_integer([:positive])}/evidence.txt"
 
-    Application.put_env(:comms_integrations, :s3,
-      scheme: "http",
-      host: "minio",
-      port: 9000,
-      internal_scheme: "http",
-      internal_host: "minio",
-      internal_port: 9000,
-      bucket: "k-comms-dev",
-      region: "us-east-1",
-      access_key_id: "kcomms",
-      secret_access_key: "change-this-local-password",
-      expires_in: 600
-    )
+    Application.put_env(:comms_integrations, :s3, s3_integration_config())
 
     on_exit(fn -> restore_env(:s3, previous) end)
 
@@ -346,6 +322,26 @@ defmodule CommsIntegrations.ObjectStorageTest do
            Finch.request(request, CommsIntegrations.Finch) do
       :ok
     end
+  end
+
+  defp s3_integration_config do
+    host = System.get_env("K_COMMS_TEST_S3_HOST", "minio")
+    port = System.get_env("K_COMMS_TEST_S3_PORT", "9000") |> String.to_integer()
+
+    [
+      scheme: "http",
+      host: host,
+      port: port,
+      internal_scheme: "http",
+      internal_host: host,
+      internal_port: port,
+      bucket: System.get_env("K_COMMS_TEST_S3_BUCKET", "k-comms-dev"),
+      region: "us-east-1",
+      access_key_id: System.get_env("K_COMMS_TEST_S3_ACCESS_KEY_ID", "kcomms"),
+      secret_access_key:
+        System.get_env("K_COMMS_TEST_S3_SECRET_ACCESS_KEY", "change-this-local-password"),
+      expires_in: 600
+    ]
   end
 
   defp sha256(body), do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
