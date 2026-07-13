@@ -3,7 +3,7 @@ defmodule CommsCore.Authorization.Database do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, Tenant, User}
+  alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, Tenant, User}
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.Audit.AuditEvent
   alias CommsCore.Conversations.{Conversation, Membership}
@@ -246,8 +246,11 @@ defmodule CommsCore.Authorization.Database do
 
   def authorize(:view_platform_operations, subject, _resource) do
     with true <- active_subject?(subject),
-         role when role in @platform_roles <- active_platform_role(subject),
-         ^role <- normalized_platform_role(value(subject, :platform_role)) do
+         {grant_id, role, expires_at} when role in @platform_roles <-
+           active_platform_role(subject),
+         ^grant_id <- value(subject, :platform_role_grant_id),
+         ^role <- normalized_platform_role(value(subject, :platform_role)),
+         true <- platform_deadline_matches?(value(subject, :platform_role_expires_at), expires_at) do
       :ok
     else
       _ -> deny_privileged(:view_platform_operations, subject, :forbidden)
@@ -256,8 +259,10 @@ defmodule CommsCore.Authorization.Database do
 
   def authorize(:operate_platform, subject, _resource) do
     with true <- active_subject?(subject),
-         :platform_operator <- active_platform_role(subject),
-         :platform_operator <- normalized_platform_role(value(subject, :platform_role)) do
+         {grant_id, :platform_operator, expires_at} <- active_platform_role(subject),
+         ^grant_id <- value(subject, :platform_role_grant_id),
+         :platform_operator <- normalized_platform_role(value(subject, :platform_role)),
+         true <- platform_deadline_matches?(value(subject, :platform_role_expires_at), expires_at) do
       :ok
     else
       _ -> deny_privileged(:operate_platform, subject, :forbidden)
@@ -330,15 +335,17 @@ defmodule CommsCore.Authorization.Database do
   end
 
   defp active_platform_role(subject) do
-    case Repo.get_by(User,
-           id: value(subject, :user_id),
-           tenant_id: value(subject, :tenant_id),
-           status: :active,
-           account_type: :human
-         ) do
-      %User{platform_role: role} -> role
-      nil -> nil
-    end
+    Repo.one(
+      from(g in PlatformRoleGrant,
+        join: u in User,
+        on: u.id == g.user_id and u.tenant_id == g.tenant_id,
+        where:
+          g.user_id == ^value(subject, :user_id) and
+            g.tenant_id == ^value(subject, :tenant_id) and
+            g.expires_at > ^now() and u.status == :active and u.account_type == :human,
+        select: {g.id, g.role, g.expires_at}
+      )
+    )
   end
 
   defp normalized_platform_role(role) when role in @platform_roles, do: role
@@ -348,6 +355,11 @@ defmodule CommsCore.Authorization.Database do
   end
 
   defp normalized_platform_role(_role), do: nil
+
+  defp platform_deadline_matches?(%DateTime{} = claimed, %DateTime{} = persisted),
+    do: DateTime.compare(claimed, persisted) == :eq
+
+  defp platform_deadline_matches?(_, _), do: false
 
   defp recent_step_up?(subject) do
     ttl = Application.get_env(:comms_core, :step_up_ttl_seconds, 300)

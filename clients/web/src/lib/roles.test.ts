@@ -8,9 +8,13 @@ describe("role-aware product surfaces", () => {
     expect(canAccessAdmin("compliance_admin")).toBe(true);
     expect(canAccessAdmin("security_admin")).toBe(true);
     expect(canOperate(null)).toBe(false);
-    expect(canOperate("platform_operator")).toBe(true);
-    expect(canOperate("support_operator")).toBe(true);
-    expect(canOperate("security_operator")).toBe(true);
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+    expect(canOperate("platform_operator", future)).toBe(true);
+    expect(canOperate("support_operator", future)).toBe(true);
+    expect(canOperate("security_operator", future)).toBe(true);
+    expect(canOperate("platform_operator", past)).toBe(false);
+    expect(canOperate("platform_operator", null)).toBe(false);
   });
 
   it("does not offer elevated assignments to tenant administrators", () => {

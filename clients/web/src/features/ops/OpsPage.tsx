@@ -19,7 +19,7 @@ export function OpsPage() {
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timer); }, [refresh]);
 
   if (!session) return null;
-  if (!canOperate(session.user.platform_role)) return <Navigate to="/app" replace />;
+  if (!canOperate(session.user.platform_role, session.user.platform_role_expires_at)) return <Navigate to="/app" replace />;
 
   const failures = (snapshot?.notifications.failed || 0) + (snapshot?.notifications.dead_letter || 0) + (snapshot?.webhooks.failed || 0) + (snapshot?.webhooks.dead_letter || 0) + (snapshot?.attachments.failed || 0);
   return <main className="page-shell" id="main-content">

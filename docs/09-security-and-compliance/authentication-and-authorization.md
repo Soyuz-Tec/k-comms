@@ -100,15 +100,23 @@ Every command evaluates:
 A socket join authorizes subscription at that moment; it does not permanently authorize every later command.
 
 Tenant roles (`owner`, `admin`, `compliance_admin`, `security_admin`,
-`moderator`, and `member`) do not imply platform authority. The separately
-managed nullable `platform_role` is carried in authenticated HTTP and one-time
-socket-ticket subjects and is presented as `user.platform_role` and
-`session.platform_role`. Platform operations require both a
-matching subject claim and the current persisted role; revocation therefore
-takes effect on the next authorization check. `platform_operator`,
+`moderator`, and `member`) do not imply platform authority. A separately
+managed `platform_role_grants` row carries a random per-approval identifier,
+the role, and exact expiry. Effective values are carried in authenticated HTTP
+and one-time socket-ticket subjects
+and presented as `platform_role` plus `platform_role_expires_at` on user and
+session projections. Platform operations require a current unexpired grant and
+an exactly matching internal approval identifier, subject role, and deadline;
+expiry, revocation, or renewal therefore takes effect on the next authorization
+check, including for an established WebSocket. The internal approval identifier
+is not part of the public user/session API. `platform_operator`,
 `support_operator`, and `security_operator` may view the content-blind platform
 operations snapshot. Mutating platform controls remain restricted to
 `platform_operator` unless a narrower permission is explicitly introduced.
 Tenant user creation, profile, invitation, and lifecycle APIs cannot assign
-platform roles. Platform-role expiry is not part of the MVP schema; grants are
-permanent until an audited console revoke and should be reviewed operationally.
+platform roles. Audited console grants target only active human users, last from
+five minutes through eight hours, and receive a fresh identifier on every grant
+or renewal. Revocation clears the grant immediately and may clean up residual
+state for an inactive or non-human identity. The rollback-only legacy user
+column remains constrained to null so a previous binary cannot bypass the
+expiry policy.

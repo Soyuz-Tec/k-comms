@@ -23,6 +23,7 @@ export interface User {
   account_type?: "human" | "service";
   role: UserRole;
   platform_role?: PlatformRole | null;
+  platform_role_expires_at?: string | null;
   status: string;
   version?: number;
 }

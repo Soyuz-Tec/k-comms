@@ -56,8 +56,11 @@ export function canAccessAdmin(role: UserRole): boolean {
   return canAdministerTenant(role) || canManageSessions(role) || canModerate(role) || canGovern(role) || canAudit(role);
 }
 
-export function canOperate(role?: PlatformRole | null): boolean {
-  return role === "platform_operator" || role === "support_operator" || role === "security_operator";
+export function canOperate(role?: PlatformRole | null, expiresAt?: string | null): boolean {
+  if (role !== "platform_operator" && role !== "support_operator" && role !== "security_operator") return false;
+  if (!expiresAt) return false;
+  const deadline = Date.parse(expiresAt);
+  return Number.isFinite(deadline) && deadline > Date.now();
 }
 
 export function rolesAssignableBy(actorRole: UserRole, includeOwner = false): UserRole[] {

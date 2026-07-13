@@ -11,7 +11,7 @@ export function ProductShell() {
   const { error, setError } = useWorkspaceData();
   if (!session) return null;
   const showAdmin = canAccessAdmin(session.user.role);
-  const showOperations = canOperate(session.user.platform_role);
+  const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
 
   return (
     <div className="app-shell">

@@ -130,22 +130,36 @@ defmodule CommsCore.Release do
   `K_COMMS_PLATFORM_ROLE_MANAGEMENT_SECRET` must already be configured for the
   running release. The caller must separately provide the matching
   `K_COMMS_PLATFORM_ROLE_GRANT_TOKEN`, plus explicit actor and reason variables.
-  Use `none` as the role to revoke access.
+  Grants require `K_COMMS_PLATFORM_ROLE_TTL_SECONDS` from 300 through 28,800
+  seconds. Use `none` as the role to revoke access; revocation does not require a
+  TTL.
   """
   def set_platform_role(user_id, role) do
+    ttl_seconds = platform_role_ttl_env(role)
+
     set_platform_role(
       user_id,
       role,
       System.fetch_env!("K_COMMS_PLATFORM_ROLE_GRANT_TOKEN"),
       System.fetch_env!("K_COMMS_PLATFORM_ROLE_ACTOR"),
-      System.fetch_env!("K_COMMS_PLATFORM_ROLE_REASON")
+      System.fetch_env!("K_COMMS_PLATFORM_ROLE_REASON"),
+      ttl_seconds
     )
   end
 
   def set_platform_role(user_id, role, grant_token, actor, reason) do
+    set_platform_role(user_id, role, grant_token, actor, reason, platform_role_ttl_env(role))
+  end
+
+  def set_platform_role(user_id, role, grant_token, actor, reason, ttl_seconds) do
     load_app()
 
-    attrs = %{grant_token: grant_token, actor: actor, reason: reason}
+    attrs = %{
+      grant_token: grant_token,
+      actor: actor,
+      reason: reason,
+      ttl_seconds: ttl_seconds
+    }
 
     {:ok, result, _started_apps} =
       Ecto.Migrator.with_repo(Repo, fn _repo ->
@@ -155,7 +169,13 @@ defmodule CommsCore.Release do
     case result do
       {:ok, user} ->
         status = if user.platform_role, do: "granted", else: "revoked"
-        IO.puts("Platform role #{status} for user #{user.id}")
+
+        deadline =
+          if user.platform_role_expires_at,
+            do: " until #{DateTime.to_iso8601(user.platform_role_expires_at)}",
+            else: ""
+
+        IO.puts("Platform role #{status} for user #{user.id}#{deadline}")
         :ok
 
       {:error, reason} ->
@@ -197,7 +217,13 @@ defmodule CommsCore.Release do
   defp platform_role_error(:platform_role_audit_context_required),
     do: "an explicit actor and reason are required"
 
+  defp platform_role_error(:invalid_platform_role_ttl),
+    do: "platform role TTL must be between 300 and 28800 seconds"
+
   defp platform_role_error(_reason), do: "database operation failed"
+
+  defp platform_role_ttl_env(role) when role in [nil, "", "none", "revoke"], do: nil
+  defp platform_role_ttl_env(_role), do: System.fetch_env!("K_COMMS_PLATFORM_ROLE_TTL_SECONDS")
 
   defp restore_error(reason) when is_atom(reason), do: Atom.to_string(reason)
 

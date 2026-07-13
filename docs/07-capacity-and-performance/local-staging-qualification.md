@@ -140,6 +140,113 @@ Do not record a pass until the migrated candidate and temporary synthetic
 credential have been used. Never copy a result from an older image or an
 unknown tenant into release evidence.
 
+## Production promotion binding and receipts
+
+Staging evidence becomes a production input only after it is explicitly bound
+to the exact reviewed production bundle, immutable image, Git revision, target
+cluster, namespace, and observed controls. Keep the provider-composed bundle
+and every receipt in an encrypted, access-controlled evidence directory; the
+bundle can contain a rendered Secret even though the collector persists only
+its SHA-256 and byte count.
+
+First apply and review the exact production bundle, wait for its migration Job
+and workloads, then create a **non-promotable** binding artifact:
+
+```bash
+python scripts/collect_release_evidence.py \
+  --profile production \
+  --image "$IMAGE_REPOSITORY@sha256:$IMAGE_DIGEST" \
+  --namespace "$PRODUCTION_NAMESPACE" \
+  --environment-id "$PRODUCTION_ENVIRONMENT_ID" \
+  --production-bundle "$PRODUCTION_BUNDLE" \
+  --binding-only \
+  --output "$EVIDENCE_DIR/production-binding.json"
+```
+
+The command runs the production bundle semantic preflight before cluster
+inspection. It then verifies the digest-pinned image and ready edge/worker
+topology, hashes the observed cluster and namespace UIDs, and compares the
+reviewed desired state with the live ConfigMap, edge and worker Deployments,
+NetworkPolicies, PodDisruptionBudgets, HorizontalPodAutoscalers, and completed
+migration Job. Deployment `.spec.replicas` is intentionally excluded because
+the bound HPAs own that field; all other reviewed Deployment spec fields,
+including container and pod security controls, remain bound. Kubernetes
+`resourceVersion` is also excluded from the stable control hash. The binding
+artifact has `promotion.mode: "binding"`, `promotion.promotion_ready: false`,
+no receipts, and the values each receipt must copy from:
+
+- `promotion.bundle.sha256`;
+- `promotion.controls.live_sha256`;
+- `promotion.environment`, including the environment ID, namespace, and
+  SHA-256 hashes of the cluster and namespace UIDs;
+- `source.git.revision` and `image.manifest_digest`.
+
+Create one UTF-8 JSON receipt for every required type:
+
+- `backup_restore`
+- `failover`
+- `migration`
+- `production_preflight`
+- `security`
+- `staging_acceptance`
+- `staging_load`
+- `staging_product_acceptance`
+
+Each receipt must be a stable regular file of at most 64 KiB, not a symlink,
+with exactly this schema and no additional fields:
+
+```json
+{
+  "bundle_sha256": "<promotion.bundle.sha256: 64 lowercase hex characters>",
+  "completed_at": "2026-07-13T04:00:00Z",
+  "environment": {
+    "cluster_uid_sha256": "<64 lowercase hex characters>",
+    "id": "<production environment ID>",
+    "namespace": "<production namespace>",
+    "namespace_uid_sha256": "<64 lowercase hex characters>"
+  },
+  "git_revision": "<40 lowercase hex characters>",
+  "image_digest": "sha256:<64 lowercase hex characters>",
+  "live_controls_sha256": "<promotion.controls.live_sha256: 64 lowercase hex characters>",
+  "receipt_type": "migration",
+  "schema_version": 1,
+  "started_at": "2026-07-13T03:50:00Z",
+  "status": "passed"
+}
+```
+
+`receipt_type` must equal the type supplied on its `--receipt TYPE=PATH`
+argument. All receipts must say `passed`, use the same binding values, have
+`started_at <= completed_at <=` final collection time, and be no more than
+seven days old. Retain the underlying logs or signed evidence separately; do
+not add their contents or secret values to the receipt.
+
+Run the final collection with all eight receipts:
+
+```bash
+python scripts/collect_release_evidence.py \
+  --profile production \
+  --image "$IMAGE_REPOSITORY@sha256:$IMAGE_DIGEST" \
+  --namespace "$PRODUCTION_NAMESPACE" \
+  --environment-id "$PRODUCTION_ENVIRONMENT_ID" \
+  --production-bundle "$PRODUCTION_BUNDLE" \
+  --receipt "backup_restore=$EVIDENCE_DIR/backup_restore.json" \
+  --receipt "failover=$EVIDENCE_DIR/failover.json" \
+  --receipt "migration=$EVIDENCE_DIR/migration.json" \
+  --receipt "production_preflight=$EVIDENCE_DIR/production_preflight.json" \
+  --receipt "security=$EVIDENCE_DIR/security.json" \
+  --receipt "staging_acceptance=$EVIDENCE_DIR/staging_acceptance.json" \
+  --receipt "staging_load=$EVIDENCE_DIR/staging_load.json" \
+  --receipt "staging_product_acceptance=$EVIDENCE_DIR/staging_product_acceptance.json" \
+  --output "$EVIDENCE_DIR/production-release-evidence.json"
+```
+
+The final run repeats bundle preflight and live inspection, rejects receipt
+reuse after bundle, Git, image, environment, or control drift, and rechecks the
+bundle, environment, live controls, and Git state before writing. Only an
+artifact with `promotion.mode: "final"` and
+`promotion.promotion_ready: true` is production promotion evidence.
+
 ## Historical 2026-07-12 qualification result
 
 Revision `bc6ba02536b4bfb703cd5e196d2e431b690a24ad` passed the bounded local

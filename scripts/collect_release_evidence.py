@@ -3,7 +3,9 @@
 
 The collector intentionally selects a small set of non-secret fields from the
 container and Kubernetes APIs. It never serializes command diagnostics,
-environment variables, Kubernetes Secret/ConfigMap data, or evidence contents.
+environment variables, Kubernetes Secret/ConfigMap data, or opaque evidence
+contents. The production profile additionally normalizes an exact allow-list of
+non-secret promotion receipt fields and retains each receipt's digest.
 """
 
 from __future__ import annotations
@@ -20,10 +22,14 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+import yaml
+
+from validate_production_bundle import validate_documents as validate_production_documents
 
 
 SCHEMA_VERSION = 1
@@ -37,6 +43,9 @@ IMAGE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 NAMESPACE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
 IMAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
+ENVIRONMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+KUBERNETES_STABLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$")
+UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 VERSION_FIELDS = ("gitVersion", "gitCommit", "platform", "goVersion", "major", "minor")
 PERSISTED_IMAGE_LABELS = {
     "org.opencontainers.image.revision",
@@ -47,6 +56,58 @@ APPLICATION_DEPLOYMENTS = {
     "k-comms-edge": "edge",
     "k-comms-worker": "worker",
 }
+PRODUCTION_MINIMUM_REPLICAS = {"edge": 3, "worker": 2}
+PROMOTION_RECEIPT_SCHEMA_VERSION = 1
+PROMOTION_RECEIPT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+PROMOTION_RECEIPT_MAX_BYTES = 64 * 1024
+PRODUCTION_BUNDLE_MAX_BYTES = 16 * 1024 * 1024
+REQUIRED_PROMOTION_RECEIPTS = (
+    "backup_restore",
+    "failover",
+    "migration",
+    "production_preflight",
+    "security",
+    "staging_acceptance",
+    "staging_load",
+    "staging_product_acceptance",
+)
+PRODUCTION_CONTROL_RESOURCES = (
+    ("ConfigMap", "configmap", "k-comms-config", "data"),
+    ("Deployment", "deployment", "k-comms-edge", "spec"),
+    ("Deployment", "deployment", "k-comms-worker", "spec"),
+    (
+        "NetworkPolicy",
+        "networkpolicy",
+        "k-comms-managed-postgres-egress",
+        "spec",
+    ),
+    ("NetworkPolicy", "networkpolicy", "k-comms-edge-ingress", "spec"),
+    (
+        "PodDisruptionBudget",
+        "poddisruptionbudget",
+        "k-comms-edge",
+        "spec",
+    ),
+    (
+        "PodDisruptionBudget",
+        "poddisruptionbudget",
+        "k-comms-worker",
+        "spec",
+    ),
+    (
+        "HorizontalPodAutoscaler",
+        "horizontalpodautoscaler",
+        "k-comms-edge",
+        "spec",
+    ),
+    (
+        "HorizontalPodAutoscaler",
+        "horizontalpodautoscaler",
+        "k-comms-worker",
+        "spec",
+    ),
+    ("Job", "job", "k-comms-migrate", "spec"),
+)
 
 CommandRunner = Callable[[Sequence[str], str], str]
 Clock = Callable[[], datetime]
@@ -81,6 +142,11 @@ def collect_release_evidence(
     image: str,
     namespace: str,
     evidence_specs: Sequence[str] = (),
+    receipt_specs: Sequence[str] = (),
+    profile: str = "diagnostic",
+    environment_id: str | None = None,
+    production_bundle: Path | str | None = None,
+    binding_only: bool = False,
     allow_dirty: bool = False,
     git_tool: str = "git",
     image_tool: str = "podman",
@@ -93,12 +159,25 @@ def collect_release_evidence(
 
     _validate_reference(image)
     _validate_namespace(namespace)
+    receipt_paths, bundle_path = _validate_profile_inputs(
+        profile=profile,
+        image=image,
+        environment_id=environment_id,
+        receipt_specs=receipt_specs,
+        production_bundle=production_bundle,
+        binding_only=binding_only,
+        allow_dirty=allow_dirty,
+    )
     for tool in (git_tool, image_tool, kubectl_tool):
         _validate_tool(tool)
 
     # Validate and hash local inputs before invoking external tools. This keeps
     # malformed or secret-like evidence labels out of command diagnostics.
     evidence_files = hash_evidence_files(evidence_specs)
+    bundle_record: dict[str, Any] | None = None
+    bundle_documents: list[dict[str, Any]] | None = None
+    if bundle_path is not None:
+        bundle_record, bundle_documents = _load_production_bundle(bundle_path)
 
     revision, status = _git_snapshot(git_tool, command_runner)
     dirty = bool(status.strip())
@@ -116,18 +195,91 @@ def collect_release_evidence(
         command_runner,
     )
 
+    promotion_record: dict[str, Any] | None = None
+    if profile == "production":
+        if (
+            environment_id is None
+            or bundle_path is None
+            or bundle_record is None
+            or bundle_documents is None
+        ):
+            raise CollectorError("production promotion inputs are incomplete")
+        now = (clock or (lambda: datetime.now(timezone.utc)))()
+        collected_at = _utc_timestamp(now)
+        _validate_production_image(image, image_record)
+        _validate_production_topology(kubernetes_record)
+        environment_record = _collect_production_environment_identity(
+            kubectl_tool,
+            namespace,
+            environment_id,
+            command_runner,
+        )
+        controls_record = _collect_live_production_controls(
+            kubectl_tool,
+            namespace,
+            bundle_documents,
+            command_runner,
+        )
+
+        if binding_only:
+            receipts: list[dict[str, Any]] = []
+        else:
+            receipts = _collect_promotion_receipts(
+                receipt_paths,
+                revision=revision,
+                image_digest=image_record["manifest_digest"],
+                bundle_sha256=bundle_record["sha256"],
+                live_controls_sha256=controls_record["live_sha256"],
+                environment=environment_record,
+                collected_at=now,
+            )
+
+        ending_environment = _collect_production_environment_identity(
+            kubectl_tool,
+            namespace,
+            environment_id,
+            command_runner,
+        )
+        ending_controls = _collect_live_production_controls(
+            kubectl_tool,
+            namespace,
+            bundle_documents,
+            command_runner,
+        )
+        if ending_environment != environment_record or ending_controls != controls_record:
+            raise CollectorError(
+                "production environment identity or live controls changed during collection"
+            )
+
+        ending_bundle, _ending_documents = _load_production_bundle(bundle_path)
+        if ending_bundle != bundle_record:
+            raise CollectorError("production bundle changed during collection")
+
+        promotion_record = {
+            "bundle": bundle_record,
+            "controls": controls_record,
+            "environment": environment_record,
+            "mode": "binding" if binding_only else "final",
+            "profile": "production",
+            "promotion_ready": not binding_only,
+            "receipt_max_age_seconds": PROMOTION_RECEIPT_MAX_AGE_SECONDS,
+            "receipts": receipts,
+            "required_receipts": list(REQUIRED_PROMOTION_RECEIPTS),
+        }
+
     ending_revision, ending_status = _git_snapshot(git_tool, command_runner)
     if ending_revision != revision or ending_status != status:
         raise CollectorError(
             "Git state changed while release evidence was being collected"
         )
 
-    now = (clock or (lambda: datetime.now(timezone.utc)))()
-    collected_at = _utc_timestamp(now)
+    if profile != "production":
+        now = (clock or (lambda: datetime.now(timezone.utc)))()
+        collected_at = _utc_timestamp(now)
     host_record = (host_provider or host_summary)()
     _validate_host_summary(host_record)
 
-    return {
+    document = {
         "collected_at": collected_at,
         "evidence_files": evidence_files,
         "host": host_record,
@@ -143,6 +295,9 @@ def collect_release_evidence(
             }
         },
     }
+    if promotion_record is not None:
+        document["promotion"] = promotion_record
+    return document
 
 
 def hash_evidence_files(specifications: Sequence[str]) -> list[dict[str, Any]]:
@@ -165,6 +320,673 @@ def hash_evidence_files(specifications: Sequence[str]) -> list[dict[str, Any]]:
 
     records = [_hash_evidence_file(label, path) for label, path in parsed]
     return sorted(records, key=lambda record: record["label"])
+
+
+def _validate_profile_inputs(
+    *,
+    profile: str,
+    image: str,
+    environment_id: str | None,
+    receipt_specs: Sequence[str],
+    production_bundle: Path | str | None,
+    binding_only: bool,
+    allow_dirty: bool,
+) -> tuple[dict[str, Path], Path | None]:
+    if profile not in ("diagnostic", "production"):
+        raise CollectorError(
+            "release evidence profile must be diagnostic or production"
+        )
+    if profile == "diagnostic":
+        if (
+            receipt_specs
+            or environment_id is not None
+            or production_bundle is not None
+            or binding_only
+        ):
+            raise CollectorError(
+                "promotion inputs require "
+                "--profile production"
+            )
+        return {}, None
+
+    if allow_dirty:
+        raise CollectorError("the production profile does not permit --allow-dirty")
+    if not REPOSITORY_DIGEST.fullmatch(image):
+        raise CollectorError(
+            "the production profile requires a digest-pinned image reference"
+        )
+    if environment_id is None or not ENVIRONMENT_ID.fullmatch(environment_id):
+        raise CollectorError(
+            "the production profile requires a well-formed environment identity"
+        )
+    if production_bundle is None:
+        raise CollectorError(
+            "the production profile requires --production-bundle"
+        )
+    raw_bundle_path = os.fspath(production_bundle)
+    if not raw_bundle_path or CONTROL_CHARACTER.search(raw_bundle_path):
+        raise CollectorError("the production bundle path is malformed")
+    bundle_path = Path(raw_bundle_path).expanduser()
+    if binding_only and receipt_specs:
+        raise CollectorError("--binding-only does not accept promotion receipts")
+
+    paths: dict[str, Path] = {}
+    required = set(REQUIRED_PROMOTION_RECEIPTS)
+    for specification in receipt_specs:
+        label, separator, raw_path = specification.partition("=")
+        if (
+            not separator
+            or label not in required
+            or not raw_path
+            or CONTROL_CHARACTER.search(raw_path)
+        ):
+            raise CollectorError(
+                "promotion receipts must use a required TYPE=PATH value"
+            )
+        if label in paths:
+            raise CollectorError("promotion receipt types must be unique")
+        paths[label] = Path(raw_path).expanduser()
+
+    missing = sorted(required - set(paths))
+    if missing and not binding_only:
+        raise CollectorError(
+            "the production profile is missing required promotion receipts: "
+            + ", ".join(missing)
+        )
+    return paths, bundle_path
+
+
+def _load_production_bundle(
+    path: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    content = _read_bounded_regular_file(
+        path,
+        maximum_bytes=PRODUCTION_BUNDLE_MAX_BYTES,
+        missing_message="production bundle is missing or unreadable",
+        invalid_message="production bundle must be a stable regular file",
+    )
+    try:
+        text = content.decode("utf-8")
+        documents = [document for document in yaml.safe_load_all(text) if document]
+    except (UnicodeDecodeError, yaml.YAMLError):
+        raise CollectorError("production bundle is not valid UTF-8 YAML") from None
+    if not documents or any(not isinstance(document, dict) for document in documents):
+        raise CollectorError("production bundle must contain Kubernetes objects")
+
+    errors = validate_production_documents(documents)
+    if errors:
+        raise CollectorError(
+            "production bundle semantic preflight failed:\n" + "\n".join(errors)
+        )
+    return (
+        {
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+        },
+        documents,
+    )
+
+
+def _read_bounded_regular_file(
+    path: Path,
+    *,
+    maximum_bytes: int,
+    missing_message: str,
+    invalid_message: str,
+) -> bytes:
+    try:
+        path_metadata = path.lstat()
+        if not stat.S_ISREG(path_metadata.st_mode):
+            raise CollectorError(invalid_message)
+        if path_metadata.st_size > maximum_bytes:
+            raise CollectorError(invalid_message)
+        resolved_path = path.resolve(strict=True)
+        resolved_metadata = resolved_path.lstat()
+    except CollectorError:
+        raise
+    except OSError:
+        raise CollectorError(missing_message) from None
+    if _file_fingerprint(path_metadata) != _file_fingerprint(resolved_metadata):
+        raise CollectorError(invalid_message)
+
+    try:
+        open_flags = (
+            os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        )
+        open_flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(resolved_path, open_flags)
+        with os.fdopen(descriptor, "rb") as source:
+            before = os.fstat(source.fileno())
+            if _file_fingerprint(resolved_metadata) != _file_fingerprint(before):
+                raise CollectorError(invalid_message)
+            content = source.read(maximum_bytes + 1)
+            after = os.fstat(source.fileno())
+            final_metadata = resolved_path.lstat()
+    except CollectorError:
+        raise
+    except OSError:
+        raise CollectorError(missing_message) from None
+
+    fingerprint = _file_fingerprint(before)
+    if (
+        len(content) > maximum_bytes
+        or fingerprint != _file_fingerprint(after)
+        or fingerprint != _file_fingerprint(final_metadata)
+        or len(content) != after.st_size
+    ):
+        raise CollectorError(invalid_message)
+    return content
+
+
+def _collect_production_environment_identity(
+    kubectl_tool: str,
+    namespace: str,
+    environment_id: str,
+    command_runner: CommandRunner,
+) -> dict[str, str]:
+    cluster_namespace = _load_json(
+        command_runner(
+            (kubectl_tool, "get", "namespace", "kube-system", "-o", "json"),
+            "Kubernetes cluster identity",
+        ),
+        "Kubernetes cluster identity",
+    )
+    target_namespace = _load_json(
+        command_runner(
+            (kubectl_tool, "get", "namespace", namespace, "-o", "json"),
+            "Kubernetes namespace identity",
+        ),
+        "Kubernetes namespace identity",
+    )
+    cluster_uid = _namespace_uid(cluster_namespace, "kube-system")
+    namespace_uid = _namespace_uid(target_namespace, namespace)
+    return {
+        "cluster_uid_sha256": hashlib.sha256(cluster_uid.encode("utf-8")).hexdigest(),
+        "id": environment_id,
+        "namespace": namespace,
+        "namespace_uid_sha256": hashlib.sha256(
+            namespace_uid.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def _namespace_uid(document: Any, expected_name: str) -> str:
+    if not isinstance(document, dict) or document.get("kind") != "Namespace":
+        raise CollectorError("Kubernetes namespace identity response is malformed")
+    metadata = document.get("metadata")
+    if not isinstance(metadata, dict) or metadata.get("name") != expected_name:
+        raise CollectorError("Kubernetes namespace identity response is malformed")
+    return _stable_kubernetes_id(
+        metadata.get("uid"), "Kubernetes namespace identity response"
+    )
+
+
+def _collect_live_production_controls(
+    kubectl_tool: str,
+    namespace: str,
+    bundle_documents: Sequence[Mapping[str, Any]],
+    command_runner: CommandRunner,
+) -> dict[str, Any]:
+    expected_controls = _expected_production_controls(bundle_documents)
+    revisions: list[dict[str, Any]] = []
+    migration_completed = False
+
+    for kind, resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
+        expected = next(
+            control
+            for control in expected_controls
+            if control["kind"] == kind and control["metadata"]["name"] == name
+        )
+        live = _load_json(
+            command_runner(
+                (
+                    kubectl_tool,
+                    "get",
+                    resource_type,
+                    name,
+                    "--namespace",
+                    namespace,
+                    "-o",
+                    "json",
+                ),
+                f"live production control {kind} {name}",
+            ),
+            f"live production control {kind} {name}",
+        )
+        live_for_projection = live
+        if kind == "ConfigMap" and isinstance(live, dict):
+            live_for_projection = dict(live)
+            live_for_projection.setdefault("binaryData", {})
+            live_for_projection.setdefault("data", {})
+        projected = _project_like_expected(expected, live_for_projection)
+        if projected != expected:
+            raise CollectorError(
+                f"live {kind} {name} does not match the reviewed production bundle"
+            )
+
+        metadata = live.get("metadata") if isinstance(live, dict) else None
+        if not isinstance(metadata, dict):
+            raise CollectorError("live production control metadata is malformed")
+        generation = metadata.get("generation")
+        if generation is not None and (
+            isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 1
+        ):
+            raise CollectorError("live production control metadata is malformed")
+        revision = {
+            "desired_sha256": _canonical_json_sha256(expected),
+            "generation": generation,
+            "kind": kind,
+            "name": name,
+            "uid": _stable_kubernetes_id(
+                metadata.get("uid"), "live production control metadata"
+            ),
+        }
+        if kind == "Job" and name == "k-comms-migrate":
+            revision["migration_completion"] = _migration_completion(live)
+            migration_completed = True
+        revisions.append(revision)
+
+    return {
+        "bundle_sha256": _canonical_json_sha256(expected_controls),
+        "live_sha256": _canonical_json_sha256(revisions),
+        "migration_completed": migration_completed,
+        "resource_count": len(expected_controls),
+    }
+
+
+def _expected_production_controls(
+    bundle_documents: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    controls: list[dict[str, Any]] = []
+    for kind, _resource_type, name, desired_field in PRODUCTION_CONTROL_RESOURCES:
+        matches = [
+            document
+            for document in bundle_documents
+            if document.get("kind") == kind
+            and isinstance(document.get("metadata"), dict)
+            and document["metadata"].get("name") == name
+        ]
+        if len(matches) != 1:
+            raise CollectorError(
+                f"reviewed production bundle must contain exactly one {kind} {name}"
+            )
+        document = matches[0]
+        control: dict[str, Any] = {
+            "apiVersion": document.get("apiVersion"),
+            "kind": kind,
+            "metadata": {"name": name},
+        }
+        if kind == "ConfigMap":
+            control["binaryData"] = document.get("binaryData") or {}
+            control["data"] = document.get("data") or {}
+        else:
+            desired = document.get(desired_field)
+            if not isinstance(desired, dict):
+                raise CollectorError(
+                    f"reviewed production bundle {kind} {name} is malformed"
+                )
+            if kind == "Deployment":
+                # HPA legitimately changes this one field. Its own desired state is
+                # bound separately, and the observed topology enforces role minima.
+                control[desired_field] = {
+                    key: value for key, value in desired.items() if key != "replicas"
+                }
+            else:
+                control[desired_field] = desired
+        controls.append(control)
+    return sorted(
+        controls, key=lambda control: (control["kind"], control["metadata"]["name"])
+    )
+
+
+def _project_like_expected(expected: Any, live: Any) -> Any:
+    if isinstance(expected, dict):
+        if not isinstance(live, dict) or any(key not in live for key in expected):
+            return None
+        return {
+            key: _project_like_expected(expected[key], live[key]) for key in expected
+        }
+    if isinstance(expected, list):
+        if not isinstance(live, list) or len(live) != len(expected):
+            return None
+        return [
+            _project_like_expected(expected_item, live_item)
+            for expected_item, live_item in zip(expected, live, strict=True)
+        ]
+    return live
+
+
+def _migration_completion(document: Mapping[str, Any]) -> dict[str, Any]:
+    status = document.get("status")
+    if not isinstance(status, dict):
+        raise CollectorError("production migration Job is not complete")
+    succeeded = status.get("succeeded")
+    failed = status.get("failed", 0)
+    active = status.get("active", 0)
+    conditions = status.get("conditions")
+    complete = (
+        isinstance(conditions, list)
+        and len(
+            [
+                condition
+                for condition in conditions
+                if isinstance(condition, dict)
+                and condition.get("type") == "Complete"
+                and condition.get("status") == "True"
+            ]
+        )
+        == 1
+    )
+    completion_time = status.get("completionTime")
+    if (
+        isinstance(succeeded, bool)
+        or not isinstance(succeeded, int)
+        or succeeded < 1
+        or isinstance(failed, bool)
+        or not isinstance(failed, int)
+        or failed != 0
+        or isinstance(active, bool)
+        or not isinstance(active, int)
+        or active != 0
+        or not complete
+        or not isinstance(completion_time, str)
+        or not completion_time
+        or CONTROL_CHARACTER.search(completion_time)
+    ):
+        raise CollectorError("production migration Job is not complete")
+    return {"completed_at": completion_time, "succeeded": succeeded}
+
+
+def _stable_kubernetes_id(value: Any, context: str) -> str:
+    if not isinstance(value, str) or not KUBERNETES_STABLE_ID.fullmatch(value):
+        raise CollectorError(f"{context} is malformed")
+    return value
+
+
+def _canonical_json_sha256(value: Any) -> str:
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        raise CollectorError("production control state is not serializable") from None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_production_image(
+    image: str, image_record: Mapping[str, Any]
+) -> None:
+    requested_digest = image.rsplit("@", 1)[1]
+    if image_record.get("manifest_digest") != requested_digest:
+        raise CollectorError(
+            "the inspected image manifest digest does not match the requested digest"
+        )
+    repository_digests = image_record.get("repository_digests")
+    if not isinstance(repository_digests, list) or image not in repository_digests:
+        raise CollectorError(
+            "image inspection did not confirm the requested repository digest"
+        )
+
+
+def _validate_production_topology(kubernetes_record: Mapping[str, Any]) -> None:
+    deployments = kubernetes_record.get("deployments")
+    pods = kubernetes_record.get("pods")
+    if not isinstance(deployments, list) or not isinstance(pods, list):
+        raise CollectorError("production application topology is malformed")
+
+    deployments_by_name = {
+        deployment.get("name"): deployment
+        for deployment in deployments
+        if isinstance(deployment, dict)
+    }
+    pod_counts = {role: 0 for role in PRODUCTION_MINIMUM_REPLICAS}
+    for pod in pods:
+        if not isinstance(pod, dict):
+            raise CollectorError("production application topology is malformed")
+        containers = pod.get("containers")
+        if not isinstance(containers, list) or len(containers) != 1:
+            raise CollectorError("production application topology is malformed")
+        container = containers[0]
+        if not isinstance(container, dict):
+            raise CollectorError("production application topology is malformed")
+        role = container.get("name")
+        if role in pod_counts and pod.get("ready") is True:
+            pod_counts[role] += 1
+
+    for deployment_name, role in APPLICATION_DEPLOYMENTS.items():
+        minimum = PRODUCTION_MINIMUM_REPLICAS[role]
+        deployment = deployments_by_name.get(deployment_name)
+        desired = (
+            deployment.get("desired_replicas")
+            if isinstance(deployment, dict)
+            else None
+        )
+        if (
+            isinstance(desired, bool)
+            or not isinstance(desired, int)
+            or desired < minimum
+            or pod_counts[role] < minimum
+        ):
+            raise CollectorError(
+                "the production profile requires at least "
+                f"{minimum} ready {role} replicas"
+            )
+
+
+def _collect_promotion_receipts(
+    receipt_paths: Mapping[str, Path],
+    *,
+    revision: str,
+    image_digest: str,
+    bundle_sha256: str,
+    live_controls_sha256: str,
+    environment: Mapping[str, str],
+    collected_at: datetime,
+) -> list[dict[str, Any]]:
+    return [
+        _validate_promotion_receipt(
+            receipt_type,
+            receipt_paths[receipt_type],
+            revision=revision,
+            image_digest=image_digest,
+            bundle_sha256=bundle_sha256,
+            live_controls_sha256=live_controls_sha256,
+            environment=environment,
+            collected_at=collected_at,
+        )
+        for receipt_type in REQUIRED_PROMOTION_RECEIPTS
+    ]
+
+
+def _validate_promotion_receipt(
+    receipt_type: str,
+    path: Path,
+    *,
+    revision: str,
+    image_digest: str,
+    bundle_sha256: str,
+    live_controls_sha256: str,
+    environment: Mapping[str, str],
+    collected_at: datetime,
+) -> dict[str, Any]:
+    expected_environment = dict(environment)
+    document, digest, size = _read_promotion_receipt(receipt_type, path)
+    required_fields = {
+        "bundle_sha256",
+        "completed_at",
+        "environment",
+        "git_revision",
+        "image_digest",
+        "live_controls_sha256",
+        "receipt_type",
+        "schema_version",
+        "started_at",
+        "status",
+    }
+    if not isinstance(document, dict) or set(document) != required_fields:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match the required schema"
+        )
+    receipt_environment = document.get("environment")
+    if not isinstance(receipt_environment, dict) or set(receipt_environment) != {
+        "cluster_uid_sha256",
+        "id",
+        "namespace",
+        "namespace_uid_sha256",
+    }:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match the required schema"
+        )
+    schema_version = document.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != PROMOTION_RECEIPT_SCHEMA_VERSION
+        or document.get("receipt_type") != receipt_type
+    ):
+        raise CollectorError(
+            f"promotion receipt {receipt_type} has the wrong type or schema version"
+        )
+    if document.get("status") != "passed":
+        raise CollectorError(f"promotion receipt {receipt_type} did not pass")
+    if document.get("git_revision") != revision:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match Git HEAD"
+        )
+    if document.get("image_digest") != image_digest:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match the image digest"
+        )
+    if document.get("bundle_sha256") != bundle_sha256:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match the reviewed bundle"
+        )
+    if document.get("live_controls_sha256") != live_controls_sha256:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match live production controls"
+        )
+    if receipt_environment != expected_environment:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} does not match the environment identity"
+        )
+
+    started_at = _parse_receipt_timestamp(document.get("started_at"), receipt_type)
+    completed_at = _parse_receipt_timestamp(
+        document.get("completed_at"), receipt_type
+    )
+    if completed_at < started_at:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} completed before it started"
+        )
+    if completed_at > collected_at:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} has a future completion timestamp"
+        )
+    if collected_at - completed_at > timedelta(
+        seconds=PROMOTION_RECEIPT_MAX_AGE_SECONDS
+    ):
+        raise CollectorError(f"promotion receipt {receipt_type} is stale")
+
+    return {
+        "bundle_sha256": bundle_sha256,
+        "completed_at": document["completed_at"],
+        "environment": expected_environment,
+        "git_revision": revision,
+        "image_digest": image_digest,
+        "live_controls_sha256": live_controls_sha256,
+        "receipt_type": receipt_type,
+        "schema_version": PROMOTION_RECEIPT_SCHEMA_VERSION,
+        "sha256": digest,
+        "size_bytes": size,
+        "started_at": document["started_at"],
+        "status": "passed",
+    }
+
+
+def _parse_receipt_timestamp(value: Any, receipt_type: str) -> datetime:
+    if not isinstance(value, str) or not UTC_TIMESTAMP.fullmatch(value):
+        raise CollectorError(
+            f"promotion receipt {receipt_type} has a malformed UTC timestamp"
+        )
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} has a malformed UTC timestamp"
+        ) from None
+
+
+def _read_promotion_receipt(
+    receipt_type: str, path: Path
+) -> tuple[Any, str, int]:
+    try:
+        path_metadata = path.lstat()
+        if not stat.S_ISREG(path_metadata.st_mode):
+            raise CollectorError(
+                f"promotion receipt {receipt_type} must be a regular file"
+            )
+        if path_metadata.st_size > PROMOTION_RECEIPT_MAX_BYTES:
+            raise CollectorError(f"promotion receipt {receipt_type} is too large")
+        resolved_path = path.resolve(strict=True)
+        resolved_metadata = resolved_path.lstat()
+    except CollectorError:
+        raise
+    except OSError:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} is missing or unreadable"
+        ) from None
+    if _file_fingerprint(path_metadata) != _file_fingerprint(resolved_metadata):
+        raise CollectorError(
+            f"promotion receipt {receipt_type} changed before validation"
+        )
+
+    try:
+        open_flags = (
+            os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        )
+        open_flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(resolved_path, open_flags)
+        with os.fdopen(descriptor, "rb") as receipt_file:
+            before = os.fstat(receipt_file.fileno())
+            if _file_fingerprint(resolved_metadata) != _file_fingerprint(before):
+                raise CollectorError(
+                    f"promotion receipt {receipt_type} changed before validation"
+                )
+            content = receipt_file.read(PROMOTION_RECEIPT_MAX_BYTES + 1)
+            after = os.fstat(receipt_file.fileno())
+            final_metadata = resolved_path.lstat()
+    except CollectorError:
+        raise
+    except OSError:
+        raise CollectorError(
+            f"promotion receipt {receipt_type} is missing or unreadable"
+        ) from None
+
+    fingerprint = _file_fingerprint(before)
+    if (
+        len(content) > PROMOTION_RECEIPT_MAX_BYTES
+        or fingerprint != _file_fingerprint(after)
+        or fingerprint != _file_fingerprint(final_metadata)
+        or len(content) != after.st_size
+    ):
+        raise CollectorError(
+            f"promotion receipt {receipt_type} changed or exceeded its size limit"
+        )
+    try:
+        document = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise CollectorError(
+            f"promotion receipt {receipt_type} is not valid UTF-8 JSON"
+        ) from None
+    return document, hashlib.sha256(content).hexdigest(), len(content)
 
 
 def _hash_evidence_file(label: str, path: Path) -> dict[str, Any]:
@@ -476,6 +1298,10 @@ def _select_deployments(document: Any) -> list[dict[str, Any]]:
                 "containers": _select_container_specs(
                     pod_spec.get("containers"), "Kubernetes deployment topology"
                 ),
+                "ephemeral_containers": _select_container_specs(
+                    pod_spec.get("ephemeralContainers") or [],
+                    "Kubernetes deployment topology",
+                ),
                 "generation": _optional_integer(
                     metadata.get("generation"), "Kubernetes deployment topology"
                 ),
@@ -701,6 +1527,8 @@ def _validate_application_deployment(
     generation = deployment.get("generation")
     status = deployment.get("status")
     containers = deployment.get("containers")
+    init_containers = deployment.get("init_containers")
+    ephemeral_containers = deployment.get("ephemeral_containers")
     if (
         isinstance(desired_replicas, bool)
         or not isinstance(desired_replicas, int)
@@ -709,13 +1537,20 @@ def _validate_application_deployment(
         or not isinstance(generation, int)
         or not isinstance(status, dict)
         or not isinstance(containers, list)
+        or not isinstance(init_containers, list)
+        or not isinstance(ephemeral_containers, list)
     ):
         raise CollectorError("application deployment topology is malformed")
 
-    role_containers = [
-        container for container in containers if container.get("name") == role
-    ]
-    if len(role_containers) != 1 or role_containers[0].get("image") != image:
+    if init_containers or ephemeral_containers:
+        raise CollectorError(
+            "an application deployment contains an init or ephemeral container"
+        )
+    if len(containers) != 1 or containers[0].get("name") != role:
+        raise CollectorError(
+            "an application deployment must contain exactly one role container"
+        )
+    if containers[0].get("image") != image:
         raise CollectorError(
             "an application deployment does not use the requested image"
         )
@@ -747,25 +1582,22 @@ def _validate_application_pod(
     if metadata.get("deletionTimestamp") is not None:
         raise CollectorError("a stale or terminating application pod is present")
     containers = pod.get("containers")
-    if not isinstance(containers, list):
+    init_containers = pod.get("init_containers")
+    ephemeral_containers = pod.get("ephemeral_containers")
+    if (
+        not isinstance(containers, list)
+        or not isinstance(init_containers, list)
+        or not isinstance(ephemeral_containers, list)
+    ):
         raise CollectorError("application pod topology is malformed")
-    application_roles = set(APPLICATION_DEPLOYMENTS.values())
-    application_containers = [
-        container
-        for container in containers
-        if container.get("name") in application_roles
-    ]
-    role_containers = [
-        container
-        for container in application_containers
-        if container.get("name") == role
-    ]
-    if len(application_containers) != 1 or len(role_containers) != 1:
+    if init_containers or ephemeral_containers:
+        raise CollectorError("an application pod contains an init or ephemeral container")
+    if len(containers) != 1 or containers[0].get("name") != role:
         raise CollectorError(
-            "an application pod contains a missing or mixed role container"
+            "an application pod must contain exactly one role container"
         )
 
-    container = role_containers[0]
+    container = containers[0]
     if container.get("image") != image:
         raise CollectorError("an application pod does not use the requested image")
     if (
@@ -1254,6 +2086,39 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="hash one regular evidence file; repeat for multiple files",
     )
     parser.add_argument(
+        "--profile",
+        choices=("diagnostic", "production"),
+        default="diagnostic",
+        help="evidence policy profile (default: diagnostic)",
+    )
+    parser.add_argument(
+        "--environment-id",
+        help=(
+            "stable non-secret deployment environment identity; "
+            "required for production"
+        ),
+    )
+    parser.add_argument(
+        "--production-bundle",
+        type=Path,
+        help="exact reviewed provider-composed bundle; required for production",
+    )
+    parser.add_argument(
+        "--binding-only",
+        action="store_true",
+        help=(
+            "write a non-promotable production binding artifact before authoring "
+            "receipts"
+        ),
+    )
+    parser.add_argument(
+        "--receipt",
+        action="append",
+        default=[],
+        metavar="TYPE=PATH",
+        help="validate one required production promotion receipt; repeat for each type",
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="allow a dirty Git tree for diagnostics and mark the override in the artifact",
@@ -1281,6 +2146,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
             image=options.image,
             namespace=options.namespace,
             evidence_specs=options.evidence,
+            receipt_specs=options.receipt,
+            profile=options.profile,
+            environment_id=options.environment_id,
+            production_bundle=options.production_bundle,
+            binding_only=options.binding_only,
             allow_dirty=options.allow_dirty,
             git_tool=options.git_tool,
             image_tool=options.image_tool,

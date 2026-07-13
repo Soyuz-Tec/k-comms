@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -8,18 +9,28 @@ import subprocess
 import tempfile
 import unittest
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
+
+import yaml
 
 from collect_release_evidence import (
     CollectorError,
+    PRODUCTION_CONTROL_RESOURCES,
+    PROMOTION_RECEIPT_MAX_BYTES,
+    PROMOTION_RECEIPT_MAX_AGE_SECONDS,
+    REQUIRED_PROMOTION_RECEIPTS,
+    _load_production_bundle,
+    _read_promotion_receipt,
     build_argument_parser,
     collect_release_evidence,
     hash_evidence_files,
     run_command,
     write_json_atomic,
 )
+from test_validate_production_bundle import find_document, valid_documents
 
 
 HEAD = "1" * 40
@@ -27,7 +38,17 @@ IMAGE_ID = "sha256:" + "2" * 64
 MANIFEST_DIGEST = "sha256:" + "3" * 64
 REPOSITORY_DIGEST = "registry.example.com/k-comms@" + MANIFEST_DIGEST
 IMAGE = "registry.example.com/k-comms:release"
+PRODUCTION_IMAGE = REPOSITORY_DIGEST
 NAMESPACE = "k-comms-staging"
+ENVIRONMENT_ID = "production-us-east-1"
+CLUSTER_UID = "cluster-uid-sentinel"
+NAMESPACE_UID = "namespace-uid-sentinel"
+EXPECTED_ENVIRONMENT = {
+    "cluster_uid_sha256": hashlib.sha256(CLUSTER_UID.encode()).hexdigest(),
+    "id": ENVIRONMENT_ID,
+    "namespace": NAMESPACE,
+    "namespace_uid_sha256": hashlib.sha256(NAMESPACE_UID.encode()).hexdigest(),
+}
 FIXED_TIME = datetime(2026, 7, 13, 4, 5, 6, tzinfo=timezone.utc)
 
 
@@ -267,6 +288,37 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
                 host_provider=fixed_host_summary,
             )
 
+    def test_rejects_deployment_sidecars_init_and_ephemeral_containers(self) -> None:
+        cases = (
+            ("containers", "sidecar", "exactly one role container"),
+            ("initContainers", "init", "init or ephemeral container"),
+            (
+                "ephemeralContainers",
+                "debugger",
+                "init or ephemeral container",
+            ),
+        )
+        for field, name, expected_error in cases:
+            with self.subTest(field=field):
+                deployments = deployment_document()
+                deployments["items"][0]["spec"]["template"]["spec"].setdefault(
+                    field, []
+                ).append(
+                    {
+                        "image": "registry.example.com/diagnostics:immutable",
+                        "name": name,
+                    }
+                )
+
+                with self.assertRaisesRegex(CollectorError, expected_error):
+                    collect_release_evidence(
+                        image=IMAGE,
+                        namespace=NAMESPACE,
+                        command_runner=FakeRunner(deployments=deployments),
+                        clock=lambda: FIXED_TIME,
+                        host_provider=fixed_host_summary,
+                    )
+
     def test_rejects_an_unready_or_unobserved_application_deployment(self) -> None:
         deployments = deployment_document()
         deployments["items"][0]["status"]["readyReplicas"] = 0
@@ -365,6 +417,35 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
         )
         for pods, expected_error in cases:
             with self.subTest(expected_error=expected_error):
+                with self.assertRaisesRegex(CollectorError, expected_error):
+                    collect_release_evidence(
+                        image=IMAGE,
+                        namespace=NAMESPACE,
+                        command_runner=FakeRunner(pods=pods),
+                        clock=lambda: FIXED_TIME,
+                        host_provider=fixed_host_summary,
+                    )
+
+    def test_rejects_pod_sidecars_init_and_ephemeral_containers(self) -> None:
+        cases = (
+            ("containers", "sidecar", "exactly one role container"),
+            ("initContainers", "init", "init or ephemeral container"),
+            (
+                "ephemeralContainers",
+                "debugger",
+                "init or ephemeral container",
+            ),
+        )
+        for field, name, expected_error in cases:
+            with self.subTest(field=field):
+                pods = pod_document()
+                pods["items"][0]["spec"].setdefault(field, []).append(
+                    {
+                        "image": "registry.example.com/diagnostics:immutable",
+                        "name": name,
+                    }
+                )
+
                 with self.assertRaisesRegex(CollectorError, expected_error):
                     collect_release_evidence(
                         image=IMAGE,
@@ -622,6 +703,432 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
         self.assertEqual(message, "required command failed during test operation")
         self.assertNotIn("secret-value", message)
 
+    def test_production_profile_collects_bound_promotion_receipts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, binding = prepare_production_inputs(directory)
+            document = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                receipt_specs=receipt_specs,
+                command_runner=production_runner(),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        promotion = document["promotion"]
+        self.assertEqual(promotion["profile"], "production")
+        self.assertEqual(promotion["mode"], "final")
+        self.assertTrue(promotion["promotion_ready"])
+        self.assertEqual(promotion["environment"], EXPECTED_ENVIRONMENT)
+        self.assertEqual(promotion["bundle"], binding["promotion"]["bundle"])
+        self.assertEqual(promotion["controls"], binding["promotion"]["controls"])
+        self.assertEqual(
+            promotion["required_receipts"], list(REQUIRED_PROMOTION_RECEIPTS)
+        )
+        self.assertEqual(
+            [receipt["receipt_type"] for receipt in promotion["receipts"]],
+            list(REQUIRED_PROMOTION_RECEIPTS),
+        )
+        for receipt in promotion["receipts"]:
+            self.assertEqual(receipt["status"], "passed")
+            self.assertEqual(receipt["git_revision"], HEAD)
+            self.assertEqual(receipt["image_digest"], MANIFEST_DIGEST)
+            self.assertEqual(receipt["bundle_sha256"], promotion["bundle"]["sha256"])
+            self.assertEqual(
+                receipt["live_controls_sha256"], promotion["controls"]["live_sha256"]
+            )
+            self.assertRegex(receipt["sha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(receipt["size_bytes"], 0)
+        serialized = json.dumps(document)
+        self.assertNotIn(directory, serialized)
+
+    def test_production_binding_only_emits_non_promotable_exact_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = write_production_bundle(directory)
+            document = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                binding_only=True,
+                command_runner=production_runner(),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        promotion = document["promotion"]
+        self.assertEqual(promotion["mode"], "binding")
+        self.assertFalse(promotion["promotion_ready"])
+        self.assertEqual(promotion["receipts"], [])
+        self.assertRegex(promotion["bundle"]["sha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(promotion["controls"]["live_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_production_profile_requires_an_exact_reviewed_bundle_before_commands(
+        self,
+    ) -> None:
+        runner = production_runner()
+        with self.assertRaisesRegex(CollectorError, "requires --production-bundle"):
+            collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                binding_only=True,
+                command_runner=runner,
+            )
+        self.assertEqual(runner.calls, [])
+
+    def test_production_profile_runs_bundle_semantic_preflight_before_commands(
+        self,
+    ) -> None:
+        documents = production_bundle_documents()
+        find_document(documents, "ConfigMap", "k-comms-config")["data"][
+            "ALLOW_BOOTSTRAP"
+        ] = "true"
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = write_production_bundle(directory, documents)
+            runner = production_runner()
+            with self.assertRaisesRegex(CollectorError, "semantic preflight failed"):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    binding_only=True,
+                    command_runner=runner,
+                )
+        self.assertEqual(runner.calls, [])
+
+    def test_production_profile_allows_hpa_replica_and_resource_version_churn(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            first = live_control_documents(documents, resource_version="100")
+            ending = live_control_documents(documents, resource_version="999")
+            for name in ("k-comms-edge", "k-comms-worker"):
+                ending[("Deployment", name)]["spec"]["replicas"] += 4
+
+            document = collect_release_evidence(
+                image=PRODUCTION_IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+                production_bundle=bundle,
+                receipt_specs=receipt_specs,
+                command_runner=production_runner(
+                    live_controls=first,
+                    ending_live_controls=ending,
+                ),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
+        self.assertTrue(document["promotion"]["promotion_ready"])
+        self.assertEqual(
+            document["promotion"]["controls"]["live_sha256"],
+            binding["promotion"]["controls"]["live_sha256"],
+        )
+
+    def test_production_profile_rejects_live_deployment_security_spec_drift(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Deployment", "k-comms-edge")]["spec"]["template"]["spec"][
+                "containers"
+            ][0]["securityContext"]["readOnlyRootFilesystem"] = False
+
+            with self.assertRaisesRegex(
+                CollectorError,
+                "live Deployment k-comms-edge does not match the reviewed",
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_an_incomplete_live_migration_job(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            documents = production_bundle_documents()
+            controls = live_control_documents(documents)
+            controls[("Job", "k-comms-migrate")]["status"] = {
+                "active": 1,
+                "conditions": [],
+                "succeeded": 0,
+            }
+
+            with self.assertRaisesRegex(CollectorError, "migration Job is not complete"):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(live_controls=controls),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_requires_a_digest_pinned_image(self) -> None:
+        with self.assertRaisesRegex(CollectorError, "digest-pinned image reference"):
+            collect_release_evidence(
+                image=IMAGE,
+                namespace=NAMESPACE,
+                profile="production",
+                environment_id=ENVIRONMENT_ID,
+            )
+
+    def test_production_profile_requires_three_edge_and_two_worker_replicas(
+        self,
+    ) -> None:
+        cases = ((2, 2, "edge", 3), (3, 1, "worker", 2))
+        for edge_replicas, worker_replicas, role, minimum in cases:
+            with self.subTest(role=role):
+                with tempfile.TemporaryDirectory() as directory:
+                    bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+                    deployments = deployment_document(
+                        image=PRODUCTION_IMAGE,
+                        edge_replicas=edge_replicas,
+                        worker_replicas=worker_replicas,
+                    )
+                    pods = pod_document(
+                        image=PRODUCTION_IMAGE,
+                        edge_replicas=edge_replicas,
+                        worker_replicas=worker_replicas,
+                    )
+                    with self.assertRaisesRegex(
+                        CollectorError, f"at least {minimum} ready {role} replicas"
+                    ):
+                        collect_release_evidence(
+                            image=PRODUCTION_IMAGE,
+                            namespace=NAMESPACE,
+                            profile="production",
+                            environment_id=ENVIRONMENT_ID,
+                            production_bundle=bundle,
+                            receipt_specs=receipt_specs,
+                            command_runner=FakeRunner(
+                                image=PRODUCTION_IMAGE,
+                                deployments=deployments,
+                                pods=pods,
+                            ),
+                            clock=lambda: FIXED_TIME,
+                            host_provider=fixed_host_summary,
+                        )
+
+    def test_production_profile_rejects_a_missing_receipt_before_commands(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(
+                directory, omitted={"security"}
+            )
+            runner = production_runner()
+            with self.assertRaisesRegex(
+                CollectorError, "missing required promotion receipts: security"
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=runner,
+                )
+        self.assertEqual(runner.calls, [])
+
+    def test_production_profile_rejects_a_failed_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(
+                directory,
+                receipt_overrides={"staging_load": {"status": "failed"}},
+            )
+            with self.assertRaisesRegex(
+                CollectorError, "promotion receipt staging_load did not pass"
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_mismatched_receipt_bindings(self) -> None:
+        cases = (
+            ({"git_revision": "4" * 40}, "does not match Git HEAD"),
+            ({"image_digest": "sha256:" + "5" * 64}, "image digest"),
+            (
+                {
+                    "environment": {
+                        **EXPECTED_ENVIRONMENT,
+                        "id": "production-us-west-2",
+                    }
+                },
+                "environment identity",
+            ),
+            (
+                {
+                    "environment": {
+                        **EXPECTED_ENVIRONMENT,
+                        "namespace": "other-namespace",
+                    }
+                },
+                "environment identity",
+            ),
+        )
+        for override, expected_error in cases:
+            with self.subTest(expected_error=expected_error):
+                with tempfile.TemporaryDirectory() as directory:
+                    bundle, receipt_specs, _binding = prepare_production_inputs(
+                        directory, receipt_overrides={"security": override}
+                    )
+                    with self.assertRaisesRegex(CollectorError, expected_error):
+                        collect_release_evidence(
+                            image=PRODUCTION_IMAGE,
+                            namespace=NAMESPACE,
+                            profile="production",
+                            environment_id=ENVIRONMENT_ID,
+                            production_bundle=bundle,
+                            receipt_specs=receipt_specs,
+                            command_runner=production_runner(),
+                            clock=lambda: FIXED_TIME,
+                            host_provider=fixed_host_summary,
+                        )
+
+    def test_production_profile_rejects_a_stale_receipt(self) -> None:
+        stale_completed_at = FIXED_TIME - timedelta(
+            seconds=PROMOTION_RECEIPT_MAX_AGE_SECONDS + 1
+        )
+        stale_started_at = stale_completed_at - timedelta(minutes=5)
+        overrides = {
+            "backup_restore": {
+                "completed_at": stale_completed_at.isoformat(
+                    timespec="seconds"
+                ).replace("+00:00", "Z"),
+                "started_at": stale_started_at.isoformat(timespec="seconds").replace(
+                    "+00:00", "Z"
+                ),
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(
+                directory, receipt_overrides=overrides
+            )
+            with self.assertRaisesRegex(
+                CollectorError, "promotion receipt backup_restore is stale"
+            ):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_production_profile_rejects_future_and_oversized_receipts(self) -> None:
+        future = (FIXED_TIME + timedelta(seconds=1)).isoformat(
+            timespec="seconds"
+        ).replace("+00:00", "Z")
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(
+                directory,
+                receipt_overrides={"security": {"completed_at": future}},
+            )
+            with self.assertRaisesRegex(CollectorError, "future completion timestamp"):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            bundle, receipt_specs, _binding = prepare_production_inputs(directory)
+            security_spec = next(
+                specification
+                for specification in receipt_specs
+                if specification.startswith("security=")
+            )
+            Path(security_spec.partition("=")[2]).write_bytes(
+                b"x" * (PROMOTION_RECEIPT_MAX_BYTES + 1)
+            )
+            with self.assertRaisesRegex(CollectorError, "receipt security is too large"):
+                collect_release_evidence(
+                    image=PRODUCTION_IMAGE,
+                    namespace=NAMESPACE,
+                    profile="production",
+                    environment_id=ENVIRONMENT_ID,
+                    production_bundle=bundle,
+                    receipt_specs=receipt_specs,
+                    command_runner=production_runner(),
+                    clock=lambda: FIXED_TIME,
+                    host_provider=fixed_host_summary,
+                )
+
+    def test_rejects_linked_bundle_and_receipt_files(self) -> None:
+        symbolic_link_metadata = os.stat_result(
+            (stat.S_IFLNK | 0o777, 0, 0, 1, 0, 0, 1, 0, 0, 0)
+        )
+        with mock.patch(
+            "collect_release_evidence.Path.lstat",
+            return_value=symbolic_link_metadata,
+        ):
+            with self.assertRaisesRegex(CollectorError, "stable regular file"):
+                _load_production_bundle(Path("linked-production-bundle.yaml"))
+            with self.assertRaisesRegex(CollectorError, "must be a regular file"):
+                _read_promotion_receipt("security", Path("linked-security.json"))
+
+    def test_rejects_a_receipt_that_changes_during_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = Path(directory) / "security.json"
+            receipt.write_text("{}", encoding="utf-8")
+            metadata = receipt.stat()
+            changed_metadata = SimpleNamespace(
+                st_dev=metadata.st_dev,
+                st_ino=metadata.st_ino,
+                st_mode=metadata.st_mode,
+                st_size=metadata.st_size + 1,
+                st_mtime_ns=metadata.st_mtime_ns,
+            )
+            with mock.patch(
+                "collect_release_evidence.os.fstat",
+                side_effect=[metadata, changed_metadata],
+            ):
+                with self.assertRaisesRegex(CollectorError, "changed or exceeded"):
+                    _read_promotion_receipt("security", receipt)
+
     def test_cli_tool_defaults_are_explicit(self) -> None:
         options = build_argument_parser().parse_args(
             ["--image", IMAGE, "--namespace", NAMESPACE, "--output", "evidence.json"]
@@ -630,12 +1137,18 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
         self.assertEqual(options.git_tool, "git")
         self.assertEqual(options.image_tool, "podman")
         self.assertEqual(options.kubectl_tool, "kubectl")
+        self.assertEqual(options.profile, "diagnostic")
+        self.assertIsNone(options.environment_id)
+        self.assertIsNone(options.production_bundle)
+        self.assertFalse(options.binding_only)
+        self.assertEqual(options.receipt, [])
 
 
 class FakeRunner:
     def __init__(
         self,
         *,
+        image: str = IMAGE,
         git_status: str = "",
         image_revision: str = HEAD,
         inspected_image_id: object = IMAGE_ID,
@@ -644,6 +1157,13 @@ class FakeRunner:
         ending_status: str | None = None,
         deployments: dict | None = None,
         pods: dict | None = None,
+        bundle_documents: list[dict] | None = None,
+        live_controls: dict[tuple[str, str], dict] | None = None,
+        ending_live_controls: dict[tuple[str, str], dict] | None = None,
+        cluster_uid: str = CLUSTER_UID,
+        namespace_uid: str = NAMESPACE_UID,
+        ending_cluster_uid: str | None = None,
+        ending_namespace_uid: str | None = None,
     ) -> None:
         labels = {
             "org.opencontainers.image.revision": image_revision,
@@ -656,8 +1176,42 @@ class FakeRunner:
             git_status,
             git_status if ending_status is None else ending_status,
         ]
+        bundle_documents = bundle_documents or production_bundle_documents()
+        first_controls = live_controls or live_control_documents(bundle_documents)
+        last_controls = ending_live_controls or first_controls
+        self.namespace_responses = {
+            "kube-system": [
+                namespace_document("kube-system", cluster_uid),
+                namespace_document(
+                    "kube-system", ending_cluster_uid or cluster_uid
+                ),
+            ],
+            NAMESPACE: [
+                namespace_document(NAMESPACE, namespace_uid),
+                namespace_document(
+                    NAMESPACE, ending_namespace_uid or namespace_uid
+                ),
+            ],
+        }
+        self.control_responses: dict[tuple[str, ...], list[str]] = {}
+        for kind, resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
+            key = (kind, name)
+            command = (
+                "kubectl",
+                "get",
+                resource_type,
+                name,
+                "--namespace",
+                NAMESPACE,
+                "-o",
+                "json",
+            )
+            self.control_responses[command] = [
+                json.dumps(first_controls[key]),
+                json.dumps(last_controls[key]),
+            ]
         self.responses = {
-            ("podman", "image", "inspect", IMAGE): json.dumps(
+            ("podman", "image", "inspect", image): json.dumps(
                 [
                     {
                         "Config": {"Labels": labels},
@@ -721,21 +1275,38 @@ class FakeRunner:
             "--untracked-files=normal",
         ):
             return self.git_statuses.pop(0)
+        if command[:3] == ("kubectl", "get", "namespace") and command[-2:] == (
+            "-o",
+            "json",
+        ):
+            namespace = command[3]
+            if namespace not in self.namespace_responses:
+                raise AssertionError(f"unexpected namespace identity: {namespace!r}")
+            return json.dumps(self.namespace_responses[namespace].pop(0))
+        if command in self.control_responses:
+            return self.control_responses[command].pop(0)
         if command not in self.responses:
             raise AssertionError(f"unexpected command shape: {command!r}")
         return self.responses[command]
 
 
-def deployment_document() -> dict:
+def deployment_document(
+    *, image: str = IMAGE, edge_replicas: int = 1, worker_replicas: int = 1
+) -> dict:
     return {
         "apiVersion": "v1",
-        "items": [application_deployment("edge"), application_deployment("worker")],
+        "items": [
+            application_deployment("edge", image=image, replicas=edge_replicas),
+            application_deployment("worker", image=image, replicas=worker_replicas),
+        ],
     }
 
 
-def application_deployment(role: str) -> dict:
+def application_deployment(
+    role: str, *, image: str = IMAGE, replicas: int = 1
+) -> dict:
     generation = 7 if role == "edge" else 3
-    container = {"name": role, "image": IMAGE}
+    container = {"name": role, "image": image}
     if role == "edge":
         container["env"] = [{"name": "PASSWORD", "value": "do-not-retain"}]
     return {
@@ -745,7 +1316,7 @@ def application_deployment(role: str) -> dict:
             "generation": generation,
         },
         "spec": {
-            "replicas": 1,
+            "replicas": replicas,
             "selector": {"matchLabels": {"app.kubernetes.io/component": role}},
             "template": {
                 "metadata": {"labels": {"app.kubernetes.io/component": role}},
@@ -762,18 +1333,29 @@ def application_deployment(role: str) -> dict:
         },
         "status": {
             "observedGeneration": generation,
-            "replicas": 1,
-            "updatedReplicas": 1,
-            "readyReplicas": 1,
-            "availableReplicas": 1,
+            "replicas": replicas,
+            "updatedReplicas": replicas,
+            "readyReplicas": replicas,
+            "availableReplicas": replicas,
         },
     }
 
 
-def pod_document() -> dict:
+def pod_document(
+    *, image: str = IMAGE, edge_replicas: int = 1, worker_replicas: int = 1
+) -> dict:
     return {
         "apiVersion": "v1",
-        "items": [application_pod("edge"), application_pod("worker")],
+        "items": [
+            *[
+                application_pod("edge", image=image, ordinal=ordinal)
+                for ordinal in range(edge_replicas)
+            ],
+            *[
+                application_pod("worker", image=image, ordinal=ordinal)
+                for ordinal in range(worker_replicas)
+            ],
+        ],
     }
 
 
@@ -785,6 +1367,7 @@ def application_pod(
     phase: str = "Running",
     container_ready: bool = True,
     pod_ready: bool = True,
+    ordinal: int = 0,
 ) -> dict:
     container = {"name": role, "image": image}
     if role == "edge":
@@ -792,17 +1375,18 @@ def application_pod(
             {"secretRef": {"name": "do-not-retain"}},
             {"configMapRef": {"name": "do-not-retain"}},
         ]
+    identity_suffix = "" if ordinal == 0 else f"-{ordinal}"
     return {
         "metadata": {
-            "name": f"k-comms-{role}-abc",
-            "uid": f"pod-{role}-uid-sentinel",
+            "name": f"k-comms-{role}-abc{identity_suffix}",
+            "uid": f"pod-{role}-uid-sentinel{identity_suffix}",
             "labels": {"app.kubernetes.io/component": role},
             "ownerReferences": [
                 {
                     "controller": True,
                     "kind": "ReplicaSet",
-                    "name": f"k-comms-{role}-abc",
-                    "uid": f"owner-{role}-uid-sentinel",
+                    "name": f"k-comms-{role}-abc{identity_suffix}",
+                    "uid": f"owner-{role}-uid-sentinel{identity_suffix}",
                 },
             ],
         },
@@ -829,6 +1413,134 @@ def application_pod(
             ],
         },
     }
+
+
+def production_bundle_documents() -> list[dict]:
+    documents = valid_documents()
+    for kind, name in (
+        ("Deployment", "k-comms-edge"),
+        ("Deployment", "k-comms-worker"),
+        ("Job", "k-comms-migrate"),
+    ):
+        find_document(documents, kind, name)["spec"]["template"]["spec"][
+            "containers"
+        ][0]["image"] = PRODUCTION_IMAGE
+    return documents
+
+
+def write_production_bundle(directory: str, documents: list[dict] | None = None) -> Path:
+    path = Path(directory) / "production-bundle.yaml"
+    path.write_text(
+        yaml.safe_dump_all(documents or production_bundle_documents(), sort_keys=True),
+        encoding="utf-8",
+    )
+    return path
+
+
+def namespace_document(name: str, uid: str) -> dict:
+    return {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {"name": name, "uid": uid},
+    }
+
+
+def live_control_documents(
+    bundle_documents: list[dict], *, resource_version: str = "100"
+) -> dict[tuple[str, str], dict]:
+    controls: dict[tuple[str, str], dict] = {}
+    for kind, _resource_type, name, _desired_field in PRODUCTION_CONTROL_RESOURCES:
+        document = copy.deepcopy(find_document(bundle_documents, kind, name))
+        document.setdefault("metadata", {}).update(
+            {
+                "generation": 1,
+                "resourceVersion": resource_version,
+                "uid": f"{kind.lower()}-{name}-uid",
+            }
+        )
+        if kind == "Job" and name == "k-comms-migrate":
+            document["status"] = {
+                "completionTime": "2026-07-13T03:55:00Z",
+                "conditions": [{"type": "Complete", "status": "True"}],
+                "succeeded": 1,
+            }
+        controls[(kind, name)] = document
+    return controls
+
+
+def production_runner(**overrides) -> FakeRunner:
+    return FakeRunner(
+        image=PRODUCTION_IMAGE,
+        deployments=deployment_document(
+            image=PRODUCTION_IMAGE, edge_replicas=3, worker_replicas=2
+        ),
+        pods=pod_document(
+            image=PRODUCTION_IMAGE, edge_replicas=3, worker_replicas=2
+        ),
+        **overrides,
+    )
+
+
+def prepare_production_inputs(
+    directory: str,
+    *,
+    receipt_overrides: dict[str, dict] | None = None,
+    omitted: set[str] | None = None,
+) -> tuple[Path, list[str], dict]:
+    bundle = write_production_bundle(directory)
+    binding = collect_release_evidence(
+        image=PRODUCTION_IMAGE,
+        namespace=NAMESPACE,
+        profile="production",
+        environment_id=ENVIRONMENT_ID,
+        production_bundle=bundle,
+        binding_only=True,
+        command_runner=production_runner(),
+        clock=lambda: FIXED_TIME,
+        host_provider=fixed_host_summary,
+    )
+    receipts = write_promotion_receipts(
+        directory,
+        binding=binding,
+        overrides=receipt_overrides,
+        omitted=omitted,
+    )
+    return bundle, receipts, binding
+
+
+def write_promotion_receipts(
+    directory: str,
+    *,
+    binding: dict,
+    overrides: dict[str, dict] | None = None,
+    omitted: set[str] | None = None,
+) -> list[str]:
+    promotion = binding["promotion"]
+    receipt_specs: list[str] = []
+    for receipt_type in REQUIRED_PROMOTION_RECEIPTS:
+        if receipt_type in (omitted or set()):
+            continue
+        document = {
+            "bundle_sha256": promotion["bundle"]["sha256"],
+            "completed_at": (FIXED_TIME - timedelta(minutes=1))
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+            "environment": promotion["environment"],
+            "git_revision": HEAD,
+            "image_digest": MANIFEST_DIGEST,
+            "live_controls_sha256": promotion["controls"]["live_sha256"],
+            "receipt_type": receipt_type,
+            "schema_version": 1,
+            "started_at": (FIXED_TIME - timedelta(minutes=10))
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z"),
+            "status": "passed",
+        }
+        document.update((overrides or {}).get(receipt_type, {}))
+        path = Path(directory) / f"{receipt_type}.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        receipt_specs.append(f"{receipt_type}={path}")
+    return receipt_specs
 
 
 def fixed_host_summary() -> dict:

@@ -30,22 +30,34 @@ printf '%s' "$IMAGE_DIGEST" | grep -Eq '^[0-9a-f]{64}$'
 install -d -m 0700 "$EVIDENCE_DIR"
 umask 077
 
+# Copy the complete Kustomize tree so relative bases still resolve, then pin the
+# disposable copy. Never run `kustomize edit` against the tracked repository.
+export RENDER_ROOT="$(mktemp -d)"
+chmod 0700 "$RENDER_ROOT"
+cleanup_render() { rm -rf "$RENDER_ROOT"; }
+trap cleanup_render EXIT
+cp -R deploy/k8s "$RENDER_ROOT/k8s"
+chmod -R go-rwx "$RENDER_ROOT"
+export RENDER_OVERLAY="$RENDER_ROOT/k8s/overlays/staging"
+
 # Use standalone Kustomize v5 to pin both release Jobs and workloads.
-for kustomization in "$OVERLAY" "$OVERLAY/bootstrap"; do
+for kustomization in "$RENDER_OVERLAY" "$RENDER_OVERLAY/bootstrap"; do
   (cd "$kustomization" && kustomize edit set image \
     "ghcr.io/soyuz-tec/k-comms=ghcr.io/soyuz-tec/k-comms@sha256:${IMAGE_DIGEST}")
 done
 
 export APPROVED_BUNDLE="$EVIDENCE_DIR/k-comms-staging-${IMAGE_DIGEST}.yaml"
 export BOOTSTRAP_BUNDLE="$EVIDENCE_DIR/k-comms-bootstrap-${IMAGE_DIGEST}.yaml"
-kubectl kustomize "$OVERLAY" > "$APPROVED_BUNDLE"
-kubectl kustomize "$OVERLAY/bootstrap" > "$BOOTSTRAP_BUNDLE"
+kustomize build "$RENDER_OVERLAY" > "$APPROVED_BUNDLE"
+kustomize build "$RENDER_OVERLAY/bootstrap" > "$BOOTSTRAP_BUNDLE"
 chmod 0600 "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE"
 sha256sum "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE" > \
   "$EVIDENCE_DIR/rendered-bundles-${IMAGE_DIGEST}.sha256"
 
 kubectl apply --dry-run=client --validate=false -f "$APPROVED_BUNDLE" >/dev/null
 kubectl apply --dry-run=client --validate=false -f "$BOOTSTRAP_BUNDLE" >/dev/null
+cleanup_render
+trap - EXIT
 ```
 
 The validator rejects empty values and every `CHANGE_ME` placeholder before
@@ -71,7 +83,7 @@ kubectl -n "$NAMESPACE" create secret generic k-comms-secrets \
   --dry-run=client -o yaml | kubectl apply --server-side -f -
 
 kubectl -n "$NAMESPACE" apply -f deploy/k8s/base/service-account.yaml
-kubectl apply --server-side -k "$OVERLAY" \
+kubectl apply --server-side -f "$APPROVED_BUNDLE" \
   -l app.kubernetes.io/component=configuration
 
 test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
@@ -87,7 +99,8 @@ kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=5m
 kubectl -n "$NAMESPACE" rollout status statefulset/minio --timeout=5m
 
 kubectl -n "$NAMESPACE" delete job minio-init --ignore-not-found
-kubectl apply -k "$OVERLAY" -l app.kubernetes.io/component=minio-init
+kubectl apply -f "$APPROVED_BUNDLE" \
+  -l app.kubernetes.io/component=minio-init
 kubectl -n "$NAMESPACE" wait --for=condition=complete job/minio-init --timeout=5m
 ```
 
@@ -324,7 +337,8 @@ immutable. Do not deploy application pods if migration fails.
 
 ```bash
 kubectl -n "$NAMESPACE" delete job k-comms-migrate --ignore-not-found
-kubectl apply -k "$OVERLAY" -l app.kubernetes.io/component=migration
+kubectl apply -f "$APPROVED_BUNDLE" \
+  -l app.kubernetes.io/component=migration
 kubectl -n "$NAMESPACE" wait --for=condition=complete \
   job/k-comms-migrate --timeout=10m
 kubectl -n "$NAMESPACE" logs job/k-comms-migrate
@@ -435,8 +449,11 @@ both only in an approved maintenance window. Rotating
 Platform-role management secrets must never be added to `secrets.env` or the
 edge/worker environments. Render the restricted Job in
 `deploy/k8s/operations/platform-role`, create its short-lived Secret from
-`platform-role-secrets.env.example`, run it, verify the audit record, and delete
-both resources immediately.
+`platform-role-secrets.env.example`, and replace its fail-closed image token
+with the exact immutable digest already deployed to staging (the same
+`kubectl set image --local` pattern used by the restore Job above). Run it,
+verify the audit record, and delete both resources immediately. Never apply the
+inventory manifest with its placeholder image.
 
 ```bash
 python scripts/validate_staging_secrets.py "$OVERLAY/secrets.env"

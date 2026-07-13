@@ -12,7 +12,17 @@ async function mockWorkspace(page: Page, role: Role, conversations: unknown[] = 
     expires_in: 3600,
     received_at: Date.now(),
     tenant: { id: "tenant-1", name: "Acme Workspace", slug: "acme", status: "active" },
-    user: { id: "user-1", tenant_id: "tenant-1", display_name: "Ada Lovelace", email: "ada@example.test", role, platform_role: platformRole || null, status: "active", version: 1 },
+    user: {
+      id: "user-1",
+      tenant_id: "tenant-1",
+      display_name: "Ada Lovelace",
+      email: "ada@example.test",
+      role,
+      platform_role: platformRole || null,
+      platform_role_expires_at: platformRole ? "2099-01-01T00:00:00Z" : null,
+      status: "active",
+      version: 1
+    },
     device: { id: "device-1", user_id: "user-1", name: "Browser", platform: "web" }
   };
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);

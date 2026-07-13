@@ -3,6 +3,7 @@ defmodule CommsCore.Accounts.User do
 
   schema "users" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    has_one(:platform_role_grant, CommsCore.Accounts.PlatformRoleGrant)
     field(:external_subject, :string)
     field(:display_name, :string)
     field(:email, :string)
@@ -19,6 +20,11 @@ defmodule CommsCore.Accounts.User do
     field(:platform_role, Ecto.Enum,
       values: [:platform_operator, :support_operator, :security_operator]
     )
+
+    # Expiring grants live in platform_role_grants. This virtual field lets
+    # authenticated projections carry the effective deadline without reviving
+    # the rollback-only users.platform_role column.
+    field(:platform_role_expires_at, :utc_datetime_usec, virtual: true)
 
     field(:lock_version, :integer, default: 1)
     timestamps()
@@ -56,13 +62,6 @@ defmodule CommsCore.Accounts.User do
     |> validate_length(:display_name, min: 1, max: 120)
     |> unique_constraint([:tenant_id, :external_subject])
     |> unique_constraint(:email, name: :users_tenant_email_unique)
-  end
-
-  def platform_role_changeset(value, attrs) do
-    value
-    |> cast(attrs, [:platform_role])
-    |> validate_inclusion(:account_type, [:human])
-    |> check_constraint(:platform_role, name: :users_platform_role_allowed)
   end
 
   defp normalize_email(value) when is_binary(value),

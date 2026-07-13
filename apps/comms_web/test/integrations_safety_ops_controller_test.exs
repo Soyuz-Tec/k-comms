@@ -1,6 +1,11 @@
 defmodule CommsWeb.IntegrationsSafetyOpsControllerTest do
   use CommsWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
+  alias CommsCore.Accounts.PlatformRoleGrant
+  alias CommsCore.Repo
+
   test "owners manage notification settings, webhooks, attachment safety, and ops without secret leakage" do
     previous_webhook_http = Application.get_env(:comms_integrations, :webhook_http)
 
@@ -269,27 +274,46 @@ defmodule CommsWeb.IntegrationsSafetyOpsControllerTest do
                %{
                  grant_token: secret,
                  actor: "web-operations-test",
-                 reason: "verify platform operator HTTP identity"
+                 reason: "verify platform operator HTTP identity",
+                 ttl_seconds: 3600
                }
              )
 
-    assert authenticated_conn(token)
-           |> get("/api/v1/me")
-           |> json_response(200)
-           |> get_in(["user", "platform_role"]) == "platform_operator"
+    identity = authenticated_conn(token) |> get("/api/v1/me") |> json_response(200)
+    assert get_in(identity, ["user", "platform_role"]) == "platform_operator"
+    assert is_binary(get_in(identity, ["user", "platform_role_expires_at"]))
 
     sessions =
       authenticated_conn(token)
       |> get("/api/v1/me/sessions")
       |> json_response(200)
 
-    assert [%{"platform_role" => "platform_operator"}] = sessions["data"]
+    assert [session] = sessions["data"]
+    assert session["platform_role"] == "platform_operator"
+    assert is_binary(session["platform_role_expires_at"])
 
     platform_ops =
       authenticated_conn(token) |> get("/api/v1/platform/ops") |> json_response(200)
 
     assert platform_ops["data"]["providers"]["browser_push"]["status"] == "available"
     refute Map.has_key?(platform_ops["data"]["providers"]["browser_push"], "encryption")
+
+    expired_at =
+      DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:microsecond)
+
+    Repo.update_all(
+      from(grant in PlatformRoleGrant, where: grant.user_id == ^authenticated.user.id),
+      set: [expires_at: expired_at, inserted_at: DateTime.add(expired_at, -3600, :second)]
+    )
+
+    expired_identity = authenticated_conn(token) |> get("/api/v1/me") |> json_response(200)
+    assert get_in(expired_identity, ["user", "platform_role"]) == nil
+    assert get_in(expired_identity, ["user", "platform_role_expires_at"]) == nil
+
+    assert authenticated_conn(token)
+           |> get("/api/v1/platform/ops")
+           |> json_response(403)
+           |> get_in(["error", "code"]) == "forbidden"
 
     assert {:ok, _user} =
              CommsCore.Accounts.set_platform_role_from_console(authenticated.user.id, nil, %{
@@ -310,7 +334,8 @@ defmodule CommsWeb.IntegrationsSafetyOpsControllerTest do
                %{
                  grant_token: secret,
                  actor: "web-operations-test",
-                 reason: "verify content-blind support visibility"
+                 reason: "verify content-blind support visibility",
+                 ttl_seconds: 3600
                }
              )
 

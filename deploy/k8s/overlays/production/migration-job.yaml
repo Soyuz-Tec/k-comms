@@ -65,6 +65,13 @@ spec:
             capabilities: { drop: ["ALL"] }
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
+            - { name: database-ca, mountPath: /etc/k-comms/database-ca, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: { sizeLimit: 64Mi }
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            defaultMode: 0444
+            items:
+              - { key: ca.crt, path: ca.crt }

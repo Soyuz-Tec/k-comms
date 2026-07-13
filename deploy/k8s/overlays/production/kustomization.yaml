@@ -18,6 +18,7 @@ patches:
   - path: edge-ingress-policy-patch.yaml
   - path: edge-deployment-patch.yaml
   - path: worker-deployment-patch.yaml
+  - path: edge-pod-disruption-budget-patch.yaml
 images:
   - name: ghcr.io/soyuz-tec/k-comms
     newName: ghcr.io/soyuz-tec/k-comms

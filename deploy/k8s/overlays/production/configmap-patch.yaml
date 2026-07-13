@@ -7,6 +7,10 @@ data:
   PUBLIC_APP_URL: https://comms.example.invalid
   POOL_SIZE: "30"
   DATABASE_SSL: "true"
+  DATABASE_SSL_CA_FILE: /etc/k-comms/database-ca/ca.crt
+  # Provider composition must replace this with the DNS name covered by the
+  # managed PostgreSQL certificate. IP literals are rejected at runtime.
+  DATABASE_SSL_SERVER_NAME: postgres.example.invalid
   ALLOW_BOOTSTRAP: "false"
   ACCESS_TOKEN_TTL_SECONDS: "900"
   SESSION_TTL_SECONDS: "2592000"

@@ -6,7 +6,7 @@
 
 | Context | Principal aggregates | Authoritative rules |
 |---|---|---|
-| Identity and Tenancy | Tenant, User, Device, Session, Service Account | Identity state, tenant status, session revocation, service credential lifecycle and scopes |
+| Identity and Tenancy | Tenant, User, Device, Session, Service Account, Platform Role Grant | Identity state, tenant status, session revocation, bounded platform authority, service credential lifecycle and scopes |
 | Conversations | Conversation, Membership, Role | Visibility, membership lifecycle, permission assignment |
 | Messaging | Message, Mention, Thread, Revision, Reaction, Read Cursor | Ordering, idempotency, explicit recipients, canonical reply roots, edit/delete policy, durable history |
 | Attachments | Attachment, Variant | Ownership, scan state, availability, retention |
@@ -34,6 +34,11 @@
 - Raw service-account secrets are transient outputs. Persistence contains only
   a hash plus a non-secret credential prefix/hint, expiry, rotation, revocation,
   version, and last-use evidence.
+- Platform authority is a separate five-minute-to-eight-hour grant with a
+  random per-approval identifier. Every grant or renewal replaces the row with
+  a fresh identifier. Every use matches its exact persisted identifier, role,
+  and deadline so expiry, revoke, or renewal denies an earlier HTTP or WebSocket
+  subject even if a later approval repeats the same role and deadline.
 - Active identity, conversation, and membership admission uses the same
   tenant-scoped transaction lock as quota-setting changes. Exact capacity blocks
   the next admission; over-limit state never removes existing resources.

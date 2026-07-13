@@ -14,7 +14,14 @@ object version.
 
 Before rendering an approved bundle, replace the example hostnames, bucket,
 region, image tag with an immutable digest, ingress class, TLS secret, and the
-PostgreSQL egress CIDR. Create `k-comms-secrets` through the selected external
+PostgreSQL egress CIDR. Replace `DATABASE_SSL_SERVER_NAME` with the exact DNS
+name covered by the managed PostgreSQL certificate. Create
+`k-comms-database-ca` from the provider's reviewed PEM trust bundle, using key
+`ca.crt`; `database-ca-configmap.example.yaml` is an inventory template and is
+not included by the overlay. The CA is public trust material and must not be
+stored in `k-comms-secrets`. The edge, worker, and migration workloads mount it
+read-only at the configured `DATABASE_SSL_CA_FILE` path and fail startup if it
+is missing or invalid. Create `k-comms-secrets` through the selected external
 secret mechanism with `DATABASE_URL`, `SECRET_KEY_BASE`, `RELEASE_COOKIE`,
 `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` plus enabled provider secrets.
 The runtime Secret also requires either a 32-byte
@@ -66,11 +73,33 @@ python scripts/validate_staging_secrets.py \
 make production-preflight PRODUCTION_BUNDLE='<restricted-path>/production.yaml'
 ```
 
+Before applying a privileged one-shot operation, render its provider
+composition beside the retained production bundle and pass every file to the
+same validator:
+
+```bash
+python scripts/validate_production_bundle.py \
+  '<restricted-path>/production.yaml' \
+  '<restricted-path>/platform-role.yaml' \
+  '<restricted-path>/attachment-restore-remap.yaml'
+```
+
+The operation manifests intentionally contain an unusable
+`REPLACE_WITH_APPROVED_SHA256_DIGEST` image value. The provider composition must
+replace it with the exact immutable image reference used by edge, worker, and
+migration, set the same production namespace, and make the database CA volume
+non-optional. Validate only the operation being run; both files above simply
+demonstrate the combined validation path.
+
 The provider-neutral overlay is expected to fail this promotion preflight on
 its own. A passing composed bundle has HTTPS notification and scanner
 providers, explicit webhook hosts, a valid public VAPID key, production safety
-flags, narrowed PostgreSQL egress, non-placeholder origins, and immutable image
-digests, plus matching narrow ingress/proxy trust. It also rejects any long-lived workload marked for the one-shot
+flags, authenticated PostgreSQL TLS with a retained CA mount and non-placeholder
+verification hostname, narrowed PostgreSQL egress, non-placeholder origins, and
+one exact immutable image reference, plus matching narrow ingress/proxy trust.
+It also rejects duplicate resource identities, extra workload containers,
+unsafe security contexts, ineffective disruption budgets, and any long-lived
+workload marked for the one-shot
 provider-preflight exemption. Schema validation alone is not a promotion
 decision.
 
@@ -93,3 +122,8 @@ managed database network and enforce the same destination through its firewall.
 An environment is not production ready until the restore, node-loss, zone-loss,
 provider-outage, certificate-rotation, and secret-rotation exercises pass for
 the exact provider composition.
+
+For a managed PostgreSQL CA rotation, first publish a reviewed bundle containing
+both current and replacement CA certificates, roll migration-capable and
+long-lived workloads, and prove new verified connections. Remove the retired
+CA only in a second reviewed rollout after the provider cutover succeeds.

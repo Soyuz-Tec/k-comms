@@ -81,7 +81,9 @@ compiled into the production release and are outside the runtime source rule.
 - **Tenant administration (`/admin`):** people, channels, policy, moderation,
   audit, retention, integrations, storage, and tenant security.
 - **Platform operations (`/ops`):** separately authorized, content-blind health,
-  queue, provider, backup, incident, and controlled recovery workflows.
+  queue, provider, backup, incident, and controlled recovery workflows. Access
+  uses an audited, exact-deadline platform grant lasting no more than eight
+  hours.
 
 The surfaces share a web-client platform but never substitute client-side route
 checks for server-side authorization.

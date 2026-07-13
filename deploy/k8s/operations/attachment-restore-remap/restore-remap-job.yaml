@@ -29,7 +29,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: restore-remap
-          image: ghcr.io/soyuz-tec/k-comms:staging
+          # Fail-closed inventory value. The provider composition must replace
+          # this with the exact digest used by edge, worker, and migration.
+          image: ghcr.io/soyuz-tec/k-comms@sha256:REPLACE_WITH_APPROVED_SHA256_DIGEST
           imagePullPolicy: IfNotPresent
           command: ["/app/bin/k_comms"]
           args:
@@ -100,7 +102,18 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: database-ca
+              mountPath: /etc/k-comms/database-ca
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            optional: true
+            defaultMode: 0444
+            items:
+              - key: ca.crt
+                path: ca.crt

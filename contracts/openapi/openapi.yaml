@@ -2370,4 +2370,7 @@ components:
             platform_role:
               type: [string, 'null']
               enum: [platform_operator, support_operator, security_operator, null]
+            platform_role_expires_at:
+              type: [string, 'null']
+              format: date-time
         device: {type: object}

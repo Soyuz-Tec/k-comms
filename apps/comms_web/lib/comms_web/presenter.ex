@@ -1,4 +1,5 @@
 defmodule CommsWeb.Presenter do
+  alias CommsCore.Accounts
   alias CommsCore.Accounts.{Device, Tenant, User}
   alias CommsCore.Accounts.Session
   alias CommsCore.Administration.{Invitation, TenantSettings}
@@ -26,7 +27,10 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def identity_user(%User{} = user), do: Map.put(user(user), :platform_role, user.platform_role)
+  def identity_user(%User{} = user) do
+    Map.merge(user(user), Accounts.platform_access_for_user(user))
+  end
+
   def admin_user(%User{} = user), do: identity_user(user)
 
   def device(%Device{} = device) do
@@ -41,22 +45,24 @@ defmodule CommsWeb.Presenter do
   end
 
   def session(%Session{} = session) do
-    platform_role =
+    platform_access =
       case session.user do
-        %User{platform_role: role} -> role
-        _ -> nil
+        %User{} = user -> Accounts.platform_access_for_user(user)
+        _ -> %{platform_role: nil, platform_role_expires_at: nil}
       end
 
-    %{
-      id: session.id,
-      user_id: session.user_id,
-      device_id: session.device_id,
-      platform_role: platform_role,
-      expires_at: session.expires_at,
-      last_used_at: session.last_used_at,
-      revoked_at: session.revoked_at,
-      inserted_at: session.inserted_at
-    }
+    Map.merge(
+      %{
+        id: session.id,
+        user_id: session.user_id,
+        device_id: session.device_id,
+        expires_at: session.expires_at,
+        last_used_at: session.last_used_at,
+        revoked_at: session.revoked_at,
+        inserted_at: session.inserted_at
+      },
+      platform_access
+    )
   end
 
   def conversation(%{conversation: %Conversation{} = conversation} = result) do

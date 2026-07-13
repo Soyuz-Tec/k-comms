@@ -14,6 +14,7 @@ retention, deployment authority, data policy, and cost budget.
 - [ ] Provisioned from approved infrastructure code
 - [ ] Access roles reviewed
 - [ ] Encryption and backups enabled
+- [ ] PostgreSQL peer/hostname verification and CA rotation exercised
 - [ ] Monitoring and alert routes tested
 - [ ] Synthetic message workflow passes
 - [ ] Environment-specific recovery procedure documented
@@ -25,7 +26,10 @@ in CI. Promotion replaces its candidate image tag with an immutable signed
 digest. The retained bundle must contain at least three edge replicas, two
 worker replicas, disruption budgets for both roles, autoscaling, restricted
 security contexts, TLS ingress, an isolated migration Job, and no in-namespace
-PostgreSQL or object-storage StatefulSet.
+PostgreSQL or object-storage StatefulSet. Every database-using workload must
+mount the retained provider CA bundle and use the reviewed certificate DNS
+name; transport encryption without peer and hostname verification does not
+satisfy this gate.
 
 This validates the application deployment contract only. The checklist stays
 open until the selected provider infrastructure and live recovery evidence

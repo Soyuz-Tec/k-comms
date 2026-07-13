@@ -2,7 +2,7 @@ defmodule CommsCore.AccountsTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Session, Tenant, User}
+  alias CommsCore.Accounts.{PlatformRoleGrant, Session, Tenant, User}
   alias CommsCore.Audit.AuditEvent
   alias CommsCore.Authorization
   alias CommsCore.Conversations.{Conversation, Membership}
@@ -142,7 +142,8 @@ defmodule CommsCore.AccountsTest do
                %{
                  grant_token: secret,
                  actor: "release-engineer@example.test",
-                 reason: "staging operations access proof"
+                 reason: "staging operations access proof",
+                 ttl_seconds: 3600
                }
              )
 
@@ -169,7 +170,8 @@ defmodule CommsCore.AccountsTest do
     attrs = %{
       grant_token: secret,
       actor: "release-engineer@example.test",
-      reason: "staging operations access proof"
+      reason: "staging operations access proof",
+      ttl_seconds: 3600
     }
 
     assert {:error, :invalid_platform_role_management_secret} =
@@ -186,6 +188,15 @@ defmodule CommsCore.AccountsTest do
                Map.delete(attrs, :reason)
              )
 
+    for invalid_ttl <- [nil, 299, 28_801, "not-a-number"] do
+      assert {:error, :invalid_platform_role_ttl} =
+               Accounts.set_platform_role_from_console(
+                 account.user.id,
+                 :platform_operator,
+                 Map.put(attrs, :ttl_seconds, invalid_ttl)
+               )
+    end
+
     assert {:ok, granted} =
              Accounts.set_platform_role_from_console(
                account.user.id,
@@ -194,14 +205,65 @@ defmodule CommsCore.AccountsTest do
              )
 
     assert granted.platform_role == :platform_operator
+    assert %DateTime{} = granted.platform_role_expires_at
+
+    assert DateTime.diff(granted.platform_role_expires_at, DateTime.utc_now(), :second) in 3598..3600
+
+    grant_audit =
+      Repo.one!(
+        from(event in AuditEvent,
+          where: event.tenant_id == ^account.tenant.id and event.action == "platform_role.grant",
+          order_by: [desc: event.inserted_at],
+          limit: 1
+        )
+      )
+
+    assert grant_audit.metadata["ttl_seconds"] == 3600
+    assert is_binary(grant_audit.metadata["after_expires_at"])
     platform_subject = Accounts.subject_for_session(account.session)
     assert platform_subject.platform_role == :platform_operator
+    assert is_binary(platform_subject.platform_role_grant_id)
+    assert platform_subject.platform_role_expires_at == granted.platform_role_expires_at
     assert :ok = Authorization.authorize(:view_platform_operations, platform_subject, %{})
     assert :ok = Authorization.authorize(:operate_platform, platform_subject, %{})
 
     assert {:ok, issued_ticket} = Accounts.issue_socket_ticket(platform_subject)
     assert {:ok, ticket_subject} = Accounts.consume_socket_ticket(issued_ticket.ticket)
     assert ticket_subject.platform_role == :platform_operator
+    assert ticket_subject.platform_role_grant_id == platform_subject.platform_role_grant_id
+    assert ticket_subject.platform_role_expires_at == granted.platform_role_expires_at
+
+    expired_at =
+      DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:microsecond)
+
+    old_inserted_at = DateTime.add(expired_at, -3600, :second)
+
+    Repo.update_all(
+      from(grant in PlatformRoleGrant, where: grant.user_id == ^account.user.id),
+      set: [expires_at: expired_at, inserted_at: old_inserted_at]
+    )
+
+    assert %{platform_role: nil, platform_role_expires_at: nil} =
+             Accounts.platform_access_for_user(account.user)
+
+    assert {:error, :forbidden} =
+             Authorization.authorize(:operate_platform, platform_subject, %{})
+
+    assert {:ok, renewed} =
+             Accounts.set_platform_role_from_console(
+               account.user.id,
+               :platform_operator,
+               %{attrs | reason: "renew expired platform operations access"}
+             )
+
+    renewed_subject = Accounts.subject_for_session(account.session)
+    assert renewed.platform_role_expires_at == renewed_subject.platform_role_expires_at
+    assert :ok = Authorization.authorize(:operate_platform, renewed_subject, %{})
+
+    # A subject minted for an earlier grant cannot regain authority when the
+    # same role is later granted again with a different deadline.
+    assert {:error, :forbidden} =
+             Authorization.authorize(:operate_platform, platform_subject, %{})
 
     assert {:ok, revoked} =
              Accounts.set_platform_role_from_console(account.user.id, "none", %{
@@ -244,7 +306,7 @@ defmodule CommsCore.AccountsTest do
                | reason: "remove content-blind platform visibility"
              })
 
-    assert 5 ==
+    assert 6 ==
              Repo.aggregate(
                from(event in AuditEvent,
                  where:
@@ -253,6 +315,133 @@ defmodule CommsCore.AccountsTest do
                ),
                :count
              )
+  end
+
+  test "every platform-role approval rotates its grant id and exact tuple collisions stay denied" do
+    restore_secret = preserve_env(:platform_role_management_secret)
+    on_exit(restore_secret)
+
+    secret = String.duplicate("platform-management-secret-", 2)
+    Application.put_env(:comms_core, :platform_role_management_secret, secret)
+    account = Fixtures.account_fixture()
+
+    attrs = %{
+      grant_token: secret,
+      actor: "release-engineer@example.test",
+      reason: "exercise platform grant generation binding",
+      ttl_seconds: 3600
+    }
+
+    assert {:ok, _first} =
+             Accounts.set_platform_role_from_console(account.user.id, :platform_operator, attrs)
+
+    first_subject = Accounts.subject_for_session(account.session)
+    first_grant = Repo.get_by!(PlatformRoleGrant, user_id: account.user.id)
+    assert first_subject.platform_role_grant_id == first_grant.id
+
+    assert {:ok, _renewed} =
+             Accounts.set_platform_role_from_console(account.user.id, :platform_operator, %{
+               attrs
+               | reason: "renew the same platform role with a new approval"
+             })
+
+    renewed_grant = Repo.get_by!(PlatformRoleGrant, user_id: account.user.id)
+    refute renewed_grant.id == first_grant.id
+
+    # Reproduce the exact role/deadline collision that would revive the first
+    # subject if the authorization boundary did not also bind the approval id.
+    Repo.update_all(
+      from(grant in PlatformRoleGrant, where: grant.id == ^renewed_grant.id),
+      set: [expires_at: first_subject.platform_role_expires_at]
+    )
+
+    current_subject = Accounts.subject_for_session(account.session)
+    assert current_subject.platform_role == first_subject.platform_role
+    assert current_subject.platform_role_expires_at == first_subject.platform_role_expires_at
+    assert current_subject.platform_role_grant_id == renewed_grant.id
+    assert :ok = Authorization.authorize(:operate_platform, current_subject, %{})
+
+    assert {:error, :forbidden} =
+             Authorization.authorize(:operate_platform, first_subject, %{})
+  end
+
+  test "platform grants accept exact TTL limits, expire at equality, and require active humans" do
+    restore_secret = preserve_env(:platform_role_management_secret)
+    on_exit(restore_secret)
+
+    secret = String.duplicate("platform-management-secret-", 2)
+    Application.put_env(:comms_core, :platform_role_management_secret, secret)
+    account = Fixtures.account_fixture()
+
+    attrs = %{
+      grant_token: secret,
+      actor: "release-engineer@example.test",
+      reason: "verify exact platform grant security boundaries",
+      ttl_seconds: 300
+    }
+
+    assert {:ok, minimum} =
+             Accounts.set_platform_role_from_console(account.user.id, :platform_operator, attrs)
+
+    assert DateTime.diff(minimum.platform_role_expires_at, DateTime.utc_now(), :second) in 298..300
+
+    minimum_subject = Accounts.subject_for_session(account.session)
+    boundary = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    grant = Repo.get_by!(PlatformRoleGrant, user_id: account.user.id)
+
+    refute PlatformRoleGrant.active_at?(%{grant | expires_at: boundary}, boundary)
+
+    Repo.update_all(
+      from(candidate in PlatformRoleGrant, where: candidate.id == ^grant.id),
+      set: [expires_at: boundary, inserted_at: DateTime.add(boundary, -300, :second)]
+    )
+
+    assert {:error, :forbidden} =
+             Authorization.authorize(:operate_platform, minimum_subject, %{})
+
+    assert {:ok, maximum} =
+             Accounts.set_platform_role_from_console(account.user.id, :platform_operator, %{
+               attrs
+               | reason: "verify the maximum platform grant duration",
+                 ttl_seconds: 28_800
+             })
+
+    assert DateTime.diff(maximum.platform_role_expires_at, DateTime.utc_now(), :second) in 28_798..28_800
+
+    Repo.update_all(
+      from(user in User, where: user.id == ^account.user.id),
+      set: [status: :suspended]
+    )
+
+    assert {:error, :not_found} =
+             Accounts.set_platform_role_from_console(account.user.id, :platform_operator, attrs)
+
+    assert {:ok, revoked} =
+             Accounts.set_platform_role_from_console(account.user.id, nil, %{
+               attrs
+               | reason: "revoke platform access from a suspended identity"
+             })
+
+    assert revoked.platform_role == nil
+    refute Repo.get_by(PlatformRoleGrant, user_id: account.user.id)
+
+    non_human = Fixtures.account_fixture()
+
+    Repo.update_all(
+      from(user in User, where: user.id == ^non_human.user.id),
+      set: [account_type: :service]
+    )
+
+    assert {:error, :not_found} =
+             Accounts.set_platform_role_from_console(non_human.user.id, :platform_operator, attrs)
+
+    assert {:ok, revoked_non_human} =
+             Accounts.set_platform_role_from_console(non_human.user.id, nil, %{
+               attrs
+               | reason: "allow cleanup of any non-human platform grant state"
+             })
+
+    assert revoked_non_human.platform_role == nil
   end
 
   test "rejects invalid credentials" do

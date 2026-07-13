@@ -231,7 +231,8 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              Accounts.set_platform_role_from_console(account.user.id, :platform_operator, %{
                grant_token: secret,
                actor: "operations-test",
-               reason: "verify platform operations authorization"
+               reason: "verify platform operations authorization",
+               ttl_seconds: 3600
              })
 
     platform_subject = Accounts.subject_for_session(account.session)

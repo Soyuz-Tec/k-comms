@@ -103,6 +103,8 @@ if config_env() == :prod do
     allow_bootstrap_platform_role:
       System.get_env("K_COMMS_ALLOW_BOOTSTRAP_PLATFORM_ROLE", "false") == "true",
     bootstrap_platform_role: System.get_env("K_COMMS_BOOTSTRAP_PLATFORM_ROLE"),
+    bootstrap_platform_role_ttl_seconds:
+      String.to_integer(System.get_env("K_COMMS_BOOTSTRAP_PLATFORM_ROLE_TTL_SECONDS", "28800")),
     webhook_secret_encryption_key: System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY"),
     webhook_secret_encryption_key_id: webhook_secret_encryption_key_id,
     webhook_secret_encryption_keys: webhook_secret_encryption_keys,
@@ -116,10 +118,20 @@ if config_env() == :prod do
       ),
     web_push_vapid_public_key: System.get_env("WEB_PUSH_VAPID_PUBLIC_KEY")
 
-  config :comms_core, CommsCore.Repo,
-    url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE", "20")),
-    ssl: System.get_env("DATABASE_SSL", "false") == "true"
+  database_tls_options =
+    CommsCore.DatabaseTLS.repo_options!(
+      System.get_env("DATABASE_SSL", "false"),
+      System.get_env("DATABASE_SSL_CA_FILE"),
+      System.get_env("DATABASE_SSL_SERVER_NAME")
+    )
+
+  database_options =
+    [
+      url: database_url,
+      pool_size: String.to_integer(System.get_env("POOL_SIZE", "20"))
+    ] ++ database_tls_options
+
+  config :comms_core, CommsCore.Repo, database_options
 
   config :comms_core, Oban,
     queues:

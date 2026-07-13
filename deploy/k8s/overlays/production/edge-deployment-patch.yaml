@@ -31,3 +31,15 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
+          volumeMounts:
+            - name: database-ca
+              mountPath: /etc/k-comms/database-ca
+              readOnly: true
+      volumes:
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            defaultMode: 0444
+            items:
+              - key: ca.crt
+                path: ca.crt

@@ -217,6 +217,7 @@ jobs:
           ! grep -q '^kind: StatefulSet$' "$RUNNER_TEMP/k-comms-production.yaml"
           ! grep -q 'K_COMMS_PLATFORM_ROLE_MANAGEMENT_SECRET' "$RUNNER_TEMP/k-comms-staging.yaml"
           ! grep -q 'K_COMMS_PLATFORM_ROLE_MANAGEMENT_SECRET' "$RUNNER_TEMP/k-comms-production.yaml"
+          grep -q 'K_COMMS_PLATFORM_ROLE_TTL_SECONDS' "$RUNNER_TEMP/k-comms-platform-role.yaml"
           grep -q 'K_COMMS_RESTORE_VERSION_REMAP' "$RUNNER_TEMP/k-comms-attachment-restore-remap.yaml"
           grep -q 'CommsWorkers.Release.remap_restored_attachment_versions()' "$RUNNER_TEMP/k-comms-attachment-restore-remap.yaml"
           ! grep -q 'name: k-comms-bootstrap$' deploy/k8s/overlays/local-proof/acceptance-job.yaml

@@ -14,6 +14,7 @@ sessions
 socket_tickets
 password_recovery_requests
 service_accounts
+platform_role_grants
 invitations
 
 conversations
@@ -71,6 +72,15 @@ status, expiry, last-use, rotation/revocation timestamps, optimistic version,
 and timestamps. Raw `kcsa_` credentials are never persisted. Composite foreign
 keys keep tenant, user, and device ownership aligned; the credential prefix is
 globally unique and active/expiry indexes support authentication.
+
+`platform_role_grants` is a one-to-one, tenant/user-scoped authorization record
+for a human operator. Its primary key is a random per-approval identifier, and
+it stores the approved role, exact UTC expiry, and timestamps; the reason and
+approving actor remain in immutable audit evidence. Grant and renewal replace
+the row so the identifier cannot be reused by an older subject. The effective
+grant must be unexpired and its identifier/role/deadline tuple must match the
+authenticated subject. The legacy `users.platform_role` column is constrained
+to null so application rollback fails closed instead of discarding expiry.
 
 ## Required key patterns
 

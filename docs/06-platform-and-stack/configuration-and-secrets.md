@@ -13,6 +13,19 @@ restart of edge and worker deployments and a new reviewed rendered bundle.
 Database and object-storage credential rotation must be coordinated with those
 services before their consumers restart.
 
+Production database transport is authenticated, not merely encrypted.
+`DATABASE_SSL=true` requires `DATABASE_SSL_CA_FILE` to identify a readable PEM
+CA bundle and `DATABASE_SSL_SERVER_NAME` to identify the explicit DNS hostname
+covered by the managed PostgreSQL certificate. Runtime configures peer and
+hostname verification and stops before connecting if either input is absent,
+malformed, or an IP literal. The CA is non-secret trust material mounted
+read-only from the provider-composed `k-comms-database-ca` ConfigMap; it does
+not belong in `k-comms-secrets` or the container image. Keep credentials only
+in `DATABASE_URL`. Rotate the CA with an old-plus-new overlap bundle, roll every
+database-using workload, prove reconnection, and only then remove the retired
+certificate. Local and portable staging retain `DATABASE_SSL=false` and do not
+require these inputs.
+
 `k-comms-secrets` also contains the webhook-secret and push-subscription
 encryption keys and metrics
 scraper token. Optional notification and scanner credentials may use the
@@ -47,6 +60,12 @@ also stop startup unless `ALLOW_DEVELOPMENT_ADAPTERS=true` is set explicitly.
 Restricted migration, bootstrap, and platform-role eval Jobs declare
 `K_COMMS_RUNTIME_PURPOSE=one_shot`; they still validate mode names and the
 development gate but do not receive or validate unrelated provider tokens.
+They are not exempt from database TLS verification: a production one-shot Job
+must mount the same reviewed CA bundle as the long-lived workloads. Before
+apply, its provider composition must replace the fail-closed image placeholder
+with the exact approved edge/worker/migration image digest and pass the
+operation bundle beside the retained application bundle to
+`scripts/validate_production_bundle.py`.
 Long-lived edge and worker workloads default to `application`, cannot use that
 exemption in a promotion-ready bundle, and always run the full preflight.
 
@@ -120,19 +139,24 @@ management secret. Use the restricted one-shot Job under
 `deploy/k8s/operations/platform-role`, backed by a short-lived
 `k-comms-platform-role-grant` Secret. The Job maps its management secret to the
 configured verification value and matching command-scoped grant token, plus an
-explicit actor, reason, target user, and role, then invokes:
+explicit actor, reason, target user, role, and `TTL_SECONDS` from 300 through
+28,800 seconds, then invokes:
 
 ```sh
 bin/k_comms eval 'CommsCore.Release.set_platform_role("USER_UUID", "platform_operator")'
 ```
 
-Use `none` instead of `platform_operator` to revoke. The update and audit event
-commit atomically; secrets are neither audited nor printed. Delete the Job and
-its operator Secret immediately after readback. Never add either secret value
-to the ordinary runtime Secret or pod environment.
+Use `none` instead of `platform_operator` to revoke; a revoke does not require
+`TTL_SECONDS`. The time-bounded grant or revoke and audit event commit
+atomically; secrets are neither audited nor printed. The command prints the
+grant deadline for operator readback. Delete the Job and its operator Secret
+immediately afterward. Never add either secret value to the ordinary runtime
+Secret or pod environment.
 
 `K_COMMS_ALLOW_BOOTSTRAP_PLATFORM_ROLE=true` together with
 `K_COMMS_BOOTSTRAP_PLATFORM_ROLE=platform_operator` is an explicitly opt-in,
 idempotent convenience for local proof environments only. It applies only to
-the already-created one-time bootstrap owner and emits a dedicated audit event.
-Keep it disabled for staging and production bootstrap jobs.
+the already-created one-time bootstrap owner, uses the bounded
+`K_COMMS_BOOTSTRAP_PLATFORM_ROLE_TTL_SECONDS` value (eight hours by default),
+and emits a dedicated audit event. Keep it disabled for staging and production
+bootstrap jobs.

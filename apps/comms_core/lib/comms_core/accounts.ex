@@ -1,7 +1,7 @@
 defmodule CommsCore.Accounts do
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, SocketTicket, Tenant, User}
+  alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, SocketTicket, Tenant, User}
   alias CommsCore.Administration.Invitation
   alias CommsCore.Audit.AuditEvent
   alias CommsCore.Conversations.{Conversation, Membership}
@@ -11,7 +11,9 @@ defmodule CommsCore.Accounts do
 
   @session_bytes 32
   @bootstrap_lock_key 1_449_769_383
-  @platform_roles [:platform_operator, :support_operator, :security_operator]
+  @platform_roles PlatformRoleGrant.roles()
+  @platform_role_min_ttl_seconds 300
+  @platform_role_max_ttl_seconds 28_800
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
     with :ok <- validate_password(value(attrs, :password)) do
@@ -382,6 +384,7 @@ defmodule CommsCore.Accounts do
     User
     |> where([u], u.tenant_id == ^tenant_id and u.status != :deleted)
     |> order_by([u], asc: fragment("lower(?)", u.display_name))
+    |> preload(:platform_role_grant)
     |> Repo.all()
   end
 
@@ -522,7 +525,7 @@ defmodule CommsCore.Accounts do
       s.tenant_id == ^value(subject, :tenant_id) and s.user_id == ^value(subject, :user_id)
     )
     |> order_by([s], desc: s.last_used_at)
-    |> preload(:user)
+    |> preload(user: :platform_role_grant)
     |> Repo.all()
   end
 
@@ -586,7 +589,7 @@ defmodule CommsCore.Accounts do
        Session
        |> where([s], s.tenant_id == ^value(subject, :tenant_id) and s.user_id == ^user_id)
        |> order_by([s], desc: s.last_used_at)
-       |> preload(:user)
+       |> preload(user: :platform_role_grant)
        |> Repo.all()}
     else
       nil -> {:error, :not_found}
@@ -851,13 +854,16 @@ defmodule CommsCore.Accounts do
   end
 
   @doc """
-  Grants or revokes a platform role from an authenticated release/console workflow.
+  Grants or revokes a time-bounded platform role from an authenticated
+  release/console workflow.
 
   This function is intentionally separate from tenant administration changesets and
   HTTP controllers. It fails closed unless a strong management secret is configured,
   the caller supplies that secret using `:grant_token`, and explicit `:actor` and
-  `:reason` evidence is provided. The role update and audit event commit atomically.
-  Passing `nil`, `"none"`, or `"revoke"` revokes the current platform role.
+  `:reason` evidence is provided. Grants also require `:ttl_seconds` between five
+  minutes and eight hours. The grant update and audit event commit atomically.
+  Passing `nil`, `"none"`, or `"revoke"` revokes the current platform role and
+  ignores `:ttl_seconds`.
   """
   def set_platform_role_from_console(user_id, role, attrs)
       when is_binary(user_id) and is_map(attrs) do
@@ -865,25 +871,43 @@ defmodule CommsCore.Accounts do
          :ok <-
            verify_platform_role_management_secret(configured_secret, value(attrs, :grant_token)),
          {:ok, platform_role} <- normalize_platform_role(role),
+         {:ok, ttl_seconds} <- platform_role_ttl(platform_role, value(attrs, :ttl_seconds)),
          {:ok, actor} <- required_platform_audit_text(attrs, :actor, 3, 120),
          {:ok, reason} <- required_platform_audit_text(attrs, :reason, 8, 500) do
       Repo.transaction(fn ->
         user =
           Repo.one(
             from(u in User,
-              where: u.id == ^user_id and u.status == :active and u.account_type == :human,
+              where: u.id == ^user_id,
               lock: "FOR UPDATE"
             )
           ) ||
             Repo.rollback(:not_found)
 
-        before_role = user.platform_role
+        authorize_platform_role_target!(user, platform_role)
+
+        previous_grant =
+          Repo.one(
+            from(g in PlatformRoleGrant,
+              where: g.user_id == ^user.id and g.tenant_id == ^user.tenant_id,
+              lock: "FOR UPDATE"
+            )
+          )
+
+        expires_at =
+          if platform_role,
+            do: DateTime.add(now(), ttl_seconds, :second),
+            else: nil
+
+        current_grant =
+          replace_platform_role_grant!(user, previous_grant, platform_role, expires_at)
 
         updated =
           user
-          |> User.platform_role_changeset(%{platform_role: platform_role})
+          |> Ecto.Changeset.change()
           |> Ecto.Changeset.optimistic_lock(:lock_version)
           |> update_or_rollback()
+          |> with_platform_access(platform_role, expires_at)
 
         action = if is_nil(platform_role), do: "platform_role.revoke", else: "platform_role.grant"
 
@@ -898,8 +922,13 @@ defmodule CommsCore.Accounts do
             actor: actor,
             reason: reason,
             source: "release_console",
-            before: before_role,
-            after: platform_role
+            before_grant_id: previous_grant && previous_grant.id,
+            before: previous_grant && previous_grant.role,
+            before_expires_at: previous_grant && previous_grant.expires_at,
+            after_grant_id: current_grant && current_grant.id,
+            after: platform_role,
+            after_expires_at: expires_at,
+            ttl_seconds: ttl_seconds
           }
         })
         |> insert_or_rollback()
@@ -913,19 +942,33 @@ defmodule CommsCore.Accounts do
   def set_platform_role_from_console(_user_id, _role, _attrs),
     do: {:error, :invalid_platform_role_request}
 
-  def subject_for_session(%Session{} = session, request_id \\ nil) do
-    session = Repo.preload(session, :user)
+  @doc "Returns only a currently active platform role and its exact deadline."
+  def platform_access_for_user(%User{} = user) do
+    case effective_platform_role_grant(user) do
+      %PlatformRoleGrant{} = grant ->
+        public_platform_access(grant)
 
-    %{
-      tenant_id: session.tenant_id,
-      user_id: session.user_id,
-      device_id: session.device_id,
-      session_id: session.id,
-      request_id: request_id,
-      role: session.user.role,
-      platform_role: session.user.platform_role,
-      step_up_at: session.step_up_at
-    }
+      nil ->
+        empty_platform_access()
+    end
+  end
+
+  def subject_for_session(%Session{} = session, request_id \\ nil) do
+    session = Repo.preload(session, [user: :platform_role_grant], force: true)
+    platform_access = subject_platform_access(session.user)
+
+    Map.merge(
+      %{
+        tenant_id: session.tenant_id,
+        user_id: session.user_id,
+        device_id: session.device_id,
+        session_id: session.id,
+        request_id: request_id,
+        role: session.user.role,
+        step_up_at: session.step_up_at
+      },
+      platform_access
+    )
   end
 
   defp upsert_device(user, attrs) do
@@ -1243,45 +1286,61 @@ defmodule CommsCore.Accounts do
 
   defp maybe_apply_bootstrap_platform_role!(%User{} = user) do
     if Application.get_env(:comms_core, :allow_bootstrap_platform_role, false) do
-      case normalize_platform_role(Application.get_env(:comms_core, :bootstrap_platform_role)) do
-        {:ok, nil} ->
-          Repo.rollback(:invalid_bootstrap_platform_role)
+      with {:ok, role} when not is_nil(role) <-
+             normalize_platform_role(Application.get_env(:comms_core, :bootstrap_platform_role)),
+           {:ok, ttl_seconds} <-
+             platform_role_ttl(
+               role,
+               Application.get_env(
+                 :comms_core,
+                 :bootstrap_platform_role_ttl_seconds,
+                 @platform_role_max_ttl_seconds
+               )
+             ) do
+        case platform_role_grant(user.id, user.tenant_id) do
+          %PlatformRoleGrant{role: ^role} = grant ->
+            if DateTime.compare(grant.expires_at, now()) == :gt,
+              do: with_platform_access(user, grant.role, grant.expires_at),
+              else: renew_bootstrap_platform_role!(user, grant, role, ttl_seconds)
 
-        {:ok, role} when role == user.platform_role ->
-          user
-
-        {:ok, role} ->
-          updated =
-            user
-            |> User.platform_role_changeset(%{platform_role: role})
-            |> Ecto.Changeset.optimistic_lock(:lock_version)
-            |> update_or_rollback()
-
-          %AuditEvent{}
-          |> AuditEvent.changeset(%{
-            tenant_id: user.tenant_id,
-            actor_user_id: nil,
-            action: "platform_role.bootstrap_grant",
-            resource_type: "user",
-            resource_id: user.id,
-            metadata: %{
-              actor: "release_bootstrap",
-              reason: "explicit local-proof bootstrap configuration",
-              source: "local_proof",
-              before: user.platform_role,
-              after: role
-            }
-          })
-          |> insert_or_rollback()
-
-          updated
-
-        {:error, _reason} ->
-          Repo.rollback(:invalid_bootstrap_platform_role)
+          previous_grant ->
+            renew_bootstrap_platform_role!(user, previous_grant, role, ttl_seconds)
+        end
+      else
+        _ -> Repo.rollback(:invalid_bootstrap_platform_role)
       end
     else
       user
     end
+  end
+
+  defp renew_bootstrap_platform_role!(user, previous_grant, role, ttl_seconds) do
+    expires_at = DateTime.add(now(), ttl_seconds, :second)
+    current_grant = replace_platform_role_grant!(user, previous_grant, role, expires_at)
+
+    %AuditEvent{}
+    |> AuditEvent.changeset(%{
+      tenant_id: user.tenant_id,
+      actor_user_id: nil,
+      action: "platform_role.bootstrap_grant",
+      resource_type: "user",
+      resource_id: user.id,
+      metadata: %{
+        actor: "release_bootstrap",
+        reason: "explicit local-proof bootstrap configuration",
+        source: "local_proof",
+        before_grant_id: previous_grant && previous_grant.id,
+        before: previous_grant && previous_grant.role,
+        before_expires_at: previous_grant && previous_grant.expires_at,
+        after_grant_id: current_grant.id,
+        after: role,
+        after_expires_at: expires_at,
+        ttl_seconds: ttl_seconds
+      }
+    })
+    |> insert_or_rollback()
+
+    with_platform_access(user, role, expires_at)
   end
 
   defp insert_or_rollback(changeset) do
@@ -1479,9 +1538,11 @@ defmodule CommsCore.Accounts do
   defp normalize_enum(_, _), do: nil
 
   defp reject_platform_role_attribute(attrs) do
-    if Map.has_key?(attrs, :platform_role) or Map.has_key?(attrs, "platform_role"),
-      do: {:error, :platform_role_console_only},
-      else: :ok
+    if Map.has_key?(attrs, :platform_role) or Map.has_key?(attrs, "platform_role") or
+         Map.has_key?(attrs, :platform_role_expires_at) or
+         Map.has_key?(attrs, "platform_role_expires_at"),
+       do: {:error, :platform_role_console_only},
+       else: :ok
   end
 
   defp normalize_platform_role(role) when role in [nil, "", "none", "revoke"], do: {:ok, nil}
@@ -1492,6 +1553,104 @@ defmodule CommsCore.Accounts do
       normalized -> {:ok, normalized}
     end
   end
+
+  defp platform_role_ttl(nil, _value), do: {:ok, nil}
+
+  defp platform_role_ttl(_role, value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {ttl, ""} -> platform_role_ttl(:grant, ttl)
+      _ -> {:error, :invalid_platform_role_ttl}
+    end
+  end
+
+  defp platform_role_ttl(_role, value)
+       when is_integer(value) and
+              value >= @platform_role_min_ttl_seconds and
+              value <= @platform_role_max_ttl_seconds,
+       do: {:ok, value}
+
+  defp platform_role_ttl(_role, _value), do: {:error, :invalid_platform_role_ttl}
+
+  defp platform_role_grant(user_id, tenant_id) do
+    Repo.get_by(PlatformRoleGrant, user_id: user_id, tenant_id: tenant_id)
+  end
+
+  defp active_platform_role_grant(user_id, tenant_id) do
+    Repo.one(
+      from(g in PlatformRoleGrant,
+        where: g.user_id == ^user_id and g.tenant_id == ^tenant_id and g.expires_at > ^now()
+      )
+    )
+  end
+
+  defp authorize_platform_role_target!(_user, nil), do: :ok
+
+  defp authorize_platform_role_target!(%User{status: :active, account_type: :human}, _role),
+    do: :ok
+
+  defp authorize_platform_role_target!(_user, _role), do: Repo.rollback(:not_found)
+
+  defp replace_platform_role_grant!(_user, nil, nil, nil), do: nil
+
+  defp replace_platform_role_grant!(_user, %PlatformRoleGrant{} = grant, nil, nil) do
+    case Repo.delete(grant) do
+      {:ok, _grant} -> nil
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp replace_platform_role_grant!(user, previous_grant, role, expires_at) do
+    if previous_grant do
+      case Repo.delete(previous_grant) do
+        {:ok, _grant} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+
+    grant_id = Ecto.UUID.generate()
+
+    %PlatformRoleGrant{id: grant_id}
+    |> PlatformRoleGrant.changeset(%{
+      id: grant_id,
+      tenant_id: user.tenant_id,
+      user_id: user.id,
+      role: role,
+      expires_at: expires_at
+    })
+    |> insert_or_rollback()
+  end
+
+  defp with_platform_access(%User{} = user, role, expires_at) do
+    %{user | platform_role: role, platform_role_expires_at: expires_at}
+  end
+
+  defp effective_platform_role_grant(%User{platform_role_grant: %PlatformRoleGrant{} = grant}) do
+    if PlatformRoleGrant.active_at?(grant, now()), do: grant
+  end
+
+  defp effective_platform_role_grant(%User{platform_role_grant: nil}), do: nil
+
+  defp effective_platform_role_grant(%User{} = user),
+    do: active_platform_role_grant(user.id, user.tenant_id)
+
+  defp subject_platform_access(%User{} = user) do
+    case effective_platform_role_grant(user) do
+      %PlatformRoleGrant{} = grant ->
+        grant
+        |> public_platform_access()
+        |> Map.put(:platform_role_grant_id, grant.id)
+
+      nil ->
+        empty_platform_access()
+        |> Map.put(:platform_role_grant_id, nil)
+    end
+  end
+
+  defp public_platform_access(%PlatformRoleGrant{} = grant),
+    do: %{platform_role: grant.role, platform_role_expires_at: grant.expires_at}
+
+  defp empty_platform_access,
+    do: %{platform_role: nil, platform_role_expires_at: nil}
 
   defp platform_role_management_secret do
     case Application.get_env(:comms_core, :platform_role_management_secret) do

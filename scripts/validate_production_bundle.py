@@ -7,8 +7,9 @@ import base64
 import binascii
 import ipaddress
 import re
+import ssl
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 import yaml
@@ -16,26 +17,79 @@ import yaml
 
 IMAGE_DIGEST = re.compile(r"^.+@sha256:[a-f0-9]{64}$")
 PLACEHOLDER = re.compile(r"(?:\.invalid\b|CHANGE_ME|REPLACE_WITH)", re.IGNORECASE)
+DATA_PLANE_MARKER = re.compile(
+    r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
+    re.IGNORECASE,
+)
+DNS_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+    re.IGNORECASE,
+)
+LONG_LIVED_WORKLOAD_KINDS = {
+    "Deployment",
+    "StatefulSet",
+    "DaemonSet",
+    "ReplicaSet",
+    "ReplicationController",
+    "Pod",
+}
+WORKLOAD_OR_SERVICE_KINDS = LONG_LIVED_WORKLOAD_KINDS | {
+    "Job",
+    "CronJob",
+    "Service",
+}
+APPLICATION_WORKLOADS = (
+    ("Deployment", "k-comms-edge", "edge", True),
+    ("Deployment", "k-comms-worker", "worker", True),
+    ("Job", "k-comms-migrate", "migrate", False),
+)
+OPERATION_WORKLOADS = (
+    ("Job", "k-comms-platform-role", "platform-role", False),
+    (
+        "Job",
+        "k-comms-attachment-restore-remap",
+        "restore-remap",
+        False,
+    ),
+)
 
 
 def validate(path: Path) -> list[str]:
-    if not path.is_file():
-        return [f"{path}: file does not exist"]
+    return validate_paths([path])
 
-    try:
-        documents = [
-            document
-            for document in yaml.safe_load_all(path.read_text(encoding="utf-8"))
-            if document
-        ]
-    except yaml.YAMLError:
-        return [f"{path}: rendered bundle is not valid YAML"]
 
+def validate_paths(paths: list[Path]) -> list[str]:
+    documents: list[dict] = []
+    errors: list[str] = []
+
+    for path in paths:
+        if not path.is_file():
+            errors.append(f"{path}: file does not exist")
+            continue
+
+        try:
+            loaded = [
+                document
+                for document in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+                if document
+            ]
+        except (OSError, UnicodeError, yaml.YAMLError):
+            errors.append(f"{path}: rendered bundle is not valid UTF-8 YAML")
+            continue
+        documents.extend(loaded)
+
+    if errors:
+        return errors
     return validate_documents(documents)
 
 
 def validate_documents(documents: list[dict]) -> list[str]:
     errors: list[str] = []
+    if not documents or not all(isinstance(document, dict) for document in documents):
+        return ["rendered bundle: every YAML document must be a Kubernetes object"]
+
+    validate_unique_resource_identities(documents, errors)
     config = named_document(documents, "ConfigMap", "k-comms-config")
 
     if not config:
@@ -86,6 +140,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_provider(data, "ATTACHMENT_SCANNER", errors)
     validate_hosts(data.get("WEBHOOK_ALLOWED_HOSTS"), "WEBHOOK_ALLOWED_HOSTS", errors)
     validate_vapid(data.get("WEB_PUSH_VAPID_PUBLIC_KEY"), errors)
+    validate_database_tls(data, documents, errors)
 
     if public_origin:
         if data.get("PHX_HOST") != public_origin.hostname:
@@ -102,9 +157,44 @@ def validate_documents(documents: list[dict]) -> list[str]:
 
     validate_images(documents, errors)
     validate_runtime_purposes(documents, errors)
+    validate_workload_contracts(documents, errors)
+    validate_external_data_plane(documents, errors)
+    validate_capacity_controls(documents, errors)
     validate_database_egress(documents, errors)
     validate_trusted_proxy_ingress(data, documents, errors)
     return errors
+
+
+def validate_unique_resource_identities(
+    documents: list[dict], errors: list[str]
+) -> None:
+    identities: set[tuple[str, str, str, str]] = set()
+    for document in documents:
+        api_version = document.get("apiVersion")
+        kind = document.get("kind")
+        metadata = document.get("metadata")
+        if (
+            not isinstance(api_version, str)
+            or not isinstance(kind, str)
+            or not isinstance(metadata, dict)
+            or not isinstance(metadata.get("name"), str)
+        ):
+            errors.append(
+                "rendered bundle: every resource must have apiVersion, kind, and metadata.name"
+            )
+            continue
+
+        group = api_version.split("/", 1)[0] if "/" in api_version else ""
+        namespace = metadata.get("namespace", "")
+        if not isinstance(namespace, str):
+            errors.append(f"{kind} {metadata['name']}: metadata.namespace must be text")
+            continue
+        identity = (group, kind, namespace, metadata["name"])
+        if identity in identities:
+            errors.append(
+                f"{kind} {metadata['name']}: duplicate resource identity in namespace {namespace or '<cluster>'}"
+            )
+        identities.add(identity)
 
 
 def validate_https_origin(data: dict, key: str, errors: list[str]):
@@ -190,12 +280,124 @@ def validate_vapid(value, errors: list[str]) -> None:
         )
 
 
-def validate_images(documents: list[dict], errors: list[str]) -> None:
-    expected = {
+def validate_database_tls(
+    data: dict, documents: list[dict], errors: list[str]
+) -> None:
+    server_name = str(data.get("DATABASE_SSL_SERVER_NAME", "")).strip()
+    if (
+        not server_name
+        or PLACEHOLDER.search(server_name)
+        or not DNS_HOSTNAME.fullmatch(server_name)
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: DATABASE_SSL_SERVER_NAME must be a non-placeholder DNS hostname"
+        )
+
+    ca_file = str(data.get("DATABASE_SSL_CA_FILE", "")).strip()
+    ca_path = PurePosixPath(ca_file)
+    if (
+        not ca_file.startswith("/")
+        or ca_file == "/"
+        or ".." in ca_path.parts
+        or str(ca_path) != ca_file
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: DATABASE_SSL_CA_FILE must be a normalized absolute path"
+        )
+        return
+
+    ca_config = named_document(documents, "ConfigMap", "k-comms-database-ca")
+    ca_value = (ca_config or {}).get("data", {}).get("ca.crt")
+    if (
+        not ca_config
+        or not isinstance(ca_value, str)
+        or not ca_value.strip()
+        or PLACEHOLDER.search(ca_value)
+        or not _valid_pem_certificate_bundle(ca_value)
+    ):
+        errors.append(
+            "rendered bundle: ConfigMap k-comms-database-ca must contain ca.crt with a syntactically valid non-placeholder PEM certificate bundle"
+        )
+
+    tls_workloads = [
         ("Deployment", "k-comms-edge"),
         ("Deployment", "k-comms-worker"),
         ("Job", "k-comms-migrate"),
-    }
+    ]
+    tls_workloads.extend(
+        (kind, name)
+        for kind, name, _container_name, _requires_probes in OPERATION_WORKLOADS
+        if named_document(documents, kind, name)
+    )
+    for kind, name in tls_workloads:
+        document = named_document(documents, kind, name)
+        if not document:
+            continue
+        pod_spec = _pod_spec(document)
+        volumes = pod_spec.get("volumes", [])
+        ca_volumes = {
+            volume.get("name"): volume
+            for volume in volumes
+            if isinstance(volume, dict)
+            and volume.get("name")
+            and isinstance(volume.get("configMap"), dict)
+            and volume.get("configMap", {}).get("name") == "k-comms-database-ca"
+            and _config_map_volume_exposes_ca(volume.get("configMap", {}))
+        }
+        containers = pod_spec.get("containers", [])
+        mounts = containers[0].get("volumeMounts", []) if containers else []
+        matching_mount = any(
+            isinstance(mount, dict)
+            and mount.get("name") in ca_volumes
+            and mount.get("readOnly") is True
+            and _mount_exposes_ca_file(mount, ca_file)
+            for mount in mounts
+        )
+        if not ca_volumes or not matching_mount:
+            errors.append(
+                f"{kind} {name}: must mount k-comms-database-ca ca.crt read-only at DATABASE_SSL_CA_FILE"
+            )
+
+
+def _valid_pem_certificate_bundle(value: str) -> bool:
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=value)
+        return context.cert_store_stats().get("x509", 0) > 0
+    except (ssl.SSLError, ValueError):
+        return False
+
+
+def _config_map_volume_exposes_ca(config_map: dict) -> bool:
+    if config_map.get("optional") is True:
+        return False
+    items = config_map.get("items")
+    if items is None:
+        return True
+    return (
+        isinstance(items, list)
+        and len(items) == 1
+        and isinstance(items[0], dict)
+        and items[0].get("key") == "ca.crt"
+        and items[0].get("path") == "ca.crt"
+    )
+
+
+def _mount_exposes_ca_file(mount: dict, ca_file: str) -> bool:
+    mount_path = str(mount.get("mountPath", ""))
+    sub_path = mount.get("subPath")
+    if sub_path is not None:
+        return sub_path == "ca.crt" and mount_path == ca_file
+    return str(PurePosixPath(mount_path) / "ca.crt") == ca_file
+
+
+def validate_images(documents: list[dict], errors: list[str]) -> None:
+    expected = (
+        ("Deployment", "k-comms-edge"),
+        ("Deployment", "k-comms-worker"),
+        ("Job", "k-comms-migrate"),
+    )
+    immutable_images: set[str] = set()
     for kind, name in expected:
         document = named_document(documents, kind, name)
         if not document:
@@ -210,6 +412,27 @@ def validate_images(documents: list[dict], errors: list[str]) -> None:
         image = str(containers[0].get("image", "")) if containers else ""
         if not IMAGE_DIGEST.fullmatch(image):
             errors.append(f"{kind} {name}: image must use an immutable sha256 digest")
+        else:
+            immutable_images.add(image)
+
+    if len(immutable_images) > 1:
+        errors.append(
+            "Deployment edge/worker and migration Job must use the same exact immutable image reference and sha256 digest"
+        )
+
+    approved_image = next(iter(immutable_images)) if len(immutable_images) == 1 else None
+    for kind, name, _container_name, _requires_probes in OPERATION_WORKLOADS:
+        document = named_document(documents, kind, name)
+        if not document:
+            continue
+        containers = _pod_spec(document).get("containers", [])
+        image = str(containers[0].get("image", "")) if containers else ""
+        if not IMAGE_DIGEST.fullmatch(image):
+            errors.append(f"{kind} {name}: image must use an immutable sha256 digest")
+        elif approved_image is None or image != approved_image:
+            errors.append(
+                f"{kind} {name}: operation image must exactly match the approved application image"
+            )
 
 
 def validate_runtime_purposes(documents: list[dict], errors: list[str]) -> None:
@@ -236,6 +459,284 @@ def validate_runtime_purposes(documents: list[dict], errors: list[str]) -> None:
         if purpose != expected:
             errors.append(f"{kind} {name}: K_COMMS_RUNTIME_PURPOSE must be {expected}")
 
+    for document in documents:
+        kind = document.get("kind")
+        name = document.get("metadata", {}).get("name", "<unnamed>")
+        if kind not in LONG_LIVED_WORKLOAD_KINDS:
+            continue
+
+        pod_spec = _pod_spec(document)
+        containers = list(pod_spec.get("containers", [])) + list(
+            pod_spec.get("initContainers", [])
+        )
+        has_one_shot = any(
+            any(
+                item.get("name") == "K_COMMS_RUNTIME_PURPOSE"
+                and item.get("value") == "one_shot"
+                for item in container.get("env", [])
+            )
+            for container in containers
+        )
+        if has_one_shot:
+            errors.append(
+                f"{kind} {name}: long-lived workload must not use K_COMMS_RUNTIME_PURPOSE=one_shot"
+            )
+
+
+def validate_workload_contracts(documents: list[dict], errors: list[str]) -> None:
+    edge = named_document(documents, "Deployment", "k-comms-edge")
+    production_namespace = (
+        edge.get("metadata", {}).get("namespace") if edge else None
+    )
+    if not isinstance(production_namespace, str) or not production_namespace:
+        errors.append(
+            "Deployment k-comms-edge: rendered production workload must have an explicit namespace"
+        )
+        production_namespace = None
+
+    for kind, name, container_name, requires_probes in (
+        APPLICATION_WORKLOADS + OPERATION_WORKLOADS
+    ):
+        document = named_document(documents, kind, name)
+        if not document:
+            continue
+        namespace = document.get("metadata", {}).get("namespace")
+        if production_namespace and namespace != production_namespace:
+            errors.append(
+                f"{kind} {name}: namespace must match the production application namespace"
+            )
+
+        pod_spec = _pod_spec(document)
+        containers = pod_spec.get("containers")
+        if (
+            not isinstance(containers, list)
+            or len(containers) != 1
+            or not isinstance(containers[0], dict)
+            or containers[0].get("name") != container_name
+        ):
+            errors.append(
+                f"{kind} {name}: must contain exactly the intended {container_name} container"
+            )
+            continue
+
+        for extra_kind in ("initContainers", "ephemeralContainers"):
+            extras = pod_spec.get(extra_kind, [])
+            if not isinstance(extras, list) or extras:
+                errors.append(
+                    f"{kind} {name}: production workload must not contain {extra_kind}"
+                )
+
+        _validate_pod_security(kind, name, pod_spec, errors)
+        _validate_container_security(kind, name, containers[0], errors)
+        if requires_probes:
+            _validate_application_probes(kind, name, container_name, containers[0], errors)
+        elif kind == "Job" and pod_spec.get("restartPolicy") != "Never":
+            errors.append(f"Job {name}: restartPolicy must be Never")
+
+
+def _validate_pod_security(
+    kind: str, name: str, pod_spec: dict, errors: list[str]
+) -> None:
+    security = pod_spec.get("securityContext")
+    expected_security = {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "fsGroup": 10001,
+    }
+    if (
+        pod_spec.get("serviceAccountName") != "k-comms"
+        or pod_spec.get("automountServiceAccountToken") is not False
+    ):
+        errors.append(
+            f"{kind} {name}: must use service account k-comms with token automount disabled"
+        )
+    if any(pod_spec.get(field) is True for field in ("hostNetwork", "hostPID", "hostIPC")):
+        errors.append(f"{kind} {name}: host namespace sharing is forbidden")
+    if (
+        not isinstance(security, dict)
+        or any(security.get(key) != value for key, value in expected_security.items())
+        or security.get("seccompProfile") != {"type": "RuntimeDefault"}
+    ):
+        errors.append(
+            f"{kind} {name}: pod security context must enforce non-root UID/GID 10001 and RuntimeDefault seccomp"
+        )
+
+
+def _validate_container_security(
+    kind: str, name: str, container: dict, errors: list[str]
+) -> None:
+    security = container.get("securityContext")
+    capabilities = security.get("capabilities") if isinstance(security, dict) else None
+    if (
+        not isinstance(security, dict)
+        or security.get("privileged") is True
+        or security.get("allowPrivilegeEscalation") is not False
+        or security.get("readOnlyRootFilesystem") is not True
+        or not isinstance(capabilities, dict)
+        or capabilities.get("drop") != ["ALL"]
+        or bool(capabilities.get("add"))
+    ):
+        errors.append(
+            f"{kind} {name}: container must be non-privileged, read-only, and drop all capabilities"
+        )
+
+
+def _validate_application_probes(
+    kind: str,
+    name: str,
+    container_name: str,
+    container: dict,
+    errors: list[str],
+) -> None:
+    probes = {
+        probe_name: container.get(probe_name)
+        for probe_name in ("startupProbe", "readinessProbe", "livenessProbe")
+    }
+    if not all(isinstance(probe, dict) and probe for probe in probes.values()):
+        errors.append(
+            f"{kind} {name}: startup, readiness, and liveness probes are required"
+        )
+        return
+
+    if container_name == "edge":
+        expected = {
+            "startupProbe": {"path": "/health/live", "port": "http"},
+            "readinessProbe": {"path": "/health/ready", "port": "http"},
+            "livenessProbe": {"path": "/health/live", "port": "http"},
+        }
+        if any(probes[key].get("httpGet") != value for key, value in expected.items()):
+            errors.append(
+                "Deployment k-comms-edge: probes must use the retained live/ready HTTP endpoints"
+            )
+    elif any(
+        not isinstance(probe.get("exec", {}).get("command"), list)
+        or not probe.get("exec", {}).get("command")
+        for probe in probes.values()
+    ):
+        errors.append(
+            "Deployment k-comms-worker: probes must execute the release RPC health check"
+        )
+
+
+def validate_external_data_plane(documents: list[dict], errors: list[str]) -> None:
+    for document in documents:
+        kind = document.get("kind")
+        name = str(document.get("metadata", {}).get("name", "<unnamed>"))
+
+        if kind in {"StatefulSet", "PersistentVolumeClaim"}:
+            errors.append(
+                f"{kind} {name}: production bundle must not contain StatefulSets or PersistentVolumeClaims"
+            )
+
+        if kind in WORKLOAD_OR_SERVICE_KINDS and _has_data_plane_marker(document):
+            errors.append(
+                f"{kind} {name}: production bundle must not deploy in-namespace PostgreSQL or MinIO workloads/services"
+            )
+
+
+def validate_capacity_controls(documents: list[dict], errors: list[str]) -> None:
+    required_replicas = {"k-comms-edge": 3, "k-comms-worker": 2}
+
+    for name, minimum in required_replicas.items():
+        deployment = named_document(documents, "Deployment", name)
+        if not deployment:
+            continue
+
+        replicas = deployment.get("spec", {}).get("replicas")
+        if (
+            isinstance(replicas, bool)
+            or not isinstance(replicas, int)
+            or replicas < minimum
+        ):
+            errors.append(
+                f"Deployment {name}: replicas must be at least {minimum} for production"
+            )
+
+        hpa = named_document(documents, "HorizontalPodAutoscaler", name)
+        if not hpa:
+            errors.append(f"rendered bundle: missing HorizontalPodAutoscaler {name}")
+        else:
+            hpa_spec = hpa.get("spec", {})
+            expected_target = {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": name,
+            }
+            if hpa_spec.get("scaleTargetRef") != expected_target:
+                errors.append(
+                    f"HorizontalPodAutoscaler {name}: scaleTargetRef must match Deployment {name}"
+                )
+            min_replicas = hpa_spec.get("minReplicas")
+            if (
+                isinstance(min_replicas, bool)
+                or not isinstance(min_replicas, int)
+                or min_replicas < minimum
+            ):
+                errors.append(
+                    f"HorizontalPodAutoscaler {name}: minReplicas must be at least {minimum}"
+                )
+            max_replicas = hpa_spec.get("maxReplicas")
+            if (
+                isinstance(max_replicas, bool)
+                or not isinstance(max_replicas, int)
+                or not isinstance(min_replicas, int)
+                or max_replicas < min_replicas
+                or not isinstance(hpa_spec.get("metrics"), list)
+                or not hpa_spec.get("metrics")
+            ):
+                errors.append(
+                    f"HorizontalPodAutoscaler {name}: maxReplicas and metrics must define effective autoscaling"
+                )
+
+        pdb = named_document(documents, "PodDisruptionBudget", name)
+        if not pdb:
+            errors.append(f"rendered bundle: missing PodDisruptionBudget {name}")
+        else:
+            deployment_selector = deployment.get("spec", {}).get("selector")
+            pdb_spec = pdb.get("spec", {})
+            pdb_selector = pdb_spec.get("selector")
+            if (
+                not isinstance(deployment_selector, dict)
+                or not deployment_selector
+                or pdb_selector != deployment_selector
+            ):
+                errors.append(
+                    f"PodDisruptionBudget {name}: selector must exactly match Deployment {name}"
+                )
+            availability_keys = {"minAvailable", "maxUnavailable"} & set(pdb_spec)
+            if len(availability_keys) != 1:
+                errors.append(
+                    f"PodDisruptionBudget {name}: must define exactly one of minAvailable or maxUnavailable"
+                )
+            elif "minAvailable" in availability_keys:
+                available = _effective_int_or_percent(
+                    pdb_spec.get("minAvailable"), minimum
+                )
+                if available is None or available < minimum - 1:
+                    errors.append(
+                        f"PodDisruptionBudget {name}: must keep at least {minimum - 1} replicas available"
+                    )
+            else:
+                unavailable = _effective_int_or_percent(
+                    pdb_spec.get("maxUnavailable"), minimum
+                )
+                if unavailable is None or unavailable > 1:
+                    errors.append(
+                        f"PodDisruptionBudget {name}: must allow at most one unavailable replica"
+                    )
+
+
+def _effective_int_or_percent(value, total: int) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"(?:0|[1-9][0-9]?|100)%", value):
+        percentage = int(value[:-1])
+        return (percentage * total + 99) // 100
+    return None
+
 
 def validate_database_egress(documents: list[dict], errors: list[str]) -> None:
     policy = named_document(
@@ -247,15 +748,116 @@ def validate_database_egress(documents: list[dict], errors: list[str]) -> None:
         )
         return
 
-    cidrs = {
-        peer.get("ipBlock", {}).get("cidr")
-        for rule in policy.get("spec", {}).get("egress", [])
-        for peer in rule.get("to", [])
-        if peer.get("ipBlock")
+    spec = policy.get("spec", {})
+    expected_selector = {
+        "matchLabels": {"app.kubernetes.io/name": "k-comms"}
     }
-    if not cidrs or "0.0.0.0/0" in cidrs or "::/0" in cidrs:
+    if spec.get("podSelector") != expected_selector:
         errors.append(
-            "NetworkPolicy k-comms-managed-postgres-egress: database CIDR must be narrowed"
+            "NetworkPolicy k-comms-managed-postgres-egress: podSelector must exactly match k-comms application pods"
+        )
+
+    if spec.get("policyTypes") != ["Egress"]:
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: policyTypes must contain only Egress"
+        )
+
+    egress_rules = spec.get("egress")
+    if not isinstance(egress_rules, list) or not egress_rules:
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: every database destination must be an explicit valid ipBlock"
+        )
+        return
+
+    networks: set[ipaddress._BaseNetwork] = set()
+    invalid_destination = False
+    invalid_ports = False
+    unsafe_network = False
+    forbidden_broad_private = {
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+        ipaddress.ip_network("fc00::/7"),
+    }
+
+    for rule in egress_rules:
+        if not isinstance(rule, dict):
+            invalid_destination = True
+            invalid_ports = True
+            continue
+        ports = rule.get("ports")
+        if (
+            not isinstance(ports, list)
+            or len(ports) != 1
+            or not isinstance(ports[0], dict)
+            or ports[0].get("protocol") != "TCP"
+            or ports[0].get("port") != 5432
+            or set(ports[0]) != {"protocol", "port"}
+        ):
+            invalid_ports = True
+
+        destinations = rule.get("to")
+        if not isinstance(destinations, list) or not destinations:
+            invalid_destination = True
+            continue
+
+        for destination in destinations:
+            if (
+                not isinstance(destination, dict)
+                or set(destination) != {"ipBlock"}
+                or not isinstance(destination.get("ipBlock"), dict)
+                or set(destination["ipBlock"]) != {"cidr"}
+                or not isinstance(destination["ipBlock"].get("cidr"), str)
+            ):
+                invalid_destination = True
+                continue
+
+            try:
+                network = ipaddress.ip_network(
+                    destination["ipBlock"]["cidr"], strict=True
+                )
+            except (TypeError, ValueError):
+                invalid_destination = True
+                continue
+
+            networks.add(network)
+            if (
+                network.prefixlen == 0
+                or network.is_global
+                or network.is_loopback
+                or network.is_link_local
+                or network.is_multicast
+                or network.is_unspecified
+                or network.is_reserved
+                or not network.is_private
+                or network.prefixlen < (16 if network.version == 4 else 48)
+                or any(
+                    network == forbidden or network.supernet_of(forbidden)
+                    for forbidden in forbidden_broad_private
+                    if network.version == forbidden.version
+                )
+            ):
+                unsafe_network = True
+
+    if invalid_destination:
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: every database destination must be an explicit valid ipBlock"
+        )
+    if invalid_ports:
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: every egress rule must expose only TCP port 5432"
+        )
+
+    if _covers_forbidden_network(networks, forbidden_broad_private):
+        unsafe_network = True
+    if unsafe_network:
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: database CIDR must be narrowed and must not include unsafe or globally routable networks"
+        )
+
+    if _covers_address_family(networks):
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: database CIDRs must not collectively cover an address family"
         )
 
 
@@ -367,6 +969,77 @@ def validate_trusted_proxy_ingress(
         )
 
 
+def _pod_spec(document: dict) -> dict:
+    kind = document.get("kind")
+    spec = document.get("spec", {})
+    if not isinstance(spec, dict):
+        return {}
+    if kind == "Pod":
+        return spec
+    if kind == "CronJob":
+        pod_spec = (
+            spec.get("jobTemplate", {})
+            .get("spec", {})
+            .get("template", {})
+            .get("spec", {})
+        )
+    else:
+        pod_spec = spec.get("template", {}).get("spec", {})
+    return pod_spec if isinstance(pod_spec, dict) else {}
+
+
+def _has_data_plane_marker(document: dict) -> bool:
+    metadata = document.get("metadata", {})
+    spec = document.get("spec", {})
+    if not isinstance(metadata, dict) or not isinstance(spec, dict):
+        return False
+
+    signals = [str(metadata.get("name", ""))]
+    labels = metadata.get("labels", {})
+    if isinstance(labels, dict):
+        signals.extend(str(value) for value in labels.values())
+
+    selector = spec.get("selector", {})
+    if isinstance(selector, dict):
+        match_labels = selector.get("matchLabels")
+        if isinstance(match_labels, dict):
+            signals.extend(str(value) for value in match_labels.values())
+        else:
+            signals.extend(str(value) for value in selector.values())
+
+    if document.get("kind") == "Service":
+        signals.append(str(spec.get("externalName", "")))
+        for port in spec.get("ports", []):
+            if isinstance(port, dict):
+                signals.extend(
+                    (str(port.get("name", "")), str(port.get("appProtocol", "")))
+                )
+
+    template_labels = spec.get("template", {}).get("metadata", {}).get("labels", {})
+    if isinstance(template_labels, dict):
+        signals.extend(str(value) for value in template_labels.values())
+
+    pod_spec = _pod_spec(document)
+    for key in ("containers", "initContainers"):
+        for container in pod_spec.get(key, []):
+            if isinstance(container, dict):
+                signals.extend(
+                    (str(container.get("name", "")), str(container.get("image", "")))
+                )
+
+    return any(DATA_PLANE_MARKER.search(signal) for signal in signals)
+
+
+def _covers_address_family(networks: set[ipaddress._BaseNetwork]) -> bool:
+    for version in (4, 6):
+        collapsed = ipaddress.collapse_addresses(
+            network for network in networks if network.version == version
+        )
+        if any(network.prefixlen == 0 for network in collapsed):
+            return True
+    return False
+
+
 def _covers_forbidden_network(
     configured: set[ipaddress._BaseNetwork],
     forbidden: set[ipaddress._BaseNetwork],
@@ -398,10 +1071,12 @@ def named_document(documents: list[dict], kind: str, name: str) -> dict | None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: validate_production_bundle.py RENDERED_BUNDLE.yaml")
+    if len(sys.argv) < 2:
+        raise SystemExit(
+            "usage: validate_production_bundle.py RENDERED_BUNDLE.yaml [RENDERED_OPERATION_BUNDLE.yaml ...]"
+        )
 
-    errors = validate(Path(sys.argv[1]))
+    errors = validate_paths([Path(argument) for argument in sys.argv[1:]])
     if errors:
         raise SystemExit("Production promotion preflight failed:\n" + "\n".join(errors))
 
