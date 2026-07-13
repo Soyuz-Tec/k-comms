@@ -280,6 +280,50 @@ defmodule CommsCore.AccountsTest do
     assert {:error, :invalid_refresh_token} = Accounts.refresh_session(account.refresh_token)
   end
 
+  test "the previous release can insert a session without the absolute-expiry column" do
+    account = Fixtures.account_fixture()
+    session_id = Ecto.UUID.generate()
+
+    inserted_at =
+      DateTime.utc_now() |> DateTime.to_naive() |> NaiveDateTime.truncate(:microsecond)
+
+    expires_at = NaiveDateTime.add(inserted_at, 600, :second)
+
+    assert {:ok, [[true, true]]} =
+             Repo.transaction(fn ->
+               Ecto.Adapters.SQL.query!(Repo, "SET LOCAL TIME ZONE 'Asia/Kolkata'")
+
+               Ecto.Adapters.SQL.query!(
+                 Repo,
+                 """
+                 INSERT INTO sessions (
+                   id, tenant_id, user_id, device_id, refresh_token_hash,
+                   expires_at, last_used_at, inserted_at, updated_at
+                 )
+                 VALUES (
+                   $1::text::uuid, $2::text::uuid, $3::text::uuid, $4::text::uuid, $5,
+                   $6::timestamp, $7::timestamp, $7::timestamp, $7::timestamp
+                 )
+                 RETURNING
+                   absolute_expires_at =
+                     (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '30 days',
+                   absolute_expires_at > expires_at
+                 """,
+                 [
+                   session_id,
+                   account.tenant.id,
+                   account.user.id,
+                   account.device.id,
+                   :crypto.strong_rand_bytes(32),
+                   expires_at,
+                   inserted_at
+                 ]
+               ).rows
+             end)
+
+    assert %Session{absolute_expires_at: %DateTime{}} = Repo.get!(Session, session_id)
+  end
+
   test "refresh rotation cannot extend a session beyond its immutable creation lifetime" do
     restore_sliding = preserve_env(:session_ttl_seconds)
     restore_absolute = preserve_env(:session_absolute_ttl_seconds)

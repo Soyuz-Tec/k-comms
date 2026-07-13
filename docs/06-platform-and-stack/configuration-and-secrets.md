@@ -70,7 +70,13 @@ is created. Both default to 2,592,000 seconds (30 days). The resulting absolute
 deadline is stored in `sessions.absolute_expires_at` and is not recalculated;
 changing the policy affects only sessions created afterward. Explicit session,
 device, password-reset, or account revocation remains the mechanism for ending
-existing sessions early.
+existing sessions early. During the documented one-release rollback window,
+the database supplies a fixed, UTC-normalized 30-day absolute deadline only
+when a previous release omits this newly added column. Current releases always
+write the configured value explicitly; the compatibility default is not a
+second policy source. The previous binary does not enforce the new absolute
+deadline while it is active, so rollback remains a short, controlled recovery
+window followed by verified roll-forward.
 `PASSWORD_RECOVERY_TTL_SECONDS` is constrained by the application to 900–1800
 seconds. Consumed, invalidated, and expired request rows are retained for 30
 days by default (`PASSWORD_RECOVERY_RETENTION_SECONDS`) and then removed in

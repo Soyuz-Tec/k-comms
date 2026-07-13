@@ -37,6 +37,14 @@ rotation activity.
   session lookup, socket-ticket mint/consume, step-up, and database-backed
   command/event authorization for established WebSockets require that both
   deadlines remain in the future.
+- The database retains a UTC-normalized 30-day default for the
+  `sessions.absolute_expires_at` column during the supported one-release
+  rollback window. Current code always writes
+  the configured deadline explicitly; the default exists only so the previous
+  release, whose insert shape predates the column, can still create a session
+  against the expanded schema. A reconciliation migration applies the same
+  invariant to environments that received the first absolute-expiry migration
+  before this rollback path was exercised.
 
 This decision supersedes ADR-0017 only where it described invitation acceptance
 as a suspended-user reactivation path. Its transactional quota and explicit
@@ -76,5 +84,10 @@ admin-unsuspend rules remain in force.
   that value even after configuration changes, and expiry denies refresh,
   active-session lookup, step-up, database authorization, and an established
   conversation channel.
+- A previous-release-shaped raw session insert omitting
+  `absolute_expires_at` succeeds with the 30-day compatibility default, and the
+  reconciliation migration is exercised from the originally deployed
+  no-default state in a non-UTC database session. The retained-image staging
+  drill must also prove login after migration before release.
 - The web test proves the recovery email is read-only and profile submission
   sends only the display name.

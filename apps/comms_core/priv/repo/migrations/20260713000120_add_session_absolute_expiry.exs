@@ -16,6 +16,18 @@ defmodule CommsCore.Repo.Migrations.AddSessionAbsoluteExpiry do
       modify(:absolute_expires_at, :utc_datetime_usec, null: false)
     end
 
+    # Keep the immediately previous release able to create sessions during the
+    # supported rollback window. Current writers always provide their
+    # configured absolute deadline; this database default is only the
+    # compatibility path for writers that predate the column.
+    execute("""
+    ALTER TABLE sessions
+    ALTER COLUMN absolute_expires_at
+    SET DEFAULT (
+      (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + INTERVAL '30 days'
+    )
+    """)
+
     create(index(:sessions, [:absolute_expires_at]))
 
     execute("""
