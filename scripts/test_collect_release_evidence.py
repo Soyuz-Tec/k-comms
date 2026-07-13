@@ -190,6 +190,68 @@ class CollectReleaseEvidenceTest(unittest.TestCase):
                     runtime_image_id,
                 )
 
+    def test_normalizes_a_bare_windows_podman_image_id(self) -> None:
+        bare_image_id = IMAGE_ID.removeprefix("sha256:")
+        pods = pod_document()
+        for pod in pods["items"]:
+            pod["status"]["containerStatuses"][0]["imageID"] = IMAGE_ID
+
+        document = collect_release_evidence(
+            image=IMAGE,
+            namespace=NAMESPACE,
+            command_runner=FakeRunner(
+                inspected_image_id=bare_image_id,
+                pods=pods,
+            ),
+            clock=lambda: FIXED_TIME,
+            host_provider=fixed_host_summary,
+        )
+
+        self.assertEqual(document["image"]["id"], IMAGE_ID)
+
+    def test_rejects_malformed_or_nonlocal_inspected_image_ids(self) -> None:
+        bare_image_id = IMAGE_ID.removeprefix("sha256:")
+        invalid_ids = (
+            "2" * 63,
+            "2" * 65,
+            "A" * 64,
+            f" {bare_image_id}",
+            f"{bare_image_id}\n",
+            "sha512:" + "2" * 64,
+            "containerd://" + IMAGE_ID,
+            REPOSITORY_DIGEST,
+            42,
+        )
+
+        for invalid_id in invalid_ids:
+            with self.subTest(image_id=invalid_id):
+                with self.assertRaisesRegex(
+                    CollectorError, "immutable sha256 image ID"
+                ):
+                    collect_release_evidence(
+                        image=IMAGE,
+                        namespace=NAMESPACE,
+                        command_runner=FakeRunner(inspected_image_id=invalid_id),
+                        clock=lambda: FIXED_TIME,
+                        host_provider=fixed_host_summary,
+                    )
+
+    def test_rejects_a_bare_kubernetes_runtime_image_id(self) -> None:
+        pods = pod_document()
+        for pod in pods["items"]:
+            pod["status"]["containerStatuses"][0]["imageID"] = (
+                IMAGE_ID.removeprefix("sha256:")
+            )
+
+        with self.assertRaisesRegex(CollectorError, "imageID does not match"):
+            collect_release_evidence(
+                image=IMAGE,
+                namespace=NAMESPACE,
+                command_runner=FakeRunner(pods=pods),
+                clock=lambda: FIXED_TIME,
+                host_provider=fixed_host_summary,
+            )
+
     def test_rejects_a_deployment_image_mismatch(self) -> None:
         deployments = deployment_document()
         deployments["items"][1]["spec"]["template"]["spec"]["containers"][0][
@@ -576,6 +638,7 @@ class FakeRunner:
         *,
         git_status: str = "",
         image_revision: str = HEAD,
+        inspected_image_id: object = IMAGE_ID,
         extra_image_labels: dict[str, str] | None = None,
         ending_revision: str = HEAD,
         ending_status: str | None = None,
@@ -599,7 +662,7 @@ class FakeRunner:
                     {
                         "Config": {"Labels": labels},
                         "Digest": MANIFEST_DIGEST,
-                        "Id": IMAGE_ID,
+                        "Id": inspected_image_id,
                         "RepoDigests": [REPOSITORY_DIGEST],
                     }
                 ]

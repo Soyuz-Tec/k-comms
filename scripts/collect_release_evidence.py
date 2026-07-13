@@ -30,6 +30,7 @@ SCHEMA_VERSION = 1
 COMMAND_TIMEOUT_SECONDS = 60
 GIT_REVISION = re.compile(r"^[0-9a-f]{40,64}$")
 IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+BARE_IMAGE_ID = re.compile(r"^[0-9a-f]{64}$")
 REPOSITORY_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 EVIDENCE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 IMAGE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
@@ -258,8 +259,8 @@ def _collect_image(
         raise CollectorError("image inspection returned a malformed document")
 
     inspected = document[0]
-    image_id = inspected.get("Id")
-    if not isinstance(image_id, str) or not IMAGE_ID.fullmatch(image_id):
+    image_id = _normalize_inspected_image_id(inspected.get("Id"))
+    if image_id is None:
         raise CollectorError(
             "image inspection did not return an immutable sha256 image ID"
         )
@@ -824,6 +825,18 @@ def _normalize_image_identity(value: Any) -> str | None:
         return candidate
     if REPOSITORY_DIGEST.fullmatch(candidate):
         return candidate.rsplit("@", 1)[1]
+    return None
+
+
+def _normalize_inspected_image_id(value: Any) -> str | None:
+    """Normalize Docker- and Podman-shaped immutable image IDs."""
+
+    if not isinstance(value, str) or CONTROL_CHARACTER.search(value):
+        return None
+    if IMAGE_ID.fullmatch(value):
+        return value
+    if BARE_IMAGE_ID.fullmatch(value):
+        return f"sha256:{value}"
     return None
 
 
