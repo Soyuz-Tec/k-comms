@@ -1,7 +1,7 @@
 defmodule CommsCore.Messaging do
   import Ecto.Query
 
-  alias CommsCore.{Attachments, Authorization, Outbox, Repo}
+  alias CommsCore.{Attachments, Authorization, Governance, Outbox, Repo}
   alias CommsCore.Accounts.User
   alias CommsCore.Audit.AuditEvent
   alias CommsCore.Conversations.{Conversation, Membership}
@@ -169,10 +169,15 @@ defmodule CommsCore.Messaging do
 
   def delete_message(message_id, subject) do
     Repo.transaction(fn ->
-      message = locked_message(message_id, subject)
+      case Governance.authorize_message_deletion(value(subject, :tenant_id), fn ->
+             message = locked_message(message_id, subject)
 
-      case Authorization.authorize(:delete_message, subject, message) do
-        :ok ->
+             case Authorization.authorize(:delete_message, subject, message) do
+               :ok -> {:ok, message}
+               {:error, _} = error -> error
+             end
+           end) do
+        {:ok, message} ->
           updated =
             message
             |> Message.delete_changeset(%{body: nil, status: :deleted, deleted_at: now()})
@@ -247,11 +252,16 @@ defmodule CommsCore.Messaging do
         from(m in Message,
           join: membership in CommsCore.Conversations.Membership,
           on: membership.conversation_id == m.conversation_id,
+          join: conversation in Conversation,
+          on:
+            conversation.id == m.conversation_id and
+              conversation.tenant_id == m.tenant_id,
           where:
             m.tenant_id == ^value(subject, :tenant_id) and
               membership.tenant_id == ^value(subject, :tenant_id) and
               membership.user_id == ^value(subject, :user_id) and
-              is_nil(membership.left_at) and m.status == :active and
+              is_nil(membership.left_at) and is_nil(conversation.archived_at) and
+              m.status == :active and
               fragment(
                 "to_tsvector('simple', coalesce(?, '')) @@ plainto_tsquery('simple', ?)",
                 m.body,

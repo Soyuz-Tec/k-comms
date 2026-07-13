@@ -70,4 +70,50 @@ defmodule CommsCore.SecretBoxTest do
                %{tenant_id: "tenant", endpoint_id: "endpoint", version: 1}
              )
   end
+
+  test "legacy ciphertext fails closed even when a legacy key is configured" do
+    key = :binary.copy(<<3>>, 32)
+    nonce = :binary.copy(<<4>>, 12)
+    plaintext = "a-long-legacy-webhook-secret"
+
+    {ciphertext, tag} =
+      :crypto.crypto_one_time_aead(
+        :aes_256_gcm,
+        key,
+        nonce,
+        plaintext,
+        "k-comms-webhook-secret:v1",
+        16,
+        true
+      )
+
+    Application.put_env(:comms_core, :webhook_secret_encryption_key_id, "primary")
+
+    Application.put_env(:comms_core, :webhook_secret_encryption_keys, %{
+      "primary" => key,
+      "legacy" => key
+    })
+
+    assert {:error, :legacy_secret_requires_rotation} =
+             SecretBox.decrypt(
+               %{ciphertext: ciphertext, nonce: nonce, tag: tag, key_id: "legacy"},
+               %{tenant_id: "tenant-a", endpoint_id: "endpoint-a", version: 1}
+             )
+  end
+
+  test "legacy cannot be configured as the current encryption key identifier" do
+    Application.put_env(:comms_core, :webhook_secret_encryption_key_id, "legacy")
+
+    Application.put_env(:comms_core, :webhook_secret_encryption_keys, %{
+      "legacy" => :binary.copy(<<5>>, 32)
+    })
+
+    assert %{status: :unavailable, reason: :legacy_secret_encryption_key_id} = SecretBox.status()
+
+    assert {:error, :legacy_secret_encryption_key_id} =
+             SecretBox.encrypt(
+               "a-long-webhook-signing-secret",
+               %{tenant_id: "tenant-a", endpoint_id: "endpoint-a", version: 1}
+             )
+  end
 end

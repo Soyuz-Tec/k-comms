@@ -1,7 +1,7 @@
 {
   "artifact": "K-Comms MVP and staging-ready package",
   "version": "0.3.0",
-  "status": "mvp-complete-staging-package-ready",
+  "status": "implementation-complete-exact-candidate-qualification-required",
   "source_materialized": true,
   "runtime": {
     "erlang_otp": "29.0",
@@ -9,22 +9,28 @@
     "phoenix": "1.8.9",
     "node": "22"
   },
-  "file_count": 590,
-  "validation": {
-    "contracts": "passed",
-    "documentation": "passed (158 Markdown files)",
-    "web": "passed (lint, typecheck, build, dependency audit, 57 unit tests, 43 passed Playwright journeys plus 3 intentional per-project skips)",
-    "beam": "passed (format, warnings-as-errors compile, 156 backend tests, Hex audit, Sobelow clean)",
-    "qualification_runners": "passed (24 Node tests, 8 secret-validation tests, 5 production-manifest tests)",
-    "release_container": "passed (non-root, migrations, readiness, bootstrap, idempotency, replay)",
-    "object_storage": "passed (25,000,000-byte ingress acceptance, signed upload, version-bound scan workflow, verified object, quarantine controls)",
-    "kubernetes": "passed (76 strict Kubernetes 1.34 resources)",
-    "ci_security": "configured (23 GitHub Actions uses SHA-pinned; Sobelow, Trivy filesystem vulnerability/secret, IaC and image gates, and CodeQL JavaScript/TypeScript; the independently sealed exact-commit Codex Security result is separate release evidence required before promotion)",
-    "local_staging_environment": "passed (2 edge, 1 worker, 300/300 load with zero loss, pod replacement, integrated attachment restore, rollback and roll-forward)",
-    "production_environment": "not qualified (provider, managed-state, multi-zone capacity, independent security, support, and on-call gates remain)"
+  "canonical_release_evidence": {
+    "committed": false,
+    "generator": "scripts/collect_release_evidence.py",
+    "required_for_promotion": true,
+    "invariants": [
+      "clean Git HEAD exactly matches the OCI revision label",
+      "edge and worker deployments are fully converged on the inspected immutable image identity",
+      "qualification files are represented only by labels, byte sizes, and SHA-256 digests",
+      "Git state is unchanged before the evidence document is atomically written"
+    ]
   },
-  "local_qualification": {
+  "required_validation_gates": [
+    "backend format, warnings-as-errors compile, tests, Hex audit, and Sobelow",
+    "web dependency audit, lint, typecheck, unit tests, Playwright journeys, and production build",
+    "contract, documentation, secret, production-bundle, release-evidence, and qualification-runner tests",
+    "strict Kubernetes schema validation, container smoke, and image vulnerability scanning",
+    "exact-image local staging acceptance, load, replacement, rollback, roll-forward, and restore proof"
+  ],
+  "historical_local_qualification": {
+    "source_revision": "bc6ba02536b4bfb703cd5e196d2e431b690a24ad",
     "date": "2026-07-12",
+    "superseded_for_current_promotion": true,
     "messages": 300,
     "failed": 0,
     "rate_per_second": 5,
@@ -37,6 +43,10 @@
     "topology": "2 edge replicas + 1 worker replica",
     "rollback": "passed",
     "roll_forward": "passed",
-    "backup_restore": "passed (quiesced database/object restore, guarded exact-version remap, restored UI visibility, authenticated SHA-256-matching download)"
+    "backup_restore": "passed"
+  },
+  "environment_boundaries": {
+    "local_staging": "qualify every exact candidate and retain generated evidence outside the source tree",
+    "production": "not qualified; provider, managed-state, multi-zone capacity, independent security, support, on-call, compliance, license, signing, and provenance-verification gates remain"
   }
 }

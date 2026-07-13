@@ -20,6 +20,11 @@ defmodule CommsWeb.RateLimiter do
     count <= limit
   end
 
+  if Mix.env() == :test do
+    @doc false
+    def reset, do: :ets.delete_all_objects(@table)
+  end
+
   @impl true
   def init(:ok) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])

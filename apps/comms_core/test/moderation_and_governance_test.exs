@@ -275,6 +275,59 @@ defmodule CommsCore.ModerationAndGovernanceTest do
              )
   end
 
+  test "direct message deletion honors tenant, user, and conversation legal holds" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, message} =
+             Messaging.accept_message(
+               %{
+                 tenant_id: account.tenant.id,
+                 conversation_id: account.conversation.id,
+                 sender_user_id: account.user.id,
+                 sender_device_id: account.device.id,
+                 client_message_id: "direct-held-message",
+                 body: "preserve direct deletion evidence"
+               },
+               subject
+             )
+
+    hold_attrs = [
+      %{scope_type: "tenant"},
+      %{scope_type: "user", subject_user_id: account.user.id},
+      %{scope_type: "conversation", conversation_id: account.conversation.id}
+    ]
+
+    Enum.with_index(hold_attrs, 1)
+    |> Enum.each(fn {scope_attrs, index} ->
+      assert {:ok, %{hold: hold}} =
+               Governance.create_legal_hold(
+                 Map.merge(scope_attrs, %{
+                   name: "Direct deletion hold #{index}",
+                   reason: "Preserve content while direct deletion is evaluated"
+                 }),
+                 subject
+               )
+
+      assert {:error, :legal_hold_active} = Messaging.delete_message(message.id, subject)
+
+      assert {:ok, released} =
+               Governance.release_legal_hold(
+                 hold.id,
+                 %{
+                   version: hold.lock_version,
+                   release_reason: "Direct deletion regression check completed"
+                 },
+                 subject
+               )
+
+      assert released.status == :released
+    end)
+
+    assert {:ok, deleted} = Messaging.delete_message(message.id, subject)
+    assert deleted.status == :deleted
+  end
+
   defp authenticated_subject(account, user, device_name) do
     password_suffix = user.email |> String.split(["member-", "@"], trim: true) |> hd()
     password = "correct-horse-battery-#{password_suffix}"

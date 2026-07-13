@@ -217,7 +217,7 @@ defmodule CommsCore.Notifications do
   end
 
   def retry_intent(id, subject) do
-    with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
+    with :ok <- Authorization.authorize(:manage_notification_delivery, subject, %{}) do
       Repo.transaction(fn ->
         intent =
           Repo.one(

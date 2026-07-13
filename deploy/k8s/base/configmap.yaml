@@ -17,6 +17,7 @@ data:
   ALLOW_BOOTSTRAP: "false"
   ACCESS_TOKEN_TTL_SECONDS: "900"
   SESSION_TTL_SECONDS: "2592000"
+  SESSION_ABSOLUTE_TTL_SECONDS: "2592000"
   CORS_ORIGINS: https://k-comms.example.invalid
   HSTS_ENABLED: "true"
   CSP_CONNECT_SOURCES: "'self' wss://k-comms.example.invalid https://k-comms.example.invalid https://objects.example.invalid"

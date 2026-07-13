@@ -338,7 +338,8 @@ defmodule CommsCore.ServiceAccounts do
             user.account_type == :human and user.status == :active and
             tenant.status == :active and device.id == ^value(subject, :device_id) and
             is_nil(device.revoked_at) and session.id == ^value(subject, :session_id) and
-            is_nil(session.revoked_at) and session.expires_at > ^timestamp,
+            is_nil(session.revoked_at) and session.expires_at > ^timestamp and
+            session.absolute_expires_at > ^timestamp,
         select: {user, session}
       )
     )

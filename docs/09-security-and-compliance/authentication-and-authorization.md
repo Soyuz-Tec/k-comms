@@ -10,11 +10,37 @@
   minted through the authenticated REST API. Access and refresh tokens are not
   placed in handshake URLs.
 
+Human sessions combine a sliding inactivity deadline with an immutable
+creation-based deadline stored in `sessions.absolute_expires_at`. New sessions
+materialize that value from `SESSION_ABSOLUTE_TTL_SECONDS`; existing sessions
+were backfilled to 30 days after their insertion time. Refresh rotation uses the
+earlier of `now + SESSION_TTL_SECONDS` and the stored deadline. Token/session
+lookup, step-up, socket-ticket handling, and database authorization invoked by
+established WebSocket commands and intercepted events enforce both deadlines.
+Both policy values default to 30 days. Changing the absolute policy affects only
+new sessions and cannot extend or shorten a stored deadline.
+
+The account email is the configured password-recovery identity. Ordinary profile
+updates may change only the display name; a normalized same-email echo remains
+compatible, while any different email fails closed until a separately verified
+change-email workflow exists. Invitations enroll only genuinely new human
+identities. Existing active or suspended identities conflict, and reactivation
+uses the audited, versioned admin lifecycle operation without replacing the
+user's password.
+
 Password step-up updates only the current active session and expires after a
 short configured window. Legal holds, deletion approvals/cancellation,
 security-administrator actions, audit access, and privileged peer-session
 controls require an eligible role, recent step-up, and a reason where the
 operation changes state.
+
+Tenant-scoped moderation case lists/details and notification intent/attempt
+ledgers are role-restricted operational reads and do not themselves require a
+fresh password step-up. Their state-changing moderation actions, delivery
+retries, integration changes, and governance operations do. Audit reads and
+exports remain explicitly step-up protected because they expose a broader
+cross-resource evidence surface. These read and mutation policies are enforced
+in domain authorization, not only by client route visibility.
 
 Audit CSV export is tenant-filtered before its 5,000-row cap and creates an
 `audit.export` evidence record. The export pipeline quotes every cell, strips

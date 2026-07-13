@@ -280,6 +280,65 @@ defmodule CommsCore.AccountsTest do
     assert {:error, :invalid_refresh_token} = Accounts.refresh_session(account.refresh_token)
   end
 
+  test "refresh rotation cannot extend a session beyond its immutable creation lifetime" do
+    restore_sliding = preserve_env(:session_ttl_seconds)
+    restore_absolute = preserve_env(:session_absolute_ttl_seconds)
+
+    on_exit(fn ->
+      restore_sliding.()
+      restore_absolute.()
+    end)
+
+    Application.put_env(:comms_core, :session_ttl_seconds, 600)
+    Application.put_env(:comms_core, :session_absolute_ttl_seconds, 60)
+
+    account = Fixtures.account_fixture()
+    absolute_deadline = account.session.absolute_expires_at
+
+    assert DateTime.diff(absolute_deadline, account.session.inserted_at, :second) in 59..60
+
+    changed_deadline = DateTime.add(absolute_deadline, 600, :second)
+
+    refute account.session
+           |> Session.changeset(%{absolute_expires_at: changed_deadline})
+           |> Map.fetch!(:valid?)
+
+    Application.put_env(:comms_core, :session_absolute_ttl_seconds, 3_600)
+
+    from(session in Session, where: session.id == ^account.session.id)
+    |> Repo.update_all(set: [expires_at: DateTime.add(absolute_deadline, 600, :second)])
+
+    assert {:ok, refreshed} = Accounts.refresh_session(account.refresh_token)
+    assert refreshed.session.absolute_expires_at == absolute_deadline
+    assert refreshed.session.expires_at == absolute_deadline
+  end
+
+  test "absolute session expiry rejects refresh and active-session lookup" do
+    restore_sliding = preserve_env(:session_ttl_seconds)
+    restore_absolute = preserve_env(:session_absolute_ttl_seconds)
+
+    on_exit(fn ->
+      restore_sliding.()
+      restore_absolute.()
+    end)
+
+    Application.put_env(:comms_core, :session_ttl_seconds, 600)
+    Application.put_env(:comms_core, :session_absolute_ttl_seconds, 0)
+
+    account = Fixtures.account_fixture()
+    assert account.session.expires_at == account.session.absolute_expires_at
+
+    assert {:error, :session_expired} = Accounts.get_active_session(account.session.id)
+
+    assert {:error, :session_expired} =
+             Accounts.step_up(
+               %{current_password: account_fixture_password(account)},
+               Fixtures.subject(account)
+             )
+
+    assert {:error, :invalid_refresh_token} = Accounts.refresh_session(account.refresh_token)
+  end
+
   test "owners and admins create tenant-scoped users with audit evidence" do
     account = Fixtures.account_fixture()
     owner_subject = Fixtures.step_up(account)

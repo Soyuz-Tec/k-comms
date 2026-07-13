@@ -81,7 +81,9 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             errors = validate(path)
             self.assertTrue(any("BOOTSTRAP_TENANT_SLUG" in error for error in errors))
             self.assertTrue(any("BOOTSTRAP_OWNER_EMAIL" in error for error in errors))
-            self.assertTrue(any("BOOTSTRAP_OWNER_PASSWORD" in error for error in errors))
+            self.assertTrue(
+                any("BOOTSTRAP_OWNER_PASSWORD" in error for error in errors)
+            )
 
     def test_runtime_encryption_keys_match_the_aes_256_runtime_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -98,15 +100,13 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             errors = validate(path)
             self.assertTrue(
                 any(
-                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEY must be exactly 32 bytes"
-                    in error
+                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEY must be exactly 32 bytes" in error
                     for error in errors
                 )
             )
             self.assertTrue(
                 any(
-                    "WEBHOOK_SECRET_ENCRYPTION_KEY must be exactly 32 bytes"
-                    in error
+                    "WEBHOOK_SECRET_ENCRYPTION_KEY must be exactly 32 bytes" in error
                     for error in errors
                 )
             )
@@ -137,8 +137,45 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             )
 
             errors = validate(path)
-            self.assertTrue(any("duplicate key identifiers" in error for error in errors))
-            self.assertTrue(any("entries must encode exactly 32 bytes" in error for error in errors))
+            self.assertTrue(
+                any("duplicate key identifiers" in error for error in errors)
+            )
+            self.assertTrue(
+                any("entries must encode exactly 32 bytes" in error for error in errors)
+            )
+
+    def test_webhook_encryption_rejects_reserved_legacy_identifiers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime-secrets.env"
+            encoded = base64.b64encode(b"k" * 32).decode("ascii")
+            keys = RUNTIME_WITH_SINGLE_KEYS | {
+                "WEBHOOK_SECRET_ENCRYPTION_KEY_ID",
+                "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+            }
+            self.write(
+                path,
+                keys,
+                {
+                    "WEBHOOK_SECRET_ENCRYPTION_KEY_ID": "legacy",
+                    "WEBHOOK_SECRET_ENCRYPTION_KEYS": f"legacy:{encoded}",
+                },
+            )
+
+            errors = validate(path)
+            self.assertTrue(
+                any(
+                    "WEBHOOK_SECRET_ENCRYPTION_KEY_ID must not use the reserved legacy identifier"
+                    in error
+                    for error in errors
+                )
+            )
+            self.assertTrue(
+                any(
+                    "WEBHOOK_SECRET_ENCRYPTION_KEYS must not contain the reserved legacy identifier"
+                    in error
+                    for error in errors
+                )
+            )
 
     def test_security_tokens_and_release_secrets_enforce_minimum_lengths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -163,7 +200,9 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             ):
                 self.assertTrue(any(key in error for error in errors), key)
 
-    def test_staging_credentials_must_match_the_services_the_overlay_creates(self) -> None:
+    def test_staging_credentials_must_match_the_services_the_overlay_creates(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "secrets.env"
             self.write(
@@ -176,8 +215,18 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             )
 
             errors = validate(path)
-            self.assertTrue(any("POSTGRES_PASSWORD must match DATABASE_URL" in error for error in errors))
-            self.assertTrue(any("S3_SECRET_ACCESS_KEY must match MINIO_ROOT_PASSWORD" in error for error in errors))
+            self.assertTrue(
+                any(
+                    "POSTGRES_PASSWORD must match DATABASE_URL" in error
+                    for error in errors
+                )
+            )
+            self.assertTrue(
+                any(
+                    "S3_SECRET_ACCESS_KEY must match MINIO_ROOT_PASSWORD" in error
+                    for error in errors
+                )
+            )
 
     def test_errors_never_echo_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

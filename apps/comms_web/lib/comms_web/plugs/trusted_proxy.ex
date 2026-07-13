@@ -15,31 +15,35 @@ defmodule CommsWeb.Plugs.TrustedProxy do
   def init(opts), do: opts
 
   def call(%Plug.Conn{} = conn, _opts) do
+    client = client_address(conn.remote_ip, get_req_header(conn, "x-forwarded-for"))
+    %{conn | remote_ip: client}
+  end
+
+  @doc false
+  def client_address(peer_address, forwarded_values) do
     trusted_networks =
       :comms_web
       |> Application.get_env(:trusted_proxy_cidrs, [])
       |> Enum.flat_map(&parse_network/1)
 
-    if trusted?(conn.remote_ip, trusted_networks) do
-      case forwarded_chain(conn) do
+    if trusted?(peer_address, trusted_networks) do
+      case forwarded_chain(forwarded_values) do
         {:ok, addresses} ->
-          client =
-            addresses
-            |> Enum.reverse()
-            |> Enum.find(&(not trusted?(&1, trusted_networks)))
-
-          if client, do: %{conn | remote_ip: client}, else: conn
+          addresses
+          |> Enum.reverse()
+          |> Enum.find(&(not trusted?(&1, trusted_networks)))
+          |> then(&(&1 || peer_address))
 
         :error ->
-          conn
+          peer_address
       end
     else
-      conn
+      peer_address
     end
   end
 
-  defp forwarded_chain(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
+  defp forwarded_chain(forwarded_values) do
+    case forwarded_values do
       [header] ->
         addresses =
           header

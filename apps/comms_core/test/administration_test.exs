@@ -82,6 +82,104 @@ defmodule CommsCore.AdministrationTest do
     assert Repo.get!(Invitation, first.invitation.id).status == :expired
   end
 
+  test "invitations reject every existing human identity without changing its lifecycle" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    email = "existing-invitation-identity@example.test"
+    original_password = "correct-horse-existing-identity"
+
+    assert {:ok, existing} =
+             Accounts.create_user(
+               %{
+                 display_name: "Existing identity",
+                 email: email,
+                 password: original_password,
+                 role: "member"
+               },
+               subject
+             )
+
+    assert {:error, :invitation_identity_conflict} =
+             Accounts.create_invitation(
+               %{email: email, role: "member", idempotency_key: "existing-active-identity"},
+               subject
+             )
+
+    assert {:ok, suspended} =
+             Accounts.change_user(
+               existing.id,
+               %{version: existing.lock_version, status: "suspended", reason: "test lifecycle"},
+               subject
+             )
+
+    assert {:error, :invitation_identity_conflict} =
+             Accounts.create_invitation(
+               %{email: email, role: "member", idempotency_key: "existing-suspended-identity"},
+               subject
+             )
+
+    assert {:ok, reactivated} =
+             Accounts.change_user(
+               suspended.id,
+               %{
+                 version: suspended.lock_version,
+                 status: "active",
+                 reason: "audited reactivation"
+               },
+               subject
+             )
+
+    assert reactivated.status == :active
+    assert Password.verify(original_password, reactivated.password_hash)
+  end
+
+  test "invitation acceptance cannot replace or reactivate an identity created after invitation" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    email = "invitation-race-identity@example.test"
+    original_password = "correct-horse-original-identity"
+    invitation_password = "correct-horse-invitation-takeover"
+
+    assert {:ok, invitation_result} =
+             Accounts.create_invitation(
+               %{email: email, role: "admin", idempotency_key: "identity-race-invitation"},
+               subject
+             )
+
+    assert {:ok, existing} =
+             Accounts.create_user(
+               %{
+                 display_name: "Identity created separately",
+                 email: email,
+                 password: original_password,
+                 role: "member"
+               },
+               subject
+             )
+
+    assert {:ok, suspended} =
+             Accounts.change_user(
+               existing.id,
+               %{version: existing.lock_version, status: "suspended", reason: "test lifecycle"},
+               subject
+             )
+
+    assert {:error, :invitation_identity_conflict} =
+             Accounts.accept_invitation(%{
+               token: invitation_result.token,
+               display_name: "Takeover attempt",
+               password: invitation_password
+             })
+
+    unchanged = Repo.get!(CommsCore.Accounts.User, suspended.id)
+    assert unchanged.status == :suspended
+    assert unchanged.role == :member
+    assert unchanged.display_name == "Identity created separately"
+    assert Password.verify(original_password, unchanged.password_hash)
+    refute Password.verify(invitation_password, unchanged.password_hash)
+    assert Repo.get!(Invitation, invitation_result.invitation.id).status == :pending
+  end
+
   test "user lifecycle uses versions and preserves an active owner" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
@@ -181,6 +279,28 @@ defmodule CommsCore.AdministrationTest do
              Accounts.update_profile(%{display_name: "Updated Owner"}, subject)
 
     assert updated.display_name == "Updated Owner"
+
+    assert {:ok, same_email} =
+             Accounts.update_profile(
+               %{
+                 display_name: "Same Email Owner",
+                 email: "  #{String.upcase(account.user.email)}  "
+               },
+               subject
+             )
+
+    assert same_email.display_name == "Same Email Owner"
+    assert same_email.email == account.user.email
+
+    assert {:error, :email_change_requires_verification} =
+             Accounts.update_profile(
+               %{display_name: "Rejected Email Owner", email: "attacker@example.test"},
+               subject
+             )
+
+    unchanged = Repo.get!(CommsCore.Accounts.User, account.user.id)
+    assert unchanged.display_name == "Same Email Owner"
+    assert unchanged.email == account.user.email
 
     assert {:ok, _} =
              Accounts.change_password(

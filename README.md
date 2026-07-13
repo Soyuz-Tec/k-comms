@@ -4,6 +4,11 @@ K-Comms is a multi-tenant real-time communication platform built with
 Erlang/OTP, Elixir, Phoenix, PostgreSQL, React/TypeScript, durable background
 jobs, and S3-compatible object storage.
 
+The repository is qualified as a single-host local-staging package. It is not
+production qualified: real providers, managed state, multi-zone recovery,
+independent security evidence, support/on-call, compliance, licensing, image
+signing, and provenance-verification remain explicit external gates.
+
 ## Implemented 0.3.0 platform
 
 - Password sign-in and recovery, profiles, devices, session rotation, and revocation
@@ -16,6 +21,7 @@ jobs, and S3-compatible object storage.
 - Per-device browser push subscriptions, notification preferences, hardened webhooks, and scoped rotating service-account credentials
 - Separate responsive and accessible React/TypeScript user (`/app`), tenant-admin (`/admin`), and content-blind platform-operations (`/ops`) interfaces
 - Kubernetes-neutral staging and production overlays with migrations, bootstrap, TLS ingress, policies, disruption budgets, autoscaling, metrics, alerts, backup/restore, rollback, and local qualification runners
+- Revision-bound release-evidence collection that binds clean Git state, OCI metadata, deployed Kubernetes topology, and hashed qualification files without retaining secrets or evidence contents
 - Backend, browser, contract, documentation, release, manifest, container, security, load, and runtime acceptance gates
 
 Voice/video and true end-to-end encryption are explicitly deferred from this MVP.
@@ -63,9 +69,20 @@ workspace** form. Bootstrap is disabled by default in production.
 
 ```bash
 make check
+make web-check
+make contracts
+make docs-check
+make qualification-script-tests
+make compose-validate
 make build
 make kube-validate
 ```
+
+`make kube-validate` renders every maintained overlay and operations bundle;
+CI additionally applies strict pinned Kubernetes schemas. A provider-composed
+production bundle must separately pass `make production-preflight
+PRODUCTION_BUNDLE=/restricted/path/production.yaml`. The `release` target only
+builds the OCI candidate; it does not promote or deploy it.
 
 ## Staging deployment
 
@@ -87,6 +104,11 @@ pinning, migration, bootstrap, backup/restore verification, qualification,
 deployment, and rollback. See
 also `docs/12-development-guides/mvp-handoff.md` and
 `docs/09-security-and-compliance/tls-pki-certificate-lifecycle.md`.
+
+Local staging deliberately uses the `allow_all` development scanner and log
+delivery adapters behind `ALLOW_DEVELOPMENT_ADAPTERS=true`; this proves the
+workflow and degraded-state reporting, not real malware, email, push, or
+webhook-provider behavior.
 
 ## Security and licensing
 

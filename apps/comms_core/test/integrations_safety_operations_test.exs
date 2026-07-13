@@ -133,7 +133,22 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     assert delivered.status == :delivered
     assert delivered.attempt_count == 1
     assert Repo.aggregate(Attempt, :count) == 1
-    assert {:error, :already_delivered} = Notifications.retry_intent(delivered.id, subject)
+    assert {:error, :step_up_required} = Notifications.retry_intent(delivered.id, subject)
+
+    stepped_up_subject = Fixtures.step_up(account, subject)
+
+    assert {:error, :already_delivered} =
+             Notifications.retry_intent(delivered.id, stepped_up_subject)
+
+    assert {:ok, pending} =
+             Notifications.create_intent(%{
+               attrs
+               | idempotency_key: "notification-test-key-0002",
+                 payload: %{"title" => "Retry", "body" => "Retry this notification"}
+             })
+
+    assert {:ok, retried} = Notifications.retry_intent(pending.id, stepped_up_subject)
+    assert retried.status == :pending
   end
 
   test "webhook secrets are encrypted, rotation is versioned, and fanout is idempotent" do
@@ -274,7 +289,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     assert persisted.scan_status == :blocked
   end
 
-  test "notification and webhook terminal outcomes reject stale claims" do
+  test "notification stale claims are rejected and active webhook claims block destination mutation" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
 
@@ -326,11 +341,264 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
         next_attempt_at: DateTime.utc_now()
       })
 
-    {:ok, stale_delivery} = Integrations.claim_delivery(delivery.id)
+    {:ok, claimed_delivery} = Integrations.claim_delivery(delivery.id)
+
+    assert {:ok, %{url: "https://hooks.example.test/events"}} =
+             Integrations.delivery_request(claimed_delivery)
+
+    assert {:error, :conflict} =
+             Integrations.update_endpoint(
+               endpoint.id,
+               %{url: "https://hooks.example.test/changed"},
+               subject
+             )
+
+    assert {:error, :conflict} = Integrations.rotate_secret(endpoint.id, subject)
+    assert {:error, :conflict} = Integrations.disable_endpoint(endpoint.id, subject)
+
+    assert {:ok, finalized} =
+             Integrations.record_delivery(
+               claimed_delivery,
+               {:error, :permanent, :operator_finalized}
+             )
+
+    assert finalized.status == :failed
     assert {:ok, _disabled} = Integrations.disable_endpoint(endpoint.id, subject)
 
-    assert {:error, :stale_delivery_claim} = Integrations.record_delivery(stale_delivery, :ok)
+    assert {:error, :endpoint_disabled} = Integrations.delivery_request(claimed_delivery)
     assert Repo.get!(WebhookDelivery, delivery.id).status == :failed
+  end
+
+  test "URL changes terminalize queued deliveries before the new destination can materialize" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    {:ok, %{endpoint: endpoint}} =
+      Integrations.create_endpoint(
+        %{
+          name: "Destination change",
+          url: "https://hooks.example.test/original",
+          event_types: ["message.created.v1"]
+        },
+        subject
+      )
+
+    attrs = %{
+      tenant_id: account.tenant.id,
+      endpoint_id: endpoint.id,
+      event_type: "message.created.v1",
+      payload: %{"sensitive" => "queued-for-original"},
+      idempotency_key: "webhook-destination-change-0001",
+      secret_version: endpoint.secret_version,
+      status: :pending,
+      next_attempt_at: DateTime.utc_now()
+    }
+
+    assert {:ok, delivery} = Integrations.create_delivery(attrs)
+
+    assert {:ok, changed} =
+             Integrations.update_endpoint(
+               endpoint.id,
+               %{url: "https://hooks.example.test/replacement"},
+               subject
+             )
+
+    assert changed.url == "https://hooks.example.test/replacement"
+
+    terminal = Repo.get!(WebhookDelivery, delivery.id)
+    assert terminal.status == :failed
+    assert terminal.last_error_code == "endpoint_configuration_changed"
+    assert {:error, :terminal_delivery} = Integrations.claim_delivery(delivery.id)
+
+    Repo.delete_all(
+      from(job in Oban.Job,
+        where:
+          job.worker == "CommsWorkers.WebhookWorker" and
+            fragment("?->>'delivery_id' = ?", job.args, ^delivery.id)
+      )
+    )
+
+    assert {:ok, idempotent} = Integrations.create_delivery(attrs)
+    assert idempotent.id == terminal.id
+    assert idempotent.status == :failed
+
+    refute Repo.exists?(
+             from(job in Oban.Job,
+               where:
+                 job.worker == "CommsWorkers.WebhookWorker" and
+                   fragment("?->>'delivery_id' = ?", job.args, ^delivery.id)
+             )
+           )
+  end
+
+  test "fanout cannot insert a pre-change delivery after destination discovery" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    {:ok, %{endpoint: endpoint}} =
+      Integrations.create_endpoint(
+        %{
+          name: "Fanout destination race",
+          url: "https://hooks.example.test/original",
+          event_types: ["message.created.v1"]
+        },
+        subject
+      )
+
+    event =
+      %OutboxEvent{}
+      |> OutboxEvent.changeset(%{
+        tenant_id: account.tenant.id,
+        event_type: "message.created.v1",
+        aggregate_type: "message",
+        aggregate_id: Ecto.UUID.generate(),
+        payload: %{"sensitive" => "bound-to-original-destination"},
+        available_at: DateTime.utc_now()
+      })
+      |> Repo.insert!()
+
+    parent = self()
+    handler_id = {__MODULE__, :fanout_destination_race, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, test_pid ->
+                 query = Map.get(metadata, :query, "")
+
+                 if String.contains?(query, ~s(FROM "webhook_endpoints")) and
+                      String.contains?(query, ~s(JOIN "webhook_subscriptions")) do
+                   caller = self()
+                   send(test_pid, {:fanout_destination_discovered, caller})
+
+                   receive do
+                     {:continue_fanout, ^test_pid} -> :ok
+                   after
+                     5_000 -> exit(:fanout_destination_barrier_timeout)
+                   end
+                 end
+               end,
+               parent
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    enqueue_task = Task.async(fn -> Integrations.enqueue_for_event(event) end)
+    assert_receive {:fanout_destination_discovered, enqueue_pid}, 5_000
+
+    assert {:ok, changed} =
+             Integrations.update_endpoint(
+               endpoint.id,
+               %{url: "https://hooks.example.test/replacement"},
+               subject
+             )
+
+    assert changed.url == "https://hooks.example.test/replacement"
+    send(enqueue_pid, {:continue_fanout, parent})
+    assert :ok = Task.await(enqueue_task, 5_000)
+
+    terminal = Repo.get_by!(WebhookDelivery, outbox_event_id: event.id)
+    assert terminal.status == :failed
+    assert terminal.last_error_code == "endpoint_configuration_changed"
+    assert {:error, :terminal_delivery} = Integrations.claim_delivery(terminal.id)
+
+    refute Repo.exists?(
+             from(job in Oban.Job,
+               where:
+                 job.worker == "CommsWorkers.WebhookWorker" and
+                   fragment("?->>'delivery_id' = ?", job.args, ^terminal.id)
+             )
+           )
+
+    assert :ok = :telemetry.detach(handler_id)
+    assert :ok = Integrations.enqueue_for_event(event)
+    assert Repo.aggregate(WebhookDelivery, :count) == 1
+    assert Repo.get!(WebhookDelivery, terminal.id).status == :failed
+
+    assert {:ok, replayed} = Integrations.replay_delivery(terminal.id, subject)
+    assert {:ok, claimed} = Integrations.claim_delivery(replayed.id)
+
+    assert {:ok, %{url: "https://hooks.example.test/replacement"}} =
+             Integrations.delivery_request(claimed)
+  end
+
+  test "replay holds the endpoint lock until its delivery is visible to destination updates" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    {:ok, %{endpoint: endpoint}} =
+      Integrations.create_endpoint(
+        %{
+          name: "Replay destination race",
+          url: "https://hooks.example.test/original",
+          event_types: ["message.created.v1"]
+        },
+        subject
+      )
+
+    {:ok, source} =
+      Integrations.create_delivery(%{
+        tenant_id: account.tenant.id,
+        endpoint_id: endpoint.id,
+        event_type: "message.created.v1",
+        payload: %{"sensitive" => "replay-only-to-locked-destination"},
+        idempotency_key: "webhook-replay-destination-race-source",
+        secret_version: endpoint.secret_version,
+        status: :pending,
+        next_attempt_at: DateTime.utc_now()
+      })
+
+    parent = self()
+    handler_id = {__MODULE__, :replay_destination_race, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, %{handler_id: id, parent: test_pid} ->
+                 query = Map.get(metadata, :query, "")
+
+                 if String.contains?(query, ~s(FROM "webhook_endpoints")) and
+                      String.contains?(query, "FOR UPDATE") do
+                   :telemetry.detach(id)
+                   caller = self()
+                   send(test_pid, {:replay_endpoint_locked, caller})
+
+                   receive do
+                     {:continue_replay, ^test_pid} -> :ok
+                   after
+                     5_000 -> exit(:replay_destination_barrier_timeout)
+                   end
+                 end
+               end,
+               %{handler_id: handler_id, parent: parent}
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    replay_task = Task.async(fn -> Integrations.replay_delivery(source.id, subject) end)
+    assert_receive {:replay_endpoint_locked, replay_pid}, 5_000
+
+    update_task =
+      Task.async(fn ->
+        Integrations.update_endpoint(
+          endpoint.id,
+          %{url: "https://hooks.example.test/replacement"},
+          subject
+        )
+      end)
+
+    assert Task.yield(update_task, 100) == nil
+    send(replay_pid, {:continue_replay, parent})
+
+    assert {:ok, replayed} = Task.await(replay_task, 5_000)
+    assert {:ok, changed} = Task.await(update_task, 5_000)
+    assert changed.url == "https://hooks.example.test/replacement"
+
+    terminal = Repo.get!(WebhookDelivery, replayed.id)
+    assert terminal.status == :failed
+    assert terminal.last_error_code == "endpoint_configuration_changed"
   end
 
   test "tenant attachment size policy is enforced before an upload intent is issued" do

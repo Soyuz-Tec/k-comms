@@ -5,7 +5,8 @@ config :comms_core,
   authorization_adapter: CommsCore.Authorization.Database,
   notification_availability_notifier: CommsWeb.NotificationAvailabilityNotifier,
   push_delivery_status: :unavailable,
-  session_ttl_seconds: 2_592_000
+  session_ttl_seconds: 2_592_000,
+  session_absolute_ttl_seconds: 2_592_000
 
 config :comms_core, CommsCore.Repo,
   migration_primary_key: [name: :id, type: :binary_id],

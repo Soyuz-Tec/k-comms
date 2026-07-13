@@ -107,13 +107,23 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
     assert_receive {:push_delivery, _}
     assert Repo.get!(Intent, fixture.intent.id).status == :retryable
 
-    assert {:ok, retried} = Notifications.retry_intent(fixture.intent.id, fixture.owner_subject)
+    stepped_up_owner = Fixtures.step_up(fixture.owner, fixture.owner_subject)
+    assert {:ok, retried} = Notifications.retry_intent(fixture.intent.id, stepped_up_owner)
     Application.delete_env(:comms_workers, :push_test_result)
 
     assert :ok = perform(retried)
     assert_receive {:push_delivery, %{destination: %{"endpoint" => endpoint}}}
     assert endpoint == fixture.endpoint
     assert Repo.get!(Intent, fixture.intent.id).status == :delivered
+  end
+
+  test "TLS provider failures remain retryable" do
+    fixture = notification_fixture("tls-retry")
+    Application.put_env(:comms_workers, :push_test_result, {:error, :outbound_tls_error})
+
+    assert {:error, :outbound_tls_error} = perform(fixture.intent)
+    assert_receive {:push_delivery, _}
+    assert Repo.get!(Intent, fixture.intent.id).status == :retryable
   end
 
   test "revoked subscriptions fail terminally before provider invocation" do
@@ -210,6 +220,7 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
     intent = push_intent_for(event, recipient.id, subscription.id)
 
     %{
+      owner: owner,
       owner_subject: owner_subject,
       recipient_subject: recipient_subject,
       recipient_user: recipient,

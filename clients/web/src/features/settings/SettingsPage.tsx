@@ -49,8 +49,16 @@ export function SettingsPage() {
     setBusy("profile");
     setError(null);
     try {
-      const user = await api.updateProfile({ display_name: stringValue(values, "display_name"), email: stringValue(values, "email") });
-      setSession({ ...currentSession, user });
+      const user = await api.updateProfile({ display_name: stringValue(values, "display_name") });
+      setSession((latest) => {
+        if (!latest) return null;
+
+        const sameIdentity =
+          latest.tenant.id === currentSession.tenant.id &&
+          latest.user.id === currentSession.user.id;
+
+        return sameIdentity ? { ...latest, user } : latest;
+      });
       setNotice("Profile updated.");
     } catch (reason: unknown) {
       setError(errorText(reason));
@@ -151,7 +159,7 @@ export function SettingsPage() {
         <form className="settings-card" onSubmit={(event) => void updateProfile(event)}>
           <div className="card-heading"><h2>Profile</h2><span className="status-pill success">Live API</span></div>
           <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
-          <label className="field">Email address<input name="email" type="email" defaultValue={session.user.email || ""} required /></label>
+          <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">This recovery address is read-only until a separate verified email-change flow is available.</small></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
 

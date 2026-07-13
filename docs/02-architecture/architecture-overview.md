@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Status:** Draft
+**Status:** Accepted implementation baseline for K-Comms 0.3.0
 **Style:** Modular monolith with independently scalable runtime roles
 
 ## Architectural principles

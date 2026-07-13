@@ -2,9 +2,11 @@
 
 **Target:** web-first, multi-tenant communication platform
 
-**Release status:** K-Comms 0.3.0 MVP implemented and locally
-staging-qualified on 2026-07-12. Production launch remains gated by the
-environment and organizational work listed below.
+**Release status:** K-Comms 0.3.0 MVP implemented. Revision
+`bc6ba02536b4bfb703cd5e196d2e431b690a24ad` was locally staging-qualified on
+2026-07-12; every newer candidate requires its own exact-revision
+qualification. Production launch remains gated by the environment and
+organizational work listed below.
 
 ## Product surfaces
 
@@ -26,15 +28,16 @@ not share authority. Server-side authorization remains the source of truth.
 | Identity and administration | Recovery, sessions/devices, invitations, lifecycle, permission catalogue, channel administration, and last-owner safety | Role, boundary, recovery, and audit tests passed |
 | Governance and safety | Moderation, audit/export, retention, legal hold, deletion, malware scan/quarantine, and quotas | Policy and reconciliation tests passed |
 | Delivery and integrations | Email/push/in-app state, webhook endpoints/secrets/deliveries/replay, and scoped service accounts | Idempotency, SSRF, redaction, and recovery tests passed |
-| Operations package | Protected read models, telemetry, manifests, controlled actions, backup/restore, rollout, rollback, and roll-forward | Local three-node staging proof passed |
-| Local launch qualification | Accessibility/compatibility browser suite, bounded load, pod replacement, restore, rollback, and roll-forward | Staging gate passed; not a production SLO |
+| Operations package | Protected read models, telemetry, manifests, controlled actions, backup/restore, rollout, rollback, and roll-forward | Implemented; historical local three-node proof passed and must be repeated per candidate |
+| Local launch qualification | Accessibility/compatibility browser suite, bounded load, pod replacement, restore, rollback, and roll-forward | Historical revision-bound staging gate passed; not current-candidate evidence or a production SLO |
 
-The local performance gate sent 300 messages with zero failed sends, zero loss,
-ordered history, ten matching idempotency probes, 5 messages/second, p95 23.13
-ms, and p99 25.13 ms. Baseline acceptance also exercised the configured
-25,000,000-byte attachment ceiling. PostgreSQL and MinIO backup/restore, one
-edge replacement, one worker replacement, rollback compatibility, and
-roll-forward product acceptance passed with two edge replicas and one worker.
+The historical revision-bound local performance gate sent 300 messages with
+zero failed sends, zero loss, ordered history, ten matching idempotency probes,
+5 messages/second, p95 23.13 ms, and p99 25.13 ms. Baseline acceptance also
+exercised the configured 25,000,000-byte attachment ceiling. PostgreSQL and
+MinIO backup/restore, one edge replacement, one worker replacement, rollback
+compatibility, and roll-forward product acceptance passed with two edge
+replicas and one worker. These results do not promote a different Git revision.
 
 ## Production launch work
 

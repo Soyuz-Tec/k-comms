@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ipaddress
 import re
 import sys
 from pathlib import Path
@@ -22,7 +23,11 @@ def validate(path: Path) -> list[str]:
         return [f"{path}: file does not exist"]
 
     try:
-        documents = [document for document in yaml.safe_load_all(path.read_text(encoding="utf-8")) if document]
+        documents = [
+            document
+            for document in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+            if document
+        ]
     except yaml.YAMLError:
         return [f"{path}: rendered bundle is not valid YAML"]
 
@@ -48,7 +53,9 @@ def validate_documents(documents: list[dict]) -> list[str]:
     }
     for key, expected in required_values.items():
         if str(data.get(key, "")).lower() != expected:
-            errors.append(f"ConfigMap k-comms-config: {key} must be {expected} for promotion")
+            errors.append(
+                f"ConfigMap k-comms-config: {key} must be {expected} for promotion"
+            )
 
     for key in (
         "PHX_HOST",
@@ -68,7 +75,9 @@ def validate_documents(documents: list[dict]) -> list[str]:
     ):
         value = str(data.get(key, ""))
         if not value or PLACEHOLDER.search(value):
-            errors.append(f"ConfigMap k-comms-config: {key} is missing or still a placeholder")
+            errors.append(
+                f"ConfigMap k-comms-config: {key} is missing or still a placeholder"
+            )
 
     public_origin = validate_https_origin(data, "PUBLIC_APP_URL", errors)
     validate_https_origin(data, "S3_PUBLIC_ENDPOINT", errors)
@@ -80,14 +89,21 @@ def validate_documents(documents: list[dict]) -> list[str]:
 
     if public_origin:
         if data.get("PHX_HOST") != public_origin.hostname:
-            errors.append("ConfigMap k-comms-config: PHX_HOST must match PUBLIC_APP_URL")
-        cors_origins = [item.strip() for item in str(data.get("CORS_ORIGINS", "")).split(",")]
+            errors.append(
+                "ConfigMap k-comms-config: PHX_HOST must match PUBLIC_APP_URL"
+            )
+        cors_origins = [
+            item.strip() for item in str(data.get("CORS_ORIGINS", "")).split(",")
+        ]
         if public_origin.geturl().rstrip("/") not in cors_origins:
-            errors.append("ConfigMap k-comms-config: CORS_ORIGINS must include PUBLIC_APP_URL")
+            errors.append(
+                "ConfigMap k-comms-config: CORS_ORIGINS must include PUBLIC_APP_URL"
+            )
 
     validate_images(documents, errors)
     validate_runtime_purposes(documents, errors)
     validate_database_egress(documents, errors)
+    validate_trusted_proxy_ingress(data, documents, errors)
     return errors
 
 
@@ -97,7 +113,9 @@ def validate_https_origin(data: dict, key: str, errors: list[str]):
         parsed = urlsplit(str(value or ""))
         hostname = parsed.hostname
     except ValueError:
-        errors.append(f"ConfigMap k-comms-config: {key} must be an absolute HTTPS origin")
+        errors.append(
+            f"ConfigMap k-comms-config: {key} must be an absolute HTTPS origin"
+        )
         return None
     if (
         parsed.scheme != "https"
@@ -108,7 +126,9 @@ def validate_https_origin(data: dict, key: str, errors: list[str]):
         or parsed.fragment
         or parsed.path not in {"", "/"}
     ):
-        errors.append(f"ConfigMap k-comms-config: {key} must be an absolute HTTPS origin")
+        errors.append(
+            f"ConfigMap k-comms-config: {key} must be an absolute HTTPS origin"
+        )
         return None
     return parsed
 
@@ -123,7 +143,9 @@ def validate_provider(data: dict, prefix: str, errors: list[str]) -> None:
         hostname = endpoint.hostname
         port = endpoint.port
     except ValueError:
-        errors.append(f"ConfigMap k-comms-config: {endpoint_key} must be an HTTPS port-443 URL")
+        errors.append(
+            f"ConfigMap k-comms-config: {endpoint_key} must be an HTTPS port-443 URL"
+        )
         return
 
     if (
@@ -134,15 +156,25 @@ def validate_provider(data: dict, prefix: str, errors: list[str]) -> None:
         or endpoint.fragment
         or port not in {None, 443}
     ):
-        errors.append(f"ConfigMap k-comms-config: {endpoint_key} must be an HTTPS port-443 URL")
+        errors.append(
+            f"ConfigMap k-comms-config: {endpoint_key} must be an HTTPS port-443 URL"
+        )
     elif hostname.lower() not in hosts:
-        errors.append(f"ConfigMap k-comms-config: {endpoint_key} host must be present in {hosts_key}")
+        errors.append(
+            f"ConfigMap k-comms-config: {endpoint_key} host must be present in {hosts_key}"
+        )
 
 
 def validate_hosts(value, key: str, errors: list[str]) -> set[str]:
-    hosts = {item.strip().lower().rstrip(".") for item in str(value or "").split(",") if item.strip()}
+    hosts = {
+        item.strip().lower().rstrip(".")
+        for item in str(value or "").split(",")
+        if item.strip()
+    }
     if not hosts:
-        errors.append(f"ConfigMap k-comms-config: {key} must contain explicit hostnames")
+        errors.append(
+            f"ConfigMap k-comms-config: {key} must contain explicit hostnames"
+        )
     return hosts
 
 
@@ -206,9 +238,13 @@ def validate_runtime_purposes(documents: list[dict], errors: list[str]) -> None:
 
 
 def validate_database_egress(documents: list[dict], errors: list[str]) -> None:
-    policy = named_document(documents, "NetworkPolicy", "k-comms-managed-postgres-egress")
+    policy = named_document(
+        documents, "NetworkPolicy", "k-comms-managed-postgres-egress"
+    )
     if not policy:
-        errors.append("rendered bundle: missing narrowed managed PostgreSQL egress policy")
+        errors.append(
+            "rendered bundle: missing narrowed managed PostgreSQL egress policy"
+        )
         return
 
     cidrs = {
@@ -218,7 +254,135 @@ def validate_database_egress(documents: list[dict], errors: list[str]) -> None:
         if peer.get("ipBlock")
     }
     if not cidrs or "0.0.0.0/0" in cidrs or "::/0" in cidrs:
-        errors.append("NetworkPolicy k-comms-managed-postgres-egress: database CIDR must be narrowed")
+        errors.append(
+            "NetworkPolicy k-comms-managed-postgres-egress: database CIDR must be narrowed"
+        )
+
+
+def validate_trusted_proxy_ingress(
+    data: dict, documents: list[dict], errors: list[str]
+) -> None:
+    raw_cidrs = [
+        item.strip()
+        for item in str(data.get("TRUSTED_PROXY_CIDRS", "")).split(",")
+        if item.strip()
+    ]
+    trusted_cidrs: set[ipaddress._BaseNetwork] = set()
+
+    if not raw_cidrs:
+        errors.append(
+            "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS must contain provider-specific ingress ranges"
+        )
+
+    forbidden_private_defaults = {
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+    }
+    unsafe_trusted_range = False
+
+    for raw_cidr in raw_cidrs:
+        try:
+            network = ipaddress.ip_network(raw_cidr, strict=True)
+        except ValueError:
+            errors.append(
+                "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS contains an invalid network"
+            )
+            continue
+
+        if (
+            network.prefixlen == 0
+            or network.is_loopback
+            or network.is_link_local
+            or network.is_multicast
+            or any(
+                network == private_default or network.supernet_of(private_default)
+                for private_default in forbidden_private_defaults
+                if network.version == private_default.version
+            )
+        ):
+            unsafe_trusted_range = True
+        trusted_cidrs.add(network)
+
+    if _covers_forbidden_network(trusted_cidrs, forbidden_private_defaults):
+        unsafe_trusted_range = True
+    if unsafe_trusted_range:
+        errors.append(
+            "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS must not trust generic or unsafe ranges"
+        )
+
+    policy = named_document(documents, "NetworkPolicy", "k-comms-edge-ingress")
+    if not policy:
+        errors.append("rendered bundle: missing NetworkPolicy k-comms-edge-ingress")
+        return
+
+    ingress_rules = policy.get("spec", {}).get("ingress", [])
+    if not ingress_rules:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: provider ingress sources must be explicit"
+        )
+        return
+
+    policy_cidrs: set[ipaddress._BaseNetwork] = set()
+    unrestricted_rule = False
+    invalid_policy_cidr = False
+    invalid_policy_ports = False
+    for rule in ingress_rules:
+        ports = rule.get("ports")
+        if (
+            not isinstance(ports, list)
+            or len(ports) != 1
+            or not isinstance(ports[0], dict)
+            or ports[0].get("protocol") != "TCP"
+            or ports[0].get("port") != 4000
+            or set(ports[0]) != {"protocol", "port"}
+        ):
+            invalid_policy_ports = True
+
+        sources = rule.get("from")
+        if not sources:
+            unrestricted_rule = True
+            continue
+        for source in sources:
+            raw_policy_cidr = source.get("ipBlock", {}).get("cidr")
+            if not raw_policy_cidr:
+                unrestricted_rule = True
+                continue
+            try:
+                policy_cidrs.add(ipaddress.ip_network(raw_policy_cidr, strict=True))
+            except ValueError:
+                invalid_policy_cidr = True
+
+    if unrestricted_rule or invalid_policy_cidr:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: every source must be an explicit valid ipBlock"
+        )
+    if invalid_policy_ports:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: every ingress rule must expose only TCP port 4000"
+        )
+    if policy_cidrs != trusted_cidrs:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: source CIDRs must exactly match TRUSTED_PROXY_CIDRS"
+        )
+
+
+def _covers_forbidden_network(
+    configured: set[ipaddress._BaseNetwork],
+    forbidden: set[ipaddress._BaseNetwork],
+) -> bool:
+    for forbidden_network in forbidden:
+        collapsed = ipaddress.collapse_addresses(
+            network
+            for network in configured
+            if network.version == forbidden_network.version
+        )
+        if any(
+            network == forbidden_network or network.supernet_of(forbidden_network)
+            for network in collapsed
+        ):
+            return True
+    return False
 
 
 def named_document(documents: list[dict], kind: str, name: str) -> dict | None:

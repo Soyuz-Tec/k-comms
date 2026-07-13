@@ -101,6 +101,12 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
              ConversationChannel.handle_out("membership.changed.v1", %{}, socket)
 
     assert {:stop, :unauthorized, ^socket} =
+             ConversationChannel.handle_out("conversation.updated.v1", %{}, socket)
+
+    assert {:stop, :unauthorized, ^socket} =
+             ConversationChannel.handle_out("conversation.archived.v1", %{}, socket)
+
+    assert {:stop, :unauthorized, ^socket} =
              ConversationChannel.handle_out("presence_diff", %{}, socket)
 
     assert {:stop, :unauthorized, ^socket} =
@@ -180,5 +186,37 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
 
     assert_broadcast("typing.v1", %{user_id: user_id, state: "started"})
     assert user_id == account.user.id
+  end
+
+  test "an established channel stops authorizing after the stored absolute session deadline" do
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+    Application.put_env(:comms_core, :authorization_adapter, CommsCore.Authorization.Database)
+    previous_ttl = Application.fetch_env!(:comms_core, :session_absolute_ttl_seconds)
+    Application.put_env(:comms_core, :session_absolute_ttl_seconds, 2)
+
+    on_exit(fn ->
+      Application.put_env(:comms_core, :session_absolute_ttl_seconds, previous_ttl)
+    end)
+
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    socket =
+      CommsWeb.UserSocket
+      |> socket("user:#{account.user.id}", subject)
+
+    assert {:ok, _reply, established_socket} =
+             subscribe_and_join(
+               socket,
+               ConversationChannel,
+               "conversation:#{account.conversation.id}",
+               %{}
+             )
+
+    Process.sleep(2_100)
+
+    assert {:stop, :unauthorized, {:error, %{reason: "forbidden"}}, ^established_socket} =
+             ConversationChannel.handle_in("typing.start", %{}, established_socket)
   end
 end

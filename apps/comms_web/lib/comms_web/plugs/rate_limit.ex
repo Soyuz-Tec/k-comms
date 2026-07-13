@@ -36,6 +36,17 @@ defmodule CommsWeb.Plugs.RateLimit do
 
   defp client_key(conn, :authentication_ip), do: {:authentication_ip, peer(conn)}
 
+  defp client_key(conn, :service_authentication_ip),
+    do: {:service_authentication_ip, peer(conn)}
+
+  defp client_key(conn, :password_verification_ip),
+    do: {:password_verification_ip, peer(conn)}
+
+  defp client_key(conn, :password_verification_identity) do
+    user_id = conn.assigns[:current_subject] && conn.assigns.current_subject.user_id
+    {:password_verification_identity, user_id || peer(conn)}
+  end
+
   defp client_key(conn, _), do: {:ip, peer(conn)}
 
   defp peer(%Plug.Conn{remote_ip: remote_ip}), do: remote_ip |> :inet.ntoa() |> to_string()

@@ -70,7 +70,7 @@ defmodule CommsCore.AdmissionQuotasTest do
              create_member(service_subject, "blocked-after-service")
   end
 
-  test "direct creation, invitation acceptance, and admin unsuspend share one active identity limit" do
+  test "direct creation, invitation acceptance, and audited admin unsuspend share one active identity limit" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
     settings = set_limits!(subject, %{max_active_users: 3})
@@ -107,7 +107,7 @@ defmodule CommsCore.AdmissionQuotasTest do
 
     assert Repo.get!(Invitation, invitation_result.invitation.id).status == :pending
 
-    assert {:ok, reactivation_invitation} =
+    assert {:error, :invitation_identity_conflict} =
              Accounts.create_invitation(
                %{
                  email: suspended.email,
@@ -117,17 +117,6 @@ defmodule CommsCore.AdmissionQuotasTest do
                subject
              )
 
-    reactivation_attrs = %{
-      token: reactivation_invitation.token,
-      display_name: "Reactivated member",
-      password: "correct-horse-reactivated-member"
-    }
-
-    assert {:error, :active_user_quota_exceeded} =
-             Accounts.accept_invitation(reactivation_attrs)
-
-    assert Repo.get!(Invitation, reactivation_invitation.invitation.id).status == :pending
-
     assert {:error, :active_user_quota_exceeded} =
              Accounts.change_user(
                suspended.id,
@@ -136,7 +125,18 @@ defmodule CommsCore.AdmissionQuotasTest do
              )
 
     set_limits!(subject, %{max_active_users: 2})
-    assert {:ok, reactivated} = Accounts.accept_invitation(reactivation_attrs)
+
+    assert {:ok, reactivated} =
+             Accounts.change_user(
+               suspended.id,
+               %{
+                 version: suspended.lock_version,
+                 status: "active",
+                 reason: "Audited admin reactivation"
+               },
+               subject
+             )
+
     assert reactivated.id == suspended.id
     assert reactivated.status == :active
     assert reactivated.lock_version == suspended.lock_version + 1

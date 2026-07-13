@@ -14,10 +14,15 @@ import type { Session } from "../types";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "";
 
+export type SessionUpdate =
+  | Session
+  | null
+  | ((current: Session | null) => Session | null);
+
 interface SessionContextValue {
   api: ApiClient;
   session: Session | null;
-  setSession: (session: Session | null) => void;
+  setSession: (update: SessionUpdate) => void;
   logout: () => Promise<void>;
 }
 
@@ -27,8 +32,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, updateSession] = useState<Session | null>(() => loadStoredSession());
   const sessionRef = useRef(session);
 
-  const setSession = useCallback((next: Session | null) => {
+  const setSession = useCallback((update: SessionUpdate) => {
     const previous = sessionRef.current;
+    const next = typeof update === "function" ? update(previous) : update;
     if (!next && previous) clearDrafts(previous.tenant.id, previous.user.id);
     sessionRef.current = next;
     storeSession(next);

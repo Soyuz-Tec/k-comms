@@ -33,6 +33,7 @@ test("admin creates, rotates, and revokes a scoped bot with one-time credential 
 
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device, capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 } } }));
+  await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/admin/tenant", (route) => {

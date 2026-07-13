@@ -40,6 +40,15 @@ if config_env() == :prod do
   public_app_uri = URI.parse(public_app_url)
   recovery_signing_key = System.fetch_env!("PASSWORD_RECOVERY_SIGNING_KEY")
 
+  webhook_secret_encryption_key_id =
+    System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY_ID", "primary")
+
+  webhook_secret_encryption_keys =
+    parse_keyring.(
+      System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEYS"),
+      "WEBHOOK_SECRET_ENCRYPTION_KEYS"
+    )
+
   unless runtime_purpose in ["application", "one_shot"] do
     raise "K_COMMS_RUNTIME_PURPOSE must be application or one_shot"
   end
@@ -52,6 +61,15 @@ if config_env() == :prod do
 
   if byte_size(recovery_signing_key) < 32 do
     raise "PASSWORD_RECOVERY_SIGNING_KEY must contain at least 32 bytes"
+  end
+
+  if webhook_secret_encryption_key_id == "legacy" do
+    raise "WEBHOOK_SECRET_ENCRYPTION_KEY_ID must not use the reserved legacy identifier"
+  end
+
+  if is_map(webhook_secret_encryption_keys) and
+       Map.has_key?(webhook_secret_encryption_keys, "legacy") do
+    raise "WEBHOOK_SECRET_ENCRYPTION_KEYS must not contain the reserved legacy identifier"
   end
 
   topologies =
@@ -69,6 +87,8 @@ if config_env() == :prod do
   config :comms_core,
     cluster_topologies: topologies,
     session_ttl_seconds: String.to_integer(System.get_env("SESSION_TTL_SECONDS", "2592000")),
+    session_absolute_ttl_seconds:
+      String.to_integer(System.get_env("SESSION_ABSOLUTE_TTL_SECONDS", "2592000")),
     password_recovery_signing_key: recovery_signing_key,
     password_recovery_ttl_seconds:
       String.to_integer(System.get_env("PASSWORD_RECOVERY_TTL_SECONDS", "1800")),
@@ -84,13 +104,8 @@ if config_env() == :prod do
       System.get_env("K_COMMS_ALLOW_BOOTSTRAP_PLATFORM_ROLE", "false") == "true",
     bootstrap_platform_role: System.get_env("K_COMMS_BOOTSTRAP_PLATFORM_ROLE"),
     webhook_secret_encryption_key: System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY"),
-    webhook_secret_encryption_key_id:
-      System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY_ID", "primary"),
-    webhook_secret_encryption_keys:
-      parse_keyring.(
-        System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEYS"),
-        "WEBHOOK_SECRET_ENCRYPTION_KEYS"
-      ),
+    webhook_secret_encryption_key_id: webhook_secret_encryption_key_id,
+    webhook_secret_encryption_keys: webhook_secret_encryption_keys,
     push_subscription_encryption_key: System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY"),
     push_subscription_encryption_key_id:
       System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID", "primary"),

@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: k-comms-config
 data:
+  # Replace with the exact ingress-controller source range(s), never a generic
+  # RFC1918 block. Keep this identical to the NetworkPolicy ipBlock below.
+  TRUSTED_PROXY_CIDRS: 10.42.7.0/24
   NOTIFICATION_PROVIDER_MODE: http
   NOTIFICATION_PROVIDER_ENDPOINT: https://notifications.example.invalid/v1/deliver
   NOTIFICATION_PROVIDER_NAME: approved-provider
@@ -18,3 +21,16 @@ data:
   WEBHOOK_PROVIDER_MODE: http
   WEBHOOK_ALLOWED_HOSTS: hooks.customer-a.example,hooks.customer-b.example
   WEBHOOK_TIMEOUT_MS: "10000"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-edge-ingress
+spec:
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.7.0/24
+      ports:
+        - protocol: TCP
+          port: 4000

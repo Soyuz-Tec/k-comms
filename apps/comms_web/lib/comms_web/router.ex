@@ -20,8 +20,21 @@ defmodule CommsWeb.Router do
 
   pipeline :service_api do
     plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :service_authentication_ip)
     plug(CommsWeb.Plugs.AuthenticateService)
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :identity)
+  end
+
+  pipeline :password_verification_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :password_verification_ip)
+    plug(CommsWeb.Plugs.Authenticate)
+
+    plug(CommsWeb.Plugs.RateLimit,
+      limit: 5,
+      window: 60,
+      scope: :password_verification_identity
+    )
   end
 
   pipeline :metrics_api do
@@ -60,8 +73,6 @@ defmodule CommsWeb.Router do
 
     get("/me", MeController, :show)
     patch("/me/profile", ProfileController, :update)
-    put("/me/password", ProfileController, :password)
-    post("/me/step-up", ProfileController, :step_up)
     post("/socket-tickets", SocketTicketController, :create)
     get("/me/devices", ProfileController, :devices)
     delete("/me/devices/:id", ProfileController, :revoke_device)
@@ -159,6 +170,13 @@ defmodule CommsWeb.Router do
     get("/ops", OpsController, :show)
     post("/ops/retry", OpsController, :retry)
     get("/platform/ops", OpsController, :platform)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:password_verification_api)
+
+    put("/me/password", ProfileController, :password)
+    post("/me/step-up", ProfileController, :step_up)
   end
 
   scope "/api/v1/service", CommsWeb do

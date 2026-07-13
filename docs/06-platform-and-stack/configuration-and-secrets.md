@@ -27,6 +27,17 @@ encryption key, the independent 32-byte push-subscription encryption key,
 metrics bearer token, database credentials, release cookie,
 object-storage credentials, and one-time webhook signing secrets are secret.
 Rotation requires a rollout plus delivery/quarantine reconciliation evidence.
+The webhook key ID `legacy` is permanently reserved for pre-context-bound
+ciphertext and is rejected in the active key ID, keyring, application startup,
+and deployment-secret validator. Rotate every such row before applying the
+context-bound-secret migration. The migration fails while a legacy version is
+current or unretired, or while any legacy delivery remains `delivering`.
+Quiesce the prior worker Deployment and terminate it before administratively
+clearing an abandoned claim; claim age alone is insufficient for an older
+slow-drip transport. The migration takes write-conflicting locks before
+checking, then removes retired legacy ciphertext and terminally marks its other
+outstanding deliveries rather than retaining a globally replayable
+compatibility path.
 Runtime startup accepts only the documented provider modes. HTTP notification
 and scanner modes require a complete HTTPS endpoint, token, provider name, and
 an allowlist containing the endpoint host. Webhook HTTP mode requires at least
@@ -53,6 +64,13 @@ Password recovery requires a dedicated, random, at-least-32-byte
 `PASSWORD_RECOVERY_SIGNING_KEY`; it must not reuse the Phoenix, webhook, or
 database secrets. `PUBLIC_APP_URL` is the browser-visible application origin
 and must be an absolute HTTPS URL outside development and test.
+`SESSION_TTL_SECONDS` bounds sliding refresh activity, while
+`SESSION_ABSOLUTE_TTL_SECONDS` supplies the total-lifetime policy when a session
+is created. Both default to 2,592,000 seconds (30 days). The resulting absolute
+deadline is stored in `sessions.absolute_expires_at` and is not recalculated;
+changing the policy affects only sessions created afterward. Explicit session,
+device, password-reset, or account revocation remains the mechanism for ending
+existing sessions early.
 `PASSWORD_RECOVERY_TTL_SECONDS` is constrained by the application to 900–1800
 seconds. Consumed, invalidated, and expired request rows are retained for 30
 days by default (`PASSWORD_RECOVERY_RETENTION_SECONDS`) and then removed in
@@ -71,9 +89,11 @@ is defense in depth and does not replace account and IP rate limits.
 whose forwarded client address may be trusted. Keep it empty unless the
 deployed ingress ranges are known and reviewed. Requests from other peers and
 malformed forwarding chains fail closed to the direct peer address. The
-production overlay supplies private-network examples, but the promotion owner
-must replace or narrow them to the selected provider topology and qualify its
-globally distributed edge/rate-limit semantics under load.
+provider-neutral production overlay keeps it empty and denies edge ingress.
+The provider composition must supply narrow ingress-controller CIDRs and exact
+matching `k-comms-edge-ingress` NetworkPolicy `ipBlock` sources; promotion
+preflight rejects generic RFC1918 or mismatched ranges. Qualify real-address
+propagation and globally distributed rate-limit semantics under load.
 
 Run `scripts/validate_staging_secrets.py` before creating Kubernetes Secrets.
 It validates required one-of encryption keys/keyrings, key sizes, metrics and

@@ -8,7 +8,7 @@ defmodule CommsCore.Integrations.WebhookSecret do
     field(:ciphertext, :binary, redact: true)
     field(:nonce, :binary, redact: true)
     field(:tag, :binary, redact: true)
-    field(:key_id, :string, default: "legacy")
+    field(:key_id, :string)
     field(:retired_at, :utc_datetime_usec)
     timestamps(updated_at: false)
   end
@@ -33,6 +33,7 @@ defmodule CommsCore.Integrations.WebhookSecret do
     |> validate_binary_size(:tag, exact: 16)
     |> unique_constraint([:endpoint_id, :version])
     |> check_constraint(:nonce, name: :webhook_secret_versions_crypto_shape)
+    |> check_constraint(:key_id, name: :webhook_secret_versions_context_bound_key)
     |> foreign_key_constraint(:endpoint_id,
       name: :webhook_secret_versions_tenant_endpoint_id_fk
     )

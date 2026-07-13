@@ -110,7 +110,9 @@ def validate(path: Path) -> list[str]:
         elif value != value.strip():
             errors.append(f"{path}:{number}: {key} has leading or trailing whitespace")
         elif contains_placeholder(value):
-            errors.append(f"{path}:{number}: {key} still contains an example placeholder")
+            errors.append(
+                f"{path}:{number}: {key} still contains an example placeholder"
+            )
 
     if not values:
         errors.append(f"{path}: no secret values found")
@@ -137,13 +139,19 @@ def validate(path: Path) -> list[str]:
             )
         if key in KEYRING_KEYS:
             errors.extend(validate_keyring(path, number, key, value))
+        if key == "WEBHOOK_SECRET_ENCRYPTION_KEY_ID" and value == "legacy":
+            errors.append(
+                f"{path}:{number}: {key} must not use the reserved legacy identifier"
+            )
         if key in MINIMUM_BYTES and len(value.encode("utf-8")) < MINIMUM_BYTES[key]:
             errors.append(
                 f"{path}:{number}: {key} must contain at least {MINIMUM_BYTES[key]} bytes"
             )
 
     if is_runtime_file(path) and semantically_validatable(values.get("DATABASE_URL")):
-        errors.extend(validate_database_url(path, lines["DATABASE_URL"], values["DATABASE_URL"]))
+        errors.extend(
+            validate_database_url(path, lines["DATABASE_URL"], values["DATABASE_URL"])
+        )
 
     if path.name.lower() in {"secrets.env", "secrets.env.example"}:
         errors.extend(validate_staging_relationships(path, values, lines))
@@ -178,6 +186,10 @@ def validate_keyring(path: Path, number: int, key: str, value: str) -> list[str]
             errors.append(f"{path}:{number}: {key} contains an invalid key identifier")
             continue
         key_id, encoded = parts
+        if key == "WEBHOOK_SECRET_ENCRYPTION_KEYS" and key_id == "legacy":
+            errors.append(
+                f"{path}:{number}: {key} must not contain the reserved legacy identifier"
+            )
         if key_id in seen_ids:
             errors.append(f"{path}:{number}: {key} contains duplicate key identifiers")
         seen_ids.add(key_id)
@@ -186,7 +198,9 @@ def validate_keyring(path: Path, number: int, key: str, value: str) -> list[str]
         except (binascii.Error, ValueError):
             decoded = b""
         if len(decoded) != 32:
-            errors.append(f"{path}:{number}: {key} entries must encode exactly 32 bytes")
+            errors.append(
+                f"{path}:{number}: {key} entries must encode exactly 32 bytes"
+            )
 
     return errors
 
@@ -274,7 +288,11 @@ def validate_bootstrap_identity(
 ) -> list[str]:
     errors: list[str] = []
     checks = (
-        ("BOOTSTRAP_TENANT_NAME", lambda value: 2 <= len(value) <= 120, "2 to 120 characters"),
+        (
+            "BOOTSTRAP_TENANT_NAME",
+            lambda value: 2 <= len(value) <= 120,
+            "2 to 120 characters",
+        ),
         (
             "BOOTSTRAP_TENANT_SLUG",
             lambda value: 2 <= len(value) <= 80 and bool(TENANT_SLUG.fullmatch(value)),

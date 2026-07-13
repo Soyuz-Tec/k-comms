@@ -3,6 +3,7 @@ defmodule CommsCore.MessagingTest do
 
   alias CommsCore.Audit.AuditEvent
   alias CommsCore.Administration
+  alias CommsCore.Conversations
   alias CommsCore.Conversations.Membership
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Messaging
@@ -189,6 +190,37 @@ defmodule CommsCore.MessagingTest do
     assert {:ok, deleted} = Messaging.delete_message(message.id, subject)
     assert deleted.status == :deleted
     assert is_nil(deleted.body)
+  end
+
+  test "search returns active conversation messages and excludes archived conversations" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, message} =
+             Messaging.accept_message(
+               %{
+                 tenant_id: account.tenant.id,
+                 conversation_id: account.conversation.id,
+                 sender_user_id: account.user.id,
+                 sender_device_id: account.device.id,
+                 client_message_id: "archived-search-message",
+                 body: "archived search boundary token"
+               },
+               subject
+             )
+
+    assert {:ok, active_results} = Messaging.search("boundary token", subject)
+    assert Enum.any?(active_results, &(&1.id == message.id))
+
+    assert {:ok, _archived} =
+             Conversations.archive(
+               account.conversation.id,
+               %{version: account.conversation.lock_version},
+               subject
+             )
+
+    assert {:ok, archived_results} = Messaging.search("boundary token", subject)
+    refute Enum.any?(archived_results, &(&1.id == message.id))
   end
 
   test "tenant edit-window policy is enforced for message authors" do

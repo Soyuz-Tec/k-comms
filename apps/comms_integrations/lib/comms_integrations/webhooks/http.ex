@@ -1,6 +1,24 @@
 defmodule CommsIntegrations.Webhooks.Http do
   @behaviour CommsIntegrations.Webhooks
 
+  @transient_transport_errors [
+    :outbound_dns_unavailable,
+    :outbound_timeout,
+    :outbound_transport_error,
+    :outbound_tls_error
+  ]
+
+  @destination_policy_errors [
+    :outbound_https_required,
+    :outbound_host_required,
+    :outbound_credentials_forbidden,
+    :outbound_fragment_forbidden,
+    :outbound_port_not_allowed,
+    :outbound_host_not_allowed,
+    :outbound_ip_literal_forbidden,
+    :outbound_private_address_forbidden
+  ]
+
   @impl true
   def deliver(payload) when is_map(payload) do
     config = request_config()
@@ -18,27 +36,23 @@ defmodule CommsIntegrations.Webhooks.Http do
            ) do
       response(status)
     else
-      {:error, reason} when reason in [:outbound_dns_unavailable] ->
-        {:error, reason}
-
-      {:error, reason}
-      when reason in [
-             :outbound_https_required,
-             :outbound_host_required,
-             :outbound_credentials_forbidden,
-             :outbound_fragment_forbidden,
-             :outbound_port_not_allowed,
-             :outbound_host_not_allowed,
-             :outbound_ip_literal_forbidden,
-             :outbound_private_address_forbidden
-           ] ->
-        {:error, :permanent, :webhook_destination_not_allowed}
-
-      {:error, _} = error ->
+      {:error, :permanent, _reason} = error ->
         error
 
+      {:error, reason} when reason in @transient_transport_errors ->
+        {:error, reason}
+
+      {:error, {:webhook_status, _status}} = error ->
+        error
+
+      {:error, reason} when reason in @destination_policy_errors ->
+        {:error, :permanent, :webhook_destination_not_allowed}
+
+      {:error, reason} ->
+        {:error, :permanent, reason}
+
       _ ->
-        {:error, :webhook_transport_error}
+        {:error, :permanent, :webhook_transport_error}
     end
   end
 

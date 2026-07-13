@@ -227,7 +227,7 @@ export class ApiClient {
     return this.request("/api/v1/me");
   }
 
-  updateProfile(input: { display_name: string; email: string }): Promise<User> {
+  updateProfile(input: { display_name: string }): Promise<User> {
     return this.request<DataResponse<User>>("/api/v1/me/profile", {
       method: "PATCH",
       body: JSON.stringify(input)

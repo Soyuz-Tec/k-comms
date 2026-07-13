@@ -36,6 +36,23 @@ defmodule CommsCore.AuthorizationDatabaseTest do
     assert {:error, :forbidden} = Authorization.authorize(:send_message, subject, resource)
   end
 
+  test "authorization rejects a session after its stored absolute deadline" do
+    previous = Application.get_env(:comms_core, :session_absolute_ttl_seconds)
+
+    on_exit(fn ->
+      Application.put_env(:comms_core, :session_absolute_ttl_seconds, previous)
+    end)
+
+    Application.put_env(:comms_core, :session_absolute_ttl_seconds, 0)
+
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    resource = %{id: account.conversation.id}
+
+    assert account.session.expires_at == account.session.absolute_expires_at
+    assert {:error, :forbidden} = Authorization.authorize(:send_message, subject, resource)
+  end
+
   test "revocation and membership removal deny every conversation command" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)

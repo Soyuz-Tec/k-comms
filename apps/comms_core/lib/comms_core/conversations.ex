@@ -406,7 +406,7 @@ defmodule CommsCore.Conversations do
 
         timestamp = now()
 
-        membership =
+        {membership, changed?} =
           case Repo.one(
                  from(m in Membership,
                    where:
@@ -416,6 +416,8 @@ defmodule CommsCore.Conversations do
                  )
                ) do
             nil ->
+              authorize_ownership_change!(nil, assigned_role, subject, conversation)
+
               quota_ok!(
                 AdmissionQuotas.ensure_conversation_member_capacity(
                   conversation.tenant_id,
@@ -434,14 +436,25 @@ defmodule CommsCore.Conversations do
                 last_read_sequence: 0
               })
               |> insert_or_rollback()
+              |> then(&{&1, true})
 
             %Membership{left_at: nil} = membership ->
-              membership
-              |> Membership.changeset(%{role: assigned_role})
-              |> Ecto.Changeset.optimistic_lock(:lock_version)
-              |> update_or_rollback()
+              authorize_ownership_change!(
+                membership.role,
+                assigned_role,
+                subject,
+                conversation
+              )
+
+              if membership.role == assigned_role do
+                {membership, false}
+              else
+                Repo.rollback(:version_required)
+              end
 
             membership ->
+              authorize_ownership_change!(nil, assigned_role, subject, conversation)
+
               quota_ok!(
                 AdmissionQuotas.ensure_conversation_member_capacity(
                   conversation.tenant_id,
@@ -457,13 +470,16 @@ defmodule CommsCore.Conversations do
               })
               |> Ecto.Changeset.optimistic_lock(:lock_version)
               |> update_or_rollback()
+              |> then(&{&1, true})
           end
 
-        insert_event(conversation, "membership.changed.v1", subject, %{
-          user_id: user_id,
-          action: "added",
-          role: assigned_role
-        })
+        if changed? do
+          insert_event(conversation, "membership.changed.v1", subject, %{
+            user_id: user_id,
+            action: "added",
+            role: assigned_role
+          })
+        end
 
         membership
       end)
@@ -489,6 +505,7 @@ defmodule CommsCore.Conversations do
           ) || Repo.rollback(:not_found)
 
         if membership.left_at, do: Repo.rollback(:not_found)
+        authorize_ownership_change!(membership.role, nil, subject, conversation)
         if membership.lock_version != expected_version, do: Repo.rollback(:stale_version)
         ensure_conversation_owner_remains!(membership)
 
@@ -530,6 +547,7 @@ defmodule CommsCore.Conversations do
             )
           ) || Repo.rollback(:not_found)
 
+        authorize_ownership_change!(membership.role, role, subject, conversation)
         if membership.lock_version != expected_version, do: Repo.rollback(:stale_version)
 
         if membership.role == :owner and role != :owner,
@@ -783,6 +801,14 @@ defmodule CommsCore.Conversations do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp authorize_ownership_change!(current_role, requested_role, subject, conversation)
+       when current_role == :owner or requested_role == :owner do
+    authorize_in_transaction!(:manage_conversation_ownership, subject, conversation)
+  end
+
+  defp authorize_ownership_change!(_current_role, _requested_role, _subject, _conversation),
+    do: :ok
 
   defp ensure_conversation_owner_remains!(%Membership{role: :owner} = membership) do
     remaining =

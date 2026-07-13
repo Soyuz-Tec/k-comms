@@ -30,6 +30,9 @@ defmodule CommsWorkers.WebhookWorker do
       {:error, :endpoint_disabled} ->
         {:discard, :endpoint_disabled}
 
+      {:error, :terminal_delivery} ->
+        {:discard, :terminal_delivery}
+
       {:error, :not_claimable} ->
         {:snooze, 30}
 
@@ -41,19 +44,26 @@ defmodule CommsWorkers.WebhookWorker do
   def perform(_), do: {:discard, :delivery_id_required}
 
   defp record_internal_failure(delivery, reason) do
-    result = {:error, safe_reason(reason)}
+    result = internal_failure_result(reason)
 
     case Integrations.record_delivery(delivery, result) do
-      {:ok, _updated} -> {:error, safe_reason(reason)}
+      {:ok, _updated} -> worker_result(result)
       {:error, :stale_delivery_claim} -> :ok
       {:error, record_reason} -> {:error, safe_reason(record_reason)}
     end
   end
 
-  defp worker_result(:ok), do: :ok
-  defp worker_result({:ok, _}), do: :ok
-  defp worker_result({:error, :permanent, reason}), do: {:discard, safe_reason(reason)}
-  defp worker_result({:error, reason}), do: {:error, safe_reason(reason)}
+  @doc false
+  def internal_failure_result(:legacy_secret_requires_rotation),
+    do: {:error, :permanent, :legacy_secret_requires_rotation}
+
+  def internal_failure_result(reason), do: {:error, safe_reason(reason)}
+
+  @doc false
+  def worker_result(:ok), do: :ok
+  def worker_result({:ok, _}), do: :ok
+  def worker_result({:error, :permanent, reason}), do: {:discard, safe_reason(reason)}
+  def worker_result({:error, reason}), do: {:error, safe_reason(reason)}
   defp safe_reason(reason) when is_atom(reason), do: reason
   defp safe_reason({kind, status}) when is_atom(kind) and is_integer(status), do: {kind, status}
   defp safe_reason(_), do: :provider_error

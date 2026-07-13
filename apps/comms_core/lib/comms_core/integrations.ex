@@ -96,6 +96,14 @@ defmodule CommsCore.Integrations do
         previous_url = endpoint.url
         status = normalize_status(value(attrs, :status), endpoint.status)
         disabled_at = if status == :disabled, do: endpoint.disabled_at || now(), else: nil
+        requested_url = value(attrs, :url)
+
+        destination_change? =
+          status == :disabled or (is_binary(requested_url) and requested_url != previous_url)
+
+        if destination_change? and active_delivery_in_progress?(endpoint) do
+          Repo.rollback(:conflict)
+        end
 
         endpoint =
           endpoint
@@ -143,6 +151,11 @@ defmodule CommsCore.Integrations do
          secret <- generate_secret() do
       Repo.transaction(fn ->
         endpoint = locked_endpoint!(id, subject)
+
+        if active_delivery_in_progress?(endpoint) do
+          Repo.rollback(:conflict)
+        end
+
         version = endpoint.secret_version + 1
 
         encrypted =
@@ -189,20 +202,8 @@ defmodule CommsCore.Integrations do
       |> Repo.all()
 
     Enum.reduce_while(endpoints, :ok, fn endpoint, :ok ->
-      attrs = %{
-        tenant_id: event.tenant_id,
-        endpoint_id: endpoint.id,
-        outbox_event_id: event.id,
-        event_type: event.event_type,
-        payload: event_payload(event),
-        idempotency_key: "outbox:#{event.id}:endpoint:#{endpoint.id}",
-        secret_version: endpoint.secret_version,
-        status: :pending,
-        next_attempt_at: now()
-      }
-
-      case create_delivery(attrs) do
-        {:ok, _delivery} -> {:cont, :ok}
+      case enqueue_event_delivery(event, endpoint) do
+        :ok -> {:cont, :ok}
         {:error, _} = error -> {:halt, error}
       end
     end)
@@ -211,7 +212,7 @@ defmodule CommsCore.Integrations do
   def create_delivery(attrs) when is_map(attrs) do
     changeset = WebhookDelivery.changeset(%WebhookDelivery{}, attrs)
 
-    case Repo.insert(changeset) do
+    case insert_delivery(changeset) do
       {:error, changeset} ->
         if conflict?(changeset, :idempotency_key) do
           delivery =
@@ -226,26 +227,41 @@ defmodule CommsCore.Integrations do
         end
 
       {:ok, %WebhookDelivery{} = delivery} ->
-        with :ok <- enqueue_job(delivery), do: {:ok, delivery}
+        with :ok <- maybe_enqueue_delivery(delivery), do: {:ok, delivery}
+    end
+  end
+
+  defp insert_delivery(changeset) do
+    if Repo.in_transaction?() do
+      Repo.insert(changeset, mode: :savepoint)
+    else
+      Repo.insert(changeset)
     end
   end
 
   def claim_delivery(id) when is_binary(id) do
     Repo.transaction(fn ->
+      reference = Repo.get(WebhookDelivery, id) || Repo.rollback(:not_found)
+
+      endpoint =
+        Repo.one(
+          from(endpoint in WebhookEndpoint,
+            where:
+              endpoint.id == ^reference.endpoint_id and endpoint.tenant_id == ^reference.tenant_id,
+            lock: "FOR UPDATE"
+          )
+        ) || Repo.rollback(:not_found)
+
       delivery =
-        from(delivery in WebhookDelivery,
-          join: endpoint in WebhookEndpoint,
-          on: endpoint.id == delivery.endpoint_id and endpoint.tenant_id == delivery.tenant_id,
-          where: delivery.id == ^id,
-          lock: "FOR UPDATE",
-          preload: [endpoint: endpoint]
-        )
-        |> Repo.one()
+        Repo.one(from(delivery in WebhookDelivery, where: delivery.id == ^id, lock: "FOR UPDATE")) ||
+          Repo.rollback(:not_found)
 
       cond do
-        is_nil(delivery) -> Repo.rollback(:not_found)
+        delivery.endpoint_id != endpoint.id -> Repo.rollback(:not_found)
+        delivery.tenant_id != endpoint.tenant_id -> Repo.rollback(:not_found)
         delivery.status == :delivered -> {:already_delivered, delivery}
-        delivery.endpoint.status != :active -> Repo.rollback(:endpoint_disabled)
+        delivery.status == :failed -> Repo.rollback(:terminal_delivery)
+        endpoint.status != :active -> Repo.rollback(:endpoint_disabled)
         claimable?(delivery) -> update_claim!(delivery)
         true -> Repo.rollback(:not_claimable)
       end
@@ -253,50 +269,36 @@ defmodule CommsCore.Integrations do
     |> unwrap_transaction()
   end
 
-  def delivery_request(%WebhookDelivery{} = delivery) do
-    endpoint =
-      case delivery.endpoint do
-        %WebhookEndpoint{} = endpoint ->
-          endpoint
-
-        _ ->
-          Repo.get_by(WebhookEndpoint,
-            id: delivery.endpoint_id,
-            tenant_id: delivery.tenant_id
+  def delivery_request(%WebhookDelivery{} = claimed) do
+    Repo.transaction(fn ->
+      endpoint =
+        Repo.one(
+          from(endpoint in WebhookEndpoint,
+            where:
+              endpoint.id == ^claimed.endpoint_id and endpoint.tenant_id == ^claimed.tenant_id,
+            lock: "FOR UPDATE"
           )
-      end
+        ) || Repo.rollback(:webhook_endpoint_unavailable)
 
-    with %WebhookEndpoint{} <- endpoint,
-         %WebhookSecret{} = secret <-
-           Repo.get_by(WebhookSecret,
-             tenant_id: delivery.tenant_id,
-             endpoint_id: delivery.endpoint_id,
-             version: delivery.secret_version
-           ),
-         {:ok, plaintext} <-
-           SecretBox.decrypt(
-             %{
-               ciphertext: secret.ciphertext,
-               nonce: secret.nonce,
-               tag: secret.tag,
-               key_id: secret.key_id
-             },
-             secret_context(delivery, delivery.secret_version)
-           ) do
-      {:ok,
-       %{
-         url: endpoint.url,
-         secret: plaintext,
-         body: delivery.payload,
-         event_type: delivery.event_type,
-         delivery_id: delivery.id,
-         idempotency_key: delivery.idempotency_key
-       }}
-    else
-      nil -> {:error, :webhook_secret_unavailable}
-      {:error, _} = error -> error
-      _ -> {:error, :webhook_endpoint_unavailable}
-    end
+      delivery =
+        Repo.one(
+          from(delivery in WebhookDelivery,
+            where: delivery.id == ^claimed.id,
+            lock: "FOR UPDATE"
+          )
+        ) || Repo.rollback(:not_found)
+
+      cond do
+        delivery.tenant_id != endpoint.tenant_id -> Repo.rollback(:stale_delivery_claim)
+        delivery.endpoint_id != endpoint.id -> Repo.rollback(:stale_delivery_claim)
+        delivery.tenant_id != claimed.tenant_id -> Repo.rollback(:stale_delivery_claim)
+        delivery.endpoint_id != claimed.endpoint_id -> Repo.rollback(:stale_delivery_claim)
+        endpoint.status != :active -> Repo.rollback(:endpoint_disabled)
+        not current_claim?(delivery, claimed) -> Repo.rollback(:stale_delivery_claim)
+        true -> materialize_delivery_request!(delivery, endpoint)
+      end
+    end)
+    |> unwrap_transaction()
   end
 
   def record_delivery(%WebhookDelivery{} = delivery, result) do
@@ -334,36 +336,130 @@ defmodule CommsCore.Integrations do
   end
 
   def replay_delivery(id, subject) do
-    with :ok <- authorize_manage(subject),
-         %WebhookDelivery{} = source <-
-           Repo.get_by(WebhookDelivery, id: id, tenant_id: value(subject, :tenant_id)),
-         %WebhookEndpoint{status: :active} = endpoint <-
-           Repo.get_by(WebhookEndpoint,
-             id: source.endpoint_id,
-             tenant_id: value(subject, :tenant_id)
-           ),
-         {:ok, delivery} <-
-           create_delivery(%{
-             tenant_id: source.tenant_id,
-             endpoint_id: source.endpoint_id,
-             outbox_event_id: source.outbox_event_id,
-             event_type: source.event_type,
-             payload: source.payload,
-             idempotency_key: "replay:#{source.id}:#{Ecto.UUID.generate()}",
-             secret_version: endpoint.secret_version,
-             status: :pending,
-             next_attempt_at: now()
-           }) do
-      audit!(subject, "webhook_delivery.replayed", "webhook_delivery", delivery.id, %{
-        source_delivery_id: source.id,
-        endpoint_id: source.endpoint_id
-      })
+    with :ok <- authorize_manage(subject) do
+      tenant_id = value(subject, :tenant_id)
 
-      {:ok, delivery}
-    else
-      nil -> {:error, :not_found}
-      %WebhookEndpoint{} -> {:error, :endpoint_disabled}
-      {:error, _} = error -> error
+      case Repo.get_by(WebhookDelivery, id: id, tenant_id: tenant_id) do
+        nil ->
+          {:error, :not_found}
+
+        reference ->
+          Repo.transaction(fn ->
+            endpoint =
+              Repo.one(
+                from(endpoint in WebhookEndpoint,
+                  where:
+                    endpoint.id == ^reference.endpoint_id and endpoint.tenant_id == ^tenant_id,
+                  lock: "FOR UPDATE"
+                )
+              ) || Repo.rollback(:not_found)
+
+            if endpoint.status != :active, do: Repo.rollback(:endpoint_disabled)
+
+            source =
+              Repo.one(
+                from(delivery in WebhookDelivery,
+                  where:
+                    delivery.id == ^id and delivery.tenant_id == ^tenant_id and
+                      delivery.endpoint_id == ^endpoint.id,
+                  lock: "FOR UPDATE"
+                )
+              ) || Repo.rollback(:not_found)
+
+            delivery =
+              create_delivery(%{
+                tenant_id: source.tenant_id,
+                endpoint_id: source.endpoint_id,
+                outbox_event_id: source.outbox_event_id,
+                event_type: source.event_type,
+                payload: source.payload,
+                idempotency_key: "replay:#{source.id}:#{Ecto.UUID.generate()}",
+                secret_version: endpoint.secret_version,
+                status: :pending,
+                next_attempt_at: now()
+              })
+              |> unwrap_or_rollback()
+
+            audit!(subject, "webhook_delivery.replayed", "webhook_delivery", delivery.id, %{
+              source_delivery_id: source.id,
+              endpoint_id: source.endpoint_id
+            })
+
+            delivery
+          end)
+          |> unwrap_transaction()
+      end
+    end
+  end
+
+  defp enqueue_event_delivery(%OutboxEvent{} = event, %WebhookEndpoint{} = expected_endpoint) do
+    Repo.transaction(fn ->
+      endpoint =
+        Repo.one(
+          from(endpoint in WebhookEndpoint,
+            where:
+              endpoint.id == ^expected_endpoint.id and endpoint.tenant_id == ^event.tenant_id,
+            lock: "FOR UPDATE"
+          )
+        )
+
+      case endpoint_delivery_disposition(endpoint, expected_endpoint, event.event_type) do
+        :skip ->
+          :ok
+
+        {:create, status, secret_version, error_code} ->
+          create_delivery(%{
+            tenant_id: event.tenant_id,
+            endpoint_id: endpoint.id,
+            outbox_event_id: event.id,
+            event_type: event.event_type,
+            payload: event_payload(event),
+            idempotency_key: "outbox:#{event.id}:endpoint:#{endpoint.id}",
+            secret_version: secret_version,
+            status: status,
+            next_attempt_at: now(),
+            last_error_code: error_code
+          })
+          |> case do
+            {:ok, _delivery} -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp endpoint_delivery_disposition(nil, _expected_endpoint, _event_type), do: :skip
+
+  defp endpoint_delivery_disposition(endpoint, expected_endpoint, event_type) do
+    subscribed? =
+      Repo.exists?(
+        from(subscription in WebhookSubscription,
+          where:
+            subscription.endpoint_id == ^endpoint.id and
+              subscription.tenant_id == ^endpoint.tenant_id and
+              subscription.event_type == ^event_type
+        )
+      )
+
+    cond do
+      endpoint.status != :active ->
+        {:create, :failed, expected_endpoint.secret_version, "endpoint_disabled"}
+
+      endpoint.url != expected_endpoint.url ->
+        {:create, :failed, expected_endpoint.secret_version, "endpoint_configuration_changed"}
+
+      endpoint.secret_version != expected_endpoint.secret_version ->
+        {:create, :failed, expected_endpoint.secret_version, "endpoint_secret_rotated"}
+
+      not subscribed? ->
+        {:create, :failed, expected_endpoint.secret_version, "endpoint_subscription_changed"}
+
+      true ->
+        {:create, :pending, endpoint.secret_version, nil}
     end
   end
 
@@ -409,6 +505,19 @@ defmodule CommsCore.Integrations do
         last_error_code: reason,
         updated_at: now()
       ]
+    )
+  end
+
+  defp active_delivery_in_progress?(endpoint) do
+    cutoff = DateTime.add(now(), -@claim_timeout_seconds, :second)
+
+    Repo.exists?(
+      from(delivery in WebhookDelivery,
+        where:
+          delivery.endpoint_id == ^endpoint.id and delivery.tenant_id == ^endpoint.tenant_id and
+            delivery.status == :delivering and not is_nil(delivery.claimed_at) and
+            delivery.claimed_at > ^cutoff
+      )
     )
   end
 
@@ -499,7 +608,10 @@ defmodule CommsCore.Integrations do
     end
   end
 
-  defp maybe_enqueue_delivery(%WebhookDelivery{status: :delivered}), do: :ok
+  defp maybe_enqueue_delivery(%WebhookDelivery{status: status})
+       when status in [:delivered, :failed],
+       do: :ok
+
   defp maybe_enqueue_delivery(delivery), do: enqueue_job(delivery)
 
   defp claimable?(delivery) do
@@ -510,7 +622,7 @@ defmodule CommsCore.Integrations do
       is_nil(delivery.claimed_at) or
         DateTime.diff(now(), delivery.claimed_at, :second) >= @claim_timeout_seconds
 
-    (delivery.status in [:pending, :retryable, :failed] and due) or
+    (delivery.status in [:pending, :retryable] and due) or
       (delivery.status == :delivering and stale)
   end
 
@@ -523,6 +635,36 @@ defmodule CommsCore.Integrations do
       claim_token: Ecto.UUID.generate()
     })
     |> Repo.update!()
+  end
+
+  defp materialize_delivery_request!(%WebhookDelivery{} = delivery, %WebhookEndpoint{} = endpoint) do
+    secret =
+      Repo.get_by(WebhookSecret,
+        tenant_id: delivery.tenant_id,
+        endpoint_id: delivery.endpoint_id,
+        version: delivery.secret_version
+      ) || Repo.rollback(:webhook_secret_unavailable)
+
+    plaintext =
+      SecretBox.decrypt(
+        %{
+          ciphertext: secret.ciphertext,
+          nonce: secret.nonce,
+          tag: secret.tag,
+          key_id: secret.key_id
+        },
+        secret_context(delivery, delivery.secret_version)
+      )
+      |> unwrap_or_rollback()
+
+    %{
+      url: endpoint.url,
+      secret: plaintext,
+      body: delivery.payload,
+      event_type: delivery.event_type,
+      delivery_id: delivery.id,
+      idempotency_key: delivery.idempotency_key
+    }
   end
 
   defp delivery_result_attrs(result, attempt_count, completed_at) do

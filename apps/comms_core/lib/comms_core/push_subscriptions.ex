@@ -11,6 +11,8 @@ defmodule CommsCore.PushSubscriptions do
   @subscription_format_version 1
   @max_endpoint_bytes 2_048
   @max_expiration_seconds 10 * 365 * 24 * 60 * 60
+  @max_active_subscriptions_per_device 5
+  @max_active_subscriptions_per_user 10
   @terminal_statuses [:revoked, :expired, :stale]
 
   def status do
@@ -73,12 +75,18 @@ defmodule CommsCore.PushSubscriptions do
          %{status: :available} <- status(),
          {:ok, normalized} <- normalize_subscription(attrs) do
       Repo.transaction(fn ->
+        lock_capacity!(subject)
         lock_endpoint!(normalized.endpoint_hash)
         ensure_active_identity!(subject)
+        expire_due(value(subject, :tenant_id), value(subject, :user_id), nil)
 
         case Repo.get_by(PushSubscription, endpoint_hash: normalized.endpoint_hash) do
-          nil -> insert_subscription!(normalized, subject)
-          %PushSubscription{} = existing -> register_existing!(existing, normalized, subject)
+          nil ->
+            ensure_capacity!(subject)
+            insert_subscription!(normalized, subject)
+
+          %PushSubscription{} = existing ->
+            register_existing!(existing, normalized, subject)
         end
       end)
       |> unwrap_transaction()
@@ -151,6 +159,7 @@ defmodule CommsCore.PushSubscriptions do
         (is_nil(subscription.expires_at) or subscription.expires_at > ^now())
     )
     |> order_by([subscription, _user, _device], asc: subscription.id)
+    |> limit(^@max_active_subscriptions_per_user)
     |> select([subscription, _user, _device], %{
       id: subscription.id,
       version: subscription.version
@@ -320,6 +329,7 @@ defmodule CommsCore.PushSubscriptions do
         Repo.rollback(:push_subscription_conflict)
 
       existing.status in @terminal_statuses or expired?(existing) ->
+        ensure_capacity!(subject)
         reactivate_subscription!(existing, normalized, subject)
 
       true ->
@@ -640,6 +650,43 @@ defmodule CommsCore.PushSubscriptions do
     Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       lock_key
     ])
+  end
+
+  defp lock_capacity!(subject) do
+    lock_key =
+      "push-subscription-capacity:#{value(subject, :tenant_id)}:#{value(subject, :user_id)}"
+
+    Ecto.Adapters.SQL.query!(Repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      lock_key
+    ])
+  end
+
+  defp ensure_capacity!(subject) do
+    tenant_id = value(subject, :tenant_id)
+    user_id = value(subject, :user_id)
+    device_id = value(subject, :device_id)
+    timestamp = now()
+
+    active =
+      PushSubscription
+      |> where(
+        [subscription],
+        subscription.tenant_id == ^tenant_id and subscription.user_id == ^user_id and
+          subscription.status == :active and
+          (is_nil(subscription.expires_at) or subscription.expires_at > ^timestamp)
+      )
+
+    user_count = Repo.aggregate(active, :count)
+
+    device_count =
+      active
+      |> where([subscription], subscription.device_id == ^device_id)
+      |> Repo.aggregate(:count)
+
+    if user_count >= @max_active_subscriptions_per_user or
+         device_count >= @max_active_subscriptions_per_device do
+      Repo.rollback(:push_subscription_limit_reached)
+    end
   end
 
   defp ensure_active_identity!(subject) do

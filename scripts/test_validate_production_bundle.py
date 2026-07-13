@@ -36,10 +36,19 @@ class ValidateProductionBundleTest(unittest.TestCase):
         documents[4]["spec"]["egress"][0]["to"][0]["ipBlock"]["cidr"] = "0.0.0.0/0"
 
         errors = validate_documents(documents)
-        self.assertTrue(any("NOTIFICATION_PROVIDER_MODE must be http" in error for error in errors))
-        self.assertTrue(any("PHX_HOST is missing or still a placeholder" in error for error in errors))
+        self.assertTrue(
+            any("NOTIFICATION_PROVIDER_MODE must be http" in error for error in errors)
+        )
+        self.assertTrue(
+            any(
+                "PHX_HOST is missing or still a placeholder" in error
+                for error in errors
+            )
+        )
         self.assertTrue(any("immutable sha256 digest" in error for error in errors))
-        self.assertTrue(any("database CIDR must be narrowed" in error for error in errors))
+        self.assertTrue(
+            any("database CIDR must be narrowed" in error for error in errors)
+        )
 
     def test_rejects_provider_endpoint_not_present_in_the_allowlist(self) -> None:
         documents = valid_documents()
@@ -69,6 +78,103 @@ class ValidateProductionBundleTest(unittest.TestCase):
                 for error in errors
             )
         )
+
+    def test_rejects_broad_or_mismatched_trusted_proxy_ingress(self) -> None:
+        documents = valid_documents()
+        documents[0]["data"]["TRUSTED_PROXY_CIDRS"] = "10.0.0.0/8"
+
+        errors = validate_documents(documents)
+        self.assertTrue(
+            any("must not trust generic or unsafe ranges" in error for error in errors)
+        )
+        self.assertTrue(
+            any("must exactly match TRUSTED_PROXY_CIDRS" in error for error in errors)
+        )
+
+        documents = valid_documents()
+        edge_policy = next(
+            document
+            for document in documents
+            if document.get("kind") == "NetworkPolicy"
+            and document.get("metadata", {}).get("name") == "k-comms-edge-ingress"
+        )
+        edge_policy["spec"]["ingress"] = [{"ports": [{"port": 4000}]}]
+
+        errors = validate_documents(documents)
+        self.assertTrue(
+            any(
+                "every source must be an explicit valid ipBlock" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_split_ranges_that_collectively_cover_private_defaults(
+        self,
+    ) -> None:
+        split_private_defaults = (
+            ("10.0.0.0/9", "10.128.0.0/9"),
+            ("172.16.0.0/13", "172.24.0.0/13"),
+            ("192.168.0.0/17", "192.168.128.0/17"),
+        )
+
+        for cidrs in split_private_defaults:
+            with self.subTest(cidrs=cidrs):
+                documents = valid_documents()
+                set_trusted_proxy_cidrs(documents, cidrs)
+
+                errors = validate_documents(documents)
+
+                self.assertTrue(
+                    any(
+                        "must not trust generic or unsafe ranges" in error
+                        for error in errors
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        "must exactly match TRUSTED_PROXY_CIDRS" in error
+                        for error in errors
+                    )
+                )
+
+    def test_accepts_adjacent_narrow_provider_specific_proxy_ranges(self) -> None:
+        documents = valid_documents()
+        set_trusted_proxy_cidrs(documents, ("10.42.6.0/24", "10.42.7.0/24"))
+
+        self.assertEqual(validate_documents(documents), [])
+
+    def test_rejects_missing_or_inexact_edge_ingress_ports(self) -> None:
+        invalid_ports = (
+            None,
+            ["TCP/4000"],
+            [{"protocol": "UDP", "port": 4000}],
+            [{"protocol": "TCP", "port": 9090}],
+            [{"protocol": "TCP", "port": 4000, "endPort": 4001}],
+        )
+
+        for ports in invalid_ports:
+            with self.subTest(ports=ports):
+                documents = valid_documents()
+                edge_policy = next(
+                    document
+                    for document in documents
+                    if document.get("kind") == "NetworkPolicy"
+                    and document.get("metadata", {}).get("name")
+                    == "k-comms-edge-ingress"
+                )
+                if ports is None:
+                    edge_policy["spec"]["ingress"][0].pop("ports")
+                else:
+                    edge_policy["spec"]["ingress"][0]["ports"] = ports
+
+                errors = validate_documents(documents)
+
+                self.assertTrue(
+                    any(
+                        "every ingress rule must expose only TCP port 4000" in error
+                        for error in errors
+                    )
+                )
 
     def test_reads_multi_document_yaml_without_exposing_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -112,6 +218,7 @@ def valid_documents() -> list[dict]:
             "WEBHOOK_PROVIDER_MODE": "http",
             "WEBHOOK_ALLOWED_HOSTS": "hooks.customer.example.com",
             "WEB_PUSH_VAPID_PUBLIC_KEY": VAPID_PUBLIC_KEY,
+            "TRUSTED_PROXY_CIDRS": "10.42.7.0/24",
         },
     }
     return [
@@ -125,7 +232,23 @@ def valid_documents() -> list[dict]:
             "metadata": {"name": "k-comms-managed-postgres-egress"},
             "spec": {
                 "egress": [
-                    {"to": [{"ipBlock": {"cidr": "10.42.0.0/24"}}], "ports": [{"port": 5432}]}
+                    {
+                        "to": [{"ipBlock": {"cidr": "10.42.0.0/24"}}],
+                        "ports": [{"port": 5432}],
+                    }
+                ]
+            },
+        },
+        {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {"name": "k-comms-edge-ingress"},
+            "spec": {
+                "ingress": [
+                    {
+                        "from": [{"ipBlock": {"cidr": "10.42.7.0/24"}}],
+                        "ports": [{"protocol": "TCP", "port": 4000}],
+                    }
                 ]
             },
         },
@@ -151,6 +274,22 @@ def workload(kind: str, name: str) -> dict:
             }
         },
     }
+
+
+def set_trusted_proxy_cidrs(documents: list[dict], cidrs: tuple[str, ...]) -> None:
+    documents[0]["data"]["TRUSTED_PROXY_CIDRS"] = ",".join(cidrs)
+    edge_policy = next(
+        document
+        for document in documents
+        if document.get("kind") == "NetworkPolicy"
+        and document.get("metadata", {}).get("name") == "k-comms-edge-ingress"
+    )
+    edge_policy["spec"]["ingress"] = [
+        {
+            "from": [{"ipBlock": {"cidr": cidr}} for cidr in cidrs],
+            "ports": [{"protocol": "TCP", "port": 4000}],
+        }
+    ]
 
 
 if __name__ == "__main__":

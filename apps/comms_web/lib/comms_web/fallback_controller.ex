@@ -44,6 +44,11 @@ defmodule CommsWeb.FallbackController do
   defp error(:step_up_required),
     do: {428, "step_up_required", "Recent password verification is required"}
 
+  defp error(:email_change_requires_verification),
+    do:
+      {409, "email_change_requires_verification",
+       "Changing the recovery email requires a verified email-change workflow"}
+
   defp error(:public_channels_disabled),
     do: {403, "public_channels_disabled", "Tenant-visible channels are disabled"}
 
@@ -66,6 +71,7 @@ defmodule CommsWeb.FallbackController do
               :deletion_evidence_mismatch,
               :edit_window_expired,
               :push_subscription_conflict,
+              :push_subscription_limit_reached,
               :push_subscription_terminal
             ],
        do:

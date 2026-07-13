@@ -5,6 +5,8 @@ defmodule CommsWeb.ConversationChannel do
   alias CommsWeb.Presenter
 
   @authorized_events [
+    "conversation.updated.v1",
+    "conversation.archived.v1",
     "message.created.v1",
     "message.updated.v1",
     "message.deleted.v1",

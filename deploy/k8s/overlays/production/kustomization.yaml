@@ -6,6 +6,8 @@ resources:
   - namespace.yaml
   - ingress.yaml
   - auth-rate-limit-ingress.yaml
+  - service-auth-rate-limit-ingress.yaml
+  - socket-rate-limit-ingress.yaml
   - migration-job.yaml
   - worker-pod-disruption-budget.yaml
   - edge-horizontal-pod-autoscaler.yaml
@@ -13,6 +15,7 @@ resources:
   - external-data-egress.yaml
 patches:
   - path: configmap-patch.yaml
+  - path: edge-ingress-policy-patch.yaml
   - path: edge-deployment-patch.yaml
   - path: worker-deployment-patch.yaml
 images:

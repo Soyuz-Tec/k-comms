@@ -160,6 +160,40 @@ defmodule CommsWeb.PushSubscriptionControllerTest do
            |> get_in(["error", "code"]) == "invalid_push_endpoint"
   end
 
+  test "a device cannot register more than the active subscription capacity" do
+    suffix = System.unique_integer([:positive, :monotonic])
+
+    bootstrap =
+      build_conn()
+      |> post("/api/v1/bootstrap", %{
+        tenant_name: "Push Capacity #{suffix}",
+        tenant_slug: "push-capacity-#{suffix}",
+        display_name: "Push Owner",
+        email: "push-capacity-#{suffix}@example.test",
+        password: "correct-horse-push-capacity-#{suffix}"
+      })
+      |> json_response(201)
+
+    for index <- 1..5 do
+      assert authenticated_conn(bootstrap["access_token"])
+             |> post(
+               "/api/v1/me/push-subscriptions",
+               subscription_body("https://push.example.test/send/capacity-#{index}")
+             )
+             |> response(201)
+    end
+
+    conflict =
+      authenticated_conn(bootstrap["access_token"])
+      |> post(
+        "/api/v1/me/push-subscriptions",
+        subscription_body("https://push.example.test/send/capacity-6")
+      )
+      |> json_response(409)
+
+    assert conflict["error"]["code"] == "push_subscription_limit_reached"
+  end
+
   defp subscription_body(endpoint) do
     %{
       endpoint: endpoint,

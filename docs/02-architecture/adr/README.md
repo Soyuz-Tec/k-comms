@@ -21,5 +21,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0015 | Use explicit mentions, canonical threads, and durable in-app notification state | Accepted |
 | 0016 | Bound and neutralize audit CSV exports | Accepted |
 | 0017 | Enforce tenant admission quotas in PostgreSQL transactions | Accepted |
+| 0018 | Harden recovery identity, invitation, and session boundaries | Accepted |
+| 0019 | Enforce content, delivery, and resource boundaries | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

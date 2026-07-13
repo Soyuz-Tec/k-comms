@@ -60,31 +60,72 @@ defmodule CommsIntegrations.HttpPolicy do
   defp configured?(_), do: false
 
   defp resolve_and_validate(uri, host, port, opts) do
-    addresses = resolve_addresses(host, Keyword.get(opts, :resolver))
+    case resolve_addresses(
+           host,
+           Keyword.get(opts, :resolver),
+           Keyword.get(opts, :deadline_ms)
+         ) do
+      {:ok, addresses} ->
+        cond do
+          addresses == [] ->
+            {:error, :outbound_dns_unavailable}
 
-    cond do
-      addresses == [] ->
-        {:error, :outbound_dns_unavailable}
+          Enum.all?(addresses, &public_address?/1) ->
+            {:ok, %{uri: uri, host: host, port: port, addresses: addresses}}
 
-      Enum.all?(addresses, &public_address?/1) ->
-        {:ok, %{uri: uri, host: host, port: port, addresses: addresses}}
+          true ->
+            {:error, :outbound_private_address_forbidden}
+        end
 
-      true ->
-        {:error, :outbound_private_address_forbidden}
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp resolve_addresses(host, resolver) when is_function(resolver, 1) do
-    case resolver.(host) do
-      {:ok, addresses} when is_list(addresses) -> Enum.uniq(addresses)
-      addresses when is_list(addresses) -> Enum.uniq(addresses)
-      _ -> []
+  defp resolve_addresses(host, resolver, deadline) when is_integer(deadline) do
+    remaining = remaining_ms(deadline)
+
+    if remaining == 0 do
+      {:error, :outbound_timeout}
+    else
+      task = Task.async(fn -> safe_invoke_resolver(host, resolver, deadline) end)
+
+      case Task.yield(task, remaining) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} -> normalize_addresses(result)
+        {:exit, _reason} -> {:ok, []}
+        nil -> {:error, :outbound_timeout}
+      end
     end
+  end
+
+  defp resolve_addresses(host, resolver, deadline) do
+    host
+    |> safe_invoke_resolver(resolver, deadline)
+    |> normalize_addresses()
+  end
+
+  defp safe_invoke_resolver(host, resolver, deadline) do
+    invoke_resolver(host, resolver, deadline)
   rescue
-    _ -> []
+    _exception -> []
+  catch
+    _kind, _reason -> []
   end
 
-  defp resolve_addresses(host, _resolver), do: resolved_addresses(host)
+  defp invoke_resolver(host, resolver, deadline) when is_function(resolver, 2),
+    do: resolver.(host, deadline)
+
+  defp invoke_resolver(host, resolver, _deadline) when is_function(resolver, 1),
+    do: resolver.(host)
+
+  defp invoke_resolver(host, _resolver, _deadline), do: resolved_addresses(host)
+
+  defp normalize_addresses({:ok, addresses}) when is_list(addresses),
+    do: {:ok, Enum.uniq(addresses)}
+
+  defp normalize_addresses({:error, :outbound_timeout} = error), do: error
+  defp normalize_addresses(addresses) when is_list(addresses), do: {:ok, Enum.uniq(addresses)}
+  defp normalize_addresses(_other), do: {:ok, []}
 
   defp resolved_addresses(host) do
     ipv4 = resolved(host, :inet)
@@ -156,6 +197,9 @@ defmodule CommsIntegrations.HttpPolicy do
     |> String.trim_trailing(".")
     |> String.downcase()
   end
+
+  defp remaining_ms(deadline),
+    do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   defp band(left, right), do: Bitwise.band(left, right)
 end

@@ -130,6 +130,46 @@ defmodule CommsWeb.AdministrationControllerTest do
 
     assert profile["data"]["display_name"] == "Updated Invited Member"
 
+    same_email_profile =
+      authenticated_conn(member_token)
+      |> patch("/api/v1/me/profile", %{
+        display_name: "Same Email Invited Member",
+        email: "  INVITED-WEB-#{suffix}@EXAMPLE.TEST  "
+      })
+      |> json_response(200)
+
+    assert same_email_profile["data"]["display_name"] == "Same Email Invited Member"
+    assert same_email_profile["data"]["email"] == "invited-web-#{suffix}@example.test"
+
+    changed_email_error =
+      authenticated_conn(member_token)
+      |> patch("/api/v1/me/profile", %{
+        display_name: "Rejected Email Invited Member",
+        email: "replacement-#{suffix}@example.test"
+      })
+      |> json_response(409)
+
+    assert changed_email_error["error"]["code"] == "email_change_requires_verification"
+
+    unchanged_profile =
+      authenticated_conn(member_token)
+      |> get("/api/v1/me")
+      |> json_response(200)
+
+    assert unchanged_profile["user"]["display_name"] == "Same Email Invited Member"
+    assert unchanged_profile["user"]["email"] == "invited-web-#{suffix}@example.test"
+
+    existing_identity_invitation_error =
+      authenticated_conn(owner_token)
+      |> post("/api/v1/admin/invitations", %{
+        email: "invited-web-#{suffix}@example.test",
+        role: "member"
+      })
+      |> json_response(409)
+
+    assert existing_identity_invitation_error["error"]["code"] ==
+             "invitation_identity_conflict"
+
     assert authenticated_conn(member_token)
            |> patch("/api/v1/me/profile", %{display_name: ""})
            |> response(422)

@@ -34,3 +34,9 @@ spec:
           - path: /api/v1/bootstrap
             pathType: Exact
             backend: *edgeBackend
+          - path: /api/v1/me/password
+            pathType: Exact
+            backend: *edgeBackend
+          - path: /api/v1/me/step-up
+            pathType: Exact
+            backend: *edgeBackend

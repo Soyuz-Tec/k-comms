@@ -1,7 +1,9 @@
 # Functional Requirements
 
-**Status:** K-Comms 0.3.0 application scope implemented and locally
-staging-qualified. Rows with a residual qualifier require a real external
+**Status:** K-Comms 0.3.0 application scope is implemented. Revision
+`bc6ba02536b4bfb703cd5e196d2e431b690a24ad` is the historical locally
+staging-qualified baseline; every newer candidate requires exact-revision
+qualification. Rows with a residual qualifier require a real external
 provider, independently sealed exact-commit review evidence, or another named
 production gate; they are not missing local UI/API surfaces.
 

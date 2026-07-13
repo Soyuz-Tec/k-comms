@@ -97,6 +97,30 @@ defmodule CommsCore.Authorization.Database do
     end
   end
 
+  def authorize(:manage_conversation_ownership, subject, resource) do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         %Conversation{} = conversation <-
+           Repo.get_by(Conversation,
+             id: conversation_id,
+             tenant_id: value(subject, :tenant_id)
+           ) do
+      case {active_user_role(subject), active_membership(subject, conversation_id), conversation} do
+        {_tenant_role, %Membership{role: :owner}, _conversation} ->
+          :ok
+
+        {role, _membership, %Conversation{kind: :channel, visibility: :tenant}}
+        when role in [:owner, :admin] ->
+          :ok
+
+        _ ->
+          deny_privileged(:manage_conversation_ownership, subject, :forbidden)
+      end
+    else
+      _ -> deny_privileged(:manage_conversation_ownership, subject, :forbidden)
+    end
+  end
+
   def authorize(:edit_message, subject, %Message{} = message) do
     with true <- active_subject?(subject),
          true <- same_tenant?(subject, message),
@@ -146,7 +170,12 @@ defmodule CommsCore.Authorization.Database do
   end
 
   def authorize(action, subject, _resource)
-      when action in [:manage_tenant_settings, :manage_integrations, :manage_attachment_safety] do
+      when action in [
+             :manage_tenant_settings,
+             :manage_integrations,
+             :manage_attachment_safety,
+             :manage_notification_delivery
+           ] do
     with true <- active_subject?(subject),
          :ok <- require_role(subject, [:owner, :admin]),
          :ok <- require_step_up(subject) do
@@ -261,7 +290,8 @@ defmodule CommsCore.Authorization.Database do
                 u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
                 u.account_type == :human and
                 d.id == ^device_id and d.tenant_id == ^tenant_id and d.user_id == ^user_id and
-                is_nil(d.revoked_at) and is_nil(s.revoked_at) and s.expires_at > ^now(),
+                is_nil(d.revoked_at) and is_nil(s.revoked_at) and s.expires_at > ^now() and
+                s.absolute_expires_at > ^now(),
             select: true
           )
 

@@ -1,5 +1,4 @@
 defmodule CommsCore.Security.SecretBox do
-  @legacy_aad "k-comms-webhook-secret:v1"
   @aad_prefix "k-comms-webhook-secret:v2"
   @key_bytes 32
   @nonce_bytes 12
@@ -77,11 +76,11 @@ defmodule CommsCore.Security.SecretBox do
       else
         case Application.get_env(:comms_core, :webhook_secret_encryption_key) do
           nil -> %{}
-          key -> %{current_key_id => key, "legacy" => key}
+          key -> %{current_key_id => key}
         end
       end
 
-    with :ok <- validate_key_id(current_key_id),
+    with :ok <- validate_current_key_id(current_key_id),
          {:ok, keys} <- decode_keys(source),
          true <-
            Map.has_key?(keys, current_key_id) || {:error, :current_secret_key_not_configured} do
@@ -113,6 +112,9 @@ defmodule CommsCore.Security.SecretBox do
 
   defp validate_key_id(_), do: {:error, :invalid_secret_encryption_key_id}
 
+  defp validate_current_key_id("legacy"), do: {:error, :legacy_secret_encryption_key_id}
+  defp validate_current_key_id(key_id), do: validate_key_id(key_id)
+
   defp decode_key(key) when is_binary(key) and byte_size(key) == @key_bytes, do: {:ok, key}
 
   defp decode_key(encoded) when is_binary(encoded) do
@@ -131,7 +133,11 @@ defmodule CommsCore.Security.SecretBox do
     end
   end
 
-  defp aad_for_decryption(_context, "legacy"), do: {:ok, @legacy_aad}
+  # Version-one webhook ciphertext was not bound to its tenant, endpoint, or
+  # version. Refuse it instead of retaining a cross-context decryption path;
+  # administrators can replace the endpoint secret through the audited,
+  # versioned rotation operation.
+  defp aad_for_decryption(_context, "legacy"), do: {:error, :legacy_secret_requires_rotation}
   defp aad_for_decryption(context, key_id), do: contextual_aad(context, key_id)
 
   defp contextual_aad(context, key_id) when is_map(context) do

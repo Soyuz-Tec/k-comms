@@ -16,6 +16,7 @@ defmodule CommsCore.Accounts do
   def bootstrap_tenant(attrs) when is_map(attrs) do
     with :ok <- validate_password(value(attrs, :password)) do
       now = now()
+      session_deadlines = new_session_deadlines(now)
       tenant_id = Ecto.UUID.generate()
       user_id = Ecto.UUID.generate()
       device_id = Ecto.UUID.generate()
@@ -85,7 +86,8 @@ defmodule CommsCore.Accounts do
             user_id: user_id,
             device_id: device_id,
             refresh_token_hash: refresh_hash,
-            expires_at: expires_at(),
+            expires_at: session_deadlines.expires_at,
+            absolute_expires_at: session_deadlines.absolute_expires_at,
             last_used_at: now
           })
         )
@@ -271,6 +273,7 @@ defmodule CommsCore.Accounts do
         join: d in assoc(s, :device),
         where:
           s.id == ^id and is_nil(s.revoked_at) and s.expires_at > ^now() and
+            s.absolute_expires_at > ^now() and
             t.status == :active and u.status == :active and u.account_type == :human and
             is_nil(d.revoked_at),
         preload: [tenant: t, user: u, device: d]
@@ -405,14 +408,16 @@ defmodule CommsCore.Accounts do
         ) || Repo.rollback(:not_found)
 
       changes =
-        attrs
-        |> Map.take([:display_name, :email, "display_name", "email"])
+        case validate_unchanged_profile_email(attrs, user.email) do
+          :ok -> Map.take(attrs, [:display_name, "display_name"])
+          {:error, reason} -> Repo.rollback(reason)
+        end
 
       updated = user |> User.changeset(changes) |> update_or_rollback()
 
       insert_audit!(subject, "user.profile_update", "user", user.id, %{
-        before: %{display_name: user.display_name, email: user.email},
-        after: %{display_name: updated.display_name, email: updated.email}
+        before: %{display_name: user.display_name},
+        after: %{display_name: updated.display_name}
       })
 
       updated
@@ -483,7 +488,8 @@ defmodule CommsCore.Accounts do
           from(s in Session,
             where:
               s.id == ^value(subject, :session_id) and s.user_id == ^user.id and
-                s.tenant_id == ^user.tenant_id and is_nil(s.revoked_at) and s.expires_at > ^now(),
+                s.tenant_id == ^user.tenant_id and is_nil(s.revoked_at) and
+                s.expires_at > ^now() and s.absolute_expires_at > ^now(),
             lock: "FOR UPDATE"
           )
         ) || Repo.rollback(:session_expired)
@@ -732,6 +738,12 @@ defmodule CommsCore.Accounts do
 
           multi =
             Ecto.Multi.new()
+            |> Ecto.Multi.run(:identity_available, fn _repo, _changes ->
+              with :ok <- AdmissionQuotas.lock_tenant(tenant_id),
+                   :ok <- reject_existing_human_identity(tenant_id, email) do
+                {:ok, :available}
+              end
+            end)
             |> Ecto.Multi.insert(
               :invitation,
               Invitation.changeset(%Invitation{id: id}, %{
@@ -942,6 +954,8 @@ defmodule CommsCore.Accounts do
   defp create_session(user, device) do
     id = Ecto.UUID.generate()
     {token, hash} = refresh_token(id)
+    created_at = now()
+    deadlines = new_session_deadlines(created_at)
 
     changeset =
       Session.changeset(%Session{id: id}, %{
@@ -949,8 +963,9 @@ defmodule CommsCore.Accounts do
         user_id: user.id,
         device_id: device.id,
         refresh_token_hash: hash,
-        expires_at: expires_at(),
-        last_used_at: now()
+        expires_at: deadlines.expires_at,
+        absolute_expires_at: deadlines.absolute_expires_at,
+        last_used_at: created_at
       })
 
     case Repo.insert(changeset) do
@@ -978,7 +993,7 @@ defmodule CommsCore.Accounts do
            |> Session.changeset(%{
              refresh_token_hash: new_hash,
              last_used_at: now(),
-             expires_at: expires_at()
+             expires_at: rotated_session_expires_at(session.absolute_expires_at)
            })
            |> Repo.update() do
         {:ok, updated} ->
@@ -1062,13 +1077,38 @@ defmodule CommsCore.Accounts do
   defp secure_hash_equals(_, _), do: false
 
   defp active_session?(session) do
-    is_nil(session.revoked_at) and DateTime.compare(session.expires_at, now()) == :gt
+    current_time = now()
+
+    is_nil(session.revoked_at) and DateTime.compare(session.expires_at, current_time) == :gt and
+      DateTime.compare(session.absolute_expires_at, current_time) == :gt
   end
 
-  defp expires_at do
-    ttl = Application.get_env(:comms_core, :session_ttl_seconds, 2_592_000)
-    DateTime.add(now(), ttl, :second)
+  defp new_session_deadlines(created_at) do
+    absolute_expires_at =
+      DateTime.add(created_at, session_absolute_ttl_seconds(), :second)
+
+    %{
+      absolute_expires_at: absolute_expires_at,
+      expires_at:
+        earlier_deadline(
+          DateTime.add(created_at, session_ttl_seconds(), :second),
+          absolute_expires_at
+        )
+    }
   end
+
+  defp rotated_session_expires_at(absolute_expires_at),
+    do: earlier_deadline(DateTime.add(now(), session_ttl_seconds(), :second), absolute_expires_at)
+
+  defp earlier_deadline(first, second) do
+    if DateTime.compare(first, second) == :gt, do: second, else: first
+  end
+
+  defp session_ttl_seconds,
+    do: Application.get_env(:comms_core, :session_ttl_seconds, 2_592_000) |> max(0)
+
+  defp session_absolute_ttl_seconds,
+    do: Application.get_env(:comms_core, :session_absolute_ttl_seconds, 2_592_000) |> max(0)
 
   defp validate_password(password) do
     if Password.valid_password?(password), do: :ok, else: {:error, :weak_password}
@@ -1550,8 +1590,10 @@ defmodule CommsCore.Accounts do
         {:error, :invalid_invitation}
 
       true ->
+        quota_ok!(AdmissionQuotas.lock_tenant(invitation.tenant_id))
+        ensure_invitation_identity_available!(invitation)
         quota_ok!(AdmissionQuotas.ensure_active_user_capacity(invitation.tenant_id))
-        {user, reactivated} = create_or_reactivate_invited_user!(invitation, password, attrs)
+        user = create_invited_user!(invitation, password, attrs)
 
         invitation
         |> Invitation.changeset(%{
@@ -1569,7 +1611,7 @@ defmodule CommsCore.Accounts do
           action: "invitation.accept",
           resource_type: "invitation",
           resource_id: invitation.id,
-          metadata: %{email: invitation.email, role: invitation.role, reactivated: reactivated}
+          metadata: %{email: invitation.email, role: invitation.role, enrollment: "new_identity"}
         })
         |> insert_or_rollback()
 
@@ -1577,52 +1619,19 @@ defmodule CommsCore.Accounts do
     end
   end
 
-  defp create_or_reactivate_invited_user!(invitation, password, attrs) do
-    existing =
-      Repo.one(
-        from(user in User,
-          where:
-            user.tenant_id == ^invitation.tenant_id and user.account_type == :human and
-              fragment("lower(?)", user.email) == ^String.downcase(invitation.email),
-          lock: "FOR UPDATE"
-        )
-      )
-
-    case existing do
-      nil ->
-        user =
-          %User{id: Ecto.UUID.generate()}
-          |> User.changeset(%{
-            tenant_id: invitation.tenant_id,
-            external_subject: "local:#{invitation.email}",
-            display_name: value(attrs, :display_name),
-            email: invitation.email,
-            password_hash: Password.hash(password),
-            account_type: :human,
-            role: invitation.role,
-            status: :active
-          })
-          |> insert_or_rollback()
-
-        {user, false}
-
-      %User{status: :suspended} = user ->
-        reactivated =
-          user
-          |> User.changeset(%{
-            display_name: value(attrs, :display_name),
-            password_hash: Password.hash(password),
-            role: invitation.role,
-            status: :active
-          })
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-          |> update_or_rollback()
-
-        {reactivated, true}
-
-      %User{} ->
-        Repo.rollback(:invitation_identity_conflict)
-    end
+  defp create_invited_user!(invitation, password, attrs) do
+    %User{id: Ecto.UUID.generate()}
+    |> User.changeset(%{
+      tenant_id: invitation.tenant_id,
+      external_subject: "local:#{invitation.email}",
+      display_name: value(attrs, :display_name),
+      email: invitation.email,
+      password_hash: Password.hash(password),
+      account_type: :human,
+      role: invitation.role,
+      status: :active
+    })
+    |> insert_or_rollback()
   end
 
   defp expire_pending_invitations(tenant_id, email \\ nil) do
@@ -1682,6 +1691,46 @@ defmodule CommsCore.Accounts do
 
     if service_identity?, do: {:error, :forbidden}, else: :ok
   end
+
+  defp reject_existing_human_identity(tenant_id, email) do
+    existing_identity? =
+      Repo.exists?(
+        from(user in User,
+          where:
+            user.tenant_id == ^tenant_id and user.account_type == :human and
+              fragment("lower(?)", user.email) == ^String.downcase(email)
+        )
+      )
+
+    if existing_identity?, do: {:error, :invitation_identity_conflict}, else: :ok
+  end
+
+  defp ensure_invitation_identity_available!(invitation) do
+    case reject_existing_human_identity(invitation.tenant_id, invitation.email) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp validate_unchanged_profile_email(attrs, current_email) do
+    supplied_emails =
+      [:email, "email"]
+      |> Enum.filter(&Map.has_key?(attrs, &1))
+      |> Enum.map(&Map.fetch!(attrs, &1))
+
+    unchanged? =
+      Enum.all?(supplied_emails, fn
+        email when is_binary(email) -> normalize_email(email) == normalize_email(current_email)
+        _ -> false
+      end)
+
+    if unchanged?, do: :ok, else: {:error, :email_change_requires_verification}
+  end
+
+  defp normalize_email(email) when is_binary(email),
+    do: email |> String.trim() |> String.downcase()
+
+  defp normalize_email(_email), do: ""
 
   defp authorize_session_target(%User{role: :owner}, _target), do: :ok
 

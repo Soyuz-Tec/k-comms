@@ -3,7 +3,7 @@ defmodule CommsCore.PushSubscriptionsTest do
 
   alias CommsCore.Accounts.Device
   alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Notifications.PushSubscription
+  alias CommsCore.Notifications.{Intent, PushSubscription}
   alias CommsCore.{Accounts, PushSubscriptions, Repo}
   alias CommsCore.Security.PushSubscriptionBox
   alias CommsTestSupport.Fixtures
@@ -98,6 +98,135 @@ defmodule CommsCore.PushSubscriptionsTest do
                rotated.version,
                rotated.tenant_id
              )
+  end
+
+  test "concurrent registration cannot over-admit device or user subscription capacity" do
+    device_account = Fixtures.account_fixture()
+    device_subject = Fixtures.subject(device_account)
+
+    device_results =
+      1..12
+      |> Task.async_stream(
+        fn index ->
+          PushSubscriptions.register(
+            subscription_attrs("https://push.example.test/send/device-cap-#{index}"),
+            device_subject
+          )
+        end,
+        max_concurrency: 12,
+        ordered: false,
+        timeout: 30_000
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(device_results, &match?({:ok, _}, &1)) == 5
+
+    assert Enum.count(
+             device_results,
+             &match?({:error, :push_subscription_limit_reached}, &1)
+           ) == 7
+
+    assert Repo.aggregate(PushSubscription, :count) == 5
+
+    user_account = Fixtures.account_fixture()
+
+    additional_logins =
+      Enum.map(1..2, fn index ->
+        suffix = user_account.tenant.slug |> String.split("-") |> List.last()
+
+        {:ok, login} =
+          Accounts.authenticate(
+            user_account.tenant.slug,
+            user_account.user.email,
+            "correct-horse-battery-#{suffix}",
+            %{name: "Capacity browser #{index}", platform: "test"}
+          )
+
+        login
+      end)
+
+    subjects = [
+      Fixtures.subject(user_account)
+      | Enum.map(additional_logins, &Accounts.subject_for_session(&1.session))
+    ]
+
+    user_results =
+      1..18
+      |> Task.async_stream(
+        fn index ->
+          subject = Enum.at(subjects, rem(index - 1, length(subjects)))
+
+          PushSubscriptions.register(
+            subscription_attrs("https://push.example.test/send/user-cap-#{index}"),
+            subject
+          )
+        end,
+        max_concurrency: 18,
+        ordered: false,
+        timeout: 30_000
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.count(user_results, &match?({:ok, _}, &1)) == 10
+
+    assert Enum.count(
+             user_results,
+             &match?({:error, :push_subscription_limit_reached}, &1)
+           ) == 8
+
+    assert length(
+             PushSubscriptions.active_subscription_ids(
+               user_account.tenant.id,
+               user_account.user.id
+             )
+           ) == 10
+
+    counts_by_device =
+      PushSubscription
+      |> where(
+        [subscription],
+        subscription.tenant_id == ^user_account.tenant.id and
+          subscription.user_id == ^user_account.user.id and subscription.status == :active
+      )
+      |> group_by([subscription], subscription.device_id)
+      |> select([subscription], {subscription.device_id, count(subscription.id)})
+      |> Repo.all()
+
+    assert Enum.all?(counts_by_device, fn {_device_id, count} -> count <= 5 end)
+  end
+
+  test "deleting a subscription preserves the historical delivery generation" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, %{subscription: subscription}} =
+             PushSubscriptions.register(
+               subscription_attrs("https://push.example.test/send/history"),
+               subject
+             )
+
+    intent =
+      %Intent{}
+      |> Intent.changeset(%{
+        tenant_id: account.tenant.id,
+        user_id: account.user.id,
+        event_type: "message.created.v1",
+        channel: :push,
+        destination: subscription.id,
+        push_subscription_id: subscription.id,
+        push_subscription_version: subscription.version,
+        payload: %{},
+        idempotency_key: "push-history-#{subscription.id}",
+        status: :pending,
+        next_attempt_at: DateTime.utc_now()
+      })
+      |> Repo.insert!()
+
+    Repo.delete!(subscription)
+
+    orphaned = Repo.get!(Intent, intent.id)
+    assert is_nil(orphaned.push_subscription_id)
+    assert orphaned.push_subscription_version == subscription.version
   end
 
   test "validates HTTPS endpoints, p256dh, auth, and expiration bounds" do

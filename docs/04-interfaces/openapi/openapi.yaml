@@ -659,6 +659,7 @@ paths:
         '200': {description: Updated profile}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/me/password:
     put:
@@ -1637,7 +1638,11 @@ components:
       additionalProperties: false
       properties:
         display_name: {type: string, minLength: 1, maxLength: 120}
-        email: {type: string, format: email}
+        email:
+          type: string
+          format: email
+          deprecated: true
+          description: Compatibility echo only; must normalize to the current recovery email.
     ChangePasswordRequest:
       type: object
       additionalProperties: false

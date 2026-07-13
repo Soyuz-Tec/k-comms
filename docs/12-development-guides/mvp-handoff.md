@@ -1,6 +1,6 @@
 # K-Comms 0.3.0 Engineering Handoff
 
-## Staging-qualified product
+## Staging-ready product
 
 K-Comms 0.3.0 delivers the MVP as a web-first, multi-tenant communication
 platform with separately authorized member, tenant-administration, and
@@ -27,15 +27,17 @@ content-blind platform-operations surfaces.
 - Automated backend, web, browser, contract, documentation, secret, production
   manifest, container, acceptance, load, rollback, and resilience gates
 
-## Local staging qualification
+## Historical local staging qualification
 
-The 2026-07-12 Podman/kind proof ran the migrated 0.3.0 candidate with two edge
-replicas and one worker replica. Baseline acceptance exercised a 25,000,000-byte
-attachment. The bounded load gate accepted 300 of 300 messages at 5
-messages/second with zero failures or reconciliation loss, p95 23.13 ms, p99
-25.13 ms, and all ten idempotency probes matching. Edge and worker replacement,
-rollback compatibility, roll-forward acceptance, and isolated PostgreSQL and
-MinIO backup/restore checks also passed.
+The 2026-07-12 Podman/kind proof ran revision
+`bc6ba02536b4bfb703cd5e196d2e431b690a24ad` with two edge replicas and one
+worker replica. Baseline acceptance exercised a 25,000,000-byte attachment. The
+bounded load gate accepted 300 of 300 messages at 5 messages/second with zero
+failures or reconciliation loss, p95 23.13 ms, p99 25.13 ms, and all ten
+idempotency probes matching. Edge and worker replacement, rollback
+compatibility, roll-forward acceptance, and isolated PostgreSQL and MinIO
+backup/restore checks also passed. Those results are superseded for promotion
+of any newer candidate, which must produce its own exact-revision evidence.
 
 ## Remaining production launch gates
 

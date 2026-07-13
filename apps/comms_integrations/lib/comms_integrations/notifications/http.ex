@@ -3,6 +3,13 @@ defmodule CommsIntegrations.Notifications.Http do
 
   alias CommsIntegrations.HttpPolicy
 
+  @transient_transport_errors [
+    :outbound_dns_unavailable,
+    :outbound_timeout,
+    :outbound_transport_error,
+    :outbound_tls_error
+  ]
+
   @impl true
   def deliver(payload) when is_map(payload) do
     config = config()
@@ -20,10 +27,17 @@ defmodule CommsIntegrations.Notifications.Http do
            ) do
       response(status, headers, response_body, config)
     else
-      %{status: :unavailable} -> {:error, :notification_provider_unavailable}
-      {:error, reason} when reason in [:outbound_dns_unavailable] -> {:error, reason}
-      {:error, reason} when is_atom(reason) -> {:error, :permanent, reason}
-      _ -> {:error, :notification_transport_error}
+      %{status: :unavailable} ->
+        {:error, :permanent, :notification_provider_unavailable}
+
+      {:error, reason} when reason in @transient_transport_errors ->
+        {:error, reason}
+
+      {:error, reason} when is_atom(reason) ->
+        {:error, :permanent, reason}
+
+      _ ->
+        {:error, :notification_transport_error}
     end
   end
 

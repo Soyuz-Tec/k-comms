@@ -115,16 +115,38 @@ For each candidate, retain the aggregate `RESULT` line together with:
 - PostgreSQL/object-store placement and persistence mode;
 - whether the quick qualification or soak profile ran.
 
+After committing the candidate, building the exact revision-labeled image, and
+deploying it, generate the canonical non-secret binding record with:
+
+```bash
+make release-evidence \
+  IMAGE=localhost/k-comms:git-<commit> \
+  RELEASE_EVIDENCE_NAMESPACE=k-comms-staging \
+  RELEASE_EVIDENCE_OUTPUT=/approved/evidence/release-evidence.json \
+  RELEASE_EVIDENCE_ARGS='--evidence load=/approved/evidence/load.log --evidence acceptance=/approved/evidence/acceptance.log'
+```
+
+The equivalent direct command is
+`python scripts/collect_release_evidence.py --image IMAGE --namespace NAMESPACE
+--output PATH`, with a repeated `--evidence LABEL=PATH` for each retained
+regular file. The collector refuses a dirty tree by default, requires the
+image's OCI revision label to equal Git `HEAD`, records only allow-listed image
+and Kubernetes topology fields, hashes evidence without retaining its
+contents, and rechecks Git state before atomically writing JSON. Never use
+`--allow-dirty` for promotion evidence; that override is diagnostics-only and
+is marked in the output.
+
 Do not record a pass until the migrated candidate and temporary synthetic
 credential have been used. Never copy a result from an older image or an
 unknown tenant into release evidence.
 
-## 2026-07-12 qualification result
+## Historical 2026-07-12 qualification result
 
-The migrated K-Comms 0.3.0 candidate passed the bounded local qualification on
-a single-host Podman/kind cluster. The application topology was two edge
-replicas plus one worker replica; PostgreSQL and MinIO were local persistent
-state for environment proof only.
+Revision `bc6ba02536b4bfb703cd5e196d2e431b690a24ad` passed the bounded local
+qualification on a single-host Podman/kind cluster. These measurements are a
+historical baseline, not evidence for a later commit. The application topology
+was two edge replicas plus one worker replica; PostgreSQL and MinIO were local
+persistent state for environment proof only.
 
 | Measure | Result |
 |---|---:|
@@ -158,8 +180,9 @@ pre-backup message attachment in the restored UI, and returned it through an
 authenticated version-bound download whose SHA-256 exactly matched. Six legacy
 unversioned rows intentionally remained quarantined and fail-closed.
 
-This result qualifies the release package for a real staging environment. It
-does not establish production throughput, tail-latency SLOs, multi-zone
-headroom, provider readiness, support/on-call readiness, or disaster-recovery
-targets. Those remain production launch gates and must be recorded against the
-immutable promoted artifact in the target environment.
+This historical result qualified that revision for a real staging environment.
+It does not qualify the current tree and does not establish production
+throughput, tail-latency SLOs, multi-zone headroom, provider readiness,
+support/on-call readiness, or disaster-recovery targets. Those remain launch
+gates and must be recorded against the immutable promoted artifact in the
+target environment.

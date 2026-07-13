@@ -52,10 +52,11 @@ mounts. They may instead run from the host against
 names to `127.0.0.1`. Those runners create, reconcile, and clean only
 UUID-scoped synthetic data.
 
-## Completed local proof
+## Historical completed local proof
 
-The 0.3.0 candidate completed the local environment gate on 2026-07-12 with
-two edge replicas and one worker replica. The proof included:
+Revision `bc6ba02536b4bfb703cd5e196d2e431b690a24ad` completed the local
+environment gate on 2026-07-12 with two edge replicas and one worker replica.
+The proof included:
 
 - the 25,000,000-byte attachment path through ingress;
 - product acceptance and a 300-message load run with zero failed sends, zero
@@ -67,6 +68,8 @@ two edge replicas and one worker replica. The proof included:
   candidate, and post-forward product acceptance; and
 - isolated PostgreSQL and MinIO backup/restore verification.
 
-These results qualify this package for a real staging environment. They do not
-replace production provider, managed-state, multi-zone capacity, security
-review, or on-call readiness gates.
+These results qualify only that exact revision as a historical local-staging
+baseline. Every newer candidate must repeat the gate and produce
+revision-bound evidence. Local proof does not replace production provider,
+managed-state, multi-zone capacity, security review, or on-call readiness
+gates.

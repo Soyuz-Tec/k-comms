@@ -14,6 +14,7 @@ const session = {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({ json: { tenant: session.tenant, user: session.user, device: session.device } }));
+  await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/status", (route) => route.fulfill({ json: { service: "k-comms", version: "0.3.0", status: "operational", node: "test@node" } }));

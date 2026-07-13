@@ -16,6 +16,28 @@ defmodule CommsCore.Governance do
   @retention_worker "CommsWorkers.RetentionWorker"
   @retention_worker_module :"Elixir.CommsWorkers.RetentionWorker"
 
+  def authorize_message_deletion(tenant_id, load_and_authorize)
+      when is_binary(tenant_id) and is_function(load_and_authorize, 0) do
+    governance_lock!(tenant_id)
+
+    with {:ok, %Message{tenant_id: ^tenant_id} = message} <- load_and_authorize.() do
+      if active_legal_hold?(
+           message.tenant_id,
+           [message.conversation_id],
+           [message.sender_user_id]
+         ) do
+        {:error, :legal_hold_active}
+      else
+        {:ok, message}
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_message_deletion(_tenant_id, _load_and_authorize), do: {:error, :forbidden}
+
   def create_retention_policy(attrs, subject) when is_map(attrs) do
     tenant_id = value(subject, :tenant_id)
     idempotency_key = value(attrs, :idempotency_key)
@@ -980,6 +1002,10 @@ defmodule CommsCore.Governance do
   defp legal_hold_blocks?(request) do
     {conversation_ids, protected_user_ids} = protected_targets(request)
 
+    active_legal_hold?(request.tenant_id, conversation_ids, protected_user_ids)
+  end
+
+  defp active_legal_hold?(tenant_id, conversation_ids, protected_user_ids) do
     applies = dynamic([h], h.scope_type == :tenant)
 
     applies =
@@ -1004,7 +1030,7 @@ defmodule CommsCore.Governance do
 
     query =
       from(h in LegalHold,
-        where: h.tenant_id == ^request.tenant_id and h.status == :active
+        where: h.tenant_id == ^tenant_id and h.status == :active
       )
 
     Repo.exists?(where(query, ^applies))

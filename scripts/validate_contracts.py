@@ -62,13 +62,50 @@ REQUIRED_MUTATION_BODIES = {
 }
 
 REQUIRED_OPERATION_STATUSES = {
-    ("/api/v1/conversations/{conversationId}", "patch"): {"200", "403", "404", "409", "422", "428"},
-    ("/api/v1/conversations/{conversationId}/members/{userId}", "patch"): {"200", "403", "404", "409", "422", "428"},
-    ("/api/v1/conversations/{conversationId}/members/{userId}", "delete"): {"204", "403", "404", "409", "428"},
-    ("/api/v1/conversations/{conversationId}/archive", "post"): {"200", "403", "404", "409", "428"},
-    ("/api/v1/conversations/{conversationId}/messages/{messageId}/reactions/{emoji}", "delete"): {"204", "403", "404"},
+    ("/api/v1/me/profile", "patch"): {"200", "401", "404", "409", "422"},
+    ("/api/v1/conversations/{conversationId}", "patch"): {
+        "200",
+        "403",
+        "404",
+        "409",
+        "422",
+        "428",
+    },
+    ("/api/v1/conversations/{conversationId}/members/{userId}", "patch"): {
+        "200",
+        "403",
+        "404",
+        "409",
+        "422",
+        "428",
+    },
+    ("/api/v1/conversations/{conversationId}/members/{userId}", "delete"): {
+        "204",
+        "403",
+        "404",
+        "409",
+        "428",
+    },
+    ("/api/v1/conversations/{conversationId}/archive", "post"): {
+        "200",
+        "403",
+        "404",
+        "409",
+        "428",
+    },
+    (
+        "/api/v1/conversations/{conversationId}/messages/{messageId}/reactions/{emoji}",
+        "delete",
+    ): {"204", "403", "404"},
     ("/api/v1/moderation/cases", "post"): {"200", "201", "403", "422"},
-    ("/api/v1/moderation/cases/{caseId}/actions", "post"): {"200", "403", "404", "409", "422", "428"},
+    ("/api/v1/moderation/cases/{caseId}/actions", "post"): {
+        "200",
+        "403",
+        "404",
+        "409",
+        "422",
+        "428",
+    },
     ("/api/v1/admin/invitations", "post"): {"200", "201", "403", "422"},
     ("/api/v1/admin/retention-policies", "post"): {"200", "201", "403", "422"},
     ("/api/v1/admin/legal-holds", "post"): {"200", "201", "403", "409", "422"},
@@ -108,8 +145,13 @@ def validate_mutation_contracts(openapi: dict[str, Any]) -> None:
         if not isinstance(operation, dict):
             raise ValueError(f"missing mutation operation: {method.upper()} {path}")
         request_body = operation.get("requestBody")
-        if not isinstance(request_body, dict) or request_body.get("required") is not True:
-            raise ValueError(f"mutation requires a documented request body: {method.upper()} {path}")
+        if (
+            not isinstance(request_body, dict)
+            or request_body.get("required") is not True
+        ):
+            raise ValueError(
+                f"mutation requires a documented request body: {method.upper()} {path}"
+            )
 
     for (path, method), expected_statuses in REQUIRED_OPERATION_STATUSES.items():
         operation = paths.get(path, {}).get(method)
@@ -132,9 +174,13 @@ def validate_message_contract(schema: dict[str, Any], openapi: dict[str, Any]) -
         or schema_required != MESSAGE_EVENT_FIELDS
         or schema.get("additionalProperties") is not False
     ):
-        raise ValueError("message-created.v1 must exactly describe the presenter event fields")
+        raise ValueError(
+            "message-created.v1 must exactly describe the presenter event fields"
+        )
 
-    openapi_message = openapi.get("components", {}).get("schemas", {}).get("Message", {})
+    openapi_message = (
+        openapi.get("components", {}).get("schemas", {}).get("Message", {})
+    )
     openapi_fields = set(openapi_message.get("properties", {}))
     openapi_required = set(openapi_message.get("required", []))
     if (

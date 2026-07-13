@@ -24,7 +24,10 @@
 ## Mutation input and replay rules
 
 The canonical OpenAPI file defines every implemented mutation body. Profile
-updates accept `display_name` and/or `email`; they do not use a resource version.
+updates change `display_name` and do not use a resource version. For compatibility,
+clients may echo `email` only when it normalizes to the current recovery
+address; a different value returns `email_change_requires_verification` and is
+not persisted.
 Password changes require `current_password` and `new_password`. Conversation
 updates require `version` plus an optional `title` or `visibility`; archive,
 member-role changes, member removal, and public-channel leave also require the
@@ -37,6 +40,11 @@ returns 200 and never reissues a one-time token or secret. Versioned governance
 transitions use their explicit reason field: `reason` for invitation and user
 lifecycle operations, `release_reason` for legal-hold release, and
 `transition_reason` for deletion approval, rejection, or cancellation.
+
+Invitations enroll only new human identities. Creation or acceptance conflicts
+with an existing tenant email in any lifecycle state. Suspended users retain
+their password and use the step-up-authenticated, versioned admin lifecycle
+operation for an audited reactivation.
 
 Webhook create/update bodies contain only the endpoint name, HTTPS URL, status,
 and subscribed event types. Secret rotation and delivery replay have no request

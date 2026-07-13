@@ -165,6 +165,16 @@ defmodule CommsCore.ServiceAccountsTest do
     assert {:ok, search} = ServiceAccounts.search("Release 42", service_subject)
     assert Enum.any?(search, &(&1.id == first.id))
 
+    assert {:ok, _archived} =
+             Conversations.archive(
+               owner.conversation.id,
+               %{version: owner.conversation.lock_version},
+               subject
+             )
+
+    assert {:ok, archived_search} = ServiceAccounts.search("Release 42", service_subject)
+    refute Enum.any?(archived_search, &(&1.id == first.id))
+
     assert {:ok, private_conversation} =
              Conversations.create(
                %{kind: "group", title: "Humans only", visibility: "private", member_ids: []},

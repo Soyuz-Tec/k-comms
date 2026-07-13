@@ -1,8 +1,10 @@
 # K-Comms 0.3.0 Software Stack
 
-**Status:** Implemented and locally staging-qualified for 0.3.0. Production
-providers, managed data services, and organization-owned delivery systems
-remain environment-specific launch gates.
+**Status:** Implemented for 0.3.0. Revision
+`bc6ba02536b4bfb703cd5e196d2e431b690a24ad` is the historical locally
+staging-qualified baseline; every newer candidate requires exact-revision
+qualification. Production providers, managed data services, and
+organization-owned delivery systems remain environment-specific launch gates.
 
 The version sources of truth are `.tool-versions`, `mix.lock`, and
 `clients/web/package-lock.json`. Container and deployment promotion additionally

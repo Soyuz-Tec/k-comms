@@ -28,8 +28,11 @@ uses the separately rendered, restricted one-shot Job and Secret under
 enter the long-lived runtime Secret. Browser push additionally requires a
 dedicated 32-byte `PUSH_SUBSCRIPTION_ENCRYPTION_KEY` (or versioned keyring) and
 the provider's `WEB_PUSH_VAPID_PUBLIC_KEY`; the matching private key remains at
-the provider. Retain old webhook and push key IDs until their stored values
-have been rotated or expired. Provider
+the provider. Retain old non-legacy webhook and push key IDs until their stored
+values have been rotated or expired. The webhook ID `legacy` is reserved:
+rotate those endpoints under the prior release, quiesce and terminate its
+worker Deployment, clear any abandoned `delivering` claim under an operations
+change record, and apply migration `20260713000110` before restoring workers. Provider
 credentials may be supplied through the optional `k-comms-provider-secrets`
 Secret. `runtime-secrets.env.example` is the key inventory for the external
 runtime secret controller.
@@ -43,6 +46,14 @@ the provider does not return a version ID, ETag, and validated SHA-256 checksum.
 configuration patch into the approved provider composition, replace every
 example value, and import provider credentials through the external secret
 controller; neither example file is referenced by the base overlay.
+
+Set `TRUSTED_PROXY_CIDRS` only to the provider-specific ingress-controller
+source networks and replace the empty `k-comms-edge-ingress` rule with matching
+`ipBlock` sources on TCP 4000. The semantic preflight rejects empty, generic
+RFC1918, unrestricted, invalid, or mismatched trust/policy ranges. The separate
+human-auth, service-API, and WebSocket Ingress resources carry independently
+calibrated admission settings; verify real client-address propagation and
+distributed limit behavior in the selected ingress implementation.
 
 After composing those external values, validate the secret inventories without
 printing their contents, render the exact reviewed bundle, and run the semantic
@@ -59,7 +70,7 @@ The provider-neutral overlay is expected to fail this promotion preflight on
 its own. A passing composed bundle has HTTPS notification and scanner
 providers, explicit webhook hosts, a valid public VAPID key, production safety
 flags, narrowed PostgreSQL egress, non-placeholder origins, and immutable image
-digests. It also rejects any long-lived workload marked for the one-shot
+digests, plus matching narrow ingress/proxy trust. It also rejects any long-lived workload marked for the one-shot
 provider-preflight exemption. Schema validation alone is not a promotion
 decision.
 

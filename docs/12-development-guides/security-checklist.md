@@ -1,5 +1,9 @@
 # Developer Security Checklist
 
+This is a per-change review template, not the current release-status record.
+Release control status is maintained in
+`docs/09-security-and-compliance/security-control-matrix.md`.
+
 - [ ] Tenant and actor context are explicit.
 - [ ] Authorization is evaluated for every operation.
 - [ ] Inputs, payload size, and enum values are validated.
