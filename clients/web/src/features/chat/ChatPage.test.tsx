@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,6 +80,7 @@ function message(sequence: number): Message {
 
 describe("ChatPage durable sequence recovery", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     harness.callbacks = null;
     harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
     harness.markRead.mockReset().mockResolvedValue({});
@@ -92,6 +93,8 @@ describe("ChatPage durable sequence recovery", () => {
         { id: "membership-human", role: "member", joined_at: "2026-07-12T10:00:00Z", last_read_sequence: 0, user: { id: "user-2", tenant_id: "tenant-1", display_name: "Grace", account_type: "human", role: "member", status: "active" } },
         { id: "membership-service", role: "member", joined_at: "2026-07-12T10:00:00Z", last_read_sequence: 0, user: { id: "service-1", tenant_id: "tenant-1", display_name: "Build bot", account_type: "service", role: "member", status: "active" } }
       ]),
+      discoverPublicChannels: vi.fn().mockResolvedValue({ data: [], page: { limit: 25, has_more: false, next_cursor: null } }),
+      createModerationCase: vi.fn().mockResolvedValue({ id: "case-1" }),
       messageThread: vi.fn().mockResolvedValue({ data: { root: message(1), replies: [], reply_count: 0 }, page: { has_more: false, next_before_sequence: null } })
     });
   });
@@ -187,5 +190,107 @@ describe("ChatPage durable sequence recovery", () => {
     await waitFor(() => expect(harness.sendMessage).toHaveBeenCalledTimes(2));
     expect(harness.sendMessage.mock.calls[0]?.[0]).toMatchObject({ mentioned_user_ids: ["user-2"] });
     expect(harness.sendMessage.mock.calls[1]?.[0]).toMatchObject({ mentioned_user_ids: ["user-2"] });
+  });
+
+  it("keeps the reader's history position and offers an announced jump for new messages", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
+
+    const messageScroll = document.querySelector<HTMLElement>(".message-scroll");
+    expect(messageScroll).not.toBeNull();
+    Object.defineProperties(messageScroll!, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 300 },
+      scrollTop: { configurable: true, value: 100, writable: true }
+    });
+    fireEvent.scroll(messageScroll!);
+    expect(await screen.findByRole("button", { name: "Jump to latest" })).toBeVisible();
+    scrollIntoView.mockClear();
+
+    act(() => harness.callbacks?.onMessages([{ ...message(2), sender_user_id: "user-2" }]));
+
+    const jump = await screen.findByRole("button", { name: "1 new message · Jump to latest" });
+    expect(screen.getByRole("status", { name: "" })).toHaveTextContent("1 new message");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    await user.click(jump);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /Jump to latest/ })).not.toBeInTheDocument();
+    scrollIntoView.mockRestore();
+  });
+
+  it("provides usable first actions when the workspace has no conversations", async () => {
+    const user = userEvent.setup();
+    harness.conversations = [];
+    render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+
+    await user.click(screen.getByRole("button", { name: "Start a conversation" }));
+    expect(screen.getByRole("heading", { name: "New conversation" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    const browseActions = screen.getAllByRole("button", { name: "Browse channels" });
+    await user.click(browseActions.at(-1)!);
+    expect(await screen.findByRole("dialog", { name: "Browse channels" })).toBeVisible();
+  });
+
+  it("shows a tenant-scoped first-run checklist that can be dismissed without telemetry", async () => {
+    const user = userEvent.setup();
+    harness.conversations = [];
+    render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "Get started" })).toBeVisible();
+    expect(screen.getByText("Choose or start a conversation")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Choose notification preferences" })).toHaveAttribute("href", "/app/settings");
+
+    await user.click(screen.getByRole("button", { name: "Dismiss getting-started checklist" }));
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
+  });
+
+  it("filters the conversation list by title, kind, and unread state without server requests", async () => {
+    const user = userEvent.setup();
+    harness.conversations = [
+      { ...harness.conversations[0]!, id: "conversation-1", title: "General", kind: "channel", unread_count: 1 },
+      { ...harness.conversations[0]!, id: "conversation-2", title: "Project Alpha", kind: "group", unread_count: 0 },
+      { ...harness.conversations[0]!, id: "conversation-3", title: "Grace", kind: "direct", unread_count: 0 }
+    ];
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    const list = screen.getByRole("navigation", { name: "Conversation list" });
+
+    await user.type(screen.getByLabelText("Filter conversations by title"), "project");
+    expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /General/ })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Filter conversations by title"));
+    await user.selectOptions(screen.getByLabelText("Conversation type"), "direct");
+    expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /Project Alpha/ })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Conversation type"), "all");
+    await user.click(screen.getByRole("checkbox", { name: "Unread only" }));
+    expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+  });
+
+  it("submits a message report with the same moderated payload through an accessible dialog", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
+
+    await user.click(await screen.findByRole("button", { name: "Report" }));
+    expect(screen.getByRole("alertdialog", { name: "Report this message?" })).toBeVisible();
+    await user.type(screen.getByLabelText("Reason for reporting this message"), "Contains a sensitive customer identifier");
+    await user.click(screen.getByRole("button", { name: "Submit report" }));
+
+    await waitFor(() => expect(harness.api.createModerationCase).toHaveBeenCalledWith({
+      message_id: "message-1",
+      conversation_id: "conversation-1",
+      category: "message_content",
+      summary: "Contains a sensitive customer identifier",
+      details: "Contains a sensitive customer identifier",
+      priority: "normal"
+    }));
+    expect(await screen.findByText("Report submitted to workspace moderators.")).toBeVisible();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });

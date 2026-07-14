@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "release_revision": "REPLACE_WITH_FULL_GIT_SHA",
+  "environment": "internal-staging",
+  "study_started_on": "YYYY-MM-DD",
+  "study_completed_on": "YYYY-MM-DD",
+  "security_regression": false,
+  "durability_regression": false,
+  "staging_gates_pass": true,
+  "accessibility_findings": [],
+  "sessions": [
+    {
+      "participant_id": "P01",
+      "cohort": "member",
+      "access_method": "keyboard",
+      "mobile_first": true,
+      "sus_responses": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "tasks": [
+        {
+          "id": "invite-first-message",
+          "category": "invite",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        }
+      ]
+    }
+  ]
+}

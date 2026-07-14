@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "../api";
 import { useModalDialog } from "../components/useModalDialog";
 import { errorText, stringValue } from "../lib/format";
@@ -96,7 +97,7 @@ function StepUpDialog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const dialogRef = useModalDialog(onCancel);
-  return (
+  return createPortal(
     <div className="modal-backdrop">
       <section ref={dialogRef} className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="step-up-title" aria-describedby="step-up-description">
         <h2 id="step-up-title">Confirm it is you</h2>
@@ -110,7 +111,8 @@ function StepUpDialog({
           </div>
         </form>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
 

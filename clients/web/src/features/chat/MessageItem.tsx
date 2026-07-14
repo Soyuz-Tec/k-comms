@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { ConfirmDialog } from "../../components/ActionDialog";
 import type { Attachment, Message, User } from "../../types";
-import { formatBytes, formatTime, initials } from "../../lib/format";
+import { errorText, formatBytes, formatTime, initials } from "../../lib/format";
 
 const quickReactions = ["👍", "❤️", "🎉", "👀"];
 
@@ -39,6 +40,8 @@ export function MessageItem({
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body || "");
   const [busy, setBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const mine = message.sender_user_id === currentUserId;
   const groups = groupReactions(message, currentUserId);
 
@@ -58,16 +61,20 @@ export function MessageItem({
   }
 
   async function remove() {
-    if (!window.confirm("Delete this message? The deletion will be visible to conversation members.")) return;
     setBusy(true);
+    setDeleteError(null);
     try {
       await onDelete();
+      setDeleteOpen(false);
+    } catch (reason: unknown) {
+      setDeleteError(errorText(reason));
     } finally {
       setBusy(false);
     }
   }
 
   return (
+    <>
     <li id={`message-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
       {!mine && <span className="avatar small" aria-hidden="true">{initials(sender?.display_name || "Unknown")}</span>}
       <article className="message-content">
@@ -92,11 +99,13 @@ export function MessageItem({
             {groups.map(({ emoji, count, mine: reacted }) => <button type="button" key={emoji} className={reacted ? "reacted" : ""} aria-pressed={reacted} aria-label={`${reacted ? "Remove" : "Add"} ${emoji} reaction; ${count} total`} onClick={() => onReaction(emoji)}>{emoji} <span>{count}</span></button>)}
             {message.status === "active" && <span className="quick-reactions" aria-label="Quick reactions">{quickReactions.filter((emoji) => !groups.some((group) => group.emoji === emoji)).map((emoji) => <button type="button" key={emoji} aria-label={`React with ${emoji}`} onClick={() => onReaction(emoji)}>{emoji}</button>)}</span>}
           </div>
-          <div className="message-actions">{onThread && <button type="button" onClick={onThread}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={onReply}>Reply</button><button type="button" onClick={onReport}>Report</button>{mine && <button type="button" onClick={() => setEditing(true)}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => void remove()}>Delete</button>}</>}</div>
+          <div className="message-actions">{onThread && <button type="button" onClick={onThread}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={onReply}>Reply</button><button type="button" onClick={onReport}>Report</button>{mine && <button type="button" onClick={() => setEditing(true)}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
         {mine && seenCount > 0 && <small className="seen-copy">Seen by {seenCount}</small>}
       </article>
     </li>
+    {deleteOpen && <ConfirmDialog title="Delete this message?" description="This removes the message body from the conversation." impact="Conversation members will see that a message was removed. Retention and audit records remain subject to workspace policy." confirmLabel="Delete message" tone="danger" busy={busy} error={deleteError} onCancel={() => { if (!busy) setDeleteOpen(false); }} onConfirm={() => void remove()} />}
+    </>
   );
 }
 

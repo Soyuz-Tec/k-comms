@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { initials } from "../lib/format";
@@ -8,7 +9,8 @@ import { useWorkspaceData } from "./workspace-data";
 
 export function ProductShell() {
   const { session, logout } = useSession();
-  const { error, setError } = useWorkspaceData();
+  const { error, setError, refreshAll } = useWorkspaceData();
+  const [retrying, setRetrying] = useState(false);
   if (!session) return null;
   const showAdmin = canAccessAdmin(session.user.role);
   const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
@@ -41,7 +43,8 @@ export function ProductShell() {
 
       {error && (
         <div className="banner error-banner" role="alert">
-          <span>{error}</span>
+          <span><strong>Workspace could not refresh.</strong> {error}</span>
+          <button className="button ghost compact" type="button" disabled={retrying} onClick={() => { setRetrying(true); void refreshAll().finally(() => setRetrying(false)); }}>{retrying ? "Retrying…" : "Retry"}</button>
           <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button>
         </div>
       )}

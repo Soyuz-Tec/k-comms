@@ -13,7 +13,13 @@
 | Chaos/failure | Recovery and containment | Node kill, database failover, provider outage |
 | Security | Abuse and trust boundaries | ID substitution, SSRF, token/session tests |
 | Recovery | Backup and DR | Restore, promotion, projection rebuild |
+| Usability | Representative task success and comprehension | Invitation-to-first-message, daily collaboration, safe administration, operations triage |
+| Accessibility | WCAG and assistive-technology behavior | Keyboard, screen reader, reflow, high contrast, route and dialog focus |
 
 ## CI policy
 
 Fast deterministic tests run on every change. Expensive load, soak, chaos, and recovery suites run on scheduled or release-gate pipelines with versioned environments and retained evidence.
+
+Automated accessibility checks are regression gates, not a WCAG conformance
+claim. The participant, manual accessibility, scoring, privacy, and pilot
+contract is defined in [usability-validation.md](usability-validation.md).

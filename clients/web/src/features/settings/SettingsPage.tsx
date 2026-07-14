@@ -4,7 +4,17 @@ import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
 import { canAdministerTenant } from "../../lib/roles";
+import { ConfirmDialog } from "../../components/ActionDialog";
 import { PushNotifications } from "./PushNotifications";
+
+const notificationChoices = [
+  { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
+  { eventType: "mention.created.v1", field: "notify_mentions", label: "Mentions and direct attention" }
+] as const;
+
+type PendingRevocation =
+  | { kind: "device"; device: Device }
+  | { kind: "session"; record: AccountSession };
 
 export function SettingsPage() {
   const { api, session, setSession } = useSession();
@@ -17,6 +27,8 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
+  const [revocationError, setRevocationError] = useState<string | null>(null);
 
   async function refreshSecurity() {
     const [nextDevices, nextSessions] = await Promise.all([api.devices(), api.sessions()]);
@@ -87,37 +99,46 @@ export function SettingsPage() {
     }
   }
 
-  async function revokeDevice(device: Device) {
-    if (!window.confirm(device.id === currentSession.device.id ? "Revoke this device and sign out now?" : `Revoke ${device.name}? Its sessions will stop working.`)) return;
-    setBusy(`device-${device.id}`);
+  async function confirmRevocation() {
+    if (!pendingRevocation) return;
+    const busyKey = pendingRevocation.kind === "device"
+      ? `device-${pendingRevocation.device.id}`
+      : `session-${pendingRevocation.record.id}`;
+    setBusy(busyKey);
     setError(null);
+    setRevocationError(null);
     try {
-      await api.revokeDevice(device.id);
-      if (device.id === currentSession.device.id) setSession(null); else await refreshSecurity();
+      if (pendingRevocation.kind === "device") {
+        await api.revokeDevice(pendingRevocation.device.id);
+        if (pendingRevocation.device.id === currentSession.device.id) setSession(null); else await refreshSecurity();
+      } else {
+        await api.revokeSession(pendingRevocation.record.id);
+        if (pendingRevocation.record.device_id === currentSession.device.id && !pendingRevocation.record.revoked_at) setSession(null); else await refreshSecurity();
+      }
+      setPendingRevocation(null);
     } catch (reason: unknown) {
-      setError(errorText(reason));
+      setRevocationError(errorText(reason));
     } finally {
       setBusy(null);
     }
   }
 
-  async function revokeSession(record: AccountSession) {
-    if (!window.confirm(record.device_id === currentSession.device.id ? "Revoke this browser session and sign out now?" : "Revoke this session? The user will need to sign in again.")) return;
-    setBusy(`session-${record.id}`);
-    setError(null);
-    try {
-      await api.revokeSession(record.id);
-      if (record.device_id === currentSession.device.id && !record.revoked_at) setSession(null); else await refreshSecurity();
-    } catch (reason: unknown) {
-      setError(errorText(reason));
-    } finally {
-      setBusy(null);
-    }
+  function closeRevocationDialog() {
+    if (busy) return;
+    setPendingRevocation(null);
+    setRevocationError(null);
   }
 
   async function updateNotifications(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
+    const mutedKnownTypes = notificationChoices
+      .filter(({ field }) => values.get(field) !== "on")
+      .map(({ eventType }) => eventType);
+    const additionalMutedTypes = stringValue(values, "additional_muted_event_types")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
     setBusy("notifications");
     setError(null);
     try {
@@ -125,7 +146,7 @@ export function SettingsPage() {
         email_enabled: values.get("email_enabled") === "on",
         push_enabled: values.get("push_enabled") === "on",
         in_app_enabled: values.get("in_app_enabled") === "on",
-        muted_event_types: stringValue(values, "muted_event_types").split(",").map((value) => value.trim()).filter(Boolean)
+        muted_event_types: [...new Set([...mutedKnownTypes, ...additionalMutedTypes])]
       });
       setPreference(next);
       setNotice("Notification preferences updated.");
@@ -154,6 +175,19 @@ export function SettingsPage() {
       <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
       {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button></div>}
       {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
+      {pendingRevocation && <ConfirmDialog
+        title={pendingRevocation.kind === "device" ? "Revoke device?" : "Revoke session?"}
+        description={pendingRevocation.kind === "device" ? pendingRevocation.device.name : `Session ${pendingRevocation.record.id.slice(0, 8)}`}
+        impact={pendingRevocation.kind === "device"
+          ? pendingRevocation.device.id === currentSession.device.id ? "This device will be revoked and you will be signed out now." : "All active sessions on this device will stop working."
+          : pendingRevocation.record.device_id === currentSession.device.id ? "This browser session will end and you will be signed out now." : "The session will stop working and its user must sign in again."}
+        confirmLabel={pendingRevocation.kind === "device" ? "Revoke device" : "Revoke session"}
+        tone="danger"
+        busy={busy !== null}
+        error={revocationError}
+        onCancel={closeRevocationDialog}
+        onConfirm={() => void confirmRevocation()}
+      />}
 
       <div className="settings-grid">
         <form className="settings-card" onSubmit={(event) => void updateProfile(event)}>
@@ -174,28 +208,54 @@ export function SettingsPage() {
 
       <section className="data-card settings-data-card" aria-labelledby="devices-title">
         <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="devices-title">Devices</h2></div><span className="status-pill success">{loading ? "Loading" : `${devices.length} known`}</span></div>
-        <ul className="security-list">{devices.map((device) => <li key={device.id}><div><strong>{device.name}</strong><small>{device.platform} · Last seen {formatDateTime(device.last_seen_at)}{device.id === session.device.id ? " · This device" : ""}</small></div><span className={`status-pill ${device.revoked_at ? "neutral" : "success"}`}>{device.revoked_at ? "Revoked" : "Active"}</span>{!device.revoked_at && <button className="button danger compact" type="button" disabled={busy === `device-${device.id}`} onClick={() => void revokeDevice(device)}>{device.id === session.device.id ? "Revoke and sign out" : "Revoke device"}</button>}</li>)}</ul>
+        <ul className="security-list">{devices.map((device) => <li key={device.id}><div><strong>{device.name}</strong><small>{device.platform} · Last seen {formatDateTime(device.last_seen_at)}{device.id === session.device.id ? " · This device" : ""}</small></div><span className={`status-pill ${device.revoked_at ? "neutral" : "success"}`}>{device.revoked_at ? "Revoked" : "Active"}</span>{!device.revoked_at && <button className="button danger compact" type="button" disabled={busy === `device-${device.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "device", device }); }}>{device.id === session.device.id ? "Revoke and sign out" : "Revoke device"}</button>}</li>)}</ul>
       </section>
 
       <section className="data-card settings-data-card" aria-labelledby="sessions-title">
         <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="sessions-title">Sessions</h2></div><span className="status-pill success">{sessions.filter(({ revoked_at }) => !revoked_at).length} active</span></div>
-        <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => void revokeSession(record)}>Revoke</button>}</li>)}</ul>
+        <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
       </section>
 
       {preference && <form className="settings-card notification-settings" onSubmit={(event) => void updateNotifications(event)}>
         <div className="card-heading"><h2>Notification preferences</h2><span className="status-pill success">Live API</span></div>
-        <div className="toggle-grid"><label><input name="in_app_enabled" type="checkbox" defaultChecked={preference.in_app_enabled} />In-app notifications</label><label><input name="email_enabled" type="checkbox" defaultChecked={preference.email_enabled} />Email notifications</label><label><input name="push_enabled" type="checkbox" defaultChecked={preference.push_enabled} />Push on registered browsers</label></div>
-        <label className="field">Muted event types<input name="muted_event_types" defaultValue={preference.muted_event_types.join(", ")} placeholder="message.created.v1, mention.created.v1" /><small>Comma-separated event type identifiers.</small></label>
+        <fieldset className="settings-fieldset"><legend>Where should K-Comms notify you?</legend><div className="toggle-grid"><label><input name="in_app_enabled" type="checkbox" defaultChecked={preference.in_app_enabled} />In K-Comms</label><label><input name="email_enabled" type="checkbox" defaultChecked={preference.email_enabled} />By email</label><label><input name="push_enabled" type="checkbox" defaultChecked={preference.push_enabled} />On registered browsers</label></div></fieldset>
+        <fieldset className="settings-fieldset"><legend>What should notify you?</legend><div className="toggle-grid">{notificationChoices.map(({ eventType, field, label }) => <label key={eventType}><input name={field} type="checkbox" defaultChecked={!preference.muted_event_types.includes(eventType)} />{label}</label>)}</div></fieldset>
+        <details className="advanced-settings"><summary>Advanced notification categories</summary><label className="field">Additional categories to mute<input name="additional_muted_event_types" defaultValue={preference.muted_event_types.filter((value) => !notificationChoices.some(({ eventType }) => eventType === value)).join(", ")} /><small>Only use technical category names supplied by your administrator or support team.</small></label></details>
         <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "notifications"}>{busy === "notifications" ? "Saving…" : "Save notifications"}</button></div>
       </form>}
 
       {preference && <PushNotifications api={api} preference={preference} onPreference={setPreference} onNotice={setNotice} onError={setError} />}
 
       <section className="data-card settings-data-card" aria-labelledby="notification-history-title">
-        <div className="card-heading"><div><span className="eyebrow">Delivery visibility</span><h2 id="notification-history-title">Recent notifications</h2></div><span className="status-pill success">{notifications.length} intents</span></div>
-        {notifications.length === 0 ? <p className="empty-copy">No notification intents yet.</p> : <ul className="security-list">{notifications.slice(0, 20).map((intent) => <li key={intent.id}><div><strong>{intent.event_type}</strong><small>{intent.channel} · {intent.destination_hint || "destination protected"} · {intent.attempt_count} attempts · {formatDateTime(intent.inserted_at)}</small></div><span className={`status-pill ${intent.status === "delivered" ? "success" : "neutral"}`}>{intent.status}</span>{canAdministerTenant(session.user.role) && ["failed", "dead_letter"].includes(intent.status) && <button className="button ghost compact" type="button" disabled={busy === `notification-${intent.id}`} onClick={() => void retryNotification(intent)}>Retry</button>}</li>)}</ul>}
-        <p className="support-note">{attempts.length} provider attempts are available to your account; destinations are redacted by the server.</p>
+        <div className="card-heading"><div><span className="eyebrow">Delivery visibility</span><h2 id="notification-history-title">Recent notifications</h2></div><span className="status-pill success">{notifications.length} recent</span></div>
+        {notifications.length === 0 ? <p className="empty-copy">No recent notification deliveries.</p> : <ul className="security-list">{notifications.slice(0, 20).map((intent) => <li key={intent.id}><div><strong>{notificationName(intent.event_type)}</strong><small>{notificationChannelName(intent.channel)} · {intent.destination_hint || "destination protected"} · {attemptSummary(intent.attempt_count)} · {formatDateTime(intent.inserted_at)}</small></div><span className={`status-pill ${intent.status === "delivered" ? "success" : "neutral"}`}>{notificationStatusName(intent.status)}</span>{canAdministerTenant(session.user.role) && ["failed", "dead_letter"].includes(intent.status) && <button className="button ghost compact" type="button" disabled={busy === `notification-${intent.id}`} onClick={() => void retryNotification(intent)}>Retry</button>}</li>)}</ul>}
+        <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>
       </section>
     </main>
   );
+}
+
+function notificationName(eventType: string): string {
+  if (eventType === "message.created.v1") return "New message";
+  if (eventType === "mention.created.v1") return "You were mentioned";
+  return "Workspace update";
+}
+
+function notificationChannelName(channel: string): string {
+  if (channel === "in_app") return "In K-Comms";
+  if (channel === "email") return "Email";
+  if (channel === "push") return "Browser notification";
+  return "Notification";
+}
+
+function notificationStatusName(status: string): string {
+  if (status === "delivered") return "Delivered";
+  if (status === "failed" || status === "dead_letter") return "Needs attention";
+  if (status === "pending" || status === "queued") return "Pending";
+  return status.replaceAll("_", " ");
+}
+
+function attemptSummary(count: number): string {
+  if (count === 0) return "Not attempted yet";
+  return `${count} delivery ${count === 1 ? "attempt" : "attempts"}`;
 }

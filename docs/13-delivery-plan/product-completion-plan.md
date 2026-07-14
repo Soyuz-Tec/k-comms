@@ -41,6 +41,12 @@ replicas and one worker. These results do not promote a different Git revision.
 
 ## Production launch work
 
+The owner/evidence checklist and controlled internal release boundary are
+maintained in
+[internal-production-readiness.md](internal-production-readiness.md). The
+application, environment/operating, and people gates are independent and must
+all identify the same immutable release.
+
 - Qualify the selected managed PostgreSQL, object storage, certificate, secret,
   notification, and malware-scanning services with production credentials.
 - Run production-scale load/soak, reconnect storm, multi-zone failure, recovery,

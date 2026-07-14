@@ -6,7 +6,7 @@ import {
   useState
 } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { CreateConversationInput, SendMessageInput } from "../../api";
 import {
   downloadUrl,
@@ -15,6 +15,7 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { ActionDialog } from "../../components/ActionDialog";
 import {
   clientMessageId,
   conversationTitle,
@@ -67,6 +68,7 @@ export function ChatPage() {
     createConversation,
     refreshConversations
   } = useWorkspaceData();
+  const onboardingStorageKey = session ? `k-comms:onboarding:${session.tenant.id}:${session.user.id}` : "k-comms:onboarding:anonymous";
   const [searchParams, setSearchParams] = useSearchParams();
   const activeConversationId = searchParams.get("conversation");
   const linkedMessageId = safeUuid(searchParams.get("message"));
@@ -95,12 +97,24 @@ export function ChatPage() {
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const [membershipVersion, setMembershipVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<Message | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
   const [contiguousSequence, setContiguousSequence] = useState(0);
+  const [conversationQuery, setConversationQuery] = useState("");
+  const [conversationKind, setConversationKind] = useState<"all" | "direct" | "group" | "channel">("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia?.("(max-width: 760px)").matches ?? false);
 
   const realtimeRef = useRef<RealtimeConversation | null>(null);
   const contiguousSequenceRef = useRef(0);
   const futureSequencesRef = useRef<Set<number>>(new Set());
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const nearBottomRef = useRef(true);
+  const forceScrollToLatestRef = useRef(true);
   const typingTimerRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -120,8 +134,23 @@ export function ChatPage() {
     () => conversations.find(({ id }) => id === activeConversationId) || null,
     [activeConversationId, conversations]
   );
+  const filteredConversations = useMemo(() => {
+    const query = conversationQuery.trim().toLocaleLowerCase();
+    return conversations.filter((conversation) => {
+      if (conversationKind !== "all" && conversation.kind !== conversationKind) return false;
+      if (unreadOnly && (conversation.unread_count || 0) === 0) return false;
+      if (query && !conversationTitle(conversation).toLocaleLowerCase().includes(query)) return false;
+      return true;
+    });
+  }, [conversationKind, conversationQuery, conversations, unreadOnly]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const messagesById = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
+
+  const updateNearBottom = useCallback((nearBottom: boolean) => {
+    nearBottomRef.current = nearBottom;
+    setIsNearBottom(nearBottom);
+    if (nearBottom) setNewMessageCount(0);
+  }, []);
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -148,6 +177,11 @@ export function ChatPage() {
     const previous = draftConversationRef.current;
     if (previous && session) storeDraft(session.tenant.id, session.user.id, previous, composer);
     draftConversationRef.current = activeConversationId;
+    knownMessageIdsRef.current.clear();
+    nearBottomRef.current = true;
+    forceScrollToLatestRef.current = true;
+    setIsNearBottom(true);
+    setNewMessageCount(0);
     setComposer(activeConversationId && session ? loadDraft(session.tenant.id, session.user.id, activeConversationId) : "");
     setReplyTo(null);
     setThreadTargetId(null);
@@ -167,6 +201,13 @@ export function ChatPage() {
   const receiveMessages = useCallback(
     (incoming: Message[]) => {
       if (incoming.length === 0) return;
+      const newMessagesFromOthers = incoming.filter(
+        (message) => !knownMessageIdsRef.current.has(message.id) && message.sender_user_id !== session?.user.id
+      ).length;
+      incoming.forEach((message) => knownMessageIdsRef.current.add(message.id));
+      if (!nearBottomRef.current && newMessagesFromOthers > 0) {
+        setNewMessageCount((count) => count + newMessagesFromOthers);
+      }
       for (const message of incoming) {
         if (message.conversation_sequence > contiguousSequenceRef.current) {
           futureSequencesRef.current.add(message.conversation_sequence);
@@ -211,11 +252,11 @@ export function ChatPage() {
           current.map((conversation) => {
             if (conversation.id !== conversationId) return conversation;
             const latestSequence = Math.max(conversation.latest_sequence, latest);
-            const hidden = document.visibilityState !== "visible";
+            const shouldRemainUnread = document.visibilityState !== "visible" || !nearBottomRef.current;
             return {
               ...conversation,
               latest_sequence: latestSequence,
-              unread_count: hidden
+              unread_count: shouldRemainUnread
                 ? Math.max(conversation.unread_count || 0, latestSequence - (conversation.last_read_sequence || 0))
                 : conversation.unread_count
             };
@@ -223,7 +264,7 @@ export function ChatPage() {
         );
       }
     },
-    [setConversations]
+    [session?.user.id, setConversations]
   );
 
   const applyReaction = useCallback((event: ReactionEvent, add: boolean) => {
@@ -249,6 +290,7 @@ export function ChatPage() {
     let reconnectAttempts = 0;
     let catchUpInFlight = false;
     setMessages([]);
+    knownMessageIdsRef.current.clear();
     setTypingUsers(new Set());
     setReadCursors({});
     setMessagesLoading(true);
@@ -380,7 +422,7 @@ export function ChatPage() {
   const latestSequence = messages.at(-1)?.conversation_sequence || 0;
   const readableSequence = Math.min(latestSequence, contiguousSequence);
   useEffect(() => {
-    if (!activeConversationId || readableSequence <= 0 || (isMobile && mobilePane !== "messages")) return;
+    if (!activeConversationId || !isNearBottom || readableSequence <= 0 || (isMobile && mobilePane !== "messages")) return;
     let timer: number | null = null;
     const mark = () => {
       if (document.visibilityState !== "visible") return;
@@ -398,7 +440,7 @@ export function ChatPage() {
       if (timer) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", mark);
     };
-  }, [activeConversationId, api, isMobile, mobilePane, readableSequence, setConversations]);
+  }, [activeConversationId, api, isMobile, isNearBottom, mobilePane, readableSequence, setConversations]);
 
   useEffect(() => {
     if (!focusTarget || focusTarget.conversationId !== activeConversationId) return;
@@ -411,8 +453,12 @@ export function ChatPage() {
   }, [activeConversationId, focusTarget, messages.length]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [latestSequence]);
+    if (focusTarget?.conversationId === activeConversationId) return;
+    if (!nearBottomRef.current && !forceScrollToLatestRef.current) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: forceScrollToLatestRef.current ? "smooth" : "auto", block: "nearest" });
+    forceScrollToLatestRef.current = false;
+    updateNearBottom(true);
+  }, [activeConversationId, focusTarget?.conversationId, latestSequence, updateNearBottom]);
 
   useEffect(() => () => {
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
@@ -423,6 +469,18 @@ export function ChatPage() {
     setMobilePane("messages");
     setShowDetails(false);
     setShowBrowseChannels(false);
+  }
+
+  function messageScrollChanged() {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    updateNearBottom(scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 96);
+  }
+
+  function jumpToLatest() {
+    forceScrollToLatestRef.current = false;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    updateNearBottom(true);
   }
 
   async function create(input: CreateConversationInput) {
@@ -441,6 +499,7 @@ export function ChatPage() {
     const message = connectionStatus === "live" && realtimeRef.current
       ? await realtimeRef.current.sendMessage(input)
       : await api.sendMessage(activeConversationId, input);
+    forceScrollToLatestRef.current = true;
     receiveMessages([message]);
     setComposer("");
     if (session) storeDraft(session.tenant.id, session.user.id, activeConversationId, "");
@@ -492,6 +551,7 @@ export function ChatPage() {
     const message = connectionStatus === "live" && realtimeRef.current
       ? await realtimeRef.current.sendMessage(input)
       : await api.sendMessage(activeConversationId, input);
+    forceScrollToLatestRef.current = true;
     receiveMessages([message]);
     return message;
   }
@@ -556,6 +616,7 @@ export function ChatPage() {
     try {
       const after = Math.max(0, oldest - 201);
       const page = await api.messages(activeConversationId, after, 200, oldest);
+      page.data.forEach((message) => knownMessageIdsRef.current.add(message.id));
       setMessages((current) => {
         const byId = new Map([...page.data, ...current].map((message) => [message.id, message]));
         return [...byId.values()].sort((left, right) => left.conversation_sequence - right.conversation_sequence);
@@ -615,22 +676,28 @@ export function ChatPage() {
     }
   }
 
-  async function reportMessage(message: Message) {
-    const details = window.prompt("Describe why this message should be reviewed");
-    if (!details?.trim()) return;
+  async function submitReport(details: string) {
+    if (!reportTarget) return;
+    setReporting(true);
+    setReportError(null);
     setError(null);
     try {
       await api.createModerationCase({
-        message_id: message.id,
-        conversation_id: message.conversation_id,
+        message_id: reportTarget.id,
+        conversation_id: reportTarget.conversation_id,
         category: "message_content",
         summary: details.trim().slice(0, 160),
         details: details.trim(),
         priority: "normal"
       });
       setNotice("Report submitted to workspace moderators.");
+      setReportTarget(null);
     } catch (reason: unknown) {
-      setError(errorText(reason));
+      const message = errorText(reason);
+      setReportError(message);
+      setError(message);
+    } finally {
+      setReporting(false);
     }
   }
 
@@ -639,26 +706,54 @@ export function ChatPage() {
 
   const activeTyping = [...typingUsers].filter((id) => id !== session.user.id).map((id) => usersById.get(id)?.display_name || "Someone");
   const attachmentsReady = pendingAttachments.every(({ attachment }) => attachment.status === "ready");
+  const hasSentMessage = messages.some(({ sender_user_id: senderUserId }) => senderUserId === session.user.id);
+
+  function dismissOnboarding() {
+    try { window.localStorage.setItem(onboardingStorageKey, "dismissed"); } catch { /* Private or constrained storage must not block dismissal. */ }
+    setShowOnboarding(false);
+  }
 
   return (
     <main className={`workspace-grid mobile-${mobilePane}`} id="main-content">
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
       <aside className="conversation-sidebar" aria-label="Conversations">
         <div className="sidebar-heading"><div><span className="eyebrow">Direct, group & channel</span><h1>Conversations</h1></div><div className="sidebar-tools"><button className="icon-button" type="button" aria-label="Browse channels" aria-expanded={showBrowseChannels} onClick={() => { setShowBrowseChannels((visible) => !visible); setShowSearch(false); setShowDetails(false); }}>#</button><button className="icon-button" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><button className="icon-button" type="button" aria-label="Create conversation" aria-expanded={showCreateConversation} onClick={() => setShowCreateConversation((visible) => !visible)}>+</button></div></div>
+        {showOnboarding && <section className="onboarding-checklist" aria-labelledby="onboarding-checklist-title">
+          <div><h2 id="onboarding-checklist-title">Get started</h2><button type="button" aria-label="Dismiss getting-started checklist" onClick={dismissOnboarding}>×</button></div>
+          <ol>
+            <li className={activeConversation ? "complete" : undefined}><span aria-hidden="true">{activeConversation ? "✓" : "1"}</span>Choose or start a conversation</li>
+            <li className={hasSentMessage ? "complete" : undefined}><span aria-hidden="true">{hasSentMessage ? "✓" : "2"}</span>Send your first message</li>
+            <li><span aria-hidden="true">3</span><Link to="/app/settings">Choose notification preferences</Link></li>
+          </ol>
+        </section>}
         {showCreateConversation && <CreateConversationForm users={users.filter((user) => user.id !== session.user.id && user.status === "active")} allowPublicChannels={capabilities?.allow_public_channels === true} onCancel={() => setShowCreateConversation(false)} onCreate={create} />}
+        {conversations.length > 0 && <div className="conversation-filters" role="search" aria-label="Filter conversations">
+          <label className="sr-only" htmlFor="conversation-filter-query">Filter conversations by title</label>
+          <input id="conversation-filter-query" type="search" value={conversationQuery} onChange={(event) => setConversationQuery(event.target.value)} placeholder="Filter conversations" />
+          <label className="sr-only" htmlFor="conversation-filter-kind">Conversation type</label>
+          <select id="conversation-filter-kind" value={conversationKind} onChange={(event) => setConversationKind(event.target.value as typeof conversationKind)}>
+            <option value="all">All types</option>
+            <option value="direct">Direct messages</option>
+            <option value="group">Groups</option>
+            <option value="channel">Channels</option>
+          </select>
+          <label className="conversation-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />Unread only</label>
+        </div>}
         <nav className="conversation-list" aria-label="Conversation list">
-          {conversations.length === 0 ? <p className="empty-copy">No conversations yet. Create one to get started.</p> : conversations.map((conversation) => <button type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
+          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button></div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
         </nav>
       </aside>
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationTitle(activeConversation) : "Messages"}>
         {activeConversation ? <>
           <header className="conversation-header"><button className="mobile-back" type="button" onClick={() => setMobilePane("list")} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
-          <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading}>
+          <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
-            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list" aria-live="polite" aria-relevant="additions text">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} sender={usersById.get(message.sender_user_id)} replyPreview={replyPreview} replySender={replyPreview ? usersById.get(replyPreview.sender_user_id) : undefined} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => void reportMessage(message)} />; })}</ol>}
+            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} sender={usersById.get(message.sender_user_id)} replyPreview={replyPreview} replySender={replyPreview ? usersById.get(replyPreview.sender_user_id) : undefined} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
             <div ref={messagesEndRef} />
           </div>
+          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}.` : ""}</p>
+          {!isNearBottom && <div className="new-message-jump"><button className="button primary compact" type="button" onClick={jumpToLatest}>{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"} · Jump to latest` : "Jump to latest"}</button></div>}
           <div className="typing-line" aria-live="polite">{activeTyping.length > 0 ? `${activeTyping.join(", ")} ${activeTyping.length === 1 ? "is" : "are"} typing…` : "\u00a0"}</div>
           <form className="composer" onSubmit={(event) => void sendMessage(event)}>
             {failedSend && <div className="failed-send" role="alert"><span>Message not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
@@ -675,6 +770,7 @@ export function ChatPage() {
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); setShowDetails(false); setMobilePane("list"); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
       {threadTargetId && activeConversationId && <ThreadDrawer api={api} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} members={conversationMembers} users={users} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
+      {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );
 }
@@ -705,4 +801,8 @@ function safeUuid(value: string | null): string | null {
   return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
     : null;
+}
+
+function readOnboardingPreference(storageKey: string): boolean {
+  try { return window.localStorage.getItem(storageKey) !== "dismissed"; } catch { return true; }
 }

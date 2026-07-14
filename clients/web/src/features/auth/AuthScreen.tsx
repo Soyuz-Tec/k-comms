@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import type { BootstrapInput, LoginInput } from "../../api";
 import { Brand } from "../../components/Brand";
@@ -9,17 +9,23 @@ import { useSession } from "../../app/session";
 
 export function AuthScreen() {
   const { api, setSession } = useSession();
-  const [invitationToken] = useState(() => new URLSearchParams(window.location.search).get("invitation_token") || "");
+  const [invitationContext] = useState(readInvitationContext);
+  const invitationToken = invitationContext.token;
   const [mode, setMode] = useState<"login" | "invite" | "bootstrap">(invitationToken ? "invite" : "login");
+  const [loginDefaults, setLoginDefaults] = useState({ tenantSlug: invitationContext.tenantSlug, email: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [bootstrapEnabled, setBootstrapEnabled] = useState(false);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useLayoutEffect(() => {
     if (!invitationToken) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("invitation_token");
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+    hash.delete("invitation_token");
+    url.hash = hash.toString();
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [invitationToken]);
 
@@ -83,16 +89,56 @@ export function AuthScreen() {
     if (password !== stringValue(values, "confirm_password")) return setError("Password confirmation does not match.");
     setBusy(true); setError(null);
     try {
-      await api.acceptInvitation({ token: stringValue(values, "token"), display_name: stringValue(values, "display_name"), password });
+      const acceptedUser = await api.acceptInvitation({ token: stringValue(values, "token"), display_name: stringValue(values, "display_name"), password });
+      const email = acceptedUser.email || "";
       form.reset();
+
+      if (invitationContext.tenantSlug && email) {
+        try {
+          const session = await api.login({
+            tenant_slug: invitationContext.tenantSlug,
+            email,
+            password,
+            device: { name: browserName(), platform: "web" }
+          });
+          setSession(session);
+          return;
+        } catch {
+          // Acceptance succeeded. Preserve a safe, prefilled manual sign-in
+          // fallback rather than treating the whole operation as failed.
+        }
+      }
+
+      setLoginDefaults({ tenantSlug: invitationContext.tenantSlug, email });
       setMode("login");
       setError(null);
-      setNotice("Invitation accepted. Sign in with your workspace slug and new password.");
+      setNotice("Invitation accepted. Your workspace and email are filled in when available; sign in with your new password.");
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
       setBusy(false);
     }
+  }
+
+  const tabModes = bootstrapEnabled
+    ? (["login", "invite", "bootstrap"] as const)
+    : (["login", "invite"] as const);
+
+  function selectTab(nextMode: typeof tabModes[number], index: number) {
+    setMode(nextMode);
+    tabRefs.current[index]?.focus();
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (index + 1) % tabModes.length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (index - 1 + tabModes.length) % tabModes.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabModes.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextMode = tabModes[nextIndex];
+    if (nextMode) selectTab(nextMode, nextIndex);
   }
 
   return (
@@ -123,44 +169,68 @@ export function AuthScreen() {
           </p>
 
           <div className={`auth-tabs ${bootstrapEnabled ? "three-tabs" : ""}`} role="tablist" aria-label="Authentication options">
-            <button type="button" role="tab" aria-selected={mode === "login"} onClick={() => setMode("login")}>Sign in</button>
-            <button type="button" role="tab" aria-selected={mode === "invite"} onClick={() => setMode("invite")}>Accept invite</button>
-            {bootstrapEnabled && <button type="button" role="tab" aria-selected={mode === "bootstrap"} onClick={() => setMode("bootstrap")}>Create workspace</button>}
+            {tabModes.map((tabMode, index) => <button
+              key={tabMode}
+              ref={(element) => { tabRefs.current[index] = element; }}
+              id={`auth-${tabMode}-tab`}
+              type="button"
+              role="tab"
+              aria-controls={`auth-${tabMode}-panel`}
+              aria-selected={mode === tabMode}
+              tabIndex={mode === tabMode ? 0 : -1}
+              onClick={() => setMode(tabMode)}
+              onKeyDown={(event) => handleTabKeyDown(event, index)}
+            >{tabMode === "login" ? "Sign in" : tabMode === "invite" ? "Accept invite" : "Create workspace"}</button>)}
           </div>
 
           {error && <div className="form-error" role="alert">{error}</div>}
           {notice && <div className="inline-notice" role="status">{notice}</div>}
 
           {mode === "login" ? (
-            <form className="auth-form" onSubmit={(event) => void submitLogin(event)}>
-              <Field label="Workspace slug" name="tenant_slug" autoComplete="organization" required />
-              <Field label="Email address" name="email" type="email" autoComplete="username" required />
-              <Field label="Password" name="password" type="password" autoComplete="current-password" required />
-              <div className="auth-form-help"><Link to="/forgot-password">Forgot password?</Link></div>
-              <button className="button primary full" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-            </form>
+            <div id="auth-login-panel" role="tabpanel" aria-labelledby="auth-login-tab">
+              <form className="auth-form" onSubmit={(event) => void submitLogin(event)}>
+                <Field label="Workspace slug" name="tenant_slug" defaultValue={loginDefaults.tenantSlug} autoComplete="organization" required />
+                <Field label="Email address" name="email" type="email" defaultValue={loginDefaults.email} autoComplete="username" required />
+                <Field label="Password" name="password" type="password" autoComplete="current-password" required />
+                <div className="auth-form-help"><Link to="/forgot-password">Forgot password?</Link></div>
+                <button className="button primary full" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+              </form>
+            </div>
           ) : mode === "invite" ? (
-            <form className="auth-form" onSubmit={(event) => void acceptInvitation(event)}>
-              <Field label="Invitation token" name="token" defaultValue={invitationToken} autoComplete="off" required />
-              <Field label="Display name" name="display_name" maxLength={120} autoComplete="name" required />
-              <Field label="Password" name="password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required />
-              <Field label="Confirm password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required />
-              <button className="button primary full" type="submit" disabled={busy}>{busy ? "Accepting…" : "Accept invitation"}</button>
-            </form>
+            <div id="auth-invite-panel" role="tabpanel" aria-labelledby="auth-invite-tab">
+              <form className="auth-form" onSubmit={(event) => void acceptInvitation(event)}>
+                <Field label="Invitation token" name="token" defaultValue={invitationToken} autoComplete="off" required />
+                <Field label="Display name" name="display_name" maxLength={120} autoComplete="name" required />
+                <Field label="Password" name="password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required />
+                <Field label="Confirm password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required />
+                <button className="button primary full" type="submit" disabled={busy}>{busy ? "Accepting…" : "Accept invitation"}</button>
+              </form>
+            </div>
           ) : (
-            <form className="auth-form" onSubmit={(event) => void submitBootstrap(event)}>
-              <div className="field-pair">
-                <Field label="Workspace name" name="tenant_name" minLength={2} maxLength={120} autoComplete="organization" required />
-                <Field label="Workspace slug" name="tenant_slug" minLength={2} maxLength={80} pattern="[a-z0-9-]+" title="Lowercase letters, numbers, and hyphens" required />
-              </div>
-              <Field label="Your name" name="display_name" maxLength={120} autoComplete="name" required />
-              <Field label="Email address" name="email" type="email" autoComplete="username" required />
-              <Field label="Password" name="password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters" required />
-              <button className="button primary full" type="submit" disabled={busy}>{busy ? "Creating workspace…" : "Create development workspace"}</button>
-            </form>
+            <div id="auth-bootstrap-panel" role="tabpanel" aria-labelledby="auth-bootstrap-tab">
+              <form className="auth-form" onSubmit={(event) => void submitBootstrap(event)}>
+                <div className="field-pair">
+                  <Field label="Workspace name" name="tenant_name" minLength={2} maxLength={120} autoComplete="organization" required />
+                  <Field label="Workspace slug" name="tenant_slug" minLength={2} maxLength={80} pattern="[a-z0-9-]+" title="Lowercase letters, numbers, and hyphens" required />
+                </div>
+                <Field label="Your name" name="display_name" maxLength={120} autoComplete="name" required />
+                <Field label="Email address" name="email" type="email" autoComplete="username" required />
+                <Field label="Password" name="password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters" required />
+                <button className="button primary full" type="submit" disabled={busy}>{busy ? "Creating workspace…" : "Create development workspace"}</button>
+              </form>
+            </div>
           )}
         </div>
       </section>
     </main>
   );
+}
+
+function readInvitationContext(): { token: string; tenantSlug: string } {
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return {
+    token: hash.get("invitation_token") || search.get("invitation_token") || "",
+    tenantSlug: hash.get("tenant_slug") || search.get("tenant_slug") || ""
+  };
 }

@@ -78,13 +78,17 @@ test("admin creates, rotates, and revokes a scoped bot with one-time credential 
   await expect(page.getByRole("button", { name: "Rotate credential" })).toBeDisabled();
   await page.getByRole("button", { name: "I stored it" }).click();
 
-  page.once("dialog", (dialog) => dialog.accept("Routine rotation"));
   await page.getByRole("button", { name: "Rotate credential" }).click();
+  const rotateDialog = page.getByRole("alertdialog", { name: "Rotate service credential?" });
+  await rotateDialog.getByRole("textbox", { name: "Reason for this change" }).fill("Routine rotation");
+  await rotateDialog.getByRole("button", { name: "Rotate credential" }).click();
   await expect(page.getByText("kcsa_account.one-time-rotate")).toBeVisible();
   await page.getByRole("button", { name: "I stored it" }).click();
 
-  page.on("dialog", (dialog) => dialog.accept(dialog.type() === "prompt" ? "Automation retired" : undefined));
   await page.getByRole("button", { name: "Revoke" }).click();
+  const revokeDialog = page.getByRole("alertdialog", { name: "Revoke service account?" });
+  await revokeDialog.getByRole("textbox", { name: "Reason for this change" }).fill("Automation retired");
+  await revokeDialog.getByRole("button", { name: "Revoke account" }).click();
   await expect(page.getByText("revoked")).toBeVisible();
   await expect(page.getByRole("button", { name: "Rotate credential" })).toHaveCount(0);
 });

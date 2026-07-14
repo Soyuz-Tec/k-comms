@@ -61,21 +61,23 @@ describe("ServiceAccountsPanel", () => {
     const revokeServiceAccount = vi.fn().mockResolvedValue(revoked);
     const api = { serviceAccounts: vi.fn().mockResolvedValue([account]), rotateServiceAccount, revokeServiceAccount } as unknown as ApiClient;
     const onLifecycleChanged = vi.fn().mockResolvedValue(undefined);
-    const prompt = vi.spyOn(window, "prompt").mockReturnValueOnce("Routine credential rotation").mockReturnValueOnce("Automation retired");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     render(<ServiceAccountsPanel api={api} onLifecycleChanged={onLifecycleChanged} />);
 
     await user.click(await screen.findByRole("button", { name: "Rotate credential" }));
+    expect(screen.getByRole("alertdialog", { name: "Rotate service credential?" })).toHaveTextContent("existing credential will stop working immediately");
+    await user.type(screen.getByRole("textbox", { name: "Reason for this change" }), "Routine credential rotation");
+    await user.click(screen.getByRole("button", { name: "Rotate credential" }));
     expect(rotateServiceAccount).toHaveBeenCalledWith(account.id, 1, "Routine credential rotation");
     expect(await screen.findByText("kcsa_account.rotated-secret")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "I stored it" }));
     await user.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(screen.getByRole("alertdialog", { name: "Revoke service account?" })).toHaveTextContent("lose API access");
+    await user.type(screen.getByRole("textbox", { name: "Reason for this change" }), "Automation retired");
+    await user.click(screen.getByRole("button", { name: "Revoke account" }));
 
     expect(revokeServiceAccount).toHaveBeenCalledWith(account.id, 2, "Automation retired");
     expect(onLifecycleChanged).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("revoked")).toBeVisible();
-    prompt.mockRestore();
-    confirm.mockRestore();
   });
 });

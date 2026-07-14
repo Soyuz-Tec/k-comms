@@ -23,6 +23,13 @@
 - Local staging proves backup/isolated restore, migration-before-rollout,
   product acceptance, bounded load, edge and worker replacement, old-image
   rollback, current-image roll-forward, and browser journeys without data loss.
+- Shared dialogs, route orientation, invitation onboarding, history-safe
+  scrolling, conversation/search filters, and the first-run checklist pass
+  component and browser accessibility regressions without weakening step-up,
+  audit reasons, optimistic versions, or tenant authorization.
+- A usability score above the provisional 89/100 cap requires the complete
+  participant, accessibility, scoring, and pilot evidence defined in
+  [usability-validation.md](usability-validation.md).
 
 ## Production gate
 
@@ -34,6 +41,8 @@
 - Production deployment, rollback, and return-to-current roll-forward are rehearsed from retained approved manifests.
 - Critical alerts route to on-call and reference valid runbooks.
 - No unresolved critical security findings remain.
+- The controlled internal pilot and validated usability gates pass for the
+  exact immutable release revision.
 
 Passing the communication-platform and local staging gate does not imply that
 external production infrastructure or organizational launch approvals have

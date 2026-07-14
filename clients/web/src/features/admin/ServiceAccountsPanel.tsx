@@ -4,6 +4,7 @@ import type { ApiClient } from "../../api";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import type { ServiceAccount, ServiceAccountScope } from "../../types";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
+import { ActionDialog } from "../../components/ActionDialog";
 
 export const serviceAccountScopes: ServiceAccountScope[] = [
   "conversations:read",
@@ -18,6 +19,8 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ kind: "rotate" | "revoke"; account: ServiceAccount } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { runWithStepUp } = useStepUp();
 
   const load = useCallback(async () => {
@@ -71,39 +74,41 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
     }
   }
 
-  async function rotate(account: ServiceAccount) {
-    if (credential) return setError("Acknowledge the current one-time credential before rotating another service account.");
-    const reason = requiredReason(`Enter a reason to rotate ${account.name}. Existing credentials will stop working immediately.`);
-    if (!reason) return;
-    setBusy(`rotate-${account.id}`); setError(null);
+  async function confirmAction(reason: string) {
+    if (!pendingAction) return;
+    const { kind, account } = pendingAction;
+    setBusy(`${kind}-${account.id}`); setActionError(null);
     try {
-      const result = await runWithStepUp(() => api.rotateServiceAccount(account.id, account.version, reason));
-      setAccounts((current) => current.map((value) => value.id === account.id ? result.account : value));
-      setCredential(result.credential);
+      if (kind === "rotate") {
+        const result = await runWithStepUp(() => api.rotateServiceAccount(account.id, account.version, reason));
+        setAccounts((current) => current.map((value) => value.id === account.id ? result.account : value));
+        setCredential(result.credential);
+      } else {
+        const updated = await runWithStepUp(() => api.revokeServiceAccount(account.id, account.version, reason));
+        setAccounts((current) => current.map((value) => value.id === account.id ? updated : value));
+        await onLifecycleChanged?.();
+      }
+      setPendingAction(null);
     } catch (cause: unknown) {
-      if (!stepUpWasCancelled(cause)) setError(errorText(cause));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function revoke(account: ServiceAccount) {
-    if (!window.confirm(`Revoke ${account.name}? Its credential will stop working immediately.`)) return;
-    const reason = requiredReason(`Enter a reason to revoke ${account.name}.`);
-    if (!reason) return;
-    setBusy(`revoke-${account.id}`); setError(null);
-    try {
-      const updated = await runWithStepUp(() => api.revokeServiceAccount(account.id, account.version, reason));
-      setAccounts((current) => current.map((value) => value.id === account.id ? updated : value));
-      await onLifecycleChanged?.();
-    } catch (cause: unknown) {
-      if (!stepUpWasCancelled(cause)) setError(errorText(cause));
+      if (!stepUpWasCancelled(cause)) setActionError(errorText(cause));
     } finally {
       setBusy(null);
     }
   }
 
   return <section className="data-card" aria-labelledby="service-accounts-title">
+    {pendingAction && <ActionDialog
+      title={pendingAction.kind === "rotate" ? "Rotate service credential?" : "Revoke service account?"}
+      description={pendingAction.account.name}
+      impact={pendingAction.kind === "rotate" ? "The existing credential will stop working immediately. Store and deploy the new one-time credential before the automation runs again." : "The credential will stop working immediately and this bot will lose API access."}
+      confirmLabel={pendingAction.kind === "rotate" ? "Rotate credential" : "Revoke account"}
+      tone="danger"
+      auditReason={{ helpText: "This reason is retained in the audit record.", minimumLength: 3 }}
+      busy={busy !== null}
+      error={actionError}
+      onCancel={() => { if (!busy) { setPendingAction(null); setActionError(null); } }}
+      onConfirm={(reason) => void confirmAction(reason)}
+    />}
     <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div><span className="status-pill success">{loading ? "Loading" : `${accounts.length} configured`}</span></div>
     <p className="support-note">Non-login bot identities can access only joined conversations and explicitly granted API scopes. After creation, add the bot from a conversation’s member controls. Credentials never work for browser sessions, administration, or sockets.</p>
     {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss service account error" onClick={() => setError(null)}>×</button></div>}
@@ -114,21 +119,16 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
       <label className="field grow-field">Creation reason<input name="reason" required minLength={3} maxLength={1000} /></label>
       <button className="button primary" type="submit" disabled={busy === "create" || Boolean(credential)}>Create service account</button>
     </form>
-    {credential && <div className="secret-reveal" role="status"><strong>One-time service credential</strong><code>{credential}</code><small>Store it now. K-Comms keeps only a one-way secret digest and cannot show it again.</small><button className="button ghost compact" type="button" onClick={() => void navigator.clipboard.writeText(credential)}>Copy credential</button><button className="text-button" type="button" onClick={() => setCredential(null)}>I stored it</button></div>}
+    {credential && <div className="secret-reveal" role="region" aria-label="One-time service credential"><strong>One-time service credential</strong><code>{credential}</code><small>Store it now. K-Comms keeps only a one-way secret digest and cannot show it again.</small><button className="button ghost compact" type="button" onClick={() => void navigator.clipboard.writeText(credential)}>Copy credential</button><button className="text-button" type="button" onClick={() => setCredential(null)}>I stored it</button></div>}
     {!loading && accounts.length === 0 ? <p className="empty-copy">No service accounts configured.</p> : <ul className="security-list service-account-list">{accounts.map((account) => {
       const status = displayedStatus(account);
-      return <li key={account.id}><div><strong>{account.name} <span className="role-chip">Bot</span></strong><small><code>{account.credential_prefix}.••••{account.secret_hint}</code> · Expires {formatDateTime(account.expires_at)} · Last used {account.last_used_at ? formatDateTime(account.last_used_at) : "never"}</small><span className="scope-list">{account.scopes.map((scope) => <span className="status-pill neutral" key={scope}>{scope}</span>)}</span></div><span className={`status-pill ${status === "active" ? "success" : "neutral"}`}>{status}</span>{status === "active" && <><button className="button ghost compact" type="button" disabled={Boolean(credential) || busy === `rotate-${account.id}`} onClick={() => void rotate(account)}>Rotate credential</button><button className="button danger compact" type="button" disabled={busy === `revoke-${account.id}`} onClick={() => void revoke(account)}>Revoke</button></>}</li>;
+      return <li key={account.id}><div><strong>{account.name} <span className="role-chip">Bot</span></strong><small><code>{account.credential_prefix}.••••{account.secret_hint}</code> · Expires {formatDateTime(account.expires_at)} · Last used {account.last_used_at ? formatDateTime(account.last_used_at) : "never"}</small><span className="scope-list">{account.scopes.map((scope) => <span className="status-pill neutral" key={scope}>{scope}</span>)}</span></div><span className={`status-pill ${status === "active" ? "success" : "neutral"}`}>{status}</span>{status === "active" && <><button className="button ghost compact" type="button" disabled={Boolean(credential) || busy === `rotate-${account.id}`} onClick={() => { if (credential) { setError("Acknowledge the current one-time credential before rotating another service account."); return; } setActionError(null); setPendingAction({ kind: "rotate", account }); }}>Rotate credential</button><button className="button danger compact" type="button" disabled={busy === `revoke-${account.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "revoke", account }); }}>Revoke</button></>}</li>;
     })}</ul>}
   </section>;
 }
 
 function displayedStatus(account: ServiceAccount): ServiceAccount["status"] {
   return account.status === "active" && new Date(account.expires_at).getTime() <= Date.now() ? "expired" : account.status;
-}
-
-function requiredReason(prompt: string): string | null {
-  const reason = window.prompt(prompt)?.trim();
-  return reason && reason.length >= 3 ? reason : null;
 }
 
 function defaultExpiry(): string {

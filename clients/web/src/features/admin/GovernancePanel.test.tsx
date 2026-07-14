@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import { StepUpProvider } from "../../app/step-up";
-import type { Conversation, LegalHold, Message, User } from "../../types";
+import type { Conversation, LegalHold, Message, RetentionPolicy, User } from "../../types";
 import { GovernancePanel } from "./GovernancePanel";
 
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: { stepUp: vi.fn() } }) }));
@@ -73,6 +73,38 @@ function apiFixture(overrides: Partial<ApiClient> = {}): ApiClient {
 }
 
 describe("GovernancePanel target selection", () => {
+  it("reviews a retention-policy transition and submits its audited reason", async () => {
+    const policy: RetentionPolicy = {
+      id: "policy-1",
+      name: "Standard retention",
+      scope_type: "tenant",
+      retention_days: 365,
+      delete_attachments: true,
+      status: "active",
+      version: 1,
+      inserted_at: "2026-07-12T10:00:00Z",
+      updated_at: "2026-07-12T10:00:00Z"
+    };
+    const updateRetentionPolicy = vi.fn().mockResolvedValue({ ...policy, status: "disabled", version: 2 });
+    const api = apiFixture({
+      retentionPolicies: vi.fn().mockResolvedValue([policy]),
+      updateRetentionPolicy
+    } as Partial<ApiClient>);
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+
+    await user.click(await screen.findByRole("button", { name: "Disable" }));
+    expect(screen.getByRole("alertdialog", { name: "Disable retention policy?" })).toHaveTextContent("Standard retention");
+    await user.type(screen.getByRole("textbox", { name: "Reason for this change" }), "Policy under review");
+    await user.click(screen.getByRole("button", { name: "Disable policy" }));
+
+    await waitFor(() => expect(updateRetentionPolicy).toHaveBeenCalledWith("policy-1", {
+      status: "disabled",
+      version: 1,
+      reason: "Policy under review"
+    }));
+  });
+
   it("creates user and conversation holds using human-readable active targets", async () => {
     const createLegalHold = vi.fn().mockImplementation((input) => Promise.resolve(holdFor(input)));
     const api = apiFixture({ createLegalHold } as Partial<ApiClient>);

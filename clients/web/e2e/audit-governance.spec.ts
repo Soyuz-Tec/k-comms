@@ -71,7 +71,7 @@ test("admin exports filtered audit evidence and selects governance targets by na
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("k-comms-audit-20260712T100000Z.csv");
   expect(auditExportBody).toEqual({ q: "user.created", limit: 5_000 });
-  await expect(page.getByRole("status")).toContainText("Downloaded 1 audit events");
+  await expect(page.getByText("Downloaded 1 audit events.")).toBeVisible();
 
   await page.getByRole("button", { name: "Governance" }).click();
   const holdCard = page.getByRole("heading", { name: "Legal holds" }).locator("xpath=ancestor::section[1]");

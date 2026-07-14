@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import {
@@ -26,29 +26,57 @@ export function AdminPage() {
   const { users, conversations, setUsers, setCapabilities, refreshAll } = useWorkspaceData();
   const role = session?.user.role || "member";
   const sections = adminSections(role);
-  const [section, setSection] = useState<AdminSection>(() => sections[0]?.[0] || "workspace");
+  const authorized = Boolean(session && canAccessAdmin(session.user.role));
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSection = searchParams.get("section");
+  const defaultSection = sections[0]?.[0] || "workspace";
+  const section = isAdminSection(requestedSection) && sections.some(([id]) => id === requestedSection)
+    ? requestedSection
+    : defaultSection;
+
   useEffect(() => {
-    if (!sections.some(([id]) => id === section)) setSection(sections[0]?.[0] || "workspace");
-  }, [role, section]);
+    if (!authorized) return;
+    if (requestedSection === section) return;
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("section", section);
+      return next;
+    }, { replace: true });
+  }, [authorized, requestedSection, section, setSearchParams]);
+
+  function selectSection(nextSection: AdminSection) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("section", nextSection);
+      return next;
+    });
+  }
+
   if (!session) return null;
-  if (!canAccessAdmin(session.user.role)) return <Navigate to="/app" replace />;
+  if (!authorized) return <Navigate to="/app" replace />;
 
   return (
     <main className="page-shell" id="main-content">
       <header className="page-heading admin-heading"><div><span className="eyebrow">Tenant administration</span><h1>Workspace control center</h1><p>Manage access, policies, safety, integrations and audit evidence through tenant-scoped APIs.</p></div></header>
       <section className="admin-stats" aria-label="Workspace summary"><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
-      <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => setSection(id)}>{label}</button>)}</nav>
-      {section === "workspace" && <TenantSettingsPanel api={api} onUpdated={(updated) => {
-        setSession({ ...session, tenant: updated.tenant });
-        setCapabilities((current) => current ? { ...current, allow_public_channels: updated.settings.allow_public_channels, message_edit_window_seconds: updated.settings.message_edit_window_seconds, max_attachment_bytes: updated.settings.max_attachment_bytes } : current);
-      }} />}
-      {section === "people" && <PeoplePanel api={api} actorRole={session.user.role} users={users} setUsers={setUsers} />}
-      {section === "safety" && <SafetyPanel api={api} canManageAttachments={canAdministerTenant(session.user.role)} />}
-      {section === "governance" && <GovernancePanel api={api} users={users} conversations={conversations} />}
-      {section === "integrations" && <IntegrationsPanel api={api} onServiceAccountLifecycleChanged={refreshAll} />}
-      {section === "audit" && <AuditPanel api={api} users={users} />}
+      <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} aria-controls={`admin-section-${id}`} onClick={() => selectSection(id)}>{label}</button>)}</nav>
+      <div id={`admin-section-${section}`} className="admin-section" data-admin-section={section}>
+        {section === "workspace" && <TenantSettingsPanel api={api} onUpdated={(updated) => {
+          setSession({ ...session, tenant: updated.tenant });
+          setCapabilities((current) => current ? { ...current, allow_public_channels: updated.settings.allow_public_channels, message_edit_window_seconds: updated.settings.message_edit_window_seconds, max_attachment_bytes: updated.settings.max_attachment_bytes } : current);
+        }} />}
+        {section === "people" && <PeoplePanel api={api} actorRole={session.user.role} users={users} setUsers={setUsers} />}
+        {section === "safety" && <SafetyPanel api={api} canManageAttachments={canAdministerTenant(session.user.role)} />}
+        {section === "governance" && <GovernancePanel api={api} users={users} conversations={conversations} />}
+        {section === "integrations" && <IntegrationsPanel api={api} onServiceAccountLifecycleChanged={refreshAll} />}
+        {section === "audit" && <AuditPanel api={api} users={users} />}
+      </div>
     </main>
   );
+}
+
+function isAdminSection(value: string | null): value is AdminSection {
+  return value === "workspace" || value === "people" || value === "safety" || value === "governance" || value === "integrations" || value === "audit";
 }
 
 function adminSections(role: UserRole): Array<[AdminSection, string]> {

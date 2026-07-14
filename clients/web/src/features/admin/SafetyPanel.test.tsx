@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { ModerationCase } from "../../types";
@@ -35,5 +36,26 @@ describe("SafetyPanel role scoping", () => {
     expect(await screen.findByText("Review this message")).toBeInTheDocument();
     expect(attachmentSafety).not.toHaveBeenCalled();
     expect(screen.queryByRole("heading", { name: "Attachment safety" })).not.toBeInTheDocument();
+  });
+
+  it("reviews a moderation decision and retains its audited note", async () => {
+    const addModerationAction = vi.fn().mockResolvedValue({ ...moderationCase, status: "resolved", version: 2 });
+    const api = {
+      moderationCases: vi.fn().mockResolvedValue([moderationCase]),
+      addModerationAction
+    } as unknown as ApiClient;
+    const user = userEvent.setup();
+    render(<SafetyPanel api={api} canManageAttachments={false} />);
+
+    await user.click(await screen.findByRole("button", { name: "Resolve" }));
+    expect(screen.getByRole("alertdialog", { name: "Resolve case?" })).toHaveTextContent("Review this message");
+    await user.type(screen.getByRole("textbox", { name: "Decision note" }), "Confirmed policy violation");
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+
+    await waitFor(() => expect(addModerationAction).toHaveBeenCalledWith("case-1", {
+      action_type: "resolve",
+      note: "Confirmed policy violation",
+      version: 1
+    }));
   });
 });

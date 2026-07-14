@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ProductShell } from "./app/ProductShell";
+import { RouteOrientation } from "./app/RouteOrientation";
 import { SessionProvider, useSession } from "./app/session";
 import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
@@ -14,6 +15,7 @@ export default function App() {
   return (
     <SessionProvider>
       <BrowserRouter>
+        <RouteOrientation />
         <ApplicationRoutes />
       </BrowserRouter>
     </SessionProvider>

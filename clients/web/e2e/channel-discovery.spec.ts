@@ -25,7 +25,7 @@ test("user discovers, joins, and opens a public channel", async ({ page }) => {
   await page.route("**/api/v1/channels/channel-1/join", (route) => { joined = true; return route.fulfill({ status: 201, json: { data: { conversation, membership }, replayed: false } }); });
 
   await page.goto("/app/");
-  await page.getByRole("button", { name: "Browse channels" }).click();
+  await page.locator(".conversation-zero-state").getByRole("button", { name: "Browse channels" }).click();
   await expect(page.getByRole("dialog", { name: "Browse channels" })).toBeVisible();
   await page.getByRole("button", { name: "Join" }).click();
   await expect(page.getByRole("button", { name: "Open" })).toBeVisible();
@@ -38,7 +38,7 @@ test("workspace policy disables channel discovery without an API request", async
   let discoveryRequests = 0;
   await page.route("**/api/v1/channels/discover**", (route) => { discoveryRequests += 1; return route.fulfill({ json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } } }); });
   await page.goto("/app/");
-  await page.getByRole("button", { name: "Browse channels" }).click();
+  await page.locator(".conversation-zero-state").getByRole("button", { name: "Browse channels" }).click();
   await expect(page.getByRole("heading", { name: "Channel discovery is disabled" })).toBeVisible();
   expect(discoveryRequests).toBe(0);
 });
@@ -47,7 +47,7 @@ test("private or empty discovery results are not exposed", async ({ page }) => {
   await mockChannelWorkspace(page, true, () => []);
   await page.route("**/api/v1/channels/discover**", (route) => route.fulfill({ json: { data: [{ ...conversation, id: "private-1", title: "Secret", visibility: "private", joined: false, member_count: 1, membership: null }], page: { limit: 25, has_more: false, next_cursor: null } } }));
   await page.goto("/app/");
-  await page.getByRole("button", { name: "Browse channels" }).click();
+  await page.locator(".conversation-zero-state").getByRole("button", { name: "Browse channels" }).click();
   await expect(page.getByRole("heading", { name: "No public channels found" })).toBeVisible();
   await expect(page.getByText("#Secret")).toHaveCount(0);
 });
@@ -66,8 +66,10 @@ test("joined user leaves a public channel with the membership version", async ({
   await page.getByRole("button", { name: /Projects/ }).click();
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByRole("button", { name: "Leave channel" })).toBeVisible();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Leave channel" }).click();
+  const confirmation = page.getByRole("alertdialog", { name: "Leave Projects?" });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "Leave channel" }).click();
   await expect(page.getByRole("button", { name: /Projects/ })).toHaveCount(0);
   expect(leaveBody).toEqual({ version: 3 });
 });
