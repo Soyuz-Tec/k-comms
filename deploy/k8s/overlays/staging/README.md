@@ -222,6 +222,12 @@ this procedure when retention, replication, IAM, or lifecycle policies change;
 a plain mirror covers current object data, not those service-level policies or
 historical object versions.
 
+The embedded staging MinIO has a bounded 2 GiB `/tmp` workspace. Keep that
+capacity above the 1 GiB maximum tenant attachment policy so multipart writes
+and portable restore verification cannot evict the pod solely because of the
+temporary-volume limit. Production uses the externally managed object-store
+contract instead of this single-node staging StatefulSet.
+
 ### Restoring mirrored attachment objects safely
 
 `mc mirror` restores object bytes but assigns new version IDs. K-Comms pins

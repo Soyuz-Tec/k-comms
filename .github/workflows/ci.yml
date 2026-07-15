@@ -153,6 +153,8 @@ jobs:
       - run: python scripts/test_validate_architecture.py
       - run: python scripts/validate_architecture.py
       - run: python scripts/test_validate_staging_secrets.py
+      - run: python scripts/test_validate_staging_manifests.py
+      - run: python scripts/validate_staging_manifests.py
       - run: python scripts/test_validate_production_bundle.py
       - run: python scripts/test_collect_release_evidence.py
       - run: python scripts/test_validate_compose_exposure.py

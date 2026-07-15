@@ -97,7 +97,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir:
-            sizeLimit: 64Mi
+            sizeLimit: 2Gi
   volumeClaimTemplates:
     - metadata:
         name: data
