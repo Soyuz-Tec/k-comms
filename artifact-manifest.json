@@ -20,10 +20,18 @@
       "Git state is unchanged before the evidence document is atomically written"
     ]
   },
+  "publication_controls": {
+    "immutable_ghcr_digest": true,
+    "cyclonedx_sbom": true,
+    "keyless_build_provenance_attestation": true,
+    "keyless_sbom_attestation": true,
+    "required_verification": "bind both GitHub attestations to the selected GHCR digest and container workflow identity before promotion"
+  },
   "required_validation_gates": [
     "backend format, warnings-as-errors compile, tests, Hex audit, and Sobelow",
     "web dependency audit, lint, typecheck, unit tests, Playwright journeys, and production build",
-    "contract, documentation, secret, production-bundle, release-evidence, and qualification-runner tests",
+    "contract, documentation, secret, production-bundle, release-evidence, readiness-ledger, operations-asset, Compose-exposure, and qualification-runner tests",
+    "strict formal-study and internal-pilot evidence scoring for any people-gate claim",
     "strict Kubernetes schema validation, container smoke, and image vulnerability scanning",
     "exact-image local staging acceptance, load, replacement, rollback, roll-forward, and restore proof"
   ],
@@ -47,6 +55,6 @@
   },
   "environment_boundaries": {
     "local_staging": "qualify every exact candidate and retain generated evidence outside the source tree",
-    "production": "not qualified; provider, managed-state, multi-zone capacity, independent security, support, on-call, compliance, license, signing, and provenance-verification gates remain"
+    "production": "not qualified; provider, managed-state, multi-zone capacity, independent security, support, on-call, compliance, license, and exact published-attestation verification gates remain"
   }
 }

@@ -80,7 +80,7 @@ for (const platformRole of ["platform_operator", "support_operator", "security_o
     await mockWorkspace(page, "member", [], platformRole);
     let tenantOpsRequests = 0;
     await page.route("**/api/v1/ops", (route) => { tenantOpsRequests += 1; return route.fulfill({ status: 403 }); });
-    await page.route("**/api/v1/platform/ops", (route) => route.fulfill({ json: { data: { generated_at: "2026-07-12T10:00:00Z", database: { status: "ready" }, outbox: { pending: 0, published: 0 }, notifications: {}, webhooks: {}, attachments: {}, queues: [], providers: {} } } }));
+    await page.route("**/api/v1/platform/ops", (route) => route.fulfill({ json: { data: { generated_at: "2026-07-12T10:00:00Z", release_revision: "a".repeat(40), database: { status: "ready" }, outbox: { pending: 0, published: 0 }, notifications: {}, webhooks: {}, attachments: {}, queues: [], providers: {} } } }));
     await openClientRoute(page, "/ops");
     await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
     await expect(page.getByText("Platform-wide")).toBeVisible();
@@ -88,6 +88,36 @@ for (const platformRole of ["platform_operator", "support_operator", "security_o
     expect(tenantOpsRequests).toBe(0);
   });
 }
+
+test("platform operators can identify impact, ownership, safe action and stop conditions", async ({ page }) => {
+  await mockWorkspace(page, "member", [], "platform_operator");
+  const generatedAt = new Date().toISOString();
+  const oldestScheduledAt = new Date(Date.now() - 901_000).toISOString();
+  await page.route("**/api/v1/platform/ops", (route) => route.fulfill({
+    json: {
+      data: {
+        generated_at: generatedAt,
+        release_revision: "a".repeat(40),
+        database: { status: "unavailable" },
+        outbox: { pending: 1_001, published: 20 },
+        notifications: { failed: 2 },
+        webhooks: {},
+        attachments: { failed: 1 },
+        queues: [{ queue: "events", state: "retryable", count: 12, oldest_scheduled_at: oldestScheduledAt }],
+        providers: { notifications: { status: "unavailable" }, attachment_scanner: { status: "ready" } }
+      }
+    }
+  }));
+
+  await openClientRoute(page, "/ops");
+  await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
+  await expect(page.getByText("Authoritative database", { exact: true })).toBeVisible();
+  await expect(page.getByText("Queue and outbox delay", { exact: true })).toBeVisible();
+  await expect(page.getByText("Notification and webhook delivery", { exact: true })).toBeVisible();
+  await expect(page.getByText("Stop condition").first()).toBeVisible();
+  await expect(page.getByText("Escalation").first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open versioned runbook" }).first()).toHaveAttribute("href", new RegExp(`/${"a".repeat(40)}/docs/08-reliability/runbooks/`));
+});
 
 test("mobile conversation list does not clear unread state until the message pane opens", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile-chromium", "mobile viewport release gate");

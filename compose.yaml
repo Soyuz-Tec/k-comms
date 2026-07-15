@@ -7,6 +7,7 @@ x-app-environment: &app-environment
   PORT: "4000"
   POOL_SIZE: ${POOL_SIZE:-10}
   K_COMMS_ROLE: all
+  K_COMMS_RELEASE_REVISION: ${K_COMMS_RELEASE_REVISION:-development}
   ALLOW_BOOTSTRAP: ${ALLOW_BOOTSTRAP:-true}
   ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-3600}
   SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-2592000}
@@ -38,7 +39,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-k_comms_dev}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -55,8 +56,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-password}
       MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_API_CORS_ALLOW_ORIGIN:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:4000}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -92,7 +93,7 @@ services:
     command: >-
       sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && mix phx.server"
     ports:
-      - "${APP_PORT:-4000}:4000"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-4000}:4000"
     volumes:
       - .:/workspace
       - deps:/workspace/deps
@@ -117,7 +118,7 @@ services:
     environment:
       VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://app:4000}
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-5173}:5173"
     volumes:
       - ./clients/web:/workspace/clients/web
       - web-node-modules:/workspace/clients/web/node_modules

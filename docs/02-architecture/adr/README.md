@@ -25,5 +25,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0019 | Enforce content, delivery, and resource boundaries | Accepted |
 | 0020 | Require expiring platform-role grants | Accepted |
 | 0021 | Authenticate managed PostgreSQL TLS | Accepted |
+| 0022 | Publish digest-bound keyless provenance and SBOM attestations | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

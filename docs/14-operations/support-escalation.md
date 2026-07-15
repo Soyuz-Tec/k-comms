@@ -14,6 +14,13 @@ incident commander, data-repair approver, and customer/internal communications.
 The roster belongs in the approved incident system, not in this public-neutral
 repository.
 
+Before the support gate passes, each support role completes a synthetic intake,
+severity classification, safe evidence collection, escalation, status update,
+handoff, and closure exercise. Retain the reviewer, expiry, exact release and
+environment, and restricted evidence URI, then link the aggregate receipt from
+`environment.operating_authority`. The pending repository template and a list
+of role names are not evidence of staffing or rehearsal.
+
 ## Intake contract
 
 Capture:

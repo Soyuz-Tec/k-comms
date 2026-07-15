@@ -7,6 +7,8 @@ defmodule CommsCore.Operations do
   alias CommsCore.Integrations.WebhookDelivery
   alias CommsCore.Notifications.Intent
 
+  @full_git_revision ~r/\A[0-9a-f]{40}\z/
+
   @runtime_gauges_sql """
   SELECT
     COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at)))::double precision, 0.0),
@@ -27,6 +29,7 @@ defmodule CommsCore.Operations do
       {:ok,
        %{
          generated_at: now(),
+         release_revision: release_revision(),
          queues: queue_counts(tenant_id),
          outbox: outbox_counts(tenant_id),
          notifications: grouped_counts(Intent, tenant_id, :status),
@@ -41,6 +44,7 @@ defmodule CommsCore.Operations do
       {:ok,
        %{
          generated_at: now(),
+         release_revision: release_revision(),
          database: database_health(),
          queues: queue_counts(nil),
          outbox: outbox_counts(nil),
@@ -67,6 +71,21 @@ defmodule CommsCore.Operations do
       {:ok, _} -> {:ok, elapsed_milliseconds(started)}
       {:error, _reason} -> {:error, :unavailable}
     end
+  end
+
+  @doc """
+  Returns the immutable image revision exposed to authorized operations views.
+
+  Development runtimes without exact build metadata return `development` and
+  therefore cannot construct revision-bound operational links.
+  """
+  def release_revision do
+    candidate =
+      System.get_env("K_COMMS_RELEASE_REVISION", "development")
+      |> String.trim()
+      |> String.downcase()
+
+    if Regex.match?(@full_git_revision, candidate), do: candidate, else: "development"
   end
 
   @doc """

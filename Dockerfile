@@ -53,6 +53,7 @@ ENV LANG=C.UTF-8 \
     HOME=/tmp \
     PORT=4000 \
     K_COMMS_ROLE=all \
+    K_COMMS_RELEASE_REVISION=${OCI_REVISION} \
     ERL_CRASH_DUMP=/tmp/erl_crash.dump
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

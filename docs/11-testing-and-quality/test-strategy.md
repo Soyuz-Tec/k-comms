@@ -23,3 +23,7 @@ Fast deterministic tests run on every change. Expensive load, soak, chaos, and r
 Automated accessibility checks are regression gates, not a WCAG conformance
 claim. The participant, manual accessibility, scoring, privacy, and pilot
 contract is defined in [usability-validation.md](usability-validation.md).
+The browser matrix runs automated WCAG A/AA checks against fourteen named
+representative states on desktop and mobile plus 320 CSS-pixel reflow, forced
+colors, reduced motion, and WCAG text spacing. Manual assistive-technology
+assessment remains a separate people-gate receipt.

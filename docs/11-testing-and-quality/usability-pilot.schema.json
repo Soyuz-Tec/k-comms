@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example/schemas/usability-pilot-v1.json",
+  "title": "K-Comms two-week internal usability pilot evidence",
+  "description": "Privacy-preserving aggregate evidence for the controlled internal pilot. The score_usability_pilot.mjs validator is authoritative for cross-field, date, threshold, and sign-off semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_revision",
+    "environment",
+    "pilot_started_on",
+    "pilot_completed_on",
+    "formal_study_passed",
+    "formal_study_receipt_reference",
+    "staging_gates_pass",
+    "invited_user_count",
+    "activated_user_count",
+    "active_user_count",
+    "tenant_admin_count",
+    "trained_operator_count",
+    "weekly_activity",
+    "usability_support_request_count",
+    "accessibility_blocker_count",
+    "sev1_incident_count",
+    "sev2_incident_count",
+    "acknowledged_message_loss_count",
+    "tenant_boundary_failure_count",
+    "signoffs"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "release_revision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "environment": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "pilot_started_on": { "type": "string", "format": "date" },
+    "pilot_completed_on": { "type": "string", "format": "date" },
+    "formal_study_passed": { "type": "boolean" },
+    "formal_study_receipt_reference": { "type": ["string", "null"], "minLength": 1, "maxLength": 240 },
+    "staging_gates_pass": { "type": "boolean" },
+    "invited_user_count": { "type": "integer", "minimum": 0 },
+    "activated_user_count": { "type": "integer", "minimum": 0 },
+    "active_user_count": { "type": "integer", "minimum": 0 },
+    "tenant_admin_count": { "type": "integer", "minimum": 0 },
+    "trained_operator_count": { "type": "integer", "minimum": 0 },
+    "weekly_activity": {
+      "type": "array",
+      "description": "Exactly one aggregate receipt for every contiguous interval beginning at pilot_started_on and then every seven days while the interval start is before pilot_completed_on. The scorer enforces the cross-field receipt count and exact derived dates; the final interval may be shorter than seven days.",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/weeklyActivity" }
+    },
+    "usability_support_request_count": { "type": "integer", "minimum": 0 },
+    "accessibility_blocker_count": { "type": "integer", "minimum": 0 },
+    "sev1_incident_count": { "type": "integer", "minimum": 0 },
+    "sev2_incident_count": { "type": "integer", "minimum": 0 },
+    "acknowledged_message_loss_count": { "type": "integer", "minimum": 0 },
+    "tenant_boundary_failure_count": { "type": "integer", "minimum": 0 },
+    "signoffs": { "$ref": "#/$defs/signoffs" }
+  },
+  "$defs": {
+    "weeklyActivity": {
+      "type": "object",
+      "description": "Aggregate activity for the derived interval beginning on week_started_on and ending seven days later or at pilot_completed_on, whichever comes first.",
+      "additionalProperties": false,
+      "required": ["week_started_on", "active_user_count"],
+      "properties": {
+        "week_started_on": { "type": "string", "format": "date" },
+        "active_user_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "signoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "approved_on", "evidence_reference"],
+      "properties": {
+        "status": { "enum": ["not_approved", "approved"] },
+        "approved_on": { "type": ["string", "null"], "format": "date" },
+        "evidence_reference": { "type": ["string", "null"], "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "signoffs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "accessibility", "security", "operations"],
+      "properties": {
+        "product": { "$ref": "#/$defs/signoff" },
+        "accessibility": { "$ref": "#/$defs/signoff" },
+        "security": { "$ref": "#/$defs/signoff" },
+        "operations": { "$ref": "#/$defs/signoff" }
+      }
+    }
+  }
+}

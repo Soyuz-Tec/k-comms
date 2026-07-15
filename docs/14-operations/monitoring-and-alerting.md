@@ -35,6 +35,21 @@ private network path. Dashboard availability is not a substitute for testing
 the configured alert receiver, escalation schedule, and runbook links in every
 environment.
 
+## Alert metadata contract
+
+Every rule in `ops/alerts/k-comms.rules.yml` carries stable service, component,
+and role-owner labels plus user impact, current value, diagnostic query, safe
+mitigation, stop condition, recovery validation, escalation, dashboard, and
+runbook annotations. The monitoring composition must set the external labels
+`environment` and `release_revision`; links are rendered against that immutable
+release rather than silently pointing operators at newer instructions.
+
+Run `python scripts/validate_ops_assets.py` after changing alerts, dashboards,
+or runbooks. Also run the monitoring system's native rule checker (for example,
+`promtool check rules ops/alerts/k-comms.rules.yml`) in the provider
+composition. Repository validation cannot replace a test page through the real
+receiver, acknowledgement path, escalation schedule, and status channel.
+
 Tenant administrators see admission usage in `/admin` with distinct
 `at_capacity` and `over_limit` states. Exact capacity is not an outage: reads
 and lifecycle-removal actions continue while the next create, join, or

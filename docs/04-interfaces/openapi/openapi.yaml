@@ -1495,7 +1495,11 @@ paths:
       operationId: getOperationsSnapshot
       security: [{bearerAuth: []}]
       responses:
-        '200': {description: Content-free tenant operations snapshot and provider state}
+        '200':
+          description: Content-free tenant operations snapshot, provider state, and immutable release revision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationsSnapshotResponse'}
   /api/v1/ops/retry:
     post:
       tags: [Operations]
@@ -1518,7 +1522,11 @@ paths:
       operationId: getPlatformOperationsSnapshot
       security: [{bearerAuth: []}]
       responses:
-        '200': {description: "Content-free global health snapshot for platform, support, and security operators"}
+        '200':
+          description: "Content-free global health snapshot and immutable release revision for platform, support, and security operators"
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OperationsSnapshotResponse'}
         '403': {$ref: '#/components/responses/Error'}
 
 components:
@@ -1847,6 +1855,49 @@ components:
           minItems: 1
           maxItems: 50
           items: {type: string, pattern: '^[a-z][a-z0-9_.-]{2,119}$'}
+    OperationsSnapshotResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [generated_at, release_revision, queues, outbox, notifications, webhooks, attachments, providers]
+          properties:
+            generated_at: {type: string, format: date-time}
+            release_revision:
+              oneOf:
+                - {type: string, pattern: '^[0-9a-f]{40}$'}
+                - {const: development}
+            database:
+              type: object
+              additionalProperties: false
+              required: [status]
+              properties:
+                status: {enum: [available, unavailable]}
+            queues:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [queue, state, count, oldest_scheduled_at]
+                properties:
+                  queue: {type: string}
+                  state: {type: string}
+                  count: {type: integer, minimum: 0}
+                  oldest_scheduled_at: {type: [string, 'null'], format: date-time}
+            outbox:
+              type: object
+              additionalProperties: false
+              required: [pending, published]
+              properties:
+                pending: {type: integer, minimum: 0}
+                published: {type: integer, minimum: 0}
+            notifications: {type: object, additionalProperties: {type: integer, minimum: 0}}
+            webhooks: {type: object, additionalProperties: {type: integer, minimum: 0}}
+            attachments: {type: object, additionalProperties: {type: integer, minimum: 0}}
+            providers: {type: object, additionalProperties: true}
     RetryOperationalResourceRequest:
       type: object
       additionalProperties: false

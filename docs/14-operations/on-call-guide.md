@@ -12,6 +12,14 @@ queue backlog, notification provider failure, attachment scanning, pod
 replacement, rollback/roll-forward, and backup restore before taking primary
 call.
 
+Record each exercise in the restricted training/incident system with synthetic
+participant code or role, exact environment and release, scenario, start/end
+time, commands/actions, stop conditions evaluated, result, reviewer, review
+expiry, and evidence URI. Link the aggregate result from readiness gates
+`environment.operating_authority` and `people.role_exercises`; never mark the
+repository ledger template passed. A validator can prove receipt metadata is
+complete, but only the named operations authority can certify an operator.
+
 ## Alert contract
 
 Every page includes:

@@ -18,7 +18,9 @@
 - `/api/v1/admin/tenant` for versioned policy, admission limits, and live usage
 - `/api/v1/moderation/cases` and `/api/v1/admin/retention-policies`, `/api/v1/admin/legal-holds`, and `/api/v1/admin/deletion-requests`
 - `/api/v1/admin/webhooks`, `/api/v1/admin/webhook-deliveries`, and `/api/v1/admin/attachment-safety`
-- `/api/v1/ops` and the content-free `/api/v1/platform/ops` operator view
+- `/api/v1/ops` and the content-free `/api/v1/platform/ops` operator view;
+  both snapshots include the validated immutable `release_revision` used for
+  revision-bound operational runbook links
 - `/api/v1/service/conversations`, `/api/v1/service/conversations/{conversation_id}/messages`, and `/api/v1/service/search` for scope-bound automation
 
 ## Mutation input and replay rules

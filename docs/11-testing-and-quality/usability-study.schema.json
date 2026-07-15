@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://k-comms.example/schemas/usability-study-v2.json",
+  "title": "K-Comms formal usability study evidence",
+  "description": "Privacy-preserving structural contract for the 12-session usability study. The score_usability_study.mjs validator is authoritative for cross-field task, date, and release-gate semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_revision",
+    "environment",
+    "study_started_on",
+    "study_completed_on",
+    "security_regression",
+    "authorization_regression",
+    "tenant_isolation_regression",
+    "durability_regression",
+    "staging_gates_pass",
+    "manual_accessibility",
+    "accessibility_findings",
+    "approver_receipt",
+    "sessions"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "release_revision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "environment": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "study_started_on": { "type": "string", "format": "date" },
+    "study_completed_on": { "type": "string", "format": "date" },
+    "security_regression": { "type": "boolean" },
+    "authorization_regression": { "type": "boolean" },
+    "tenant_isolation_regression": { "type": "boolean" },
+    "durability_regression": { "type": "boolean" },
+    "staging_gates_pass": { "type": "boolean" },
+    "manual_accessibility": { "$ref": "#/$defs/manualAccessibility" },
+    "accessibility_findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/accessibilityFinding" }
+    },
+    "approver_receipt": { "$ref": "#/$defs/approverReceipt" },
+    "sessions": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "allOf": [
+          { "$ref": "#/$defs/session" },
+          {
+            "oneOf": [
+              { "$ref": "#/$defs/memberSession" },
+              { "$ref": "#/$defs/adminSession" },
+              { "$ref": "#/$defs/moderatorSession" },
+              { "$ref": "#/$defs/complianceSession" },
+              { "$ref": "#/$defs/operatorSession" }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "manualAccessibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wcag_2_2_a_aa_status", "assistive_technology_matrix_status", "open_a_aa_failures", "completed_on"],
+      "properties": {
+        "wcag_2_2_a_aa_status": { "enum": ["not_completed", "passed", "failed"] },
+        "assistive_technology_matrix_status": { "enum": ["not_completed", "passed", "failed"] },
+        "open_a_aa_failures": { "type": "integer", "minimum": 0 },
+        "completed_on": { "type": ["string", "null"], "format": "date" }
+      }
+    },
+    "accessibilityFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "standard", "severity", "status"],
+      "properties": {
+        "finding_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" },
+        "standard": { "enum": ["WCAG 2.2 A", "WCAG 2.2 AA", "advisory"] },
+        "severity": { "enum": ["critical", "serious", "moderate", "minor"] },
+        "status": { "enum": ["open", "resolved"] }
+      }
+    },
+    "approverReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "approver_role", "approved_on", "evidence_reference"],
+      "properties": {
+        "status": { "enum": ["not_approved", "approved"] },
+        "approver_role": { "const": "release_approver" },
+        "approved_on": { "type": ["string", "null"], "format": "date" },
+        "evidence_reference": { "type": ["string", "null"], "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "participant_id",
+        "cohort",
+        "access_method",
+        "mobile_first",
+        "browser_name",
+        "browser_version",
+        "viewport_width_css_px",
+        "viewport_height_css_px",
+        "sus_responses",
+        "sensitive_action_confidence",
+        "tasks"
+      ],
+      "properties": {
+        "participant_id": { "type": "string", "pattern": "^P[0-9A-Za-z_-]+$" },
+        "cohort": { "enum": ["member", "admin", "moderator", "compliance", "operator"] },
+        "access_method": { "enum": ["standard", "keyboard", "screen_reader", "zoom_high_contrast", "voice_touch"] },
+        "mobile_first": { "type": "boolean" },
+        "browser_name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "browser_version": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "viewport_width_css_px": { "type": "integer", "minimum": 240, "maximum": 10000 },
+        "viewport_height_css_px": { "type": "integer", "minimum": 240, "maximum": 10000 },
+        "sus_responses": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": { "type": "integer", "minimum": 1, "maximum": 5 }
+        },
+        "sensitive_action_confidence": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "tasks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/task" }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "critical", "outcome", "duration_seconds", "critical_errors", "backtracks", "facilitator_interventions", "seq", "unintended_destructive_action"],
+      "properties": {
+        "id": { "enum": ["invite-first-message", "channel-collaboration", "attachment-safety", "history-search", "send-recovery", "notification-control", "device-revocation", "admin-access", "moderation-review", "audit-evidence", "ops-triage"] },
+        "category": { "enum": ["invite", "routine", "admin_safety", "ops_safety", "other"] },
+        "critical": { "type": "boolean" },
+        "outcome": { "enum": ["unassisted", "assisted", "failed"] },
+        "duration_seconds": { "type": "number", "minimum": 0 },
+        "critical_errors": { "type": "integer", "minimum": 0 },
+        "backtracks": { "type": "integer", "minimum": 0 },
+        "facilitator_interventions": { "type": "integer", "minimum": 0 },
+        "seq": { "type": "number", "minimum": 1, "maximum": 7 },
+        "unintended_destructive_action": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "id": { "const": "invite-first-message" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "invite" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "id": { "enum": ["channel-collaboration", "attachment-safety", "history-search", "send-recovery"] } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "routine" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "id": { "const": "notification-control" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "other" }, "critical": { "const": false } } } },
+        { "if": { "properties": { "id": { "const": "device-revocation" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "other" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "id": { "enum": ["admin-access", "moderation-review"] } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "admin_safety" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "id": { "const": "audit-evidence" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "admin_safety" }, "critical": { "const": false } } } },
+        { "if": { "properties": { "id": { "const": "ops-triage" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "ops_safety" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "outcome": { "const": "unassisted" } }, "required": ["outcome"] }, "then": { "properties": { "critical_errors": { "const": 0 }, "facilitator_interventions": { "const": 0 } } } },
+        { "if": { "properties": { "outcome": { "const": "assisted" } }, "required": ["outcome"] }, "then": { "properties": { "facilitator_interventions": { "minimum": 1 } } } }
+      ]
+    },
+    "memberSession": {
+      "properties": {
+        "cohort": { "const": "member" },
+        "tasks": {
+          "minItems": 7,
+          "maxItems": 7,
+          "allOf": [
+            { "contains": { "properties": { "id": { "const": "invite-first-message" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "channel-collaboration" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "attachment-safety" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "history-search" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "send-recovery" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "notification-control" } }, "required": ["id"] } },
+            { "contains": { "properties": { "id": { "const": "device-revocation" } }, "required": ["id"] } }
+          ]
+        }
+      }
+    },
+    "adminSession": { "$ref": "#/$defs/singleTaskAdmin" },
+    "moderatorSession": {
+      "properties": {
+        "cohort": { "const": "moderator" },
+        "tasks": { "minItems": 1, "maxItems": 1, "contains": { "properties": { "id": { "const": "moderation-review" } }, "required": ["id"] } }
+      }
+    },
+    "complianceSession": {
+      "properties": {
+        "cohort": { "const": "compliance" },
+        "tasks": { "minItems": 1, "maxItems": 1, "contains": { "properties": { "id": { "const": "audit-evidence" } }, "required": ["id"] } }
+      }
+    },
+    "operatorSession": {
+      "properties": {
+        "cohort": { "const": "operator" },
+        "tasks": { "minItems": 1, "maxItems": 1, "contains": { "properties": { "id": { "const": "ops-triage" } }, "required": ["id"] } }
+      }
+    },
+    "singleTaskAdmin": {
+      "properties": {
+        "cohort": { "const": "admin" },
+        "tasks": { "minItems": 1, "maxItems": 1, "contains": { "properties": { "id": { "const": "admin-access" } }, "required": ["id"] } }
+      }
+    }
+  }
+}

@@ -7,7 +7,7 @@ jobs, and S3-compatible object storage.
 The repository is qualified as a single-host local-staging package. It is not
 production qualified: real providers, managed state, multi-zone recovery,
 independent security evidence, support/on-call, compliance, licensing, image
-signing, and provenance-verification remain explicit external gates.
+attestation verification, and provider approval remain explicit launch gates.
 
 ## Implemented 0.3.0 platform
 
@@ -84,6 +84,20 @@ production bundle must separately pass `make production-preflight
 PRODUCTION_BUNDLE=/restricted/path/production.yaml`. The `release` target only
 builds the OCI candidate; it does not promote or deploy it.
 
+`make qualification-script-tests` also validates loopback-by-default Compose
+exposure, operations assets, the pending internal-readiness ledger, and the
+formal-study and internal-pilot scorers. Those checks prove that evidence can
+be evaluated consistently; they do not create human approvals or provider
+evidence.
+
+Compose publishes PostgreSQL, MinIO, the API, and the Vite client on
+`127.0.0.1` by default while preserving ports 5432, 9000/9001, 4000, and 5173.
+Set `K_COMMS_BIND_ADDRESS` only when another host must connect. For example,
+`K_COMMS_BIND_ADDRESS=0.0.0.0` is an explicit LAN exposure opt-in and requires
+trusted-network firewall controls plus replacement of every development
+credential; it is never production configuration. Recreate existing Compose
+containers after changing the bind address.
+
 ## Staging deployment
 
 ```bash
@@ -109,6 +123,13 @@ Local staging deliberately uses the `allow_all` development scanner and log
 delivery adapters behind `ALLOW_DEVELOPMENT_ADAPTERS=true`; this proves the
 workflow and degraded-state reporting, not real malware, email, push, or
 webhook-provider behavior.
+
+Main-branch publication runs retain a CycloneDX SBOM and create GitHub keyless
+Sigstore-signed build-provenance and SBOM attestations for the immutable GHCR
+digest. A manual `workflow_dispatch` publishes only when `main` is selected as
+the run ref; dispatching another branch or tag skips the publication job.
+Promotion must verify both predicates as documented in `ops/runtime/README.md`
+and `docs/10-infrastructure-and-deployment/supply-chain-integrity.md`.
 
 ## Security and licensing
 

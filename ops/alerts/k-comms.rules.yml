@@ -4,52 +4,157 @@ groups:
       - alert: KCommsHighMessageCommitLatency
         expr: histogram_quantile(0.99, sum by (le) (rate(k_comms_message_commit_duration_seconds_bucket[5m]))) > 0.5
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-application
+          service: k-comms
+          component: messaging
         annotations:
-          summary: Message commit p99 exceeds 500ms
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/service-degradation.md
+          summary: Message commit p99 exceeds 500 ms
+          user_impact: Message sends may acknowledge slowly or time out while durable commit latency is elevated.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/service-degradation.md'
+          diagnostic_query: 'histogram_quantile(0.99, sum by (le) (rate(k_comms_message_commit_duration_seconds_bucket[5m])))'
+          safe_mitigation: Freeze rollout expansion, identify the saturated dependency, and use only the bounded traffic or rollback action authorized by the service-degradation runbook.
+          stop_condition: Stop mitigation and escalate immediately if acknowledgements are lost, tenant isolation is uncertain, or the deployed release cannot be identified.
+          validation: Require p99 at or below 500 ms for 15 minutes plus a successful synthetic send, live-delivery, and replay journey.
+          escalation: Escalate to application and platform on-call; assign an incident commander for broad impact or an error-budget-threatening burn.
+
       - alert: KCommsObanQueueBacklog
         expr: k_comms_oban_queue_age_seconds > 300
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-workers
+          service: k-comms
+          component: durable-jobs
         annotations:
           summary: Durable work has been queued for more than five minutes
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+          user_impact: Notifications, webhooks, attachment scanning, retention, or exports may be delayed while durable work ages.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/queue-backlog.md'
+          diagnostic_query: 'k_comms_oban_queue_age_seconds'
+          safe_mitigation: Freeze worker changes, identify the queue and provider bottleneck, and scale or restart only through the approved bounded worker procedure.
+          stop_condition: Do not retry or discard jobs when idempotency, tenant scope, provider acceptance, or the authoritative state is uncertain.
+          validation: Require queue age to decrease below 300 seconds, no new discarded jobs, and successful synthetic provider and attachment journeys.
+          escalation: Escalate to workers and platform on-call; include the provider owner when the oldest job is blocked on external delivery.
+
       - alert: KCommsDiscardedJobs
         expr: k_comms_oban_jobs_discarded > 0
         for: 5m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-workers
+          service: k-comms
+          component: durable-jobs
         annotations:
-          summary: Durable jobs have reached a discarded terminal state
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+          summary: Durable jobs reached a discarded terminal state
+          user_impact: One or more background effects may require safe reconciliation even when core message persistence remains available.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/queue-backlog.md'
+          diagnostic_query: 'k_comms_oban_jobs_discarded'
+          safe_mitigation: Classify discarded work by queue and reason, preserve evidence, and replay only through an approved idempotent recovery action.
+          stop_condition: Stop before replay when side-effect acceptance, object version, recipient, endpoint version, or tenant boundary cannot be proved.
+          validation: Reconcile every affected durable intent, verify the discarded count stops growing, and complete the capability-specific synthetic journey.
+          escalation: Escalate to the owning capability and workers on-call; involve security for cross-tenant, credential, or unauthorized-delivery risk.
+
       - alert: KCommsOutboxBacklog
         expr: k_comms_outbox_pending > 100
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-workers
+          service: k-comms
+          component: outbox
         annotations:
           summary: Transactional outbox publication is falling behind
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+          user_impact: Durable messages remain committed, but realtime delivery and downstream effects may be delayed.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/queue-backlog.md'
+          diagnostic_query: 'k_comms_outbox_pending'
+          safe_mitigation: Preserve the authoritative database, freeze rollout changes, and restore bounded publisher capacity through the approved worker procedure.
+          stop_condition: Do not delete outbox rows or bypass ordering, transaction, tenant, or idempotency controls.
+          validation: Require pending outbox events to trend below 100 and prove live delivery plus replay return the same ordered durable messages.
+          escalation: Escalate to messaging and workers on-call; page the incident commander if acknowledged messages cannot be replayed.
+
       - alert: KCommsAttachmentQuarantineBacklog
         expr: k_comms_attachments_quarantined > 50
         for: 15m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-attachments
+          service: k-comms
+          component: attachment-safety
         annotations:
           summary: Attachment quarantine backlog requires provider or worker review
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/object-storage-failure.md
+          user_impact: New attachments remain unavailable for download until exact-version safety decisions complete.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/object-storage-failure.md'
+          diagnostic_query: 'k_comms_attachments_quarantined'
+          safe_mitigation: Keep quarantine fail-closed, identify scanner or object-provider failure, and resume only exact-version processing through the approved recovery path.
+          stop_condition: Never mark an attachment clean, change its object version, or expose a download because the scanner is unavailable.
+          validation: Require backlog reduction, a clean-file release, a malicious-file rejection, and exact version, checksum, and download verification.
+          escalation: Escalate to attachment, provider, and security owners when safety verdict integrity or object version identity is uncertain.
+
       - alert: KCommsProviderDeliveryFailures
         expr: k_comms_notification_failures + k_comms_webhook_failures > 0
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-integrations
+          service: k-comms
+          component: provider-delivery
         annotations:
           summary: Notification or webhook deliveries require provider review
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/queue-backlog.md
+          user_impact: In-app durable state remains authoritative, but external notifications or webhooks may be delayed or fail.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/queue-backlog.md'
+          diagnostic_query: 'k_comms_notification_failures + k_comms_webhook_failures'
+          safe_mitigation: Confirm provider status and endpoint configuration, preserve retry state, and resume bounded idempotent delivery only after provider recovery.
+          stop_condition: Stop retries for authentication failure, endpoint ownership uncertainty, repeated non-retryable response, or possible duplicate side effect.
+          validation: Require failure gauges to stop increasing and prove one notification plus one signed webhook through the real provider path.
+          escalation: Escalate to integrations and the provider owner; involve security for credential, endpoint, DNS, or outbound-policy anomalies.
+
       - alert: KCommsAttachmentScanFailures
         expr: k_comms_attachment_scan_failures > 0
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-attachments
+          service: k-comms
+          component: attachment-safety
         annotations:
           summary: Attachment scanner failures are withholding downloads
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/object-storage-failure.md
+          user_impact: Affected attachments remain quarantined and cannot be downloaded until scanning succeeds safely.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/object-storage-failure.md'
+          diagnostic_query: 'k_comms_attachment_scan_failures'
+          safe_mitigation: Keep download fail-closed, restore scanner reachability or credentials through the provider workflow, then retry exact-version jobs.
+          stop_condition: Stop if the scanner cannot attest the requested object version and checksum or if provider identity is uncertain.
+          validation: Require failed scans to reconcile, then prove clean and malicious fixtures produce the expected exact-version decisions.
+          escalation: Escalate to attachment safety, scanner-provider, and security owners when verdict authenticity or malware exposure is possible.
+
       - alert: KCommsAuthenticationFailureRatio
         expr: |
           sum(rate(k_comms_auth_failure_total[10m]))
@@ -57,7 +162,21 @@ groups:
           clamp_min(sum(rate(k_comms_auth_failure_total[10m])) + sum(rate(k_comms_auth_success_total[10m])), 0.001)
           > 0.25
         for: 10m
-        labels: { severity: warning }
+        labels:
+          severity: warning
+          owner: k-comms-identity
+          service: k-comms
+          component: authentication
         annotations:
           summary: More than 25 percent of authentication attempts are failing
-          runbook_url: https://github.com/Soyuz-Tec/k-comms/blob/main/docs/08-reliability/runbooks/service-degradation.md
+          user_impact: Users may be unable to sign in, recover access, refresh sessions, or complete recent-step-up operations.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/service-degradation.md'
+          diagnostic_query: 'sum(rate(k_comms_auth_failure_total[10m])) / clamp_min(sum(rate(k_comms_auth_failure_total[10m])) + sum(rate(k_comms_auth_success_total[10m])), 0.001)'
+          safe_mitigation: Freeze identity-related rollout changes, check ingress and database health, and use only a documented rollback or provider recovery action.
+          stop_condition: Do not weaken authentication, rate limits, session binding, recent-step-up, or audit controls to restore access.
+          validation: Require the ratio below 25 percent for 15 minutes and pass sign-in, refresh, recovery, step-up, and revoked-session synthetic checks.
+          escalation: Escalate to identity and platform on-call; involve security immediately for suspected abuse, credential exposure, or authorization drift.

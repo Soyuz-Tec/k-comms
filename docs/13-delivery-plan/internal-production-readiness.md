@@ -22,6 +22,41 @@ The release decision has three independent gates:
 All three gates must identify the same immutable release before internal teams
 may treat the service as production.
 
+## Machine-verifiable readiness ledger
+
+The repository maintains a complete pending ledger template at
+[`internal-production-readiness-ledger.template.json`](internal-production-readiness-ledger.template.json)
+and its JSON Schema at
+[`internal-production-readiness-ledger.schema.json`](internal-production-readiness-ledger.schema.json).
+The template deliberately has `template: true`, null release identity, pending
+gates/signoffs, and `production_ready: false`. It is planning material, never a
+claim that any external or human gate passed.
+
+For a real release, copy the template into the restricted evidence store, set
+`template` to `false`, and bind it to the exact Git revision, signed image
+digest, reviewed production-bundle SHA-256, and stable environment ID. A passed
+gate needs a role owner, separate approver, assessment time, future review/expiry
+time, and query-free URI to retained evidence. Do not place credentials,
+personal participant data, message content, or signed URLs in the ledger.
+The release decision must be recorded at or after every passed gate assessment
+and required sign-off, and the ledger generation time must be at or after that
+decision.
+
+Validate the pending template or a release ledger with:
+
+```bash
+python scripts/validate_readiness_ledger.py \
+  docs/13-delivery-plan/internal-production-readiness-ledger.template.json
+python scripts/validate_readiness_ledger.py /restricted/evidence/readiness-ledger.json
+```
+
+The validator checks exact gate/signoff coverage, owner/approver separation,
+immutable identity formats, evidence metadata, expiry, approval chronology,
+and decision consistency. It does not inspect the underlying evidence or
+create an approval. `production_ready: true` is valid only when every gate and
+required signoff is passed, non-expired, and the release authority has recorded
+a non-expired approved decision.
+
 ## Application gate
 
 | Control | Required evidence | Status before candidate qualification |

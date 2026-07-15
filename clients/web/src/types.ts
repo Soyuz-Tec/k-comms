@@ -508,13 +508,14 @@ export interface AttachmentSafety extends Attachment {
 
 export interface OperationsSnapshot {
   generated_at: string;
+  release_revision: string;
   database?: { status: string };
   queues: Array<{ queue: string; state: string; count: number; oldest_scheduled_at?: string | null }>;
   outbox: { pending: number; published: number };
   notifications: Record<string, number>;
   webhooks: Record<string, number>;
   attachments: Record<string, number>;
-  providers: Record<string, { status?: string; reason?: string; adapter?: string } | string>;
+  providers: Record<string, { status?: string; reason?: string; adapter?: string; test_only?: boolean; missing?: string[] } | string>;
 }
 
 export interface MembershipEvent {

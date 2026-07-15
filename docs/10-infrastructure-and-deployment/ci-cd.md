@@ -20,11 +20,23 @@ validator, and regression tests together.
 
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested
-`workflow_dispatch` run, builds and smokes the exact image tagged
-`ghcr.io/soyuz-tec/k-comms:sha-<full-commit-sha>`, then authenticates with the
-job-scoped `GITHUB_TOKEN`, pushes it, records the registry digest, and publishes
-GitHub build-provenance attestations. The workflow pins every publication action
-to a reviewed commit and grants write permissions only to the publication job.
+`workflow_dispatch` run with `main` selected as its run ref, builds and smokes
+the exact image tagged `ghcr.io/soyuz-tec/k-comms:sha-<full-commit-sha>`, then
+authenticates with the job-scoped `GITHUB_TOKEN`, pushes it, records the registry
+digest, and publishes GitHub build-provenance attestations. A manual run against
+another branch or tag skips the publication job. It also uses the digest-pinned
+Trivy image to create a CycloneDX JSON SBOM, retains that document with the
+workflow run, and publishes a digest-bound SBOM attestation. The workflow pins
+every publication action to a reviewed commit and grants write permissions only
+to the publication job.
+
+GitHub Actions OIDC obtains a short-lived Sigstore certificate for each signed
+attestation. This is the repository's keyless signature boundary; it does not
+depend on a separate long-lived cosign private key. Promotion verifies both the
+SLSA provenance and CycloneDX predicates against `Soyuz-Tec/k-comms` and the
+publication workflow. See
+[Supply-chain integrity](supply-chain-integrity.md) for the exact commands and
+failure policy.
 
 ## Deployment pipeline
 

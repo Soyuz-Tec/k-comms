@@ -63,9 +63,18 @@ qualification-script-tests:
 	$(PYTHON) scripts/test_validate_staging_secrets.py
 	$(PYTHON) scripts/test_validate_production_bundle.py
 	$(PYTHON) scripts/test_collect_release_evidence.py
+	$(PYTHON) scripts/test_validate_compose_exposure.py
+	$(PYTHON) scripts/validate_compose_exposure.py
+	$(PYTHON) scripts/test_validate_ops_assets.py
+	$(PYTHON) scripts/validate_ops_assets.py
+	$(PYTHON) scripts/test_validate_readiness_ledger.py
+	$(PYTHON) scripts/validate_readiness_ledger.py \
+		docs/13-delivery-plan/internal-production-readiness-ledger.template.json
 	node --test scripts/staging_acceptance.test.mjs \
 		scripts/staging_product_acceptance.test.mjs \
-		scripts/staging_load.test.mjs
+		scripts/staging_load.test.mjs \
+		scripts/score_usability_study.test.mjs \
+		scripts/score_usability_pilot.test.mjs
 
 build:
 	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime \

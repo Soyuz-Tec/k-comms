@@ -14,6 +14,13 @@
 - The user, tenant-admin, and platform-operations web surfaces pass unit,
   accessibility-oriented component, desktop/mobile browser, lint, typecheck, and
   production build checks.
+- Automated WCAG A/AA checks cover the named sign-in, invitation, recovery,
+  empty, populated, error, offline, search, thread, notification, settings,
+  administration, and operations states on desktop and mobile, including 320
+  CSS-pixel reflow and the WCAG text-spacing override.
+- Platform operations identifies each content-blind condition, user impact,
+  owner, safe first action, stop condition, escalation path, and versioned
+  runbook without exposing tenant content.
 - OpenAPI, AsyncAPI, JSON Schema, documentation, release, OCI, Compose, and Kustomize checks pass.
 - The OCI release starts against disposable dependencies and passes bootstrap, authenticated send, replay, and readiness smoke checks.
 - The staging release bootstrap is sessionless, idempotent for the same tenant identity, and fails closed for a different identity.

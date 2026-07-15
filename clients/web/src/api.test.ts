@@ -120,7 +120,7 @@ describe("conversation membership concurrency", () => {
 
 describe("platform operations boundary", () => {
   it("uses the platform-operator endpoint instead of tenant operations", async () => {
-    const snapshot = { generated_at: "2026-07-12T10:00:00Z", database: { status: "ready" }, outbox: { pending: 0, published: 0 }, notifications: {}, webhooks: {}, attachments: {}, queues: [], providers: {} };
+    const snapshot = { generated_at: "2026-07-12T10:00:00Z", release_revision: "a".repeat(40), database: { status: "ready" }, outbox: { pending: 0, published: 0 }, notifications: {}, webhooks: {}, attachments: {}, queues: [], providers: {} };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ data: snapshot }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const api = new ApiClient("https://comms.test", session, vi.fn());

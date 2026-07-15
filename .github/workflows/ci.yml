@@ -155,6 +155,12 @@ jobs:
       - run: python scripts/test_validate_staging_secrets.py
       - run: python scripts/test_validate_production_bundle.py
       - run: python scripts/test_collect_release_evidence.py
+      - run: python scripts/test_validate_compose_exposure.py
+      - run: python scripts/validate_compose_exposure.py
+      - run: python scripts/test_validate_ops_assets.py
+      - run: python scripts/validate_ops_assets.py
+      - run: python scripts/test_validate_readiness_ledger.py
+      - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json
 
   qualification-scripts:
     runs-on: ubuntu-24.04
@@ -164,7 +170,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs
+      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs scripts/score_usability_pilot.test.mjs
 
   manifests:
     runs-on: ubuntu-24.04

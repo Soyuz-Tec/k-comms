@@ -18,6 +18,22 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
   alias CommsCore.Operations
   alias CommsTestSupport.Fixtures
 
+  test "release metadata accepts only a full immutable Git revision" do
+    previous = System.get_env("K_COMMS_RELEASE_REVISION")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("K_COMMS_RELEASE_REVISION", previous),
+        else: System.delete_env("K_COMMS_RELEASE_REVISION")
+    end)
+
+    System.put_env("K_COMMS_RELEASE_REVISION", String.duplicate("A", 40))
+    assert Operations.release_revision() == String.duplicate("a", 40)
+
+    System.put_env("K_COMMS_RELEASE_REVISION", "main")
+    assert Operations.release_revision() == "development"
+  end
+
   test "attachments remain unavailable until a clean scanner verdict and block malicious files" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -240,6 +256,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     assert {:ok, platform} = Operations.platform_snapshot(platform_subject)
 
     assert platform.database.status == :available
+    assert is_binary(platform.release_revision)
   end
 
   test "a stale clean scanner result cannot reverse a newer blocked verdict" do

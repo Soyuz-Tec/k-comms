@@ -295,6 +295,7 @@ defmodule CommsWeb.IntegrationsSafetyOpsControllerTest do
     platform_ops =
       authenticated_conn(token) |> get("/api/v1/platform/ops") |> json_response(200)
 
+    assert is_binary(platform_ops["data"]["release_revision"])
     assert platform_ops["data"]["providers"]["browser_push"]["status"] == "available"
     refute Map.has_key?(platform_ops["data"]["providers"]["browser_push"], "encryption")
 
