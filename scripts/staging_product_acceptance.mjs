@@ -66,6 +66,15 @@ function parseBoundedInteger(value, name, fallback, minimum, maximum) {
   return parsed;
 }
 
+function onceAsync(operation) {
+  assert(typeof operation === "function", "onceAsync operation must be a function");
+  let result;
+  return () => {
+    result ??= Promise.resolve().then(operation);
+    return result;
+  };
+}
+
 function syntheticResources(runId) {
   assertUuid(runId, "qualification run id");
   const marker = `product-${runId}`;
@@ -872,6 +881,10 @@ async function cleanup(api, config, state, runId, sensitive) {
     await attempt("member session refresh", () => refreshTrackedSession(api, state, "member", sensitive));
   }
 
+  const ensureOwnerStepUp = onceAsync(() =>
+    stepUp(api, assertString(state.ownerToken, "cleanup owner token"), config.ownerPassword)
+  );
+
   if (state.memberToken && state.pushSubscriptionId) {
     await attempt("push subscription", () =>
       api.request(`/api/v1/me/push-subscriptions/${state.pushSubscriptionId}`, {
@@ -884,7 +897,7 @@ async function cleanup(api, config, state, runId, sensitive) {
 
   if (state.ownerToken && state.serviceAccount) {
     await attempt("service account", async () => {
-      await stepUp(api, state.ownerToken, config.ownerPassword);
+      await ensureOwnerStepUp();
       await api.request(`/api/v1/admin/service-accounts/${state.serviceAccount.id}/revoke`, {
         method: "POST",
         token: state.ownerToken,
@@ -915,9 +928,7 @@ async function cleanup(api, config, state, runId, sensitive) {
       );
     }
 
-    await attempt("conversation deletion step-up", () =>
-      stepUp(api, state.ownerToken, config.ownerPassword)
-    );
+    await attempt("conversation deletion step-up", ensureOwnerStepUp);
     for (const conversation of state.conversations) {
       await attempt(`conversation deletion ${conversation.id}`, () =>
         deleteSyntheticTarget(
@@ -947,7 +958,7 @@ async function cleanup(api, config, state, runId, sensitive) {
 
   if (state.ownerToken && state.memberUserId) {
     await attempt("member deletion", async () => {
-      await stepUp(api, state.ownerToken, config.ownerPassword);
+      await ensureOwnerStepUp();
       const created = assertRecord(
         (
           await api.request("/api/v1/admin/deletion-requests", {
@@ -1104,6 +1115,7 @@ export {
   exactById,
   fakePushSubscription,
   isDirectInvocation,
+  onceAsync,
   parseBoundedInteger,
   readProductConfiguration,
   runProductAcceptance,

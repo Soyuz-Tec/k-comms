@@ -7,6 +7,7 @@ import {
   assertSafeProjection,
   exactById,
   fakePushSubscription,
+  onceAsync,
   parseBoundedInteger,
   readProductConfiguration,
   syntheticResources
@@ -154,4 +155,21 @@ test("parseBoundedInteger accepts only whole values inside the declared interval
   assert.equal(parseBoundedInteger("10", "BOUND", 7, 5, 10), 10);
   assert.throws(() => parseBoundedInteger("4", "BOUND", 7, 5, 10), /BOUND/);
   assert.throws(() => parseBoundedInteger("10.5", "BOUND", 7, 5, 10), /BOUND/);
+});
+
+test("onceAsync reuses one in-flight and completed privileged operation", async () => {
+  let calls = 0;
+  const operation = onceAsync(async () => {
+    calls += 1;
+    await Promise.resolve();
+    return "stepped-up";
+  });
+
+  assert.deepEqual(await Promise.all([operation(), operation(), operation()]), [
+    "stepped-up",
+    "stepped-up",
+    "stepped-up"
+  ]);
+  assert.equal(await operation(), "stepped-up");
+  assert.equal(calls, 1);
 });
