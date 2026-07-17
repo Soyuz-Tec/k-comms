@@ -40,5 +40,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0034 | Invert identity-to-conversation workflows | Accepted |
 | 0035 | Complete the modular-monolith boundary control plane | Accepted |
 | 0036 | Invert TenantAdministration identity workflows | Accepted |
+| 0037 | Contain NotificationDelivery persistence | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -11,6 +11,7 @@ defmodule CommsCore.Accounts do
     Device,
     InitialConversationCommand,
     NotificationCommand,
+    NotificationRecipient,
     NotificationPort,
     PlatformAccess,
     PlatformRoleGrant,
@@ -146,6 +147,99 @@ defmodule CommsCore.Accounts do
     |> where([user], user.tenant_id == ^tenant_id and user.status == :active)
     |> Repo.aggregate(:count)
   end
+
+  @doc """
+  Resolves active human users into the minimal projection needed for
+  notification delivery.
+
+  Results are scoped to the exact tenant, de-duplicated by persistence, and
+  returned in user-id order.
+  """
+  @spec resolve_notification_recipients(String.t(), [String.t()]) ::
+          [NotificationRecipient.t()]
+  def resolve_notification_recipients(tenant_id, user_ids)
+      when is_binary(tenant_id) and is_list(user_ids) do
+    User
+    |> where(
+      [user],
+      user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
+        user.account_type == :human
+    )
+    |> order_by([user], asc: user.id)
+    |> select([user], %{user_id: user.id, email: user.email})
+    |> Repo.all()
+    |> Enum.map(&struct!(NotificationRecipient, &1))
+  end
+
+  def resolve_notification_recipients(_tenant_id, _user_ids), do: []
+
+  @doc """
+  Returns the requested device ids that remain eligible for push delivery.
+
+  Eligibility is owned by IdentityAccess: the user must be an active human and
+  each device must belong to that same tenant and user and remain unrevoked.
+  """
+  @spec notification_eligible_device_ids(String.t(), String.t(), [String.t()]) :: [String.t()]
+  def notification_eligible_device_ids(tenant_id, user_id, device_ids)
+      when is_binary(tenant_id) and is_binary(user_id) and is_list(device_ids) do
+    Device
+    |> join(:inner, [device], user in User,
+      on: user.id == device.user_id and user.tenant_id == device.tenant_id
+    )
+    |> where(
+      [device, user],
+      device.tenant_id == ^tenant_id and device.user_id == ^user_id and
+        device.id in ^device_ids and is_nil(device.revoked_at) and user.id == ^user_id and
+        user.status == :active and user.account_type == :human
+    )
+    |> order_by([device, _user], asc: device.id)
+    |> select([device, _user], device.id)
+    |> Repo.all()
+  end
+
+  def notification_eligible_device_ids(_tenant_id, _user_id, _device_ids), do: []
+
+  @doc """
+  Locks the exact IdentityAccess authority used to register a push endpoint.
+
+  The caller must already own a database transaction. The active-human user row
+  is locked before its unrevoked device row so concurrent identity lifecycle
+  changes use a deterministic lock order.
+  """
+  @spec lock_push_registration_identity(String.t(), String.t(), String.t()) ::
+          :ok | {:error, :forbidden | :transaction_required}
+  def lock_push_registration_identity(tenant_id, user_id, device_id)
+      when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) do
+    if Repo.in_transaction?() do
+      with %User{} <-
+             Repo.one(
+               from(user in User,
+                 where:
+                   user.id == ^user_id and user.tenant_id == ^tenant_id and
+                     user.status == :active and user.account_type == :human,
+                 lock: "FOR SHARE"
+               )
+             ),
+           %Device{} <-
+             Repo.one(
+               from(device in Device,
+                 where:
+                   device.id == ^device_id and device.tenant_id == ^tenant_id and
+                     device.user_id == ^user_id and is_nil(device.revoked_at),
+                 lock: "FOR SHARE"
+               )
+             ) do
+        :ok
+      else
+        _ -> {:error, :forbidden}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_push_registration_identity(_tenant_id, _user_id, _device_id),
+    do: {:error, :forbidden}
 
   @doc false
   @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::

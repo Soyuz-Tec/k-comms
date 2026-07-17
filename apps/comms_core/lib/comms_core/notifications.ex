@@ -4,10 +4,16 @@ defmodule CommsCore.Notifications do
   @behaviour CommsCore.Accounts.NotificationPort
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{AccessGrant, NotificationCommand, NotificationReceipt}
-  alias CommsCore.Accounts.User
+
+  alias CommsCore.Accounts.{
+    AccessGrant,
+    NotificationCommand,
+    NotificationReceipt,
+    NotificationRecipient
+  }
+
   alias CommsCore.Audit
-  alias CommsCore.Conversations.Membership
+  alias CommsCore.Conversations
   alias CommsCore.Outbox.Event
 
   alias CommsCore.Notifications.{
@@ -199,59 +205,36 @@ defmodule CommsCore.Notifications do
   def enqueue_for_event(%Event{event_type: "message.created.v1"} = event) do
     sender_user_id = payload_value(event.payload, "sender_user_id")
     conversation_id = payload_value(event.payload, "conversation_id")
-    excluded_user_ids = [sender_user_id | mentioned_user_ids(event)] |> Enum.filter(&is_binary/1)
 
-    recipients =
-      from(membership in Membership,
-        join: user in User,
-        on:
-          user.id == membership.user_id and user.tenant_id == membership.tenant_id and
-            user.status == :active and user.account_type == :human,
-        left_join: preference in Preference,
-        on: preference.user_id == user.id and preference.tenant_id == user.tenant_id,
-        where:
-          membership.tenant_id == ^event.tenant_id and
-            membership.conversation_id == ^conversation_id and is_nil(membership.left_at) and
-            user.id not in ^excluded_user_ids,
-        select: {user, preference}
-      )
-      |> Repo.all()
+    excluded_user_ids =
+      [sender_user_id | mentioned_user_ids(event)]
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
 
-    Enum.reduce_while(recipients, :ok, fn {user, preference}, :ok ->
-      case enqueue_recipient_event(event, user, preference) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+    recipient_ids =
+      event.tenant_id
+      |> Conversations.active_member_ids(conversation_id)
+      |> Enum.reject(&MapSet.member?(excluded_user_ids, &1))
+
+    enqueue_recipient_events(event, recipient_ids)
   end
 
   def enqueue_for_event(%Event{event_type: "mention.created.v1"} = event) do
     conversation_id = payload_value(event.payload, "conversation_id")
     sender_user_id = payload_value(event.payload, "sender_user_id")
-    mentioned_user_ids = mentioned_user_ids(event) |> Enum.reject(&(&1 == sender_user_id))
 
-    recipients =
-      from(membership in Membership,
-        join: user in User,
-        on:
-          user.id == membership.user_id and user.tenant_id == membership.tenant_id and
-            user.status == :active and user.account_type == :human,
-        left_join: preference in Preference,
-        on: preference.user_id == user.id and preference.tenant_id == user.tenant_id,
-        where:
-          membership.tenant_id == ^event.tenant_id and
-            membership.conversation_id == ^conversation_id and is_nil(membership.left_at) and
-            user.id in ^mentioned_user_ids,
-        select: {user, preference}
-      )
-      |> Repo.all()
+    mentioned_user_ids =
+      event
+      |> mentioned_user_ids()
+      |> Enum.reject(&(&1 == sender_user_id))
+      |> MapSet.new()
 
-    Enum.reduce_while(recipients, :ok, fn {user, preference}, :ok ->
-      case enqueue_recipient_event(event, user, preference) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+    recipient_ids =
+      event.tenant_id
+      |> Conversations.active_member_ids(conversation_id)
+      |> Enum.filter(&MapSet.member?(mentioned_user_ids, &1))
+
+    enqueue_recipient_events(event, recipient_ids)
   end
 
   def enqueue_for_event(%Event{}), do: :ok
@@ -370,9 +353,34 @@ defmodule CommsCore.Notifications do
     end
   end
 
+  defp enqueue_recipient_events(%Event{} = event, user_ids) do
+    recipients = Accounts.resolve_notification_recipients(event.tenant_id, user_ids)
+    preferences = preferences_by_user_id(event.tenant_id, recipients)
+
+    Enum.reduce_while(recipients, :ok, fn recipient, :ok ->
+      case enqueue_recipient_event(event, recipient, Map.get(preferences, recipient.user_id)) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp preferences_by_user_id(_tenant_id, []), do: %{}
+
+  defp preferences_by_user_id(tenant_id, recipients) do
+    recipient_ids = Enum.map(recipients, & &1.user_id)
+
+    Repo.all(
+      from(preference in Preference,
+        where: preference.tenant_id == ^tenant_id and preference.user_id in ^recipient_ids
+      )
+    )
+    |> Map.new(&{&1.user_id, &1})
+  end
+
   defp enqueue_recipient_event(
          %Event{} = event,
-         %User{account_type: :human} = user,
+         %NotificationRecipient{} = recipient,
          preference
        ) do
     muted = preference && event.event_type in preference.muted_event_types
@@ -380,21 +388,19 @@ defmodule CommsCore.Notifications do
     if muted do
       :ok
     else
-      with :ok <- maybe_create_in_app(event, user, preference),
-           :ok <- maybe_create_email(event, user, preference),
-           :ok <- maybe_create_push(event, user, preference) do
+      with :ok <- maybe_create_in_app(event, recipient, preference),
+           :ok <- maybe_create_email(event, recipient, preference),
+           :ok <- maybe_create_push(event, recipient, preference) do
         :ok
       end
     end
   end
 
-  defp enqueue_recipient_event(%Event{}, %User{}, _preference), do: :ok
-
-  defp maybe_create_in_app(event, user, preference) do
+  defp maybe_create_in_app(event, recipient, preference) do
     if is_nil(preference) or preference.in_app_enabled do
       now = now()
 
-      attrs = base_intent_attrs(event, user, :in_app, user.id)
+      attrs = base_intent_attrs(event, recipient, :in_app, recipient.user_id)
       attrs = Map.merge(attrs, %{status: :delivered, delivered_at: now, next_attempt_at: now})
 
       case create_intent_without_job(attrs) do
@@ -407,9 +413,9 @@ defmodule CommsCore.Notifications do
     end
   end
 
-  defp maybe_create_email(event, user, preference) do
+  defp maybe_create_email(event, recipient, preference) do
     if is_nil(preference) or preference.email_enabled do
-      case create_intent(base_intent_attrs(event, user, :email, user.email)) do
+      case create_intent(base_intent_attrs(event, recipient, :email, recipient.email)) do
         {:ok, _} -> :ok
         {:error, _} = error -> error
       end
@@ -418,13 +424,13 @@ defmodule CommsCore.Notifications do
     end
   end
 
-  defp maybe_create_push(event, user, %Preference{push_enabled: true}) do
+  defp maybe_create_push(event, recipient, %Preference{push_enabled: true}) do
     event.tenant_id
-    |> PushSubscriptions.active_subscription_ids(user.id)
+    |> PushSubscriptions.active_subscription_ids(recipient.user_id)
     |> Enum.reduce_while(:ok, fn subscription, :ok ->
       attrs =
         event
-        |> base_intent_attrs(user, :push, subscription.id, subscription.id)
+        |> base_intent_attrs(recipient, :push, subscription.id, subscription.id)
         |> Map.merge(%{
           push_subscription_id: subscription.id,
           push_subscription_version: subscription.version
@@ -437,19 +443,19 @@ defmodule CommsCore.Notifications do
     end)
   end
 
-  defp maybe_create_push(_event, _user, _preference), do: :ok
+  defp maybe_create_push(_event, _recipient, _preference), do: :ok
 
-  defp base_intent_attrs(event, user, channel, destination, idempotency_target \\ nil) do
+  defp base_intent_attrs(event, recipient, channel, destination, idempotency_target \\ nil) do
     {title, body} = notification_copy(event.event_type)
     target_suffix = if is_binary(idempotency_target), do: ":#{idempotency_target}", else: ""
 
     %{
       tenant_id: event.tenant_id,
-      user_id: user.id,
+      user_id: recipient.user_id,
       event_type: event.event_type,
       channel: channel,
       destination: destination,
-      idempotency_key: "outbox:#{event.id}:user:#{user.id}:#{channel}#{target_suffix}",
+      idempotency_key: "outbox:#{event.id}:user:#{recipient.user_id}:#{channel}#{target_suffix}",
       payload: %{
         "title" => title,
         "body" => body,

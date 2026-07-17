@@ -285,54 +285,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/moderation/moderation_case.ex
   detail: CommsCore.Moderation.ModerationCase references owner-internal schema CommsCore.Messaging.Message
-- fingerprint: eb5d23e247bfa767
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications.ex
-  detail: CommsCore.Notifications references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 84a5b72a3c38e9e8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications.ex
-  detail: CommsCore.Notifications references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: 1e1d10760987004e
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/attempt.ex
-  detail: CommsCore.Notifications.Attempt references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 044ad0a09865bdff
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/intent.ex
-  detail: CommsCore.Notifications.Intent references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: af08c6b0f0c514cf
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/intent.ex
-  detail: CommsCore.Notifications.Intent references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 1ee6ff99500eaa19
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/preference.ex
-  detail: CommsCore.Notifications.Preference references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 87dbcd607e0b12b6
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/preference.ex
-  detail: CommsCore.Notifications.Preference references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 4f6b857dddd8871e
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/push_subscription.ex
-  detail: CommsCore.Notifications.PushSubscription references owner-internal schema CommsCore.Accounts.Device
-- fingerprint: 7df5d18a55a8e299
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/push_subscription.ex
-  detail: CommsCore.Notifications.PushSubscription references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 6b82842b18ee1b7c
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/push_subscription.ex
-  detail: CommsCore.Notifications.PushSubscription references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 474e0a1759a65216
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex
-  detail: CommsCore.Notifications.PushSubscriptions references owner-internal schema CommsCore.Accounts.Device
-- fingerprint: c3db96cf85cb9698
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex
-  detail: CommsCore.Notifications.PushSubscriptions references owner-internal schema CommsCore.Accounts.User
 - fingerprint: c3292521cd5c5918
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/password_recovery.ex
@@ -398,22 +350,6 @@ violations:
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/conversations.ex
   detail: conversations -> calls through CommsCore.AudioCalls
-- fingerprint: e80e50669f5d670e
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications/attempt.ex
-  detail: notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant
-- fingerprint: a34ca28aa15ea541
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications/intent.ex
-  detail: notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant
-- fingerprint: 4cc7ca468d6af0e4
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications/preference.ex
-  detail: notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant
-- fingerprint: c0c0fa81093ad554
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications/push_subscription.ex
-  detail: notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant
 - fingerprint: 7c47ce0ca3e555a9
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/password_recovery.ex

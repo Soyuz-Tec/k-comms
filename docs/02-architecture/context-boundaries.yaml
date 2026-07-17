@@ -23,13 +23,16 @@ enforcement:
       - e3c6574035e85b56
     removal_condition: Remove this content-bound one-time analyzer adoption after the truthful baseline is present on the protected branch; it never permits fingerprints outside this exact set or against another base baseline.
   reviewed_baseline_transitions:
-    - id: non-media-authorization-and-tenant-identity-boundaries
+    - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
       added_fingerprints:
         - 47659f71148ad7cd
         - a26844eb317ed35d
       removed_fingerprints:
+        - 044ad0a09865bdff
         - 121f7164c64045fa
+        - 1e1d10760987004e
+        - 1ee6ff99500eaa19
         - 218671b946ba8171
         - 23dcf56239fd3c92
         - 25b5955b95d7e60a
@@ -38,21 +41,56 @@ enforcement:
         - 32a70724daad9d65
         - 41f842b58173a549
         - 44028c557f9d7ca2
+        - 474e0a1759a65216
+        - 4cc7ca468d6af0e4
+        - 4f6b857dddd8871e
         - 5b2474b6c792fe32
         - 662a5c4f703eb585
+        - 6b82842b18ee1b7c
         - 73b9ff4f915229c8
+        - 7df5d18a55a8e299
         - 84932ac0d5fa25b9
+        - 84a5b72a3c38e9e8
+        - 87dbcd607e0b12b6
         - 8a77894c283aac7a
         - 8c5d4bc9c14685e9
         - 97986c01688edbd7
+        - a34ca28aa15ea541
         - a74facb531f49387
+        - af08c6b0f0c514cf
         - c00fd3d1192fbcc6
+        - c0c0fa81093ad554
+        - c3db96cf85cb9698
         - d800fbf3e8ef2cc5
         - e2aa023f11e60616
         - e442c942c91deaa0
+        - e80e50669f5d670e
+        - eb5d23e247bfa767
         - fd24bbd537ca4f95
       adr: docs/02-architecture/adr/0036-invert-tenant-identity-workflows.md
-      removal_condition: Remove this exact 123-to-103 finding transition after the non-media authorization and TenantAdministration-to-IdentityAccess boundary baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+      removal_condition: Remove this cumulative exact 123-to-87 transition after the ADR-0036 authorization/TenantAdministration-to-IdentityAccess tranche and the separately declared ADR-0037 NotificationDelivery transition are present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-notification-delivery-persistence
+      previous_baseline_sha256: c06f24d6ea25a5eed325b528952f44f7ec212d3e2698a7ad10f93213bab069e4
+      added_fingerprints: []
+      removed_fingerprints:
+        - 044ad0a09865bdff
+        - 1e1d10760987004e
+        - 1ee6ff99500eaa19
+        - 474e0a1759a65216
+        - 4cc7ca468d6af0e4
+        - 4f6b857dddd8871e
+        - 6b82842b18ee1b7c
+        - 7df5d18a55a8e299
+        - 84a5b72a3c38e9e8
+        - 87dbcd607e0b12b6
+        - a34ca28aa15ea541
+        - af08c6b0f0c514cf
+        - c0c0fa81093ad554
+        - c3db96cf85cb9698
+        - e80e50669f5d670e
+        - eb5d23e247bfa767
+      adr: docs/02-architecture/adr/0037-contain-notification-delivery-persistence.md
+      removal_condition: Remove this exact 103-to-87 finding transition after the NotificationDelivery containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -92,6 +130,7 @@ contexts:
       - CommsCore.Accounts.InitialConversationReceipt
       - CommsCore.Accounts.NotificationCommand
       - CommsCore.Accounts.NotificationPort
+      - CommsCore.Accounts.NotificationRecipient
       - CommsCore.Accounts.NotificationReceipt
       - CommsCore.Accounts.SessionView
       - CommsCore.Accounts.UserView
@@ -184,8 +223,8 @@ contexts:
     owned_modules: [CommsCore.Security.PushSubscriptionBox]
     internal_namespaces: [CommsCore.Notifications]
     allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
-    publishes: [notification.delivery_requested.v1, notification.delivery_completed.v1]
-    consumes: [content.message_created.v1]
+    publishes: []
+    consumes: [message.created.v1, mention.created.v1]
   webhook_management:
     kind: business
     responsibility: Webhook endpoints, subscriptions, secrets, delivery policy, and delivery state.
@@ -634,18 +673,6 @@ temporary_violations:
         - 58b919fe1323a5b8
         - ddc7d93ab9361594
         - 6ec655792ddf69c9
-        - eb5d23e247bfa767
-        - 84a5b72a3c38e9e8
-        - 1e1d10760987004e
-        - 044ad0a09865bdff
-        - af08c6b0f0c514cf
-        - 1ee6ff99500eaa19
-        - 87dbcd607e0b12b6
-        - 4f6b857dddd8871e
-        - 7df5d18a55a8e299
-        - 6b82842b18ee1b7c
-        - 474e0a1759a65216
-        - c3db96cf85cb9698
         - c3292521cd5c5918
         - 82083a1e5dce0f4c
         - 3d08a6a84ca380ce
@@ -672,10 +699,6 @@ temporary_violations:
         - 47659f71148ad7cd
         - 22d29c8a33ec3581
         - bec8b11dfcf061c7
-        - e80e50669f5d670e
-        - a34ca28aa15ea541
-        - 4cc7ca468d6af0e4
-        - c0c0fa81093ad554
         - 7c47ce0ca3e555a9
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Remove the listed undeclared compiled edge or replace it with a reviewed one-way owner contract or exact runtime collaboration; do not add it to allowed_dependencies merely to silence validation.

@@ -815,6 +815,15 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Notifications.PushSubscriptionView",
             ],
         )
+        self.assertIn(
+            "CommsCore.Accounts.NotificationRecipient",
+            manifest["contexts"]["identity_access"]["public_contracts"],
+        )
+        self.assertEqual(delivery["publishes"], [])
+        self.assertEqual(
+            delivery["consumes"],
+            ["message.created.v1", "mention.created.v1"],
+        )
         self.assertEqual(
             manifest["retired_modules"],
             ["CommsCore.InAppNotifications", "CommsCore.PushSubscriptions"],
@@ -841,6 +850,58 @@ class ValidateArchitectureTest(unittest.TestCase):
                 for module in sorted(references.intersection(persistence_modules)):
                     leaks.append((path.relative_to(root).as_posix(), module))
         self.assertEqual(leaks, [])
+
+        forbidden_foreign_schemas = {
+            "CommsCore.Accounts.Device",
+            "CommsCore.Accounts.Tenant",
+            "CommsCore.Accounts.User",
+            "CommsCore.Conversations.Membership",
+        }
+        notification_sources = [
+            root / "apps/comms_core/lib/comms_core/notifications.ex",
+            *sorted(
+                (root / "apps/comms_core/lib/comms_core/notifications").rglob("*.ex")
+            ),
+        ]
+        foreign_schema_references = []
+        for path in notification_sources:
+            references = core_module_references(path.read_text(encoding="utf-8"))
+            leaked = sorted(references.intersection(forbidden_foreign_schemas))
+            if leaked:
+                foreign_schema_references.append(
+                    (path.relative_to(root).as_posix(), leaked)
+                )
+        self.assertEqual(foreign_schema_references, [])
+
+        schema_scalar_fields = {
+            "attempt.ex": ("tenant_id",),
+            "intent.ex": ("tenant_id", "user_id"),
+            "preference.ex": ("tenant_id", "user_id"),
+            "push_subscription.ex": ("tenant_id", "user_id", "device_id"),
+        }
+        schema_root = root / "apps/comms_core/lib/comms_core/notifications"
+        for filename, fields in schema_scalar_fields.items():
+            with self.subTest(schema=filename):
+                source = (schema_root / filename).read_text(encoding="utf-8")
+                for field in fields:
+                    self.assertIn(f"field(:{field}, Ecto.UUID)", source)
+
+        notifications_source = notification_sources[0].read_text(encoding="utf-8")
+        self.assertIn(
+            "|> Conversations.active_member_ids(conversation_id)",
+            notifications_source,
+        )
+        self.assertIn(
+            "Accounts.resolve_notification_recipients(event.tenant_id, user_ids)",
+            notifications_source,
+        )
+
+        push_source = (
+            root
+            / "apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Accounts.notification_eligible_device_ids(", push_source)
+        self.assertIn("Accounts.lock_push_registration_identity(", push_source)
 
     def test_repository_inverts_identity_notification_lifecycle_dependency(
         self,

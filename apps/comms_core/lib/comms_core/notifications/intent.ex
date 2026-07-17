@@ -2,8 +2,8 @@ defmodule CommsCore.Notifications.Intent do
   use CommsCore.Schema
 
   schema "notification_intents" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:user, CommsCore.Accounts.User)
+    field(:tenant_id, Ecto.UUID)
+    field(:user_id, Ecto.UUID)
     field(:event_type, :string)
     field(:channel, Ecto.Enum, values: [:email, :push, :in_app])
     field(:destination, :string, redact: true)

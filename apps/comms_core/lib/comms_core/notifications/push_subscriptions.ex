@@ -3,7 +3,7 @@ defmodule CommsCore.Notifications.PushSubscriptions do
   import Ecto.Query
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{AccessGrant, Device, User}
+  alias CommsCore.Accounts.AccessGrant
   alias CommsCore.Audit
   alias CommsCore.Notifications.PushSubscription
   alias CommsCore.Repo
@@ -78,10 +78,17 @@ defmodule CommsCore.Notifications.PushSubscriptions do
       Repo.transaction(fn ->
         lock_capacity!(subject)
         lock_endpoint!(normalized.endpoint_hash)
-        ensure_active_identity!(subject)
+        lock_registration_identity!(subject)
+
+        existing =
+          PushSubscription
+          |> where([subscription], subscription.endpoint_hash == ^normalized.endpoint_hash)
+          |> lock("FOR UPDATE")
+          |> Repo.one()
+
         expire_due(value(subject, :tenant_id), value(subject, :user_id), nil)
 
-        case Repo.get_by(PushSubscription, endpoint_hash: normalized.endpoint_hash) do
+        case existing do
           nil ->
             ensure_capacity!(subject)
             insert_subscription!(normalized, subject)
@@ -141,30 +148,33 @@ defmodule CommsCore.Notifications.PushSubscriptions do
       when is_binary(tenant_id) and is_binary(user_id) do
     expire_due(tenant_id, user_id, nil)
 
-    PushSubscription
-    |> join(:inner, [subscription], user in User,
-      on:
-        user.tenant_id == subscription.tenant_id and user.id == subscription.user_id and
-          user.status == :active and user.account_type == :human
-    )
-    |> join(:inner, [subscription, _user], device in Device,
-      on:
-        device.tenant_id == subscription.tenant_id and device.user_id == subscription.user_id and
-          device.id == subscription.device_id and is_nil(device.revoked_at)
-    )
-    |> where(
-      [subscription, _user, _device],
-      subscription.tenant_id == ^tenant_id and subscription.user_id == ^user_id and
-        subscription.status == :active and
-        (is_nil(subscription.expires_at) or subscription.expires_at > ^now())
-    )
-    |> order_by([subscription, _user, _device], asc: subscription.id)
-    |> limit(^@max_active_subscriptions_per_user)
-    |> select([subscription, _user, _device], %{
-      id: subscription.id,
-      version: subscription.version
-    })
-    |> Repo.all()
+    candidates =
+      PushSubscription
+      |> where(
+        [subscription],
+        subscription.tenant_id == ^tenant_id and subscription.user_id == ^user_id and
+          subscription.status == :active and
+          (is_nil(subscription.expires_at) or subscription.expires_at > ^now())
+      )
+      |> order_by([subscription], asc: subscription.id)
+      |> select([subscription], %{
+        id: subscription.id,
+        version: subscription.version,
+        device_id: subscription.device_id
+      })
+      |> Repo.all()
+
+    eligible_device_ids =
+      candidates
+      |> Enum.map(& &1.device_id)
+      |> Enum.uniq()
+      |> then(&Accounts.notification_eligible_device_ids(tenant_id, user_id, &1))
+      |> MapSet.new()
+
+    candidates
+    |> Enum.filter(&MapSet.member?(eligible_device_ids, &1.device_id))
+    |> Enum.take(@max_active_subscriptions_per_user)
+    |> Enum.map(&Map.take(&1, [:id, :version]))
   end
 
   def materialize_destination(subscription_id, version, tenant_id)
@@ -173,54 +183,47 @@ defmodule CommsCore.Notifications.PushSubscriptions do
     Repo.transaction(fn ->
       subscription =
         PushSubscription
-        |> join(:inner, [subscription], user in User,
-          on:
-            user.tenant_id == subscription.tenant_id and user.id == subscription.user_id and
-              user.status == :active and user.account_type == :human
-        )
-        |> join(:inner, [subscription, _user], device in Device,
-          on:
-            device.tenant_id == subscription.tenant_id and
-              device.user_id == subscription.user_id and device.id == subscription.device_id and
-              is_nil(device.revoked_at)
-        )
         |> where(
-          [subscription, _user, _device],
+          [subscription],
           subscription.id == ^subscription_id and subscription.tenant_id == ^tenant_id and
             subscription.version == ^version
         )
-        |> select([subscription, _user, _device], subscription)
         |> Repo.one()
 
       case subscription do
         nil ->
           Repo.rollback(:push_subscription_stale)
 
-        %PushSubscription{status: status} when status in @terminal_statuses ->
-          Repo.rollback(terminal_error(status))
+        %PushSubscription{} = candidate ->
+          unless identity_eligible?(candidate), do: Repo.rollback(:push_subscription_stale)
 
-        %PushSubscription{} = active ->
-          if expired?(active) do
-            _ = disable!(active, :expired, "subscription_expired")
-            Repo.rollback(:push_subscription_expired)
-          else
-            destination = decrypt_subscription!(active)
+          case candidate do
+            %PushSubscription{status: status} when status in @terminal_statuses ->
+              Repo.rollback(terminal_error(status))
 
-            case PushSubscription
-                 |> where(
-                   [subscription],
-                   subscription.id == ^active.id and subscription.version == ^version and
-                     subscription.status == :active
-                 )
-                 |> Repo.update_all(set: [last_materialized_at: now(), updated_at: now()]) do
-              {1, _} -> :ok
-              _ -> Repo.rollback(:push_subscription_stale)
-            end
+            %PushSubscription{} = active ->
+              if expired?(active) do
+                _ = disable!(active, :expired, "subscription_expired")
+                Repo.rollback(:push_subscription_expired)
+              else
+                destination = decrypt_subscription!(active)
 
-            unless delivery_eligible?(active.id, version, tenant_id),
-              do: Repo.rollback(:push_subscription_stale)
+                case PushSubscription
+                     |> where(
+                       [subscription],
+                       subscription.id == ^active.id and subscription.version == ^version and
+                         subscription.status == :active
+                     )
+                     |> Repo.update_all(set: [last_materialized_at: now(), updated_at: now()]) do
+                  {1, _} -> :ok
+                  _ -> Repo.rollback(:push_subscription_stale)
+                end
 
-            destination
+                unless delivery_eligible?(active.id, version, tenant_id),
+                  do: Repo.rollback(:push_subscription_stale)
+
+                destination
+              end
           end
       end
     end)
@@ -590,24 +593,17 @@ defmodule CommsCore.Notifications.PushSubscriptions do
     do: DateTime.compare(expires_at, now()) != :gt
 
   defp delivery_eligible?(subscription_id, version, tenant_id) do
-    PushSubscription
-    |> join(:inner, [subscription], user in User,
-      on:
-        user.tenant_id == subscription.tenant_id and user.id == subscription.user_id and
-          user.status == :active and user.account_type == :human
-    )
-    |> join(:inner, [subscription, _user], device in Device,
-      on:
-        device.tenant_id == subscription.tenant_id and device.user_id == subscription.user_id and
-          device.id == subscription.device_id and is_nil(device.revoked_at)
-    )
-    |> where(
-      [subscription, _user, _device],
-      subscription.id == ^subscription_id and subscription.tenant_id == ^tenant_id and
-        subscription.version == ^version and subscription.status == :active and
-        (is_nil(subscription.expires_at) or subscription.expires_at > ^now())
-    )
-    |> Repo.exists?()
+    subscription =
+      PushSubscription
+      |> where(
+        [subscription],
+        subscription.id == ^subscription_id and subscription.tenant_id == ^tenant_id and
+          subscription.version == ^version and subscription.status == :active and
+          (is_nil(subscription.expires_at) or subscription.expires_at > ^now())
+      )
+      |> Repo.one()
+
+    match?(%PushSubscription{}, subscription) and identity_eligible?(subscription)
   end
 
   defp terminal_error(:revoked), do: :push_subscription_revoked
@@ -690,24 +686,23 @@ defmodule CommsCore.Notifications.PushSubscriptions do
     end
   end
 
-  defp ensure_active_identity!(subject) do
-    eligible? =
-      Device
-      |> join(:inner, [device], user in User,
-        on:
-          user.tenant_id == device.tenant_id and user.id == device.user_id and
-            user.status == :active and user.account_type == :human
-      )
-      |> where(
-        [device, user],
-        device.tenant_id == ^value(subject, :tenant_id) and
-          device.user_id == ^value(subject, :user_id) and
-          device.id == ^value(subject, :device_id) and is_nil(device.revoked_at) and
-          user.id == ^value(subject, :user_id)
-      )
-      |> Repo.exists?()
+  defp lock_registration_identity!(subject) do
+    case Accounts.lock_push_registration_identity(
+           value(subject, :tenant_id),
+           value(subject, :user_id),
+           value(subject, :device_id)
+         ) do
+      :ok -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
-    unless eligible?, do: Repo.rollback(:forbidden)
+  defp identity_eligible?(%PushSubscription{} = subscription) do
+    Accounts.notification_eligible_device_ids(
+      subscription.tenant_id,
+      subscription.user_id,
+      [subscription.device_id]
+    ) == [subscription.device_id]
   end
 
   defp audit!(subject, action, resource_id, metadata) do

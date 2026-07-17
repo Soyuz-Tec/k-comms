@@ -863,6 +863,26 @@ defmodule CommsCore.Conversations do
     )
   end
 
+  @doc """
+  Returns the active member user IDs for a tenant-scoped conversation.
+
+  Results are scalar IDs ordered deterministically; membership persistence
+  details remain internal to Conversations.
+  """
+  @spec active_member_ids(Ecto.UUID.t(), Ecto.UUID.t()) :: [Ecto.UUID.t()]
+  def active_member_ids(tenant_id, conversation_id)
+      when is_binary(tenant_id) and is_binary(conversation_id) do
+    Repo.all(
+      from(m in Membership,
+        where:
+          m.tenant_id == ^tenant_id and m.conversation_id == ^conversation_id and
+            is_nil(m.left_at),
+        order_by: [asc: m.user_id],
+        select: m.user_id
+      )
+    )
+  end
+
   def add_member(conversation_id, user_id, role, subject) do
     with :ok <- authorize_manage(conversation_id, subject),
          {:ok, assigned_role} <- membership_role(role) do

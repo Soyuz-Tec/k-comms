@@ -2,7 +2,7 @@ defmodule CommsCore.Notifications.Attempt do
   use CommsCore.Schema
 
   schema "notification_attempts" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:intent, CommsCore.Notifications.Intent)
     field(:attempt_number, :integer)
     field(:provider, :string)

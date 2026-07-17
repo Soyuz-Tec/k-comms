@@ -2,9 +2,9 @@ defmodule CommsCore.Notifications.PushSubscription do
   use CommsCore.Schema
 
   schema "push_subscriptions" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:user, CommsCore.Accounts.User)
-    belongs_to(:device, CommsCore.Accounts.Device)
+    field(:tenant_id, Ecto.UUID)
+    field(:user_id, Ecto.UUID)
+    field(:device_id, Ecto.UUID)
     field(:endpoint_hash, :binary, redact: true)
     field(:endpoint_hint, :string)
     field(:version, :integer, default: 1)

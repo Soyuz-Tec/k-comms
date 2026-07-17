@@ -2,8 +2,8 @@ defmodule CommsCore.Notifications.Preference do
   use CommsCore.Schema
 
   schema "notification_preferences" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:user, CommsCore.Accounts.User)
+    field(:tenant_id, Ecto.UUID)
+    field(:user_id, Ecto.UUID)
     field(:email_enabled, :boolean, default: true)
     field(:push_enabled, :boolean, default: false)
     field(:in_app_enabled, :boolean, default: true)
