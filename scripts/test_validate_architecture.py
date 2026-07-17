@@ -17,10 +17,12 @@ from validate_architecture import (
     compare_boundary_baselines,
     context_cycle_violations,
     context_graphs,
+    core_module_declarations,
     core_module_references,
     discover_schemas,
     generated_report_errors,
     main,
+    qualified_function_calls,
     read_yaml,
     validate,
     write_baseline,
@@ -209,6 +211,111 @@ class ValidateArchitectureTest(unittest.TestCase):
             }.issubset(references),
             references,
         )
+
+    def test_module_reference_lexer_ignores_elixir_prose_and_literals(self) -> None:
+        source = (
+            "# CommsCore.CommentOnly\n"
+            "@moduledoc \"\"\"\n"
+            "CommsCore.ModuleDocOnly\n"
+            "alias CommsCore.FakeDocAlias\n"
+            "defmodule CommsCore.FakeDocModule do\nend\n"
+            "\"\"\"\n"
+            "@doc \"CommsCore.DocOnly\"\n"
+            "@string \"escaped \\\"CommsCore.EscapedStringOnly\\\"\"\n"
+            "@charlist 'CommsCore.CharlistOnly'\n"
+            "@charlist_heredoc '''\nCommsCore.CharlistHeredocOnly\n'''\n"
+            "@regex ~r/CommsCore.RegexOnly\\/[A-Z]+/iu\n"
+            "@literal_sigil ~S|CommsCore.UpperSigilOnly #{CommsCore.NotInterpolated}|\n"
+            "@sigil_heredoc ~S\"\"\"\nCommsCore.SigilHeredocOnly\n\"\"\"\n"
+            "@word_sigil ~w(CommsCore.WordSigilOnly)a\n"
+            "@interpolated \"label #{CommsCore.InterpolatedCall.run()}\"\n"
+            "alias CommsCore.{ActualAlias, Actual.Nested}\n"
+            "@type t :: CommsCore.ActualType.t()\n"
+            "@spec run(CommsCore.ActualSpec.t()) :: CommsCore.ActualResult.t()\n"
+            "def run(%CommsCore.ActualStruct{} = value) do\n"
+            "  {&CommsCore.ActualCapture.run/1, CommsCore.ActualCall.run(value)}\n"
+            "end\n"
+        )
+
+        references = core_module_references(source)
+
+        self.assertEqual(
+            references,
+            {
+                "CommsCore.Actual.Nested",
+                "CommsCore.ActualAlias",
+                "CommsCore.ActualCall",
+                "CommsCore.ActualCapture",
+                "CommsCore.ActualResult",
+                "CommsCore.ActualSpec",
+                "CommsCore.ActualStruct",
+                "CommsCore.ActualType",
+                "CommsCore.InterpolatedCall",
+            },
+        )
+
+    def test_module_lexer_preserves_calls_and_arity_outside_literals(self) -> None:
+        source = (
+            "@doc \"CommsCore.Fake.call(:one, :two)\"\n"
+            "alias CommsCore.Real, as: Boundary\n"
+            "def run do\n"
+            "  Boundary.execute(\"closing ) and comma ,\", ~r/(one,two)/, 'a,b')\n"
+            "end\n"
+        )
+
+        self.assertEqual(
+            qualified_function_calls(source),
+            {("CommsCore.Real", "execute", 3)},
+        )
+
+    def test_module_declarations_ignore_examples_inside_module_docs(self) -> None:
+        source = (
+            "defmodule CommsCore.Real do\n"
+            "  @moduledoc \"\"\"\n"
+            "  defmodule CommsCore.Example do\n"
+            "    alias CommsCore.Fake\n"
+            "  end\n"
+            "  \"\"\"\n"
+            "end\n"
+        )
+
+        self.assertEqual(core_module_declarations(source), ["CommsCore.Real"])
+
+    def test_compiled_graph_ignores_documented_foreign_modules(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            source = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            source.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  @moduledoc \"\"\"\n"
+                "  Example: `CommsCore.Beta.read()`\n"
+                "  alias CommsCore.Beta.Record\n"
+                "  \"\"\"\n"
+                "  # CommsCore.Beta.write()\n"
+                "  @example \"CommsCore.Beta.Record\"\n"
+                "  @pattern ~r/CommsCore.Beta/\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest = read_yaml(
+                root / "docs/02-architecture/context-boundaries.yaml"
+            )
+
+            self.assertEqual(
+                context_graphs(root, manifest).compiled["alpha"],
+                frozenset(),
+            )
 
     def test_nested_and_chained_schema_aliases_cannot_hide_graph_edges(
         self,
@@ -508,7 +615,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(audit_table["access_namespaces"], ["CommsCore.Audit"])
         self.assertEqual(
             manifest["contexts"]["audit"]["public_contracts"],
-            ["CommsCore.Audit.Event", "CommsCore.Audit.Error"],
+            [
+                "CommsCore.Audit.Actor",
+                "CommsCore.Audit.Event",
+                "CommsCore.Audit.Error",
+            ],
         )
 
         allowed = {
@@ -1130,6 +1241,60 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("authorization_kernel", cycle[0].detail)
         self.assertNotIn("identity_access->conversations", cycle[0].detail)
 
+    def test_repository_keeps_legacy_authorization_adapter_calls_only(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        released_callers = []
+        for path in sorted((root / "apps").glob("*/lib/**/*.ex")):
+            source = path.read_text(encoding="utf-8")
+            if "Authorization.authorize(" in source:
+                released_callers.append(path.relative_to(root).as_posix())
+        self.assertEqual(
+            released_callers,
+            ["apps/comms_core/lib/comms_core/audio_calls.ex"],
+        )
+
+        database = (
+            root
+            / "apps/comms_core/lib/comms_core/authorization/database.ex"
+        ).read_text(encoding="utf-8")
+        for forbidden in (
+            "PlatformRoleGrant",
+            "CommsCore.Audit",
+            "CommsCore.Messaging",
+            ":administer_tenant",
+            ":audit_tenant",
+            ":create_conversation",
+            ":edit_message",
+            ":manage_integrations",
+            ":manage_moderation",
+            ":manage_notification_delivery",
+            ":manage_sessions",
+            ":manage_tenant_settings",
+            ":manage_user_lifecycle",
+            ":operate_platform",
+            ":receive_user_events",
+            ":send_message",
+            ":view_platform_operations",
+        ):
+            self.assertNotIn(forbidden, database)
+        for media_action in (
+            ":read_call",
+            ":read_audio_call",
+            ":start_audio_call",
+            ":join_audio_call",
+            ":end_audio_call",
+            ":read_video_call",
+            ":start_video_call",
+            ":join_video_call",
+            ":end_video_call",
+        ):
+            self.assertIn(media_action, database)
+
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        kernel = manifest["contexts"]["authorization_kernel"]
+        self.assertIn("Calls-only", kernel["responsibility"])
+        self.assertEqual(kernel["allowed_dependencies"], [])
+
     def test_repository_owns_conversation_admission_queries_and_composes_usage_as_read_model(
         self,
     ) -> None:
@@ -1188,6 +1353,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             [
                 "CommsCore.AdmissionQuotas.active_user_count/1",
                 "CommsCore.AdmissionQuotas.admission_policy/1",
+                "CommsCore.Administration.authorize_administer_tenant/1",
                 "CommsCore.Conversations.admission_usage/1",
             ],
         )
@@ -3604,6 +3770,205 @@ class ValidateArchitectureTest(unittest.TestCase):
             errors = compare_boundary_baselines(root, base)
             self.assertTrue(
                 any("baseline grew" in error for error in errors),
+                errors,
+            )
+
+    def test_reviewed_baseline_transition_requires_exact_added_and_removed_sets(
+        self,
+    ) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            first = root / "apps/comms_core/lib/comms_core/alpha/first.ex"
+            first.write_text(
+                "defmodule CommsCore.Alpha.First do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+            base_fingerprints = {
+                entry["fingerprint"]
+                for entry in read_yaml(base).get("violations", [])
+            }
+
+            first.unlink()
+            second = root / "apps/comms_core/lib/comms_core/alpha/second.ex"
+            second.write_text(
+                "defmodule CommsCore.Alpha.Second do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            current_fingerprints = {
+                entry["fingerprint"]
+                for entry in read_yaml(
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).get("violations", [])
+            }
+            added = sorted(current_fingerprints - base_fingerprints)
+            removed = sorted(base_fingerprints - current_fingerprints)
+            self.assertTrue(added)
+            self.assertTrue(removed)
+
+            adr = "docs/02-architecture/adr/9999-reviewed-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text("# Reviewed transition\n", encoding="utf-8")
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [
+                {
+                    "id": "replace-first-with-second",
+                    "previous_baseline_sha256": hashlib.sha256(
+                        base.read_bytes()
+                    ).hexdigest(),
+                    "added_fingerprints": added,
+                    "removed_fingerprints": removed,
+                    "adr": adr,
+                    "removal_condition": "Remove after the new baseline lands.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(compare_boundary_baselines(root, base), [])
+
+            manifest["enforcement"]["reviewed_baseline_transitions"][0][
+                "removed_fingerprints"
+            ] = []
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any("undeclared removed fingerprints" in error for error in errors),
+                errors,
+            )
+
+            manifest["enforcement"]["reviewed_baseline_transitions"][0][
+                "removed_fingerprints"
+            ] = removed
+            manifest["enforcement"]["reviewed_baseline_transitions"][0][
+                "added_fingerprints"
+            ] = sorted([*added, "0000000000000000"])
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any("stale declared added fingerprints" in error for error in errors),
+                errors,
+            )
+
+    def test_reviewed_baseline_transition_rejects_wrong_or_duplicate_base_hash(
+        self,
+    ) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            added = sorted(
+                entry["fingerprint"]
+                for entry in read_yaml(
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).get("violations", [])
+            )
+            adr = "docs/02-architecture/adr/9999-reviewed-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text("# Reviewed transition\n", encoding="utf-8")
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            transition = {
+                "id": "wrong-base",
+                "previous_baseline_sha256": "0" * 64,
+                "added_fingerprints": added,
+                "removed_fingerprints": [],
+                "adr": adr,
+                "removal_condition": "Remove after the new baseline lands.",
+            }
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [
+                transition
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any("baseline grew" in error for error in errors),
+                errors,
+            )
+
+            base_hash = hashlib.sha256(base.read_bytes()).hexdigest()
+            first_transition = {
+                **transition,
+                "id": "first",
+                "previous_baseline_sha256": base_hash,
+            }
+            second_transition = {
+                **transition,
+                "id": "second",
+                "previous_baseline_sha256": base_hash,
+            }
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [
+                first_transition,
+                second_transition,
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any(
+                    "previous_baseline_sha256 duplicates" in error
+                    for error in errors
+                ),
                 errors,
             )
 

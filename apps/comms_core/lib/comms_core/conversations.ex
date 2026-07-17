@@ -5,9 +5,10 @@ defmodule CommsCore.Conversations do
   @max_channel_limit 100
 
   alias CommsCore.{
+    Accounts,
+    Administration,
     AdmissionQuotas,
     AudioCalls,
-    Authorization,
     Outbox,
     Repo,
     ServiceAccounts
@@ -20,7 +21,6 @@ defmodule CommsCore.Conversations do
     User
   }
 
-  alias CommsCore.Administration.TenantSettings
   alias CommsCore.Audit
 
   alias CommsCore.Conversations.{
@@ -126,6 +126,93 @@ defmodule CommsCore.Conversations do
 
   def authorize_service_access(_subject, _required_scope, _conversation_id),
     do: {:error, :forbidden}
+
+  @doc """
+  Authorizes creation using the active identity projection owned by
+  `CommsCore.Accounts`.
+  """
+  @spec authorize_create(map()) :: :ok | {:error, :forbidden}
+  def authorize_create(subject) when is_map(subject) do
+    with {:ok, _grant} <- Accounts.access_grant(subject), do: :ok
+  end
+
+  def authorize_create(_subject), do: {:error, :forbidden}
+
+  @doc """
+  Authorizes discovery of tenant-visible channels without exposing either
+  identity or conversation persistence structs.
+  """
+  @spec authorize_discovery(map()) ::
+          :ok | {:error, :forbidden | :public_channels_disabled}
+  def authorize_discovery(subject) when is_map(subject) do
+    with {:ok, _grant} <- Accounts.access_grant(subject),
+         :ok <- public_channels_enabled(subject) do
+      :ok
+    end
+  end
+
+  def authorize_discovery(_subject), do: {:error, :forbidden}
+
+  @doc """
+  Authorizes self-service entry into a tenant-visible channel.
+  """
+  @spec authorize_join(Ecto.UUID.t(), map()) ::
+          :ok | {:error, :forbidden | :public_channels_disabled}
+  def authorize_join(conversation_id, subject),
+    do: authorize_public_channel(:join, conversation_id, subject)
+
+  @doc """
+  Authorizes self-service departure from a tenant-visible channel.
+
+  Disabling public channels intentionally does not trap existing members.
+  """
+  @spec authorize_leave(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_leave(conversation_id, subject),
+    do: authorize_public_channel(:leave, conversation_id, subject)
+
+  @doc "Authorizes access that requires an active conversation membership."
+  @spec authorize_read(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_read(conversation_id, subject),
+    do: authorize_active_membership(conversation_id, subject)
+
+  @doc "Authorizes sending message content to a conversation."
+  @spec authorize_send_message(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_send_message(conversation_id, subject),
+    do: authorize_active_membership(conversation_id, subject)
+
+  @doc "Authorizes advancing the subject's read cursor."
+  @spec authorize_mark_read(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_mark_read(conversation_id, subject),
+    do: authorize_active_membership(conversation_id, subject)
+
+  @doc "Authorizes reacting to message content in a conversation."
+  @spec authorize_react_message(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_react_message(conversation_id, subject),
+    do: authorize_active_membership(conversation_id, subject)
+
+  @doc "Authorizes attaching content to a conversation."
+  @spec authorize_upload_attachment(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_upload_attachment(conversation_id, subject),
+    do: authorize_active_membership(conversation_id, subject)
+
+  @doc """
+  Authorizes ordinary conversation administration.
+
+  Conversation owners and moderators may manage any conversation they actively
+  belong to. Tenant owners and administrators may additionally manage
+  tenant-visible channels. Denials for an otherwise active identity are
+  recorded through the Audit facade.
+  """
+  @spec authorize_manage(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_manage(conversation_id, subject),
+    do: authorize_management(:manage_conversation, conversation_id, subject)
+
+  @doc """
+  Authorizes ownership changes using the stricter owner policy.
+  """
+  @spec authorize_manage_ownership(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
+  def authorize_manage_ownership(conversation_id, subject),
+    do: authorize_management(:manage_conversation_ownership, conversation_id, subject)
 
   @doc """
   Returns conversation-owned capacity counts for approved read-model composition.
@@ -386,9 +473,9 @@ defmodule CommsCore.Conversations do
     visibility = enum_value(value(attrs, :visibility), [:private, :tenant], :private)
     visibility = if kind == :direct, do: :private, else: visibility
 
-    with :ok <- Authorization.authorize(:create_conversation, subject, %{tenant_id: tenant_id}),
+    with :ok <- authorize_create(subject),
          :ok <- validate_members(tenant_id, member_ids),
-         :ok <- validate_public_channel(tenant_id, kind, visibility),
+         :ok <- validate_public_channel(subject, kind, visibility),
          {:ok, direct_key} <- direct_key(kind, member_ids) do
       now = now()
 
@@ -470,8 +557,7 @@ defmodule CommsCore.Conversations do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
 
-    with :ok <-
-           Authorization.authorize(:discover_public_channels, subject, %{tenant_id: tenant_id}),
+    with :ok <- authorize_discovery(subject),
          {:ok, cursor} <- optional_channel_cursor(value(params, :cursor)),
          {:ok, search} <- normalize_channel_search(value(params, :q)) do
       limit = parse_channel_limit(value(params, :limit))
@@ -521,11 +607,11 @@ defmodule CommsCore.Conversations do
   end
 
   def join_public_channel(id, subject) when is_binary(id) and is_map(subject) do
-    with :ok <- Authorization.authorize(:join_conversation, subject, %{id: id}) do
+    with :ok <- authorize_join(id, subject) do
       Repo.transaction(fn ->
         conversation = lock_channel!(id, subject)
-        ensure_public_channel!(conversation, require_enabled: true)
-        authorize_in_transaction!(:join_conversation, subject, conversation)
+        ensure_public_channel!(conversation, subject, require_enabled: true)
+        authorize_in_transaction!(fn -> authorize_join(conversation.id, subject) end)
         policy = admission_policy!(conversation.tenant_id)
 
         user_id = value(subject, :user_id)
@@ -588,12 +674,12 @@ defmodule CommsCore.Conversations do
 
   def leave_public_channel(id, attrs, subject)
       when is_binary(id) and is_map(attrs) and is_map(subject) do
-    with :ok <- Authorization.authorize(:leave_conversation, subject, %{id: id}),
+    with :ok <- authorize_leave(id, subject),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->
         conversation = lock_channel!(id, subject)
-        ensure_public_channel!(conversation, require_enabled: false)
-        authorize_in_transaction!(:leave_conversation, subject, conversation)
+        ensure_public_channel!(conversation, subject, require_enabled: false)
+        authorize_in_transaction!(fn -> authorize_leave(conversation.id, subject) end)
         lock_memberships!(conversation.id, conversation.tenant_id)
 
         membership =
@@ -666,7 +752,7 @@ defmodule CommsCore.Conversations do
   end
 
   def update(id, attrs, subject) when is_map(attrs) do
-    with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: id}),
+    with :ok <- authorize_manage(id, subject),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->
         conversation =
@@ -689,11 +775,7 @@ defmodule CommsCore.Conversations do
 
         requested_visibility = Map.get(changes, :visibility, conversation.visibility)
 
-        case validate_public_channel(
-               conversation.tenant_id,
-               conversation.kind,
-               requested_visibility
-             ) do
+        case validate_public_channel(subject, conversation.kind, requested_visibility) do
           :ok -> :ok
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -717,7 +799,7 @@ defmodule CommsCore.Conversations do
   end
 
   def archive(id, attrs, subject) when is_map(attrs) do
-    with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: id}),
+    with :ok <- authorize_manage(id, subject),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->
         conversation =
@@ -756,7 +838,7 @@ defmodule CommsCore.Conversations do
   end
 
   def list_members(conversation_id, subject) do
-    with :ok <- Authorization.authorize(:read_conversation, subject, %{id: conversation_id}) do
+    with :ok <- authorize_read(conversation_id, subject) do
       query =
         from(m in Membership,
           join: u in User,
@@ -782,12 +864,12 @@ defmodule CommsCore.Conversations do
   end
 
   def add_member(conversation_id, user_id, role, subject) do
-    with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: conversation_id}),
+    with :ok <- authorize_manage(conversation_id, subject),
          {:ok, assigned_role} <- membership_role(role) do
       Repo.transaction(fn ->
         conversation = lock_conversation!(conversation_id, subject)
         reject_direct_membership_change!(conversation)
-        authorize_in_transaction!(:manage_conversation, subject, conversation)
+        authorize_in_transaction!(fn -> authorize_manage(conversation.id, subject) end)
         policy = admission_policy!(conversation.tenant_id)
 
         Repo.get_by(User,
@@ -871,12 +953,12 @@ defmodule CommsCore.Conversations do
   end
 
   def remove_member(conversation_id, user_id, attrs, subject) when is_map(attrs) do
-    with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: conversation_id}),
+    with :ok <- authorize_manage(conversation_id, subject),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->
         conversation = lock_conversation!(conversation_id, subject)
         reject_direct_membership_change!(conversation)
-        authorize_in_transaction!(:manage_conversation, subject, conversation)
+        authorize_in_transaction!(fn -> authorize_manage(conversation.id, subject) end)
         lock_memberships!(conversation_id, conversation.tenant_id)
 
         membership =
@@ -919,13 +1001,13 @@ defmodule CommsCore.Conversations do
   end
 
   def change_member_role(conversation_id, user_id, attrs, subject) when is_map(attrs) do
-    with :ok <- Authorization.authorize(:manage_conversation, subject, %{id: conversation_id}),
+    with :ok <- authorize_manage(conversation_id, subject),
          {:ok, expected_version} <- expected_version(attrs),
          {:ok, role} <- membership_role(value(attrs, :role)) do
       Repo.transaction(fn ->
         conversation = lock_conversation!(conversation_id, subject)
         reject_direct_membership_change!(conversation)
-        authorize_in_transaction!(:manage_conversation, subject, conversation)
+        authorize_in_transaction!(fn -> authorize_manage(conversation.id, subject) end)
 
         lock_memberships!(conversation_id, conversation.tenant_id)
 
@@ -964,7 +1046,7 @@ defmodule CommsCore.Conversations do
   end
 
   def mark_read(conversation_id, sequence, subject) when is_integer(sequence) do
-    with :ok <- Authorization.authorize(:mark_read, subject, %{id: conversation_id}),
+    with :ok <- authorize_mark_read(conversation_id, subject),
          %Conversation{} = conversation <-
            Repo.get_by(Conversation,
              id: conversation_id,
@@ -1122,6 +1204,120 @@ defmodule CommsCore.Conversations do
 
   defp parse_channel_limit(_), do: @default_channel_limit
 
+  defp authorize_public_channel(action, conversation_id, subject)
+       when action in [:join, :leave] and is_binary(conversation_id) and is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject),
+         {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         %Conversation{kind: :channel, visibility: :tenant, archived_at: nil} <-
+           Repo.get_by(Conversation,
+             id: conversation_id,
+             tenant_id: grant.tenant_id
+           ),
+         :ok <- maybe_require_public_channels_enabled(action, subject) do
+      :ok
+    else
+      {:error, :public_channels_disabled} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_public_channel(_action, _conversation_id, _subject),
+    do: {:error, :forbidden}
+
+  defp authorize_active_membership(conversation_id, subject)
+       when is_binary(conversation_id) and is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject),
+         {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         %Membership{} <- active_membership(grant, conversation_id) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_active_membership(_conversation_id, _subject),
+    do: {:error, :forbidden}
+
+  defp authorize_management(action, conversation_id, subject)
+       when action in [:manage_conversation, :manage_conversation_ownership] and
+              is_binary(conversation_id) and is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject) do
+      authorization =
+        with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+             %Conversation{} = conversation <-
+               Repo.get_by(Conversation,
+                 id: conversation_id,
+                 tenant_id: grant.tenant_id
+               ) do
+          membership = active_membership(grant, conversation_id)
+
+          case {action, grant.role, membership, conversation} do
+            {:manage_conversation, _tenant_role, %Membership{role: role}, _conversation}
+            when role in [:owner, :moderator] ->
+              :ok
+
+            {:manage_conversation_ownership, _tenant_role, %Membership{role: :owner},
+             _conversation} ->
+              :ok
+
+            {_action, role, _membership, %Conversation{kind: :channel, visibility: :tenant}}
+            when role in [:owner, :admin] ->
+              :ok
+
+            _ ->
+              {:error, :forbidden}
+          end
+        else
+          _ -> {:error, :forbidden}
+        end
+
+      case authorization do
+        :ok -> :ok
+        {:error, :forbidden} -> deny_conversation_management(action, grant, subject)
+      end
+    else
+      {:error, _reason} ->
+        Accounts.audit_authorization_denial(action, subject, :forbidden)
+    end
+  end
+
+  defp authorize_management(_action, _conversation_id, _subject),
+    do: {:error, :forbidden}
+
+  defp active_membership(grant, conversation_id) do
+    Repo.one(
+      from(membership in Membership,
+        join: conversation in Conversation,
+        on:
+          conversation.id == membership.conversation_id and
+            conversation.tenant_id == membership.tenant_id,
+        where:
+          membership.conversation_id == ^conversation_id and
+            membership.user_id == ^grant.user_id and
+            membership.tenant_id == ^grant.tenant_id and
+            conversation.tenant_id == ^grant.tenant_id and
+            is_nil(membership.left_at) and is_nil(conversation.archived_at)
+      )
+    )
+  end
+
+  defp maybe_require_public_channels_enabled(:join, subject),
+    do: public_channels_enabled(subject)
+
+  defp maybe_require_public_channels_enabled(:leave, _subject), do: :ok
+
+  defp public_channels_enabled(subject) do
+    case Administration.member_capabilities(subject) do
+      {:ok, %{allow_public_channels: false}} -> {:error, :public_channels_disabled}
+      {:ok, %{allow_public_channels: true}} -> :ok
+      {:error, _reason} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp deny_conversation_management(action, _grant, subject),
+    do: Accounts.audit_authorization_denial(action, subject, :forbidden)
+
   defp lock_channel!(conversation_id, subject) do
     Repo.one(
       from(c in Conversation,
@@ -1143,11 +1339,12 @@ defmodule CommsCore.Conversations do
   end
 
   defp ensure_public_channel!(
-         %Conversation{kind: :channel, visibility: :tenant, archived_at: nil} = conversation,
+         %Conversation{kind: :channel, visibility: :tenant, archived_at: nil},
+         subject,
          require_enabled: require_enabled
        ) do
     if require_enabled do
-      case validate_public_channel(conversation.tenant_id, :channel, :tenant) do
+      case validate_public_channel(subject, :channel, :tenant) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -1156,11 +1353,11 @@ defmodule CommsCore.Conversations do
     end
   end
 
-  defp ensure_public_channel!(%Conversation{archived_at: archived_at}, _opts)
+  defp ensure_public_channel!(%Conversation{archived_at: archived_at}, _subject, _opts)
        when not is_nil(archived_at),
        do: Repo.rollback(:conversation_archived)
 
-  defp ensure_public_channel!(_conversation, _opts), do: Repo.rollback(:forbidden)
+  defp ensure_public_channel!(_conversation, _subject, _opts), do: Repo.rollback(:forbidden)
 
   defp lock_memberships!(conversation_id, tenant_id) do
     Repo.all(
@@ -1188,8 +1385,8 @@ defmodule CommsCore.Conversations do
 
   defp reject_direct_membership_change!(_conversation), do: :ok
 
-  defp authorize_in_transaction!(action, subject, resource) do
-    case Authorization.authorize(action, subject, resource) do
+  defp authorize_in_transaction!(authorization) when is_function(authorization, 0) do
+    case authorization.() do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -1197,7 +1394,7 @@ defmodule CommsCore.Conversations do
 
   defp authorize_ownership_change!(current_role, requested_role, subject, conversation)
        when current_role == :owner or requested_role == :owner do
-    authorize_in_transaction!(:manage_conversation_ownership, subject, conversation)
+    authorize_in_transaction!(fn -> authorize_manage_ownership(conversation.id, subject) end)
   end
 
   defp authorize_ownership_change!(_current_role, _requested_role, _subject, _conversation),
@@ -1242,14 +1439,10 @@ defmodule CommsCore.Conversations do
     end
   end
 
-  defp validate_public_channel(tenant_id, :channel, :tenant) do
-    case Repo.get_by(TenantSettings, tenant_id: tenant_id) do
-      %TenantSettings{allow_public_channels: false} -> {:error, :public_channels_disabled}
-      _ -> :ok
-    end
-  end
+  defp validate_public_channel(subject, :channel, :tenant),
+    do: public_channels_enabled(subject)
 
-  defp validate_public_channel(_tenant_id, _kind, _visibility), do: :ok
+  defp validate_public_channel(_subject, _kind, _visibility), do: :ok
 
   defp normalized_visibility(nil), do: nil
 

@@ -2,6 +2,7 @@ defmodule CommsCore.Accounts do
   import Ecto.Query
 
   alias CommsCore.Accounts.{
+    AccessGrant,
     ConversationBootstrapPort,
     Device,
     InitialConversationCommand,
@@ -16,12 +17,12 @@ defmodule CommsCore.Accounts do
   }
 
   alias CommsCore.Audit
+  alias CommsCore.Audit.Actor
 
   alias CommsCore.{
     Administration,
     AdmissionQuotas,
     AudioCalls,
-    Authorization,
     Repo
   }
 
@@ -32,6 +33,199 @@ defmodule CommsCore.Accounts do
   @platform_roles PlatformRoleGrant.roles()
   @platform_role_min_ttl_seconds 300
   @platform_role_max_ttl_seconds 28_800
+
+  @doc """
+  Resolves an active human session into persistence-free authorization facts.
+
+  The tenant, user, device, and session identifiers must describe the same
+  active identity. A platform grant is returned as verified only when the
+  subject carries the exact current grant id, role, and expiry.
+  """
+  @spec access_grant(map()) :: {:ok, AccessGrant.t()} | {:error, :forbidden}
+  def access_grant(subject) when is_map(subject) do
+    case subject_identity(subject) do
+      {tenant_id, user_id, device_id, session_id}
+      when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
+             is_binary(session_id) ->
+        timestamp = now()
+
+        query =
+          from(s in Session,
+            join: t in Tenant,
+            on: t.id == s.tenant_id,
+            join: u in User,
+            on: u.id == s.user_id,
+            join: d in Device,
+            on: d.id == s.device_id,
+            left_join: g in PlatformRoleGrant,
+            on:
+              g.user_id == u.id and g.tenant_id == u.tenant_id and
+                g.expires_at > ^timestamp,
+            where:
+              s.id == ^session_id and s.tenant_id == ^tenant_id and s.user_id == ^user_id and
+                s.device_id == ^device_id and t.id == ^tenant_id and t.status == :active and
+                u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
+                u.account_type == :human and d.id == ^device_id and d.tenant_id == ^tenant_id and
+                d.user_id == ^user_id and is_nil(d.revoked_at) and is_nil(s.revoked_at) and
+                s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp,
+            select: %{
+              tenant_id: s.tenant_id,
+              user_id: s.user_id,
+              device_id: s.device_id,
+              session_id: s.id,
+              role: u.role,
+              step_up_at: s.step_up_at,
+              platform_role_grant_id: g.id,
+              platform_role: g.role,
+              platform_role_expires_at: g.expires_at
+            }
+          )
+
+        case Repo.one(query) do
+          nil ->
+            {:error, :forbidden}
+
+          facts ->
+            {:ok, build_access_grant(facts, subject, timestamp)}
+        end
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
+  def access_grant(_subject), do: {:error, :forbidden}
+
+  @doc """
+  Resolves the verified tenant/user pair used to audit an authorization denial.
+
+  Session, device, tenant, or user activity is deliberately not required: a
+  revoked or suspended principal's denied privileged attempt must still be
+  attributable. The user must, however, belong to the claimed tenant.
+  """
+  @spec authorization_audit_actor(map()) ::
+          {:ok, Actor.t()} | {:error, :unknown_authorization_actor}
+  def authorization_audit_actor(subject) when is_map(subject) do
+    tenant_id = value(subject, :tenant_id)
+    user_id = value(subject, :user_id)
+
+    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+         {:ok, user_id} <- Ecto.UUID.cast(user_id),
+         %User{} <- Repo.get_by(User, id: user_id, tenant_id: tenant_id) do
+      {:ok,
+       %Actor{
+         tenant_id: tenant_id,
+         user_id: user_id,
+         request_id: audit_request_id(subject)
+       }}
+    else
+      _ -> {:error, :unknown_authorization_actor}
+    end
+  end
+
+  def authorization_audit_actor(_subject), do: {:error, :unknown_authorization_actor}
+
+  @doc false
+  @spec audit_authorization_denial(atom(), map(), term()) :: {:error, term()}
+  def audit_authorization_denial(action, subject, reason)
+      when is_atom(action) and is_map(subject) do
+    case authorization_audit_actor(subject) do
+      {:ok, actor} -> Audit.authorization_denied(action, actor, reason)
+      {:error, :unknown_authorization_actor} -> {:error, reason}
+    end
+  end
+
+  def audit_authorization_denial(_action, _subject, reason), do: {:error, reason}
+
+  @doc false
+  @spec authorize_receive_user_events(map(), map()) :: :ok | {:error, :forbidden}
+  def authorize_receive_user_events(subject, resource)
+      when is_map(subject) and is_map(resource) do
+    with {:ok, %AccessGrant{user_id: user_id}} <- access_grant(subject),
+         ^user_id <- value(resource, :user_id) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_receive_user_events(_subject, _resource), do: {:error, :forbidden}
+
+  @doc false
+  @spec authorize_administer_users(map()) :: :ok | {:error, :forbidden}
+  def authorize_administer_users(subject) when is_map(subject) do
+    case access_grant(subject) do
+      {:ok, %AccessGrant{role: role}} when role in [:owner, :admin] ->
+        :ok
+
+      _ ->
+        deny_privileged(:administer_tenant, subject, :forbidden)
+    end
+  end
+
+  def authorize_administer_users(_subject), do: {:error, :forbidden}
+
+  @doc false
+  @spec authorize_manage_user_lifecycle(map()) ::
+          :ok | {:error, :forbidden | :step_up_required}
+  def authorize_manage_user_lifecycle(subject) when is_map(subject) do
+    authorize_tenant_role_with_step_up(
+      :manage_user_lifecycle,
+      subject,
+      [:owner, :admin]
+    )
+  end
+
+  def authorize_manage_user_lifecycle(_subject), do: {:error, :forbidden}
+
+  @doc false
+  @spec authorize_manage_sessions(map()) :: :ok | {:error, :forbidden | :step_up_required}
+  def authorize_manage_sessions(subject) when is_map(subject) do
+    authorize_tenant_role_with_step_up(
+      :manage_sessions,
+      subject,
+      [:owner, :security_admin]
+    )
+  end
+
+  def authorize_manage_sessions(_subject), do: {:error, :forbidden}
+
+  @doc false
+  @spec authorize_view_platform_operations(map()) :: :ok | {:error, :forbidden}
+  def authorize_view_platform_operations(subject) when is_map(subject) do
+    case access_grant(subject) do
+      {:ok,
+       %AccessGrant{
+         platform_role: role,
+         platform_claim_verified?: true
+       }}
+      when role in @platform_roles ->
+        :ok
+
+      _ ->
+        deny_privileged(:view_platform_operations, subject, :forbidden)
+    end
+  end
+
+  def authorize_view_platform_operations(_subject), do: {:error, :forbidden}
+
+  @doc false
+  @spec authorize_operate_platform(map()) :: :ok | {:error, :forbidden}
+  def authorize_operate_platform(subject) when is_map(subject) do
+    case access_grant(subject) do
+      {:ok,
+       %AccessGrant{
+         platform_role: :platform_operator,
+         platform_claim_verified?: true
+       }} ->
+        :ok
+
+      _ ->
+        deny_privileged(:operate_platform, subject, :forbidden)
+    end
+  end
+
+  def authorize_operate_platform(_subject), do: {:error, :forbidden}
 
   # Adapter-facing API. These functions are the stable projection boundary;
   # persistence-returning operations below remain available to owner internals
@@ -346,7 +540,7 @@ defmodule CommsCore.Accounts do
     with :ok <- reject_platform_role_attribute(attrs),
          :ok <- reject_service_account_attribute(attrs),
          {:ok, requested_role} <- requested_role(attrs),
-         :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
+         :ok <- authorize_manage_user_lifecycle(subject),
          :ok <- reject_service_identity_email(tenant_id, email),
          :ok <- authorize_role_assignment(subject, requested_role),
          :ok <- validate_password(password) do
@@ -575,8 +769,7 @@ defmodule CommsCore.Accounts do
   end
 
   def list_admin_users(subject) do
-    with :ok <-
-           Authorization.authorize(:administer_tenant, subject, %{id: value(subject, :tenant_id)}) do
+    with :ok <- authorize_administer_users(subject) do
       {:ok, list_tenant_users(subject)}
     end
   end
@@ -771,8 +964,7 @@ defmodule CommsCore.Accounts do
   end
 
   def list_user_sessions(user_id, subject) do
-    with :ok <-
-           Authorization.authorize(:manage_sessions, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_manage_sessions(subject),
          %User{} = actor <- active_actor(subject),
          %User{} = target <-
            Repo.get_by(User,
@@ -794,8 +986,7 @@ defmodule CommsCore.Accounts do
   end
 
   def admin_revoke_session(user_id, session_id, attrs, subject) when is_map(attrs) do
-    with :ok <-
-           Authorization.authorize(:manage_sessions, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_manage_sessions(subject),
          {:ok, reason} <- required_reason(attrs) do
       Repo.transaction(fn ->
         actor = active_actor(subject) || Repo.rollback(:forbidden)
@@ -1591,7 +1782,7 @@ defmodule CommsCore.Accounts do
     if valid_uuid?(tenant_id) do
       with :ok <- reject_platform_role_attribute(attrs),
            :ok <- reject_service_account_attribute(attrs),
-           :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
+           :ok <- authorize_manage_user_lifecycle(subject),
            {:ok, reason} <- required_reason(attrs),
            {:ok, expected_version} <- expected_version(attrs),
            {:ok, role} <- optional_role(attrs),
@@ -2091,6 +2282,99 @@ defmodule CommsCore.Accounts do
   defp transaction_result({:error, reason}), do: {:error, reason}
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp subject_identity(subject) do
+    {
+      value(subject, :tenant_id),
+      value(subject, :user_id),
+      value(subject, :device_id),
+      value(subject, :session_id)
+    }
+  end
+
+  defp build_access_grant(facts, subject, timestamp) do
+    %AccessGrant{
+      tenant_id: facts.tenant_id,
+      user_id: facts.user_id,
+      device_id: facts.device_id,
+      session_id: facts.session_id,
+      request_id: value(subject, :request_id),
+      role: facts.role,
+      step_up_at: facts.step_up_at,
+      step_up_recent?: recent_step_up_at?(facts.step_up_at, timestamp),
+      platform_role_grant_id: facts.platform_role_grant_id,
+      platform_role: facts.platform_role,
+      platform_role_expires_at: facts.platform_role_expires_at,
+      platform_claim_verified?: platform_claim_verified?(facts, subject)
+    }
+  end
+
+  defp recent_step_up_at?(%DateTime{} = step_up_at, timestamp) do
+    ttl = Application.get_env(:comms_core, :step_up_ttl_seconds, 300)
+    threshold = DateTime.add(timestamp, -ttl, :second)
+    DateTime.compare(step_up_at, threshold) != :lt
+  end
+
+  defp recent_step_up_at?(_step_up_at, _timestamp), do: false
+
+  defp platform_claim_verified?(
+         %{
+           platform_role_grant_id: grant_id,
+           platform_role: role,
+           platform_role_expires_at: %DateTime{} = expires_at
+         },
+         subject
+       )
+       when is_binary(grant_id) and role in @platform_roles do
+    value(subject, :platform_role_grant_id) == grant_id and
+      normalized_platform_role(value(subject, :platform_role)) == role and
+      platform_deadline_matches?(value(subject, :platform_role_expires_at), expires_at)
+  end
+
+  defp platform_claim_verified?(_facts, _subject), do: false
+
+  defp normalized_platform_role(role) when role in @platform_roles, do: role
+
+  defp normalized_platform_role(role) when is_binary(role) do
+    Enum.find(@platform_roles, &(Atom.to_string(&1) == role))
+  end
+
+  defp normalized_platform_role(_role), do: nil
+
+  defp platform_deadline_matches?(%DateTime{} = claimed, %DateTime{} = persisted),
+    do: DateTime.compare(claimed, persisted) == :eq
+
+  defp platform_deadline_matches?(_, _), do: false
+
+  defp authorize_tenant_role_with_step_up(action, subject, allowed_roles) do
+    case access_grant(subject) do
+      {:ok, %AccessGrant{} = grant} ->
+        cond do
+          not Enum.member?(allowed_roles, grant.role) ->
+            deny_privileged(action, subject, :forbidden)
+
+          grant.step_up_recent? ->
+            :ok
+
+          true ->
+            deny_privileged(action, subject, :step_up_required)
+        end
+
+      _ ->
+        deny_privileged(action, subject, :forbidden)
+    end
+  end
+
+  defp deny_privileged(action, subject, reason) do
+    audit_authorization_denial(action, subject, reason)
+  end
+
+  defp audit_request_id(subject) do
+    case value(subject, :request_id) do
+      request_id when is_binary(request_id) -> request_id
+      _ -> nil
+    end
+  end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

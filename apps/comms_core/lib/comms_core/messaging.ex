@@ -1,7 +1,15 @@
 defmodule CommsCore.Messaging do
   import Ecto.Query
 
-  alias CommsCore.{Attachments, Authorization, Conversations, Outbox, Repo, ServiceAccounts}
+  alias CommsCore.{
+    Administration,
+    Attachments,
+    Conversations,
+    Outbox,
+    Repo,
+    ServiceAccounts
+  }
+
   alias CommsCore.Audit
   alias CommsCore.Conversations.MessageWriteSlot
 
@@ -152,7 +160,7 @@ defmodule CommsCore.Messaging do
   def accept_message_with_status(attrs, subject, opts \\ [])
       when is_map(attrs) and is_map(subject) do
     attrs = normalize(attrs)
-    authorize = Keyword.get(opts, :authorize, &Authorization.authorize/3)
+    authorize = Keyword.get(opts, :authorize, &authorize_conversation/3)
 
     with :ok <- validate_identity(attrs, subject),
          :ok <- validate(attrs) do
@@ -177,7 +185,7 @@ defmodule CommsCore.Messaging do
   end
 
   def list_history(conversation_id, subject, opts \\ []) do
-    authorize = Keyword.get(opts, :authorize, &Authorization.authorize/3)
+    authorize = Keyword.get(opts, :authorize, &authorize_conversation/3)
 
     with :ok <- authorize.(:read_conversation, subject, %{id: conversation_id}) do
       after_sequence = integer(Keyword.get(opts, :after_sequence, 0), 0)
@@ -210,7 +218,7 @@ defmodule CommsCore.Messaging do
       )
 
     with %Message{} = target <- target,
-         :ok <- Authorization.authorize(:read_conversation, subject, %{id: conversation_id}) do
+         :ok <- Conversations.authorize_read(conversation_id, subject) do
       root_id = target.thread_root_message_id || target.id
       limit_count = clamp_limit(Keyword.get(opts, :limit, 50), 100)
       before_sequence = integer(Keyword.get(opts, :before_sequence), nil)
@@ -264,7 +272,7 @@ defmodule CommsCore.Messaging do
       Repo.transaction(fn ->
         message = locked_message(message_id, subject)
 
-        case Authorization.authorize(:edit_message, subject, message) do
+        case authorize_edit(message, subject) do
           :ok ->
             revision = revision_number(message.id)
 
@@ -317,7 +325,7 @@ defmodule CommsCore.Messaging do
       when is_map(subject) and is_function(policy_check, 1) do
     if Repo.in_transaction?() do
       with %Message{} = message <- locked_message(message_id, subject),
-           :ok <- Authorization.authorize(:delete_message, subject, message),
+           :ok <- authorize_delete(message, subject),
            :ok <-
              policy_check.(%MessageDeletionCandidate{
                id: message.id,
@@ -347,7 +355,7 @@ defmodule CommsCore.Messaging do
 
   def add_reaction(message_id, emoji, subject) when is_binary(emoji) do
     with %Message{} = message <- scoped_message(message_id, subject),
-         :ok <- Authorization.authorize(:react_message, subject, message) do
+         :ok <- authorize_reaction(message, subject) do
       changeset =
         Reaction.changeset(%Reaction{}, %{
           tenant_id: message.tenant_id,
@@ -372,7 +380,7 @@ defmodule CommsCore.Messaging do
 
   def remove_reaction(message_id, emoji, subject) do
     with %Message{} = message <- scoped_message(message_id, subject),
-         :ok <- Authorization.authorize(:react_message, subject, message) do
+         :ok <- authorize_reaction(message, subject) do
       query =
         from(r in Reaction,
           where:
@@ -474,6 +482,66 @@ defmodule CommsCore.Messaging do
     do: Conversations.authorize_service_access(subject, "messages:read", id)
 
   defp service_authorizer(_, _, _), do: {:error, :forbidden}
+
+  defp authorize_conversation(:send_message, subject, resource),
+    do: Conversations.authorize_send_message(value(resource, :id), subject)
+
+  defp authorize_conversation(:read_conversation, subject, resource),
+    do: Conversations.authorize_read(value(resource, :id), subject)
+
+  defp authorize_conversation(_action, _subject, _resource), do: {:error, :forbidden}
+
+  defp authorize_edit(%Message{} = message, subject) do
+    with :ok <- Conversations.authorize_send_message(message.conversation_id, subject),
+         true <- same_tenant?(message, subject),
+         true <- value(subject, :user_id) == message.sender_user_id,
+         true <- message.status == :active,
+         {:ok, capabilities} <- Administration.member_capabilities(subject),
+         :ok <-
+           enforce_edit_window(
+             message,
+             Map.get(capabilities, :message_edit_window_seconds, 86_400)
+           ) do
+      :ok
+    else
+      {:error, :edit_window_expired} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_delete(%Message{} = message, subject) do
+    with :ok <- Conversations.authorize_read(message.conversation_id, subject),
+         true <- same_tenant?(message, subject) do
+      if value(subject, :user_id) == message.sender_user_id do
+        :ok
+      else
+        Conversations.authorize_manage(message.conversation_id, subject)
+      end
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_reaction(%Message{} = message, subject) do
+    with true <- same_tenant?(message, subject),
+         :ok <- Conversations.authorize_react_message(message.conversation_id, subject) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp same_tenant?(%Message{tenant_id: tenant_id}, subject),
+    do: tenant_id == value(subject, :tenant_id)
+
+  defp enforce_edit_window(%Message{} = message, seconds)
+       when is_integer(seconds) and seconds > 0 do
+    if DateTime.compare(message.inserted_at, DateTime.add(now(), -seconds, :second)) != :lt,
+      do: :ok,
+      else: {:error, :edit_window_expired}
+  end
+
+  defp enforce_edit_window(_message, _seconds), do: {:error, :edit_window_expired}
 
   defp lock_idempotency_key(attrs) do
     lock_key =

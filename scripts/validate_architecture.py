@@ -53,6 +53,16 @@ TEMPORARY_EXACT_MAPPING_POLICY = {
 TEMPORARY_ADR_RE = re.compile(
     r"^docs/02-architecture/adr/[0-9]{4}-[A-Za-z0-9][A-Za-z0-9._-]*\.md$"
 )
+REVIEWED_BASELINE_TRANSITION_FIELDS = frozenset(
+    {
+        "id",
+        "previous_baseline_sha256",
+        "added_fingerprints",
+        "removed_fingerprints",
+        "adr",
+        "removal_condition",
+    }
+)
 NON_BASELINABLE_BOUNDARY_RULES = frozenset(
     {
         "ambiguous_context_owner",
@@ -249,6 +259,173 @@ def read_yaml(path: Path) -> dict:
     return document
 
 
+def _blank_elixir_non_code(output: list[str], start: int, end: int) -> None:
+    """Blank a lexical non-code span without changing offsets or line numbers."""
+
+    for index in range(start, end):
+        if output[index] not in {"\r", "\n"}:
+            output[index] = " "
+
+
+def _elixir_literal_span(
+    text: str, start: int
+) -> tuple[int, tuple[tuple[int, int], ...]] | None:
+    """Return a string/charlist/sigil span and its interpolated code ranges."""
+
+    length = len(text)
+    interpolates = True
+    paired_closer: str | None = None
+    opening: str
+    closing: str
+    content_start: int
+
+    if text.startswith('"""', start) or text.startswith("'''", start):
+        opening = text[start : start + 3]
+        closing = opening
+        content_start = start + 3
+    elif text[start : start + 1] in {'"', "'"}:
+        opening = text[start]
+        closing = opening
+        content_start = start + 1
+    elif (
+        text[start : start + 1] == "~"
+        and start + 2 < length
+        and text[start + 1].isalpha()
+    ):
+        sigil_name = text[start + 1]
+        interpolates = sigil_name.islower()
+        delimiter_start = start + 2
+        if text.startswith('"""', delimiter_start) or text.startswith(
+            "'''", delimiter_start
+        ):
+            opening = text[delimiter_start : delimiter_start + 3]
+            closing = opening
+            content_start = delimiter_start + 3
+        else:
+            opening = text[delimiter_start]
+            paired_closer = {"(": ")", "[": "]", "{": "}", "<": ">"}.get(opening)
+            closing = paired_closer or opening
+            content_start = delimiter_start + 1
+    else:
+        return None
+
+    interpolation_ranges: list[tuple[int, int]] = []
+    cursor = content_start
+    paired_depth = 1 if paired_closer else 0
+    while cursor < length:
+        if text[cursor] == "\\":
+            cursor = min(cursor + 2, length)
+            continue
+        if interpolates and text.startswith("#{", cursor):
+            interpolation_end = _elixir_interpolation_end(text, cursor + 2)
+            if interpolation_end is None:
+                cursor = length
+                break
+            interpolation_ranges.append((cursor + 2, interpolation_end))
+            cursor = interpolation_end + 1
+            continue
+        if paired_closer:
+            if text[cursor] == opening:
+                paired_depth += 1
+            elif text[cursor] == closing:
+                paired_depth -= 1
+                if paired_depth == 0:
+                    cursor += 1
+                    break
+            cursor += 1
+            continue
+        if text.startswith(closing, cursor):
+            cursor += len(closing)
+            break
+        cursor += 1
+
+    if start < length and text[start] == "~":
+        while cursor < length and text[cursor].isalpha():
+            cursor += 1
+    return cursor, tuple(interpolation_ranges)
+
+
+def _elixir_interpolation_end(text: str, start: int) -> int | None:
+    """Find the closing brace of an interpolated Elixir expression."""
+
+    depth = 1
+    cursor = start
+    length = len(text)
+    while cursor < length:
+        character = text[cursor]
+        if character == "#" and not (
+            cursor > start and text[cursor - 1] == "?"
+        ):
+            newline = text.find("\n", cursor)
+            cursor = length if newline == -1 else newline + 1
+            continue
+        if character == "?" and cursor + 1 < length:
+            cursor += 2
+            if text[cursor - 1] == "\\" and cursor < length:
+                cursor += 1
+            continue
+        literal = _elixir_literal_span(text, cursor)
+        if literal:
+            cursor = literal[0]
+            continue
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return cursor
+        cursor += 1
+    return None
+
+
+def elixir_code_only(text: str) -> str:
+    """Return an offset-preserving view containing only executable Elixir code.
+
+    Comments and literal prose are blanked so architecture edges cannot be
+    invented by documentation, examples, regexes, or data strings. Elixir
+    expressions inside interpolating literals remain code because they are
+    compiled and can contain real module dependencies.
+    """
+
+    output = list(text)
+    cursor = 0
+    length = len(text)
+    while cursor < length:
+        character = text[cursor]
+        if character == "#" and not (cursor > 0 and text[cursor - 1] == "?"):
+            newline = text.find("\n", cursor)
+            end = length if newline == -1 else newline
+            _blank_elixir_non_code(output, cursor, end)
+            cursor = end
+            continue
+        if character == "?" and cursor + 1 < length:
+            cursor += 2
+            if text[cursor - 1] == "\\" and cursor < length:
+                cursor += 1
+            continue
+        literal = _elixir_literal_span(text, cursor)
+        if literal:
+            end, interpolation_ranges = literal
+            _blank_elixir_non_code(output, cursor, end)
+            # Keep one inert token so argument counting does not turn a literal
+            # into an empty final argument after its contents are blanked.
+            output[cursor] = "0"
+            for interpolation_start, interpolation_end in interpolation_ranges:
+                output[interpolation_start:interpolation_end] = elixir_code_only(
+                    text[interpolation_start:interpolation_end]
+                )
+            cursor = end
+            continue
+        cursor += 1
+    return "".join(output)
+
+
+def core_module_declarations(text: str) -> list[str]:
+    """Return real CommsCore defmodule declarations, excluding literal prose."""
+
+    return MODULE_RE.findall(elixir_code_only(text))
+
+
 def validate_umbrella_dependencies(root: Path) -> list[str]:
     errors: list[str] = []
     apps_dir = root / "apps"
@@ -338,7 +515,7 @@ def validate_owner_lifecycle_call_sites(root: Path) -> list[str]:
         for path in production_sources(app_dir):
             text = path.read_text(encoding="utf-8")
             path_key = relative(path, root)
-            caller_modules = set(MODULE_RE.findall(text))
+            caller_modules = set(core_module_declarations(text))
             for module, function in sorted(core_function_calls(text)):
                 call = f"{module}.{function}"
                 if call in protected_calls and caller_modules != set(
@@ -442,10 +619,11 @@ def module_in_namespace(module: str, namespace: str) -> bool:
 
 
 def exact_module_reference(text: str, module: str) -> bool:
+    code = elixir_code_only(text)
     return bool(
         re.search(
             rf"(?<![A-Za-z0-9_.]){re.escape(module)}(?=(?:\.t\(\))|[^A-Za-z0-9_.]|$)",
-            text,
+            code,
         )
     )
 
@@ -454,7 +632,7 @@ def discover_schemas(root: Path) -> dict[str, list[tuple[str, str]]]:
     schemas: dict[str, list[tuple[str, str]]] = {}
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
-        module_match = MODULE_RE.search(text)
+        module_match = MODULE_RE.search(elixir_code_only(text))
         schema_match = SCHEMA_RE.search(text)
         if module_match and schema_match:
             schemas.setdefault(schema_match.group(1), []).append(
@@ -464,17 +642,19 @@ def discover_schemas(root: Path) -> dict[str, list[tuple[str, str]]]:
 
 
 def core_module_references(text: str) -> set[str]:
-    references = set(CORE_MODULE_REFERENCE_RE.findall(text))
-    for prefix, members in GROUPED_CORE_ALIAS_RE.findall(text):
+    code = elixir_code_only(text)
+    references = set(CORE_MODULE_REFERENCE_RE.findall(code))
+    for prefix, members in GROUPED_CORE_ALIAS_RE.findall(code):
         for member in members.split(","):
             cleaned = member.strip()
             if re.fullmatch(GENERIC_MODULE_NAME, cleaned):
                 references.add(f"{prefix}.{cleaned}")
-    references.update(core_aliases(text).values())
+    references.update(core_aliases(code).values())
     return references
 
 
 def module_aliases(text: str) -> dict[str, str]:
+    text = elixir_code_only(text)
     aliases: dict[str, str] = {}
     for module, explicit_name in GENERIC_SIMPLE_ALIAS_RE.findall(text):
         aliases[explicit_name or module.rsplit(".", 1)[-1]] = module
@@ -509,13 +689,15 @@ def core_aliases(text: str) -> dict[str, str]:
 
 
 def imported_modules(text: str) -> set[str]:
-    aliases = module_aliases(text)
-    return {aliases.get(module, module) for module in GENERIC_IMPORT_RE.findall(text)}
+    code = elixir_code_only(text)
+    aliases = module_aliases(code)
+    return {aliases.get(module, module) for module in GENERIC_IMPORT_RE.findall(code)}
 
 
 def qualified_function_calls(text: str) -> set[tuple[str, str, int]]:
     """Return statically visible qualified calls with their effective arity."""
 
+    text = elixir_code_only(text)
     calls: set[tuple[str, str, int]] = set()
     aliases = module_aliases(text)
     for call in QUALIFIED_CALL_RE.finditer(text):
@@ -548,6 +730,7 @@ def module_function_evasions(
 ) -> set[str]:
     """Find invocation forms intentionally excluded from stable facade contracts."""
 
+    text = elixir_code_only(text)
     evidence: set[str] = set()
     aliases = module_aliases(text)
 
@@ -1875,7 +2058,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
 
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
-        declared_modules = MODULE_RE.findall(text)
+        declared_modules = core_module_declarations(text)
         if len(declared_modules) > 1:
             declared_tables = SCHEMA_RE.findall(text)
             schema_detail = (
@@ -1899,11 +2082,10 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
             continue
         for path in production_sources(app_dir):
             text = path.read_text(encoding="utf-8")
-            module_match = MODULE_RE.search(text)
+            declared_modules = core_module_declarations(text)
             references = core_module_references(text)
             used = set(references).intersection(retired_modules)
-            if module_match and module_match.group(1) in retired_modules:
-                used.add(module_match.group(1))
+            used.update(set(declared_modules).intersection(retired_modules))
             for retired in sorted(used):
                 violations.add(
                     Violation(
@@ -2012,8 +2194,8 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     module_sources: dict[str, Path] = {}
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
-        for module_match in MODULE_RE.finditer(text):
-            module_sources[module_match.group(1)] = path
+        for module in core_module_declarations(text):
+            module_sources[module] = path
 
     for module, path in sorted(module_sources.items()):
         candidates = declared_module_owner_candidates(module, contexts, schema_owners)
@@ -2450,7 +2632,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     namespace_rules = manifest.get("namespace_dependency_rules", [])
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
-        source_modules = MODULE_RE.findall(text)
+        source_modules = core_module_declarations(text)
         if not source_modules:
             continue
         if len(source_modules) > 1:
@@ -2758,7 +2940,7 @@ def context_graphs(root: Path, manifest: dict) -> ContextGraphs:
 
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
-        source_modules = MODULE_RE.findall(text)
+        source_modules = core_module_declarations(text)
         if len(source_modules) != 1:
             continue
         source_module = source_modules[0]
@@ -3228,7 +3410,147 @@ def _temporary_violation_errors(
     return errors
 
 
+def _reviewed_baseline_transition_errors(root: Path, enforcement: dict) -> list[str]:
+    transitions = enforcement.get("reviewed_baseline_transitions")
+    if transitions is None:
+        return []
+    if not isinstance(transitions, list):
+        return [
+            f"{MANIFEST_PATH.as_posix()}: "
+            "enforcement.reviewed_baseline_transitions must be a list"
+        ]
+
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    seen_hashes: set[str] = set()
+    adoption = enforcement.get("baseline_adoption")
+    adoption_hash = (
+        adoption.get("previous_baseline_sha256")
+        if isinstance(adoption, dict)
+        else None
+    )
+
+    for index, transition in enumerate(transitions):
+        label = (
+            f"{MANIFEST_PATH.as_posix()}: "
+            f"enforcement.reviewed_baseline_transitions[{index}]"
+        )
+        if not isinstance(transition, dict):
+            errors.append(f"{label} must be a mapping")
+            continue
+
+        unsupported = sorted(
+            set(transition) - REVIEWED_BASELINE_TRANSITION_FIELDS
+        )
+        missing = sorted(
+            REVIEWED_BASELINE_TRANSITION_FIELDS - set(transition)
+        )
+        if unsupported:
+            errors.append(
+                f"{label} has unsupported fields {', '.join(unsupported)}"
+            )
+        if missing:
+            errors.append(
+                f"{label} is missing required fields {', '.join(missing)}"
+            )
+
+        transition_id = transition.get("id")
+        if not isinstance(transition_id, str) or not transition_id.strip():
+            errors.append(f"{label}.id must be a non-empty string")
+        elif transition_id in seen_ids:
+            errors.append(f"{label}.id duplicates {transition_id}")
+        else:
+            seen_ids.add(transition_id)
+
+        previous_hash = transition.get("previous_baseline_sha256")
+        if not isinstance(previous_hash, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", previous_hash
+        ):
+            errors.append(
+                f"{label}.previous_baseline_sha256 must be a lowercase SHA-256"
+            )
+        elif previous_hash in seen_hashes:
+            errors.append(
+                f"{label}.previous_baseline_sha256 duplicates {previous_hash}"
+            )
+        else:
+            seen_hashes.add(previous_hash)
+            if previous_hash == adoption_hash:
+                errors.append(
+                    f"{label}.previous_baseline_sha256 is also declared by "
+                    "enforcement.baseline_adoption"
+                )
+
+        parsed_fingerprints: dict[str, set[str]] = {}
+        for field_name in ("added_fingerprints", "removed_fingerprints"):
+            fingerprints = transition.get(field_name)
+            if not isinstance(fingerprints, list) or not all(
+                isinstance(fingerprint, str)
+                and re.fullmatch(r"[0-9a-f]{16}", fingerprint)
+                for fingerprint in fingerprints
+            ):
+                errors.append(
+                    f"{label}.{field_name} must be a list of 16-character "
+                    "lowercase hexadecimal fingerprints"
+                )
+                continue
+            if fingerprints != sorted(set(fingerprints)):
+                errors.append(
+                    f"{label}.{field_name} must be unique and sorted"
+                )
+            parsed_fingerprints[field_name] = set(fingerprints)
+
+        added = parsed_fingerprints.get("added_fingerprints", set())
+        removed = parsed_fingerprints.get("removed_fingerprints", set())
+        if not added and not removed:
+            errors.append(
+                f"{label} must declare at least one added or removed fingerprint"
+            )
+        overlap = sorted(added & removed)
+        if overlap:
+            errors.append(
+                f"{label} declares fingerprints as both added and removed: "
+                f"{', '.join(overlap)}"
+            )
+
+        adr = transition.get("adr")
+        if not isinstance(adr, str) or not adr.strip():
+            errors.append(f"{label}.adr must be a non-empty string")
+        else:
+            adr_path = Path(adr)
+            adr_root = (root / "docs/02-architecture/adr").resolve()
+            candidate = (root / adr_path).resolve()
+            try:
+                candidate.relative_to(adr_root)
+                inside_adr_root = True
+            except ValueError:
+                inside_adr_root = False
+            if (
+                adr_path.is_absolute()
+                or not TEMPORARY_ADR_RE.fullmatch(adr)
+                or not inside_adr_root
+            ):
+                errors.append(
+                    f"{label}.adr must be a relative path within "
+                    "docs/02-architecture/adr matching NNNN-*.md"
+                )
+            elif not candidate.is_file():
+                errors.append(f"{label}.adr references missing ADR {adr}")
+
+        removal_condition = transition.get("removal_condition")
+        if (
+            not isinstance(removal_condition, str)
+            or not removal_condition.strip()
+        ):
+            errors.append(
+                f"{label}.removal_condition must be a non-empty string"
+            )
+
+    return errors
+
+
 def _enforcement_mode_errors(
+    root: Path,
     manifest: dict,
     violations: list[Violation],
 ) -> list[str]:
@@ -3307,6 +3629,7 @@ def _enforcement_mode_errors(
                     f"{MANIFEST_PATH.as_posix()}: baseline adoption must declare "
                     "a non-empty removal_condition"
                 )
+    errors.extend(_reviewed_baseline_transition_errors(root, enforcement))
     return errors
 
 
@@ -3331,10 +3654,12 @@ def _is_transitional_discovery(
 
     source_path = root / violation.path
     if source_path.is_file() and source_path.suffix in {".ex", ".exs"}:
-        module_match = MODULE_RE.search(source_path.read_text(encoding="utf-8"))
-        if module_match:
+        declared_modules = core_module_declarations(
+            source_path.read_text(encoding="utf-8")
+        )
+        if len(declared_modules) == 1:
             owner = declared_module_owner(
-                module_match.group(1),
+                declared_modules[0],
                 contexts,
                 schema_owner_map(manifest.get("tables", {})),
             )
@@ -3404,7 +3729,7 @@ def boundary_errors(root: Path) -> tuple[list[str], list[Violation]]:
     )
     errors.extend(
         f"ENFORCEMENT mode violation: {error}"
-        for error in _enforcement_mode_errors(manifest, violations)
+        for error in _enforcement_mode_errors(root, manifest, violations)
     )
     errors.extend(
         f"DISCOVERED context-boundary debt: {violation.render()}"
@@ -3516,25 +3841,75 @@ def compare_boundary_baselines(
     if errors:
         return errors
     base_fingerprints = {entry.fingerprint for entry in base_entries}
+    current_fingerprints = {entry.fingerprint for entry in current_entries}
     adopted_fingerprints: set[str] = set()
     manifest_path = root / MANIFEST_PATH
     manifest = read_yaml(manifest_path) if manifest_path.is_file() else {}
-    adoption = (
-        manifest.get("enforcement", {}).get("baseline_adoption")
-        if isinstance(manifest.get("enforcement"), dict)
-        else None
-    )
-    if isinstance(adoption, dict):
-        expected_hash = adoption.get("previous_baseline_sha256")
-        actual_hash = hashlib.sha256(base_path.read_bytes()).hexdigest()
-        if actual_hash == expected_hash:
-            configured = adoption.get("allowed_discovery_fingerprints", [])
-            if isinstance(configured, list):
-                adopted_fingerprints = {
-                    fingerprint
-                    for fingerprint in configured
-                    if isinstance(fingerprint, str)
-                }
+    enforcement = manifest.get("enforcement", {})
+    if not isinstance(enforcement, dict):
+        return [
+            f"{MANIFEST_PATH.as_posix()}: enforcement must be a mapping"
+        ]
+
+    transition_errors = _reviewed_baseline_transition_errors(root, enforcement)
+    if transition_errors:
+        return transition_errors
+
+    actual_hash = hashlib.sha256(base_path.read_bytes()).hexdigest()
+    transitions = enforcement.get("reviewed_baseline_transitions", [])
+    matching_transitions = [
+        transition
+        for transition in transitions
+        if transition.get("previous_baseline_sha256") == actual_hash
+    ]
+
+    if matching_transitions:
+        transition = matching_transitions[0]
+        transition_id = transition["id"]
+        declared_added = set(transition["added_fingerprints"])
+        declared_removed = set(transition["removed_fingerprints"])
+        actual_added = current_fingerprints - base_fingerprints
+        actual_removed = base_fingerprints - current_fingerprints
+
+        def append_delta_errors(
+            field_name: str,
+            actual: set[str],
+            declared: set[str],
+        ) -> None:
+            undeclared = sorted(actual - declared)
+            stale = sorted(declared - actual)
+            if undeclared:
+                errors.append(
+                    f"reviewed baseline transition {transition_id} has "
+                    f"undeclared {field_name}: {', '.join(undeclared)}"
+                )
+            if stale:
+                errors.append(
+                    f"reviewed baseline transition {transition_id} has stale "
+                    f"declared {field_name}: {', '.join(stale)}"
+                )
+
+        append_delta_errors("added fingerprints", actual_added, declared_added)
+        append_delta_errors(
+            "removed fingerprints",
+            actual_removed,
+            declared_removed,
+        )
+        if errors:
+            return errors
+        adopted_fingerprints = declared_added
+    else:
+        adoption = enforcement.get("baseline_adoption")
+        if isinstance(adoption, dict):
+            expected_hash = adoption.get("previous_baseline_sha256")
+            if actual_hash == expected_hash:
+                configured = adoption.get("allowed_discovery_fingerprints", [])
+                if isinstance(configured, list):
+                    adopted_fingerprints = {
+                        fingerprint
+                        for fingerprint in configured
+                        if isinstance(fingerprint, str)
+                    }
     growth = sorted(
         (
             entry

@@ -2,9 +2,9 @@ defmodule CommsCore.Notifications.PushSubscriptions do
   @moduledoc false
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, User}
+  alias CommsCore.Accounts
+  alias CommsCore.Accounts.{AccessGrant, Device, User}
   alias CommsCore.Audit
-  alias CommsCore.Authorization
   alias CommsCore.Notifications.PushSubscription
   alias CommsCore.Repo
   alias CommsCore.Security.PushSubscriptionBox
@@ -94,7 +94,6 @@ defmodule CommsCore.Notifications.PushSubscriptions do
     else
       %{status: :unavailable, reason: reason} -> {:error, reason}
       {:error, _} = error -> error
-      _ -> {:error, :push_subscriptions_unavailable}
     end
   end
 
@@ -639,11 +638,12 @@ defmodule CommsCore.Notifications.PushSubscriptions do
   defp unavailable_reason(_, _, %{status: :unavailable, reason: reason}), do: reason
   defp unavailable_reason(_, _, _), do: :push_subscriptions_unavailable
 
-  defp authorize(subject),
-    do:
-      Authorization.authorize(:read_tenant_capabilities, subject, %{
-        id: value(subject, :tenant_id)
-      })
+  defp authorize(subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{}} -> :ok
+      {:error, _reason} -> {:error, :forbidden}
+    end
+  end
 
   defp lock_endpoint!(endpoint_hash) do
     lock_key = Base.url_encode64(endpoint_hash, padding: false)

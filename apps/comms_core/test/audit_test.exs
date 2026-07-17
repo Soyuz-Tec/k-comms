@@ -1,8 +1,8 @@
 defmodule CommsCore.AuditTest do
   use CommsCore.DataCase, async: true
 
-  alias CommsCore.Audit
-  alias CommsCore.Audit.{Error, Event}
+  alias CommsCore.{Accounts, Audit}
+  alias CommsCore.Audit.{Actor, Error, Event}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -32,6 +32,77 @@ defmodule CommsCore.AuditTest do
     assert {:error, %Error{reason: :invalid_audit_event} = error} = Audit.record(%{})
     assert error.errors[:tenant_id] == ["can't be blank"]
     refute Map.has_key?(error, :data)
+  end
+
+  test "authorization denials are recorded through the public facade and retain the denial" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, %Actor{} = actor} = Accounts.authorization_audit_actor(subject)
+
+    assert {:error, :step_up_required} =
+             Audit.authorization_denied(:manage_integrations, actor, :step_up_required)
+
+    assert %Event{} =
+             event =
+             Audit.get_by!(%{
+               tenant_id: account.tenant.id,
+               actor_user_id: account.user.id,
+               action: "authorization.denied"
+             })
+
+    assert event.resource_type == "permission"
+    assert event.resource_id == account.tenant.id
+    assert event.metadata["permission"] == "manage_integrations"
+    assert event.metadata["reason"] == "step_up_required"
+
+    assert {:error, :forbidden} =
+             Accounts.audit_authorization_denial(
+               :manage_integrations,
+               %{tenant_id: "invalid", user_id: "invalid"},
+               :forbidden
+             )
+
+    assert 1 ==
+             Audit.count(%{
+               tenant_id: account.tenant.id,
+               actor_user_id: account.user.id,
+               action: "authorization.denied"
+             })
+  end
+
+  test "authorization audit actor rejects cross-tenant and unknown user claims" do
+    first = Fixtures.account_fixture()
+    second = Fixtures.account_fixture()
+
+    for subject <- [
+          %{
+            tenant_id: first.tenant.id,
+            user_id: second.user.id,
+            request_id: "request:cross-tenant"
+          },
+          %{
+            tenant_id: first.tenant.id,
+            user_id: Ecto.UUID.generate(),
+            request_id: "request:unknown-user"
+          }
+        ] do
+      assert {:error, :unknown_authorization_actor} =
+               Accounts.authorization_audit_actor(subject)
+
+      assert {:error, :forbidden} =
+               Accounts.audit_authorization_denial(
+                 :manage_integrations,
+                 subject,
+                 :forbidden
+               )
+    end
+
+    assert 0 ==
+             Audit.count(%{
+               tenant_id: first.tenant.id,
+               action: "authorization.denied"
+             })
   end
 
   test "append participates in the caller transaction without exposing the schema" do

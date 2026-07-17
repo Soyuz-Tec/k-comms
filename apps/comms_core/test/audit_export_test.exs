@@ -1,7 +1,7 @@
 defmodule CommsCore.AuditExportTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Audit, AuditExport}
+  alias CommsCore.{Accounts, Audit, AuditExport}
   alias CommsTestSupport.Fixtures
 
   test "export is step-up and tenant scoped, capped, filterable, and spreadsheet-injection safe" do
@@ -69,6 +69,58 @@ defmodule CommsCore.AuditExportTest do
              AuditExport.export(%{action: %{unexpected: "shape"}}, subject)
   end
 
+  test "audit export preserves compliance, security, and tenant-admin role separation" do
+    account = Fixtures.account_fixture()
+    owner_subject = Fixtures.step_up(account)
+
+    compliance =
+      create_login_subject(
+        account,
+        owner_subject,
+        :compliance_admin,
+        "audit-compliance@example.test",
+        "correct-horse-audit-compliance"
+      )
+
+    security =
+      create_login_subject(
+        account,
+        owner_subject,
+        :security_admin,
+        "audit-security@example.test",
+        "correct-horse-audit-security"
+      )
+
+    admin =
+      create_login_subject(
+        account,
+        owner_subject,
+        :admin,
+        "audit-admin@example.test",
+        "correct-horse-audit-admin"
+      )
+
+    assert {:error, :step_up_required} = AuditExport.export(%{}, compliance.subject)
+    assert {:error, :step_up_required} = AuditExport.export(%{}, security.subject)
+    assert {:error, :forbidden} = AuditExport.export(%{}, admin.subject)
+
+    assert {:ok, _session} =
+             Accounts.step_up(
+               %{current_password: compliance.password},
+               compliance.subject
+             )
+
+    assert {:ok, _session} =
+             Accounts.step_up(%{current_password: security.password}, security.subject)
+
+    assert {:ok, _session} =
+             Accounts.step_up(%{current_password: admin.password}, admin.subject)
+
+    assert {:ok, _export} = AuditExport.export(%{}, compliance.subject)
+    assert {:ok, _export} = AuditExport.export(%{}, security.subject)
+    assert {:error, :forbidden} = AuditExport.export(%{}, admin.subject)
+  end
+
   defp insert_event(tenant_id, actor_id, action, resource_type, request_id) do
     {:ok, event} =
       Audit.record(%{
@@ -82,5 +134,26 @@ defmodule CommsCore.AuditExportTest do
       })
 
     event
+  end
+
+  defp create_login_subject(account, owner_subject, role, email, password) do
+    assert {:ok, user} =
+             Accounts.create_user(
+               %{
+                 display_name: "Audit export role",
+                 email: email,
+                 password: password,
+                 role: Atom.to_string(role)
+               },
+               owner_subject
+             )
+
+    assert {:ok, authentication} =
+             Accounts.authenticate(account.tenant.slug, user.email, password, %{
+               name: "Audit export browser",
+               platform: "test"
+             })
+
+    %{subject: Accounts.subject_for_session(authentication.session), password: password}
   end
 end

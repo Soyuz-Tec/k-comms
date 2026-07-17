@@ -10,6 +10,7 @@ enforcement:
     previous_baseline_sha256: 12ad7c5959dbcd0ceacf6797ded33ad83aebcde080af45ce8c64ff878d3d8639
     allowed_discovery_fingerprints:
       - 0189e4bac08f3c6e
+      - 1b2308af763271a1
       - 218671b946ba8171
       - 22d29c8a33ec3581
       - 23dcf56239fd3c92
@@ -19,6 +20,7 @@ enforcement:
       - 32a70724daad9d65
       - 41f842b58173a549
       - 44028c557f9d7ca2
+      - 47659f71148ad7cd
       - 4f52bd7c42b47a5d
       - 662a5c4f703eb585
       - 73b9ff4f915229c8
@@ -39,6 +41,36 @@ enforcement:
       - e3c6574035e85b56
       - e442c942c91deaa0
     removal_condition: Remove this content-bound one-time analyzer adoption after the truthful baseline is present on the protected branch; it never permits fingerprints outside this exact set or against another base baseline.
+  reviewed_baseline_transitions:
+    - id: non-media-authorization-owner-policies
+      previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
+      added_fingerprints:
+        - 1b2308af763271a1
+        - 47659f71148ad7cd
+      removed_fingerprints:
+        - 121f7164c64045fa
+        - 218671b946ba8171
+        - 23dcf56239fd3c92
+        - 25b5955b95d7e60a
+        - 27fdff1b69d498a8
+        - 2d311ace1698b140
+        - 32a70724daad9d65
+        - 41f842b58173a549
+        - 44028c557f9d7ca2
+        - 5b2474b6c792fe32
+        - 662a5c4f703eb585
+        - 73b9ff4f915229c8
+        - 84932ac0d5fa25b9
+        - 8a77894c283aac7a
+        - 8c5d4bc9c14685e9
+        - 97986c01688edbd7
+        - a74facb531f49387
+        - c00fd3d1192fbcc6
+        - d800fbf3e8ef2cc5
+        - e2aa023f11e60616
+        - e442c942c91deaa0
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Remove this exact 123-to-104 finding transition after the non-media authorization owner-policy baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -70,6 +102,7 @@ contexts:
     public_facades: [CommsCore.Accounts, CommsCore.PasswordRecovery, CommsCore.ServiceAccounts]
     public_contracts:
       - CommsCore.Accounts.AccessContext
+      - CommsCore.Accounts.AccessGrant
       - CommsCore.Accounts.AuthenticationResult
       - CommsCore.Accounts.ConversationBootstrapPort
       - CommsCore.Accounts.DeviceView
@@ -92,13 +125,14 @@ contexts:
     responsibility: Tenant lifecycle, tenant settings, invitations, and admission policy.
     current_contexts: [Administration, AdmissionQuotas]
     fold_in: [AdmissionQuotas]
-    public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas]
+    public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas, CommsCore.AuditExport]
     public_contracts:
       - CommsCore.Administration.AdmissionPolicy
       - CommsCore.Administration.InvitationView
       - CommsCore.Administration.RetentionDefaults
       - CommsCore.Administration.TenantSettingsView
       - CommsCore.Administration.TenantView
+    owned_modules: [CommsCore.AuditExport]
     internal_namespaces: [CommsCore.Administration]
     allowed_dependencies: [identity_access, audit, platform_eventing]
     publishes: [tenant.settings_changed.v1, tenant.invitation_created.v1]
@@ -176,7 +210,7 @@ contexts:
       - CommsCore.Integrations.WebhookEndpointView
     owned_modules: [CommsCore.Security.SecretBox]
     internal_namespaces: [CommsCore.Integrations]
-    allowed_dependencies: [audit, platform_eventing]
+    allowed_dependencies: [identity_access, audit, platform_eventing]
     publishes: [webhook.delivery_requested.v1, webhook.delivery_completed.v1]
     consumes: [content.message_created.v1]
   trust_governance:
@@ -198,11 +232,11 @@ contexts:
     consumes: []
   audit:
     kind: business
-    responsibility: Append-only audit recording, querying, and bounded export.
-    current_contexts: [Audit, AuditExport]
-    fold_in: [AuditExport]
-    public_facades: [CommsCore.Audit, CommsCore.AuditExport]
-    public_contracts: [CommsCore.Audit.Event, CommsCore.Audit.Error]
+    responsibility: Append-only audit recording and querying through Ecto-free event projections.
+    current_contexts: [Audit]
+    fold_in: []
+    public_facades: [CommsCore.Audit]
+    public_contracts: [CommsCore.Audit.Actor, CommsCore.Audit.Event, CommsCore.Audit.Error]
     internal_namespaces: [CommsCore.Audit]
     allowed_dependencies: []
     publishes: []
@@ -215,13 +249,13 @@ contexts:
     public_facades: [CommsCore.Operations]
     public_contracts: [CommsCore.Operations.TenantQuotaUsage]
     internal_namespaces: []
-    allowed_dependencies: [tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
+    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
     publishes: []
     consumes: [content.attachment_ready.v1, notification.delivery_completed.v1, webhook.delivery_completed.v1]
   authorization_kernel:
     kind: transitional_business_policy
     graph_scope: included
-    responsibility: Temporary shared authorization dispatcher and database policy retained only while authorization decisions move to the contexts that own the protected state.
+    responsibility: Temporary Calls-only authorization dispatcher and database policy retained solely for the explicitly deferred media boundary.
     current_contexts: [Authorization]
     fold_in: []
     public_facades: [CommsCore.Authorization]
@@ -234,7 +268,7 @@ contexts:
     allowed_dependencies: []
     publishes: []
     consumes: []
-    removal_condition: Move every non-media decision and persistence read to the context that owns the protected state, replace released callers with named owner APIs and Ecto-free contracts, move any temporarily retained Calls-only clauses behind the Calls boundary, then delete CommsCore.Authorization.Database and retire this context.
+    removal_condition: In the separately authorized Calls tranche, move the remaining media decisions behind the Calls facade using Ecto-free contracts, delete CommsCore.Authorization.Database, remove the authorization_adapter binding, and retire this context.
   platform_runtime:
     kind: technical
     graph_scope: excluded
@@ -414,6 +448,7 @@ read_model_exceptions:
       public_queries:
         - CommsCore.AdmissionQuotas.active_user_count/1
         - CommsCore.AdmissionQuotas.admission_policy/1
+        - CommsCore.Administration.authorize_administer_tenant/1
         - CommsCore.Conversations.admission_usage/1
       source_tables: [attachments, notification_intents, webhook_deliveries, oban_jobs, outbox_events]
     condition: CommsCore.Operations may execute only the declared operational source-table reads and exact owner projection queries; owner-command calls, Repo writes, raw SQL DML or DDL, and source-table ownership are prohibited.
@@ -471,7 +506,7 @@ temporary_violations:
   groups:
     - id: baseline-business-context-cycle
       rule: business_context_cycle
-      fingerprints: [23dcf56239fd3c92]
+      fingerprints: [1b2308af763271a1]
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Remove the non-media reverse edges represented by this exact SCC fingerprint; any later Calls-driven SCC must have its own newly reviewed exact declaration.
     - id: baseline-foreign-schema-imports
@@ -485,7 +520,6 @@ temporary_violations:
         - 9c00206437b708a1
         - 6e01f546438ba1e0
         - fd24bbd537ca4f95
-        - 5b2474b6c792fe32
         - 281d9add61ab8c61
         - 4d0c0c815493288e
         - 7ac0c7ca4d4d6af3
@@ -502,16 +536,13 @@ temporary_violations:
         - 96d281b6465f8b8b
         - 6b641d47b77c08c7
         - 8dd4f3b5e1378ffb
-        - c00fd3d1192fbcc6
         - db68fcb3dac3ef04
         - d312276f5a39310f
         - de83107f64cbc690
         - 99cd7470375bce8f
         - e3c6574035e85b56
         - c94c7774541553d1
-        - 27fdff1b69d498a8
         - 8e1a8065ef4e942a
-        - 121f7164c64045fa
         - 01480f3bb95a9c16
         - b868ec00572fc392
         - e62a5587406838f2
@@ -581,32 +612,17 @@ temporary_violations:
     - id: baseline-undeclared-context-edges
       rule: undeclared_context_edge
       fingerprints:
-        - 662a5c4f703eb585
         - 889ca078f04b8132
-        - 97986c01688edbd7
         - 0e985916a4de06ec
-        - 25b5955b95d7e60a
-        - e2aa023f11e60616
         - 0189e4bac08f3c6e
-        - e442c942c91deaa0
-        - 218671b946ba8171
-        - 32a70724daad9d65
         - 4f52bd7c42b47a5d
-        - d800fbf3e8ef2cc5
+        - 47659f71148ad7cd
         - 22d29c8a33ec3581
-        - 2d311ace1698b140
         - bec8b11dfcf061c7
-        - 84932ac0d5fa25b9
-        - 73b9ff4f915229c8
-        - 41f842b58173a549
-        - 44028c557f9d7ca2
-        - a74facb531f49387
         - e80e50669f5d670e
         - a34ca28aa15ea541
         - 4cc7ca468d6af0e4
         - c0c0fa81093ad554
-        - 8c5d4bc9c14685e9
-        - 8a77894c283aac7a
         - 7c47ce0ca3e555a9
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Remove the listed undeclared compiled edge or replace it with a reviewed one-way owner contract or exact runtime collaboration; do not add it to allowed_dependencies merely to silence validation.

@@ -8,7 +8,7 @@ defmodule CommsCore.Audit do
 
   import Ecto.Query
 
-  alias CommsCore.Audit.{AuditEvent, Error, Event}
+  alias CommsCore.Audit.{Actor, AuditEvent, Error, Event}
   alias CommsCore.Repo
 
   @equal_filters [
@@ -35,6 +35,28 @@ defmodule CommsCore.Audit do
 
   @spec record(record_command()) :: {:ok, Event.t()} | {:error, Error.t()}
   def record(attrs) when is_map(attrs), do: insert(Repo, attrs)
+
+  @doc """
+  Records a denied privileged operation for an owner-verified subject without
+  exposing Audit persistence.
+
+  The actor contract must come from the IdentityAccess owner so the user and
+  tenant relationship has already been verified.
+  """
+  @spec authorization_denied(atom(), Actor.t(), term()) :: {:error, term()}
+  def authorization_denied(action, %Actor{} = actor, reason) when is_atom(action) do
+    record(%{
+      tenant_id: actor.tenant_id,
+      actor_user_id: actor.user_id,
+      action: "authorization.denied",
+      resource_type: "permission",
+      resource_id: actor.tenant_id,
+      metadata: %{permission: action, reason: reason},
+      request_id: actor.request_id
+    })
+
+    {:error, reason}
+  end
 
   defp insert(repo, attrs) do
     %AuditEvent{}

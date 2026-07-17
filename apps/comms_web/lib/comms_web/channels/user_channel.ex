@@ -3,7 +3,7 @@ defmodule CommsWeb.UserChannel do
 
   use CommsWeb, :channel
 
-  alias CommsCore.Authorization
+  alias CommsCore.Accounts
 
   @authorized_events [
     "conversation.activity.v1",
@@ -14,7 +14,7 @@ defmodule CommsWeb.UserChannel do
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
-    case Authorization.authorize(:receive_user_events, subject(socket), %{user_id: user_id}) do
+    case Accounts.authorize_receive_user_events(subject(socket), %{user_id: user_id}) do
       :ok -> {:ok, %{user_id: user_id}, socket}
       {:error, _} -> {:error, %{reason: "forbidden"}}
     end
@@ -22,7 +22,7 @@ defmodule CommsWeb.UserChannel do
 
   @impl true
   def handle_out(event, payload, socket) when event in @authorized_events do
-    case Authorization.authorize(:receive_user_events, subject(socket), %{
+    case Accounts.authorize_receive_user_events(subject(socket), %{
            user_id: socket.assigns.user_id
          }) do
       :ok ->

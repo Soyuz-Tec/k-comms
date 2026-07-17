@@ -1,10 +1,11 @@
 defmodule CommsCore.Administration do
   import Ecto.Query
 
-  alias CommsCore.Accounts.Tenant
+  alias CommsCore.Accounts
+  alias CommsCore.Accounts.{AccessGrant, Tenant}
   alias CommsCore.Administration.{Invitations, Projector, RetentionDefaults, TenantSettings}
   alias CommsCore.Audit
-  alias CommsCore.{AdmissionQuotas, AudioCalls, Authorization, Repo, RuntimePorts}
+  alias CommsCore.{AdmissionQuotas, AudioCalls, Repo, RuntimePorts}
 
   @default_limit 50
   @max_limit 100
@@ -13,6 +14,57 @@ defmodule CommsCore.Administration do
   def list_invitations(subject, status \\ nil), do: Invitations.list(subject, status)
   def revoke_invitation(id, attrs, subject), do: Invitations.revoke(id, attrs, subject)
   def accept_invitation(attrs), do: Invitations.accept(attrs)
+
+  @doc """
+  Authorizes access to tenant capabilities through the TenantAdministration boundary.
+  """
+  @spec authorize_read_capabilities(map()) :: :ok | {:error, :forbidden}
+  def authorize_read_capabilities(subject) when is_map(subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{}} -> :ok
+      {:error, :forbidden} -> {:error, :forbidden}
+    end
+  end
+
+  @doc """
+  Authorizes ordinary tenant administration that does not require step-up.
+  """
+  @spec authorize_administer_tenant(map()) :: :ok | {:error, :forbidden}
+  def authorize_administer_tenant(subject) when is_map(subject) do
+    authorize_roles(:administer_tenant, subject, [:owner, :admin], false)
+  end
+
+  @doc """
+  Authorizes invitation lifecycle changes owned by TenantAdministration.
+  """
+  @spec authorize_manage_invitations(map()) ::
+          :ok | {:error, :forbidden | :step_up_required}
+  def authorize_manage_invitations(subject) when is_map(subject) do
+    authorize_roles(:manage_invitations, subject, [:owner, :admin], true)
+  end
+
+  @doc """
+  Authorizes tenant-settings changes owned by TenantAdministration.
+  """
+  @spec authorize_manage_settings(map()) ::
+          :ok | {:error, :forbidden | :step_up_required}
+  def authorize_manage_settings(subject) when is_map(subject) do
+    authorize_roles(:manage_tenant_settings, subject, [:owner, :admin], true)
+  end
+
+  @doc """
+  Authorizes tenant audit reads exposed by TenantAdministration.
+  """
+  @spec authorize_audit_tenant(map()) ::
+          :ok | {:error, :forbidden | :step_up_required}
+  def authorize_audit_tenant(subject) when is_map(subject) do
+    authorize_roles(
+      :audit_tenant,
+      subject,
+      [:owner, :compliance_admin, :security_admin],
+      true
+    )
+  end
 
   @doc """
   Adds a tenant-owned bootstrap insert to a caller-owned transaction.
@@ -92,7 +144,7 @@ defmodule CommsCore.Administration do
   def member_capabilities(subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <- Authorization.authorize(:read_tenant_capabilities, subject, %{id: tenant_id}) do
+    with :ok <- authorize_read_capabilities(subject) do
       settings = Repo.get_by(TenantSettings, tenant_id: tenant_id) || %TenantSettings{}
 
       {:ok,
@@ -107,8 +159,7 @@ defmodule CommsCore.Administration do
   end
 
   def get_tenant_settings(subject) do
-    with :ok <-
-           Authorization.authorize(:administer_tenant, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_administer_tenant(subject),
          %Tenant{} = tenant <- Repo.get(Tenant, value(subject, :tenant_id)) do
       settings =
         Repo.get_by(TenantSettings, tenant_id: tenant.id) ||
@@ -124,7 +175,7 @@ defmodule CommsCore.Administration do
   def update_tenant_settings(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <- Authorization.authorize(:manage_tenant_settings, subject, %{id: tenant_id}),
+    with :ok <- authorize_manage_settings(subject),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->
         quota_ok!(AdmissionQuotas.lock_tenant(tenant_id))
@@ -211,7 +262,7 @@ defmodule CommsCore.Administration do
   end
 
   def list_audit_events(params, subject) when is_map(params) do
-    with :ok <- Authorization.authorize(:audit_tenant, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_audit_tenant(subject),
          {:ok, before} <- optional_cursor(value(params, :cursor) || value(params, :before)),
          {:ok, after_timestamp} <- optional_datetime(value(params, :after)) do
       limit = parse_limit(value(params, :limit))
@@ -346,6 +397,28 @@ defmodule CommsCore.Administration do
 
   defp audit_or_rollback({:ok, event}), do: event
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
+
+  defp authorize_roles(action, subject, roles, step_up_required?) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{} = grant} ->
+        cond do
+          not Enum.member?(roles, grant.role) ->
+            deny_authorization(action, subject, :forbidden)
+
+          step_up_required? and not grant.step_up_recent? ->
+            deny_authorization(action, subject, :step_up_required)
+
+          true ->
+            :ok
+        end
+
+      {:error, :forbidden} ->
+        deny_authorization(action, subject, :forbidden)
+    end
+  end
+
+  defp deny_authorization(action, subject, reason),
+    do: Accounts.audit_authorization_denial(action, subject, reason)
 
   defp enqueue_retention!(tenant_id) do
     %{"tenant_id" => tenant_id}

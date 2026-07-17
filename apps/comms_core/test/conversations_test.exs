@@ -8,6 +8,33 @@ defmodule CommsCore.ConversationsTest do
   alias CommsCore.Events.OutboxEvent
   alias CommsTestSupport.Fixtures
 
+  test "owner-local authorization exposes id-only conversation contracts" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    conversation_id = account.conversation.id
+
+    assert :ok = Conversations.authorize_create(subject)
+    assert :ok = Conversations.authorize_discovery(subject)
+    assert :ok = Conversations.authorize_join(conversation_id, subject)
+    assert :ok = Conversations.authorize_leave(conversation_id, subject)
+    assert :ok = Conversations.authorize_read(conversation_id, subject)
+    assert :ok = Conversations.authorize_send_message(conversation_id, subject)
+    assert :ok = Conversations.authorize_mark_read(conversation_id, subject)
+    assert :ok = Conversations.authorize_react_message(conversation_id, subject)
+    assert :ok = Conversations.authorize_upload_attachment(conversation_id, subject)
+    assert :ok = Conversations.authorize_manage(conversation_id, subject)
+    assert :ok = Conversations.authorize_manage_ownership(conversation_id, subject)
+
+    other_account = Fixtures.account_fixture()
+    other_subject = Fixtures.subject(other_account)
+
+    assert {:error, :forbidden} =
+             Conversations.authorize_read(conversation_id, other_subject)
+
+    assert {:error, :forbidden} =
+             Conversations.authorize_manage(conversation_id, other_subject)
+  end
+
   test "creates a group and advances the read cursor monotonically" do
     account = Fixtures.account_fixture()
     member = Fixtures.user_fixture(account)

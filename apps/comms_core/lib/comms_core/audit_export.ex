@@ -1,5 +1,5 @@
 defmodule CommsCore.AuditExport do
-  alias CommsCore.{Audit, Authorization, Repo}
+  alias CommsCore.{Administration, Audit, Repo}
 
   @default_limit 1_000
   @maximum_limit 5_000
@@ -8,7 +8,7 @@ defmodule CommsCore.AuditExport do
   def export(params, subject) when is_map(params) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <- Authorization.authorize(:audit_tenant, subject, %{id: tenant_id}),
+    with :ok <- Administration.authorize_audit_tenant(subject),
          {:ok, after_timestamp} <- optional_datetime(value(params, :after)),
          {:ok, before_timestamp} <- optional_datetime(value(params, :before)),
          {:ok, actor_user_id} <- optional_uuid(value(params, :actor_user_id)),

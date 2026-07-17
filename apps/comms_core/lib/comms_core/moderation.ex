@@ -1,14 +1,45 @@
 defmodule CommsCore.Moderation do
   import Ecto.Query
 
-  alias CommsCore.Accounts.User
+  alias CommsCore.Accounts
+  alias CommsCore.Accounts.{AccessGrant, User}
   alias CommsCore.Audit
   alias CommsCore.Conversations.Conversation
   alias CommsCore.Messaging.Message
   alias CommsCore.Moderation.{ModerationAction, ModerationCase}
-  alias CommsCore.{Authorization, Repo}
+  alias CommsCore.Repo
 
   @max_limit 100
+
+  @doc false
+  def authorize_report(subject) when is_map(subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{}} -> :ok
+      {:error, _reason} -> {:error, :forbidden}
+    end
+  end
+
+  def authorize_report(_subject), do: {:error, :forbidden}
+
+  @doc false
+  def authorize_read(subject),
+    do:
+      authorize_roles(
+        subject,
+        :moderate_tenant,
+        [:owner, :admin, :moderator, :compliance_admin],
+        false
+      )
+
+  @doc false
+  def authorize_manage(subject),
+    do:
+      authorize_roles(
+        subject,
+        :manage_moderation,
+        [:owner, :admin, :moderator, :compliance_admin],
+        true
+      )
 
   def create_case_view(attrs, subject) do
     with {:ok, result} <- create_case(attrs, subject) do
@@ -47,7 +78,7 @@ defmodule CommsCore.Moderation do
     reporter_id = value(subject, :user_id)
     idempotency_key = value(attrs, :idempotency_key)
 
-    with :ok <- Authorization.authorize(:report_moderation, subject, %{id: tenant_id}),
+    with :ok <- authorize_report(subject),
          {:ok, targets} <- validate_targets(attrs, subject) do
       case existing_case(tenant_id, reporter_id, idempotency_key) do
         %ModerationCase{} = moderation_case ->
@@ -94,8 +125,7 @@ defmodule CommsCore.Moderation do
   end
 
   def list_cases(params, subject) when is_map(params) do
-    with :ok <-
-           Authorization.authorize(:moderate_tenant, subject, %{id: value(subject, :tenant_id)}) do
+    with :ok <- authorize_read(subject) do
       limit = parse_limit(value(params, :limit))
 
       query =
@@ -116,8 +146,7 @@ defmodule CommsCore.Moderation do
   end
 
   def get_case(id, subject) do
-    with :ok <-
-           Authorization.authorize(:moderate_tenant, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_read(subject),
          %ModerationCase{} = moderation_case <-
            Repo.one(
              from(c in ModerationCase,
@@ -141,8 +170,7 @@ defmodule CommsCore.Moderation do
   end
 
   def add_action(case_id, attrs, subject) when is_map(attrs) and is_map(subject) do
-    with :ok <-
-           Authorization.authorize(:manage_moderation, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_manage(subject),
          {:ok, expected_version} <- expected_version(attrs),
          {:ok, action_type} <- action_type(value(attrs, :action_type)) do
       Repo.transaction(fn ->
@@ -222,6 +250,25 @@ defmodule CommsCore.Moderation do
     end
   end
 
+  defp authorize_roles(subject, action, roles, require_step_up?) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{} = grant} ->
+        cond do
+          grant.role not in roles ->
+            Accounts.audit_authorization_denial(action, subject, :forbidden)
+
+          require_step_up? and not grant.step_up_recent? ->
+            Accounts.audit_authorization_denial(action, subject, :step_up_required)
+
+          true ->
+            :ok
+        end
+
+      {:error, _reason} ->
+        Accounts.audit_authorization_denial(action, subject, :forbidden)
+    end
+  end
+
   defp validate_user_target(_tenant_id, nil), do: :ok
 
   defp validate_user_target(tenant_id, user_id) do
@@ -247,7 +294,7 @@ defmodule CommsCore.Moderation do
              id: conversation_id,
              tenant_id: value(subject, :tenant_id)
            ),
-         :ok <- Authorization.authorize(:read_conversation, subject, %{id: conversation_id}) do
+         :ok <- CommsCore.Conversations.authorize_read(conversation_id, subject) do
       :ok
     else
       _ -> {:error, :invalid_moderation_target}

@@ -3,10 +3,10 @@ defmodule CommsCore.Notifications do
 
   @behaviour CommsCore.Accounts.NotificationPort
 
-  alias CommsCore.Accounts.{NotificationCommand, NotificationReceipt}
+  alias CommsCore.Accounts
+  alias CommsCore.Accounts.{AccessGrant, NotificationCommand, NotificationReceipt}
   alias CommsCore.Accounts.User
   alias CommsCore.Audit
-  alias CommsCore.Authorization
   alias CommsCore.Conversations.Membership
   alias CommsCore.Outbox.Event
 
@@ -327,7 +327,7 @@ defmodule CommsCore.Notifications do
   end
 
   def retry_intent(id, subject) do
-    with :ok <- Authorization.authorize(:manage_notification_delivery, subject, %{}) do
+    with :ok <- authorize_delivery_management(subject) do
       Repo.transaction(fn ->
         intent =
           Repo.one(
@@ -670,11 +670,52 @@ defmodule CommsCore.Notifications do
   defp truncate_payload_value(value) when is_binary(value), do: String.slice(value, 0, 1_000)
   defp truncate_payload_value(value), do: value
 
-  defp authorize_scope("tenant", subject),
-    do: Authorization.authorize(:administer_tenant, subject, %{})
+  @doc false
+  @spec authorize_delivery_management(map()) ::
+          :ok | {:error, :forbidden | :step_up_required}
+  def authorize_delivery_management(subject),
+    do:
+      authorize_tenant_role(
+        subject,
+        :manage_notification_delivery,
+        [:owner, :admin],
+        true
+      )
+
+  @doc false
+  @spec authorize_tenant_scope(map()) :: :ok | {:error, :forbidden}
+  def authorize_tenant_scope(subject),
+    do:
+      authorize_tenant_role(
+        subject,
+        :read_tenant_notifications,
+        [:owner, :admin],
+        false
+      )
+
+  defp authorize_scope("tenant", subject), do: authorize_tenant_scope(subject)
 
   defp authorize_scope(:tenant, subject), do: authorize_scope("tenant", subject)
   defp authorize_scope(_, _subject), do: :ok
+
+  defp authorize_tenant_role(subject, action, roles, require_step_up?) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{} = grant} ->
+        cond do
+          grant.role not in roles ->
+            Accounts.audit_authorization_denial(action, subject, :forbidden)
+
+          require_step_up? and not grant.step_up_recent? ->
+            Accounts.audit_authorization_denial(action, subject, :step_up_required)
+
+          true ->
+            :ok
+        end
+
+      {:error, _reason} ->
+        Accounts.audit_authorization_denial(action, subject, :forbidden)
+    end
+  end
 
   defp maybe_for_user(query, scope, _subject) when scope in ["tenant", :tenant], do: query
 

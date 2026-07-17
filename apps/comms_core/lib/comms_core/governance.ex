@@ -1,7 +1,7 @@
 defmodule CommsCore.Governance do
   import Ecto.Query
 
-  alias CommsCore.Accounts.User
+  alias CommsCore.Accounts.{AccessGrant, User}
   alias CommsCore.Administration.RetentionDefaults
   alias CommsCore.Attachments.Attachment
   alias CommsCore.Audit
@@ -22,12 +22,37 @@ defmodule CommsCore.Governance do
     Accounts,
     Attachments,
     AudioCalls,
-    Authorization,
     Conversations,
     Messaging,
     Repo,
     RuntimePorts
   }
+
+  @doc false
+  def authorize_governance(subject) when is_map(subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, %AccessGrant{} = grant} ->
+        cond do
+          grant.role not in [:owner, :compliance_admin] ->
+            Accounts.audit_authorization_denial(:govern_tenant, subject, :forbidden)
+
+          not grant.step_up_recent? ->
+            Accounts.audit_authorization_denial(
+              :govern_tenant,
+              subject,
+              :step_up_required
+            )
+
+          true ->
+            :ok
+        end
+
+      {:error, _reason} ->
+        Accounts.audit_authorization_denial(:govern_tenant, subject, :forbidden)
+    end
+  end
+
+  def authorize_governance(_subject), do: {:error, :forbidden}
 
   @max_limit 100
 
@@ -140,7 +165,7 @@ defmodule CommsCore.Governance do
     tenant_id = value(subject, :tenant_id)
     idempotency_key = value(attrs, :idempotency_key)
 
-    with :ok <- Authorization.authorize(:govern_tenant, subject, %{id: tenant_id}),
+    with :ok <- authorize_governance(subject),
          :ok <- validate_conversation(tenant_id, value(attrs, :conversation_id)) do
       case existing_idempotent(RetentionPolicy, tenant_id, idempotency_key) do
         %RetentionPolicy{} = policy ->
@@ -160,8 +185,7 @@ defmodule CommsCore.Governance do
   end
 
   def list_retention_policies(params, subject) do
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}) do
+    with :ok <- authorize_governance(subject) do
       query =
         RetentionPolicy
         |> where([p], p.tenant_id == ^value(subject, :tenant_id))
@@ -175,8 +199,7 @@ defmodule CommsCore.Governance do
   end
 
   def update_retention_policy(id, attrs, subject) do
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_governance(subject),
          {:ok, expected_version} <- expected_version(attrs),
          :ok <- require_reason_for_change(attrs, :status, :reason),
          :ok <- validate_conversation(value(subject, :tenant_id), value(attrs, :conversation_id)) do
@@ -207,7 +230,7 @@ defmodule CommsCore.Governance do
     tenant_id = value(subject, :tenant_id)
     idempotency_key = value(attrs, :idempotency_key)
 
-    with :ok <- Authorization.authorize(:govern_tenant, subject, %{id: tenant_id}),
+    with :ok <- authorize_governance(subject),
          :ok <- validate_hold_target(attrs, tenant_id) do
       Repo.transaction(fn ->
         governance_lock!(tenant_id)
@@ -254,8 +277,7 @@ defmodule CommsCore.Governance do
   end
 
   def list_legal_holds(params, subject) do
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}) do
+    with :ok <- authorize_governance(subject) do
       query =
         LegalHold
         |> where([h], h.tenant_id == ^value(subject, :tenant_id))
@@ -272,8 +294,7 @@ defmodule CommsCore.Governance do
   end
 
   def release_legal_hold(id, attrs, subject) do
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}),
+    with :ok <- authorize_governance(subject),
          {:ok, expected_version} <- expected_version(attrs),
          :ok <- require_reason(value(attrs, :release_reason)) do
       Repo.transaction(fn ->
@@ -302,7 +323,7 @@ defmodule CommsCore.Governance do
     tenant_id = value(subject, :tenant_id)
     idempotency_key = value(attrs, :idempotency_key)
 
-    with :ok <- Authorization.authorize(:govern_tenant, subject, %{id: tenant_id}),
+    with :ok <- authorize_governance(subject),
          :ok <- validate_deletion_target(attrs, tenant_id) do
       case existing_idempotent(DeletionRequest, tenant_id, idempotency_key) do
         %DeletionRequest{} = request -> {:ok, %{request: request, replayed: true}}
@@ -312,8 +333,7 @@ defmodule CommsCore.Governance do
   end
 
   def list_deletion_requests(params, subject) do
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}) do
+    with :ok <- authorize_governance(subject) do
       statuses = [:pending, :approved, :in_progress, :completed, :rejected, :cancelled]
 
       query =
@@ -334,15 +354,14 @@ defmodule CommsCore.Governance do
   def transition_deletion_request(id, attrs, subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: tenant_id}),
+    with :ok <- authorize_governance(subject),
          {:ok, expected_version} <- expected_version(attrs),
          {:ok, status} <- administrative_deletion_status(value(attrs, :status)),
          :ok <- require_reason(value(attrs, :transition_reason)) do
       Repo.transaction(fn ->
         governance_lock!(tenant_id)
 
-        Authorization.authorize(:govern_tenant, subject, %{id: tenant_id})
+        authorize_governance(subject)
         |> authorization_or_rollback!()
 
         request = lock_record!(DeletionRequest, id, subject)

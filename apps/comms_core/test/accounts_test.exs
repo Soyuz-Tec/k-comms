@@ -4,6 +4,7 @@ defmodule CommsCore.AccountsTest do
   alias CommsCore.{Accounts, Administration}
 
   alias CommsCore.Accounts.{
+    AccessGrant,
     AccessContext,
     AuthenticationResult,
     ConversationBootstrapPort,
@@ -17,7 +18,6 @@ defmodule CommsCore.AccountsTest do
   alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, Tenant, User}
   alias CommsCore.Audit
   alias CommsCore.Administration.TenantView
-  alias CommsCore.Authorization
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Repo
   alias CommsCore.Security.Password
@@ -68,6 +68,139 @@ defmodule CommsCore.AccountsTest do
               user: %UserView{},
               device: %DeviceView{}
             }} = Accounts.access_context(session_id, "contract-test")
+  end
+
+  test "access grants validate the active tenant, human user, device, and session" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:ok,
+            %AccessGrant{
+              tenant_id: tenant_id,
+              user_id: user_id,
+              device_id: device_id,
+              session_id: session_id,
+              role: :owner,
+              step_up_recent?: false
+            }} = Accounts.access_grant(subject)
+
+    assert tenant_id == account.tenant.id
+    assert user_id == account.user.id
+    assert device_id == account.device.id
+    assert session_id == account.session.id
+
+    account.session |> Session.changeset(%{revoked_at: timestamp}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+
+    Repo.get!(Session, account.session.id)
+    |> Session.changeset(%{revoked_at: nil})
+    |> Repo.update!()
+
+    account.device |> Device.changeset(%{revoked_at: timestamp}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+
+    Repo.get!(Device, account.device.id)
+    |> Device.changeset(%{revoked_at: nil})
+    |> Repo.update!()
+
+    account.user |> User.changeset(%{status: :suspended}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+
+    Repo.get!(User, account.user.id)
+    |> User.changeset(%{status: :active})
+    |> Repo.update!()
+
+    account.tenant |> Tenant.changeset(%{status: :suspended}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+
+    Repo.get!(Tenant, account.tenant.id)
+    |> Tenant.changeset(%{status: :active})
+    |> Repo.update!()
+
+    expired_at = DateTime.add(timestamp, -1, :second)
+
+    Repo.get!(Session, account.session.id)
+    |> Session.changeset(%{expires_at: expired_at})
+    |> Repo.update!()
+
+    assert {:error, :forbidden} = Accounts.access_grant(subject)
+  end
+
+  test "inactive privileged subjects retain verified denial audit evidence" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    account.session |> Session.changeset(%{revoked_at: timestamp}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.authorize_manage_user_lifecycle(subject)
+    assert denial_count(account) == 1
+
+    Repo.get!(Session, account.session.id)
+    |> Session.changeset(%{revoked_at: nil})
+    |> Repo.update!()
+
+    account.device |> Device.changeset(%{revoked_at: timestamp}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.authorize_manage_user_lifecycle(subject)
+    assert denial_count(account) == 2
+
+    Repo.get!(Device, account.device.id)
+    |> Device.changeset(%{revoked_at: nil})
+    |> Repo.update!()
+
+    account.user |> User.changeset(%{status: :suspended}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.authorize_manage_user_lifecycle(subject)
+    assert denial_count(account) == 3
+
+    Repo.get!(User, account.user.id)
+    |> User.changeset(%{status: :active})
+    |> Repo.update!()
+
+    account.tenant |> Tenant.changeset(%{status: :suspended}) |> Repo.update!()
+    assert {:error, :forbidden} = Accounts.authorize_manage_user_lifecycle(subject)
+    assert denial_count(account) == 4
+  end
+
+  test "identity authorization uses persisted role and recent step-up facts" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert :ok =
+             Accounts.authorize_receive_user_events(subject, %{user_id: account.user.id})
+
+    assert {:error, :forbidden} =
+             Accounts.authorize_receive_user_events(subject, %{user_id: Ecto.UUID.generate()})
+
+    assert {:error, :step_up_required} =
+             Accounts.authorize_manage_user_lifecycle(subject)
+
+    assert {:error, :step_up_required} = Accounts.authorize_manage_sessions(subject)
+
+    stepped_up_subject = Fixtures.step_up(account, subject)
+
+    assert {:ok, %AccessGrant{role: :owner, step_up_recent?: true}} =
+             Accounts.access_grant(stepped_up_subject)
+
+    assert :ok = Accounts.authorize_manage_user_lifecycle(stepped_up_subject)
+    assert :ok = Accounts.authorize_manage_sessions(stepped_up_subject)
+
+    stale_step_up =
+      DateTime.utc_now()
+      |> DateTime.add(
+        -Application.get_env(:comms_core, :step_up_ttl_seconds, 300) - 1,
+        :second
+      )
+      |> DateTime.truncate(:microsecond)
+
+    Repo.get!(Session, account.session.id)
+    |> Session.changeset(%{step_up_at: stale_step_up})
+    |> Repo.update!()
+
+    assert {:ok, %AccessGrant{step_up_recent?: false}} =
+             Accounts.access_grant(stepped_up_subject)
+
+    assert {:error, :step_up_required} =
+             Accounts.authorize_manage_user_lifecycle(stepped_up_subject)
   end
 
   test "governance erasure requires a caller-owned transaction" do
@@ -405,8 +538,15 @@ defmodule CommsCore.AccountsTest do
     assert platform_subject.platform_role == :platform_operator
     assert is_binary(platform_subject.platform_role_grant_id)
     assert platform_subject.platform_role_expires_at == granted.platform_role_expires_at
-    assert :ok = Authorization.authorize(:view_platform_operations, platform_subject, %{})
-    assert :ok = Authorization.authorize(:operate_platform, platform_subject, %{})
+
+    assert {:ok,
+            %AccessGrant{
+              platform_role: :platform_operator,
+              platform_claim_verified?: true
+            }} = Accounts.access_grant(platform_subject)
+
+    assert :ok = Accounts.authorize_view_platform_operations(platform_subject)
+    assert :ok = Accounts.authorize_operate_platform(platform_subject)
 
     assert {:ok, issued_ticket} = Accounts.issue_socket_ticket(platform_subject)
     assert {:ok, ticket_subject} = Accounts.consume_socket_ticket(issued_ticket.ticket)
@@ -427,8 +567,14 @@ defmodule CommsCore.AccountsTest do
     assert %{platform_role: nil, platform_role_expires_at: nil} =
              Accounts.platform_access_for_user(account.user)
 
+    assert {:ok,
+            %AccessGrant{
+              platform_role: nil,
+              platform_claim_verified?: false
+            }} = Accounts.access_grant(platform_subject)
+
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, platform_subject, %{})
+             Accounts.authorize_operate_platform(platform_subject)
 
     assert {:ok, renewed} =
              Accounts.set_platform_role_from_console(
@@ -439,12 +585,12 @@ defmodule CommsCore.AccountsTest do
 
     renewed_subject = Accounts.subject_for_session(account.session)
     assert renewed.platform_role_expires_at == renewed_subject.platform_role_expires_at
-    assert :ok = Authorization.authorize(:operate_platform, renewed_subject, %{})
+    assert :ok = Accounts.authorize_operate_platform(renewed_subject)
 
     # A subject minted for an earlier grant cannot regain authority when the
     # same role is later granted again with a different deadline.
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, platform_subject, %{})
+             Accounts.authorize_operate_platform(platform_subject)
 
     assert {:ok, revoked} =
              Accounts.set_platform_role_from_console(account.user.id, "none", %{
@@ -455,7 +601,7 @@ defmodule CommsCore.AccountsTest do
     assert revoked.platform_role == nil
 
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, platform_subject, %{})
+             Accounts.authorize_operate_platform(platform_subject)
 
     assert {:ok, support_user} =
              Accounts.set_platform_role_from_console(account.user.id, :support_operator, %{
@@ -465,8 +611,8 @@ defmodule CommsCore.AccountsTest do
 
     assert support_user.platform_role == :support_operator
     support_subject = Accounts.subject_for_session(account.session)
-    assert :ok = Authorization.authorize(:view_platform_operations, support_subject, %{})
-    assert {:error, :forbidden} = Authorization.authorize(:operate_platform, support_subject, %{})
+    assert :ok = Accounts.authorize_view_platform_operations(support_subject)
+    assert {:error, :forbidden} = Accounts.authorize_operate_platform(support_subject)
 
     assert {:ok, security_user} =
              Accounts.set_platform_role_from_console(account.user.id, :security_operator, %{
@@ -476,10 +622,10 @@ defmodule CommsCore.AccountsTest do
 
     assert security_user.platform_role == :security_operator
     security_subject = Accounts.subject_for_session(account.session)
-    assert :ok = Authorization.authorize(:view_platform_operations, security_subject, %{})
+    assert :ok = Accounts.authorize_view_platform_operations(security_subject)
 
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, security_subject, %{})
+             Accounts.authorize_operate_platform(security_subject)
 
     assert {:ok, _revoked_security} =
              Accounts.set_platform_role_from_console(account.user.id, nil, %{
@@ -534,10 +680,10 @@ defmodule CommsCore.AccountsTest do
     assert current_subject.platform_role == first_subject.platform_role
     assert current_subject.platform_role_expires_at == first_subject.platform_role_expires_at
     assert current_subject.platform_role_grant_id == renewed_grant.id
-    assert :ok = Authorization.authorize(:operate_platform, current_subject, %{})
+    assert :ok = Accounts.authorize_operate_platform(current_subject)
 
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, first_subject, %{})
+             Accounts.authorize_operate_platform(first_subject)
   end
 
   test "platform grants accept exact TTL limits, expire at equality, and require active humans" do
@@ -572,7 +718,7 @@ defmodule CommsCore.AccountsTest do
     )
 
     assert {:error, :forbidden} =
-             Authorization.authorize(:operate_platform, minimum_subject, %{})
+             Accounts.authorize_operate_platform(minimum_subject)
 
     assert {:ok, maximum} =
              Accounts.set_platform_role_from_console(account.user.id, :platform_operator, %{
@@ -800,6 +946,14 @@ defmodule CommsCore.AccountsTest do
   defp account_fixture_password(account) do
     suffix = account.tenant.slug |> String.split("-") |> List.last()
     "correct-horse-battery-#{suffix}"
+  end
+
+  defp denial_count(account) do
+    Audit.count(%{
+      tenant_id: account.tenant.id,
+      actor_user_id: account.user.id,
+      action: "authorization.denied"
+    })
   end
 
   defp release_bootstrap_attrs do

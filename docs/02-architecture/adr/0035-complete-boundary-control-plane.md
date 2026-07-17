@@ -114,10 +114,20 @@ Before that mode can be activated:
   deterministic baseline and report output.
 
 The first truthful-analyzer adoption is content-bound to the exact SHA-256 of
-the preceding 95-finding baseline and an exact sorted set of 29 newly exposed
-fingerprints. It cannot authorize another base file or any fingerprint outside
-that set, and is removed after the truthful baseline reaches the protected
-branch.
+the preceding 95-finding baseline and an exact reviewed, sorted set of newly
+exposed or mechanically changed fingerprints. It cannot authorize another base
+file or any fingerprint outside that set, and is removed after the truthful
+baseline reaches the protected branch.
+
+Later reviewed reductions use a separate, short-lived baseline transition.
+Each transition is bound to the exact SHA-256 of one preceding baseline and
+declares the complete, sorted sets of both added and removed fingerprints.
+Comparison succeeds only when both observed sets equal the declaration; an
+undeclared addition, undeclared removal, stale declaration, duplicate base
+hash, or reuse against another base fails. The transition is removed after its
+resulting baseline reaches the protected branch. This mechanism records
+detail-sensitive replacement fingerprints without converting debt reduction
+into an open growth allowance.
 
 Direct foreign writes, duplicate table mappings, public Ecto contracts,
 unclassified or ambiguous modules, undeclared runtime bindings, and new

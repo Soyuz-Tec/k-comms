@@ -62,6 +62,75 @@ defmodule CommsCore.ModerationAndGovernanceTest do
              )
   end
 
+  test "TrustGovernance owns its role, step-up, and denial policies" do
+    account = Fixtures.account_fixture()
+    member = Fixtures.user_fixture(account)
+    moderator = Fixtures.user_fixture(account, %{role: :moderator})
+    compliance = Fixtures.user_fixture(account, %{role: :compliance_admin})
+
+    owner_subject = Fixtures.subject(account)
+    member_subject = authenticated_subject(account, member.user, "member-policy-browser")
+    moderator_subject = authenticated_subject(account, moderator.user, "moderator-policy-browser")
+
+    compliance_subject =
+      authenticated_subject(account, compliance.user, "compliance-policy-browser")
+
+    assert :ok = Moderation.authorize_report(member_subject)
+    assert {:error, :forbidden} = Moderation.authorize_read(member_subject)
+    assert {:error, :forbidden} = Moderation.authorize_manage(member_subject)
+    assert {:error, :forbidden} = Governance.authorize_governance(member_subject)
+
+    assert :ok = Moderation.authorize_read(moderator_subject)
+    assert {:error, :step_up_required} = Moderation.authorize_manage(moderator_subject)
+    assert {:error, :forbidden} = Governance.authorize_governance(moderator_subject)
+
+    assert :ok = Moderation.authorize_read(compliance_subject)
+    assert {:error, :step_up_required} = Moderation.authorize_manage(compliance_subject)
+    assert {:error, :step_up_required} = Governance.authorize_governance(compliance_subject)
+
+    assert :ok = Moderation.authorize_read(owner_subject)
+    assert {:error, :step_up_required} = Moderation.authorize_manage(owner_subject)
+    assert {:error, :step_up_required} = Governance.authorize_governance(owner_subject)
+
+    denied_permissions =
+      Audit.list(%{
+        tenant_id: account.tenant.id,
+        action: "authorization.denied",
+        limit: 20
+      })
+      |> Enum.map(& &1.metadata["permission"])
+      |> MapSet.new()
+
+    assert MapSet.subset?(
+             MapSet.new(["govern_tenant", "manage_moderation", "moderate_tenant"]),
+             denied_permissions
+           )
+
+    stepped_up_owner = Fixtures.step_up(account, owner_subject)
+    previous_adapter = Application.get_env(:comms_core, :authorization_adapter)
+
+    on_exit(fn ->
+      if previous_adapter do
+        Application.put_env(:comms_core, :authorization_adapter, previous_adapter)
+      else
+        Application.delete_env(:comms_core, :authorization_adapter)
+      end
+    end)
+
+    Application.put_env(
+      :comms_core,
+      :authorization_adapter,
+      CommsCore.Authorization.DenyAll
+    )
+
+    assert :ok = Governance.authorize_governance(stepped_up_owner)
+    assert :ok = Moderation.authorize_report(stepped_up_owner)
+    assert :ok = Moderation.authorize_read(stepped_up_owner)
+    assert :ok = Moderation.authorize_manage(stepped_up_owner)
+    assert {:ok, []} = Governance.list_legal_holds(%{}, stepped_up_owner)
+    assert {:ok, []} = Moderation.list_cases(%{}, stepped_up_owner)
+  end
+
   test "legal holds block deletion completion until released" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)

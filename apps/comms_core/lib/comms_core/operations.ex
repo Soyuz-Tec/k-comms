@@ -1,7 +1,8 @@
 defmodule CommsCore.Operations do
   import Ecto.Query
 
-  alias CommsCore.{AdmissionQuotas, Authorization, Conversations, Repo}
+  alias CommsCore.Accounts
+  alias CommsCore.{Administration, AdmissionQuotas, Conversations, Repo}
   alias CommsCore.Administration.AdmissionPolicy
   alias CommsCore.Attachments.Attachment
   alias CommsCore.Conversations.AdmissionUsage
@@ -26,7 +27,7 @@ defmodule CommsCore.Operations do
   """
 
   def snapshot(subject) do
-    with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
+    with :ok <- authorize_tenant_operations(subject) do
       tenant_id = value(subject, :tenant_id)
 
       {:ok,
@@ -43,7 +44,7 @@ defmodule CommsCore.Operations do
   end
 
   def platform_snapshot(subject) do
-    with :ok <- Authorization.authorize(:view_platform_operations, subject, %{}) do
+    with :ok <- Accounts.authorize_view_platform_operations(subject) do
       {:ok,
        %{
          generated_at: now(),
@@ -67,7 +68,7 @@ defmodule CommsCore.Operations do
   @spec tenant_admission_usage(map()) ::
           {:ok, TenantQuotaUsage.t()} | {:error, term()}
   def tenant_admission_usage(subject) when is_map(subject) do
-    with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
+    with :ok <- authorize_tenant_operations(subject) do
       tenant_id = value(subject, :tenant_id)
       %AdmissionPolicy{} = policy = AdmissionQuotas.admission_policy(tenant_id)
       active_users = AdmissionQuotas.active_user_count(tenant_id)
@@ -101,6 +102,11 @@ defmodule CommsCore.Operations do
        }}
     end
   end
+
+  @doc false
+  @spec authorize_tenant_operations(map()) :: :ok | {:error, :forbidden}
+  def authorize_tenant_operations(subject),
+    do: Administration.authorize_administer_tenant(subject)
 
   @doc """
   Performs the bounded database probe used by the unauthenticated readiness

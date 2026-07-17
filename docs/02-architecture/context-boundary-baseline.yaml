@@ -6,17 +6,13 @@ violations:
   rule: adapter_schema_import
   path: apps/comms_web/lib/comms_web/presenter.ex
   detail: adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall
-- fingerprint: 23dcf56239fd3c92
+- fingerprint: 1b2308af763271a1
   rule: business_context_cycle
   path: docs/02-architecture/context-boundaries.yaml
-  detail: 'members: audit, authorization_kernel, calls, conversation_content, conversations, identity_access, tenant_administration;
-    edges: audit->authorization_kernel, authorization_kernel->audit, authorization_kernel->conversation_content, authorization_kernel->conversations,
-    authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->audit, calls->authorization_kernel,
-    calls->conversations, calls->identity_access, calls->tenant_administration, conversation_content->audit, conversation_content->authorization_kernel,
-    conversation_content->conversations, conversation_content->identity_access, conversation_content->tenant_administration,
-    conversations->audit, conversations->authorization_kernel, conversations->calls, conversations->identity_access, conversations->tenant_administration,
-    identity_access->audit, identity_access->authorization_kernel, identity_access->calls, identity_access->tenant_administration,
-    tenant_administration->audit, tenant_administration->authorization_kernel, tenant_administration->calls, tenant_administration->identity_access'
+  detail: 'members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations,
+    authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations,
+    calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration,
+    identity_access->calls, identity_access->tenant_administration, tenant_administration->calls, tenant_administration->identity_access'
 - fingerprint: 46833d9e4f37a9f4
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/accounts.ex
@@ -49,10 +45,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/admission_quotas.ex
   detail: CommsCore.AdmissionQuotas references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 5b2474b6c792fe32
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/attachments.ex
-  detail: CommsCore.Attachments references owner-internal schema CommsCore.Administration.TenantSettings
 - fingerprint: 281d9add61ab8c61
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/attachments/attachment.ex
@@ -117,10 +109,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Device
-- fingerprint: c00fd3d1192fbcc6
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.PlatformRoleGrant
 - fingerprint: db68fcb3dac3ef04
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
@@ -145,18 +133,10 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: 27fdff1b69d498a8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Messaging.Message
 - fingerprint: 8e1a8065ef4e942a
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/conversations.ex
   detail: CommsCore.Conversations references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 121f7164c64045fa
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations.ex
-  detail: CommsCore.Conversations references owner-internal schema CommsCore.Administration.TenantSettings
 - fingerprint: 01480f3bb95a9c16
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/conversations/conversation.ex
@@ -393,87 +373,35 @@ violations:
   rule: internal_schema_access
   path: apps/comms_core/lib/comms_core/password_recovery.ex
   detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 662a5c4f703eb585
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/accounts.ex
-  detail: identity_access -> authorization_kernel through CommsCore.Authorization
 - fingerprint: 889ca078f04b8132
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/accounts.ex
   detail: identity_access -> calls through CommsCore.AudioCalls
-- fingerprint: 97986c01688edbd7
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/administration.ex
-  detail: tenant_administration -> authorization_kernel through CommsCore.Authorization
 - fingerprint: 0e985916a4de06ec
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/administration.ex
   detail: tenant_administration -> calls through CommsCore.AudioCalls
-- fingerprint: 25b5955b95d7e60a
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/administration/invitations.ex
-  detail: tenant_administration -> authorization_kernel through CommsCore.Authorization
-- fingerprint: e2aa023f11e60616
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/attachments.ex
-  detail: conversation_content -> authorization_kernel through CommsCore.Authorization
 - fingerprint: 0189e4bac08f3c6e
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/audio_calls.ex
   detail: calls -> authorization_kernel through CommsCore.Authorization
-- fingerprint: e442c942c91deaa0
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/audit_export.ex
-  detail: audit -> authorization_kernel through CommsCore.Authorization
-- fingerprint: 218671b946ba8171
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: authorization_kernel -> audit through CommsCore.Audit
-- fingerprint: 32a70724daad9d65
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: authorization_kernel -> conversation_content through CommsCore.Messaging.Message
 - fingerprint: 4f52bd7c42b47a5d
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: authorization_kernel -> conversations through CommsCore.Conversations, CommsCore.Conversations.Conversation, CommsCore.Conversations.Membership
-- fingerprint: d800fbf3e8ef2cc5
+- fingerprint: 47659f71148ad7cd
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: authorization_kernel -> identity_access through CommsCore.Accounts, CommsCore.Accounts.Device, CommsCore.Accounts.PlatformRoleGrant,
-    CommsCore.Accounts.Session, CommsCore.Accounts.User
+  detail: authorization_kernel -> identity_access through CommsCore.Accounts, CommsCore.Accounts.Device, CommsCore.Accounts.Session,
+    CommsCore.Accounts.User
 - fingerprint: 22d29c8a33ec3581
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: authorization_kernel -> tenant_administration through CommsCore.Accounts.Tenant, CommsCore.Administration.TenantSettings
-- fingerprint: 2d311ace1698b140
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/conversations.ex
-  detail: conversations -> authorization_kernel through CommsCore.Authorization
 - fingerprint: bec8b11dfcf061c7
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/conversations.ex
   detail: conversations -> calls through CommsCore.AudioCalls
-- fingerprint: 84932ac0d5fa25b9
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/governance.ex
-  detail: trust_governance -> authorization_kernel through CommsCore.Authorization
-- fingerprint: 73b9ff4f915229c8
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/integrations.ex
-  detail: webhook_management -> authorization_kernel through CommsCore.Authorization
-- fingerprint: 41f842b58173a549
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/messaging.ex
-  detail: conversation_content -> authorization_kernel through CommsCore.Authorization
-- fingerprint: 44028c557f9d7ca2
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/moderation.ex
-  detail: trust_governance -> authorization_kernel through CommsCore.Authorization
-- fingerprint: a74facb531f49387
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications.ex
-  detail: notification_delivery -> authorization_kernel through CommsCore.Authorization
 - fingerprint: e80e50669f5d670e
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/notifications/attempt.ex
@@ -490,14 +418,6 @@ violations:
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/notifications/push_subscription.ex
   detail: notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant
-- fingerprint: 8c5d4bc9c14685e9
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex
-  detail: notification_delivery -> authorization_kernel through CommsCore.Authorization
-- fingerprint: 8a77894c283aac7a
-  rule: undeclared_context_edge
-  path: apps/comms_core/lib/comms_core/operations.ex
-  detail: operations_read_model -> authorization_kernel through CommsCore.Authorization
 - fingerprint: 7c47ce0ca3e555a9
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/password_recovery.ex

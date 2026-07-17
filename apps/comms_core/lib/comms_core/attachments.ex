@@ -1,8 +1,7 @@
 defmodule CommsCore.Attachments do
   import Ecto.Query
 
-  alias CommsCore.{Authorization, Repo, RuntimePorts}
-  alias CommsCore.Administration.TenantSettings
+  alias CommsCore.{Accounts, Administration, Conversations, Repo, RuntimePorts}
   alias CommsCore.Attachments.{Attachment, AttachmentView, Projector, ScanAttempt}
   alias CommsCore.Audit
 
@@ -55,9 +54,9 @@ defmodule CommsCore.Attachments do
     content_type = value(attrs, :content_type) || "application/octet-stream"
     byte_size = integer(value(attrs, :byte_size))
     checksum = normalize_checksum(value(attrs, :checksum_sha256))
-    max_bytes = attachment_limit(value(subject, :tenant_id))
 
-    with :ok <- validate_type(content_type),
+    with {:ok, max_bytes} <- attachment_limit(subject),
+         :ok <- validate_type(content_type),
          :ok <- validate_size(byte_size, max_bytes),
          :ok <- validate_checksum(checksum) do
       id = Ecto.UUID.generate()
@@ -149,7 +148,7 @@ defmodule CommsCore.Attachments do
   end
 
   def list_safety(subject, opts \\ %{}) do
-    with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
+    with :ok <- authorize_safety(:list, subject) do
       limit = opts |> value(:limit) |> integer(50) |> min(100) |> max(1)
       status = normalize_scan_filter(value(opts, :scan_status))
 
@@ -223,7 +222,7 @@ defmodule CommsCore.Attachments do
   end
 
   def retry_scan(id, subject) do
-    with :ok <- Authorization.authorize(:manage_attachment_safety, subject, %{}) do
+    with :ok <- authorize_safety(:manage, subject) do
       Repo.transaction(fn ->
         attachment =
           Repo.one(
@@ -307,27 +306,19 @@ defmodule CommsCore.Attachments do
 
   defp authorize_attached_message(%Attachment{message_id: message_id}, subject)
        when is_binary(message_id) do
-    message =
+    conversation_id =
       Repo.one(
         from(message in "messages",
           where:
             message.id == type(^message_id, :binary_id) and
               message.tenant_id == type(^value(subject, :tenant_id), :binary_id),
-          select: %{
-            id: message.id,
-            tenant_id: message.tenant_id,
-            conversation_id: message.conversation_id
-          }
+          select: message.conversation_id
         )
       )
 
-    case message do
-      %{conversation_id: _conversation_id} ->
-        Authorization.authorize(:read_conversation, subject, message)
-
-      nil ->
-        {:error, :forbidden}
-    end
+    if is_binary(conversation_id),
+      do: Conversations.authorize_read(conversation_id, subject),
+      else: {:error, :forbidden}
   end
 
   defp authorize_attached_message(_, _), do: {:error, :forbidden}
@@ -545,6 +536,26 @@ defmodule CommsCore.Attachments do
   defp maybe_scan_filter(query, status),
     do: where(query, [attachment], attachment.scan_status == ^status)
 
+  defp authorize_safety(mode, subject) when mode in [:list, :manage] do
+    action = if mode == :list, do: :administer_tenant, else: :manage_attachment_safety
+
+    case Accounts.access_grant(subject) do
+      {:ok, %{role: role} = grant} when role in [:owner, :admin] ->
+        if mode == :list or Map.get(grant, :step_up_recent?, false) do
+          :ok
+        else
+          deny_privileged(action, subject, :step_up_required)
+        end
+
+      _ ->
+        deny_privileged(action, subject, :forbidden)
+    end
+  end
+
+  defp deny_privileged(action, subject, reason) do
+    Accounts.audit_authorization_denial(action, subject, reason)
+  end
+
   defp audit!(subject, action, resource_id, metadata) do
     Audit.record(%{
       tenant_id: value(subject, :tenant_id),
@@ -594,14 +605,17 @@ defmodule CommsCore.Attachments do
       locked.scan_generation == claimed.scan_generation
   end
 
-  defp attachment_limit(tenant_id) do
-    case Repo.get_by(TenantSettings, tenant_id: tenant_id) do
-      %TenantSettings{max_attachment_bytes: limit}
+  defp attachment_limit(subject) do
+    case Administration.member_capabilities(subject) do
+      {:ok, %{max_attachment_bytes: limit}}
       when is_integer(limit) and limit > 0 and limit <= @schema_max_bytes ->
-        limit
+        {:ok, limit}
 
-      _ ->
-        @default_max_bytes
+      {:ok, _capabilities} ->
+        {:ok, @default_max_bytes}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

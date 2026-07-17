@@ -530,6 +530,61 @@ defmodule CommsCore.AdministrationTest do
     assert tenant_id == account.tenant.id
   end
 
+  test "tenant administration owns its named access policies" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert :ok = Administration.authorize_read_capabilities(subject)
+    assert :ok = Administration.authorize_administer_tenant(subject)
+
+    assert {:error, :step_up_required} =
+             Administration.authorize_manage_invitations(subject)
+
+    assert {:error, :step_up_required} =
+             Administration.authorize_manage_settings(subject)
+
+    assert {:error, :step_up_required} =
+             Administration.authorize_audit_tenant(subject)
+
+    denied_events =
+      Audit.list(%{
+        tenant_id: account.tenant.id,
+        actor_user_id: account.user.id,
+        action: "authorization.denied",
+        limit: 10
+      })
+
+    assert Enum.any?(denied_events, fn event ->
+             event.metadata["permission"] == "manage_tenant_settings" and
+               event.metadata["reason"] == "step_up_required"
+           end)
+
+    stepped_up_subject = Fixtures.step_up(account, subject)
+    previous_adapter = Application.get_env(:comms_core, :authorization_adapter)
+
+    on_exit(fn ->
+      if previous_adapter do
+        Application.put_env(:comms_core, :authorization_adapter, previous_adapter)
+      else
+        Application.delete_env(:comms_core, :authorization_adapter)
+      end
+    end)
+
+    Application.put_env(
+      :comms_core,
+      :authorization_adapter,
+      CommsCore.Authorization.DenyAll
+    )
+
+    assert :ok = Administration.authorize_read_capabilities(stepped_up_subject)
+    assert :ok = Administration.authorize_administer_tenant(stepped_up_subject)
+    assert :ok = Administration.authorize_manage_invitations(stepped_up_subject)
+    assert :ok = Administration.authorize_manage_settings(stepped_up_subject)
+    assert :ok = Administration.authorize_audit_tenant(stepped_up_subject)
+    assert {:ok, _settings} = Administration.get_tenant_settings(stepped_up_subject)
+    assert {:ok, []} = Administration.list_invitations(stepped_up_subject)
+  end
+
   test "audit reads are audited and compound cursors do not skip equal timestamps" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)

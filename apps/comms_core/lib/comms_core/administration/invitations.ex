@@ -5,9 +5,10 @@ defmodule CommsCore.Administration.Invitations do
 
   alias CommsCore.Accounts
   alias CommsCore.Accounts.InvitedUserCommand
+  alias CommsCore.Administration
   alias CommsCore.Administration.{Invitation, Projector}
   alias CommsCore.Audit
-  alias CommsCore.{AdmissionQuotas, Authorization, Repo}
+  alias CommsCore.{AdmissionQuotas, Repo}
 
   @token_bytes 32
   @invitation_roles [:member, :moderator, :admin, :compliance_admin, :security_admin]
@@ -19,7 +20,7 @@ defmodule CommsCore.Administration.Invitations do
     idempotency_key = value(attrs, :idempotency_key)
 
     with {:ok, role} <- requested_role(attrs),
-         :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
+         :ok <- Administration.authorize_manage_invitations(subject),
          :ok <- Accounts.authorize_invitation_identity(subject, email, role),
          :ok <- expire_pending(tenant_id, email) do
       case existing_idempotent(tenant_id, idempotency_key) do
@@ -35,7 +36,7 @@ defmodule CommsCore.Administration.Invitations do
   def list(subject, status) when is_map(subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <- Authorization.authorize(:administer_tenant, subject, %{id: tenant_id}),
+    with :ok <- Administration.authorize_administer_tenant(subject),
          :ok <- expire_pending(tenant_id) do
       invitations =
         Invitation
@@ -51,10 +52,7 @@ defmodule CommsCore.Administration.Invitations do
 
   def revoke(id, attrs, subject)
       when is_binary(id) and is_map(attrs) and is_map(subject) do
-    with :ok <-
-           Authorization.authorize(:manage_user_lifecycle, subject, %{
-             id: value(subject, :tenant_id)
-           }),
+    with :ok <- Administration.authorize_manage_invitations(subject),
          {:ok, reason} <- required_reason(attrs),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->

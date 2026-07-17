@@ -3,6 +3,7 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
 
   import Phoenix.ChannelTest
 
+  alias CommsCore.Accounts.Session
   alias CommsCore.Conversations.Conversation
   alias CommsCore.Messaging.Message
   alias CommsCore.Repo
@@ -12,24 +13,24 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
   @endpoint CommsWeb.Endpoint
 
   setup do
-    original = Application.fetch_env!(:comms_core, :authorization_adapter)
-    Application.put_env(:comms_core, :authorization_adapter, CommsCore.Authorization.DenyAll)
-    on_exit(fn -> Application.put_env(:comms_core, :authorization_adapter, original) end)
+    owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Repo, shared: true)
+    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
     :ok
   end
 
   test "commands and outbound events stop a channel after authorization is revoked" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    revoked_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    account.session
+    |> Session.changeset(%{revoked_at: revoked_at})
+    |> Repo.update!()
+
     socket =
       %Phoenix.Socket{
-        topic: "conversation:conversation-id",
-        assigns: %{
-          tenant_id: "tenant-id",
-          user_id: "user-id",
-          device_id: "device-id",
-          session_id: "session-id",
-          role: :member,
-          conversation_id: "conversation-id"
-        }
+        topic: "conversation:#{account.conversation.id}",
+        assigns: Map.put(subject, :conversation_id, account.conversation.id)
       }
 
     assert {:stop, :unauthorized, {:error, %{reason: "forbidden"}}, ^socket} =
@@ -117,10 +118,6 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
   end
 
   test "join exposes replay pagination and command_id is the message idempotency key" do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
-    Application.put_env(:comms_core, :authorization_adapter, CommsCore.Authorization.Database)
-
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -189,9 +186,6 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
   end
 
   test "an established channel stops authorizing after the stored absolute session deadline" do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
-    Application.put_env(:comms_core, :authorization_adapter, CommsCore.Authorization.Database)
     previous_ttl = Application.fetch_env!(:comms_core, :session_absolute_ttl_seconds)
     Application.put_env(:comms_core, :session_absolute_ttl_seconds, 2)
 

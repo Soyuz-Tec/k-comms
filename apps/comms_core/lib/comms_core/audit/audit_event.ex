@@ -27,4 +27,6 @@ defmodule CommsCore.Audit.AuditEvent do
         :request_id
       ])
       |> validate_required([:tenant_id, :action, :resource_type, :resource_id, :metadata])
+      |> foreign_key_constraint(:tenant_id)
+      |> foreign_key_constraint(:actor_user_id)
 end
