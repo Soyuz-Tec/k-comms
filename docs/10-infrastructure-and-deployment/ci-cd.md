@@ -11,16 +11,64 @@
 7. Ephemeral-environment smoke tests where practical.
 
 The architecture gate runs `scripts/test_validate_architecture.py` followed by
-`scripts/validate_architecture.py`. It fails on unclassified umbrella apps,
-forbidden direct dependency edges, core references to adapter applications, and
-direct Repo access outside the non-release test-fixture allowlist. The context
-manifest gate also rejects new, changed, or resolved baseline fingerprints,
-undeclared or changed SCC edges, unapproved lifecycle-command call sites, and
-read-only exceptions that issue owner commands, persistence writes, or raw SQL
-DML/DDL. Health and metrics use narrowly named core read APIs rather than
-persistence exceptions. Architecture policy or baseline changes must update the
-accepted architecture documentation, validator, and regression tests together
-and receive architecture review.
+`scripts/validate_architecture.py`. It then runs
+`scripts/validate_architecture.py --check-generated-report`; CI fails when the
+tracked violation report is not the deterministic rendering of the analyzed
+repository and checked-in baseline.
+
+For pull requests, checkout retains full history and CI extracts
+`docs/02-architecture/context-boundary-baseline.yaml` from the immutable
+`pull_request.base.sha`. The validator receives that file through
+`--compare-boundary-baseline` and rejects every baseline fingerprint that is
+new relative to the PR base. Removing resolved debt is permitted; changing a
+finding creates a new fingerprint and therefore fails the no-growth gate.
+Comparing to the event's base commit, rather than a mutable branch name, keeps
+the result reproducible and prevents a same-branch baseline edit from
+grandfathering new debt.
+
+The truthful-analyzer transition also has one content-bound adoption rule for
+the pre-endgame 95-finding checkpoint. The manifest records the exact SHA-256
+of that baseline and the exact sorted fingerprints exposed only because the
+analyzer began attributing previously skipped production modules. Comparison
+accepts only those fingerprints and only against that baseline content; all
+other growth still fails. The adoption declaration is removed once the
+truthful baseline is present on the protected branch.
+
+There is one narrow bootstrap case for the first control-plane merge: if the
+immutable PR base does not contain the boundary-baseline path, the base
+comparison emits a visible notice and is skipped only after the normal
+validator and deterministic-report checks have passed. The bootstrap does not
+accept an invalid manifest, unattributed module, malformed deferral, or stale
+report. Once the baseline exists on the target branch, the file-presence branch
+can no longer skip comparison and every later pull request is subject to the
+base-SHA no-growth rule.
+
+The validator fails on unclassified umbrella apps, forbidden direct dependency
+edges, core references to adapter applications, and direct Repo access outside
+the non-release test-fixture allowlist. The context manifest gate also rejects
+new, changed, or resolved baseline fingerprints, undeclared or changed SCC
+edges, unapproved lifecycle-command call sites, and read-only exceptions that
+issue owner commands, persistence writes, or raw SQL DML/DDL. Health and
+metrics use narrowly named core read APIs rather than persistence exceptions.
+Architecture policy or baseline changes must update the accepted architecture
+documentation, validator, and regression tests together and receive
+architecture review. The manifest, baseline, generated report, validator,
+validator tests, governing ADR, CI workflow, and this CI design document have
+explicit `CODEOWNERS` entries.
+
+After warnings-as-errors compilation, the backend job runs two xref gates in
+`apps/comms_core`:
+
+- `mix xref graph --format cycles --label compile-connected` must report no
+  compile-connected cycles.
+- `mix xref graph --format cycles` must match the exact four-cycle checkpoint:
+  Accounts/Projector/Administration/Invitations, the three Webhook schemas,
+  Authorization/DenyAll, and PlatformRoleGrant/User.
+
+The exact cycle check is deliberately stricter than a count check: adding,
+changing, or resolving a cycle requires an architecture-reviewed update to the
+CI expectation. It prevents cycle substitution and ensures each reduction is
+recorded rather than silently changing the accepted graph.
 
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested

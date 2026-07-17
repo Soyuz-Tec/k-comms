@@ -58,6 +58,52 @@ jobs:
       - run: mix deps.get --check-locked
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
+      - name: Reject compile-connected comms_core cycles
+        working-directory: apps/comms_core
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$(mix xref graph --format cycles --label compile-connected)"
+          printf '%s\n' "$output"
+          test "$output" = "No cycles found"
+      - name: Enforce exact comms_core xref cycle baseline
+        working-directory: apps/comms_core
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/comms-core-xref-cycles.expected.txt"
+          actual="$RUNNER_TEMP/comms-core-xref-cycles.actual.txt"
+
+          cat > "$expected" <<'EOF'
+          4 cycles found. Showing them in decreasing size:
+
+          Cycle of length 4:
+
+              lib/comms_core/accounts.ex
+              lib/comms_core/accounts/projector.ex
+              lib/comms_core/administration.ex
+              lib/comms_core/administration/invitations.ex
+
+          Cycle of length 3:
+
+              lib/comms_core/integrations/webhook_delivery.ex
+              lib/comms_core/integrations/webhook_endpoint.ex
+              lib/comms_core/integrations/webhook_subscription.ex
+
+          Cycle of length 2:
+
+              lib/comms_core/authorization.ex
+              lib/comms_core/authorization/deny_all.ex
+
+          Cycle of length 2:
+
+              lib/comms_core/accounts/platform_role_grant.ex
+              lib/comms_core/accounts/user.ex
+
+          EOF
+
+          mix xref graph --format cycles > "$actual"
+          diff --unified "$expected" "$actual"
       - run: mix ecto.create
       - run: mix ecto.migrate
       - name: Start versioned S3 integration fixture
@@ -142,6 +188,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
@@ -152,6 +200,25 @@ jobs:
       - run: python scripts/validate_docs.py
       - run: python scripts/test_validate_architecture.py
       - run: python scripts/validate_architecture.py
+      - name: Verify deterministic architecture report
+        run: python scripts/validate_architecture.py --check-generated-report
+      - name: Reject architecture baseline growth from the PR base
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          baseline_path="docs/02-architecture/context-boundary-baseline.yaml"
+          base_baseline="$RUNNER_TEMP/context-boundary-baseline.base.yaml"
+
+          if git cat-file -e "${BASE_SHA}:${baseline_path}" 2>/dev/null; then
+            git show "${BASE_SHA}:${baseline_path}" > "$base_baseline"
+            python scripts/validate_architecture.py \
+              --compare-boundary-baseline "$base_baseline"
+          else
+            echo "::notice title=Architecture baseline bootstrap::The immutable PR base does not contain ${baseline_path}. The preceding validator and deterministic-report checks are the one-time bootstrap gate; base comparison becomes mandatory after this baseline lands."
+          fi
       - run: python scripts/test_validate_staging_secrets.py
       - run: python scripts/test_validate_staging_manifests.py
       - run: python scripts/validate_staging_manifests.py

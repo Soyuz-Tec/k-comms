@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import re
 import tempfile
 import unittest
@@ -10,9 +12,15 @@ import yaml
 from validate_architecture import (
     ALLOWED_UMBRELLA_DEPENDENCIES,
     REPO_ACCESS_ALLOWLIST,
+    TEMPORARY_EXACT_MAPPING_POLICY,
     analyze_context_boundaries,
+    compare_boundary_baselines,
+    context_cycle_violations,
+    context_graphs,
     core_module_references,
     discover_schemas,
+    generated_report_errors,
+    main,
     read_yaml,
     validate,
     write_baseline,
@@ -32,10 +40,28 @@ class ValidateArchitectureTest(unittest.TestCase):
             (root / "docs/02-architecture/context-boundaries.yaml").unlink()
 
             self.assertTrue(
-                any("required boundary manifest is missing" in error for error in validate(root))
+                any(
+                    "required boundary manifest is missing" in error
+                    for error in validate(root)
+                )
             )
             with self.assertRaisesRegex(ValueError, "manifest is missing or invalid"):
                 write_current_baseline(root)
+
+    def test_missing_boundary_baseline_fails_normal_validation_but_can_be_written(
+        self,
+    ) -> None:
+        with self.repository_fixture() as root:
+            baseline = root / "docs/02-architecture/context-boundary-baseline.yaml"
+            baseline.unlink()
+            errors = validate(root)
+            self.assertTrue(
+                any("required boundary baseline is missing" in error for error in errors),
+                errors,
+            )
+            write_current_baseline(root)
+            self.assertTrue(baseline.is_file())
+            self.assertEqual(validate(root), [])
 
     def test_invalid_boundary_manifest_fails_validation_and_baseline_write(
         self,
@@ -45,10 +71,28 @@ class ValidateArchitectureTest(unittest.TestCase):
             manifest.write_text("contexts: [not-a-mapping\n", encoding="utf-8")
 
             self.assertTrue(
-                any("cannot load boundary manifest" in error for error in validate(root))
+                any(
+                    "cannot load boundary manifest" in error for error in validate(root)
+                )
             )
             with self.assertRaisesRegex(ValueError, "manifest is missing or invalid"):
                 write_current_baseline(root)
+
+    def test_rejects_duplicate_yaml_mapping_keys_at_every_depth(self) -> None:
+        duplicate_documents = (
+            "version: 1\nversion: 2\n",
+            "contexts:\n  alpha:\n    public_facades: []\n"
+            "    public_facades: [CommsCore.Alpha]\n",
+        )
+        for document in duplicate_documents:
+            with self.subTest(document=document), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "manifest.yaml"
+                path.write_text(document, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    yaml.YAMLError,
+                    "found duplicate mapping key",
+                ):
+                    read_yaml(path)
 
     def test_rejects_a_forbidden_umbrella_dependency_edge(self) -> None:
         with self.repository_fixture() as root:
@@ -75,7 +119,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsWorkers.OutboxWorker",
             '"CommsIntegrations.ObjectStorage"',
             ":comms_web",
-            'Application.ensure_all_started(:comms_observability)',
+            "Application.ensure_all_started(:comms_observability)",
         )
 
         for reference in forbidden_references:
@@ -171,8 +215,7 @@ class ValidateArchitectureTest(unittest.TestCase):
     ) -> None:
         sources = (
             "  alias CommsCore.{Beta.Record}\n",
-            "  alias CommsCore.Beta\n"
-            "  alias Beta.Record\n",
+            "  alias CommsCore.Beta\n  alias Beta.Record\n",
         )
         for index, aliases in enumerate(sources):
             with self.subTest(index=index), self.boundary_fixture() as root:
@@ -225,9 +268,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Accounts.apply_user_lifecycle_change("
             "id, attrs, subject, [])\n"
             "end\n",
-            "defmodule CommsCore.Backdoor do\n"
-            "  import CommsCore.Accounts\n"
-            "end\n",
+            "defmodule CommsCore.Backdoor do\n  import CommsCore.Accounts\nend\n",
             "defmodule CommsCore.Backdoor do\n"
             "  alias CommsCore.Accounts, as: Identity\n"
             "  import Identity\n"
@@ -251,18 +292,14 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         for index, source in enumerate(sources):
             with self.subTest(index=index), self.repository_fixture() as root:
-                path = (
-                    root
-                    / f"apps/comms_workers/lib/comms_workers/unsafe_{index}.ex"
-                )
+                path = root / f"apps/comms_workers/lib/comms_workers/unsafe_{index}.ex"
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(source, encoding="utf-8")
 
                 errors = validate(root)
                 self.assertTrue(
                     any(
-                        "owner-internal lifecycle command" in error
-                        for error in errors
+                        "owner-internal lifecycle command" in error for error in errors
                     ),
                     errors,
                 )
@@ -292,8 +329,7 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_rejects_repo_access_in_web_operational_controllers(self) -> None:
         with self.repository_fixture() as root:
             path = (
-                root
-                / "apps/comms_web/lib/comms_web/controllers/health_controller.ex"
+                root / "apps/comms_web/lib/comms_web/controllers/health_controller.ex"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("alias CommsCore.Repo\n", encoding="utf-8")
@@ -317,7 +353,9 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_rejects_an_allowlist_entry_that_no_longer_uses_repo(self) -> None:
         with self.repository_fixture() as root:
             allowlisted = next(iter(REPO_ACCESS_ALLOWLIST))
-            (root / allowlisted).write_text("defmodule Safe do\nend\n", encoding="utf-8")
+            (root / allowlisted).write_text(
+                "defmodule Safe do\nend\n", encoding="utf-8"
+            )
 
             self.assertIn(
                 f"{allowlisted}: Repo-access allowlist entry is no longer used",
@@ -326,8 +364,12 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_duplicate_table_mappings(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
-            self.write_schema(root, "CommsCore.Beta.Record", "alpha_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "alpha_records", "beta/record.ex"
+            )
 
             self.assert_rule(root, "duplicate_table_mapping")
 
@@ -352,11 +394,8 @@ class ValidateArchitectureTest(unittest.TestCase):
             external_errors = [
                 item
                 for item in violations
-                if (
-                    "oban_jobs" in item.detail or "oban_peers" in item.detail
-                )
-                and item.rule
-                in {"declared_table_missing", "invalid_table_declaration"}
+                if ("oban_jobs" in item.detail or "oban_peers" in item.detail)
+                and item.rule in {"declared_table_missing", "invalid_table_declaration"}
             ]
             self.assertEqual(external_errors, [])
 
@@ -377,9 +416,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         for index, declaration in enumerate(invalid_declarations):
             with self.subTest(index=index), self.boundary_fixture() as root:
-                manifest_path = (
-                    root / "docs/02-architecture/context-boundaries.yaml"
-                )
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
                 manifest = read_yaml(manifest_path)
                 manifest["tables"]["external_records"] = declaration
 
@@ -394,7 +431,6 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_repository_has_one_canonical_users_schema_and_owner(self) -> None:
         root = Path(__file__).resolve().parents[1]
         schemas = discover_schemas(root)
-        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
 
         self.assertEqual(
             schemas["users"],
@@ -435,11 +471,13 @@ class ValidateArchitectureTest(unittest.TestCase):
                 for field in required_fields:
                     self.assertIn(field, source)
 
-    def test_repository_routes_message_boundary_work_through_conversations(self) -> None:
+    def test_repository_routes_message_boundary_work_through_conversations(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "apps/comms_core/lib/comms_core/messaging.ex"
-        ).read_text(encoding="utf-8")
+        source = (root / "apps/comms_core/lib/comms_core/messaging.ex").read_text(
+            encoding="utf-8"
+        )
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         references = core_module_references(source)
 
@@ -459,7 +497,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             manifest["contexts"]["conversations"]["public_contracts"],
         )
 
-    def test_repository_keeps_audit_persistence_inside_the_audit_implementation(self) -> None:
+    def test_repository_keeps_audit_persistence_inside_the_audit_implementation(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         audit_table = manifest["tables"]["audit_events"]
@@ -485,7 +525,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         self.assertEqual(offenders, [])
 
-    def test_repository_enforces_the_conversation_content_direction_and_contracts(self) -> None:
+    def test_repository_enforces_the_conversation_content_direction_and_contracts(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         content = manifest["contexts"]["conversation_content"]
@@ -604,7 +646,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             messaging_source,
         )
 
-        for controller in ("service_message_controller.ex", "service_search_controller.ex"):
+        for controller in (
+            "service_message_controller.ex",
+            "service_search_controller.ex",
+        ):
             source = (
                 root / f"apps/comms_web/lib/comms_web/controllers/{controller}"
             ).read_text(encoding="utf-8")
@@ -623,7 +668,9 @@ class ValidateArchitectureTest(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
                 for module in persistence_modules:
                     if module in text and f"{module}View" not in text:
-                        adapter_leaks.append((path.relative_to(root).as_posix(), module))
+                        adapter_leaks.append(
+                            (path.relative_to(root).as_posix(), module)
+                        )
         self.assertEqual(adapter_leaks, [])
         self.assertEqual(
             manifest["tables"]["users"],
@@ -634,13 +681,17 @@ class ValidateArchitectureTest(unittest.TestCase):
             },
         )
 
-    def test_repository_consolidates_notification_delivery_behind_one_facade(self) -> None:
+    def test_repository_consolidates_notification_delivery_behind_one_facade(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         delivery = manifest["contexts"]["notification_delivery"]
 
         self.assertEqual(delivery["current_contexts"], ["Notifications"])
-        self.assertEqual(delivery["fold_in"], ["InAppNotifications", "PushSubscriptions"])
+        self.assertEqual(
+            delivery["fold_in"], ["InAppNotifications", "PushSubscriptions"]
+        )
         self.assertEqual(delivery["public_facades"], ["CommsCore.Notifications"])
         self.assertEqual(
             delivery["public_contracts"],
@@ -680,7 +731,9 @@ class ValidateArchitectureTest(unittest.TestCase):
                     leaks.append((path.relative_to(root).as_posix(), module))
         self.assertEqual(leaks, [])
 
-    def test_repository_inverts_identity_notification_lifecycle_dependency(self) -> None:
+    def test_repository_inverts_identity_notification_lifecycle_dependency(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         identity = manifest["contexts"]["identity_access"]
@@ -782,7 +835,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         for app in ("comms_web", "comms_workers", "comms_integrations"):
             for path in sorted((root / f"apps/{app}/lib").rglob("*.ex")):
                 references = core_module_references(path.read_text(encoding="utf-8"))
-                leaked = sorted(references.intersection(identity_notification_contracts))
+                leaked = sorted(
+                    references.intersection(identity_notification_contracts)
+                )
                 if leaked:
                     adapter_contract_leaks.append(
                         (path.relative_to(root).as_posix(), leaked)
@@ -802,46 +857,52 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         self.assertNotIn("conversations", identity["allowed_dependencies"])
         self.assertIn("identity_access", conversations["allowed_dependencies"])
-        self.assertTrue(
-            bootstrap_contracts.issubset(set(identity["public_contracts"]))
-        )
+        self.assertTrue(bootstrap_contracts.issubset(set(identity["public_contracts"])))
 
+        collaborations = {
+            item["id"]: item for item in manifest["runtime_collaborations"]
+        }
         self.assertEqual(
-            manifest["runtime_collaborations"],
-            [
-                {
-                    "id": "identity-initial-conversation-bootstrap",
-                    "consumer": "identity_access",
-                    "provider": "conversations",
-                    "port": "CommsCore.Accounts.ConversationBootstrapPort",
-                    "result_contract": "CommsCore.Accounts.InitialConversationReceipt",
-                    "implementation": "CommsCore.Conversations",
-                    "callers": ["CommsCore.Accounts"],
-                    "operations": [
-                        {"name": "create_initial_channel", "arity": 1},
-                        {"name": "fetch_initial_channel", "arity": 2},
-                    ],
-                    "binding": {
-                        "application": "comms_core",
-                        "key": "identity_conversation_bootstrap_adapter",
-                        "module": "CommsCore.Conversations",
-                    },
-                    "transaction": "required",
-                    "graph_semantics": {
-                        "control_flow": "identity_access_to_conversations",
-                        "compile_dependency": "conversations_to_identity_access",
-                        "static_cycle_policy": "dependency_inversion",
-                    },
-                    "condition": (
-                        "IdentityAccess owns the narrow bootstrap command/result "
-                        "contract while Conversations implements and persists its "
-                        "owner contribution on the caller transaction; this reviewed "
-                        "runtime collaboration is reported separately from compiled "
-                        "context edges and may not grow beyond the declared operations "
-                        "or caller."
-                    ),
-                }
-            ],
+            set(collaborations),
+            {
+                "identity-initial-conversation-bootstrap",
+                "identity-notification-lifecycle",
+            },
+        )
+        self.assertEqual(
+            collaborations["identity-initial-conversation-bootstrap"],
+            {
+                "id": "identity-initial-conversation-bootstrap",
+                "consumer": "identity_access",
+                "provider": "conversations",
+                "port": "CommsCore.Accounts.ConversationBootstrapPort",
+                "result_contract": "CommsCore.Accounts.InitialConversationReceipt",
+                "implementation": "CommsCore.Conversations",
+                "callers": ["CommsCore.Accounts"],
+                "operations": [
+                    {"name": "create_initial_channel", "arity": 1},
+                    {"name": "fetch_initial_channel", "arity": 2},
+                ],
+                "binding": {
+                    "application": "comms_core",
+                    "key": "identity_conversation_bootstrap_adapter",
+                    "module": "CommsCore.Conversations",
+                },
+                "transaction": "required",
+                "graph_semantics": {
+                    "control_flow": "identity_access_to_conversations",
+                    "compile_dependency": "conversations_to_identity_access",
+                    "static_cycle_policy": "dependency_inversion",
+                },
+                "condition": (
+                    "IdentityAccess owns the narrow bootstrap command/result "
+                    "contract while Conversations implements and persists its "
+                    "owner contribution on the caller transaction; this reviewed "
+                    "runtime collaboration is reported separately from compiled "
+                    "context edges and may not grow beyond the declared operations "
+                    "or caller."
+                ),
+            },
         )
 
         violations = analyze_context_boundaries(root, manifest)
@@ -906,8 +967,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(production_binding_overrides, [])
 
         port_source = (
-            root
-            / "apps/comms_core/lib/comms_core/accounts/"
+            root / "apps/comms_core/lib/comms_core/accounts/"
             "conversation_bootstrap_port.ex"
         ).read_text(encoding="utf-8")
         self.assertEqual(
@@ -992,13 +1052,12 @@ class ValidateArchitectureTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("Conversations.authorize_service_access(", messaging_source)
         self.assertNotIn(
-            "ServiceAccounts.authorize_service(subject, \"messages:",
+            'ServiceAccounts.authorize_service(subject, "messages:',
             messaging_source,
         )
 
         controller_source = (
-            root
-            / "apps/comms_web/lib/comms_web/controllers/"
+            root / "apps/comms_web/lib/comms_web/controllers/"
             "service_conversation_controller.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("Conversations.list_for_service(", controller_source)
@@ -1013,9 +1072,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for call in owner_api_callers:
                 if call in source:
-                    owner_api_callers[call].append(
-                        path.relative_to(root).as_posix()
-                    )
+                    owner_api_callers[call].append(path.relative_to(root).as_posix())
         self.assertEqual(
             owner_api_callers,
             {
@@ -1067,11 +1124,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             "de5e0182434764c8",
         }
         self.assertTrue(removed_fingerprints.isdisjoint(current_fingerprints))
-        self.assertIn("75826183c4276dbe", current_fingerprints)
 
         cycle = [item for item in violations if item.rule == "business_context_cycle"]
         self.assertEqual(len(cycle), 1)
-        self.assertEqual(cycle[0].fingerprint, "75826183c4276dbe")
+        self.assertIn("authorization_kernel", cycle[0].detail)
         self.assertNotIn("identity_access->conversations", cycle[0].detail)
 
     def test_repository_owns_conversation_admission_queries_and_composes_usage_as_read_model(
@@ -1179,7 +1235,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         def public_function_section(signature: str) -> str:
             start = conversation_source.index(signature)
             end = conversation_source.find("\n  def ", start + len(signature))
-            return conversation_source[start:] if end == -1 else conversation_source[start:end]
+            return (
+                conversation_source[start:]
+                if end == -1
+                else conversation_source[start:end]
+            )
 
         for signature, lock_marker, count_marker in (
             (
@@ -1219,9 +1279,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for call in projection_callers:
                 if call in source:
-                    projection_callers[call].append(
-                        path.relative_to(root).as_posix()
-                    )
+                    projection_callers[call].append(path.relative_to(root).as_posix())
         self.assertEqual(
             projection_callers,
             {
@@ -1248,8 +1306,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(core_operations_callers, [])
 
         controller_source = (
-            root
-            / "apps/comms_web/lib/comms_web/controllers/admin_tenant_controller.ex"
+            root / "apps/comms_web/lib/comms_web/controllers/admin_tenant_controller.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("Operations.tenant_admission_usage(", controller_source)
 
@@ -1266,7 +1323,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             [item.render() for item in violations],
         )
 
-    def test_repository_keeps_released_adapters_on_declared_public_contracts(self) -> None:
+    def test_repository_keeps_released_adapters_on_declared_public_contracts(
+        self,
+    ) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
 
@@ -1314,15 +1373,20 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         violations = analyze_context_boundaries(root, manifest)
         self.assertEqual(
-            [item.rule for item in violations if item.rule.startswith("public_contract_")],
+            [
+                item.rule
+                for item in violations
+                if item.rule.startswith("public_contract_")
+            ],
             [],
         )
         self.assertEqual(
-            [item.detail for item in violations if item.rule == "adapter_schema_import"],
             [
-                "adapter references internal Ecto schema "
-                "CommsCore.AudioCalls.AudioCall"
+                item.detail
+                for item in violations
+                if item.rule == "adapter_schema_import"
             ],
+            ["adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall"],
         )
         self.assertEqual(
             [item for item in violations if item.rule == "adapter_changeset_import"],
@@ -1331,7 +1395,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_adapter_imports_of_ecto_schemas(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
             adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
             adapter.parent.mkdir(parents=True, exist_ok=True)
             adapter.write_text("alias CommsCore.Alpha.Record\n", encoding="utf-8")
@@ -1381,7 +1447,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_undeclared_context_edges_and_foreign_writes(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1402,7 +1470,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1424,7 +1494,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Alpha.Tenant", "tenants", "alpha/tenant.ex")
+            self.write_schema(
+                root, "CommsCore.Alpha.Tenant", "tenants", "alpha/tenant.ex"
+            )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest["tables"]["tenants"] = {
@@ -1512,7 +1584,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1532,7 +1606,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_direct_and_query_variable_foreign_bulk_writes(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1542,7 +1618,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "  alias CommsCore.Repo\n"
                 "  def direct, do: Repo.delete_all(from(record in Record))\n"
                 "  def through_variable do\n"
-                "    query = from(record in Record, where: record.id == ^\"id\")\n"
+                '    query = from(record in Record, where: record.id == ^"id")\n'
                 "    Repo.update_all(query, set: [status: :deleted])\n"
                 "  end\n"
                 "end\n",
@@ -1553,7 +1629,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_attributes_only_the_root_of_a_joined_bulk_write(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1575,7 +1653,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_a_foreign_write_through_a_local_repo_wrapper(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1600,9 +1680,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
-        source = (
-            root / "apps/comms_core/lib/comms_core/governance.ex"
-        ).read_text(encoding="utf-8")
+        source = (root / "apps/comms_core/lib/comms_core/governance.ex").read_text(
+            encoding="utf-8"
+        )
 
         self.assertEqual(
             [item for item in violations if item.rule == "direct_foreign_write"],
@@ -1622,19 +1702,18 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        accounts = (
-            root / "apps/comms_core/lib/comms_core/accounts.ex"
-        ).read_text(encoding="utf-8")
-        governance = (
-            root / "apps/comms_core/lib/comms_core/governance.ex"
-        ).read_text(encoding="utf-8")
+        accounts = (root / "apps/comms_core/lib/comms_core/accounts.ex").read_text(
+            encoding="utf-8"
+        )
+        governance = (root / "apps/comms_core/lib/comms_core/governance.ex").read_text(
+            encoding="utf-8"
+        )
         retention_reader = (
             root
             / "apps/comms_core/lib/comms_core/governance/retention_defaults_reader.ex"
         ).read_text(encoding="utf-8")
         controller = (
-            root
-            / "apps/comms_web/lib/comms_web/controllers/admin_user_controller.ex"
+            root / "apps/comms_web/lib/comms_web/controllers/admin_user_controller.ex"
         ).read_text(encoding="utf-8")
 
         self.assertNotIn("CommsCore.Governance", accounts)
@@ -1654,9 +1733,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "apps/comms_core/lib/comms_core/accounts.ex"
-        ).read_text(encoding="utf-8")
+        source = (root / "apps/comms_core/lib/comms_core/accounts.ex").read_text(
+            encoding="utf-8"
+        )
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
 
@@ -1678,9 +1757,13 @@ class ValidateArchitectureTest(unittest.TestCase):
             [],
         )
 
-    def test_rejects_owner_only_schema_access_across_an_allowed_context_edge(self) -> None:
+    def test_rejects_owner_only_schema_access_across_an_allowed_context_edge(
+        self,
+    ) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
@@ -1798,7 +1881,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_rejects_public_facades_that_expose_ecto_schemas(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
             facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
             facade.parent.mkdir(parents=True, exist_ok=True)
             facade.write_text(
@@ -1813,7 +1898,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_public_contract_prefix_does_not_match_an_internal_schema(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
             facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
             facade.parent.mkdir(parents=True, exist_ok=True)
             facade.write_text(
@@ -1826,11 +1913,21 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assertNotIn(
                 "public_ecto_contract",
-                {item.rule for item in analyze_context_boundaries(root, read_yaml(root / "docs/02-architecture/context-boundaries.yaml"))},
+                {
+                    item.rule
+                    for item in analyze_context_boundaries(
+                        root,
+                        read_yaml(
+                            root / "docs/02-architecture/context-boundaries.yaml"
+                        ),
+                    )
+                },
             )
 
     def test_rejects_business_context_cycles(self) -> None:
-        with self.boundary_fixture(allow_alpha=("beta",), allow_beta=("alpha",)) as root:
+        with self.boundary_fixture(
+            allow_alpha=("beta",), allow_beta=("alpha",)
+        ) as root:
             alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
             beta = root / "apps/comms_core/lib/comms_core/beta.ex"
             alpha.parent.mkdir(parents=True, exist_ok=True)
@@ -1860,29 +1957,21 @@ class ValidateArchitectureTest(unittest.TestCase):
             alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
             alpha.parent.mkdir(parents=True, exist_ok=True)
             alpha.write_text(
-                "defmodule CommsCore.Alpha do\n"
-                "  alias CommsCore.{Beta.Record}\n"
-                "end\n",
+                "defmodule CommsCore.Alpha do\n  alias CommsCore.{Beta.Record}\nend\n",
                 encoding="utf-8",
             )
             beta = root / "apps/comms_core/lib/comms_core/beta.ex"
             beta.write_text(
-                "defmodule CommsCore.Beta do\n"
-                "  alias CommsCore.Alpha\n"
-                "end\n",
+                "defmodule CommsCore.Beta do\n  alias CommsCore.Alpha\nend\n",
                 encoding="utf-8",
             )
 
             violations = analyze_context_boundaries(
                 root,
-                read_yaml(
-                    root / "docs/02-architecture/context-boundaries.yaml"
-                ),
+                read_yaml(root / "docs/02-architecture/context-boundaries.yaml"),
             )
             cycle = next(
-                item
-                for item in violations
-                if item.rule == "business_context_cycle"
+                item for item in violations if item.rule == "business_context_cycle"
             )
             self.assertIn("alpha->beta", cycle.detail)
             self.assertIn("beta->alpha", cycle.detail)
@@ -1908,9 +1997,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         for filename, source_text in sources:
             with self.subTest(filename=filename), self.boundary_fixture() as root:
-                source = (
-                    root / f"apps/comms_core/lib/comms_core/alpha/{filename}"
-                )
+                source = root / f"apps/comms_core/lib/comms_core/alpha/{filename}"
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(source_text, encoding="utf-8")
                 manifest = read_yaml(
@@ -1934,7 +2021,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 self.assertEqual(len(matching), 1)
                 with self.assertRaisesRegex(
                     ValueError,
-                    "non-baselinable read-model control violations",
+                    "non-baselinable architecture violations",
                 ):
                     write_baseline(root, violations)
 
@@ -1950,9 +2037,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "end\n",
                 encoding="utf-8",
             )
-            manifest = read_yaml(
-                root / "docs/02-architecture/context-boundaries.yaml"
-            )
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
             violations = analyze_context_boundaries(root, manifest)
             matching = [
                 item
@@ -1965,7 +2050,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             self.assertIn("hidden_records", matching[0].detail)
             with self.assertRaisesRegex(
                 ValueError,
-                "non-baselinable read-model control violations",
+                "non-baselinable architecture violations",
             ):
                 write_baseline(root, violations)
 
@@ -2012,9 +2097,7 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             manifest["contexts"]["alpha"]["allowed_dependencies"].append("gamma")
             alpha.write_text(
-                "defmodule CommsCore.Alpha do\n"
-                "  alias CommsCore.{Beta, Gamma}\n"
-                "end\n",
+                "defmodule CommsCore.Alpha do\n  alias CommsCore.{Beta, Gamma}\nend\n",
                 encoding="utf-8",
             )
             second = next(
@@ -2053,7 +2136,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_allows_a_scoped_read_model_source_table_read(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest["contexts"]["alpha"]["kind"] = "business_read_model"
@@ -2270,9 +2355,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
             alpha.parent.mkdir(parents=True, exist_ok=True)
             alpha.write_text(
-                "defmodule CommsCore.Alpha do\n"
-                "  def lookup(id), do: id\n"
-                "end\n",
+                "defmodule CommsCore.Alpha do\n  def lookup(id), do: id\nend\n",
                 encoding="utf-8",
             )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
@@ -2303,29 +2386,25 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         unsafe_sources = (
-            "  import CommsCore.Beta\n"
-            "  def run(id), do: lookup(id)\n",
+            "  import CommsCore.Beta\n  def run(id), do: lookup(id)\n",
             "  alias CommsCore.Beta, as: Directory\n"
             "  import Directory\n"
             "  def run(id), do: lookup(id)\n",
-            "  alias CommsCore.Beta\n"
-            "  def run(id), do: Beta.lookup id\n",
-            "  alias CommsCore.Beta\n"
-            "  def run(id), do: apply(Beta, :lookup, [id])\n",
+            "  alias CommsCore.Beta\n  def run(id), do: Beta.lookup id\n",
+            "  alias CommsCore.Beta\n  def run(id), do: apply(Beta, :lookup, [id])\n",
             "  alias CommsCore.Beta\n"
             "  def run(id), do: :erlang.apply(Beta, :lookup, [id])\n",
-            "  alias CommsCore.Beta\n"
-            "  def run, do: &Beta.delete/1\n",
+            "  alias CommsCore.Beta\n  def run, do: &Beta.delete/1\n",
             "  alias CommsCore.Beta\n"
             "  def run, do: Function.capture(Beta, :delete, 1)\n",
-            "  alias CommsCore.Beta\n"
-            "  def run(a, b), do: Beta.lookup(a, b)\n",
+            "  alias CommsCore.Beta\n  def run(a, b), do: Beta.lookup(a, b)\n",
         )
 
         for index, unsafe_source in enumerate(unsafe_sources):
-            with self.subTest(index=index), self.boundary_fixture(
-                allow_alpha=("beta",)
-            ) as root:
+            with (
+                self.subTest(index=index),
+                self.boundary_fixture(allow_alpha=("beta",)) as root,
+            ):
                 beta = root / "apps/comms_core/lib/comms_core/beta.ex"
                 beta.parent.mkdir(parents=True, exist_ok=True)
                 beta.write_text(
@@ -2338,14 +2417,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 )
                 alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
                 alpha.write_text(
-                    "defmodule CommsCore.Alpha do\n"
-                    f"{unsafe_source}"
-                    "end\n",
+                    f"defmodule CommsCore.Alpha do\n{unsafe_source}end\n",
                     encoding="utf-8",
                 )
-                manifest_path = (
-                    root / "docs/02-architecture/context-boundaries.yaml"
-                )
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
                 manifest = read_yaml(manifest_path)
                 manifest["contexts"]["alpha"]["kind"] = "business"
                 manifest["contexts"]["beta"]["kind"] = "business"
@@ -2376,9 +2451,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             beta = root / "apps/comms_core/lib/comms_core/beta.ex"
             beta.parent.mkdir(parents=True, exist_ok=True)
             beta.write_text(
-                "defmodule CommsCore.Beta do\n"
-                "  def lookup(id), do: id\n"
-                "end\n",
+                "defmodule CommsCore.Beta do\n  def lookup(id), do: id\nend\n",
                 encoding="utf-8",
             )
             reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
@@ -2502,7 +2575,9 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_read_model_source_table_grants_never_suppress_writes(self) -> None:
         with self.boundary_fixture(allow_alpha=("beta",)) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest["contexts"]["alpha"]["kind"] = "business_read_model"
@@ -2551,27 +2626,25 @@ class ValidateArchitectureTest(unittest.TestCase):
             "  alias Ecto.Multi, as: Transaction\n"
             "  def mutate(changeset), do: "
             "Transaction.new() |> Transaction.update(:record, changeset)\n",
-            "  alias Oban, as: Jobs\n"
-            "  def mutate(job), do: Jobs.insert(job)\n",
+            "  alias Oban, as: Jobs\n  def mutate(job), do: Jobs.insert(job)\n",
             "  import CommsCore.Repo\n",
-            "  alias CommsCore.Repo, as: Database\n"
-            "  import Database\n",
+            "  alias CommsCore.Repo, as: Database\n  import Database\n",
             "  def mutate(changeset), do: Repo.update changeset\n",
             "  def mutate(record), do: apply(Repo, :delete, [record])\n",
             "  def mutate, do: Ecto.Adapters.SQL.query(Repo, "
             "\"UPDATE beta_records SET status = 'closed'\", [])\n",
-            "  @mutation \"DELETE FROM beta_records\"\n"
+            '  @mutation "DELETE FROM beta_records"\n'
             "  def mutate, do: Ecto.Adapters.SQL.query!(Repo, @mutation, [])\n",
             "  def mutate, do: Ecto.Adapters.SQL.query(Repo, "
-            "\"CREATE INDEX unsafe_idx ON beta_records (id)\", [])\n",
+            '"CREATE INDEX unsafe_idx ON beta_records (id)", [])\n',
             "  def mutate, do: Ecto.Adapters.SQL.query(Repo, "
-            "\"DROP INDEX unsafe_idx\", [])\n",
+            '"DROP INDEX unsafe_idx", [])\n',
             "  def mutate, do: Ecto.Adapters.SQL.query(Repo, "
-            "\"ALTER INDEX unsafe_idx RENAME TO worse_idx\", [])\n",
+            '"ALTER INDEX unsafe_idx RENAME TO worse_idx", [])\n',
             "  def mutate(statement), do: "
             "Ecto.Adapters.SQL.query(Repo, statement, [])\n",
             "  def mutate, do: Ecto.Adapters.SQL.query(Repo, "
-            "\"VACUUM beta_records\", [])\n",
+            '"VACUUM beta_records", [])\n',
             "  alias Ecto.Adapters.SQL, as: Database\n"
             "  def mutate(statement), do: Database.query(Repo, statement, [])\n",
             "  import Ecto.Adapters.SQL\n"
@@ -2580,16 +2653,16 @@ class ValidateArchitectureTest(unittest.TestCase):
             "apply(Ecto.Adapters.SQL, :query, [Repo, statement, []])\n",
             "  def mutate(statement), do: "
             "Ecto.Adapters.SQL.query Repo, statement, []\n",
-            "  alias Ecto.Adapters.SQL, as: Database\n"
-            "  import Database\n",
+            "  alias Ecto.Adapters.SQL, as: Database\n  import Database\n",
             "  alias Ecto.Adapters.SQL, as: Database\n"
             "  def mutate, do: &Database.query/4\n",
         )
 
         for index, body in enumerate(unsafe_bodies):
-            with self.subTest(index=index), self.boundary_fixture(
-                allow_alpha=("beta",)
-            ) as root:
+            with (
+                self.subTest(index=index),
+                self.boundary_fixture(allow_alpha=("beta",)) as root,
+            ):
                 self.write_schema(
                     root,
                     "CommsCore.Alpha.Record",
@@ -2602,9 +2675,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "beta_records",
                     "beta/record.ex",
                 )
-                manifest_path = (
-                    root / "docs/02-architecture/context-boundaries.yaml"
-                )
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
                 manifest = read_yaml(manifest_path)
                 manifest["contexts"]["alpha"]["kind"] = "business_read_model"
                 manifest["contexts"]["beta"]["kind"] = "business"
@@ -2668,7 +2739,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "defmodule CommsCore.Alpha do\n"
                 "  alias CommsCore.Repo\n"
                 "  def read, do: Ecto.Adapters.SQL.query("
-                "Repo, \"SELECT id FROM beta_records\", [])\n"
+                'Repo, "SELECT id FROM beta_records", [])\n'
                 "end\n",
                 encoding="utf-8",
             )
@@ -2710,7 +2781,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         with self.boundary_fixture(
             allow_alpha=("beta",), allow_beta=("alpha",)
         ) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest["contexts"]["alpha"]["kind"] = "business_read_model"
@@ -2754,7 +2827,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         with self.boundary_fixture(
             allow_alpha=("beta",), allow_beta=("alpha",)
         ) as root:
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest["contexts"]["alpha"]["kind"] = "business_read_model"
@@ -2809,6 +2884,7 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             violations = analyze_context_boundaries(root, manifest)
             control_rules = {
+                "direct_foreign_write",
                 "invalid_read_model_exception",
                 "read_model_scope_violation",
                 "read_model_write",
@@ -2816,54 +2892,812 @@ class ValidateArchitectureTest(unittest.TestCase):
             }
             with self.assertRaisesRegex(
                 ValueError,
-                "refusing to baseline non-baselinable read-model control violations",
+                "refusing to baseline non-baselinable architecture violations",
             ):
                 write_baseline(root, violations)
             write_baseline(
                 root,
                 [item for item in violations if item.rule not in control_rules],
             )
+            self.declare_current_baseline_deferrals(root)
             errors = validate(root)
             rendered = "\n".join(errors)
             for rule in control_rules:
                 self.assertIn(f"[{rule}]", rendered)
             self.assertTrue(
                 all(
-                    error.startswith("READ-MODEL control violation:")
+                    error.startswith(
+                        (
+                            "READ-MODEL control violation:",
+                            "NON-BASELINABLE architecture violation:",
+                        )
+                    )
                     for error in errors
                 ),
                 errors,
             )
 
-    def test_baseline_allows_existing_fingerprints_but_rejects_new_ones(self) -> None:
+    def test_rejects_unclassified_and_ambiguous_production_modules(self) -> None:
         with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
-            adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
-            adapter.parent.mkdir(parents=True, exist_ok=True)
-            adapter.write_text("alias CommsCore.Alpha.Record\n", encoding="utf-8")
+            future = root / "apps/comms_core/lib/comms_core/future.ex"
+            future.parent.mkdir(parents=True, exist_ok=True)
+            future.write_text(
+                "defmodule CommsCore.Future do\nend\n",
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any("[unclassified_core_module]" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any(
+                    error.startswith("NON-BASELINABLE architecture violation:")
+                    for error in errors
+                ),
+                errors,
+            )
+
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["contexts"]["alpha"]["owned_modules"] = ["CommsCore.Future"]
+            manifest["contexts"]["beta"]["owned_modules"] = ["CommsCore.Future"]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any("[ambiguous_context_owner]" in error for error in errors),
+                errors,
+            )
+
+    def test_validates_runtime_collaboration_and_reports_all_graphs(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            self.assertEqual(validate(root), [])
             manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
-            write_baseline(root, analyze_context_boundaries(root, manifest))
+            graphs = context_graphs(root, manifest)
+            self.assertEqual(graphs.compiled["beta"], frozenset({"alpha"}))
+            self.assertEqual(graphs.runtime["alpha"], frozenset({"beta"}))
+            self.assertEqual(graphs.combined["alpha"], frozenset({"beta"}))
+            self.assertEqual(graphs.combined["beta"], frozenset({"alpha"}))
+            self.assertEqual(
+                context_cycle_violations(graphs.runtime, "runtime_context_cycle"),
+                [],
+            )
+            runtime_cycle = {
+                "alpha": frozenset({"beta"}),
+                "beta": frozenset({"alpha"}),
+            }
+            violations = context_cycle_violations(
+                runtime_cycle,
+                "runtime_context_cycle",
+            )
+            self.assertEqual(len(violations), 1)
+            self.assertEqual(violations[0].rule, "runtime_context_cycle")
+            self.assertIn("alpha->beta", violations[0].detail)
+            self.assertIn("beta->alpha", violations[0].detail)
+
+    def test_rejects_runtime_operation_caller_binding_and_transaction_drift(
+        self,
+    ) -> None:
+        mutations = (
+            (
+                "operations",
+                lambda item: item.update(operations=[{"name": "execute", "arity": 2}]),
+            ),
+            ("callers", lambda item: item.update(callers=["CommsCore.Alpha.Other"])),
+            ("binding", lambda item: item["binding"].update(key="wrong_adapter")),
+            ("transaction", lambda item: item.update(transaction="eventual")),
+        )
+        for label, mutate in mutations:
+            with (
+                self.subTest(label=label),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                mutate(manifest["runtime_collaborations"][0])
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any("[invalid_runtime_collaboration]" in error for error in errors),
+                    errors,
+                )
+
+    def test_runtime_graph_semantics_are_exact_not_decorative(self) -> None:
+        mutations = (
+            lambda semantics: semantics.update(control_flow="arbitrary"),
+            lambda semantics: semantics.update(compile_dependency="arbitrary"),
+            lambda semantics: semantics.update(static_cycle_policy="documented"),
+            lambda semantics: semantics.update(extra_policy="ignored"),
+        )
+        for mutate in mutations:
+            with (
+                self.subTest(mutation=mutate),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                mutate(manifest["runtime_collaborations"][0]["graph_semantics"])
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "[invalid_runtime_collaboration]" in error
+                        and "graph_semantics must exactly equal" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_accepts_each_guarded_runtime_operation_and_literal_error_clause(
+        self,
+    ) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            port_path = (
+                root
+                / "apps/comms_core/lib/comms_core/alpha/port.ex"
+            )
+            port_text = port_path.read_text(encoding="utf-8")
+            port_text = port_text.replace(
+                "  @callback execute(Result.t()) :: {:ok, Result.t()}\n",
+                "  @callback execute(Result.t()) :: {:ok, Result.t()}\n"
+                "  @callback fetch(Result.t()) :: {:ok, Result.t()}\n",
+            )
+            port_head, port_end = port_text.rsplit("end\n", 1)
+            port_text = (
+                port_head
+                + "  def fetch(%Result{} = result) do\n"
+                "    if Repo.in_transaction?() do\n"
+                "      {:ok, adapter} = "
+                "Application.fetch_env(:comms_core, :alpha_beta_adapter)\n"
+                "      adapter.fetch(result)\n"
+                "    else\n"
+                "      {:error, :transaction_required}\n"
+                "    end\n"
+                "  end\n"
+                "\n"
+                "  def fetch(_invalid), do: {:error, :invalid_result}\n"
+                "end\n"
+                + port_end
+            )
+            port_path.write_text(port_text, encoding="utf-8")
+
+            implementation = root / "apps/comms_core/lib/comms_core/beta.ex"
+            implementation_text = implementation.read_text(encoding="utf-8")
+            implementation_head, implementation_end = implementation_text.rsplit(
+                "end\n",
+                1,
+            )
+            implementation.write_text(
+                implementation_head
+                + "  def fetch(result), do: {:ok, result}\n"
+                "end\n"
+                + implementation_end,
+                encoding="utf-8",
+            )
+
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["runtime_collaborations"][0]["operations"].append(
+                {"name": "fetch", "arity": 1}
+            )
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
             self.assertEqual(validate(root), [])
 
-            second = root / "apps/comms_workers/lib/comms_workers/unsafe.ex"
-            second.parent.mkdir(parents=True, exist_ok=True)
-            second.write_text("alias CommsCore.Alpha.Record\n", encoding="utf-8")
+    def test_rejects_unused_transaction_check_spoof_in_runtime_operation(
+        self,
+    ) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            port_path = root / "apps/comms_core/lib/comms_core/alpha/port.ex"
+            port_text = port_path.read_text(encoding="utf-8")
+            guarded = (
+                "    if Repo.in_transaction?() do\n"
+                "      {:ok, adapter} = "
+                "Application.fetch_env(:comms_core, :alpha_beta_adapter)\n"
+                "      adapter.execute(result)\n"
+                "    else\n"
+                "      {:error, :transaction_required}\n"
+                "    end\n"
+            )
+            spoofed = (
+                "    _unused = Repo.in_transaction?()\n"
+                "    {:ok, adapter} = "
+                "Application.fetch_env(:comms_core, :alpha_beta_adapter)\n"
+                "    adapter.execute(result)\n"
+            )
+            self.assertIn(guarded, port_text)
+            port_path.write_text(
+                port_text.replace(guarded, spoofed),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
             self.assertTrue(
-                any("NEW context-boundary violation" in error for error in validate(root))
+                any(
+                    "[invalid_runtime_collaboration]" in error
+                    and "execute/1 clause 1 is not wrapped" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_runtime_contract_roles_must_match_resolved_owners(self) -> None:
+        mutations = (
+            ("port", "CommsCore.Alpha.Port"),
+            ("result", "CommsCore.Alpha.Result"),
+            ("implementation", "CommsCore.Beta"),
+        )
+        for label, module in mutations:
+            with (
+                self.subTest(label=label),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                wrong_context = "beta" if label != "implementation" else "alpha"
+                manifest["contexts"][wrong_context]["owned_modules"] = [module]
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "[invalid_runtime_collaboration]" in error
+                        and "belongs to" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_detects_undeclared_cross_owner_runtime_binding(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["runtime_collaborations"] = []
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any("[undeclared_runtime_binding]" in error for error in errors),
+                errors,
+            )
+
+    def test_detects_three_argument_config_runtime_binding(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            config = root / "config/config.exs"
+            config.write_text(
+                "import Config\n"
+                "config :comms_core, :alpha_beta_adapter, CommsCore.Beta\n",
+                encoding="utf-8",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["runtime_collaborations"] = []
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any("[undeclared_runtime_binding]" in error for error in errors),
+                errors,
+            )
+
+    def test_rejects_unenforceable_runtime_port_invocations(self) -> None:
+        bodies = (
+            "  alias CommsCore.Alpha.Port\n"
+            "  def run(result), do: apply(Port, :execute, [result])\n",
+            "  alias CommsCore.Alpha.Port\n"
+            "  def callback, do: &Port.execute/1\n",
+            "  import CommsCore.Alpha.Port\n"
+            "  def run(result), do: execute(result)\n",
+            "  alias CommsCore.Alpha.Port\n"
+            "  def run(result), do: Port.execute result\n",
+        )
+        for body in bodies:
+            with (
+                self.subTest(body=body),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                source = root / "apps/comms_core/lib/comms_core/alpha/other.ex"
+                source.write_text(
+                    "defmodule CommsCore.Alpha.Other do\n" + body + "end\n",
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "[invalid_runtime_collaboration]" in error
+                        and "unenforceable port invocation" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_baseline_field_hash_duplicate_and_order_drift(self) -> None:
+        mutations = (
+            lambda document: document["violations"][0].update(fingerprint="0" * 16),
+            lambda document: document["violations"].append(
+                dict(document["violations"][0])
+            ),
+            lambda document: document["violations"].reverse(),
+            lambda document: document.update(policy="baseline drift is allowed"),
+        )
+        for mutate in mutations:
+            with (
+                self.subTest(mutation=mutate),
+                self.boundary_fixture(allow_alpha=("beta",)) as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                self.write_schema(
+                    root,
+                    "CommsCore.Beta.Record",
+                    "beta_records",
+                    "beta/record.ex",
+                )
+                for name in ("one", "two"):
+                    path = root / f"apps/comms_core/lib/comms_core/alpha/{name}.ex"
+                    path.write_text(
+                        f"defmodule CommsCore.Alpha.{name.title()} do\n"
+                        "  alias CommsCore.Beta.Record\n"
+                        "end\n",
+                        encoding="utf-8",
+                    )
+                write_current_baseline(root)
+                baseline_path = (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                )
+                document = read_yaml(baseline_path)
+                mutate(document)
+                baseline_path.write_text(
+                    yaml.safe_dump(document, sort_keys=False),
+                    encoding="utf-8",
+                )
+                self.assertTrue(
+                    any(
+                        "BASELINE integrity violation:" in error
+                        for error in validate(root)
+                    )
+                )
+
+    def test_requires_exact_temporary_violation_mapping(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["temporary_violations"] = {
+                "source": "docs/02-architecture/context-boundary-baseline.yaml",
+                "exact_mapping": {"cardinality": "one_to_one"},
+                "removal_conditions": {
+                    "foreign_schema_import": "Use the owner facade."
+                },
+                "explicit": [],
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "must map to exactly one temporary violation" in error
+                    for error in errors
+                ),
+                errors,
+            )
+            manifest.pop("temporary_violations")
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any("temporary_violations is required" in error for error in errors),
+                errors,
+            )
+
+    def test_temporary_exact_mapping_policy_rejects_value_and_key_drift(self) -> None:
+        mutations = (
+            lambda policy: policy.update(cardinality="one_to_one"),
+            lambda policy: policy.update(activation_mode="report_only"),
+            lambda policy: policy.update(reject_stale_declarations=False),
+            lambda policy: policy.update(decorative_policy="accepted"),
+            lambda policy: policy.pop("group_policy"),
+        )
+        for mutate in mutations:
+            with (
+                self.subTest(mutation=mutate),
+                self.repository_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                exact_mapping = copy.deepcopy(TEMPORARY_EXACT_MAPPING_POLICY)
+                mutate(exact_mapping)
+                manifest["temporary_violations"] = {
+                    "source": "docs/02-architecture/context-boundary-baseline.yaml",
+                    "exact_mapping": exact_mapping,
+                    "removal_conditions": {},
+                    "explicit": [],
+                }
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "exact_mapping must exactly match" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_temporary_violation_adrs_are_confined_and_numbered(self) -> None:
+        invalid_paths = (
+            "docs/02-architecture/adr/README.md",
+            "docs/02-architecture/adr/template.md",
+            "docs/02-architecture/adr/../9999-outside.md",
+            "../9999-outside.md",
+        )
+        for adr in invalid_paths:
+            with (
+                self.subTest(adr=adr),
+                self.boundary_fixture(allow_alpha=("beta",)) as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                self.write_schema(
+                    root,
+                    "CommsCore.Beta.Record",
+                    "beta_records",
+                    "beta/record.ex",
+                )
+                reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+                reader.write_text(
+                    "defmodule CommsCore.Alpha.Reader do\n"
+                    "  alias CommsCore.Beta.Record\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+                write_current_baseline(root)
+                self.declare_current_baseline_deferrals(root)
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                manifest["temporary_violations"]["explicit"][0]["adr"] = adr
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "ADR must be a relative path within "
+                        "docs/02-architecture/adr matching NNNN-*.md" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_temporary_violation_top_level_ids_are_unique(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            for name in ("first", "second"):
+                source = root / f"apps/comms_core/lib/comms_core/alpha/{name}.ex"
+                source.write_text(
+                    f"defmodule CommsCore.Alpha.{name.title()} do\n"
+                    "  alias CommsCore.Beta.Record\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+            write_current_baseline(root)
+            self.declare_current_baseline_deferrals(root)
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            declarations = manifest["temporary_violations"]["explicit"]
+            self.assertGreaterEqual(len(declarations), 2)
+            declarations[1]["id"] = declarations[0]["id"]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any("duplicates top-level id" in error for error in errors),
+                errors,
+            )
+
+    def test_temporary_violation_adrs_reject_absolute_paths(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            self.declare_current_baseline_deferrals(root)
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["temporary_violations"]["explicit"][0]["adr"] = str(
+                (root / "docs/02-architecture/adr/9999-absolute.md").resolve()
+            )
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "ADR must be a relative path within "
+                    "docs/02-architecture/adr matching NNNN-*.md" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_generated_report_parity_and_base_branch_no_growth(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            write_current_baseline(root)
+            self.assertEqual(generated_report_errors(root), [])
+            base = root / "base-boundary-baseline.yaml"
+            base.write_text(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            self.assertTrue(compare_boundary_baselines(root, base))
+            report = root / "docs/02-architecture/context-boundary-violations.md"
+            report.write_text(
+                report.read_text(encoding="utf-8") + "\nmanual drift\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(generated_report_errors(root))
+
+    def test_content_bound_analyzer_adoption_allows_only_exact_discovery_set(
+        self,
+    ) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+
+            first = root / "apps/comms_core/lib/comms_core/alpha/first.ex"
+            first.write_text(
+                "defmodule CommsCore.Alpha.First do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            first_violations = write_current_baseline(root)
+            first_fingerprints = sorted(
+                item.fingerprint for item in first_violations
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest.setdefault("enforcement", {})["baseline_adoption"] = {
+                "previous_baseline_sha256": hashlib.sha256(
+                    base.read_bytes()
+                ).hexdigest(),
+                "allowed_discovery_fingerprints": first_fingerprints,
+                "removal_condition": "Remove after the analyzer baseline lands.",
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(compare_boundary_baselines(root, base), [])
+
+            second = root / "apps/comms_core/lib/comms_core/alpha/second.ex"
+            second.write_text(
+                "defmodule CommsCore.Alpha.Second do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any("baseline grew" in error for error in errors),
+                errors,
+            )
+
+    def test_ci_cli_report_and_baseline_comparison_modes(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            baseline = root / "docs/02-architecture/context-boundary-baseline.yaml"
+            main(["--check-generated-report"], root=root)
+            main(
+                ["--compare-boundary-baseline", str(baseline)],
+                root=root,
+            )
+
+    def test_refuses_new_adapter_schema_deferrals(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
+            adapter.parent.mkdir(parents=True, exist_ok=True)
+            adapter.write_text(
+                "alias CommsCore.Alpha.Record\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "refusing to add new deferrals",
+            ):
+                write_current_baseline(root)
+
+    def test_baseline_allows_existing_fingerprints_but_rejects_new_ones(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            write_baseline(root, analyze_context_boundaries(root, manifest))
+            self.declare_current_baseline_deferrals(root)
+            self.assertEqual(validate(root), [])
+
+            second = root / "apps/comms_core/lib/comms_core/alpha/unsafe.ex"
+            second.parent.mkdir(parents=True, exist_ok=True)
+            second.write_text(
+                "defmodule CommsCore.Alpha.Unsafe do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                any(
+                    "NEW context-boundary violation" in error
+                    for error in validate(root)
+                )
             )
 
     def test_rejects_resolved_fingerprints_left_in_the_baseline(self) -> None:
-        with self.boundary_fixture() as root:
-            self.write_schema(root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex")
-            self.write_schema(root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex")
-            adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
-            adapter.parent.mkdir(parents=True, exist_ok=True)
-            adapter.write_text("alias CommsCore.Alpha.Record\n", encoding="utf-8")
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
+            self.write_schema(
+                root, "CommsCore.Beta.Record", "beta_records", "beta/record.ex"
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
             manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
             write_baseline(root, analyze_context_boundaries(root, manifest))
+            self.declare_current_baseline_deferrals(root)
             self.assertEqual(validate(root), [])
 
-            adapter.unlink()
+            reader.unlink()
             self.assertTrue(
                 any(
                     error.startswith(
@@ -2874,17 +3708,25 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
 
     def test_baseline_writer_accepts_intended_baselinable_deltas(self) -> None:
-        with self.boundary_fixture() as root:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
             self.write_schema(
                 root,
                 "CommsCore.Alpha.Record",
                 "alpha_records",
                 "alpha/record.ex",
             )
-            adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
-            adapter.parent.mkdir(parents=True, exist_ok=True)
-            adapter.write_text(
-                "alias CommsCore.Alpha.Record\n", encoding="utf-8"
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
             )
 
             self.assertTrue(
@@ -2894,12 +3736,11 @@ class ValidateArchitectureTest(unittest.TestCase):
                 )
             )
             first = write_current_baseline(root)
-            self.assertTrue(
-                any(item.rule == "adapter_schema_import" for item in first)
-            )
+            self.assertTrue(any(item.rule == "foreign_schema_import" for item in first))
+            self.declare_current_baseline_deferrals(root)
             self.assertEqual(validate(root), [])
 
-            adapter.unlink()
+            reader.unlink()
             self.assertTrue(
                 any(
                     error.startswith(
@@ -2911,8 +3752,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
             second = write_current_baseline(root)
             self.assertFalse(
-                any(item.rule == "adapter_schema_import" for item in second)
+                any(item.rule == "foreign_schema_import" for item in second)
             )
+            self.declare_current_baseline_deferrals(root)
             self.assertEqual(validate(root), [])
 
     def repository_fixture(self):
@@ -2936,11 +3778,16 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "contexts": {},
                     "tables": {},
                     "migration_exceptions": [],
+                    "enforcement": {
+                        "mode": "baseline",
+                        "reject_new_violations": True,
+                    },
                 },
                 sort_keys=False,
             ),
             encoding="utf-8",
         )
+        write_baseline(root, [])
 
         class FixtureContext:
             def __enter__(self):
@@ -2990,6 +3837,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 },
             },
             "migration_exceptions": [],
+            "enforcement": {
+                "mode": "baseline",
+                "reject_new_violations": True,
+            },
         }
         path = root / "docs/02-architecture/context-boundaries.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -3004,10 +3855,163 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         return FixtureContext()
 
+    def runtime_collaboration_fixture(self):
+        parent = self.boundary_fixture(allow_beta=("alpha",))
+        root = parent.__enter__()
+        self.write_schema(
+            root,
+            "CommsCore.Alpha.Record",
+            "alpha_records",
+            "alpha/record.ex",
+        )
+        self.write_schema(
+            root,
+            "CommsCore.Beta.Record",
+            "beta_records",
+            "beta/record.ex",
+        )
+
+        alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
+        alpha.write_text(
+            "defmodule CommsCore.Alpha do\n"
+            "  alias CommsCore.Alpha.Port\n"
+            "  def run(result), do: Port.execute(result)\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        port = root / "apps/comms_core/lib/comms_core/alpha/port.ex"
+        port.write_text(
+            "defmodule CommsCore.Alpha.Port do\n"
+            "  alias CommsCore.Alpha.Result\n"
+            "  alias CommsCore.Repo\n"
+            "  @callback execute(Result.t()) :: {:ok, Result.t()}\n"
+            "  def execute(%Result{} = result) do\n"
+            "    if Repo.in_transaction?() do\n"
+            "      {:ok, adapter} = "
+            "Application.fetch_env(:comms_core, :alpha_beta_adapter)\n"
+            "      adapter.execute(result)\n"
+            "    else\n"
+            "      {:error, :transaction_required}\n"
+            "    end\n"
+            "  end\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        result = root / "apps/comms_core/lib/comms_core/alpha/result.ex"
+        result.write_text(
+            "defmodule CommsCore.Alpha.Result do\n"
+            "  @type t :: %__MODULE__{id: binary()}\n"
+            "  defstruct [:id]\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        beta = root / "apps/comms_core/lib/comms_core/beta.ex"
+        beta.write_text(
+            "defmodule CommsCore.Beta do\n"
+            "  @behaviour CommsCore.Alpha.Port\n"
+            "  def execute(result), do: {:ok, result}\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        config = root / "config/config.exs"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(
+            "import Config\n"
+            "config :comms_core,\n"
+            "  alpha_beta_adapter: CommsCore.Beta\n",
+            encoding="utf-8",
+        )
+
+        manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+        manifest = read_yaml(manifest_path)
+        manifest["contexts"]["alpha"]["public_contracts"] = [
+            "CommsCore.Alpha.Port",
+            "CommsCore.Alpha.Result",
+        ]
+        manifest["runtime_collaborations"] = [
+            {
+                "id": "alpha-beta",
+                "consumer": "alpha",
+                "provider": "beta",
+                "port": "CommsCore.Alpha.Port",
+                "result_contract": "CommsCore.Alpha.Result",
+                "implementation": "CommsCore.Beta",
+                "callers": ["CommsCore.Alpha"],
+                "operations": [{"name": "execute", "arity": 1}],
+                "binding": {
+                    "application": "comms_core",
+                    "key": "alpha_beta_adapter",
+                    "module": "CommsCore.Beta",
+                },
+                "transaction": "required",
+                "graph_semantics": {
+                    "control_flow": "alpha_to_beta",
+                    "compile_dependency": "beta_to_alpha",
+                    "static_cycle_policy": "dependency_inversion",
+                },
+                "condition": "Alpha delegates one transaction-scoped operation.",
+            }
+        ]
+        manifest_path.write_text(
+            yaml.safe_dump(manifest, sort_keys=False),
+            encoding="utf-8",
+        )
+        write_current_baseline(root)
+
+        class FixtureContext:
+            def __enter__(self):
+                return root
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                parent.__exit__(exc_type, exc_value, traceback)
+
+        return FixtureContext()
+
     @staticmethod
-    def write_schema(
-        root: Path, module: str, table: str, relative_source: str
-    ) -> None:
+    def declare_current_baseline_deferrals(root: Path) -> None:
+        baseline_path = (
+            root / "docs/02-architecture/context-boundary-baseline.yaml"
+        )
+        baseline = read_yaml(baseline_path)
+        entries = baseline.get("violations", [])
+        manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+        manifest = read_yaml(manifest_path)
+        if not entries:
+            manifest.pop("temporary_violations", None)
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            return
+
+        adr = "docs/02-architecture/adr/9999-test-boundary-debt.md"
+        adr_path = root / adr
+        adr_path.parent.mkdir(parents=True, exist_ok=True)
+        adr_path.write_text("# Test boundary debt\n", encoding="utf-8")
+        manifest["temporary_violations"] = {
+            "source": "docs/02-architecture/context-boundary-baseline.yaml",
+            "exact_mapping": copy.deepcopy(TEMPORARY_EXACT_MAPPING_POLICY),
+            "removal_conditions": {
+                entry["rule"]: "Remove the fixture violation."
+                for entry in entries
+            },
+            "explicit": [
+                {
+                    "id": f"fixture-{entry['fingerprint']}",
+                    **entry,
+                    "adr": adr,
+                    "removal_condition": "Remove the fixture violation.",
+                }
+                for entry in entries
+            ],
+        }
+        manifest_path.write_text(
+            yaml.safe_dump(manifest, sort_keys=False),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def write_schema(root: Path, module: str, table: str, relative_source: str) -> None:
         path = root / "apps/comms_core/lib/comms_core" / relative_source
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(

@@ -29,7 +29,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0023 | Define the corporate OIDC and SCIM identity boundary | Proposed |
 | 0024 | Add audio-only calls through a LiveKit media plane | Superseded for active implementation by ADR-0025 |
 | 0025 | Unify audio and video calls on the LiveKit media plane | Accepted for implementation and internal pilot |
-| 0026 | Enforce business-context boundaries inside comms_core | Accepted |
+| 0026 | Enforce business-context boundaries inside comms_core | Accepted; enforcement mechanics superseded by ADR-0035 |
 | 0027 | Keep messages and attachments in one conversation-content boundary | Accepted |
 | 0028 | Consolidate notification delivery behind one facade | Accepted |
 | 0029 | Coordinate legal-hold-aware message deletion in Governance | Accepted |
@@ -38,5 +38,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0032 | Invert the identity-notification lifecycle dependency | Accepted |
 | 0033 | Own conversation admission and compose quota usage | Accepted |
 | 0034 | Invert identity-to-conversation workflows | Accepted |
+| 0035 | Complete the modular-monolith boundary control plane | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

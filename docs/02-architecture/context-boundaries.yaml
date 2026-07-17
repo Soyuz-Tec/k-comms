@@ -1,10 +1,65 @@
 version: 1
 status: enforced
-decision: docs/02-architecture/adr/0026-enforce-business-context-boundaries.md
+decision: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
 enforcement:
   mode: baseline
+  target_mode: strict_with_explicit_deferrals
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
+  baseline_adoption:
+    previous_baseline_sha256: 12ad7c5959dbcd0ceacf6797ded33ad83aebcde080af45ce8c64ff878d3d8639
+    allowed_discovery_fingerprints:
+      - 0189e4bac08f3c6e
+      - 218671b946ba8171
+      - 22d29c8a33ec3581
+      - 23dcf56239fd3c92
+      - 25b5955b95d7e60a
+      - 27fdff1b69d498a8
+      - 2d311ace1698b140
+      - 32a70724daad9d65
+      - 41f842b58173a549
+      - 44028c557f9d7ca2
+      - 4f52bd7c42b47a5d
+      - 662a5c4f703eb585
+      - 73b9ff4f915229c8
+      - 84932ac0d5fa25b9
+      - 8a77894c283aac7a
+      - 8c5d4bc9c14685e9
+      - 8dd4f3b5e1378ffb
+      - 97986c01688edbd7
+      - 99cd7470375bce8f
+      - a74facb531f49387
+      - c00fd3d1192fbcc6
+      - c94c7774541553d1
+      - d312276f5a39310f
+      - d800fbf3e8ef2cc5
+      - db68fcb3dac3ef04
+      - de83107f64cbc690
+      - e2aa023f11e60616
+      - e3c6574035e85b56
+      - e442c942c91deaa0
+    removal_condition: Remove this content-bound one-time analyzer adoption after the truthful baseline is present on the protected branch; it never permits fingerprints outside this exact set or against another base baseline.
+  strict_with_explicit_deferrals:
+    active: false
+    activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
+    exact_mapping: true
+    reject_missing_declarations: true
+    reject_stale_declarations: true
+    reject_duplicate_fingerprints: true
+    require_base_branch_no_growth: true
+    require_deterministic_report: true
+    non_baselinable_rules:
+      - ambiguous_context_owner
+      - direct_foreign_write
+      - duplicate_table_mapping
+      - invalid_runtime_collaboration
+      - invalid_temporary_violation
+      - public_ecto_contract
+      - unclassified_core_module
+      - undeclared_runtime_binding
+    no_new_deferrals_for_rules:
+      - adapter_internal_module_import
+      - adapter_schema_import
 
 contexts:
   identity_access:
@@ -27,6 +82,7 @@ contexts:
       - CommsCore.Accounts.SessionView
       - CommsCore.Accounts.UserView
       - CommsCore.ServiceAccounts.ServiceAccountView
+    owned_modules: [CommsCore.Security.Password]
     internal_namespaces: [CommsCore.Accounts, CommsCore.ServiceAccounts]
     allowed_dependencies: [tenant_administration, audit, platform_eventing]
     publishes: [identity.user_created.v1, identity.session_revoked.v1]
@@ -102,6 +158,7 @@ contexts:
       - CommsCore.Notifications.IntentView
       - CommsCore.Notifications.PreferenceView
       - CommsCore.Notifications.PushSubscriptionView
+    owned_modules: [CommsCore.Security.PushSubscriptionBox]
     internal_namespaces: [CommsCore.Notifications]
     allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
     publishes: [notification.delivery_requested.v1, notification.delivery_completed.v1]
@@ -117,6 +174,7 @@ contexts:
       - CommsCore.Integrations.WebhookDeliveryView
       - CommsCore.Integrations.WebhookDispatchRequest
       - CommsCore.Integrations.WebhookEndpointView
+    owned_modules: [CommsCore.Security.SecretBox]
     internal_namespaces: [CommsCore.Integrations]
     allowed_dependencies: [audit, platform_eventing]
     publishes: [webhook.delivery_requested.v1, webhook.delivery_completed.v1]
@@ -160,19 +218,59 @@ contexts:
     allowed_dependencies: [tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
     publishes: []
     consumes: [content.attachment_ready.v1, notification.delivery_completed.v1, webhook.delivery_completed.v1]
+  authorization_kernel:
+    kind: transitional_business_policy
+    graph_scope: included
+    responsibility: Temporary shared authorization dispatcher and database policy retained only while authorization decisions move to the contexts that own the protected state.
+    current_contexts: [Authorization]
+    fold_in: []
+    public_facades: [CommsCore.Authorization]
+    public_contracts: []
+    owned_modules:
+      - CommsCore.Authorization
+      - CommsCore.Authorization.Database
+      - CommsCore.Authorization.DenyAll
+    internal_namespaces: [CommsCore.Authorization]
+    allowed_dependencies: []
+    publishes: []
+    consumes: []
+    removal_condition: Move every non-media decision and persistence read to the context that owns the protected state, replace released callers with named owner APIs and Ecto-free contracts, move any temporarily retained Calls-only clauses behind the Calls boundary, then delete CommsCore.Authorization.Database and retire this context.
+  platform_runtime:
+    kind: technical
+    graph_scope: excluded
+    responsibility: OTP composition, release-only administration, runtime adapter resolution, and stable adapter-facing validation errors.
+    current_contexts: [Application, Release, RuntimePorts, ValidationError]
+    fold_in: []
+    public_facades: [CommsCore.Release, CommsCore.RuntimePorts]
+    public_contracts: [CommsCore.ValidationError]
+    owned_modules:
+      - CommsCore.Application
+      - CommsCore.Release
+      - CommsCore.RuntimePorts
+      - CommsCore.ValidationError
+    internal_namespaces: []
+    allowed_dependencies: [identity_access, conversation_content, platform_persistence]
+    publishes: []
+    consumes: []
   platform_persistence:
     kind: technical
+    graph_scope: excluded
     responsibility: Repository migration metadata and third-party background-job runtime persistence.
     current_contexts: [Repo, EctoMigrations, Oban]
     fold_in: []
     public_facades: []
     public_contracts: []
+    owned_modules:
+      - CommsCore.DatabaseTLS
+      - CommsCore.Repo
+      - CommsCore.Schema
     internal_namespaces: []
     allowed_dependencies: []
     publishes: []
     consumes: []
   platform_eventing:
     kind: technical
+    graph_scope: included
     responsibility: Transactional outbox persistence and stable internal event envelopes.
     current_contexts: [Outbox, Events]
     fold_in: []
@@ -182,6 +280,24 @@ contexts:
     allowed_dependencies: []
     publishes: []
     consumes: []
+
+dependency_graphs:
+  compiled:
+    source: Production CommsCore module references after canonical-schema and exact-module ownership attribution.
+    edge_direction: referencing_owner_to_referenced_owner
+    includes: Contexts whose graph_scope is included or omitted; included is the default.
+    excludes: Contexts whose graph_scope is excluded remain ownership, schema-access, write, and adapter enforcement subjects but do not add compiled graph edges.
+    cycle_policy: A cycle is a violation unless every retained cycle fingerprint has one exact ADR-backed temporary-violation declaration.
+  runtime:
+    source: runtime_collaborations
+    edge_direction: consumer_to_provider
+    includes: Exact declared consumer, provider, port, caller, operation, binding, result contract, and transaction semantics.
+    cycle_policy: Runtime cycles are forbidden unless an exact ADR-backed temporary violation states the invariant and removal condition.
+  combined:
+    source: Union of compiled and runtime edges.
+    edge_direction: preserve_source_graph_direction
+    includes: All included compiled owners and all declared runtime collaborations.
+    cycle_policy: Combined cycles are always reported. A cycle produced solely by an exact validated dependency-inversion collaboration is accepted graph topology; every other combined cycle must be removed or represented by a compiled-cycle or runtime-cycle violation.
 
 namespace_dependency_rules:
   - id: attachments-do-not-depend-on-messaging
@@ -222,6 +338,25 @@ runtime_collaborations:
       compile_dependency: conversations_to_identity_access
       static_cycle_policy: dependency_inversion
     condition: IdentityAccess owns the narrow bootstrap command/result contract while Conversations implements and persists its owner contribution on the caller transaction; this reviewed runtime collaboration is reported separately from compiled context edges and may not grow beyond the declared operations or caller.
+  - id: identity-notification-lifecycle
+    consumer: identity_access
+    provider: notification_delivery
+    port: CommsCore.Accounts.NotificationPort
+    result_contract: CommsCore.Accounts.NotificationReceipt
+    implementation: CommsCore.Notifications
+    callers: [CommsCore.Accounts, CommsCore.PasswordRecovery]
+    operations:
+      - {name: execute, arity: 1}
+    binding:
+      application: comms_core
+      key: identity_notification_adapter
+      module: CommsCore.Notifications
+    transaction: required
+    graph_semantics:
+      control_flow: identity_access_to_notification_delivery
+      compile_dependency: notification_delivery_to_identity_access
+      static_cycle_policy: dependency_inversion
+    condition: IdentityAccess owns the recovery and access-revocation command/result contract while NotificationDelivery implements the contribution on the caller transaction; this reviewed collaboration may not acquire new callers, operations, or bindings without architecture review.
 
 retired_modules:
   - CommsCore.InAppNotifications
@@ -311,7 +446,17 @@ migration_exceptions:
 temporary_violations:
   source: docs/02-architecture/context-boundary-baseline.yaml
   policy: Relative to the checked-in baseline, new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
+  exact_mapping:
+    activation_mode: strict_with_explicit_deferrals
+    cardinality: one_baseline_fingerprint_to_one_declaration
+    required_fields: [id, fingerprint, rule, path, detail, adr, removal_condition]
+    group_required_fields: [id, fingerprints, rule, adr, removal_condition]
+    reject_unmapped_baseline_fingerprints: true
+    reject_stale_declarations: true
+    reject_duplicate_fingerprints: true
+    group_policy: A group is valid only when it contains an exact fingerprints list and expands to declarations that satisfy the same one-to-one rule, path, detail, ADR, and removal-condition checks.
   removal_conditions:
+    adapter_internal_module_import: Replace adapter access to owner-internal implementation modules with a declared facade or Ecto-free public contract.
     duplicate_table_mapping: No baseline exception is permitted after a table reaches one canonical schema; reject every second mapping.
     adapter_schema_import: Replace adapter-facing Ecto structs with DTOs or projections.
     foreign_schema_import: Replace owner-only Ecto schemas with an owner facade, DTO, or projection.
@@ -322,10 +467,156 @@ temporary_violations:
     direct_foreign_write: Move the write behind the owning context API.
     public_ecto_contract: Return a public DTO/projection instead of an Ecto schema.
     business_context_cycle: Remove the bidirectional edge or document a narrowly reviewed exception.
+    runtime_context_cycle: Remove the bidirectional runtime collaboration or document one exact invariant and removal condition.
+  groups:
+    - id: baseline-business-context-cycle
+      rule: business_context_cycle
+      fingerprints: [23dcf56239fd3c92]
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Remove the non-media reverse edges represented by this exact SCC fingerprint; any later Calls-driven SCC must have its own newly reviewed exact declaration.
+    - id: baseline-foreign-schema-imports
+      rule: foreign_schema_import
+      fingerprints:
+        - 46833d9e4f37a9f4
+        - 2a53bebf9a2c2b68
+        - 42cd72ee581f329d
+        - 24d261bf4611f799
+        - 2239525a78f246a4
+        - 9c00206437b708a1
+        - 6e01f546438ba1e0
+        - fd24bbd537ca4f95
+        - 5b2474b6c792fe32
+        - 281d9add61ab8c61
+        - 4d0c0c815493288e
+        - 7ac0c7ca4d4d6af3
+        - fc1a11f2a5f8452a
+        - 8ee1149661d778c8
+        - 605ae97a5fa655cc
+        - 7fbfb2c4017910ce
+        - 440a0becf16cccb8
+        - 9fa2f7bb1abcc6b0
+        - 6af6e9564cd1b152
+        - 66c2fbf2a79936f4
+        - 7c601f7c21a5fe6c
+        - 7e866a84330fe233
+        - 96d281b6465f8b8b
+        - 6b641d47b77c08c7
+        - 8dd4f3b5e1378ffb
+        - c00fd3d1192fbcc6
+        - db68fcb3dac3ef04
+        - d312276f5a39310f
+        - de83107f64cbc690
+        - 99cd7470375bce8f
+        - e3c6574035e85b56
+        - c94c7774541553d1
+        - 27fdff1b69d498a8
+        - 8e1a8065ef4e942a
+        - 121f7164c64045fa
+        - 01480f3bb95a9c16
+        - b868ec00572fc392
+        - e62a5587406838f2
+        - fc4e10c723ffa345
+        - b57d207c73d50d3c
+        - b9eb079551e887da
+        - 0ce8e87873a601ba
+        - 6649c5c8afcc1451
+        - fbe03345ca68ae0e
+        - 3fb3b9127af11031
+        - fd674ae8b306fa26
+        - 9dde14a81ec1bedf
+        - 4024443a7852f0ba
+        - b9d112a8c4fed848
+        - 02a344526496fff1
+        - 39d2b55a0831efb3
+        - 91455ba0a93f09b2
+        - 6b606b572e7256e4
+        - c06055a43f05a1f7
+        - b55f1875cf2b64d8
+        - f1940a85836a5231
+        - 0bb3a37c40cc67ed
+        - 7189e4399b7315ba
+        - e7095da760d0066e
+        - 7cefa81ef6dff66b
+        - 0eed2537c58046a8
+        - 1e36cf5947105a60
+        - 00fed2fc66ac6b5f
+        - f30df696bf8e3c3c
+        - 931b221d49955995
+        - 5eb997f15e01638a
+        - 21514fd0a6bcff09
+        - ca44a9b4fcec3602
+        - 15be140bfa74d0b1
+        - a0a0818fd52b5b6f
+        - 58b919fe1323a5b8
+        - ddc7d93ab9361594
+        - 6ec655792ddf69c9
+        - eb5d23e247bfa767
+        - 84a5b72a3c38e9e8
+        - 1e1d10760987004e
+        - 044ad0a09865bdff
+        - af08c6b0f0c514cf
+        - 1ee6ff99500eaa19
+        - 87dbcd607e0b12b6
+        - 4f6b857dddd8871e
+        - 7df5d18a55a8e299
+        - 6b82842b18ee1b7c
+        - 474e0a1759a65216
+        - c3db96cf85cb9698
+        - c3292521cd5c5918
+        - 82083a1e5dce0f4c
+        - 3d08a6a84ca380ce
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Replace every listed foreign Ecto schema reference with the owning facade, an Ecto-free DTO or projection, or an owner-contributed transaction API; remove each fingerprint as its call site is migrated.
+    - id: baseline-internal-schema-access
+      rule: internal_schema_access
+      fingerprints:
+        - 4791022b743e09fb
+        - 8ab1b96f6b510f3d
+        - 242e1087dab4d610
+        - 830bbf4ebd3732c3
+        - b881cf0b24fc1a13
+        - 537281a03df0f98f
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Move each persistence access into its owner's declared implementation namespace and expose only a stable facade result.
+    - id: baseline-undeclared-context-edges
+      rule: undeclared_context_edge
+      fingerprints:
+        - 662a5c4f703eb585
+        - 889ca078f04b8132
+        - 97986c01688edbd7
+        - 0e985916a4de06ec
+        - 25b5955b95d7e60a
+        - e2aa023f11e60616
+        - 0189e4bac08f3c6e
+        - e442c942c91deaa0
+        - 218671b946ba8171
+        - 32a70724daad9d65
+        - 4f52bd7c42b47a5d
+        - d800fbf3e8ef2cc5
+        - 22d29c8a33ec3581
+        - 2d311ace1698b140
+        - bec8b11dfcf061c7
+        - 84932ac0d5fa25b9
+        - 73b9ff4f915229c8
+        - 41f842b58173a549
+        - 44028c557f9d7ca2
+        - a74facb531f49387
+        - e80e50669f5d670e
+        - a34ca28aa15ea541
+        - 4cc7ca468d6af0e4
+        - c0c0fa81093ad554
+        - 8c5d4bc9c14685e9
+        - 8a77894c283aac7a
+        - 7c47ce0ca3e555a9
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Remove the listed undeclared compiled edge or replace it with a reviewed one-way owner contract or exact runtime collaboration; do not add it to allowed_dependencies merely to silence validation.
   explicit:
     - id: deferred-audio-call-presenter-projection
       fingerprint: 7a1ffc82ac877370
+      rule: adapter_schema_import
       path: apps/comms_web/lib/comms_web/presenter.ex
-      schema: CommsCore.AudioCalls.AudioCall
+      detail: adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: Replace the presenter input with a Calls-owned Ecto-free call view when the separately authorized Calls boundary tranche begins.
       mode: read_only
       condition: Proof Point 5 explicitly excludes unrelated audio/video work; replace with a Calls-owned view when that work resumes.

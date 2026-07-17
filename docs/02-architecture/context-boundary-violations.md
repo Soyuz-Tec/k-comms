@@ -4,7 +4,7 @@ Generated from `scripts/validate_architecture.py --write-boundary-baseline`.
 Existing fingerprints are migration debt. Relative to the checked-in baseline,
 new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
 
-Total tracked violations: **95**.
+Total tracked violations: **123**.
 
 ## adapter_schema_import (1)
 
@@ -16,9 +16,9 @@ Total tracked violations: **95**.
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
-| `75826183c4276dbe` | `docs/02-architecture/context-boundaries.yaml` | members: calls, conversations, identity_access, tenant_administration; edges: calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls, tenant_administration->identity_access |
+| `23dcf56239fd3c92` | `docs/02-architecture/context-boundaries.yaml` | members: audit, authorization_kernel, calls, conversation_content, conversations, identity_access, tenant_administration; edges: audit->authorization_kernel, authorization_kernel->audit, authorization_kernel->conversation_content, authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->audit, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversation_content->audit, conversation_content->authorization_kernel, conversation_content->conversations, conversation_content->identity_access, conversation_content->tenant_administration, conversations->audit, conversations->authorization_kernel, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->audit, identity_access->authorization_kernel, identity_access->calls, identity_access->tenant_administration, tenant_administration->audit, tenant_administration->authorization_kernel, tenant_administration->calls, tenant_administration->identity_access |
 
-## foreign_schema_import (79)
+## foreign_schema_import (88)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
@@ -46,6 +46,15 @@ Total tracked violations: **95**.
 | `7e866a84330fe233` | `apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex` | CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Accounts.Tenant |
 | `96d281b6465f8b8b` | `apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex` | CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Accounts.User |
 | `6b641d47b77c08c7` | `apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex` | CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Conversations.Conversation |
+| `8dd4f3b5e1378ffb` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Device |
+| `c00fd3d1192fbcc6` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.PlatformRoleGrant |
+| `db68fcb3dac3ef04` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Session |
+| `d312276f5a39310f` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Tenant |
+| `de83107f64cbc690` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.User |
+| `99cd7470375bce8f` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Administration.TenantSettings |
+| `e3c6574035e85b56` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Conversation |
+| `c94c7774541553d1` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership |
+| `27fdff1b69d498a8` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Messaging.Message |
 | `8e1a8065ef4e942a` | `apps/comms_core/lib/comms_core/conversations.ex` | CommsCore.Conversations references owner-internal schema CommsCore.Accounts.User |
 | `121f7164c64045fa` | `apps/comms_core/lib/comms_core/conversations.ex` | CommsCore.Conversations references owner-internal schema CommsCore.Administration.TenantSettings |
 | `01480f3bb95a9c16` | `apps/comms_core/lib/comms_core/conversations/conversation.ex` | CommsCore.Conversations.Conversation references owner-internal schema CommsCore.Accounts.Tenant |
@@ -113,15 +122,90 @@ Total tracked violations: **95**.
 | `b881cf0b24fc1a13` | `apps/comms_core/lib/comms_core/password_recovery.ex` | CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.Session |
 | `537281a03df0f98f` | `apps/comms_core/lib/comms_core/password_recovery.ex` | CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.User |
 
-## undeclared_context_edge (8)
+## undeclared_context_edge (27)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
+| `662a5c4f703eb585` | `apps/comms_core/lib/comms_core/accounts.ex` | identity_access -> authorization_kernel through CommsCore.Authorization |
 | `889ca078f04b8132` | `apps/comms_core/lib/comms_core/accounts.ex` | identity_access -> calls through CommsCore.AudioCalls |
+| `97986c01688edbd7` | `apps/comms_core/lib/comms_core/administration.ex` | tenant_administration -> authorization_kernel through CommsCore.Authorization |
 | `0e985916a4de06ec` | `apps/comms_core/lib/comms_core/administration.ex` | tenant_administration -> calls through CommsCore.AudioCalls |
+| `25b5955b95d7e60a` | `apps/comms_core/lib/comms_core/administration/invitations.ex` | tenant_administration -> authorization_kernel through CommsCore.Authorization |
+| `e2aa023f11e60616` | `apps/comms_core/lib/comms_core/attachments.ex` | conversation_content -> authorization_kernel through CommsCore.Authorization |
+| `0189e4bac08f3c6e` | `apps/comms_core/lib/comms_core/audio_calls.ex` | calls -> authorization_kernel through CommsCore.Authorization |
+| `e442c942c91deaa0` | `apps/comms_core/lib/comms_core/audit_export.ex` | audit -> authorization_kernel through CommsCore.Authorization |
+| `218671b946ba8171` | `apps/comms_core/lib/comms_core/authorization/database.ex` | authorization_kernel -> audit through CommsCore.Audit |
+| `32a70724daad9d65` | `apps/comms_core/lib/comms_core/authorization/database.ex` | authorization_kernel -> conversation_content through CommsCore.Messaging.Message |
+| `4f52bd7c42b47a5d` | `apps/comms_core/lib/comms_core/authorization/database.ex` | authorization_kernel -> conversations through CommsCore.Conversations, CommsCore.Conversations.Conversation, CommsCore.Conversations.Membership |
+| `d800fbf3e8ef2cc5` | `apps/comms_core/lib/comms_core/authorization/database.ex` | authorization_kernel -> identity_access through CommsCore.Accounts, CommsCore.Accounts.Device, CommsCore.Accounts.PlatformRoleGrant, CommsCore.Accounts.Session, CommsCore.Accounts.User |
+| `22d29c8a33ec3581` | `apps/comms_core/lib/comms_core/authorization/database.ex` | authorization_kernel -> tenant_administration through CommsCore.Accounts.Tenant, CommsCore.Administration.TenantSettings |
+| `2d311ace1698b140` | `apps/comms_core/lib/comms_core/conversations.ex` | conversations -> authorization_kernel through CommsCore.Authorization |
 | `bec8b11dfcf061c7` | `apps/comms_core/lib/comms_core/conversations.ex` | conversations -> calls through CommsCore.AudioCalls |
+| `84932ac0d5fa25b9` | `apps/comms_core/lib/comms_core/governance.ex` | trust_governance -> authorization_kernel through CommsCore.Authorization |
+| `73b9ff4f915229c8` | `apps/comms_core/lib/comms_core/integrations.ex` | webhook_management -> authorization_kernel through CommsCore.Authorization |
+| `41f842b58173a549` | `apps/comms_core/lib/comms_core/messaging.ex` | conversation_content -> authorization_kernel through CommsCore.Authorization |
+| `44028c557f9d7ca2` | `apps/comms_core/lib/comms_core/moderation.ex` | trust_governance -> authorization_kernel through CommsCore.Authorization |
+| `a74facb531f49387` | `apps/comms_core/lib/comms_core/notifications.ex` | notification_delivery -> authorization_kernel through CommsCore.Authorization |
 | `e80e50669f5d670e` | `apps/comms_core/lib/comms_core/notifications/attempt.ex` | notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant |
 | `a34ca28aa15ea541` | `apps/comms_core/lib/comms_core/notifications/intent.ex` | notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant |
 | `4cc7ca468d6af0e4` | `apps/comms_core/lib/comms_core/notifications/preference.ex` | notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant |
 | `c0c0fa81093ad554` | `apps/comms_core/lib/comms_core/notifications/push_subscription.ex` | notification_delivery -> tenant_administration through CommsCore.Accounts.Tenant |
+| `8c5d4bc9c14685e9` | `apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex` | notification_delivery -> authorization_kernel through CommsCore.Authorization |
+| `8a77894c283aac7a` | `apps/comms_core/lib/comms_core/operations.ex` | operations_read_model -> authorization_kernel through CommsCore.Authorization |
 | `7c47ce0ca3e555a9` | `apps/comms_core/lib/comms_core/password_recovery.ex` | identity_access -> calls through CommsCore.AudioCalls |
+
+## Context dependency graphs
+
+### Compiled graph
+
+Static production module references (source owner -> referenced owner).
+
+| Source | Targets |
+|---|---|
+| `audit` | `authorization_kernel` |
+| `authorization_kernel` | `audit`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `calls` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `conversation_content` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `conversations` | `audit`, `authorization_kernel`, `calls`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `identity_access` | `audit`, `authorization_kernel`, `calls`, `tenant_administration` |
+| `notification_delivery` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `operations_read_model` | `authorization_kernel`, `conversation_content`, `conversations`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
+| `tenant_administration` | `audit`, `authorization_kernel`, `calls`, `identity_access` |
+| `trust_governance` | `audit`, `authorization_kernel`, `calls`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `webhook_management` | `audit`, `authorization_kernel`, `platform_eventing` |
+
+Edges: **55**. Strongly connected components: **1**.
+
+- `audit`, `authorization_kernel`, `calls`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration`
+
+### Runtime graph
+
+Declared runtime control flow (consumer -> provider).
+
+| Source | Targets |
+|---|---|
+| `identity_access` | `conversations`, `notification_delivery` |
+
+Edges: **2**. Strongly connected components: **0**.
+
+### Combined graph
+
+Union of compiled references and runtime control flow.
+
+| Source | Targets |
+|---|---|
+| `audit` | `authorization_kernel` |
+| `authorization_kernel` | `audit`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `calls` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `conversation_content` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `conversations` | `audit`, `authorization_kernel`, `calls`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `identity_access` | `audit`, `authorization_kernel`, `calls`, `conversations`, `notification_delivery`, `tenant_administration` |
+| `notification_delivery` | `audit`, `authorization_kernel`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
+| `operations_read_model` | `authorization_kernel`, `conversation_content`, `conversations`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
+| `tenant_administration` | `audit`, `authorization_kernel`, `calls`, `identity_access` |
+| `trust_governance` | `audit`, `authorization_kernel`, `calls`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `webhook_management` | `audit`, `authorization_kernel`, `platform_eventing` |
+
+Edges: **57**. Strongly connected components: **1**.
+
+- `audit`, `authorization_kernel`, `calls`, `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `tenant_administration`
