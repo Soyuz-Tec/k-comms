@@ -17,7 +17,6 @@ defmodule CommsCore.Accounts do
     PlatformRoleGrant,
     Session,
     SocketTicket,
-    Tenant,
     User
   }
 
@@ -65,8 +64,6 @@ defmodule CommsCore.Accounts do
 
         query =
           from(s in Session,
-            join: t in Tenant,
-            on: t.id == s.tenant_id,
             join: u in User,
             on: u.id == s.user_id,
             join: d in Device,
@@ -77,10 +74,11 @@ defmodule CommsCore.Accounts do
                 g.expires_at > ^timestamp,
             where:
               s.id == ^session_id and s.tenant_id == ^tenant_id and s.user_id == ^user_id and
-                s.device_id == ^device_id and t.id == ^tenant_id and t.status == :active and
-                u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
-                u.account_type == :human and d.id == ^device_id and d.tenant_id == ^tenant_id and
-                d.user_id == ^user_id and is_nil(d.revoked_at) and is_nil(s.revoked_at) and
+                s.device_id == ^device_id and u.id == ^user_id and
+                u.tenant_id == ^tenant_id and u.status == :active and
+                u.account_type == :human and d.id == ^device_id and
+                d.tenant_id == ^tenant_id and d.user_id == ^user_id and
+                is_nil(d.revoked_at) and is_nil(s.revoked_at) and
                 s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp,
             select: %{
               tenant_id: s.tenant_id,
@@ -100,7 +98,10 @@ defmodule CommsCore.Accounts do
             {:error, :forbidden}
 
           facts ->
-            {:ok, build_access_grant(facts, subject, timestamp)}
+            case Administration.active_tenant(facts.tenant_id) do
+              {:ok, _tenant} -> {:ok, build_access_grant(facts, subject, timestamp)}
+              {:error, :tenant_unavailable} -> {:error, :forbidden}
+            end
         end
 
       _ ->
@@ -545,10 +546,11 @@ defmodule CommsCore.Accounts do
   end
 
   def access_context(session_id, request_id \\ nil) do
-    with {:ok, session} <- get_active_session(session_id) do
+    with {:ok, session, tenant} <- active_session_with_tenant(session_id) do
       {:ok,
        CommsCore.Accounts.Projector.access_context(
          session,
+         tenant,
          subject_for_session(session, request_id)
        )}
     end
@@ -920,23 +922,23 @@ defmodule CommsCore.Accounts do
   def authenticate(tenant_slug, email, password, device_attrs \\ %{}) do
     normalized_email = email |> to_string() |> String.trim() |> String.downcase()
 
-    query =
-      from(u in User,
-        join: t in assoc(u, :tenant),
-        where:
-          t.slug == ^tenant_slug and t.status == :active and u.status == :active and
-            u.account_type == :human and
-            fragment("lower(?)", u.email) == ^normalized_email,
-        preload: [tenant: t]
-      )
-
-    with %User{} = user <- Repo.one(query),
+    with {:ok, tenant} <- Administration.active_tenant_by_slug(tenant_slug),
+         %User{} = user <-
+           Repo.one(
+             from(u in User,
+               where:
+                 u.tenant_id == ^tenant.id and u.status == :active and
+                   u.account_type == :human and
+                   fragment("lower(?)", u.email) == ^normalized_email
+             )
+           ),
          true <- Password.verify(password, user.password_hash),
+         {:ok, active_tenant} <- Administration.active_tenant(tenant.id),
          {:ok, device} <- upsert_device(user, device_attrs),
          {:ok, session, refresh_token} <- create_session(user, device) do
       {:ok,
        %{
-         tenant: user.tenant,
+         tenant: active_tenant,
          user: user,
          device: device,
          session: session,
@@ -969,22 +971,28 @@ defmodule CommsCore.Accounts do
   end
 
   def get_active_session(id) when is_binary(id) do
+    with {:ok, session, _tenant} <- active_session_with_tenant(id) do
+      {:ok, session}
+    end
+  end
+
+  defp active_session_with_tenant(id) when is_binary(id) do
     query =
       from(s in Session,
-        join: t in assoc(s, :tenant),
         join: u in assoc(s, :user),
         join: d in assoc(s, :device),
         where:
           s.id == ^id and is_nil(s.revoked_at) and s.expires_at > ^now() and
             s.absolute_expires_at > ^now() and
-            t.status == :active and u.status == :active and u.account_type == :human and
-            is_nil(d.revoked_at),
-        preload: [tenant: t, user: u, device: d]
+            u.status == :active and u.account_type == :human and is_nil(d.revoked_at),
+        preload: [user: u, device: d]
       )
 
-    case Repo.one(query) do
-      %Session{} = session -> {:ok, session}
-      nil -> {:error, :session_expired}
+    with %Session{} = session <- Repo.one(query),
+         {:ok, tenant} <- Administration.active_tenant(session.tenant_id) do
+      {:ok, session, tenant}
+    else
+      _ -> {:error, :session_expired}
     end
   end
 
@@ -1630,7 +1638,7 @@ defmodule CommsCore.Accounts do
              user_id: session.user_id
            ),
          true <- is_nil(device.revoked_at),
-         %Tenant{status: :active} = tenant <- Repo.get(Tenant, session.tenant_id) do
+         {:ok, tenant} <- Administration.active_tenant(session.tenant_id) do
       {new_token, new_hash} = refresh_token(session.id)
 
       case session

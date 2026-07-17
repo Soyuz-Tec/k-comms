@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.Session do
   use CommsCore.Schema
 
   schema "sessions" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:user, CommsCore.Accounts.User)
     belongs_to(:device, CommsCore.Accounts.Device)
     field(:refresh_token_hash, :binary, redact: true)

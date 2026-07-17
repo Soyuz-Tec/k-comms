@@ -1,4 +1,4 @@
-defmodule CommsCore.Accounts.Tenant do
+defmodule CommsCore.Administration.Tenant do
   use CommsCore.Schema
 
   schema "tenants" do

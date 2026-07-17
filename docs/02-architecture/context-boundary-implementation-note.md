@@ -157,3 +157,25 @@ declares the synchronous runtime collaboration. The port binding, exact
 operation and caller sets, owner APIs, adapter exclusion, and graph delta are
 CI regressions. See ADR-0034 and
 `proof-point-13-identity-conversation-owner-direction.md`.
+
+## 9. Tenant ownership and IdentityAccess containment — completed 2026-07-17
+
+TenantAdministration now owns both the `tenants` table and its sole canonical
+`CommsCore.Administration.Tenant` schema. There is no
+`CommsCore.Accounts.Tenant` compatibility schema. IdentityAccess schemas retain
+tenant identity as scalar UUIDs, while Accounts, ServiceAccounts, and password
+recovery consume fail-closed `TenantView` queries through the Administration
+facade.
+
+The released `CommsCore.PasswordRecovery` module is a thin adapter facade;
+IdentityAccess persistence and notification-port orchestration live in
+`CommsCore.Accounts.PasswordRecovery`. The reset facade still contributes Calls
+revocation to the existing transaction and returns the Ecto-free
+`PasswordRecoveryResult` rather than a User schema or generic map. Calls and
+Authorization receive only a mechanical canonical-schema rename in this
+tranche, so their five replacement fingerprints remain mapped to exact
+Calls-only deferrals.
+
+The reviewed baseline transition is 46 to 32 findings: nineteen removals and
+five exact mechanical replacements, with no database migration or unrelated
+deferral.

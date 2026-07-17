@@ -1,8 +1,6 @@
 defmodule CommsCore.Administration do
   import Ecto.Query
 
-  alias CommsCore.Accounts.Tenant
-
   alias CommsCore.Administration.{
     AuthorizationActor,
     AuthorizationActorPort,
@@ -12,7 +10,9 @@ defmodule CommsCore.Administration do
     Invitations,
     Projector,
     RetentionDefaults,
-    TenantSettings
+    Tenant,
+    TenantSettings,
+    TenantView
   }
 
   alias CommsCore.Audit
@@ -109,6 +109,42 @@ defmodule CommsCore.Administration do
 
   @doc false
   def any_tenant?, do: Repo.exists?(Tenant)
+
+  @doc """
+  Returns an active tenant as a stable owner projection.
+
+  Missing, suspended, deleting, and malformed tenant identifiers are deliberately
+  indistinguishable to callers outside TenantAdministration.
+  """
+  @spec active_tenant(Ecto.UUID.t()) ::
+          {:ok, TenantView.t()} | {:error, :tenant_unavailable}
+  def active_tenant(tenant_id) when is_binary(tenant_id) do
+    with {:ok, _uuid} <- Ecto.UUID.cast(tenant_id),
+         %Tenant{} = tenant <- Repo.get_by(Tenant, id: tenant_id, status: :active) do
+      {:ok, Projector.tenant(tenant)}
+    else
+      _ -> {:error, :tenant_unavailable}
+    end
+  end
+
+  def active_tenant(_tenant_id), do: {:error, :tenant_unavailable}
+
+  @doc """
+  Returns an active tenant by slug as a stable owner projection.
+
+  Missing, suspended, and deleting tenants are deliberately indistinguishable
+  to callers outside TenantAdministration.
+  """
+  @spec active_tenant_by_slug(String.t()) ::
+          {:ok, TenantView.t()} | {:error, :tenant_unavailable}
+  def active_tenant_by_slug(slug) when is_binary(slug) do
+    case Repo.get_by(Tenant, slug: slug, status: :active) do
+      %Tenant{} = tenant -> {:ok, Projector.tenant(tenant)}
+      nil -> {:error, :tenant_unavailable}
+    end
+  end
+
+  def active_tenant_by_slug(_slug), do: {:error, :tenant_unavailable}
 
   @doc """
   Returns the tenant's optional default retention period as a stable projection.

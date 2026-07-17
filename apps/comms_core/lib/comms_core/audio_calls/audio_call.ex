@@ -2,7 +2,7 @@ defmodule CommsCore.AudioCalls.AudioCall do
   use CommsCore.Schema
 
   schema "audio_calls" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    belongs_to(:tenant, CommsCore.Administration.Tenant)
     belongs_to(:conversation, CommsCore.Conversations.Conversation)
     belongs_to(:started_by_user, CommsCore.Accounts.User)
     belongs_to(:ended_by_user, CommsCore.Accounts.User)

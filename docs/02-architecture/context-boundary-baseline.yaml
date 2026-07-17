@@ -13,42 +13,14 @@ violations:
     authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations,
     calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration,
     identity_access->calls, identity_access->tenant_administration, tenant_administration->calls'
-- fingerprint: 46833d9e4f37a9f4
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts.ex
-  detail: CommsCore.Accounts references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 2a53bebf9a2c2b68
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/device.ex
-  detail: CommsCore.Accounts.Device references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 42cd72ee581f329d
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/password_recovery_request.ex
-  detail: CommsCore.Accounts.PasswordRecoveryRequest references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 24d261bf4611f799
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/platform_role_grant.ex
-  detail: CommsCore.Accounts.PlatformRoleGrant references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 2239525a78f246a4
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/session.ex
-  detail: CommsCore.Accounts.Session references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 9c00206437b708a1
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/socket_ticket.ex
-  detail: CommsCore.Accounts.SocketTicket references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 6e01f546438ba1e0
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/accounts/user.ex
-  detail: CommsCore.Accounts.User references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: fc1a11f2a5f8452a
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls.ex
   detail: CommsCore.AudioCalls references owner-internal schema CommsCore.Accounts.Session
-- fingerprint: 8ee1149661d778c8
+- fingerprint: a99d73667cfe396f
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls.ex
-  detail: CommsCore.AudioCalls references owner-internal schema CommsCore.Accounts.Tenant
+  detail: CommsCore.AudioCalls references owner-internal schema CommsCore.Administration.Tenant
 - fingerprint: 605ae97a5fa655cc
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls.ex
@@ -57,14 +29,14 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls.ex
   detail: CommsCore.AudioCalls references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: 440a0becf16cccb8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/audio_calls/audio_call.ex
-  detail: CommsCore.AudioCalls.AudioCall references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: 9fa2f7bb1abcc6b0
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls/audio_call.ex
   detail: CommsCore.AudioCalls.AudioCall references owner-internal schema CommsCore.Accounts.User
+- fingerprint: 64ebb8611dae56b3
+  rule: foreign_schema_import
+  path: apps/comms_core/lib/comms_core/audio_calls/audio_call.ex
+  detail: CommsCore.AudioCalls.AudioCall references owner-internal schema CommsCore.Administration.Tenant
 - fingerprint: 6af6e9564cd1b152
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls/audio_call.ex
@@ -77,14 +49,14 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex
   detail: CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Accounts.Session
-- fingerprint: 7e866a84330fe233
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex
-  detail: CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: 96d281b6465f8b8b
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex
   detail: CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Accounts.User
+- fingerprint: d4743d3326027747
+  rule: foreign_schema_import
+  path: apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex
+  detail: CommsCore.AudioCalls.AudioCallParticipant references owner-internal schema CommsCore.Administration.Tenant
 - fingerprint: 6b641d47b77c08c7
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls/audio_call_participant.ex
@@ -97,14 +69,14 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Session
-- fingerprint: d312276f5a39310f
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: de83107f64cbc690
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Accounts.User
+- fingerprint: 245ad9a0716b68dd
+  rule: foreign_schema_import
+  path: apps/comms_core/lib/comms_core/authorization/database.ex
+  detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Administration.Tenant
 - fingerprint: 99cd7470375bce8f
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
@@ -121,18 +93,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex
   detail: CommsCore.Integrations.WebhookDelivery references owner-internal schema CommsCore.Events.OutboxEvent
-- fingerprint: c3292521cd5c5918
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/password_recovery.ex
-  detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 82083a1e5dce0f4c
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/service_accounts.ex
-  detail: CommsCore.ServiceAccounts references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 3d08a6a84ca380ce
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/service_accounts/service_account.ex
-  detail: CommsCore.ServiceAccounts.ServiceAccount references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: 4791022b743e09fb
   rule: internal_schema_access
   path: apps/comms_core/lib/comms_core/admission_quotas.ex
@@ -141,22 +101,6 @@ violations:
   rule: internal_schema_access
   path: apps/comms_core/lib/comms_core/outbox.ex
   detail: CommsCore.Outbox references owner-internal schema CommsCore.Events.OutboxEvent
-- fingerprint: 242e1087dab4d610
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/password_recovery.ex
-  detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.Device
-- fingerprint: 830bbf4ebd3732c3
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/password_recovery.ex
-  detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.PasswordRecoveryRequest
-- fingerprint: b881cf0b24fc1a13
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/password_recovery.ex
-  detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.Session
-- fingerprint: 537281a03df0f98f
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/password_recovery.ex
-  detail: CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.User
 - fingerprint: 889ca078f04b8132
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/accounts.ex
@@ -178,10 +122,10 @@ violations:
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: authorization_kernel -> identity_access through CommsCore.Accounts, CommsCore.Accounts.Device, CommsCore.Accounts.Session,
     CommsCore.Accounts.User
-- fingerprint: 22d29c8a33ec3581
+- fingerprint: eb0650068879158b
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/authorization/database.ex
-  detail: authorization_kernel -> tenant_administration through CommsCore.Accounts.Tenant, CommsCore.Administration.TenantSettings
+  detail: authorization_kernel -> tenant_administration through CommsCore.Administration.Tenant, CommsCore.Administration.TenantSettings
 - fingerprint: bec8b11dfcf061c7
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/conversations.ex

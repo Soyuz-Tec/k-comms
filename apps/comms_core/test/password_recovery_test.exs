@@ -2,6 +2,8 @@ defmodule CommsCore.PasswordRecoveryTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts.{Device, PasswordRecoveryRequest, Session, User}
+  alias CommsCore.Accounts.PasswordRecovery, as: IdentityPasswordRecovery
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Notifications
   alias CommsCore.Notifications.{Intent, PushSubscription}
   alias CommsCore.{Accounts, Audit, PasswordRecovery, Repo}
@@ -10,6 +12,7 @@ defmodule CommsCore.PasswordRecoveryTest do
 
   @p256dh "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
   @auth "AAECAwQFBgcICQoLDA0ODw"
+  @dummy_tenant_id "00000000-0000-0000-0000-000000000000"
 
   test "known and unknown recovery requests are indistinguishable and sensitive intents stay hidden" do
     account = Fixtures.account_fixture()
@@ -93,6 +96,41 @@ defmodule CommsCore.PasswordRecoveryTest do
     assert System.monotonic_time(:millisecond) - started_at >= 245
   end
 
+  test "missing tenants still execute the identity lookup with the fixed dummy tenant id" do
+    parent = self()
+    handler_id = {__MODULE__, :missing_tenant_identity_lookup, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, test_pid ->
+                 query = Map.get(metadata, :query, "")
+
+                 if String.contains?(query, ~s(FROM "users")) and
+                      not String.contains?(query, "FOR UPDATE") do
+                   send(
+                     test_pid,
+                     {:password_recovery_identity_lookup, query, Map.get(metadata, :params, [])}
+                   )
+                 end
+               end,
+               parent
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: "missing-password-recovery-tenant",
+               email: "missing-password-recovery-user@example.test"
+             })
+
+    assert_receive {:password_recovery_identity_lookup, query, params}
+    refute query =~ ~s(JOIN "tenants")
+    assert Ecto.UUID.dump!(@dummy_tenant_id) in params
+  end
+
   test "new requests invalidate old tokens and reset consumes once, changes password, and revokes access" do
     account = Fixtures.account_fixture()
     old_password = fixture_password(account)
@@ -174,6 +212,90 @@ defmodule CommsCore.PasswordRecoveryTest do
 
     refute Jason.encode!(consume_audit.metadata) =~ second_token
     refute Jason.encode!(consume_audit.metadata) =~ account.user.email
+  end
+
+  test "audio revocation is contributed inside reset transaction and failure rolls everything back" do
+    account = Fixtures.account_fixture()
+    old_user = Repo.get!(User, account.user.id)
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: account.tenant.slug,
+               email: account.user.email
+             })
+
+    recovery = latest_recovery()
+    token = token_for_recovery(recovery)
+    parent = self()
+    tenant_id = account.tenant.id
+    user_id = account.user.id
+
+    revoke_audio = fn tenant_id, user_id, reason ->
+      send(
+        parent,
+        {:audio_revocation_contribution, Repo.in_transaction?(), tenant_id, user_id, reason}
+      )
+
+      {:error, :forced_audio_revocation_failure}
+    end
+
+    assert {:error, :forced_audio_revocation_failure} =
+             IdentityPasswordRecovery.reset(
+               %{token: token, new_password: "correct-horse-audio-rollback"},
+               revoke_audio
+             )
+
+    assert_receive {:audio_revocation_contribution, true, ^tenant_id, ^user_id,
+                    "password_recovery"}
+
+    assert is_nil(Repo.get!(PasswordRecoveryRequest, recovery.id).consumed_at)
+    assert Repo.get!(User, account.user.id).password_hash == old_user.password_hash
+    assert is_nil(Repo.get!(Session, account.session.id).revoked_at)
+    assert is_nil(Repo.get!(Device, account.device.id).revoked_at)
+  end
+
+  test "tenant suspension prevents recovery creation, delivery, and reset consumption" do
+    account = Fixtures.account_fixture()
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: account.tenant.slug,
+               email: account.user.email
+             })
+
+    recovery = latest_recovery()
+    token = token_for_recovery(recovery)
+    old_password_hash = Repo.get!(User, account.user.id).password_hash
+    intent_count = Repo.aggregate(Intent, :count)
+
+    account.tenant
+    |> Tenant.changeset(%{status: :suspended})
+    |> Repo.update!()
+
+    assert {:error, :password_recovery_not_deliverable} =
+             PasswordRecovery.materialize_notification(%{
+               tenant_id: account.tenant.id,
+               user_id: account.user.id,
+               recovery_request_id: recovery.id
+             })
+
+    assert {:error, :invalid_password_recovery_token} =
+             PasswordRecovery.reset(%{
+               token: token,
+               new_password: "correct-horse-suspended-tenant"
+             })
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: account.tenant.slug,
+               email: account.user.email
+             })
+
+    assert Repo.aggregate(Intent, :count) == intent_count
+    assert is_nil(Repo.get!(PasswordRecoveryRequest, recovery.id).consumed_at)
+    assert Repo.get!(User, account.user.id).password_hash == old_password_hash
+    assert is_nil(Repo.get!(Session, account.session.id).revoked_at)
+    assert is_nil(Repo.get!(Device, account.device.id).revoked_at)
   end
 
   test "expired recovery tokens cannot materialize or reset" do

@@ -13,6 +13,7 @@ defmodule CommsCore.ServiceAccountsTest do
   }
 
   alias CommsCore.Accounts.{Device, User}
+  alias CommsCore.Administration.Tenant
   alias CommsCore.ServiceAccounts.ServiceAccount
   alias CommsTestSupport.Fixtures
 
@@ -349,6 +350,37 @@ defmodule CommsCore.ServiceAccountsTest do
 
     assert {:error, :forbidden} =
              ServiceAccounts.authorize_service(service_subject, "conversations:read")
+  end
+
+  test "service authentication and authorization fail closed for an inactive tenant" do
+    owner = Fixtures.account_fixture()
+    subject = Fixtures.step_up(owner)
+
+    assert {:ok, created} =
+             ServiceAccounts.create(
+               %{
+                 name: "Tenant Status Bot",
+                 scopes: ["conversations:read"],
+                 reason: "Verify tenant owner status enforcement"
+               },
+               subject
+             )
+
+    assert {:ok, service_subject} = ServiceAccounts.authenticate(created.credential)
+    assert :ok = ServiceAccounts.authorize_service(service_subject, "conversations:read")
+
+    Tenant
+    |> Repo.get!(owner.tenant.id)
+    |> Tenant.changeset(%{status: :suspended})
+    |> Repo.update!()
+
+    assert {:error, :invalid_service_token} =
+             ServiceAccounts.authenticate(created.credential)
+
+    assert {:error, :forbidden} =
+             ServiceAccounts.authorize_service(service_subject, "conversations:read")
+
+    assert {:error, :forbidden} = ServiceAccounts.list(subject)
   end
 
   test "expiry is bounded and cleanup disables the durable bot identity" do

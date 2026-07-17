@@ -3,7 +3,8 @@ defmodule CommsCore.Notifications.PushSubscriptionsConcurrencyTest do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Tenant}
+  alias CommsCore.Accounts.Device
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Audit
   alias CommsCore.Notifications.{PushSubscription, PushSubscriptions}
   alias CommsCore.Repo

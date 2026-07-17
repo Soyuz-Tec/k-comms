@@ -14,6 +14,7 @@ defmodule CommsCore.Accounts.Projector do
   }
 
   alias CommsCore.Administration.Projector, as: AdministrationProjector
+  alias CommsCore.Administration.TenantView
 
   def user(%User{} = user, opts \\ []) do
     platform_access =
@@ -80,11 +81,11 @@ defmodule CommsCore.Accounts.Projector do
     })
   end
 
-  def access_context(%Session{} = session, subject) do
+  def access_context(%Session{} = session, %TenantView{} = tenant, subject) do
     struct!(AccessContext, %{
       subject: subject,
       session: session(session),
-      tenant: AdministrationProjector.tenant(session.tenant),
+      tenant: tenant,
       user: user(session.user, platform_access: true),
       device: device(session.device)
     })

@@ -4,7 +4,8 @@ defmodule CommsCore.GovernanceOwnerConcurrencyTest do
   import Ecto.Query
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Tenant, User, UserView}
+  alias CommsCore.Accounts.{User, UserView}
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Governance
   alias CommsCore.Governance.{DeletionRequest, DeletionRequestView}
   alias CommsCore.Repo

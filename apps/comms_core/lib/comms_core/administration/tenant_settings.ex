@@ -2,7 +2,7 @@ defmodule CommsCore.Administration.TenantSettings do
   use CommsCore.Schema
 
   schema "tenant_settings" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    belongs_to(:tenant, CommsCore.Administration.Tenant)
     field(:allow_public_channels, :boolean, default: true)
     field(:allow_audio_calls, :boolean, default: true)
     field(:allow_video_calls, :boolean, default: true)

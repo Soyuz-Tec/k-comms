@@ -4,7 +4,7 @@ defmodule CommsCore.ServiceAccounts.ServiceAccount do
   @scopes ["conversations:read", "messages:read", "messages:write", "search:read"]
 
   schema "service_accounts" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:user, CommsCore.Accounts.User)
     belongs_to(:device, CommsCore.Accounts.Device)
     belongs_to(:created_by_user, CommsCore.Accounts.User)

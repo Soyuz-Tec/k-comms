@@ -1,8 +1,8 @@
 defmodule CommsCore.ServiceAccounts do
   import Ecto.Query
 
-  alias CommsCore.{Accounts, AdmissionQuotas, Repo}
-  alias CommsCore.Accounts.{Device, Session, Tenant, User}
+  alias CommsCore.{Accounts, Administration, AdmissionQuotas, Repo}
+  alias CommsCore.Accounts.{Device, Session, User}
   alias CommsCore.Audit
   alias CommsCore.ServiceAccounts.ServiceAccount
 
@@ -212,9 +212,9 @@ defmodule CommsCore.ServiceAccounts do
     secret_valid = secure_equals(expected, digest)
 
     case identity do
-      {%ServiceAccount{} = account, %User{} = user, %Device{} = device, %Tenant{} = tenant}
-      when secret_valid ->
-        if active_identity?(account, user, device, tenant) do
+      {%ServiceAccount{} = account, %User{} = user, %Device{} = device} when secret_valid ->
+        with true <- active_identity?(account, user, device),
+             {:ok, _tenant} <- Administration.active_tenant(account.tenant_id) do
           touch_last_used(account)
 
           {:ok,
@@ -229,7 +229,7 @@ defmodule CommsCore.ServiceAccounts do
              request_id: request_id
            }}
         else
-          {:error, :invalid_service_token}
+          _ -> {:error, :invalid_service_token}
         end
 
       _ ->
@@ -280,27 +280,37 @@ defmodule CommsCore.ServiceAccounts do
   defp human_admin_identity(subject) do
     timestamp = now()
 
-    Repo.one(
-      from(user in User,
-        join: tenant in Tenant,
-        on: tenant.id == user.tenant_id,
-        join: device in Device,
-        on: device.tenant_id == user.tenant_id and device.user_id == user.id,
-        join: session in Session,
-        on:
-          session.tenant_id == user.tenant_id and session.user_id == user.id and
-            session.device_id == device.id,
-        where:
-          user.id == ^value(subject, :user_id) and
-            user.tenant_id == ^value(subject, :tenant_id) and
-            user.account_type == :human and user.status == :active and
-            tenant.status == :active and device.id == ^value(subject, :device_id) and
-            is_nil(device.revoked_at) and session.id == ^value(subject, :session_id) and
-            is_nil(session.revoked_at) and session.expires_at > ^timestamp and
-            session.absolute_expires_at > ^timestamp,
-        select: {user, session}
+    identity =
+      Repo.one(
+        from(user in User,
+          join: device in Device,
+          on: device.tenant_id == user.tenant_id and device.user_id == user.id,
+          join: session in Session,
+          on:
+            session.tenant_id == user.tenant_id and session.user_id == user.id and
+              session.device_id == device.id,
+          where:
+            user.id == ^value(subject, :user_id) and
+              user.tenant_id == ^value(subject, :tenant_id) and
+              user.account_type == :human and user.status == :active and
+              device.id == ^value(subject, :device_id) and is_nil(device.revoked_at) and
+              session.id == ^value(subject, :session_id) and
+              is_nil(session.revoked_at) and session.expires_at > ^timestamp and
+              session.absolute_expires_at > ^timestamp,
+          select: {user, session}
+        )
       )
-    )
+
+    case identity do
+      {%User{tenant_id: tenant_id}, %Session{}} = active_identity ->
+        case Administration.active_tenant(tenant_id) do
+          {:ok, _tenant} -> active_identity
+          _ -> nil
+        end
+
+      nil ->
+        nil
+    end
   end
 
   defp recent_step_up?(%DateTime{} = stepped_up_at) do
@@ -313,30 +323,39 @@ defmodule CommsCore.ServiceAccounts do
   defp current_service_account(identity_key) do
     timestamp = now()
 
-    Repo.one(
-      from(account in ServiceAccount,
-        join: user in User,
-        on: user.id == account.user_id and user.tenant_id == account.tenant_id,
-        join: device in Device,
-        on:
-          device.id == account.device_id and device.user_id == account.user_id and
-            device.tenant_id == account.tenant_id,
-        join: tenant in Tenant,
-        on: tenant.id == account.tenant_id,
-        where:
-          account.id == ^identity_key.service_account_id and
-            account.tenant_id == ^identity_key.tenant_id and
-            account.user_id == ^identity_key.user_id and
-            account.device_id == ^identity_key.device_id and
-            account.credential_generation == ^identity_key.credential_generation and
-            account.status == :active and account.expires_at > ^timestamp and
-            user.account_type == :service and user.status == :active and
-            user.role == :member and is_nil(user.platform_role) and is_nil(user.password_hash) and
-            device.platform == "service_account" and is_nil(device.revoked_at) and
-            tenant.status == :active,
-        select: account
+    account =
+      Repo.one(
+        from(account in ServiceAccount,
+          join: user in User,
+          on: user.id == account.user_id and user.tenant_id == account.tenant_id,
+          join: device in Device,
+          on:
+            device.id == account.device_id and device.user_id == account.user_id and
+              device.tenant_id == account.tenant_id,
+          where:
+            account.id == ^identity_key.service_account_id and
+              account.tenant_id == ^identity_key.tenant_id and
+              account.user_id == ^identity_key.user_id and
+              account.device_id == ^identity_key.device_id and
+              account.credential_generation == ^identity_key.credential_generation and
+              account.status == :active and account.expires_at > ^timestamp and
+              user.account_type == :service and user.status == :active and
+              user.role == :member and is_nil(user.platform_role) and is_nil(user.password_hash) and
+              device.platform == "service_account" and is_nil(device.revoked_at),
+          select: account
+        )
       )
-    )
+
+    case account do
+      %ServiceAccount{tenant_id: tenant_id} = active_account ->
+        case Administration.active_tenant(tenant_id) do
+          {:ok, _tenant} -> active_account
+          _ -> nil
+        end
+
+      nil ->
+        nil
+    end
   end
 
   defp service_identity_key(subject) do
@@ -372,20 +391,17 @@ defmodule CommsCore.ServiceAccounts do
         on:
           device.id == account.device_id and device.user_id == account.user_id and
             device.tenant_id == account.tenant_id,
-        join: tenant in Tenant,
-        on: tenant.id == account.tenant_id,
         where: account.id == ^account_id,
-        select: {account, user, device, tenant}
+        select: {account, user, device}
       )
     )
   end
 
-  defp active_identity?(account, user, device, tenant) do
+  defp active_identity?(account, user, device) do
     account.status == :active and DateTime.compare(account.expires_at, now()) == :gt and
       user.account_type == :service and user.status == :active and is_nil(user.password_hash) and
       user.role == :member and is_nil(user.platform_role) and
-      device.platform == "service_account" and is_nil(device.revoked_at) and
-      tenant.status == :active
+      device.platform == "service_account" and is_nil(device.revoked_at)
   end
 
   defp touch_last_used(account) do

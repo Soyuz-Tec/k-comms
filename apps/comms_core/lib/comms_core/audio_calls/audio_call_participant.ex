@@ -2,7 +2,7 @@ defmodule CommsCore.AudioCalls.AudioCallParticipant do
   use CommsCore.Schema
 
   schema "audio_call_participants" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    belongs_to(:tenant, CommsCore.Administration.Tenant)
     belongs_to(:audio_call, CommsCore.AudioCalls.AudioCall)
     belongs_to(:conversation, CommsCore.Conversations.Conversation)
     belongs_to(:user, CommsCore.Accounts.User)

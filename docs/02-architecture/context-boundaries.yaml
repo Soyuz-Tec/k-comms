@@ -162,6 +162,36 @@ enforcement:
         - f30df696bf8e3c3c
       adr: docs/02-architecture/adr/0040-contain-conversation-content-persistence.md
       removal_condition: Remove this exact 59-to-46 finding transition after the ConversationContent containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: assign-tenants-to-tenant-administration
+      previous_baseline_sha256: 2693d8743484856dfda3bb39fa5c02214e277f50db914f341632c65b8ee97762
+      added_fingerprints:
+        - 245ad9a0716b68dd
+        - 64ebb8611dae56b3
+        - a99d73667cfe396f
+        - d4743d3326027747
+        - eb0650068879158b
+      removed_fingerprints:
+        - 2239525a78f246a4
+        - 22d29c8a33ec3581
+        - 242e1087dab4d610
+        - 24d261bf4611f799
+        - 2a53bebf9a2c2b68
+        - 3d08a6a84ca380ce
+        - 42cd72ee581f329d
+        - 440a0becf16cccb8
+        - 46833d9e4f37a9f4
+        - 537281a03df0f98f
+        - 6e01f546438ba1e0
+        - 7e866a84330fe233
+        - 82083a1e5dce0f4c
+        - 830bbf4ebd3732c3
+        - 8ee1149661d778c8
+        - 9c00206437b708a1
+        - b881cf0b24fc1a13
+        - c3292521cd5c5918
+        - d312276f5a39310f
+      adr: docs/02-architecture/adr/0041-assign-tenants-to-tenant-administration.md
+      removal_condition: Remove this exact 46-to-32 finding transition after the TenantAdministration ownership baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -203,6 +233,7 @@ contexts:
       - CommsCore.Accounts.NotificationPort
       - CommsCore.Accounts.NotificationRecipient
       - CommsCore.Accounts.NotificationReceipt
+      - CommsCore.Accounts.PasswordRecoveryResult
       - CommsCore.Accounts.SessionView
       - CommsCore.Accounts.UserView
       - CommsCore.ServiceAccounts.ServiceAccountView
@@ -490,7 +521,7 @@ runtime_collaborations:
     port: CommsCore.Accounts.NotificationPort
     result_contract: CommsCore.Accounts.NotificationReceipt
     implementation: CommsCore.Notifications
-    callers: [CommsCore.Accounts, CommsCore.PasswordRecovery]
+    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
     operations:
       - {name: execute, arity: 1}
     binding:
@@ -569,7 +600,7 @@ retired_modules:
   - CommsCore.PushSubscriptions
 
 tables:
-  tenants: {owner: tenant_administration, canonical_schema: CommsCore.Accounts.Tenant, role: source}
+  tenants: {owner: tenant_administration, canonical_schema: CommsCore.Administration.Tenant, role: source}
   tenant_settings: {owner: tenant_administration, canonical_schema: CommsCore.Administration.TenantSettings, role: source}
   invitations: {owner: tenant_administration, canonical_schema: CommsCore.Administration.Invitation, role: source}
   users: {owner: identity_access, canonical_schema: CommsCore.Accounts.User, role: source}
@@ -685,36 +716,22 @@ temporary_violations:
     - id: baseline-foreign-schema-imports
       rule: foreign_schema_import
       fingerprints:
-        - 46833d9e4f37a9f4
-        - 2a53bebf9a2c2b68
-        - 42cd72ee581f329d
-        - 24d261bf4611f799
-        - 2239525a78f246a4
-        - 9c00206437b708a1
-        - 6e01f546438ba1e0
         - fc1a11f2a5f8452a
-        - 8ee1149661d778c8
         - 605ae97a5fa655cc
         - 7fbfb2c4017910ce
-        - 440a0becf16cccb8
         - 9fa2f7bb1abcc6b0
         - 6af6e9564cd1b152
         - 66c2fbf2a79936f4
         - 7c601f7c21a5fe6c
-        - 7e866a84330fe233
         - 96d281b6465f8b8b
         - 6b641d47b77c08c7
         - 8dd4f3b5e1378ffb
         - db68fcb3dac3ef04
-        - d312276f5a39310f
         - de83107f64cbc690
         - 99cd7470375bce8f
         - e3c6574035e85b56
         - c94c7774541553d1
         - c06055a43f05a1f7
-        - c3292521cd5c5918
-        - 82083a1e5dce0f4c
-        - 3d08a6a84ca380ce
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Replace every listed foreign Ecto schema reference with the owning facade, an Ecto-free DTO or projection, or an owner-contributed transaction API; remove each fingerprint as its call site is migrated.
     - id: baseline-internal-schema-access
@@ -722,10 +739,6 @@ temporary_violations:
       fingerprints:
         - 4791022b743e09fb
         - 8ab1b96f6b510f3d
-        - 242e1087dab4d610
-        - 830bbf4ebd3732c3
-        - b881cf0b24fc1a13
-        - 537281a03df0f98f
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Move each persistence access into its owner's declared implementation namespace and expose only a stable facade result.
     - id: baseline-undeclared-context-edges
@@ -736,11 +749,28 @@ temporary_violations:
         - 0189e4bac08f3c6e
         - 4f52bd7c42b47a5d
         - 47659f71148ad7cd
-        - 22d29c8a33ec3581
         - bec8b11dfcf061c7
         - 7c47ce0ca3e555a9
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Remove the listed undeclared compiled edge or replace it with a reviewed one-way owner contract or exact runtime collaboration; do not add it to allowed_dependencies merely to silence validation.
+    - id: deferred-calls-tenant-schema-relocation
+      rule: foreign_schema_import
+      fingerprints:
+        - 64ebb8611dae56b3
+        - a99d73667cfe396f
+        - d4743d3326027747
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: In the separately authorized Calls tranche, replace these exact TenantAdministration schema references with scalar IDs and Calls-owned policy inputs; no other fingerprint may join this deferral.
+    - id: deferred-authorization-tenant-schema-relocation
+      rule: foreign_schema_import
+      fingerprints: [245ad9a0716b68dd]
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: In the separately authorized Calls tranche, move this exact tenant decision behind the Calls facade and delete Authorization.Database; no other fingerprint may join this deferral.
+    - id: deferred-authorization-tenant-edge-relocation
+      rule: undeclared_context_edge
+      fingerprints: [eb0650068879158b]
+      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      removal_condition: In the separately authorized Calls tranche, remove this exact Authorization.Database-to-TenantAdministration edge with the transitional authorization kernel; no other fingerprint may join this deferral.
   explicit:
     - id: deferred-audio-call-presenter-projection
       fingerprint: 7a1ffc82ac877370

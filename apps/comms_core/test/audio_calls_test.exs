@@ -2,7 +2,8 @@ defmodule CommsCore.AudioCallsTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Session, Tenant}
+  alias CommsCore.Accounts.Session
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Administration
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.AudioCalls

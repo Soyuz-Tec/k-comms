@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.SocketTicket do
   use CommsCore.Schema
 
   schema "socket_tickets" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:user, CommsCore.Accounts.User)
     belongs_to(:device, CommsCore.Accounts.Device)
     belongs_to(:session, CommsCore.Accounts.Session)

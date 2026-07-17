@@ -549,6 +549,218 @@ class ValidateArchitectureTest(unittest.TestCase):
             ],
         )
 
+    def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        schemas = discover_schemas(root)
+
+        self.assertEqual(
+            schemas["tenants"],
+            [
+                (
+                    "CommsCore.Administration.Tenant",
+                    "apps/comms_core/lib/comms_core/administration/tenant.ex",
+                )
+            ],
+        )
+        self.assertEqual(
+            manifest["tables"]["tenants"],
+            {
+                "owner": "tenant_administration",
+                "canonical_schema": "CommsCore.Administration.Tenant",
+                "role": "source",
+            },
+        )
+        self.assertFalse(
+            (root / "apps/comms_core/lib/comms_core/accounts/tenant.ex").exists()
+        )
+
+        identity_sources = [
+            root / "apps/comms_core/lib/comms_core/accounts.ex",
+            root / "apps/comms_core/lib/comms_core/password_recovery.ex",
+            root / "apps/comms_core/lib/comms_core/service_accounts.ex",
+            *sorted(
+                (root / "apps/comms_core/lib/comms_core/accounts").rglob("*.ex")
+            ),
+            *sorted(
+                (root / "apps/comms_core/lib/comms_core/service_accounts").rglob(
+                    "*.ex"
+                )
+            ),
+        ]
+        forbidden_tenant_schemas = {
+            "CommsCore.Accounts.Tenant",
+            "CommsCore.Administration.Tenant",
+        }
+        tenant_schema_leaks = []
+        for path in identity_sources:
+            leaked = sorted(
+                core_module_references(
+                    path.read_text(encoding="utf-8")
+                ).intersection(forbidden_tenant_schemas)
+            )
+            if leaked:
+                tenant_schema_leaks.append(
+                    (path.relative_to(root).as_posix(), leaked)
+                )
+        self.assertEqual(tenant_schema_leaks, [])
+
+        scalar_tenant_schemas = (
+            "apps/comms_core/lib/comms_core/accounts/device.ex",
+            "apps/comms_core/lib/comms_core/accounts/password_recovery_request.ex",
+            "apps/comms_core/lib/comms_core/accounts/platform_role_grant.ex",
+            "apps/comms_core/lib/comms_core/accounts/session.ex",
+            "apps/comms_core/lib/comms_core/accounts/socket_ticket.ex",
+            "apps/comms_core/lib/comms_core/accounts/user.ex",
+            "apps/comms_core/lib/comms_core/service_accounts/service_account.ex",
+        )
+        for relative_path in scalar_tenant_schemas:
+            with self.subTest(schema=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                self.assertIn("field(:tenant_id, Ecto.UUID)", source)
+                self.assertNotIn("belongs_to(:tenant", source)
+
+        administration = (
+            root / "apps/comms_core/lib/comms_core/administration.ex"
+        ).read_text(encoding="utf-8")
+        for owner_api in (
+            "def active_tenant(tenant_id) when is_binary(tenant_id)",
+            "def active_tenant_by_slug(slug) when is_binary(slug)",
+            "Repo.get_by(Tenant, id: tenant_id, status: :active)",
+            "Repo.get_by(Tenant, slug: slug, status: :active)",
+            "def active_tenant(_tenant_id), do: {:error, :tenant_unavailable}",
+            "def active_tenant_by_slug(_slug), do: {:error, :tenant_unavailable}",
+        ):
+            self.assertIn(owner_api, administration)
+        self.assertIn("TenantView.t()", administration)
+
+        owner_api_consumers = {
+            "apps/comms_core/lib/comms_core/accounts.ex":
+                "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/service_accounts.ex":
+                "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/accounts/password_recovery.ex":
+                "Administration.active_tenant_by_slug",
+        }
+        for relative_path, owner_call in owner_api_consumers.items():
+            with self.subTest(consumer=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                self.assertIn(owner_call, source)
+
+        public_recovery = (
+            root / "apps/comms_core/lib/comms_core/password_recovery.ex"
+        ).read_text(encoding="utf-8")
+        internal_recovery = (
+            root / "apps/comms_core/lib/comms_core/accounts/password_recovery.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "alias CommsCore.Accounts.PasswordRecovery, as: IdentityPasswordRecovery",
+            public_recovery,
+        )
+        self.assertIn(
+            "IdentityPasswordRecovery.reset(attrs, &AudioCalls.revoke_for_user/3)",
+            public_recovery,
+        )
+        self.assertIn(
+            "alias CommsCore.Accounts.PasswordRecoveryResult",
+            public_recovery,
+        )
+        self.assertIn("{:ok, PasswordRecoveryResult.t()}", public_recovery)
+        self.assertNotIn("Map.take", public_recovery)
+        self.assertNotIn("%User{", public_recovery)
+        for persistence_detail in (
+            "CommsCore.Repo",
+            "Ecto.Query",
+            "PasswordRecoveryRequest",
+            "NotificationPort",
+        ):
+            self.assertNotIn(persistence_detail, public_recovery)
+        self.assertIn(
+            "defmodule CommsCore.Accounts.PasswordRecovery do",
+            internal_recovery,
+        )
+        self.assertIn("NotificationPort", internal_recovery)
+        self.assertIn("PasswordRecoveryRequest", internal_recovery)
+        self.assertIn("Repo.transaction", internal_recovery)
+
+        recovery_result_contract = (
+            root
+            / "apps/comms_core/lib/comms_core/accounts/password_recovery_result.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("defstruct [:revoked_session_ids]", recovery_result_contract)
+        self.assertNotIn("use CommsCore.Schema", recovery_result_contract)
+        self.assertNotIn("use Ecto.Schema", recovery_result_contract)
+        self.assertIn(
+            "CommsCore.Accounts.PasswordRecoveryResult",
+            manifest["contexts"]["identity_access"]["public_contracts"],
+        )
+
+        internal_recovery_adapter_leaks = []
+        for app in ("comms_web", "comms_workers", "comms_integrations"):
+            for path in sorted((root / f"apps/{app}/lib").rglob("*.ex")):
+                references = core_module_references(
+                    path.read_text(encoding="utf-8")
+                )
+                if "CommsCore.Accounts.PasswordRecovery" in references:
+                    internal_recovery_adapter_leaks.append(
+                        path.relative_to(root).as_posix()
+                    )
+        self.assertEqual(internal_recovery_adapter_leaks, [])
+
+        notification_collaboration = next(
+            item
+            for item in manifest["runtime_collaborations"]
+            if item["id"] == "identity-notification-lifecycle"
+        )
+        self.assertEqual(
+            notification_collaboration["callers"],
+            ["CommsCore.Accounts", "CommsCore.Accounts.PasswordRecovery"],
+        )
+
+        transition = next(
+            item
+            for item in manifest["enforcement"]["reviewed_baseline_transitions"]
+            if item["id"] == "assign-tenants-to-tenant-administration"
+        )
+        self.assertEqual(
+            transition["previous_baseline_sha256"],
+            "2693d8743484856dfda3bb39fa5c02214e277f50db914f341632c65b8ee97762",
+        )
+        self.assertEqual(
+            set(transition["added_fingerprints"]),
+            {
+                "245ad9a0716b68dd",
+                "64ebb8611dae56b3",
+                "a99d73667cfe396f",
+                "d4743d3326027747",
+                "eb0650068879158b",
+            },
+        )
+        self.assertEqual(
+            set(transition["removed_fingerprints"]),
+            {
+                "2239525a78f246a4",
+                "22d29c8a33ec3581",
+                "242e1087dab4d610",
+                "24d261bf4611f799",
+                "2a53bebf9a2c2b68",
+                "3d08a6a84ca380ce",
+                "42cd72ee581f329d",
+                "440a0becf16cccb8",
+                "46833d9e4f37a9f4",
+                "537281a03df0f98f",
+                "6e01f546438ba1e0",
+                "7e866a84330fe233",
+                "82083a1e5dce0f4c",
+                "830bbf4ebd3732c3",
+                "8ee1149661d778c8",
+                "9c00206437b708a1",
+                "b881cf0b24fc1a13",
+                "c3292521cd5c5918",
+                "d312276f5a39310f",
+            },
+        )
+
     def test_repository_removes_accidental_identity_schema_associations(self) -> None:
         root = Path(__file__).resolve().parents[1]
         id_only_schemas = {
@@ -574,6 +786,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             with self.subTest(path=relative_path):
                 source = (root / relative_path).read_text(encoding="utf-8")
                 self.assertNotIn("CommsCore.Accounts.Tenant", source)
+                self.assertNotIn("CommsCore.Administration.Tenant", source)
                 self.assertNotIn("CommsCore.Accounts.User", source)
                 for field in required_fields:
                     self.assertIn(field, source)
@@ -617,6 +830,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         forbidden_identity_internals = {
             "CommsCore.Accounts.Projector",
             "CommsCore.Accounts.Tenant",
+            "CommsCore.Administration.Tenant",
             "CommsCore.Accounts.User",
         }
         foreign_references = []
@@ -1101,6 +1315,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.Accounts.Device",
             "CommsCore.Accounts.Tenant",
             "CommsCore.Accounts.User",
+            "CommsCore.Administration.Tenant",
             "CommsCore.Conversations.Membership",
         }
         notification_sources = [
@@ -1176,6 +1391,7 @@ class ValidateArchitectureTest(unittest.TestCase):
 
         for relative_path in (
             "apps/comms_core/lib/comms_core/accounts.ex",
+            "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
             "apps/comms_core/lib/comms_core/password_recovery.ex",
         ):
             with self.subTest(path=relative_path):
@@ -1214,6 +1430,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertTrue(
             {
+                "CommsCore.Accounts.PasswordRecovery",
                 "CommsCore.PasswordRecovery",
                 "CommsCore.PasswordRecovery.Request",
             }.isdisjoint(notifications_references),
@@ -1231,9 +1448,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             port_reference_paths,
             [
                 "apps/comms_core/lib/comms_core/accounts/notification_port.ex",
+                "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
                 "apps/comms_core/lib/comms_core/notifications.ex",
-                "apps/comms_core/lib/comms_core/password_recovery.ex",
             ],
         )
 
@@ -1244,8 +1461,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_callers,
             [
+                "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
-                "apps/comms_core/lib/comms_core/password_recovery.ex",
             ],
         )
 

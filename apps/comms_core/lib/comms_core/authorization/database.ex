@@ -11,7 +11,8 @@ defmodule CommsCore.Authorization.Database do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, Tenant, User}
+  alias CommsCore.Accounts.{Device, Session, User}
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Repo

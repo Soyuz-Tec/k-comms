@@ -1,11 +1,10 @@
 defmodule CommsCore.Administration.Projector do
   @moduledoc false
 
-  alias CommsCore.Accounts.Tenant
-
   alias CommsCore.Administration.{
     Invitation,
     InvitationView,
+    Tenant,
     TenantSettings,
     TenantSettingsView,
     TenantView

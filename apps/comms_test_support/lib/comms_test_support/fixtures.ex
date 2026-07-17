@@ -1,6 +1,7 @@
 defmodule CommsTestSupport.Fixtures do
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Tenant, User}
+  alias CommsCore.Accounts.User
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Conversations.Conversation
   alias CommsCore.Repo
   alias CommsCore.Security.Password

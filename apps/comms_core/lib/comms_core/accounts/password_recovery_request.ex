@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.PasswordRecoveryRequest do
   use CommsCore.Schema
 
   schema "password_recovery_requests" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:user, CommsCore.Accounts.User)
     field(:token_hash, :binary, redact: true)
     field(:expires_at, :utc_datetime_usec)

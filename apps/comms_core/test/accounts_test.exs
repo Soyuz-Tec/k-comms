@@ -15,9 +15,9 @@ defmodule CommsCore.AccountsTest do
     UserView
   }
 
-  alias CommsCore.Accounts.{Device, PlatformAccess, PlatformRoleGrant, Session, Tenant, User}
+  alias CommsCore.Accounts.{Device, PlatformAccess, PlatformRoleGrant, Session, User}
   alias CommsCore.Audit
-  alias CommsCore.Administration.TenantView
+  alias CommsCore.Administration.{Tenant, TenantView}
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Repo
   alias CommsCore.Security.Password
@@ -52,6 +52,7 @@ defmodule CommsCore.AccountsTest do
     assert {:ok,
             %AuthenticationResult{
               session_id: session_id,
+              tenant: %TenantView{id: tenant_id, status: :active},
               user: %UserView{},
               device: %DeviceView{}
             }} =
@@ -62,9 +63,12 @@ defmodule CommsCore.AccountsTest do
                %{name: "Contract browser", platform: "test"}
              )
 
+    assert tenant_id == account.tenant.id
+
     assert {:ok,
             %AccessContext{
               session: %SessionView{id: ^session_id},
+              tenant: %TenantView{id: ^tenant_id, status: :active},
               user: %UserView{},
               device: %DeviceView{}
             }} = Accounts.access_context(session_id, "contract-test")
@@ -770,6 +774,24 @@ defmodule CommsCore.AccountsTest do
 
     assert {:error, :invalid_credentials} =
              Accounts.authenticate(account.tenant.slug, account.user.email, "not-the-password")
+  end
+
+  test "tenant inactivity fails closed across sign-in, refresh, and active-session lookup" do
+    account = Fixtures.account_fixture()
+
+    account.tenant
+    |> Tenant.changeset(%{status: :suspended})
+    |> Repo.update!()
+
+    assert {:error, :invalid_credentials} =
+             Accounts.authenticate(
+               account.tenant.slug,
+               account.user.email,
+               account_fixture_password(account)
+             )
+
+    assert {:error, :invalid_refresh_token} = Accounts.refresh_session(account.refresh_token)
+    assert {:error, :session_expired} = Accounts.get_active_session(account.session.id)
   end
 
   test "a refresh token succeeds only once under concurrent rotation" do

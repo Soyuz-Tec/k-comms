@@ -7,10 +7,10 @@ defmodule CommsCore.Accounts.ConversationBootstrapPortTest do
     InitialConversationCommand,
     InitialConversationReceipt,
     Session,
-    Tenant,
     User
   }
 
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.{Accounts, Audit, Repo}
 

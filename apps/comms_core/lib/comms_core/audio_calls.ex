@@ -2,7 +2,8 @@ defmodule CommsCore.AudioCalls do
   import Ecto.Query
 
   alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}
-  alias CommsCore.Accounts.{Session, Tenant}
+  alias CommsCore.Accounts.Session
+  alias CommsCore.Administration.Tenant
   alias CommsCore.Audit
   alias CommsCore.Conversations.Conversation
   alias CommsCore.Conversations.Membership

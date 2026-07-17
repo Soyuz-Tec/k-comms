@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.User do
   use CommsCore.Schema
 
   schema "users" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     has_one(:platform_role_grant, CommsCore.Accounts.PlatformRoleGrant)
     field(:external_subject, :string)
     field(:display_name, :string)
