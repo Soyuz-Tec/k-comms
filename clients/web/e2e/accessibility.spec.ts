@@ -109,7 +109,6 @@ test("empty authenticated workspace satisfies automated WCAG A and AA checks", a
 test("populated and offline messaging states satisfy automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
-  await page.getByRole("button", { name: /General channel/ }).click();
   await expect(page.getByText(message.body)).toBeVisible();
   await expect(page.getByText("Offline", { exact: true })).toBeVisible();
   await expectNoWcagFailures(page);
@@ -133,7 +132,6 @@ test("message search satisfies automated WCAG A and AA checks", async ({ page })
 test("thread drawer satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
-  await page.getByRole("button", { name: /General channel/ }).click();
   await expect(page.getByText(message.body)).toBeVisible();
   await page.getByRole("button", { name: "Start thread" }).click();
   await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
@@ -185,7 +183,6 @@ test("320 CSS-pixel reflow and WCAG text spacing remain usable", async ({ page }
   await page.setViewportSize({ width: 320, height: 640 });
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
-  await page.getByRole("button", { name: /General channel/ }).click();
   await page.addStyleTag({
     content: "p, li, dd, dt, label, button, input, textarea { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; } p { margin-bottom: 2em !important; }"
   });

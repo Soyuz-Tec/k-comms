@@ -1,9 +1,22 @@
 defmodule CommsCore.AccountsTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.Accounts
-  alias CommsCore.Accounts.{PlatformRoleGrant, Session, Tenant, User}
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.{Accounts, Administration}
+
+  alias CommsCore.Accounts.{
+    AccessContext,
+    AuthenticationResult,
+    ConversationBootstrapPort,
+    DeviceView,
+    InitialConversationCommand,
+    InitialConversationReceipt,
+    SessionView,
+    UserView
+  }
+
+  alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, Tenant, User}
+  alias CommsCore.Audit
+  alias CommsCore.Administration.TenantView
   alias CommsCore.Authorization
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Repo
@@ -33,6 +46,184 @@ defmodule CommsCore.AccountsTest do
     assert refreshed.refresh_token != authenticated.refresh_token
   end
 
+  test "adapter authentication APIs return stable identity contracts" do
+    account = Fixtures.account_fixture()
+
+    assert {:ok,
+            %AuthenticationResult{
+              session_id: session_id,
+              user: %UserView{},
+              device: %DeviceView{}
+            }} =
+             Accounts.authenticate_view(
+               account.tenant.slug,
+               account.user.email,
+               account_fixture_password(account),
+               %{name: "Contract browser", platform: "test"}
+             )
+
+    assert {:ok,
+            %AccessContext{
+              session: %SessionView{id: ^session_id},
+              user: %UserView{},
+              device: %DeviceView{}
+            }} = Accounts.access_context(session_id, "contract-test")
+  end
+
+  test "governance erasure requires a caller-owned transaction" do
+    account = Fixtures.account_fixture()
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:error, :invalid_erasure_command} =
+             Accounts.erase_user_for_governance(%{
+               tenant_id: account.tenant.id,
+               user_id: "not-a-uuid",
+               pending_deletion_user_ids: [],
+               timestamp: timestamp
+             })
+
+    assert {:error, :transaction_required} =
+             Accounts.erase_user_for_governance(%{
+               tenant_id: account.tenant.id,
+               user_id: account.user.id,
+               pending_deletion_user_ids: [],
+               timestamp: timestamp
+             })
+  end
+
+  test "governed lifecycle contribution requires a transaction and validated owner exclusions" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+    attrs = %{version: account.user.lock_version, display_name: "Governed owner"}
+
+    assert {:error, :transaction_required} =
+             Accounts.apply_user_lifecycle_change(account.user.id, attrs, subject, [])
+
+    assert {:ok, {:error, :invalid_owner_exclusions}} =
+             Repo.transaction(fn ->
+               Accounts.apply_user_lifecycle_change(
+                 account.user.id,
+                 attrs,
+                 subject,
+                 ["not-a-user-id"]
+               )
+             end)
+  end
+
+  test "governance erasure anonymizes the user and revokes IdentityAccess state" do
+    account = Fixtures.account_fixture()
+    _remaining_owner = Fixtures.user_fixture(account, %{role: :owner})
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    original_version = account.user.lock_version
+
+    assert {:ok, {:ok, %{user_id: user_id, revoked_session_ids: revoked_session_ids}}} =
+             Repo.transaction(fn ->
+               Accounts.erase_user_for_governance(%{
+                 tenant_id: account.tenant.id,
+                 user_id: account.user.id,
+                 pending_deletion_user_ids: [],
+                 timestamp: timestamp
+               })
+             end)
+
+    assert user_id == account.user.id
+    assert revoked_session_ids == [account.session.id]
+
+    erased_user = Repo.get!(User, account.user.id)
+    assert erased_user.external_subject == "deleted-#{account.user.id}"
+    assert erased_user.display_name == "Deleted user"
+    assert erased_user.email == "deleted-#{account.user.id}@invalid.example"
+    assert erased_user.status == :deleted
+    assert erased_user.lock_version == original_version + 1
+
+    assert Repo.get!(Session, account.session.id).revoked_at == timestamp
+    assert Repo.get!(Device, account.device.id).revoked_at == timestamp
+  end
+
+  test "governance erasure excludes pending deletions from last-owner safety" do
+    account = Fixtures.account_fixture()
+    pending_owner = Fixtures.user_fixture(account, %{role: :owner}).user
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:ok, {:error, :last_owner_required}} =
+             Repo.transaction(fn ->
+               Accounts.erase_user_for_governance(%{
+                 tenant_id: account.tenant.id,
+                 user_id: account.user.id,
+                 pending_deletion_user_ids: [pending_owner.id],
+                 timestamp: timestamp
+               })
+             end)
+
+    assert Repo.get!(User, account.user.id).status == :active
+    refute Repo.get!(Session, account.session.id).revoked_at
+    refute Repo.get!(Device, account.device.id).revoked_at
+  end
+
+  test "bootstrap returns foreign owner views instead of persistence structs" do
+    suffix = System.unique_integer([:positive, :monotonic])
+
+    assert {:ok, result} =
+             Accounts.bootstrap_tenant(%{
+               tenant_name: "Boundary #{suffix}",
+               tenant_slug: "boundary-#{suffix}",
+               display_name: "Boundary Owner",
+               email: "boundary-#{suffix}@example.test",
+               password: "correct-horse-boundary-#{suffix}",
+               device_name: "Boundary browser",
+               device_platform: "test"
+             })
+
+    assert %TenantView{} = result.tenant
+    assert %InitialConversationReceipt{} = result.conversation
+  end
+
+  test "owner-contributed bootstrap writes roll back after a later failure" do
+    tenant_id = Ecto.UUID.generate()
+    user_id = Ecto.UUID.generate()
+    conversation_id = Ecto.UUID.generate()
+
+    result =
+      Ecto.Multi.new()
+      |> Administration.append_bootstrap_tenant(:tenant, %{
+        id: tenant_id,
+        name: "Rollback tenant",
+        slug: "rollback-#{System.unique_integer([:positive, :monotonic])}"
+      })
+      |> Ecto.Multi.insert(
+        :user,
+        User.changeset(%User{id: user_id}, %{
+          tenant_id: tenant_id,
+          external_subject: "local:rollback@example.test",
+          display_name: "Rollback owner",
+          email: "rollback-#{user_id}@example.test",
+          password_hash: Password.hash("correct-horse-rollback"),
+          account_type: :human,
+          role: :owner,
+          status: :active
+        })
+      )
+      |> ConversationBootstrapPort.append_initial_channel(
+        :conversation,
+        %InitialConversationCommand{
+          id: conversation_id,
+          tenant_id: tenant_id,
+          owner_user_id: user_id,
+          joined_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+        }
+      )
+      |> Ecto.Multi.run(:forced_failure, fn _repo, _changes ->
+        {:error, :forced_failure}
+      end)
+      |> Repo.transaction()
+
+    assert {:error, :forced_failure, :forced_failure, _changes} = result
+    refute Repo.get(Tenant, tenant_id)
+    refute Repo.get(User, user_id)
+    refute Repo.get(Conversation, conversation_id)
+    refute Repo.get_by(Membership, conversation_id: conversation_id)
+  end
+
   test "one-time release bootstrap is sessionless and idempotent" do
     attrs = release_bootstrap_attrs()
 
@@ -47,7 +238,7 @@ defmodule CommsCore.AccountsTest do
     assert Repo.aggregate(User, :count) == 1
     assert Repo.aggregate(Conversation, :count) == 1
     assert Repo.aggregate(Membership, :count) == 1
-    assert Repo.aggregate(AuditEvent, :count) == 1
+    assert Audit.count(%{tenant_id: created.tenant.id}) == 1
     assert Repo.aggregate(Session, :count) == 0
 
     assert {:ok, existing} = Accounts.bootstrap_tenant_once(attrs)
@@ -60,7 +251,7 @@ defmodule CommsCore.AccountsTest do
     assert Repo.aggregate(User, :count) == 1
     assert Repo.aggregate(Conversation, :count) == 1
     assert Repo.aggregate(Membership, :count) == 1
-    assert Repo.aggregate(AuditEvent, :count) == 1
+    assert Audit.count(%{tenant_id: created.tenant.id}) == 1
     assert Repo.aggregate(Session, :count) == 0
 
     assert {:ok, authenticated} =
@@ -103,26 +294,18 @@ defmodule CommsCore.AccountsTest do
     assert {:ok, created} = Accounts.bootstrap_tenant_once(attrs)
     assert created.user.platform_role == :platform_operator
 
-    assert Repo.aggregate(
-             from(event in AuditEvent,
-               where:
-                 event.tenant_id == ^created.tenant.id and
-                   event.action == "platform_role.bootstrap_grant"
-             ),
-             :count
-           ) == 1
+    assert Audit.count(%{
+             tenant_id: created.tenant.id,
+             action: "platform_role.bootstrap_grant"
+           }) == 1
 
     assert {:ok, existing} = Accounts.bootstrap_tenant_once(attrs)
     assert existing.user.platform_role == :platform_operator
 
-    assert Repo.aggregate(
-             from(event in AuditEvent,
-               where:
-                 event.tenant_id == ^created.tenant.id and
-                   event.action == "platform_role.bootstrap_grant"
-             ),
-             :count
-           ) == 1
+    assert Audit.count(%{
+             tenant_id: created.tenant.id,
+             action: "platform_role.bootstrap_grant"
+           }) == 1
   end
 
   test "platform roles require the audited console boundary and propagate into session subjects" do
@@ -209,14 +392,12 @@ defmodule CommsCore.AccountsTest do
 
     assert DateTime.diff(granted.platform_role_expires_at, DateTime.utc_now(), :second) in 3598..3600
 
-    grant_audit =
-      Repo.one!(
-        from(event in AuditEvent,
-          where: event.tenant_id == ^account.tenant.id and event.action == "platform_role.grant",
-          order_by: [desc: event.inserted_at],
-          limit: 1
-        )
-      )
+    [grant_audit] =
+      Audit.list(%{
+        tenant_id: account.tenant.id,
+        action: "platform_role.grant",
+        limit: 1
+      })
 
     assert grant_audit.metadata["ttl_seconds"] == 3600
     assert is_binary(grant_audit.metadata["after_expires_at"])
@@ -307,14 +488,8 @@ defmodule CommsCore.AccountsTest do
              })
 
     assert 6 ==
-             Repo.aggregate(
-               from(event in AuditEvent,
-                 where:
-                   event.tenant_id == ^account.tenant.id and
-                     event.action in ["platform_role.grant", "platform_role.revoke"]
-               ),
-               :count
-             )
+             Audit.count(%{tenant_id: account.tenant.id, action: "platform_role.grant"}) +
+               Audit.count(%{tenant_id: account.tenant.id, action: "platform_role.revoke"})
   end
 
   test "every platform-role approval rotates its grant id and exact tuple collisions stay denied" do
@@ -619,13 +794,7 @@ defmodule CommsCore.AccountsTest do
     assert member.tenant_id == account.tenant.id
     assert member.role == :member
 
-    assert 2 ==
-             AuditEvent
-             |> where(
-               [event],
-               event.tenant_id == ^account.tenant.id and event.action == "user.create"
-             )
-             |> Repo.aggregate(:count)
+    assert 2 == Audit.count(%{tenant_id: account.tenant.id, action: "user.create"})
   end
 
   defp account_fixture_password(account) do

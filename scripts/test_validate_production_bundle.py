@@ -94,6 +94,128 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_rejects_development_identity_modes_and_invalid_oidc_issuer(self) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config.update(
+            {
+                "ALLOW_DEVELOPMENT_IDENTITY_MODES": "true",
+                "IDENTITY_PROVIDER_MODE": "local_password",
+                "DIRECTORY_PROVISIONING_MODE": "manual",
+                "OIDC_ISSUER": "http://127.0.0.1:8080/development",
+            }
+        )
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "ALLOW_DEVELOPMENT_IDENTITY_MODES must be false" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any("IDENTITY_PROVIDER_MODE must be oidc" in error for error in errors)
+        )
+        self.assertTrue(
+            any("DIRECTORY_PROVISIONING_MODE must be scim" in error for error in errors)
+        )
+        self.assertTrue(
+            any(
+                "OIDC_ISSUER must be an exact HTTPS issuer" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_insecure_or_incoherent_livekit_configuration(self) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config.update(
+            {
+                "AUDIO_PROVIDER_MODE": "disabled",
+                "LIVEKIT_SERVER_URL": "ws://127.0.0.1:7880",
+                "LIVEKIT_API_URL": "http://livekit:7880",
+                "AUDIO_TOKEN_TTL_SECONDS": "3600",
+                "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS": "1801",
+            }
+        )
+
+        errors = validate_documents(documents)
+        self.assertTrue(
+            any("AUDIO_PROVIDER_MODE must be livekit" in error for error in errors)
+        )
+        self.assertTrue(
+            any("LIVEKIT_SERVER_URL must be an exact WSS origin" in error for error in errors)
+        )
+        self.assertTrue(
+            any("LIVEKIT_API_URL must be an exact HTTPS origin" in error for error in errors)
+        )
+        self.assertTrue(
+            any("AUDIO_TOKEN_TTL_SECONDS must be between 60 and 300" in error for error in errors)
+        )
+        self.assertTrue(
+            any(
+                "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be between 660 and 1800"
+                in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any("CSP_CONNECT_SOURCES must contain the exact" in error for error in errors)
+        )
+
+    def test_enforces_audio_participant_eviction_horizon_boundaries(self) -> None:
+        for value in ("660", "900", "1800"):
+            with self.subTest(valid=value):
+                documents = valid_documents()
+                documents[0]["data"][
+                    "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS"
+                ] = value
+                self.assertEqual(validate_documents(documents), [])
+
+        for value in ("", "not-an-integer", "659", "1801"):
+            with self.subTest(invalid=value):
+                documents = valid_documents()
+                documents[0]["data"][
+                    "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS"
+                ] = value
+                errors = validate_documents(documents)
+                self.assertTrue(
+                    any(
+                        "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be between 660 and 1800"
+                        in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_requires_livekit_provider_secret_on_long_lived_workloads(self) -> None:
+        documents = valid_documents()
+        edge = find_document(documents, "Deployment", "k-comms-edge")
+        edge["spec"]["template"]["spec"]["containers"][0]["envFrom"][1][
+            "secretRef"
+        ]["optional"] = True
+
+        errors = validate_documents(documents)
+        self.assertTrue(
+            any(
+                "k-comms-provider-secrets must be an explicit non-optional" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_portable_in_cluster_media_plane_workloads(self) -> None:
+        documents = valid_documents()
+        documents.append(workload("Deployment", "livekit-media"))
+
+        errors = validate_documents(documents)
+        self.assertTrue(
+            any(
+                "must reference an external media provider" in error
+                for error in errors
+            )
+        )
+
     def test_rejects_one_shot_bypass_on_any_long_lived_workload(self) -> None:
         documents = valid_documents()
         extra_workload = workload("Deployment", "k-comms-reporting")
@@ -745,10 +867,27 @@ def valid_documents() -> list[dict]:
         "data": {
             "ALLOW_BOOTSTRAP": "false",
             "ALLOW_DEVELOPMENT_ADAPTERS": "false",
+            "ALLOW_DEVELOPMENT_IDENTITY_MODES": "false",
+            "AUDIO_PROVIDER_MODE": "livekit",
+            "AUDIO_TOKEN_TTL_SECONDS": "300",
+            "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS": "660",
             "DATABASE_SSL": "true",
             "DATABASE_SSL_CA_FILE": "/etc/k-comms/database-ca/ca.crt",
             "DATABASE_SSL_SERVER_NAME": "postgres.internal.example.com",
             "HSTS_ENABLED": "true",
+            "IDENTITY_PROVIDER_MODE": "oidc",
+            "DIRECTORY_PROVISIONING_MODE": "scim",
+            "OIDC_ISSUER": "https://identity.example.com/tenant/v2.0",
+            "OIDC_CLIENT_ID": "k-comms-production",
+            "OIDC_PROVIDER_NAME": "approved-corporate-idp",
+            "OIDC_REQUIRED_ACR_VALUES": "urn:example:loa:2",
+            "SCIM_PROVIDER_NAME": "approved-corporate-directory",
+            "LIVEKIT_SERVER_URL": "wss://media.example.com",
+            "LIVEKIT_API_URL": "https://media-api.example.com",
+            "CSP_CONNECT_SOURCES": (
+                "'self' wss://comms.example.com https://comms.example.com "
+                "https://objects.example.com wss://media.example.com"
+            ),
             "PHX_HOST": "comms.example.com",
             "PUBLIC_APP_URL": "https://comms.example.com",
             "CORS_ORIGINS": "https://comms.example.com",
@@ -828,9 +967,19 @@ def valid_documents() -> list[dict]:
 
 def workload(kind: str, name: str) -> dict:
     environment = []
+    env_from = [{"configMapRef": {"name": "k-comms-config"}}]
     container_name = name.removeprefix("k-comms-")
     if kind == "Job":
         environment.append({"name": "K_COMMS_RUNTIME_PURPOSE", "value": "one_shot"})
+    else:
+        env_from.append(
+            {
+                "secretRef": {
+                    "name": "k-comms-provider-secrets",
+                    "optional": False,
+                }
+            }
+        )
 
     document = {
         "apiVersion": "apps/v1" if kind == "Deployment" else "batch/v1",
@@ -860,6 +1009,7 @@ def workload(kind: str, name: str) -> dict:
                             "name": container_name,
                             "image": DIGEST_IMAGE,
                             "env": environment,
+                            "envFrom": env_from,
                             "securityContext": {
                                 "allowPrivilegeEscalation": False,
                                 "readOnlyRootFilesystem": True,

@@ -3,9 +3,8 @@ defmodule CommsCore.ConversationsTest do
 
   import Ecto.Query
 
-  alias CommsCore.{Accounts, Administration, Conversations, Repo}
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.Membership
+  alias CommsCore.{Accounts, Administration, Audit, Conversations, Repo}
+  alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Events.OutboxEvent
   alias CommsTestSupport.Fixtures
 
@@ -32,6 +31,121 @@ defmodule CommsCore.ConversationsTest do
 
     assert {:ok, members} = Conversations.list_members(conversation.id, subject)
     assert length(members) == 2
+  end
+
+  test "erasure owner APIs require a caller-owned transaction" do
+    account = Fixtures.account_fixture()
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:error, :transaction_required} =
+             Conversations.archive_for_erasure(
+               account.tenant.id,
+               account.conversation.id,
+               timestamp
+             )
+
+    assert {:error, :transaction_required} =
+             Conversations.remove_user_memberships_for_erasure(
+               account.tenant.id,
+               account.user.id,
+               timestamp
+             )
+  end
+
+  test "erasure owner APIs return counts and enforce tenant scope" do
+    account = Fixtures.account_fixture()
+    other = Fixtures.account_fixture()
+    member = Fixtures.user_fixture(account)
+    subject = Fixtures.subject(account)
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    assert {:ok, conversation} =
+             Conversations.create(
+               %{
+                 title: "Erasure scope",
+                 kind: "group",
+                 visibility: "private",
+                 member_ids: [member.user.id]
+               },
+               subject
+             )
+
+    assert {:ok, %{archive_count: 1, membership_count: 1}} =
+             Repo.transaction(fn ->
+               assert {:ok, 0} =
+                        Conversations.archive_for_erasure(
+                          other.tenant.id,
+                          conversation.id,
+                          timestamp
+                        )
+
+               assert {:ok, 0} =
+                        Conversations.remove_user_memberships_for_erasure(
+                          other.tenant.id,
+                          member.user.id,
+                          timestamp
+                        )
+
+               {:ok, archive_count} =
+                 Conversations.archive_for_erasure(
+                   account.tenant.id,
+                   conversation.id,
+                   timestamp
+                 )
+
+               {:ok, membership_count} =
+                 Conversations.remove_user_memberships_for_erasure(
+                   account.tenant.id,
+                   member.user.id,
+                   timestamp
+                 )
+
+               %{archive_count: archive_count, membership_count: membership_count}
+             end)
+
+    assert Repo.get!(Conversation, conversation.id).archived_at == timestamp
+
+    assert Repo.get_by!(Membership,
+             tenant_id: account.tenant.id,
+             conversation_id: conversation.id,
+             user_id: member.user.id
+           ).left_at == timestamp
+
+    refute Repo.get!(Conversation, other.conversation.id).archived_at
+  end
+
+  test "erasure owner API writes roll back with the caller transaction" do
+    account = Fixtures.account_fixture()
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    membership =
+      Repo.get_by!(Membership,
+        tenant_id: account.tenant.id,
+        conversation_id: account.conversation.id,
+        user_id: account.user.id
+      )
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               assert {:ok, 1} =
+                        Conversations.archive_for_erasure(
+                          account.tenant.id,
+                          account.conversation.id,
+                          timestamp
+                        )
+
+               assert {:ok, 1} =
+                        Conversations.remove_user_memberships_for_erasure(
+                          account.tenant.id,
+                          account.user.id,
+                          timestamp
+                        )
+
+               Repo.rollback(:forced_rollback)
+             end)
+
+    refute Repo.get!(Conversation, account.conversation.id).archived_at
+    refute Repo.get!(Membership, membership.id).left_at
   end
 
   test "active member ids support delivery fanout without leaking departed or unrelated members" do
@@ -616,13 +730,11 @@ defmodule CommsCore.ConversationsTest do
     refute Map.has_key?(joined_event.payload, "title")
 
     membership_audits =
-      Repo.all(
-        from(event in AuditEvent,
-          where:
-            event.tenant_id == ^account.tenant.id and event.resource_id == ^channel.id and
-              event.action == "membership.changed"
-        )
-      )
+      Audit.list(%{
+        tenant_id: account.tenant.id,
+        resource_id: channel.id,
+        action: "membership.changed"
+      })
 
     assert [joined_audit] = membership_audits
     refute Map.has_key?(joined_audit.metadata, "body")

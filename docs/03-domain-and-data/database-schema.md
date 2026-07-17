@@ -22,6 +22,9 @@ conversation_members
 conversation_roles
 conversation_sequences
 
+audio_calls
+audio_call_participants
+
 messages
 message_revisions
 message_reactions
@@ -56,6 +59,23 @@ moderation_actions
 the member minimum is two so direct conversations remain possible. Admission
 counts are evaluated under a tenant-scoped transaction advisory lock rather
 than inferred from cached UI state.
+
+`audio_calls` stores the authoritative bounded call lifecycle, immutable
+`media_kind` (`audio` or `video`), exact `expires_at`, and an opaque,
+server-derived provider room. The historical table name is retained as the
+compatibility/migration boundary defined by ADR-0025. The one-active-call index
+applies across both media kinds. Creating a call also
+inserts one unique `CommsWorkers.AudioCallExpiryWorker` job, scheduled for that
+deadline, in the same transaction; a committed call cannot exist without its
+durable expiry work. `audio_call_participants` stores one opaque
+provider identity and its tenant/call/conversation/user/device/session bindings,
+credential issuance count and time, revocation reason/time, and durable eviction
+state, attempts, enforcement horizon, and last-success evidence. It never stores
+the signed participant JWT, API secret, SDP/ICE, or media. Composite foreign
+keys preserve tenant ownership. No camera, screen, SDP/ICE, RTP/SRTP, recording,
+or media-derived content is stored. The active call/session uniqueness boundary
+prevents two live admissions for the same session, while provider identity is
+unique per tenant. Pending/enforcing eviction indexes support the media worker.
 
 `password_recovery_requests` is tenant/user scoped and stores only a reset-token
 hash, expiry, consumption time, invalidation time, and timestamps. A new request
@@ -100,6 +120,15 @@ UNIQUE (message_id, user_id)
 -- A canonical thread root cannot cross tenant or conversation ownership
 FOREIGN KEY (tenant_id, conversation_id, thread_root_message_id)
   REFERENCES messages (tenant_id, conversation_id, id)
+
+-- A provider participant identity cannot be substituted across tenant state
+UNIQUE (tenant_id, provider_identity)
+
+-- One admitted provider identity per call and authenticated session
+UNIQUE (audio_call_id, session_id) WHERE status = 'admitted'
+
+-- One active call of either media kind per conversation
+UNIQUE (tenant_id, conversation_id) WHERE status IN ('active', 'ending')
 ```
 
 Replies retain the immediate `reply_to_message_id` and denormalize the

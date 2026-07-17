@@ -3,8 +3,13 @@ import Config
 config :comms_core,
   ecto_repos: [CommsCore.Repo],
   authorization_adapter: CommsCore.Authorization.Database,
+  identity_conversation_bootstrap_adapter: CommsCore.Conversations,
+  identity_notification_adapter: CommsCore.Notifications,
   notification_availability_notifier: CommsWeb.NotificationAvailabilityNotifier,
+  audio_participant_eviction_enforcement_seconds: 660,
   job_workers: [
+    audio_call_expiry: CommsWorkers.AudioCallExpiryWorker,
+    audio_participant_eviction: CommsWorkers.AudioParticipantEvictionWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     deletion: CommsWorkers.DeletionWorker,
     notification_delivery: CommsWorkers.NotificationWorker,
@@ -27,6 +32,12 @@ config :comms_core, Oban,
 
 config :comms_integrations,
   allow_insecure_local_object_storage: false,
+  audio_provider_mode: "disabled",
+  audio_token_ttl_seconds: 300,
+  livekit_api_url: nil,
+  livekit_api_key: nil,
+  livekit_api_secret: nil,
+  livekit_server_url: nil,
   notification_adapter: CommsIntegrations.Notifications.Log,
   object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
   scanner_adapter: CommsIntegrations.Scanner.Log,
@@ -44,7 +55,8 @@ config :comms_web,
     "'self'",
     "http://localhost:4000",
     "ws://localhost:4000",
-    "http://localhost:9000"
+    "http://localhost:9000",
+    "ws://127.0.0.1:7880"
   ],
   cors_origins: ["http://localhost:5173", "http://127.0.0.1:5173"]
 

@@ -218,6 +218,17 @@ defmodule CommsWeb.AdministrationControllerTest do
 
     assert promoted["data"]["role"] == "moderator"
 
+    invalid_user_error =
+      authenticated_conn(owner_token)
+      |> patch("/api/v1/admin/users/not-a-uuid", %{
+        version: 1,
+        role: "member",
+        reason: "invalid user identifiers must not reach persistence"
+      })
+      |> json_response(404)
+
+    assert invalid_user_error["error"]["code"] == "not_found"
+
     assert [_] =
              authenticated_conn(member_token)
              |> get("/api/v1/moderation/cases")

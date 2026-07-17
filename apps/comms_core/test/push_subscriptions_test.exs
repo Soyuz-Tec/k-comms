@@ -1,10 +1,16 @@
-defmodule CommsCore.PushSubscriptionsTest do
+defmodule CommsCore.Notifications.PushSubscriptionsTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts.Device
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Notifications.{Intent, PushSubscription}
-  alias CommsCore.{Accounts, PushSubscriptions, Repo}
+
+  alias CommsCore.Notifications.{
+    Intent,
+    PushSubscription,
+    PushSubscriptions,
+    PushSubscriptionView
+  }
+
+  alias CommsCore.{Accounts, Audit, Governance, Notifications, Repo}
   alias CommsCore.Security.PushSubscriptionBox
   alias CommsTestSupport.Fixtures
 
@@ -17,7 +23,16 @@ defmodule CommsCore.PushSubscriptionsTest do
     attrs = subscription_attrs("https://push.example.test/send/secret-capability?token=private")
 
     assert {:ok, %{subscription: subscription, replayed: false}} =
-             PushSubscriptions.register(attrs, subject)
+             Notifications.register_push_subscription(attrs, subject)
+
+    assert %PushSubscriptionView{} = subscription
+    refute Map.has_key?(Map.from_struct(subscription), :ciphertext)
+    refute Map.has_key?(Map.from_struct(subscription), :endpoint_hash)
+
+    assert {:ok, [%PushSubscriptionView{id: id}]} =
+             Notifications.list_push_subscriptions(subject)
+
+    assert id == subscription.id
 
     stored = Repo.get!(PushSubscription, subscription.id)
     assert stored.endpoint_hint == "push.example.test"
@@ -56,7 +71,13 @@ defmodule CommsCore.PushSubscriptionsTest do
              "version" => 1
            }
 
-    event = Repo.get_by!(AuditEvent, resource_type: "push_subscription", resource_id: stored.id)
+    event =
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
+        resource_type: "push_subscription",
+        resource_id: stored.id
+      })
+
     refute inspect(event.metadata) =~ "secret-capability"
     refute inspect(event.metadata) =~ "token=private"
   end
@@ -401,6 +422,53 @@ defmodule CommsCore.PushSubscriptionsTest do
     assert {:ok, _result} = Accounts.revoke_device(account.device.id, subject)
     assert Repo.get!(PushSubscription, subscription.id).status == :revoked
     assert {:error, :forbidden} = PushSubscriptions.list(subject)
+  end
+
+  test "the governed user-lifecycle transaction disables the user's push subscriptions" do
+    account = Fixtures.account_fixture()
+    owner_subject = Fixtures.step_up(account)
+    password = "correct-horse-lifecycle-member"
+
+    assert {:ok, member} =
+             Accounts.create_user(
+               %{
+                 display_name: "Lifecycle member",
+                 email: "lifecycle-member@example.test",
+                 password: password,
+                 role: "member"
+               },
+               owner_subject
+             )
+
+    assert {:ok, login} =
+             Accounts.authenticate(
+               account.tenant.slug,
+               member.email,
+               password,
+               %{name: "Lifecycle member browser", platform: "test"}
+             )
+
+    member_subject = Accounts.subject_for_session(login.session)
+
+    assert {:ok, %{subscription: subscription}} =
+             PushSubscriptions.register(
+               subscription_attrs("https://push.example.test/send/lifecycle-member"),
+               member_subject
+             )
+
+    assert {:ok, %{user: suspended}} =
+             Governance.change_user_lifecycle_view(
+               member.id,
+               %{
+                 version: member.lock_version,
+                 status: "suspended",
+                 reason: "disable lifecycle member access"
+               },
+               owner_subject
+             )
+
+    assert suspended.status == :suspended
+    assert Repo.get!(PushSubscription, subscription.id).status == :revoked
   end
 
   test "late provider results cannot stale a newer encrypted generation" do

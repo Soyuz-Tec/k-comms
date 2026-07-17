@@ -76,8 +76,9 @@ compiled into the production release and are outside the runtime source rule.
 
 ## Product surfaces
 
-- **User workspace (`/app`):** tenant-scoped communication, search, files,
-  notifications, profile, and personal device/session controls.
+- **User workspace (`/app`):** tenant-scoped text, one-to-one/group audio and
+  video communication, screen sharing, search, files, notifications, profile,
+  and personal device/session controls.
 - **Tenant administration (`/admin`):** people, channels, policy, moderation,
   audit, retention, integrations, storage, and tenant security.
 - **Platform operations (`/ops`):** separately authorized, content-blind health,
@@ -96,10 +97,20 @@ by tenant membership plus explicit scopes.
 
 ## Data systems
 
-- PostgreSQL: authoritative messages, memberships, policies, jobs/outbox, and audit.
+- PostgreSQL: authoritative messages, memberships, policies, unified call
+  lifecycles/media kind/admissions, atomically scheduled expiry and eviction
+  jobs, outbox, and audit.
 - Object storage: attachments and generated variants.
 - Search index: optional derived projection.
 - BEAM process state/ETS: bounded, reconstructable caches and ephemeral state.
+- LiveKit media plane: ephemeral encrypted audio/video/screen transport and
+  participant state; it owns neither tenant authorization nor durable call
+  history.
+
+Call creation and its unique eight-hour expiry job commit together. The
+worker runtime owns provider-room cleanup and then invokes the same durable
+ended/outbox/admission-revocation transition used by an authorized manual end;
+provider failure retries without transferring lifecycle authority to LiveKit.
 
 ## Boundaries
 
@@ -113,6 +124,7 @@ by tenant membership plus explicit scopes.
 - Notifications
 - Search
 - Integrations
+- Unified audio/video call lifecycle and media-provider authorization
 - Administration and compliance
 
 Tenant identity, conversation, and membership growth passes through one

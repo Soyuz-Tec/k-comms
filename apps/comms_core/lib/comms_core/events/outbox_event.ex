@@ -2,7 +2,7 @@ defmodule CommsCore.Events.OutboxEvent do
   use CommsCore.Schema
 
   schema "outbox_events" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, :binary_id)
     field(:event_type, :string)
     field(:aggregate_type, :string)
     field(:aggregate_id, :binary_id)

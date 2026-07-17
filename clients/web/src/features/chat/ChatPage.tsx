@@ -16,6 +16,7 @@ import {
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
+import { CallPanel } from "../calls/CallPanel";
 import {
   clientMessageId,
   conversationTitle,
@@ -24,6 +25,7 @@ import {
 import { loadDraft, storeDraft } from "../../lib/drafts";
 import { RealtimeConversation, socketEndpoint } from "../../realtime";
 import type {
+  CallRealtimeEvent,
   Attachment,
   ConnectionStatus,
   ConversationMembership,
@@ -62,6 +64,8 @@ export function ChatPage() {
     conversations,
     users,
     capabilities,
+    audioCallsAvailable,
+    videoCallsAvailable,
     loading: workspaceLoading,
     setError,
     setConversations,
@@ -72,6 +76,8 @@ export function ChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeConversationId = searchParams.get("conversation");
   const linkedMessageId = safeUuid(searchParams.get("message"));
+  const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
+  const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
@@ -93,7 +99,6 @@ export function ChatPage() {
   const [showSearch, setShowSearch] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [showBrowseChannels, setShowBrowseChannels] = useState(false);
-  const [mobilePane, setMobilePane] = useState<"list" | "messages">("list");
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const [membershipVersion, setMembershipVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -108,6 +113,7 @@ export function ChatPage() {
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia?.("(max-width: 760px)").matches ?? false);
+  const [callRealtimeEvent, setCallRealtimeEvent] = useState<CallRealtimeEvent | null>(null);
 
   const realtimeRef = useRef<RealtimeConversation | null>(null);
   const contiguousSequenceRef = useRef(0);
@@ -118,8 +124,12 @@ export function ChatPage() {
   const typingTimerRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const mobileBackRef = useRef<HTMLButtonElement | null>(null);
   const draftConversationRef = useRef<string | null>(null);
   const requestCatchUpRef = useRef<() => void>(() => undefined);
+  const conversationButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const mobileListFocusConversationRef = useRef<string | null>(null);
+  const previousMobileConversationRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -134,6 +144,7 @@ export function ChatPage() {
     () => conversations.find(({ id }) => id === activeConversationId) || null,
     [activeConversationId, conversations]
   );
+  const mobilePane = isMobile && !activeConversation ? "list" : "messages";
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
     return conversations.filter((conversation) => {
@@ -168,10 +179,34 @@ export function ChatPage() {
 
   useEffect(() => {
     if (workspaceLoading || conversations.length === 0) return;
+    if (isMobile) return;
     if (!activeConversationId || !conversations.some(({ id }) => id === activeConversationId)) {
       setSearchParams({ conversation: conversations[0]?.id || "" }, { replace: true });
     }
-  }, [activeConversationId, conversations, setSearchParams, workspaceLoading]);
+  }, [activeConversationId, conversations, isMobile, setSearchParams, workspaceLoading]);
+
+  useEffect(() => {
+    const previousConversationId = previousMobileConversationRef.current;
+    previousMobileConversationRef.current = activeConversation?.id || null;
+    if (!isMobile || mobilePane !== "list") return;
+
+    const conversationId = mobileListFocusConversationRef.current || previousConversationId;
+    if (!conversationId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = conversationButtonRefs.current.get(conversationId);
+      if (!target) return;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "nearest" });
+      mobileListFocusConversationRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeConversation?.id, isMobile, mobilePane]);
+
+  useEffect(() => {
+    if (!isMobile || mobilePane !== "messages") return;
+    const frame = window.requestAnimationFrame(() => mobileBackRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeConversation?.id, isMobile, mobilePane]);
 
   useEffect(() => {
     const previous = draftConversationRef.current;
@@ -193,6 +228,16 @@ export function ChatPage() {
   useEffect(() => {
     if (activeConversationId && linkedMessageId) setThreadTargetId(linkedMessageId);
   }, [activeConversationId, linkedMessageId]);
+
+  useEffect(() => {
+    if (activeConversationId && linkedSearchMessageId && linkedSearchSequence) {
+      setFocusTarget({
+        id: linkedSearchMessageId,
+        conversationId: activeConversationId,
+        sequence: linkedSearchSequence
+      });
+    }
+  }, [activeConversationId, linkedSearchMessageId, linkedSearchSequence]);
 
   useEffect(() => {
     if (activeConversationId && session) storeDraft(session.tenant.id, session.user.id, activeConversationId, composer);
@@ -295,6 +340,7 @@ export function ChatPage() {
     setReadCursors({});
     setMessagesLoading(true);
     setConnectionStatus("connecting");
+    setCallRealtimeEvent(null);
     setError(null);
     futureSequencesRef.current.clear();
 
@@ -371,6 +417,10 @@ export function ChatPage() {
             onPresence: setOnlineUsers,
             onMembershipChanged: () => setMembershipVersion((value) => value + 1),
             onConversationChanged: () => void refreshConversations().catch(() => undefined),
+            onCallStarted: setCallRealtimeEvent,
+            onCallEnded: setCallRealtimeEvent,
+            onAudioCallStarted: setCallRealtimeEvent,
+            onAudioCallEnded: setCallRealtimeEvent,
             onCatchUpRequired: requestCatchUp,
             onError: setError,
             onReconnectRequired: scheduleReconnect
@@ -466,7 +516,13 @@ export function ChatPage() {
 
   function selectConversation(id: string) {
     setSearchParams({ conversation: id });
-    setMobilePane("messages");
+    setShowDetails(false);
+    setShowBrowseChannels(false);
+  }
+
+  function showConversationList() {
+    mobileListFocusConversationRef.current = activeConversation?.id || null;
+    setSearchParams({}, { replace: true });
     setShowDetails(false);
     setShowBrowseChannels(false);
   }
@@ -740,13 +796,13 @@ export function ChatPage() {
           <label className="conversation-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />Unread only</label>
         </div>}
         <nav className="conversation-list" aria-label="Conversation list">
-          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button></div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
+          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button></div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
         </nav>
       </aside>
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationTitle(activeConversation) : "Messages"}>
         {activeConversation ? <>
-          <header className="conversation-header"><button className="mobile-back" type="button" onClick={() => setMobilePane("list")} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
+          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><CallPanel key={activeConversation.id} api={api} conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} currentUserDisplayName={session.user.display_name} realtimeEvent={callRealtimeEvent} /><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
             {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} sender={usersById.get(message.sender_user_id)} replyPreview={replyPreview} replySender={replyPreview ? usersById.get(replyPreview.sender_user_id) : undefined} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
@@ -766,10 +822,10 @@ export function ChatPage() {
         </> : <div className="empty-state full-height"><span className="empty-mark" aria-hidden="true">◇</span><h2>Select a conversation</h2><p>Choose a direct message, group or channel.</p></div>}
       </section>
 
-      {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); selectConversation(message.conversation_id); setShowSearch(false); }} />}
+      {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
-      {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); setShowDetails(false); setMobilePane("list"); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
-      {threadTargetId && activeConversationId && <ThreadDrawer api={api} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} members={conversationMembers} users={users} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
+      {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
+      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );
@@ -801,6 +857,12 @@ function safeUuid(value: string | null): string | null {
   return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
     : null;
+}
+
+function safePositiveInteger(value: string | null): number | null {
+  if (!value || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function readOnboardingPreference(storageKey: string): boolean {

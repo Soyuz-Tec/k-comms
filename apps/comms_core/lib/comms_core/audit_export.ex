@@ -1,8 +1,5 @@
 defmodule CommsCore.AuditExport do
-  import Ecto.Query
-
-  alias CommsCore.{Authorization, Repo}
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.{Audit, Authorization, Repo}
 
   @default_limit 1_000
   @maximum_limit 5_000
@@ -33,24 +30,14 @@ defmodule CommsCore.AuditExport do
 
       Repo.transaction(fn ->
         results =
-          AuditEvent
-          |> where([event], event.tenant_id == ^tenant_id)
-          |> maybe_equal(:action, action)
-          |> maybe_equal(:resource_type, resource_type)
-          |> maybe_equal(:actor_user_id, actor_user_id)
-          |> maybe_equal(:request_id, request_id)
-          |> maybe_after(after_timestamp)
-          |> maybe_before(before_timestamp)
-          |> maybe_search(query_text)
-          |> order_by([event], desc: event.inserted_at, desc: event.id)
-          |> limit(^(limit + 1))
-          |> Repo.all()
+          filters
+          |> Map.merge(%{tenant_id: tenant_id, limit: limit + 1})
+          |> Audit.list()
 
         truncated = length(results) > limit
         events = Enum.take(results, limit)
 
-        %AuditEvent{}
-        |> AuditEvent.changeset(%{
+        Audit.record(%{
           tenant_id: tenant_id,
           actor_user_id: value(subject, :user_id),
           action: "audit.export",
@@ -64,7 +51,7 @@ defmodule CommsCore.AuditExport do
             maximum_rows: @maximum_limit
           }
         })
-        |> insert_or_rollback()
+        |> audit_or_rollback()
 
         %{
           csv: encode_csv(events),
@@ -115,31 +102,6 @@ defmodule CommsCore.AuditExport do
     text = if Regex.match?(~r/^\s*[=+\-@\t\r]/u, text), do: "'" <> text, else: text
     "\"" <> String.replace(text, "\"", "\"\"") <> "\""
   end
-
-  defp maybe_equal(query, _field, nil), do: query
-  defp maybe_equal(query, _field, ""), do: query
-  defp maybe_equal(query, field, value), do: where(query, [event], field(event, ^field) == ^value)
-  defp maybe_after(query, nil), do: query
-  defp maybe_after(query, timestamp), do: where(query, [event], event.inserted_at >= ^timestamp)
-  defp maybe_before(query, nil), do: query
-  defp maybe_before(query, timestamp), do: where(query, [event], event.inserted_at < ^timestamp)
-  defp maybe_search(query, nil), do: query
-
-  defp maybe_search(query, text) do
-    pattern = "%#{escape_like(text)}%"
-
-    where(
-      query,
-      [event],
-      ilike(event.action, ^pattern) or ilike(event.resource_type, ^pattern) or
-        ilike(event.request_id, ^pattern) or
-        fragment("CAST(? AS text) ILIKE ?", event.resource_id, ^pattern) or
-        fragment("CAST(? AS text) ILIKE ?", event.actor_user_id, ^pattern)
-    )
-  end
-
-  defp escape_like(value),
-    do: String.replace(value, ["%", "_", "\\"], fn char -> "\\" <> char end)
 
   defp optional_datetime(nil), do: {:ok, nil}
   defp optional_datetime(""), do: {:ok, nil}
@@ -205,12 +167,8 @@ defmodule CommsCore.AuditExport do
     "k-comms-audit-#{timestamp}.csv"
   end
 
-  defp insert_or_rollback(changeset) do
-    case Repo.insert(changeset) do
-      {:ok, value} -> value
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}

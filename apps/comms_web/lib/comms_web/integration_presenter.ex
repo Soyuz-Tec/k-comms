@@ -1,11 +1,9 @@
 defmodule CommsWeb.IntegrationPresenter do
-  alias CommsCore.Attachments.{Attachment, ScanAttempt}
-  alias CommsCore.Integrations.{WebhookDelivery, WebhookEndpoint, WebhookSubscription}
-  alias CommsCore.Notifications.{Attempt, Intent, Preference}
+  alias CommsCore.Attachments.{AttachmentView, ScanAttemptView}
+  alias CommsCore.Integrations.{WebhookDeliveryView, WebhookEndpointView}
+  alias CommsCore.Notifications.{AttemptView, IntentView, PreferenceView}
 
-  @recovery_event_type "account.password_recovery.requested.v1"
-
-  def notification_preference(%Preference{} = preference) do
+  def notification_preference(%PreferenceView{} = preference) do
     %{
       email_enabled: preference.email_enabled,
       push_enabled: preference.push_enabled,
@@ -15,29 +13,12 @@ defmodule CommsWeb.IntegrationPresenter do
     }
   end
 
-  def notification_intent(%Intent{event_type: @recovery_event_type} = intent) do
-    %{
-      id: intent.id,
-      event_type: "sensitive",
-      channel: intent.channel,
-      destination_hint: nil,
-      payload: %{},
-      status: intent.status,
-      attempt_count: intent.attempt_count,
-      delivered_at: intent.delivered_at,
-      last_error_code: intent.last_error_code,
-      inserted_at: intent.inserted_at,
-      updated_at: intent.updated_at
-    }
-  end
-
-  def notification_intent(%Intent{} = intent) do
+  def notification_intent(%IntentView{} = intent) do
     %{
       id: intent.id,
       event_type: intent.event_type,
       channel: intent.channel,
-      destination_hint:
-        if(intent.channel == :push, do: nil, else: destination_hint(intent.destination)),
+      destination_hint: intent.destination_hint,
       payload: intent.payload,
       status: intent.status,
       attempt_count: intent.attempt_count,
@@ -48,7 +29,7 @@ defmodule CommsWeb.IntegrationPresenter do
     }
   end
 
-  def notification_attempt(%Attempt{} = attempt) do
+  def notification_attempt(%AttemptView{} = attempt) do
     %{
       id: attempt.id,
       intent_id: attempt.intent_id,
@@ -63,21 +44,21 @@ defmodule CommsWeb.IntegrationPresenter do
     }
   end
 
-  def webhook_endpoint(%WebhookEndpoint{} = endpoint) do
+  def webhook_endpoint(%WebhookEndpointView{} = endpoint) do
     %{
       id: endpoint.id,
       name: endpoint.name,
       url: endpoint.url,
       status: endpoint.status,
       secret_version: endpoint.secret_version,
-      event_types: subscriptions(endpoint.subscriptions),
+      event_types: endpoint.event_types,
       disabled_at: endpoint.disabled_at,
       inserted_at: endpoint.inserted_at,
       updated_at: endpoint.updated_at
     }
   end
 
-  def webhook_delivery(%WebhookDelivery{} = delivery) do
+  def webhook_delivery(%WebhookDeliveryView{} = delivery) do
     %{
       id: delivery.id,
       endpoint_id: delivery.endpoint_id,
@@ -94,7 +75,7 @@ defmodule CommsWeb.IntegrationPresenter do
     }
   end
 
-  def attachment_safety(%Attachment{} = attachment) do
+  def attachment_safety(%AttachmentView{} = attachment) do
     %{
       id: attachment.id,
       owner_user_id: attachment.owner_user_id,
@@ -116,11 +97,10 @@ defmodule CommsWeb.IntegrationPresenter do
     }
   end
 
-  defp scan_attempts(%Ecto.Association.NotLoaded{}), do: []
   defp scan_attempts(attempts) when is_list(attempts), do: Enum.map(attempts, &scan_attempt/1)
   defp scan_attempts(_), do: []
 
-  defp scan_attempt(%ScanAttempt{} = attempt) do
+  defp scan_attempt(%ScanAttemptView{} = attempt) do
     %{
       id: attempt.id,
       attempt_number: attempt.attempt_number,
@@ -133,23 +113,4 @@ defmodule CommsWeb.IntegrationPresenter do
       completed_at: attempt.completed_at
     }
   end
-
-  defp subscriptions(%Ecto.Association.NotLoaded{}), do: []
-
-  defp subscriptions(values) when is_list(values) do
-    values
-    |> Enum.map(fn %WebhookSubscription{event_type: event_type} -> event_type end)
-    |> Enum.sort()
-  end
-
-  defp subscriptions(_), do: []
-
-  defp destination_hint(destination) when is_binary(destination) do
-    case String.split(destination, "@", parts: 2) do
-      [local, domain] -> String.first(local) <> "***@" <> domain
-      _ -> "***"
-    end
-  end
-
-  defp destination_hint(_), do: nil
 end

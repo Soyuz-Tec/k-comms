@@ -1,9 +1,10 @@
 defmodule CommsCore.ModerationAndGovernanceTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Governance, Messaging, Moderation, RuntimePorts}
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Governance.DeletionRequest
+  alias CommsCore.{Accounts, Audit, Governance, Messaging, Moderation, RuntimePorts}
+  alias CommsCore.Accounts.User
+  alias CommsCore.Conversations.Membership
+  alias CommsCore.Governance.{DeletionExecution, DeletionRequest}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -66,6 +67,16 @@ defmodule CommsCore.ModerationAndGovernanceTest do
     subject = Fixtures.step_up(account)
     deletion_target = Fixtures.user_fixture(account)
 
+    assert {:ok, deletion_conversation} =
+             CommsCore.Conversations.create(
+               %{
+                 title: "Erasure boundary proof",
+                 kind: "group",
+                 member_ids: [deletion_target.user.id]
+               },
+               subject
+             )
+
     assert {:ok, policy_result} =
              Governance.create_retention_policy(
                %{
@@ -116,10 +127,11 @@ defmodule CommsCore.ModerationAndGovernanceTest do
     assert disabled_policy.status == :disabled
 
     retention_audit =
-      Repo.get_by!(AuditEvent,
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
         action: "retention_policy.update",
         resource_id: disabled_policy.id
-      )
+      })
 
     assert (retention_audit.metadata["reason"] || retention_audit.metadata[:reason]) ==
              "Workspace retention policy paused for review"
@@ -177,13 +189,15 @@ defmodule CommsCore.ModerationAndGovernanceTest do
                :"Elixir.CommsWorkers.DeletionWorker"
              )
 
-    assert claim.request.status == :in_progress
+    assert %DeletionExecution{} = claim
+    refute inspect(claim) =~ "objects"
+    assert Repo.get!(DeletionRequest, request.id).status == :in_progress
 
     assert {:error, :invalid_status} =
              Governance.transition_deletion_request(
                request.id,
                %{
-                 version: claim.request.lock_version,
+                 version: claim.expected_version,
                  status: "completed",
                  transition_reason: "Client must not certify completion"
                },
@@ -193,7 +207,7 @@ defmodule CommsCore.ModerationAndGovernanceTest do
     assert {:ok, completion} =
              Governance.complete_deletion_request(
                request.id,
-               claim.request.lock_version,
+               claim.expected_version,
                %{deleted_object_count: 0},
                :"Elixir.CommsWorkers.DeletionWorker"
              )
@@ -202,6 +216,126 @@ defmodule CommsCore.ModerationAndGovernanceTest do
 
     assert (completion.request.evidence[:executor] || completion.request.evidence["executor"]) ==
              "CommsWorkers.DeletionWorker"
+
+    erased_user = Repo.get!(User, deletion_target.user.id)
+    assert erased_user.status == :deleted
+    assert erased_user.display_name == "Deleted user"
+
+    erased_membership =
+      Repo.get_by!(Membership,
+        tenant_id: account.tenant.id,
+        conversation_id: deletion_conversation.id,
+        user_id: deletion_target.user.id
+      )
+
+    assert erased_membership.left_at
+  end
+
+  test "pending deletion requests still count toward governed owner lifecycle safety" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, second_owner} =
+             Accounts.create_user(
+               %{
+                 display_name: "Pending deletion owner",
+                 email: "pending-deletion-owner@example.test",
+                 password: "correct-horse-pending-owner",
+                 role: "admin"
+               },
+               subject
+             )
+
+    assert {:ok, second_owner} =
+             Accounts.change_user(
+               second_owner.id,
+               %{version: second_owner.lock_version, role: "owner", reason: "share ownership"},
+               subject
+             )
+
+    assert {:ok, %{request: pending_request}} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "user",
+                 subject_user_id: second_owner.id,
+                 reason: "Pending request must not remove owner capacity"
+               },
+               subject
+             )
+
+    assert pending_request.status == :pending
+
+    assert {:ok, %{user: demoted}} =
+             Governance.change_user_lifecycle_view(
+               account.user.id,
+               %{
+                 version: account.user.lock_version,
+                 role: "admin",
+                 reason: "pending request still leaves another owner"
+               },
+               subject
+             )
+
+    assert demoted.role == :admin
+  end
+
+  test "approved deletion requests are excluded from governed owner lifecycle safety" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, second_owner} =
+             Accounts.create_user(
+               %{
+                 display_name: "Approved deletion owner",
+                 email: "approved-deletion-owner@example.test",
+                 password: "correct-horse-approved-owner",
+                 role: "admin"
+               },
+               subject
+             )
+
+    assert {:ok, second_owner} =
+             Accounts.change_user(
+               second_owner.id,
+               %{version: second_owner.lock_version, role: "owner", reason: "share ownership"},
+               subject
+             )
+
+    assert {:ok, %{request: request}} =
+             Governance.create_deletion_request(
+               %{
+                 target_type: "user",
+                 subject_user_id: second_owner.id,
+                 reason: "Approved owner deletion must reduce owner capacity"
+               },
+               subject
+             )
+
+    assert {:ok, approved} =
+             Governance.transition_deletion_request(
+               request.id,
+               %{
+                 version: request.lock_version,
+                 status: "approved",
+                 transition_reason: "approve owner deletion"
+               },
+               subject
+             )
+
+    assert approved.status == :approved
+
+    assert {:error, :last_owner_required} =
+             Governance.change_user_lifecycle_view(
+               account.user.id,
+               %{
+                 version: account.user.lock_version,
+                 role: "admin",
+                 reason: "must preserve an effective owner"
+               },
+               subject
+             )
+
+    assert Repo.get!(User, account.user.id).role == :owner
   end
 
   test "governance targets cannot cross tenants" do
@@ -271,7 +405,7 @@ defmodule CommsCore.ModerationAndGovernanceTest do
     assert {:error, :forbidden} =
              Governance.complete_deletion_request(
                approved.id,
-               claim.request.lock_version,
+               claim.expected_version,
                %{deleted_object_count: 0},
                __MODULE__
              )
@@ -288,8 +422,8 @@ defmodule CommsCore.ModerationAndGovernanceTest do
 
     persisted_claim = Repo.get!(DeletionRequest, approved.id)
     assert persisted_claim.status == :in_progress
-    assert persisted_claim.lock_version == claim.request.lock_version
-    assert persisted_claim.execution_attempts == claim.request.execution_attempts
+    assert persisted_claim.lock_version == claim.expected_version
+    assert persisted_claim.execution_attempts > approved.execution_attempts
     assert is_nil(persisted_claim.execution_error)
     assert is_nil(persisted_claim.completed_at)
     assert persisted_claim.evidence == %{}
@@ -388,7 +522,7 @@ defmodule CommsCore.ModerationAndGovernanceTest do
                  subject
                )
 
-      assert {:error, :legal_hold_active} = Messaging.delete_message(message.id, subject)
+      assert {:error, :legal_hold_active} = Governance.delete_message(message.id, subject)
 
       assert {:ok, released} =
                Governance.release_legal_hold(
@@ -403,7 +537,7 @@ defmodule CommsCore.ModerationAndGovernanceTest do
       assert released.status == :released
     end)
 
-    assert {:ok, deleted} = Messaging.delete_message(message.id, subject)
+    assert {:ok, deleted} = Governance.delete_message(message.id, subject)
     assert deleted.status == :deleted
   end
 
@@ -421,6 +555,6 @@ defmodule CommsCore.ModerationAndGovernanceTest do
   end
 
   defp tenant_audit_count(tenant_id) do
-    Repo.aggregate(from(event in AuditEvent, where: event.tenant_id == ^tenant_id), :count)
+    Audit.count(%{tenant_id: tenant_id})
   end
 end

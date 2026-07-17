@@ -3,7 +3,7 @@ defmodule CommsCore.Attachments.ScanAttempt do
 
   schema "attachment_scan_attempts" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:attachment, CommsCore.Attachments.Attachment)
+    field(:attachment_id, :binary_id)
     field(:attempt_number, :integer)
     field(:provider, :string)
     field(:status, Ecto.Enum, values: [:clean, :blocked, :retryable, :failed])

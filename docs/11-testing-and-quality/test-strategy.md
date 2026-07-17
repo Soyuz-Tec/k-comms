@@ -8,10 +8,10 @@
 | Property-based | Invariants over broad input space | Idempotency, cursor monotonicity, tenant separation |
 | Integration | Database, jobs, storage, and PubSub behavior | Transaction rollback, retries, attachment states |
 | Contract | API/event compatibility | OpenAPI/AsyncAPI schema checks |
-| End-to-end | User-visible journeys | Authenticate, send, receive, reconnect, search |
-| Performance | Capacity and latency | Hot rooms, fan-out, reconnect storms |
+| End-to-end | User-visible journeys | Authenticate, send, receive, reconnect, search, direct/group audio-video, screen sharing |
+| Performance | Capacity and latency | Hot rooms, fan-out, reconnect storms, representative group video and forced-TURN bandwidth |
 | Chaos/failure | Recovery and containment | Node kill, database failover, provider outage |
-| Security | Abuse and trust boundaries | ID substitution, SSRF, token/session tests |
+| Security | Abuse and trust boundaries | ID/media-kind substitution, overbroad media grants, SSRF, token/session tests |
 | Recovery | Backup and DR | Restore, promotion, projection rebuild |
 | Usability | Representative task success and comprehension | Invitation-to-first-message, daily collaboration, safe administration, operations triage |
 | Accessibility | WCAG and assistive-technology behavior | Keyboard, screen reader, reflow, high contrast, route and dialog focus |

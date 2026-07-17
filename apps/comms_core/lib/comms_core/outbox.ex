@@ -2,6 +2,7 @@ defmodule CommsCore.Outbox do
   import Ecto.Query
 
   alias CommsCore.Events.OutboxEvent
+  alias CommsCore.Outbox.Event
   alias CommsCore.{Repo, RuntimePorts}
 
   def insert_and_enqueue!(attrs) when is_map(attrs) do
@@ -27,7 +28,7 @@ defmodule CommsCore.Outbox do
           :already_published
 
         %OutboxEvent{} = event ->
-          {:ok, event}
+          {:ok, Event.new(event)}
       end
     else
       {:error, :forbidden}

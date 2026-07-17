@@ -1,8 +1,7 @@
 defmodule CommsCore.AuditExportTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{AuditExport, Repo}
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.{Audit, AuditExport}
   alias CommsTestSupport.Fixtures
 
   test "export is step-up and tenant scoped, capped, filterable, and spreadsheet-injection safe" do
@@ -41,16 +40,13 @@ defmodule CommsCore.AuditExportTest do
     refute export.csv =~ "+foreign"
     assert String.starts_with?(export.csv, "\"inserted_at\",\"actor_user_id\"")
 
-    evidence =
-      Repo.one!(
-        from(audit in AuditEvent,
-          where:
-            audit.tenant_id == ^account.tenant.id and audit.action == "audit.export" and
-              audit.resource_id == ^account.tenant.id,
-          order_by: [desc: audit.inserted_at],
-          limit: 1
-        )
-      )
+    [evidence] =
+      Audit.list(%{
+        tenant_id: account.tenant.id,
+        action: "audit.export",
+        resource_id: account.tenant.id,
+        limit: 1
+      })
 
     assert evidence.metadata["returned_count"] == 1 or evidence.metadata[:returned_count] == 1
     assert evidence.metadata["truncated"] == true or evidence.metadata[:truncated] == true
@@ -74,16 +70,17 @@ defmodule CommsCore.AuditExportTest do
   end
 
   defp insert_event(tenant_id, actor_id, action, resource_type, request_id) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
-      tenant_id: tenant_id,
-      actor_user_id: actor_id,
-      action: action,
-      resource_type: resource_type,
-      resource_id: Ecto.UUID.generate(),
-      request_id: request_id,
-      metadata: %{note: "tenant evidence"}
-    })
-    |> Repo.insert!()
+    {:ok, event} =
+      Audit.record(%{
+        tenant_id: tenant_id,
+        actor_user_id: actor_id,
+        action: action,
+        resource_type: resource_type,
+        resource_id: Ecto.UUID.generate(),
+        request_id: request_id,
+        metadata: %{note: "tenant evidence"}
+      })
+
+    event
   end
 end

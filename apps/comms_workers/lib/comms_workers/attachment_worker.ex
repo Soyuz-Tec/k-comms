@@ -2,7 +2,7 @@ defmodule CommsWorkers.AttachmentWorker do
   use Oban.Worker, queue: :media, max_attempts: 5
 
   alias CommsCore.Attachments
-  alias CommsCore.Attachments.Attachment
+  alias CommsCore.Attachments.AttachmentView
   alias CommsIntegrations.{ObjectStorage, Scanner}
 
   @impl Oban.Worker
@@ -11,7 +11,7 @@ defmodule CommsWorkers.AttachmentWorker do
       {:ok, {:already_clean, _attachment}} ->
         :ok
 
-      {:ok, %Attachment{} = attachment} ->
+      {:ok, %AttachmentView{} = attachment} ->
         result = scan(attachment)
 
         case Attachments.record_scan(attachment, result) do

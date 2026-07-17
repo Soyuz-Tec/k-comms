@@ -22,6 +22,10 @@ DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
     re.IGNORECASE,
 )
+MEDIA_PLANE_MARKER = re.compile(
+    r"(?:^|[^a-z0-9])(?:livekit|coturn|turnserver)(?:$|[^a-z0-9])",
+    re.IGNORECASE,
+)
 DNS_HOSTNAME = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
@@ -145,7 +149,11 @@ def validate_documents(documents: list[dict]) -> list[str]:
     required_values = {
         "ALLOW_BOOTSTRAP": "false",
         "ALLOW_DEVELOPMENT_ADAPTERS": "false",
+        "ALLOW_DEVELOPMENT_IDENTITY_MODES": "false",
+        "AUDIO_PROVIDER_MODE": "livekit",
         "DATABASE_SSL": "true",
+        "IDENTITY_PROVIDER_MODE": "oidc",
+        "DIRECTORY_PROVISIONING_MODE": "scim",
         "HSTS_ENABLED": "true",
         "NOTIFICATION_PROVIDER_MODE": "http",
         "ATTACHMENT_SCANNER_MODE": "http",
@@ -172,6 +180,16 @@ def validate_documents(documents: list[dict]) -> list[str]:
         "ATTACHMENT_SCANNER_ALLOWED_HOSTS",
         "WEBHOOK_ALLOWED_HOSTS",
         "WEB_PUSH_VAPID_PUBLIC_KEY",
+        "OIDC_ISSUER",
+        "OIDC_CLIENT_ID",
+        "OIDC_PROVIDER_NAME",
+        "OIDC_REQUIRED_ACR_VALUES",
+        "SCIM_PROVIDER_NAME",
+        "LIVEKIT_SERVER_URL",
+        "LIVEKIT_API_URL",
+        "AUDIO_TOKEN_TTL_SECONDS",
+        "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS",
+        "CSP_CONNECT_SOURCES",
     ):
         value = str(data.get(key, ""))
         if not value or PLACEHOLDER.search(value):
@@ -186,6 +204,8 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_provider(data, "ATTACHMENT_SCANNER", errors)
     validate_hosts(data.get("WEBHOOK_ALLOWED_HOSTS"), "WEBHOOK_ALLOWED_HOSTS", errors)
     validate_vapid(data.get("WEB_PUSH_VAPID_PUBLIC_KEY"), errors)
+    validate_oidc_issuer(data.get("OIDC_ISSUER"), errors)
+    validate_livekit(data, errors)
     validate_database_tls(data, documents, errors)
 
     if public_origin:
@@ -204,6 +224,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_images(documents, errors)
     validate_runtime_purposes(documents, errors)
     validate_workload_contracts(documents, errors)
+    validate_provider_secret_refs(documents, errors)
     validate_external_data_plane(documents, errors)
     validate_capacity_controls(documents, errors)
     validate_database_egress(documents, errors)
@@ -289,6 +310,127 @@ def validate_https_origin(data: dict, key: str, errors: list[str]):
         )
         return None
     return parsed
+
+
+def validate_oidc_issuer(value, errors: list[str]) -> None:
+    try:
+        issuer = urlsplit(str(value or ""))
+        hostname = issuer.hostname
+        port = issuer.port
+    except ValueError:
+        hostname = None
+        port = None
+        issuer = None
+
+    if (
+        issuer is None
+        or issuer.scheme != "https"
+        or not hostname
+        or not DNS_HOSTNAME.fullmatch(hostname)
+        or issuer.username
+        or issuer.password
+        or issuer.query
+        or issuer.fragment
+        or port not in {None, 443}
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: OIDC_ISSUER must be an exact HTTPS "
+            "issuer URL on port 443 with a DNS hostname"
+        )
+
+
+def validate_livekit(data: dict, errors: list[str]) -> None:
+    value = str(data.get("LIVEKIT_SERVER_URL", ""))
+    api_value = str(data.get("LIVEKIT_API_URL", ""))
+    try:
+        endpoint = urlsplit(value)
+        hostname = endpoint.hostname
+        port = endpoint.port
+    except ValueError:
+        endpoint = None
+        hostname = None
+        port = None
+
+    if (
+        endpoint is None
+        or endpoint.scheme != "wss"
+        or not hostname
+        or not DNS_HOSTNAME.fullmatch(hostname)
+        or endpoint.username
+        or endpoint.password
+        or endpoint.path not in {"", "/"}
+        or endpoint.query
+        or endpoint.fragment
+        or port not in {None, 443}
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: LIVEKIT_SERVER_URL must be an exact "
+            "WSS origin on port 443 with a DNS hostname"
+        )
+
+    try:
+        api_endpoint = urlsplit(api_value)
+        api_hostname = api_endpoint.hostname
+        api_port = api_endpoint.port
+    except ValueError:
+        api_endpoint = None
+        api_hostname = None
+        api_port = None
+
+    if (
+        api_endpoint is None
+        or api_endpoint.scheme != "https"
+        or not api_hostname
+        or not DNS_HOSTNAME.fullmatch(api_hostname)
+        or api_endpoint.username
+        or api_endpoint.password
+        or api_endpoint.path not in {"", "/"}
+        or api_endpoint.query
+        or api_endpoint.fragment
+        or api_port not in {None, 443}
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: LIVEKIT_API_URL must be an exact "
+            "HTTPS origin on port 443 with a DNS hostname"
+        )
+
+    try:
+        token_ttl = int(str(data.get("AUDIO_TOKEN_TTL_SECONDS", "")))
+    except ValueError:
+        token_ttl = 0
+    if not 60 <= token_ttl <= 300:
+        errors.append(
+            "ConfigMap k-comms-config: AUDIO_TOKEN_TTL_SECONDS must be between 60 and 300"
+        )
+
+    try:
+        eviction_enforcement = int(
+            str(data.get("AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS", ""))
+        )
+    except ValueError:
+        eviction_enforcement = 0
+    if not 660 <= eviction_enforcement <= 1_800:
+        errors.append(
+            "ConfigMap k-comms-config: "
+            "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be between 660 and 1800"
+        )
+    elif eviction_enforcement < token_ttl:
+        errors.append(
+            "ConfigMap k-comms-config: "
+            "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must not be shorter than "
+            "AUDIO_TOKEN_TTL_SECONDS"
+        )
+
+    csp_sources = {
+        item.strip()
+        for item in str(data.get("CSP_CONNECT_SOURCES", "")).split()
+        if item.strip()
+    }
+    if value not in csp_sources:
+        errors.append(
+            "ConfigMap k-comms-config: CSP_CONNECT_SOURCES must contain the exact "
+            "LIVEKIT_SERVER_URL origin"
+        )
 
 
 def validate_provider(data: dict, prefix: str, errors: list[str]) -> None:
@@ -596,6 +738,29 @@ def validate_workload_contracts(documents: list[dict], errors: list[str]) -> Non
             errors.append(f"Job {name}: restartPolicy must be Never")
 
 
+def validate_provider_secret_refs(documents: list[dict], errors: list[str]) -> None:
+    for name in ("k-comms-edge", "k-comms-worker"):
+        document = named_document(documents, "Deployment", name)
+        if not document:
+            continue
+        containers = _pod_spec(document).get("containers", [])
+        env_from = containers[0].get("envFrom", []) if containers else []
+        provider_ref = next(
+            (
+                item.get("secretRef")
+                for item in env_from
+                if isinstance(item, dict)
+                and isinstance(item.get("secretRef"), dict)
+                and item["secretRef"].get("name") == "k-comms-provider-secrets"
+            ),
+            None,
+        )
+        if not isinstance(provider_ref, dict) or provider_ref.get("optional") is not False:
+            errors.append(
+                f"Deployment {name}: k-comms-provider-secrets must be an explicit non-optional envFrom reference"
+            )
+
+
 def _validate_pod_security(
     kind: str, name: str, pod_spec: dict, errors: list[str]
 ) -> None:
@@ -694,6 +859,10 @@ def validate_external_data_plane(documents: list[dict], errors: list[str]) -> No
         if kind in WORKLOAD_OR_SERVICE_KINDS and _has_data_plane_marker(document):
             errors.append(
                 f"{kind} {name}: production bundle must not deploy in-namespace PostgreSQL or MinIO workloads/services"
+            )
+        if kind in WORKLOAD_OR_SERVICE_KINDS and _has_media_plane_marker(document):
+            errors.append(
+                f"{kind} {name}: production application bundle must reference an external media provider, not deploy LiveKit or TURN"
             )
 
 
@@ -1051,6 +1220,14 @@ def _pod_spec(document: dict) -> dict:
 
 
 def _has_data_plane_marker(document: dict) -> bool:
+    return _has_plane_marker(document, DATA_PLANE_MARKER)
+
+
+def _has_media_plane_marker(document: dict) -> bool:
+    return _has_plane_marker(document, MEDIA_PLANE_MARKER)
+
+
+def _has_plane_marker(document: dict, marker: re.Pattern) -> bool:
     metadata = document.get("metadata", {})
     spec = document.get("spec", {})
     if not isinstance(metadata, dict) or not isinstance(spec, dict):
@@ -1089,7 +1266,7 @@ def _has_data_plane_marker(document: dict) -> bool:
                     (str(container.get("name", "")), str(container.get("image", "")))
                 )
 
-    return any(DATA_PLANE_MARKER.search(signal) for signal in signals)
+    return any(marker.search(signal) for signal in signals)
 
 
 def _covers_address_family(networks: set[ipaddress._BaseNetwork]) -> bool:

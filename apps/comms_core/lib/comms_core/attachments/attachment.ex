@@ -4,7 +4,7 @@ defmodule CommsCore.Attachments.Attachment do
   schema "attachments" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
     belongs_to(:owner_user, CommsCore.Accounts.User)
-    belongs_to(:message, CommsCore.Messaging.Message)
+    field(:message_id, :binary_id)
     field(:object_key, :string)
     field(:file_name, :string)
     field(:content_type, :string)

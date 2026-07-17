@@ -20,7 +20,7 @@ defmodule CommsWeb.Plugs.SecurityHeaders do
     |> put_resp_header("referrer-policy", "no-referrer")
     |> put_resp_header("x-content-type-options", "nosniff")
     |> put_resp_header("x-frame-options", "DENY")
-    |> put_resp_header("permissions-policy", "camera=(), microphone=(), geolocation=()")
+    |> put_resp_header("permissions-policy", "camera=(self), microphone=(self), geolocation=()")
     |> maybe_hsts()
   end
 

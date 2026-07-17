@@ -1,10 +1,10 @@
 defmodule CommsCore.AdministrationTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Administration, Governance, Repo}
-  alias CommsCore.Administration.Invitation
-  alias CommsCore.Accounts.{Session, SocketTicket}
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.{Accounts, Administration, Audit, Governance, Repo}
+  alias CommsCore.Administration.{Invitation, InvitationView}
+  alias CommsCore.Accounts.{Session, SocketTicket, UserView}
+  alias CommsCore.Audit.{Event, TestSupport}
   alias CommsCore.Security.Password
   alias CommsTestSupport.Fixtures
 
@@ -18,30 +18,36 @@ defmodule CommsCore.AdministrationTest do
       idempotency_key: "invite-001"
     }
 
-    assert {:ok, first} = Accounts.create_invitation(attrs, subject)
+    assert {:ok, first} = Administration.create_invitation(attrs, subject)
     assert first.replayed == false
     assert is_binary(first.token)
+    assert %InvitationView{} = first.invitation
     assert first.invitation.role == :moderator
 
-    assert {:ok, replay} = Accounts.create_invitation(attrs, subject)
+    assert {:ok, replay} = Administration.create_invitation(attrs, subject)
     assert replay.replayed == true
     assert replay.invitation.id == first.invitation.id
     assert replay.token == nil
     assert Repo.aggregate(Invitation, :count) == 1
 
     assert {:ok, invited_user} =
-             Accounts.accept_invitation(%{
+             Administration.accept_invitation(%{
                token: first.token,
                display_name: "Invited Moderator",
                password: "correct-horse-invited-password"
              })
 
     assert invited_user.tenant_id == account.tenant.id
+    assert %UserView{} = invited_user
     assert invited_user.role == :moderator
-    assert Password.verify("correct-horse-invited-password", invited_user.password_hash)
+
+    assert Password.verify(
+             "correct-horse-invited-password",
+             Repo.get!(CommsCore.Accounts.User, invited_user.id).password_hash
+           )
 
     assert {:error, :invalid_invitation} =
-             Accounts.accept_invitation(%{
+             Administration.accept_invitation(%{
                token: first.token,
                password: "correct-horse-another-password",
                display_name: "Again"
@@ -53,7 +59,7 @@ defmodule CommsCore.AdministrationTest do
     subject = Fixtures.step_up(account)
 
     assert {:ok, first} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{
                  email: "expiring-invite@example.test",
                  role: "member",
@@ -64,12 +70,13 @@ defmodule CommsCore.AdministrationTest do
 
     expired_at = DateTime.add(DateTime.utc_now(), -60, :second) |> DateTime.truncate(:microsecond)
 
-    first.invitation
+    Invitation
+    |> Repo.get!(first.invitation.id)
     |> Invitation.changeset(%{expires_at: expired_at})
     |> Repo.update!()
 
     assert {:ok, replacement} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{
                  email: "expiring-invite@example.test",
                  role: "member",
@@ -100,7 +107,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:error, :invitation_identity_conflict} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{email: email, role: "member", idempotency_key: "existing-active-identity"},
                subject
              )
@@ -113,7 +120,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:error, :invitation_identity_conflict} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{email: email, role: "member", idempotency_key: "existing-suspended-identity"},
                subject
              )
@@ -141,7 +148,7 @@ defmodule CommsCore.AdministrationTest do
     invitation_password = "correct-horse-invitation-takeover"
 
     assert {:ok, invitation_result} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{email: email, role: "admin", idempotency_key: "identity-race-invitation"},
                subject
              )
@@ -165,7 +172,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:error, :invitation_identity_conflict} =
-             Accounts.accept_invitation(%{
+             Administration.accept_invitation(%{
                token: invitation_result.token,
                display_name: "Takeover attempt",
                password: invitation_password
@@ -184,8 +191,15 @@ defmodule CommsCore.AdministrationTest do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
 
-    assert {:error, :last_owner_required} =
+    assert {:error, :governance_policy_required} =
              Accounts.change_user(
+               account.user.id,
+               %{version: 1, status: "suspended", reason: "owner safety test"},
+               subject
+             )
+
+    assert {:error, :last_owner_required} =
+             Governance.change_user_lifecycle_view(
                account.user.id,
                %{version: 1, status: "suspended", reason: "owner safety test"},
                subject
@@ -219,8 +233,8 @@ defmodule CommsCore.AdministrationTest do
                subject
              )
 
-    assert {:ok, demoted} =
-             Accounts.change_user(
+    assert {:ok, %{user: demoted}} =
+             Governance.change_user_lifecycle_view(
                account.user.id,
                %{version: 1, role: "admin", reason: "transfer tenant ownership"},
                subject
@@ -315,11 +329,10 @@ defmodule CommsCore.AdministrationTest do
     assert {:ok, device_result} = Accounts.revoke_device(account.device.id, subject)
     assert account.session.id in device_result.revoked_session_ids
 
-    assert Repo.exists?(
-             from(e in AuditEvent,
-               where: e.tenant_id == ^account.tenant.id and e.action == "user.password_change"
-             )
-           )
+    assert Audit.get_by(%{
+             tenant_id: account.tenant.id,
+             action: "user.password_change"
+           })
   end
 
   test "privileged lifecycle, session, and invitation revocations require step-up and a normalized reason" do
@@ -346,7 +359,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:ok, invitation_result} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{
                  email: "reasoned-invitation@example.test",
                  role: "member",
@@ -378,7 +391,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:error, :step_up_required} =
-             Accounts.revoke_invitation(
+             Administration.revoke_invitation(
                invitation.id,
                %{version: 1, reason: "security response"},
                subject
@@ -398,7 +411,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:error, :reason_required} =
-             Accounts.revoke_invitation(invitation.id, %{version: 1}, subject)
+             Administration.revoke_invitation(invitation.id, %{version: 1}, subject)
 
     assert {:ok, _session} =
              Accounts.admin_revoke_session(
@@ -416,39 +429,27 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:ok, _invitation} =
-             Accounts.revoke_invitation(
+             Administration.revoke_invitation(
                invitation.id,
                %{version: 1, reason: "  invitation no longer required  "},
                subject
              )
 
-    assert Repo.one!(
-             from(event in AuditEvent,
-               where:
-                 event.tenant_id == ^account.tenant.id and
-                   event.action == "session.admin_revoke",
-               select: event.metadata
-             )
-           )["reason"] == "revoke compromised browser"
+    assert Audit.get_by!(%{
+             tenant_id: account.tenant.id,
+             action: "session.admin_revoke"
+           }).metadata["reason"] == "revoke compromised browser"
 
-    assert Repo.one!(
-             from(event in AuditEvent,
-               where:
-                 event.tenant_id == ^account.tenant.id and
-                   event.action == "user.lifecycle_update" and
-                   event.resource_id == ^managed_user.id,
-               select: event.metadata
-             )
-           )["reason"] == "suspend compromised account"
+    assert Audit.get_by!(%{
+             tenant_id: account.tenant.id,
+             action: "user.lifecycle_update",
+             resource_id: managed_user.id
+           }).metadata["reason"] == "suspend compromised account"
 
-    assert Repo.one!(
-             from(event in AuditEvent,
-               where:
-                 event.tenant_id == ^account.tenant.id and
-                   event.action == "invitation.revoke",
-               select: event.metadata
-             )
-           )["reason"] == "invitation no longer required"
+    assert Audit.get_by!(%{
+             tenant_id: account.tenant.id,
+             action: "invitation.revoke"
+           }).metadata["reason"] == "invitation no longer required"
   end
 
   test "socket tickets are short-lived, hashed, and consumed exactly once" do
@@ -489,21 +490,9 @@ defmodule CommsCore.AdministrationTest do
 
     assert {:error, :invalid_socket_ticket} = Accounts.consume_socket_ticket(issued.ticket)
 
-    assert 1 ==
-             Repo.aggregate(
-               from(e in AuditEvent,
-                 where: e.tenant_id == ^account.tenant.id and e.action == "socket_ticket.issue"
-               ),
-               :count
-             )
+    assert 1 == Audit.count(%{tenant_id: account.tenant.id, action: "socket_ticket.issue"})
 
-    assert 1 ==
-             Repo.aggregate(
-               from(e in AuditEvent,
-                 where: e.tenant_id == ^account.tenant.id and e.action == "socket_ticket.consume"
-               ),
-               :count
-             )
+    assert 1 == Audit.count(%{tenant_id: account.tenant.id, action: "socket_ticket.consume"})
   end
 
   test "tenant settings use optimistic versioning and privileged audit search" do
@@ -537,7 +526,7 @@ defmodule CommsCore.AdministrationTest do
     assert {:ok, audit} =
              Administration.list_audit_events(%{action: "tenant.settings_update"}, subject)
 
-    assert [%AuditEvent{resource_id: tenant_id}] = audit.events
+    assert [%Event{resource_id: tenant_id}] = audit.events
     assert tenant_id == account.tenant.id
   end
 
@@ -563,7 +552,7 @@ defmodule CommsCore.AdministrationTest do
         }
       end)
 
-    assert {2, nil} = Repo.insert_all(AuditEvent, rows)
+    assert 2 == rows |> Enum.map(&TestSupport.insert!/1) |> length()
 
     assert {:ok, first_page} =
              Administration.list_audit_events(%{action: "cursor-test", limit: 1}, subject)
@@ -580,13 +569,7 @@ defmodule CommsCore.AdministrationTest do
     assert [second] = second_page.events
     refute first.id == second.id
 
-    assert 2 ==
-             Repo.aggregate(
-               from(e in AuditEvent,
-                 where: e.tenant_id == ^account.tenant.id and e.action == "audit.read"
-               ),
-               :count
-             )
+    assert 2 == Audit.count(%{tenant_id: account.tenant.id, action: "audit.read"})
   end
 
   test "compliance and security authority remain separate from tenant administration" do
@@ -652,13 +635,11 @@ defmodule CommsCore.AdministrationTest do
 
     assert {:error, :forbidden} = Governance.list_legal_holds(%{}, security_subject)
 
-    assert Repo.exists?(
-             from(e in AuditEvent,
-               where:
-                 e.tenant_id == ^account.tenant.id and e.actor_user_id == ^admin.id and
-                   e.action == "authorization.denied"
-             )
-           )
+    assert Audit.get_by(%{
+             tenant_id: account.tenant.id,
+             actor_user_id: admin.id,
+             action: "authorization.denied"
+           })
   end
 
   defp fixture_password(account) do

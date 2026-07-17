@@ -1,14 +1,146 @@
 defmodule CommsCore.Messaging do
   import Ecto.Query
 
-  alias CommsCore.{Attachments, Authorization, Governance, Outbox, Repo}
-  alias CommsCore.Accounts.User
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.{Conversation, Membership}
-  alias CommsCore.Messaging.{Message, MessageMention, MessageRevision, Reaction}
+  alias CommsCore.{Attachments, Authorization, Conversations, Outbox, Repo, ServiceAccounts}
+  alias CommsCore.Audit
+  alias CommsCore.Conversations.MessageWriteSlot
+
+  alias CommsCore.Messaging.{
+    Message,
+    MessageDeletionCandidate,
+    MessageMention,
+    MessageRevision,
+    MessageView,
+    Projector,
+    Reaction
+  }
 
   @max_metadata_bytes 65_536
+  @default_search_limit 50
+  @max_search_limit 200
   @required [:tenant_id, :conversation_id, :sender_user_id, :sender_device_id, :client_message_id]
+
+  @doc """
+  Tombstones tenant-scoped messages as part of an existing erasure transaction.
+
+  Revision and reaction history is removed before message content is scrubbed.
+  Returns only affected-row counts and never exposes content persistence schemas.
+  """
+  @spec tombstone_for_erasure(Ecto.UUID.t(), [Ecto.UUID.t()], DateTime.t()) ::
+          {:ok,
+           %{
+             messages_tombstoned: non_neg_integer(),
+             revisions_deleted: non_neg_integer(),
+             reactions_deleted: non_neg_integer()
+           }}
+          | {:error, :invalid_erasure_scope | :transaction_required}
+  def tombstone_for_erasure(tenant_id, message_ids, %DateTime{} = timestamp)
+      when is_binary(tenant_id) and is_list(message_ids) do
+    if Repo.in_transaction?() do
+      message_ids = Enum.uniq(message_ids)
+
+      with :ok <- validate_erasure_scope(tenant_id, message_ids) do
+        {revisions_deleted, _} =
+          Repo.delete_all(
+            from(revision in MessageRevision,
+              where: revision.tenant_id == ^tenant_id and revision.message_id in ^message_ids
+            )
+          )
+
+        {reactions_deleted, _} =
+          Repo.delete_all(
+            from(reaction in Reaction,
+              where: reaction.tenant_id == ^tenant_id and reaction.message_id in ^message_ids
+            )
+          )
+
+        {messages_tombstoned, _} =
+          Repo.update_all(
+            from(message in Message,
+              where: message.tenant_id == ^tenant_id and message.id in ^message_ids
+            ),
+            set: [body: nil, metadata: %{}, status: :deleted, deleted_at: timestamp]
+          )
+
+        {:ok,
+         %{
+           messages_tombstoned: messages_tombstoned,
+           revisions_deleted: revisions_deleted,
+           reactions_deleted: reactions_deleted
+         }}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def tombstone_for_erasure(_tenant_id, _message_ids, _timestamp),
+    do: {:error, :invalid_erasure_scope}
+
+  @doc """
+  Lists message history for an authenticated service identity.
+
+  ConversationContent owns the query and projection. IdentityAccess validates
+  service-account scope, while Conversations owns membership and archive
+  authorization.
+  """
+  @spec list_service_history(Ecto.UUID.t(), map(), keyword()) ::
+          {:ok, [MessageView.t()]} | {:error, term()}
+  def list_service_history(conversation_id, subject, opts \\ [])
+      when is_binary(conversation_id) and is_map(subject) and is_list(opts) do
+    with :ok <-
+           Conversations.authorize_service_access(subject, "messages:read", conversation_id) do
+      list_history(
+        conversation_id,
+        subject,
+        Keyword.put(opts, :authorize, &service_authorizer/3)
+      )
+    end
+  end
+
+  @doc """
+  Accepts a service-authored message through the ConversationContent owner.
+
+  Service identities cannot attach files. Authorization is rechecked inside
+  the existing message transaction so idempotent replay semantics are retained.
+  """
+  @spec accept_service_message_with_status(Ecto.UUID.t(), map(), map()) ::
+          {:ok, MessageView.t(), :created | :duplicate} | {:error, term()}
+  def accept_service_message_with_status(conversation_id, attrs, subject)
+      when is_binary(conversation_id) and is_map(attrs) and is_map(subject) do
+    with :ok <- reject_service_attachments(attrs),
+         :ok <-
+           Conversations.authorize_service_access(subject, "messages:write", conversation_id) do
+      message_attrs =
+        attrs
+        |> Map.put(:tenant_id, value(subject, :tenant_id))
+        |> Map.put(:conversation_id, conversation_id)
+        |> Map.put(:sender_user_id, value(subject, :user_id))
+        |> Map.put(:sender_device_id, value(subject, :device_id))
+        |> Map.put(:attachment_ids, [])
+
+      accept_message_with_status(message_attrs, subject, authorize: &service_authorizer/3)
+    end
+  end
+
+  @doc """
+  Searches message content visible to a scoped service identity.
+  """
+  @spec search_for_service(String.t(), map(), keyword()) ::
+          {:ok, [MessageView.t()]} | {:error, term()}
+  def search_for_service(query, subject, opts \\ [])
+      when is_binary(query) and is_map(subject) and is_list(opts) do
+    with :ok <- ServiceAccounts.authorize_service(subject, "search:read") do
+      query_text = String.trim(query)
+
+      if query_text == "" do
+        {:ok, []}
+      else
+        limit_count = opts |> Keyword.get(:limit, 50) |> integer(50) |> max(1) |> min(100)
+        search(query_text, subject, limit: limit_count)
+      end
+    end
+  end
 
   def accept_message(attrs, subject, opts \\ []) when is_map(attrs) and is_map(subject) do
     case accept_message_with_status(attrs, subject, opts) do
@@ -167,33 +299,51 @@ defmodule CommsCore.Messaging do
 
   def edit_message(_, _, _), do: {:error, :invalid_message_body}
 
-  def delete_message(message_id, subject) do
-    Repo.transaction(fn ->
-      case Governance.authorize_message_deletion(value(subject, :tenant_id), fn ->
-             message = locked_message(message_id, subject)
+  @doc """
+  Contributes an authorized message deletion to a caller-owned policy transaction.
 
-             case Authorization.authorize(:delete_message, subject, message) do
-               :ok -> {:ok, message}
-               {:error, _} = error -> error
-             end
-           end) do
-        {:ok, message} ->
-          updated =
-            message
-            |> Message.delete_changeset(%{body: nil, status: :deleted, deleted_at: now()})
-            |> Repo.update!()
+  The policy callback receives a `MessageDeletionCandidate`, never the Message
+  schema. This keeps the content mutation inside its owner while allowing
+  Governance to enforce legal holds before the update and outbox append.
+  """
+  @spec delete_message(
+          Ecto.UUID.t(),
+          map(),
+          (MessageDeletionCandidate.t() -> :ok | {:error, term()})
+        ) ::
+          {:ok, CommsCore.Messaging.MessageView.t()}
+          | {:error, :not_found | :transaction_required | term()}
+  def delete_message(message_id, subject, policy_check)
+      when is_map(subject) and is_function(policy_check, 1) do
+    if Repo.in_transaction?() do
+      with %Message{} = message <- locked_message(message_id, subject),
+           :ok <- Authorization.authorize(:delete_message, subject, message),
+           :ok <-
+             policy_check.(%MessageDeletionCandidate{
+               id: message.id,
+               tenant_id: message.tenant_id,
+               conversation_id: message.conversation_id,
+               sender_user_id: message.sender_user_id
+             }),
+           {:ok, updated} <-
+             message
+             |> Message.delete_changeset(%{body: nil, status: :deleted, deleted_at: now()})
+             |> Repo.update() do
+        insert_event(updated, "message.deleted.v1", subject, %{
+          conversation_sequence: updated.conversation_sequence
+        })
 
-          insert_event(updated, "message.deleted.v1", subject, %{
-            conversation_sequence: updated.conversation_sequence
-          })
-
-          hydrate_message(updated)
-
-        {:error, reason} ->
-          Repo.rollback(reason)
+        {:ok, hydrate_message(updated)}
+      else
+        nil -> {:error, :not_found}
+        {:error, _reason} = error -> error
       end
-    end)
+    else
+      {:error, :transaction_required}
+    end
   end
+
+  def delete_message(_message_id, _subject, _policy_check), do: {:error, :not_found}
 
   def add_reaction(message_id, emoji, subject) when is_binary(emoji) do
     with %Message{} = message <- scoped_message(message_id, subject),
@@ -211,7 +361,7 @@ defmodule CommsCore.Messaging do
              conflict_target: [:message_id, :user_id, :emoji],
              returning: true
            ) do
-        {:ok, reaction} -> {:ok, reaction}
+        {:ok, reaction} -> {:ok, Projector.reaction(reaction)}
         {:error, reason} -> {:error, reason}
       end
     else
@@ -241,38 +391,61 @@ defmodule CommsCore.Messaging do
   end
 
   def search(query_text, subject, opts \\ []) when is_binary(query_text) do
+    case search_page(query_text, subject, opts) do
+      {:ok, %{messages: messages}} -> {:ok, messages}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def search_page(query_text, subject, opts \\ [])
+      when is_binary(query_text) and is_map(subject) and is_list(opts) do
     query_text = String.trim(query_text)
+    limit_count = clamp_limit(Keyword.get(opts, :limit, @default_search_limit), @max_search_limit)
 
     if query_text == "" do
-      {:ok, []}
+      {:ok, %{messages: [], limit: limit_count, has_more: false, next_cursor: nil}}
     else
-      limit_count = clamp_limit(Keyword.get(opts, :limit, 50))
+      with {:ok, conversation_id} <- optional_search_uuid(Keyword.get(opts, :conversation_id)),
+           {:ok, sender_user_id} <- optional_search_uuid(Keyword.get(opts, :sender_user_id)),
+           {:ok, after_at} <- optional_search_datetime(Keyword.get(opts, :after)),
+           {:ok, before_at} <- optional_search_datetime(Keyword.get(opts, :before)),
+           :ok <- validate_search_range(after_at, before_at),
+           {:ok, cursor} <- optional_search_cursor(Keyword.get(opts, :cursor)) do
+        active_conversation_ids = Conversations.active_conversation_ids(subject)
 
-      query =
-        from(m in Message,
-          join: membership in CommsCore.Conversations.Membership,
-          on: membership.conversation_id == m.conversation_id,
-          join: conversation in Conversation,
-          on:
-            conversation.id == m.conversation_id and
-              conversation.tenant_id == m.tenant_id,
-          where:
-            m.tenant_id == ^value(subject, :tenant_id) and
-              membership.tenant_id == ^value(subject, :tenant_id) and
-              membership.user_id == ^value(subject, :user_id) and
-              is_nil(membership.left_at) and is_nil(conversation.archived_at) and
-              m.status == :active and
-              fragment(
-                "to_tsvector('simple', coalesce(?, '')) @@ plainto_tsquery('simple', ?)",
-                m.body,
-                ^query_text
-              ),
-          order_by: [desc: m.inserted_at],
-          limit: ^limit_count,
-          preload: []
-        )
+        results =
+          from(m in Message,
+            where:
+              m.tenant_id == ^value(subject, :tenant_id) and
+                m.conversation_id in ^active_conversation_ids and
+                m.status == :active and
+                fragment(
+                  "to_tsvector('simple', coalesce(?, '')) @@ plainto_tsquery('simple', ?)",
+                  m.body,
+                  ^query_text
+                ),
+            order_by: [desc: m.inserted_at, desc: m.id],
+            preload: []
+          )
+          |> maybe_filter_search(:conversation_id, conversation_id)
+          |> maybe_filter_search(:sender_user_id, sender_user_id)
+          |> maybe_filter_search(:after, after_at)
+          |> maybe_filter_search(:before, before_at)
+          |> maybe_before_search_cursor(cursor)
+          |> limit(^(limit_count + 1))
+          |> Repo.all()
 
-      {:ok, query |> Repo.all() |> hydrate_messages()}
+        has_more = length(results) > limit_count
+        messages = results |> Enum.take(limit_count) |> hydrate_messages()
+
+        {:ok,
+         %{
+           messages: messages,
+           limit: limit_count,
+           has_more: has_more,
+           next_cursor: if(has_more, do: search_cursor_for(List.last(messages)), else: nil)
+         }}
+      end
     end
   end
 
@@ -286,17 +459,21 @@ defmodule CommsCore.Messaging do
   end
 
   defp authorize_existing(message, subject, authorize) do
-    conversation =
-      Repo.get_by(Conversation,
-        id: message.conversation_id,
-        tenant_id: message.tenant_id
-      ) || Repo.rollback(:conversation_not_found)
+    target = %{id: message.conversation_id, tenant_id: message.tenant_id}
 
-    case authorize.(:send_message, subject, conversation) do
+    case authorize.(:send_message, subject, target) do
       :ok -> {hydrate_message(message), :duplicate}
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp service_authorizer(:send_message, subject, %{id: id}),
+    do: Conversations.authorize_service_access(subject, "messages:write", id)
+
+  defp service_authorizer(:read_conversation, subject, %{id: id}),
+    do: Conversations.authorize_service_access(subject, "messages:read", id)
+
+  defp service_authorizer(_, _, _), do: {:error, :forbidden}
 
   defp lock_idempotency_key(attrs) do
     lock_key =
@@ -314,19 +491,17 @@ defmodule CommsCore.Messaging do
   end
 
   defp persist_new(attrs, subject, authorize) do
-    conversation =
-      Repo.one(
-        from(c in Conversation,
-          where: c.id == ^attrs.conversation_id and c.tenant_id == ^attrs.tenant_id,
-          lock: "FOR UPDATE"
-        )
-      ) || Repo.rollback(:conversation_not_found)
+    slot =
+      case Conversations.reserve_message_slot(attrs.tenant_id, attrs.conversation_id) do
+        {:ok, %MessageWriteSlot{} = slot} -> slot
+        {:error, reason} -> Repo.rollback(reason)
+      end
 
-    with :ok <- authorize.(:send_message, subject, conversation),
-         {:ok, thread_root_message_id} <- resolve_thread_root(attrs, conversation),
-         :ok <- validate_mentions(attrs, conversation) do
+    with :ok <- authorize.(:send_message, subject, slot),
+         {:ok, thread_root_message_id} <- resolve_thread_root(attrs, slot),
+         :ok <- validate_mentions(attrs, slot) do
       attrs = Map.put(attrs, :thread_root_message_id, thread_root_message_id)
-      persist(attrs, subject, conversation)
+      persist(attrs, subject, slot)
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -343,19 +518,20 @@ defmodule CommsCore.Messaging do
     )
   end
 
-  defp persist(attrs, subject, conversation) do
-    sequence = conversation.next_sequence
-
-    conversation
-    |> Conversation.changeset(%{next_sequence: sequence + 1})
-    |> Repo.update!()
-
+  defp persist(attrs, subject, %MessageWriteSlot{sequence: sequence}) do
     message =
       %Message{}
       |> Message.changeset(Map.merge(attrs, %{conversation_sequence: sequence, status: :active}))
       |> Repo.insert!()
 
-    :ok = Attachments.attach_ready(attrs.attachment_ids, message, subject)
+    :ok =
+      Attachments.attach_ready(
+        attrs.attachment_ids,
+        message.id,
+        message.tenant_id,
+        subject
+      )
+
     persist_mentions(message, attrs.mentioned_user_ids)
 
     insert_event(message, "message.created.v1", subject, %{
@@ -394,8 +570,7 @@ defmodule CommsCore.Messaging do
       available_at: timestamp
     })
 
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: message.tenant_id,
       actor_user_id: value(subject, :user_id),
       action: String.replace(event_type, ".v1", ""),
@@ -407,8 +582,11 @@ defmodule CommsCore.Messaging do
         |> Map.put(:conversation_id, message.conversation_id),
       request_id: value(subject, :request_id)
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp locked_message(message_id, subject) do
     Repo.one(
@@ -487,14 +665,14 @@ defmodule CommsCore.Messaging do
 
   defp resolve_thread_root(%{reply_to_message_id: nil}, _conversation), do: {:ok, nil}
 
-  defp resolve_thread_root(attrs, conversation) do
+  defp resolve_thread_root(attrs, slot) do
     parent =
       Repo.one(
         from(message in Message,
           where:
             message.id == ^attrs.reply_to_message_id and
-              message.tenant_id == ^conversation.tenant_id and
-              message.conversation_id == ^conversation.id,
+              message.tenant_id == ^slot.tenant_id and
+              message.conversation_id == ^slot.id,
           lock: "FOR SHARE"
         )
       )
@@ -505,28 +683,15 @@ defmodule CommsCore.Messaging do
     end
   end
 
-  defp validate_mentions(%{mentioned_user_ids: []}, _conversation), do: :ok
+  defp validate_mentions(%{mentioned_user_ids: []}, _slot), do: :ok
 
-  defp validate_mentions(attrs, conversation) do
-    valid_user_ids =
-      Repo.all(
-        from(membership in Membership,
-          join: user in User,
-          on:
-            user.id == membership.user_id and user.tenant_id == membership.tenant_id and
-              user.status == :active,
-          where:
-            membership.tenant_id == ^conversation.tenant_id and
-              membership.conversation_id == ^conversation.id and
-              membership.user_id in ^attrs.mentioned_user_ids and is_nil(membership.left_at),
-          select: membership.user_id
-        )
+  defp validate_mentions(attrs, slot),
+    do:
+      Conversations.validate_active_members(
+        slot.tenant_id,
+        slot.id,
+        attrs.mentioned_user_ids
       )
-
-    if MapSet.new(valid_user_ids) == MapSet.new(attrs.mentioned_user_ids),
-      do: :ok,
-      else: {:error, :invalid_mentions}
-  end
 
   defp persist_mentions(_message, []), do: :ok
 
@@ -603,6 +768,91 @@ defmodule CommsCore.Messaging do
     where(query, [message], message.conversation_sequence < ^sequence)
   end
 
+  defp optional_search_uuid(nil), do: {:ok, nil}
+  defp optional_search_uuid(""), do: {:ok, nil}
+
+  defp optional_search_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_search_query}
+    end
+  end
+
+  defp optional_search_uuid(_value), do: {:error, :invalid_search_query}
+
+  defp optional_search_datetime(nil), do: {:ok, nil}
+  defp optional_search_datetime(""), do: {:ok, nil}
+
+  defp optional_search_datetime(%DateTime{} = value),
+    do: {:ok, DateTime.truncate(value, :microsecond)}
+
+  defp optional_search_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, timestamp, _offset} -> {:ok, DateTime.truncate(timestamp, :microsecond)}
+      {:error, _reason} -> {:error, :invalid_search_query}
+    end
+  end
+
+  defp optional_search_datetime(_value), do: {:error, :invalid_search_query}
+
+  defp validate_search_range(nil, _before_at), do: :ok
+  defp validate_search_range(_after_at, nil), do: :ok
+
+  defp validate_search_range(after_at, before_at) do
+    if DateTime.compare(after_at, before_at) == :lt,
+      do: :ok,
+      else: {:error, :invalid_search_query}
+  end
+
+  defp optional_search_cursor(nil), do: {:ok, nil}
+  defp optional_search_cursor(""), do: {:ok, nil}
+
+  defp optional_search_cursor(value) when is_binary(value) do
+    with {:ok, decoded} <- Base.url_decode64(value, padding: false),
+         {:ok, %{"inserted_at" => inserted_at, "id" => id, "v" => 1}} <- Jason.decode(decoded),
+         {:ok, timestamp, _offset} <- DateTime.from_iso8601(inserted_at),
+         {:ok, uuid} <- Ecto.UUID.cast(id) do
+      {:ok, {DateTime.truncate(timestamp, :microsecond), uuid}}
+    else
+      _ -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp optional_search_cursor(_value), do: {:error, :invalid_cursor}
+
+  defp maybe_filter_search(query, _field, nil), do: query
+
+  defp maybe_filter_search(query, :conversation_id, value),
+    do: where(query, [message, ...], message.conversation_id == ^value)
+
+  defp maybe_filter_search(query, :sender_user_id, value),
+    do: where(query, [message, ...], message.sender_user_id == ^value)
+
+  defp maybe_filter_search(query, :after, value),
+    do: where(query, [message, ...], message.inserted_at >= ^value)
+
+  defp maybe_filter_search(query, :before, value),
+    do: where(query, [message, ...], message.inserted_at < ^value)
+
+  defp maybe_before_search_cursor(query, nil), do: query
+
+  defp maybe_before_search_cursor(query, {timestamp, id}) do
+    where(
+      query,
+      [message, ...],
+      message.inserted_at < ^timestamp or
+        (message.inserted_at == ^timestamp and message.id < ^id)
+    )
+  end
+
+  defp search_cursor_for(nil), do: nil
+
+  defp search_cursor_for(message) do
+    %{v: 1, inserted_at: DateTime.to_iso8601(message.inserted_at), id: message.id}
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
   defp hydrate_message(%Message{} = message) do
     [hydrated] = hydrate_messages([message])
     hydrated
@@ -630,7 +880,7 @@ defmodule CommsCore.Messaging do
 
     Enum.map(messages, fn message ->
       root_id = message.thread_root_message_id || message.id
-      %{message | thread_reply_count: Map.get(counts, root_id, 0)}
+      Projector.message(message, Map.get(counts, root_id, 0))
     end)
   end
 
@@ -641,6 +891,14 @@ defmodule CommsCore.Messaging do
       body == "" -> {:error, :message_body_required}
       String.length(body) > 65_535 -> {:error, :message_too_large}
       true -> :ok
+    end
+  end
+
+  defp reject_service_attachments(attrs) do
+    case value(attrs, :attachment_ids) do
+      nil -> :ok
+      [] -> :ok
+      _ -> {:error, :invalid_attachments}
     end
   end
 
@@ -671,5 +929,13 @@ defmodule CommsCore.Messaging do
 
   defp integer(_, default), do: default
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp validate_erasure_scope(tenant_id, ids) do
+    if valid_uuid?(tenant_id) and Enum.all?(ids, &valid_uuid?/1),
+      do: :ok,
+      else: {:error, :invalid_erasure_scope}
+  end
+
+  defp valid_uuid?(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 end

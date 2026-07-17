@@ -23,7 +23,9 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Notifications.Intent
   alias CommsCore.Notifications.PushSubscription
-  alias CommsCore.{Conversations, Notifications, PushSubscriptions, Repo}
+  alias CommsCore.Notifications.PushSubscriptions
+  alias CommsCore.{Conversations, Notifications, Repo}
+  alias CommsCore.Outbox.Event
   alias CommsTestSupport.Fixtures
 
   @p256dh "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
@@ -156,7 +158,7 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
     assert Repo.get!(PushSubscription, rotated.id).status == :active
 
     newer_event = duplicate_event(fixture.event)
-    assert :ok = Notifications.enqueue_for_event(newer_event)
+    assert :ok = Notifications.enqueue_for_event(Event.new(newer_event))
     newer = push_intent_for(newer_event, fixture.recipient_user.id, rotated.id)
     assert {:discard, {:notification_status, 410}} = perform(newer)
     assert_receive {:push_delivery, _}
@@ -216,7 +218,7 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
       })
       |> Repo.insert!()
 
-    assert :ok = Notifications.enqueue_for_event(event)
+    assert :ok = Notifications.enqueue_for_event(Event.new(event))
     intent = push_intent_for(event, recipient.id, subscription.id)
 
     %{

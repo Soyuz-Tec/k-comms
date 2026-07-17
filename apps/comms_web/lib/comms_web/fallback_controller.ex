@@ -1,14 +1,8 @@
 defmodule CommsWeb.FallbackController do
   use Phoenix.Controller, formats: [:json]
+  alias CommsCore.ValidationError
 
-  def call(conn, {:error, %Ecto.Changeset{} = changeset}) do
-    details =
-      Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
-        Enum.reduce(opts, message, fn {key, value}, text ->
-          String.replace(text, "%{#{key}}", to_string(value))
-        end)
-      end)
-
+  def call(conn, {:error, %ValidationError{details: details}}) do
     render_error(conn, 422, "validation_failed", "The request is invalid", details)
   end
 
@@ -17,8 +11,14 @@ defmodule CommsWeb.FallbackController do
   end
 
   def call(conn, {:error, reason}) do
-    {status, code, detail} = error(reason)
-    render_error(conn, status, code, detail)
+    case ValidationError.from(reason) do
+      {:ok, error} ->
+        call(conn, {:error, error})
+
+      :error ->
+        {status, code, detail} = error(reason)
+        render_error(conn, status, code, detail)
+    end
   end
 
   defp error(reason)
@@ -52,6 +52,12 @@ defmodule CommsWeb.FallbackController do
   defp error(:public_channels_disabled),
     do: {403, "public_channels_disabled", "Tenant-visible channels are disabled"}
 
+  defp error(:audio_calls_disabled),
+    do: {403, "audio_calls_disabled", "Audio calls are disabled for this tenant"}
+
+  defp error(:video_calls_disabled),
+    do: {403, "video_calls_disabled", "Video calls are disabled for this tenant"}
+
   defp error(reason)
        when reason in [
               :conflict,
@@ -72,7 +78,11 @@ defmodule CommsWeb.FallbackController do
               :edit_window_expired,
               :push_subscription_conflict,
               :push_subscription_limit_reached,
-              :push_subscription_terminal
+              :push_subscription_terminal,
+              :audio_call_ended,
+              :audio_call_ending,
+              :audio_call_expired,
+              :call_media_kind_conflict
             ],
        do:
          {409, Atom.to_string(reason), "The operation conflicts with the current resource state"}
@@ -117,7 +127,8 @@ defmodule CommsWeb.FallbackController do
               :push_subscription_encryption_key_not_configured,
               :current_push_subscription_key_not_configured,
               :invalid_push_subscription_encryption_key,
-              :invalid_web_push_vapid_public_key
+              :invalid_web_push_vapid_public_key,
+              :audio_provider_unavailable
             ],
        do: {503, "provider_unavailable", "A required external provider is unavailable"}
 
@@ -190,7 +201,10 @@ defmodule CommsWeb.FallbackController do
               :invalid_push_p256dh_key,
               :invalid_push_auth_key,
               :invalid_push_expiration,
-              :unsupported_operation
+              :unsupported_operation,
+              :invalid_end_reason,
+              :invalid_media_kind,
+              :audio_identity_invalid
             ],
        do: {422, Atom.to_string(reason), "The request could not be processed"}
 

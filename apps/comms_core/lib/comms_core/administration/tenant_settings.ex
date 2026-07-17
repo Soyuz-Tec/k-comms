@@ -4,6 +4,8 @@ defmodule CommsCore.Administration.TenantSettings do
   schema "tenant_settings" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
     field(:allow_public_channels, :boolean, default: true)
+    field(:allow_audio_calls, :boolean, default: true)
+    field(:allow_video_calls, :boolean, default: true)
     field(:message_edit_window_seconds, :integer, default: 86_400)
     field(:max_attachment_bytes, :integer, default: 26_214_400)
     field(:default_retention_days, :integer)
@@ -19,6 +21,8 @@ defmodule CommsCore.Administration.TenantSettings do
     |> cast(attrs, [
       :tenant_id,
       :allow_public_channels,
+      :allow_audio_calls,
+      :allow_video_calls,
       :message_edit_window_seconds,
       :max_attachment_bytes,
       :default_retention_days,
@@ -29,6 +33,8 @@ defmodule CommsCore.Administration.TenantSettings do
     |> validate_required([
       :tenant_id,
       :allow_public_channels,
+      :allow_audio_calls,
+      :allow_video_calls,
       :message_edit_window_seconds,
       :max_attachment_bytes,
       :max_active_users,

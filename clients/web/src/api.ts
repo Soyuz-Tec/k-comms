@@ -1,5 +1,8 @@
 import type {
   AccountSession,
+  Call,
+  CallMediaKind,
+  CallSessionResponse,
   Attachment,
   AttachmentSafety,
   AttachmentDownloadResponse,
@@ -18,6 +21,8 @@ import type {
   MeResponse,
   Message,
   MessagePage,
+  MessageSearchOptions,
+  MessageSearchPage,
   MessageThread,
   ModerationCase,
   NotificationAttempt,
@@ -123,6 +128,8 @@ export interface SendMessageInput {
 
 export interface UpdateTenantInput {
   name: string;
+  allow_audio_calls: boolean;
+  allow_video_calls: boolean;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;
@@ -635,6 +642,53 @@ export class ApiClient {
     );
   }
 
+  call(conversationId: string): Promise<Call | null> {
+    return this.request<DataResponse<Call | null>>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/call`
+    ).then((response) => response.data);
+  }
+
+  startCall(conversationId: string, mediaKind: CallMediaKind): Promise<CallSessionResponse> {
+    return this.request<CallSessionResponse>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls`,
+      { method: "POST", body: JSON.stringify({ media_kind: mediaKind }) }
+    );
+  }
+
+  joinCall(conversationId: string, callId: string): Promise<CallSessionResponse> {
+    return this.request<CallSessionResponse>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/join`,
+      { method: "POST" }
+    );
+  }
+
+  endCall(conversationId: string, callId: string): Promise<Call> {
+    return this.request<DataResponse<Call>>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/end`,
+      { method: "POST" }
+    ).then((response) => response.data);
+  }
+
+  /** @deprecated Use the media-neutral call methods. */
+  audioCall(conversationId: string): Promise<Call | null> {
+    return this.call(conversationId);
+  }
+
+  /** @deprecated Use startCall with media_kind audio. */
+  startAudioCall(conversationId: string): Promise<CallSessionResponse> {
+    return this.startCall(conversationId, "audio");
+  }
+
+  /** @deprecated Use joinCall. */
+  joinAudioCall(conversationId: string, callId: string): Promise<CallSessionResponse> {
+    return this.joinCall(conversationId, callId);
+  }
+
+  /** @deprecated Use endCall. */
+  endAudioCall(conversationId: string, callId: string): Promise<Call> {
+    return this.endCall(conversationId, callId);
+  }
+
   discoverPublicChannels(query = "", limit = 25, cursor?: string | null): Promise<PublicChannelDiscoveryPage> {
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (cursor) params.set("cursor", cursor);
@@ -774,6 +828,19 @@ export class ApiClient {
     return this.request<ListResponse<Message>>(`/api/v1/search?${params.toString()}`).then(
       (response) => response.data
     );
+  }
+
+  searchMessagePage(query: string, options: MessageSearchOptions = {}): Promise<MessageSearchPage> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(Math.max(1, Math.min(options.limit ?? 50, 200)))
+    });
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.conversation_id) params.set("conversation_id", options.conversation_id);
+    if (options.sender_user_id) params.set("sender_user_id", options.sender_user_id);
+    if (options.after) params.set("after", options.after);
+    if (options.before) params.set("before", options.before);
+    return this.request<MessageSearchPage>(`/api/v1/search?${params.toString()}`);
   }
 
   addReaction(conversationId: string, messageId: string, emoji: string): Promise<void> {

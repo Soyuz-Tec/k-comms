@@ -1,6 +1,7 @@
 import { Socket } from "phoenix";
 import type { Channel } from "phoenix";
 import type {
+  CallRealtimeEvent,
   ConnectionStatus,
   ConversationActivityEvent,
   ConversationMembershipEvent,
@@ -94,6 +95,10 @@ export interface RealtimeCallbacks {
   onRead: (event: ReadCursorEvent) => void;
   onMembershipChanged: (event: MembershipEvent) => void;
   onConversationChanged: () => void;
+  onCallStarted?: (event: CallRealtimeEvent) => void;
+  onCallEnded?: (event: CallRealtimeEvent) => void;
+  onAudioCallStarted: (event: CallRealtimeEvent) => void;
+  onAudioCallEnded: (event: CallRealtimeEvent) => void;
   onCatchUpRequired: (afterSequence: number) => void;
   onTyping: (userId: string, active: boolean) => void;
   onPresence: (onlineUsers: number) => void;
@@ -107,6 +112,7 @@ export class RealtimeConversation {
   private stopped = false;
   private onlineUsers = 0;
   private reconnectRequested = false;
+  private readonly deliveredCallEvents = new Set<string>();
 
   constructor(
     endpoint: string,
@@ -221,6 +227,24 @@ export class RealtimeConversation {
     });
     this.channel.on("conversation.updated.v1", () => this.callbacks.onConversationChanged());
     this.channel.on("conversation.archived.v1", () => this.callbacks.onConversationChanged());
+    this.channel.on("call.started.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "active", true)) this.deliverCallEvent(payload);
+    });
+    this.channel.on("call.ended.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "ended", true)) this.deliverCallEvent(payload);
+    });
+    this.channel.on("audio_call.started.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "active")) {
+        if (!this.callbacks.onCallStarted) this.callbacks.onAudioCallStarted(payload);
+        this.deliverCallEvent({ ...payload, media_kind: "audio" });
+      }
+    });
+    this.channel.on("audio_call.ended.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "ended")) {
+        if (!this.callbacks.onCallEnded) this.callbacks.onAudioCallEnded(payload);
+        this.deliverCallEvent({ ...payload, media_kind: "audio" });
+      }
+    });
     this.channel.on("typing.start", (payload?: unknown) => {
       const userId = readString(payload, "user_id");
       if (userId) this.callbacks.onTyping(userId, true);
@@ -246,6 +270,14 @@ export class RealtimeConversation {
       this.onlineUsers = Math.max(0, this.onlineUsers + recordSize(joins) - recordSize(leaves));
       this.callbacks.onPresence(this.onlineUsers);
     });
+  }
+
+  private deliverCallEvent(event: CallRealtimeEvent): void {
+    const key = `${event.id}:${event.status}`;
+    if (this.deliveredCallEvents.has(key)) return;
+    this.deliveredCallEvents.add(key);
+    if (event.status === "active") this.callbacks.onCallStarted?.(event);
+    else this.callbacks.onCallEnded?.(event);
   }
 
   private push<T>(event: string, payload: Record<string, unknown>): Promise<T> {
@@ -320,6 +352,24 @@ function isMembershipEvent(value: unknown): value is MembershipEvent {
   return (
     typeof candidate.user_id === "string" &&
     (candidate.action === "added" || candidate.action === "removed" || candidate.action === "role_changed")
+  );
+}
+
+function isCallRealtimeEvent(
+  value: unknown,
+  expectedStatus: CallRealtimeEvent["status"],
+  mediaKindRequired = false
+): value is CallRealtimeEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CallRealtimeEvent>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.conversation_id === "string" &&
+    typeof candidate.started_by_user_id === "string" &&
+    candidate.status === expectedStatus &&
+    (!mediaKindRequired || candidate.media_kind === "audio" || candidate.media_kind === "video") &&
+    typeof candidate.started_at === "string" &&
+    typeof candidate.expires_at === "string"
   );
 }
 

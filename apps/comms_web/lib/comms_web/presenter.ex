@@ -1,39 +1,41 @@
 defmodule CommsWeb.Presenter do
-  alias CommsCore.Accounts
-  alias CommsCore.Accounts.{Device, Tenant, User}
-  alias CommsCore.Accounts.Session
-  alias CommsCore.Administration.{Invitation, TenantSettings}
-  alias CommsCore.Attachments.Attachment
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.{Conversation, Membership}
-  alias CommsCore.Governance.{DeletionRequest, LegalHold, RetentionPolicy}
-  alias CommsCore.Messaging.{Message, Reaction}
-  alias CommsCore.Moderation.{ModerationAction, ModerationCase}
+  alias CommsCore.Accounts.{DeviceView, InitialConversationReceipt, SessionView, UserView}
+  alias CommsCore.Administration.{InvitationView, TenantSettingsView, TenantView}
+  alias CommsCore.Attachments.AttachmentView
+  alias CommsCore.AudioCalls.AudioCall
+  alias CommsCore.Audit.Event
+  alias CommsCore.Conversations.{ConversationView, MembershipView}
+  alias CommsCore.Governance.{DeletionRequestView, LegalHoldView, RetentionPolicyView}
+  alias CommsCore.Messaging.{MessageView, ReactionView}
+  alias CommsCore.Moderation.{ActionView, CaseView}
 
-  def tenant(%Tenant{} = tenant) do
+  def tenant(%TenantView{} = tenant) do
     %{id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status}
   end
 
-  def user(%User{} = user) do
+  def user(%UserView{} = user) do
     %{
       id: user.id,
       tenant_id: user.tenant_id,
       display_name: user.display_name,
-      email: if(user.account_type == :service, do: nil, else: user.email),
+      email: user.email,
       account_type: user.account_type,
       role: user.role,
       status: user.status,
-      version: user.lock_version
+      version: user.version
     }
   end
 
-  def identity_user(%User{} = user) do
-    Map.merge(user(user), Accounts.platform_access_for_user(user))
+  def identity_user(%UserView{} = user) do
+    Map.merge(user(user), %{
+      platform_role: user.platform_role,
+      platform_role_expires_at: user.platform_role_expires_at
+    })
   end
 
-  def admin_user(%User{} = user), do: identity_user(user)
+  def admin_user(%UserView{} = user), do: identity_user(user)
 
-  def device(%Device{} = device) do
+  def device(%DeviceView{} = device) do
     %{
       id: device.id,
       user_id: device.user_id,
@@ -44,13 +46,7 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def session(%Session{} = session) do
-    platform_access =
-      case session.user do
-        %User{} = user -> Accounts.platform_access_for_user(user)
-        _ -> %{platform_role: nil, platform_role_expires_at: nil}
-      end
-
+  def session(%SessionView{} = session) do
     Map.merge(
       %{
         id: session.id,
@@ -61,84 +57,106 @@ defmodule CommsWeb.Presenter do
         revoked_at: session.revoked_at,
         inserted_at: session.inserted_at
       },
-      platform_access
+      %{
+        platform_role: session.platform_role,
+        platform_role_expires_at: session.platform_role_expires_at
+      }
     )
   end
 
-  def conversation(%{conversation: %Conversation{} = conversation} = result) do
-    conversation(conversation)
-    |> Map.merge(%{
-      membership_role: result.membership_role,
-      last_read_sequence: result.last_read_sequence,
-      unread_count: result.unread_count
-    })
+  def conversation(%ConversationView{} = conversation) do
+    base = %{
+      id: conversation.id,
+      tenant_id: conversation.tenant_id,
+      kind: conversation.kind,
+      title: conversation.title,
+      visibility: conversation.visibility,
+      latest_sequence: conversation.latest_sequence,
+      archived_at: conversation.archived_at,
+      version: conversation.version,
+      inserted_at: conversation.inserted_at,
+      updated_at: conversation.updated_at
+    }
+
+    if is_nil(conversation.membership_role) do
+      base
+    else
+      Map.merge(base, %{
+        membership_role: conversation.membership_role,
+        last_read_sequence: conversation.last_read_sequence,
+        unread_count: conversation.unread_count
+      })
+    end
   end
 
-  def conversation(%Conversation{} = conversation) do
+  def conversation(%InitialConversationReceipt{} = conversation) do
     %{
       id: conversation.id,
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: conversation.title,
       visibility: conversation.visibility,
-      latest_sequence: max(conversation.next_sequence - 1, 0),
+      latest_sequence: conversation.latest_sequence,
       archived_at: conversation.archived_at,
-      version: conversation.lock_version,
+      version: conversation.version,
       inserted_at: conversation.inserted_at,
       updated_at: conversation.updated_at
     }
   end
 
-  def public_channel(
-        %{
-          conversation: %Conversation{} = conversation,
-          joined: joined,
-          member_count: member_count
-        } = result
-      ) do
-    conversation(conversation)
-    |> Map.merge(%{
-      joined: joined,
-      member_count: member_count,
-      membership: membership(Map.get(result, :membership))
-    })
-  end
-
-  def membership(%{membership: %Membership{} = membership, user: %User{} = user}) do
+  def audio_call(%AudioCall{} = call) do
     %{
-      id: membership.id,
-      role: membership.role,
-      joined_at: membership.joined_at,
-      last_read_sequence: membership.last_read_sequence,
-      version: membership.lock_version,
-      user: user(user)
+      id: call.id,
+      tenant_id: call.tenant_id,
+      conversation_id: call.conversation_id,
+      started_by_user_id: call.started_by_user_id,
+      ended_by_user_id: call.ended_by_user_id,
+      media_kind: call.media_kind,
+      status: call.status,
+      started_at: call.started_at,
+      expires_at: call.expires_at,
+      ended_at: call.ended_at,
+      end_reason: call.end_reason,
+      version: call.lock_version
     }
   end
 
-  def membership(%Membership{} = membership) do
+  def public_channel(%ConversationView{} = conversation) do
+    conversation(conversation)
+    |> Map.merge(%{
+      joined: conversation.joined,
+      member_count: conversation.member_count,
+      membership: membership(conversation.membership)
+    })
+  end
+
+  def membership(%MembershipView{} = membership) do
     %{
       id: membership.id,
       role: membership.role,
       joined_at: membership.joined_at,
       left_at: membership.left_at,
       last_read_sequence: membership.last_read_sequence,
-      version: membership.lock_version
+      version: membership.version
     }
+    |> maybe_put_user(membership.user)
   end
 
   def membership(nil), do: nil
 
-  def tenant_settings(%TenantSettings{} = settings) do
+  def tenant_settings(%TenantSettingsView{} = settings) do
     %{
       tenant_id: settings.tenant_id,
       allow_public_channels: settings.allow_public_channels,
+      allow_audio_calls: settings.allow_audio_calls,
+      allow_video_calls: settings.allow_video_calls,
       message_edit_window_seconds: settings.message_edit_window_seconds,
       max_attachment_bytes: settings.max_attachment_bytes,
       default_retention_days: settings.default_retention_days,
       max_active_users: settings.max_active_users,
       max_active_conversations: settings.max_active_conversations,
       max_conversation_members: settings.max_conversation_members,
-      version: settings.lock_version
+      version: settings.version
     }
   end
 
@@ -153,7 +171,7 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def invitation(%Invitation{} = invitation) do
+  def invitation(%InvitationView{} = invitation) do
     %{
       id: invitation.id,
       email: invitation.email,
@@ -164,12 +182,12 @@ defmodule CommsWeb.Presenter do
       expires_at: invitation.expires_at,
       accepted_at: invitation.accepted_at,
       revoked_at: invitation.revoked_at,
-      version: invitation.lock_version,
+      version: invitation.version,
       inserted_at: invitation.inserted_at
     }
   end
 
-  def audit_event(%AuditEvent{} = event) do
+  def audit_event(%Event{} = event) do
     %{
       id: event.id,
       actor_user_id: event.actor_user_id,
@@ -182,7 +200,7 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def moderation_case(%ModerationCase{} = moderation_case) do
+  def moderation_case(%CaseView{} = moderation_case) do
     %{
       id: moderation_case.id,
       reporter_user_id: moderation_case.reporter_user_id,
@@ -196,13 +214,13 @@ defmodule CommsWeb.Presenter do
       priority: moderation_case.priority,
       status: moderation_case.status,
       resolved_at: moderation_case.resolved_at,
-      version: moderation_case.lock_version,
+      version: moderation_case.version,
       inserted_at: moderation_case.inserted_at,
       updated_at: moderation_case.updated_at
     }
   end
 
-  def moderation_action(%ModerationAction{} = action) do
+  def moderation_action(%ActionView{} = action) do
     %{
       id: action.id,
       moderation_case_id: action.moderation_case_id,
@@ -214,7 +232,7 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def retention_policy(%RetentionPolicy{} = policy) do
+  def retention_policy(%RetentionPolicyView{} = policy) do
     %{
       id: policy.id,
       conversation_id: policy.conversation_id,
@@ -223,13 +241,13 @@ defmodule CommsWeb.Presenter do
       retention_days: policy.retention_days,
       delete_attachments: policy.delete_attachments,
       status: policy.status,
-      version: policy.lock_version,
+      version: policy.version,
       inserted_at: policy.inserted_at,
       updated_at: policy.updated_at
     }
   end
 
-  def legal_hold(%LegalHold{} = hold) do
+  def legal_hold(%LegalHoldView{} = hold) do
     %{
       id: hold.id,
       created_by_user_id: hold.created_by_user_id,
@@ -241,12 +259,12 @@ defmodule CommsWeb.Presenter do
       status: hold.status,
       starts_at: hold.starts_at,
       released_at: hold.released_at,
-      version: hold.lock_version,
+      version: hold.version,
       inserted_at: hold.inserted_at
     }
   end
 
-  def deletion_request(%DeletionRequest{} = request) do
+  def deletion_request(%DeletionRequestView{} = request) do
     %{
       id: request.id,
       requested_by_user_id: request.requested_by_user_id,
@@ -262,13 +280,13 @@ defmodule CommsWeb.Presenter do
       execution_attempts: request.execution_attempts,
       execution_error: request.execution_error,
       evidence: request.evidence,
-      version: request.lock_version,
+      version: request.version,
       inserted_at: request.inserted_at,
       updated_at: request.updated_at
     }
   end
 
-  def message(%Message{} = message) do
+  def message(%MessageView{} = message) do
     %{
       id: message.id,
       tenant_id: message.tenant_id,
@@ -278,7 +296,7 @@ defmodule CommsWeb.Presenter do
       reply_to_message_id: message.reply_to_message_id,
       thread_root_message_id: message.thread_root_message_id,
       thread_reply_count: message.thread_reply_count || 0,
-      mentioned_user_ids: mention_user_ids(message.mentions),
+      mentioned_user_ids: message.mentioned_user_ids,
       client_message_id: message.client_message_id,
       conversation_sequence: message.conversation_sequence,
       body: message.body,
@@ -287,12 +305,12 @@ defmodule CommsWeb.Presenter do
       edited_at: message.edited_at,
       deleted_at: message.deleted_at,
       inserted_at: message.inserted_at,
-      attachments: association(message.attachments, &attachment/1),
-      reactions: association(message.reactions, &reaction/1)
+      attachments: Enum.map(message.attachments, &attachment/1),
+      reactions: Enum.map(message.reactions, &reaction/1)
     }
   end
 
-  def attachment(%Attachment{} = attachment) do
+  def attachment(%AttachmentView{} = attachment) do
     %{
       id: attachment.id,
       message_id: attachment.message_id,
@@ -312,19 +330,10 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  defp reaction(%Reaction{} = reaction) do
+  defp reaction(%ReactionView{} = reaction) do
     %{id: reaction.id, user_id: reaction.user_id, emoji: reaction.emoji}
   end
 
-  defp mention_user_ids(%Ecto.Association.NotLoaded{}), do: []
-
-  defp mention_user_ids(mentions) when is_list(mentions) do
-    mentions |> Enum.map(& &1.user_id) |> Enum.sort()
-  end
-
-  defp mention_user_ids(_mentions), do: []
-
-  defp association(%Ecto.Association.NotLoaded{}, _mapper), do: []
-  defp association(values, mapper) when is_list(values), do: Enum.map(values, mapper)
-  defp association(_, _mapper), do: []
+  defp maybe_put_user(map, %UserView{} = user), do: Map.put(map, :user, user(user))
+  defp maybe_put_user(map, _), do: map
 end

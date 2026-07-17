@@ -11,7 +11,7 @@
 | A-003 | Live WebSocket delivery may be missed; clients recover by durable sequence cursor. | AsyncAPI, disconnect/replay, and reconnect-storm tests | Messaging | 2026-07-12 | Accepted and implemented |
 | A-004 | Presence and typing indicators are ephemeral and eventually consistent. | Protocol and browser acceptance tests | Product | 2026-07-12 | Accepted and implemented |
 | A-005 | Attachments are stored outside PostgreSQL in object storage. | ADR-0005, S3 adapter, scan, backup and restore tests | Platform | 2026-07-12 | Accepted and implemented |
-| A-006 | Voice/video is outside the first release. | ADR-0009 and product scope | Product | 2026-07-12 | Accepted |
+| A-006 | SIP, recording, transcription, and arbitrary media egress remain outside the first release; browser audio/video calls use the separate LiveKit media plane. | ADR-0025 and product scope | Product | 2026-07-15 | Superseded and narrowed |
 | A-007 | First-release messages are server-readable with TLS and encryption at rest; true E2EE requires a separate protocol. | ADR-0006 and security architecture | Security | 2026-07-12 | Accepted; E2EE deferred explicitly |
 | A-008 | The deployment platform supports rolling updates and horizontal scaling. | Kubernetes rollout, HPA/PDB render, rollback and local failure exercise | Platform | 2026-07-12 | Implemented; managed multi-zone proof external |
 

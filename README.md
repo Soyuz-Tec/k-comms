@@ -15,6 +15,7 @@ attestation verification, and provider approval remain explicit launch gates.
 - Tenant invitations, lifecycle controls, scoped roles, admission quotas, and last-owner safety
 - Direct messages, private groups, public channels, memberships, and service-account participants
 - Ordered/idempotent messaging, reconnect replay, history paging, search, drafts, edits, tombstones, reactions, read state, replies, threads, and mentions
+- One-to-one, group, and channel audio/video calls with explicit camera and microphone consent, responsive participant grid, screen sharing, device controls, short-lived source-restricted provider grants, and durable participant eviction after access changes
 - Phoenix Channels, Presence, typing state, inactive-conversation notifications, and durable in-app notification state
 - Version-bound S3-compatible attachment upload/download, checksum verification, malware scanning, quarantine, and safe deletion
 - Moderation cases and actions, retention policies, legal holds, deletion requests, audit evidence, and bounded neutralized CSV export
@@ -24,7 +25,8 @@ attestation verification, and provider approval remain explicit launch gates.
 - Revision-bound release-evidence collection that binds clean Git state, OCI metadata, deployed Kubernetes topology, and hashed qualification files without retaining secrets or evidence contents
 - Backend, browser, contract, documentation, release, manifest, container, security, load, and runtime acceptance gates
 
-Voice/video and true end-to-end encryption are explicitly deferred from this MVP.
+SIP, recording, transcription, media egress, and true end-to-end encryption are
+explicitly deferred from this MVP.
 Messages are server-readable for authorized search, moderation, notifications,
 and multi-device recovery; TLS and encryption at rest are required.
 
@@ -60,10 +62,35 @@ Open:
 - Web client: `http://localhost:5173`
 - API: `http://localhost:4000/api/v1/status`
 - Health: `http://localhost:4000/health/ready`
+- LiveKit signaling health: `http://localhost:7880`
 - MinIO console: `http://localhost:9001`
 
 The first local user is created through the client’s **Create development
 workspace** form. Bootstrap is disabled by default in production.
+
+### Local recovery and Windows logon start
+
+The long-running Compose services use `restart: unless-stopped`, so Podman
+restarts them after an unexpected process exit. On the Windows Podman machine,
+enable Podman's boot-time restart service once and register the current-user
+logon task:
+
+```powershell
+podman machine ssh systemctl --user enable podman-restart.service
+powershell -ExecutionPolicy Bypass -File scripts/register_k_comms_autostart.ps1
+```
+
+The task waits 90 seconds after logon to avoid racing other Podman workloads,
+starts the Podman machine if necessary, reconciles existing Compose images
+without rebuilding them, and waits for API readiness, the web client, and the
+local LiveKit media plane.
+Windows retries a failed task three times at one-minute intervals. Its log is
+written to `%LOCALAPPDATA%\K-Comms\autostart.log`. The same recovery can be run
+manually:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1
+```
 
 ## Quality gates
 
@@ -90,13 +117,25 @@ formal-study and internal-pilot scorers. Those checks prove that evidence can
 be evaluated consistently; they do not create human approvals or provider
 evidence.
 
-Compose publishes PostgreSQL, MinIO, the API, and the Vite client on
-`127.0.0.1` by default while preserving ports 5432, 9000/9001, 4000, and 5173.
+Compose publishes PostgreSQL, MinIO, LiveKit, the API, and the Vite client on
+`127.0.0.1` by default while preserving ports 5432, 9000/9001, 7880/7881 TCP,
+7882 UDP, 4000, and 5173.
 Set `K_COMMS_BIND_ADDRESS` only when another host must connect. For example,
 `K_COMMS_BIND_ADDRESS=0.0.0.0` is an explicit LAN exposure opt-in and requires
 trusted-network firewall controls plus replacement of every development
 credential; it is never production configuration. Recreate existing Compose
 containers after changing the bind address.
+
+Local audio/video uses five-minute participant tokens and a 660-second minimum
+participant-eviction enforcement horizon. K-Comms persists the opaque admitted
+participant identity and authorization bindings, never the token. Access
+changes commit even if LiveKit is unavailable; durable retries continue beyond
+the horizon until removal succeeds at or after it.
+
+The same-host Compose proof covers one-to-one and group audio/video signaling,
+media, and screen-share behavior. It does not establish external WSS/HTTPS,
+TURN/TLS, bandwidth, maximum group size, privacy approval, or production
+incident readiness; those remain environment-specific promotion gates.
 
 ## Staging deployment
 

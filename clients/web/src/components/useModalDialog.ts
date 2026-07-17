@@ -18,6 +18,34 @@ interface BackgroundState {
 
 const isolatedElements = new Map<HTMLElement, BackgroundState>();
 const activeDialogs: HTMLElement[] = [];
+let bodyScrollLocks = 0;
+let bodyOverflow = "";
+let bodyOverscrollBehavior = "";
+let bodyPaddingRight = "";
+
+function lockBodyScroll() {
+  if (bodyScrollLocks > 0) {
+    bodyScrollLocks += 1;
+    return;
+  }
+
+  bodyScrollLocks = 1;
+  bodyOverflow = document.body.style.overflow;
+  bodyOverscrollBehavior = document.body.style.overscrollBehavior;
+  bodyPaddingRight = document.body.style.paddingRight;
+  const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  document.body.style.overflow = "hidden";
+  document.body.style.overscrollBehavior = "none";
+  if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+}
+
+function unlockBodyScroll() {
+  bodyScrollLocks = Math.max(0, bodyScrollLocks - 1);
+  if (bodyScrollLocks > 0) return;
+  document.body.style.overflow = bodyOverflow;
+  document.body.style.overscrollBehavior = bodyOverscrollBehavior;
+  document.body.style.paddingRight = bodyPaddingRight;
+}
 
 function isAvailable(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
@@ -90,6 +118,7 @@ export function useModalDialog(onClose: () => void) {
     const dialog: HTMLElement = currentDialog;
 
     activeDialogs.push(dialog);
+    lockBodyScroll();
     const isolated = isolateBackground(dialog);
     const initial = dialog.querySelector<HTMLElement>("[data-initial-focus], [autofocus]")
       ?? focusableElements(dialog)[0]
@@ -138,6 +167,7 @@ export function useModalDialog(onClose: () => void) {
       document.removeEventListener("focusin", containFocus, true);
       const stackIndex = activeDialogs.lastIndexOf(dialog);
       if (stackIndex >= 0) activeDialogs.splice(stackIndex, 1);
+      unlockBodyScroll();
       for (const element of isolated) restore(element);
       window.requestAnimationFrame(() => {
         const target = restoreTargetRef.current;

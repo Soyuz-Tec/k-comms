@@ -54,22 +54,39 @@ describe("SearchPanel accessibility", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("refines authorized results locally and supports arrow-key result navigation", async () => {
+  it("submits authorized server filters, appends cursor pages, and supports result navigation", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const searchMessages = vi.fn().mockResolvedValue([
-      result("one", "general", "ada", "First result"),
-      result("two", "projects", "grace", "Second result"),
-      result("three", "general", "ada", "Old result", "2020-01-01T00:00:00Z")
-    ]);
-    const api = { searchMessages } as unknown as ApiClient;
+    const searchMessagePage = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: [
+          result("one", "general", "ada", "First result"),
+          result("two", "general", "ada", "Second result")
+        ],
+        page: { limit: 25, has_more: true, next_cursor: "page-two" }
+      })
+      .mockResolvedValueOnce({
+        data: [result("three", "general", "ada", "Third result")],
+        page: { limit: 25, has_more: false, next_cursor: null }
+      });
+    const api = { searchMessagePage } as unknown as ApiClient;
 
     render(<SearchPanel api={api} conversations={conversations} users={users} onClose={() => undefined} onSelect={onSelect} />);
     await user.type(screen.getByRole("searchbox"), "roadmap");
+    await user.selectOptions(screen.getByLabelText("Conversation"), "general");
+    await user.selectOptions(screen.getByLabelText("Sender"), "ada");
+    await user.selectOptions(screen.getByLabelText("Date"), "day");
     await user.click(screen.getByRole("button", { name: "Search" }));
 
-    await waitFor(() => expect(searchMessages).toHaveBeenCalledWith("roadmap"));
-    expect(screen.getByRole("status")).toHaveTextContent("3 results shown");
+    await waitFor(() => expect(searchMessagePage).toHaveBeenCalledWith("roadmap", expect.objectContaining({
+      limit: 25,
+      cursor: null,
+      conversation_id: "general",
+      sender_user_id: "ada",
+      after: expect.any(String)
+    })));
+    expect(screen.getByRole("status")).toHaveTextContent("2 results shown");
 
     const firstButton = screen.getByText("First result").closest("button");
     const secondButton = screen.getByText("Second result").closest("button");
@@ -81,12 +98,9 @@ describe("SearchPanel accessibility", () => {
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "two" }));
 
-    await user.selectOptions(screen.getByLabelText("Conversation"), "general");
-    expect(screen.queryByText("Second result")).not.toBeInTheDocument();
-    expect(screen.getByText("First result")).toBeVisible();
-
-    await user.selectOptions(screen.getByLabelText("Date"), "day");
-    expect(screen.queryByText("Old result")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("1 result shown");
+    await user.click(screen.getByRole("button", { name: "Load more results" }));
+    await waitFor(() => expect(searchMessagePage).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ cursor: "page-two" })));
+    expect(screen.getByText("Third result")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("3 results shown");
   });
 });

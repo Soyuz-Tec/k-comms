@@ -1,26 +1,24 @@
 defmodule CommsWeb.NotificationAvailabilityNotifier do
   @behaviour CommsCore.Notifications.AvailabilityNotifier
 
-  alias CommsCore.InAppNotifications
-  alias CommsCore.Notifications.Intent
-  alias CommsWeb.{Broadcast, InAppNotificationPresenter}
+  alias CommsCore.Notifications
+  alias CommsCore.Notifications.Availability
+  alias CommsWeb.Broadcast
 
   @impl true
-  def notify(%Intent{} = intent) do
+  def notify(%Availability{} = availability) do
     if Process.whereis(CommsWeb.PubSub) do
-      presented = InAppNotificationPresenter.notification(intent)
-
       {:ok, unread_count} =
-        InAppNotifications.unread_count(%{
-          tenant_id: intent.tenant_id,
-          user_id: intent.user_id
+        Notifications.unread_count(%{
+          tenant_id: availability.tenant_id,
+          user_id: availability.user_id
         })
 
-      Broadcast.user(intent.user_id, "notification.available.v1", %{
-        notification_id: intent.id,
-        event_type: intent.event_type,
-        conversation_id: presented.conversation_id,
-        message_id: presented.message_id,
+      Broadcast.user(availability.user_id, "notification.available.v1", %{
+        notification_id: availability.notification_id,
+        event_type: availability.event_type,
+        conversation_id: availability.conversation_id,
+        message_id: availability.message_id,
         unread_count: unread_count
       })
     end

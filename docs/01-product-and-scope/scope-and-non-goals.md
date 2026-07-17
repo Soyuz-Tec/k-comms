@@ -7,6 +7,8 @@
 - Channels, membership, and roles
 - Durable messages, edits, deletions, reactions, mentions, and replies
 - Presence, typing indicators, read cursors, and unread state
+- One-to-one and group audio/video calls with explicit capture controls and
+  screen sharing through an external media-plane boundary
 - Attachments through object storage
 - Push/email notification pipeline
 - Search over authorized content
@@ -17,7 +19,8 @@
 ## Proposed non-goals for the first release
 
 - Active-active multi-region writes
-- Built-in audio/video media transport
+- Built-in custom audio/video transport, recording, transcription, SIP, and
+  arbitrary media egress; calls use the separately operated LiveKit boundary
 - General-purpose workflow automation engine
 - Cross-organization federation
 - Client-side end-to-end encryption unless explicitly approved before build

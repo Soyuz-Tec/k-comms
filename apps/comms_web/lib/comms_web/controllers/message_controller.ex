@@ -1,7 +1,7 @@
 defmodule CommsWeb.MessageController do
   use CommsWeb, :controller
 
-  alias CommsCore.Messaging
+  alias CommsCore.{Governance, Messaging}
   alias CommsWeb.Broadcast
 
   def index(conn, %{"conversation_id" => conversation_id} = params) do
@@ -117,7 +117,7 @@ defmodule CommsWeb.MessageController do
   end
 
   def delete(conn, %{"id" => id}) do
-    with {:ok, message} <- Messaging.delete_message(id, conn.assigns.current_subject) do
+    with {:ok, message} <- Governance.delete_message(id, conn.assigns.current_subject) do
       payload = Presenter.message(message)
       Broadcast.event(message.conversation_id, "message.deleted.v1", payload)
 

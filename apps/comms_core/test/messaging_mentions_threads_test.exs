@@ -3,8 +3,8 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
 
   alias CommsCore.Accounts
   alias CommsCore.Events.OutboxEvent
-  alias CommsCore.Messaging.{Message, MessageMention}
-  alias CommsCore.{Conversations, Messaging, Repo}
+  alias CommsCore.Messaging.{Message, MessageMention, MessageView}
+  alias CommsCore.{Conversations, Governance, Messaging, Repo}
   alias CommsTestSupport.Fixtures
 
   test "mentions are explicit, tenant-safe, membership-validated, and idempotent" do
@@ -21,12 +21,16 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
       })
 
     assert {:ok, created, :created} = Messaging.accept_message_with_status(attrs, subject)
-    assert Enum.map(created.mentions, & &1.user_id) == [mentioned.id]
+    assert %MessageView{} = created
+    refute match?(%Message{}, created)
+    assert created.mentioned_user_ids == [mentioned.id]
     assert created.thread_root_message_id == nil
 
     assert {:ok, replayed, :duplicate} = Messaging.accept_message_with_status(attrs, subject)
+    assert %MessageView{} = replayed
+    refute match?(%Message{}, replayed)
     assert replayed.id == created.id
-    assert Enum.map(replayed.mentions, & &1.user_id) == [mentioned.id]
+    assert replayed.mentioned_user_ids == [mentioned.id]
 
     assert Repo.aggregate(
              from(mention in MessageMention, where: mention.message_id == ^created.id),
@@ -107,6 +111,8 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
     assert {:ok, first_page} =
              Messaging.get_thread(account.conversation.id, nested_reply.id, subject, limit: 1)
 
+    assert %MessageView{} = first_page.root
+    assert Enum.all?(first_page.replies, &match?(%MessageView{}, &1))
     assert first_page.root.id == root.id
     assert first_page.reply_count == 2
     assert Enum.map(first_page.replies, & &1.id) == [nested_reply.id]
@@ -122,7 +128,7 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
     assert Enum.map(older_page.replies, & &1.id) == [first_reply.id]
     refute older_page.has_more
 
-    assert {:ok, deleted_root} = Messaging.delete_message(root.id, subject)
+    assert {:ok, deleted_root} = Governance.delete_message(root.id, subject)
     assert deleted_root.status == :deleted
 
     assert {:ok, deleted_thread} =
@@ -178,7 +184,8 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
       |> message_attrs("physical-root-reply01", %{reply_to_message_id: root.id})
       |> Messaging.accept_message(subject)
 
-    assert {:ok, _deleted} = Repo.delete(root)
+    root_schema = Repo.get!(Message, root.id)
+    assert {:ok, _deleted} = Repo.delete(root_schema)
 
     persisted = Repo.get!(Message, reply.id)
     assert persisted.reply_to_message_id == nil

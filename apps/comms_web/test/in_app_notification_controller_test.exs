@@ -4,7 +4,7 @@ defmodule CommsWeb.InAppNotificationControllerTest do
   alias CommsCore.Notifications.Intent
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Notifications
-  alias CommsCore.Notifications.Preference
+  alias CommsCore.Outbox.Event
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -88,20 +88,23 @@ defmodule CommsWeb.InAppNotificationControllerTest do
       aggregate_id: message_id,
       payload: %{
         "conversation_id" => account.conversation.id,
-        "sender_user_id" => Ecto.UUID.generate()
+        "sender_user_id" => Ecto.UUID.generate(),
+        "mentioned_user_ids" => [account.user.id]
       }
     }
 
-    preference = %Preference{
-      tenant_id: account.tenant.id,
-      user_id: account.user.id,
-      email_enabled: false,
-      push_enabled: false,
-      in_app_enabled: true,
-      muted_event_types: []
-    }
+    assert {:ok, _preference} =
+             Notifications.update_preferences(
+               %{
+                 email_enabled: false,
+                 push_enabled: false,
+                 in_app_enabled: true,
+                 muted_event_types: []
+               },
+               Fixtures.subject(account)
+             )
 
-    assert :ok = Notifications.enqueue_recipient_event(event, account.user, preference)
+    assert :ok = Notifications.enqueue_for_event(Event.new(event))
 
     assert_receive %Phoenix.Socket.Broadcast{
       event: "notification.available.v1",

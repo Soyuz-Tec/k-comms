@@ -1,24 +1,25 @@
 defmodule CommsWeb.PushSubscriptionController do
   use CommsWeb, :controller
 
-  alias CommsCore.Notifications.PushSubscription
-  alias CommsCore.PushSubscriptions
+  alias CommsCore.Notifications
+  alias CommsCore.Notifications.PushSubscriptionView
 
   def config(conn, _params) do
-    with {:ok, config} <- PushSubscriptions.config(conn.assigns.current_subject) do
+    with {:ok, config} <- Notifications.push_config(conn.assigns.current_subject) do
       json(conn, %{data: config})
     end
   end
 
   def index(conn, _params) do
-    with {:ok, subscriptions} <- PushSubscriptions.list(conn.assigns.current_subject) do
+    with {:ok, subscriptions} <-
+           Notifications.list_push_subscriptions(conn.assigns.current_subject) do
       json(conn, %{data: Enum.map(subscriptions, &present/1)})
     end
   end
 
   def create(conn, params) do
     with {:ok, %{subscription: subscription, replayed: replayed}} <-
-           PushSubscriptions.register(params, conn.assigns.current_subject) do
+           Notifications.register_push_subscription(params, conn.assigns.current_subject) do
       conn
       |> put_status(if(replayed, do: :ok, else: :created))
       |> json(%{data: present(subscription), replayed: replayed})
@@ -26,12 +27,13 @@ defmodule CommsWeb.PushSubscriptionController do
   end
 
   def delete(conn, %{"id" => id}) do
-    with {:ok, subscription} <- PushSubscriptions.revoke(id, conn.assigns.current_subject) do
+    with {:ok, subscription} <-
+           Notifications.revoke_push_subscription(id, conn.assigns.current_subject) do
       json(conn, %{data: present(subscription)})
     end
   end
 
-  defp present(%PushSubscription{} = subscription) do
+  defp present(%PushSubscriptionView{} = subscription) do
     %{
       id: subscription.id,
       device_id: subscription.device_id,

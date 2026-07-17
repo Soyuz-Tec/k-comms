@@ -44,6 +44,7 @@ REQUIRED_MUTATION_BODIES = {
     ("/api/v1/conversations/{conversationId}/members/{userId}", "patch"),
     ("/api/v1/conversations/{conversationId}/members/{userId}", "delete"),
     ("/api/v1/conversations/{conversationId}/archive", "post"),
+    ("/api/v1/conversations/{conversationId}/calls", "post"),
     ("/api/v1/moderation/cases", "post"),
     ("/api/v1/moderation/cases/{caseId}/actions", "post"),
     ("/api/v1/admin/users/{userId}", "patch"),
@@ -92,6 +93,27 @@ REQUIRED_OPERATION_STATUSES = {
         "404",
         "409",
         "428",
+    },
+    ("/api/v1/conversations/{conversationId}/calls", "post"): {
+        "200",
+        "201",
+        "403",
+        "404",
+        "409",
+        "422",
+        "503",
+    },
+    ("/api/v1/conversations/{conversationId}/calls/{callId}/join", "post"): {
+        "200",
+        "403",
+        "404",
+        "409",
+        "503",
+    },
+    ("/api/v1/conversations/{conversationId}/calls/{callId}/end", "post"): {
+        "200",
+        "403",
+        "404",
     },
     (
         "/api/v1/conversations/{conversationId}/messages/{messageId}/reactions/{emoji}",
@@ -191,6 +213,80 @@ def validate_message_contract(schema: dict[str, Any], openapi: dict[str, Any]) -
         raise ValueError("OpenAPI Message must stay aligned with message-created.v1")
 
 
+def validate_call_contract(openapi: dict[str, Any]) -> None:
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+
+    canonical = {
+        "/api/v1/conversations/{conversationId}/call": "getActiveCall",
+        "/api/v1/conversations/{conversationId}/calls": "startCall",
+        "/api/v1/conversations/{conversationId}/calls/{callId}/join": "joinCall",
+        "/api/v1/conversations/{conversationId}/calls/{callId}/end": "endCall",
+    }
+    for path, operation_id in canonical.items():
+        if path not in paths:
+            raise ValueError(f"OpenAPI is missing canonical call route {path}")
+        operations = [
+            operation
+            for method, operation in paths[path].items()
+            if method in {"get", "post", "put", "patch", "delete"}
+        ]
+        if len(operations) != 1 or operations[0].get("operationId") != operation_id:
+            raise ValueError(f"OpenAPI canonical call route {path} has the wrong operation")
+
+    for path in (
+        "/api/v1/conversations/{conversationId}/audio-call",
+        "/api/v1/conversations/{conversationId}/audio-calls",
+        "/api/v1/conversations/{conversationId}/audio-calls/{callId}/join",
+        "/api/v1/conversations/{conversationId}/audio-calls/{callId}/end",
+    ):
+        if path not in paths:
+            raise ValueError(f"OpenAPI is missing audio compatibility route {path}")
+        operation = paths[path].get("get") or paths[path].get("post")
+        if not isinstance(operation, dict) or operation.get("deprecated") is not True:
+            raise ValueError(f"OpenAPI audio compatibility route {path} must be deprecated")
+
+    start_request = schemas.get("StartCallRequest", {})
+    if (
+        set(start_request.get("required", [])) != {"media_kind"}
+        or start_request.get("additionalProperties") is not False
+        or set(start_request.get("properties", {}).get("media_kind", {}).get("enum", []))
+        != {"audio", "video"}
+    ):
+        raise ValueError("StartCallRequest must require exactly audio|video media_kind")
+
+    call_schema = schemas.get("AudioCall", {})
+    if (
+        "media_kind" not in set(call_schema.get("required", []))
+        or set(call_schema.get("properties", {}).get("media_kind", {}).get("enum", []))
+        != {"audio", "video"}
+    ):
+        raise ValueError("AudioCall aggregate contract must require audio|video media_kind")
+
+    for schema_name in (
+        "UserCapabilities",
+        "TenantSettings",
+        "UpdateTenantSettingsRequest",
+    ):
+        properties = schemas.get(schema_name, {}).get("properties", {})
+        if properties.get("allow_audio_calls") != {"type": "boolean"} or properties.get(
+            "allow_video_calls"
+        ) != {"type": "boolean"}:
+            raise ValueError(
+                f"{schema_name} must expose independent audio and video policy booleans"
+            )
+
+    capabilities = (
+        schemas.get("StatusResponse", {})
+        .get("properties", {})
+        .get("capabilities", {})
+    )
+    if "video_calls" not in set(capabilities.get("required", [])) or capabilities.get(
+        "properties", {}
+    ).get("video_calls") != {"type": "boolean"}:
+        raise ValueError("StatusResponse must require the public video_calls capability")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -209,6 +305,7 @@ def main() -> None:
     validate_refs(openapi, openapi_path)
     validate_mutation_contracts(openapi)
     validate_message_contract(schemas["message-created.v1.json"], openapi)
+    validate_call_contract(openapi)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)

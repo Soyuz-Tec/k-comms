@@ -1,8 +1,9 @@
-defmodule CommsCore.PushSubscriptions do
+defmodule CommsCore.Notifications.PushSubscriptions do
+  @moduledoc false
   import Ecto.Query
 
   alias CommsCore.Accounts.{Device, User}
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Authorization
   alias CommsCore.Notifications.PushSubscription
   alias CommsCore.Repo
@@ -710,8 +711,7 @@ defmodule CommsCore.PushSubscriptions do
   end
 
   defp audit!(subject, action, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -720,8 +720,11 @@ defmodule CommsCore.PushSubscriptions do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp maybe_put(map, key, true, value), do: Map.put(map, key, value)
   defp maybe_put(map, _key, false, _value), do: map

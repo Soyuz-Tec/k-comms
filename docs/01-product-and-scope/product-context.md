@@ -20,17 +20,21 @@ A secure, multi-tenant communication platform for direct messages, group convers
 
 1. Join a tenant and authenticate a device.
 2. Discover or create a conversation.
-3. Send a message and receive a durable acknowledgment.
-4. Receive live events while connected.
-5. Reconnect and recover all missed durable events.
-6. Upload, scan, and share an attachment.
-7. Search permitted history.
-8. Manage membership, roles, retention, and moderation.
-9. Integrate an external system through APIs or webhooks.
+3. Start or join an authorized audio/video call, manage camera/microphone, see
+   the participant grid, and share or stop sharing a screen.
+4. Send a message and receive a durable acknowledgment.
+5. Receive live events while connected.
+6. Reconnect and recover all missed durable events.
+7. Upload, scan, and share an attachment.
+8. Search permitted history.
+9. Manage membership, roles, retention, and moderation.
+10. Integrate an external system through APIs or webhooks.
 
 ## Success conditions
 
 - Acknowledged messages remain recoverable after application-node failure.
 - Authorization is enforced at tenant, conversation, and operation levels.
 - Clients can converge to authoritative conversation state after disconnection.
+- Call admission follows current tenant/session/conversation authority, and
+  media failure cannot make durable messaging unavailable.
 - Operations can identify, contain, and recover from service degradation.

@@ -1,7 +1,7 @@
 defmodule CommsWeb.InAppNotificationPresenter do
-  alias CommsCore.Notifications.Intent
+  alias CommsCore.Notifications.IntentView
 
-  def notification(%Intent{} = intent) do
+  def notification(%IntentView{} = intent) do
     {title, body} = copy(intent.event_type)
 
     %{

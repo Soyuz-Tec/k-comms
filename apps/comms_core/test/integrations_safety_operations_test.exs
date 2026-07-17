@@ -2,12 +2,15 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.{Accounts, Attachments}
-  alias CommsCore.Attachments.ScanAttempt
+  alias CommsCore.Attachments.{Attachment, AttachmentView, ScanAttempt}
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Integrations
+  alias CommsCore.Outbox.Event
 
   alias CommsCore.Integrations.{
     WebhookDelivery,
+    WebhookDeliveryClaim,
+    WebhookDispatchRequest,
     WebhookEndpoint,
     WebhookSecret,
     WebhookSubscription
@@ -15,6 +18,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
   alias CommsCore.Notifications
   alias CommsCore.Notifications.{Attempt, Intent, Preference}
+  alias CommsCore.Notifications.{AttemptView, Delivery, IntentView, PreferenceView}
   alias CommsCore.Operations
   alias CommsTestSupport.Fixtures
 
@@ -49,6 +53,9 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
                subject
              )
 
+    assert %AttachmentView{} = pending
+    refute match?(%Attachment{}, pending)
+
     assert {:ok, uploaded} =
              Attachments.mark_uploaded(
                pending.id,
@@ -57,6 +64,8 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
                subject
              )
 
+    assert %AttachmentView{} = uploaded
+    refute match?(%Attachment{}, uploaded)
     assert uploaded.status == :uploaded
     assert uploaded.scan_status == :pending
     refute uploaded.status == :ready
@@ -117,6 +126,8 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              )
 
     assert preference.user_id == account.user.id
+    assert %PreferenceView{} = preference
+    refute match?(%Preference{}, preference)
 
     attrs = %{
       tenant_id: account.tenant.id,
@@ -134,11 +145,17 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
     assert {:ok, first} = Notifications.create_intent(attrs)
     assert {:ok, duplicate} = Notifications.create_intent(attrs)
+    assert %IntentView{} = first
+    refute match?(%Intent{}, first)
     assert first.id == duplicate.id
     assert Repo.aggregate(Intent, :count) == 1
     refute Map.has_key?(first.payload, "password")
 
     assert {:ok, claimed} = Notifications.claim_intent(first.id)
+    assert %Delivery{} = claimed
+    refute inspect(claimed) =~ account.user.email
+    refute inspect(claimed) =~ "Safe preview"
+    refute inspect(claimed) =~ claimed.claim_token
 
     assert {:ok, delivered} =
              Notifications.record_delivery(
@@ -147,8 +164,10 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              )
 
     assert delivered.status == :delivered
+    assert %IntentView{} = delivered
     assert delivered.attempt_count == 1
     assert Repo.aggregate(Attempt, :count) == 1
+    assert {:ok, [%AttemptView{}]} = Notifications.list_attempts(subject)
     assert {:error, :step_up_required} = Notifications.retry_intent(delivered.id, subject)
 
     stepped_up_subject = Fixtures.step_up(account, subject)
@@ -164,6 +183,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              })
 
     assert {:ok, retried} = Notifications.retry_intent(pending.id, stepped_up_subject)
+    assert %IntentView{} = retried
     assert retried.status == :pending
   end
 
@@ -203,8 +223,8 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
       })
       |> Repo.insert!()
 
-    assert :ok = Integrations.enqueue_for_event(event)
-    assert :ok = Integrations.enqueue_for_event(event)
+    assert :ok = Integrations.enqueue_for_event(Event.new(event))
+    assert :ok = Integrations.enqueue_for_event(Event.new(event))
     assert Repo.aggregate(WebhookDelivery, :count) == 1
 
     delivery = Repo.one!(WebhookDelivery)
@@ -280,8 +300,10 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
     {:ok, first_claim} = Attachments.claim_scan(uploaded.id)
 
-    first_claim
-    |> CommsCore.Attachments.Attachment.changeset(%{
+    first_claim_schema = Repo.get!(Attachment, first_claim.id)
+
+    first_claim_schema
+    |> Attachment.changeset(%{
       status: :scan_failed,
       scan_status: :failed,
       scan_claim_token: nil,
@@ -302,7 +324,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     assert {:error, :stale_scan_claim} =
              Attachments.record_scan(first_claim, {:ok, %{verdict: :clean, provider: "test"}})
 
-    persisted = Repo.get!(CommsCore.Attachments.Attachment, uploaded.id)
+    persisted = Repo.get!(Attachment, uploaded.id)
     assert persisted.status == :quarantined
     assert persisted.scan_status == :blocked
   end
@@ -324,7 +346,8 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
     {:ok, stale_intent} = Notifications.claim_intent(intent.id)
 
-    stale_intent
+    Intent
+    |> Repo.get!(stale_intent.id)
     |> Intent.changeset(%{status: :retryable, claimed_at: nil, claim_token: nil})
     |> Repo.update!()
 
@@ -360,9 +383,14 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
       })
 
     {:ok, claimed_delivery} = Integrations.claim_delivery(delivery.id)
+    assert %WebhookDeliveryClaim{} = claimed_delivery
+    refute inspect(claimed_delivery) =~ claimed_delivery.claim_token
 
-    assert {:ok, %{url: "https://hooks.example.test/events"}} =
+    assert {:ok, %WebhookDispatchRequest{url: "https://hooks.example.test/events"} = request} =
              Integrations.delivery_request(claimed_delivery)
+
+    refute inspect(request) =~ request.secret
+    refute inspect(request) =~ "body"
 
     assert {:error, :conflict} =
              Integrations.update_endpoint(
@@ -374,13 +402,13 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     assert {:error, :conflict} = Integrations.rotate_secret(endpoint.id, subject)
     assert {:error, :conflict} = Integrations.disable_endpoint(endpoint.id, subject)
 
-    assert {:ok, finalized} =
+    assert {:ok, :recorded} =
              Integrations.record_delivery(
                claimed_delivery,
                {:error, :permanent, :operator_finalized}
              )
 
-    assert finalized.status == :failed
+    assert Repo.get!(WebhookDelivery, delivery.id).status == :failed
     assert {:ok, _disabled} = Integrations.disable_endpoint(endpoint.id, subject)
 
     assert {:error, :endpoint_disabled} = Integrations.delivery_request(claimed_delivery)
@@ -502,7 +530,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
-    enqueue_task = Task.async(fn -> Integrations.enqueue_for_event(event) end)
+    enqueue_task = Task.async(fn -> Integrations.enqueue_for_event(Event.new(event)) end)
     assert_receive {:fanout_destination_discovered, enqueue_pid}, 5_000
 
     assert {:ok, changed} =
@@ -530,7 +558,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
            )
 
     assert :ok = :telemetry.detach(handler_id)
-    assert :ok = Integrations.enqueue_for_event(event)
+    assert :ok = Integrations.enqueue_for_event(Event.new(event))
     assert Repo.aggregate(WebhookDelivery, :count) == 1
     assert Repo.get!(WebhookDelivery, terminal.id).status == :failed
 

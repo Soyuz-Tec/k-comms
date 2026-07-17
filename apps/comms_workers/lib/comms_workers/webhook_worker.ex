@@ -2,26 +2,26 @@ defmodule CommsWorkers.WebhookWorker do
   use Oban.Worker, queue: :webhooks, max_attempts: 12
 
   alias CommsCore.Integrations
-  alias CommsCore.Integrations.WebhookDelivery
+  alias CommsCore.Integrations.WebhookDeliveryClaim
   alias CommsIntegrations.Webhooks
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"delivery_id" => delivery_id}}) do
     case Integrations.claim_delivery(delivery_id) do
-      {:ok, {:already_delivered, _delivery}} ->
+      {:ok, :already_delivered} ->
         :ok
 
-      {:ok, %WebhookDelivery{} = delivery} ->
-        with {:ok, request} <- Integrations.delivery_request(delivery) do
+      {:ok, %WebhookDeliveryClaim{} = claim} ->
+        with {:ok, request} <- Integrations.delivery_request(claim) do
           result = Webhooks.deliver(request)
 
-          case Integrations.record_delivery(delivery, result) do
-            {:ok, _updated} -> worker_result(result)
+          case Integrations.record_delivery(claim, result) do
+            {:ok, :recorded} -> worker_result(result)
             {:error, :stale_delivery_claim} -> :ok
             {:error, reason} -> {:error, safe_reason(reason)}
           end
         else
-          {:error, reason} -> record_internal_failure(delivery, reason)
+          {:error, reason} -> record_internal_failure(claim, reason)
         end
 
       {:error, :not_found} ->

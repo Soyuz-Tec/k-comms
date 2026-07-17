@@ -1,5 +1,5 @@
-defmodule CommsCore.InAppNotifications do
-  @moduledoc "User-scoped state and queries for durable in-app notifications."
+defmodule CommsCore.Notifications.InApp do
+  @moduledoc false
 
   import Ecto.Query
 

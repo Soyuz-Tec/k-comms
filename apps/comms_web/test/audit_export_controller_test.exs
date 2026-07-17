@@ -1,8 +1,7 @@
 defmodule CommsWeb.AuditExportControllerTest do
   use CommsWeb.ConnCase, async: false
 
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Repo
+  alias CommsCore.Audit
 
   test "authorized export downloads bounded CSV and records disposition metadata" do
     suffix = System.unique_integer([:positive, :monotonic])
@@ -29,17 +28,16 @@ defmodule CommsWeb.AuditExportControllerTest do
     |> post("/api/v1/me/step-up", %{current_password: password})
     |> json_response(200)
 
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
-      tenant_id: bootstrap["tenant"]["id"],
-      actor_user_id: bootstrap["user"]["id"],
-      action: "=CMD()",
-      resource_type: "+spreadsheet",
-      resource_id: Ecto.UUID.generate(),
-      request_id: "@request",
-      metadata: %{}
-    })
-    |> Repo.insert!()
+    assert {:ok, _event} =
+             Audit.record(%{
+               tenant_id: bootstrap["tenant"]["id"],
+               actor_user_id: bootstrap["user"]["id"],
+               action: "=CMD()",
+               resource_type: "+spreadsheet",
+               resource_id: Ecto.UUID.generate(),
+               request_id: "@request",
+               metadata: %{}
+             })
 
     conn =
       authenticated_conn(token)

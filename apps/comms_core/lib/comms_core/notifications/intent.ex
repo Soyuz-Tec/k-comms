@@ -26,7 +26,6 @@ defmodule CommsCore.Notifications.Intent do
     field(:last_error_code, :string)
     field(:read_at, :utc_datetime_usec)
     field(:dismissed_at, :utc_datetime_usec)
-    has_many(:attempts, CommsCore.Notifications.Attempt)
     timestamps()
   end
 

@@ -10,6 +10,7 @@ flowchart LR
     Realtime[Realtime and Replay Client]
     Local[Draft and Offline State]
     Design[Accessible Design System]
+    Media[Call Client\nConsent + Grid + Screen Share + LiveKit]
 
     Shell --> User
     Shell --> Admin
@@ -17,6 +18,8 @@ flowchart LR
     User --> API
     User --> Realtime
     User --> Local
+    User --> Media
+    Media --> API
     Admin --> API
     Ops --> API
     User --> Design
@@ -34,3 +37,9 @@ flowchart LR
   operations queries return only the content required by their explicit policy.
 - Shared API, error, loading, keyboard, focus, responsive, and accessibility
   behavior belongs in the shell/design platform rather than each feature.
+- Camera, microphone, and screen capture begin only after explicit user
+  actions. Camera and microphone default off in the video prejoin surface;
+  screen sharing has a separate visible start/stop action. Join credentials
+  remain in memory, the responsive grid represents participants without fake
+  feeds, and all local/remote tracks are detached on leave, end, session loss,
+  native screen-track end, or component teardown.

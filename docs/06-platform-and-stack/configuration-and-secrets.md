@@ -30,9 +30,11 @@ require these inputs.
 encryption keys and metrics
 scraper token. Optional notification and scanner credentials may use the
 separate `k-comms-provider-secrets` Secret referenced by edge and worker
-workloads. The provider Secret is optional so disabled integrations do not
-prevent core messaging from starting; the associated capability remains
-explicitly unavailable and fails closed.
+workloads. Portable profiles keep that Secret optional so disabled integrations
+do not prevent core messaging from starting; the associated capability remains
+explicitly unavailable and fails closed. Production makes the provider Secret
+non-optional because the approved audio/video provider contract requires LiveKit
+credentials at startup.
 
 Provider endpoints, modes, names, allowlists, ports, and timeouts are
 non-secret reviewed configuration. Provider tokens, the 32-byte webhook-secret
@@ -68,6 +70,79 @@ operation bundle beside the retained application bundle to
 `scripts/validate_production_bundle.py`.
 Long-lived edge and worker workloads default to `application`, cannot use that
 exemption in a promotion-ready bundle, and always run the full preflight.
+
+Audio and video use the provider boundary rather than the durable messaging data plane.
+Local Compose sets AUDIO_PROVIDER_MODE=livekit and uses the LiveKit development
+credentials devkey/secret only for the loopback same-host proof. Those values
+must never enter staging or production. Production application workloads
+require an exact browser-facing WSS port-443 LIVEKIT_SERVER_URL, an exact
+backend-facing HTTPS port-443 LIVEKIT_API_URL, a 60-300 second
+AUDIO_TOKEN_TTL_SECONDS, a 660-1,800 second
+AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS, and the same exact WSS origin
+in CSP_CONNECT_SOURCES. The minimum repeat horizon defaults to 660 seconds and
+must not be shorter than the participant-token lifetime. Failed removals keep
+retrying after the horizon; completion requires a successful removal at or
+after it. The API URL is not a browser CSP source.
+The `AUDIO_*` variable names are retained compatibility names and govern both
+media kinds; they do not restrict the provider to audio. Tenant policy uses
+independent `allow_audio_calls` and `allow_video_calls` booleans. The server
+selects track-source grants from immutable call `media_kind`: microphone only
+for audio; microphone, camera, screen share, and screen-share audio for video.
+Neither kind grants data publication, metadata mutation, room administration,
+recording, or other provider sources. Permissions Policy restricts camera and
+microphone to the first-party application origin; screen selection remains an
+explicit browser `getDisplayMedia` action.
+LIVEKIT_API_KEY and LIVEKIT_API_SECRET are externally
+managed provider secrets; the secret must be at least 32 bytes, is never
+returned to a browser, and must not be logged. Edge and worker pods require the
+provider Secret, while one-shot migration and recovery Jobs do not receive it.
+The portable staging proof may keep calls disabled only while its existing
+`ALLOW_DEVELOPMENT_ADAPTERS=true` gate is explicit; production keeps that gate
+false, so a long-lived application workload fails startup unless LiveKit is
+fully configured.
+
+Participant admissions are durable, non-secret control-plane state. K-Comms
+stores the opaque provider identity and the tenant, call, conversation, user,
+device, and session bindings plus issuance, revocation, and eviction progress.
+It never stores the signed participant token. An access-change transaction
+invalidates matching admissions and enqueues durable eviction work without
+calling LiveKit in that transaction, so provider failure cannot undo a logout,
+revocation, suspension, membership removal, archival, applicable tenant media
+disable, or governance deletion. The media eviction worker uses the persisted identity,
+retries provider/transport failures, and repeats idempotent participant removal
+through at least the configured enforcement horizon to bound self-hosted
+cached-token replay.
+
+That window is not an instantaneous-revocation claim. If production policy
+requires an immediate single-participant hard stop, the provider composition
+must separately implement and qualify LiveKit Cloud token revocation. The
+portable adapter does not implement that cloud behavior. Whole-room deletion
+is the available immediate fallback but disconnects every caller and must be an
+explicit incident or authorized end-for-everyone decision.
+
+The portable Kubernetes application bundle does not include an SFU or TURN
+server. Provider configuration must separately approve TLS certificate
+lifecycle, TURN authentication and relay restrictions, UDP/TCP/TLS network
+paths, region, group-participant and bandwidth capacity limits, camera/screen
+consent, recording-disabled/privacy policy, content-blind
+telemetry, credential rotation, participant-eviction retry monitoring, and a
+measured access-change-to-disconnect SLO. Media-provider failure degrades calls
+but must not change PostgreSQL-backed message readiness, block authoritative
+access changes, or authorize a bypass.
+
+The proposed corporate identity boundary is recorded in ADR-0023. Its
+non-secret deployment contract declares `IDENTITY_PROVIDER_MODE`,
+`DIRECTORY_PROVISIONING_MODE`, the exact OIDC issuer and client identifier,
+the reviewed provider names, and the required assurance values. Portable
+staging explicitly enables `ALLOW_DEVELOPMENT_IDENTITY_MODES=true` and retains
+the implemented `local_password` plus `manual` lifecycle. Production semantic
+preflight requires that gate to be false and the modes to be `oidc` plus
+`scim`; it also rejects incomplete, placeholder, non-HTTPS, IP-address, or
+non-port-443 issuer configuration. These values are a review contract, not a
+runtime implementation claim. OIDC/SCIM secrets must not be added to runtime
+Secrets until reviewed code consumes them, and production remains blocked
+until provider-backed login, MFA assurance, provisioning/deprovisioning,
+revocation, break-glass, security review, and exact-candidate journeys pass.
 
 `WEB_PUSH_VAPID_PUBLIC_KEY` is reviewed non-secret configuration. The matching
 VAPID private key belongs only to the selected notification provider and must
@@ -122,9 +197,10 @@ propagation and globally distributed rate-limit semantics under load.
 
 Run `scripts/validate_staging_secrets.py` before creating Kubernetes Secrets.
 It validates required one-of encryption keys/keyrings, key sizes, metrics and
-release-secret entropy floors, bootstrap identity policy, and the credential
-relationships in the portable staging PostgreSQL and MinIO services. Validation
-errors identify only file, line, and key; secret values are never included.
+release-secret entropy floors, provider LiveKit key/secret presence and minimum
+lengths, bootstrap identity policy, and the credential relationships in the
+portable staging PostgreSQL and MinIO services. Validation errors identify only
+file, line, and key; secret values are never included.
 
 The initial staging owner uses a separate `k-comms-bootstrap` Secret. It is
 referenced only by the one-time release Job and is deleted, along with its local

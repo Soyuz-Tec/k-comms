@@ -1,7 +1,7 @@
 defmodule CommsWeb.ServiceMessageController do
   use CommsWeb, :controller
 
-  alias CommsCore.ServiceAccounts
+  alias CommsCore.Messaging
   alias CommsWeb.Broadcast
 
   def index(conn, %{"conversation_id" => conversation_id} = params) do
@@ -14,7 +14,7 @@ defmodule CommsWeb.ServiceMessageController do
     ]
 
     with {:ok, messages} <-
-           ServiceAccounts.list_messages(
+           Messaging.list_service_history(
              conversation_id,
              conn.assigns.current_service_subject,
              opts
@@ -42,7 +42,8 @@ defmodule CommsWeb.ServiceMessageController do
     with [idempotency_key] <- get_req_header(conn, "idempotency-key"),
          true <- byte_size(idempotency_key) in 8..128 || {:error, :invalid_idempotency_key},
          attrs <- Map.put(params, "client_message_id", idempotency_key),
-         {:ok, message, status} <- ServiceAccounts.send_message(conversation_id, attrs, subject) do
+         {:ok, message, status} <-
+           Messaging.accept_service_message_with_status(conversation_id, attrs, subject) do
       payload = Presenter.message(message)
 
       if status == :created do

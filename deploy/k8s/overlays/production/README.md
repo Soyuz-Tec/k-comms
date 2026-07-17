@@ -40,19 +40,68 @@ values have been rotated or expired. The webhook ID `legacy` is reserved:
 rotate those endpoints under the prior release, quiesce and terminate its
 worker Deployment, clear any abandoned `delivering` claim under an operations
 change record, and apply migration `20260713000110` before restoring workers. Provider
-credentials may be supplied through the optional `k-comms-provider-secrets`
-Secret. `runtime-secrets.env.example` is the key inventory for the external
-runtime secret controller.
+credentials are supplied through `k-comms-provider-secrets`. Production edge
+and worker pods require that Secret because LiveKit audio/video is required;
+notification and scanner tokens remain capability-specific entries in the same
+externally managed inventory. `runtime-secrets.env.example` is the key
+inventory for the external runtime secret controller.
 
 The approved production object store must expose an HTTPS public endpoint and
 have bucket versioning enabled. K-Comms fails attachment completion closed when
 the provider does not return a version ID, ETag, and validated SHA-256 checksum.
 
 `provider-config-patch.example.yaml` lists the non-secret provider settings and
-`provider-secrets.env.example` lists the optional credential keys. Copy the
+`provider-secrets.env.example` lists the provider credential keys. Copy the
 configuration patch into the approved provider composition, replace every
 example value, and import provider credentials through the external secret
 controller; neither example file is referenced by the base overlay.
+
+That example also carries ADR-0023's proposed corporate identity contract.
+Production preflight rejects the local-password/manual lifecycle and requires
+an exact HTTPS OIDC issuer, registered client ID, reviewed assurance values,
+and named OIDC/SCIM providers. This prevents a provider composition from
+claiming corporate identity policy while retaining development modes. It does
+not implement or qualify OIDC or SCIM: do not add client or provisioning
+secrets until code consumes them, and do not promote until provider-backed
+login, MFA, account linking, deprovisioning/revocation, and break-glass evidence
+close the ADR's implementation gate.
+
+Audio and video use a separate provider boundary. The compatibility-named
+`AUDIO_*` settings govern both media kinds. The production application
+composition must set AUDIO_PROVIDER_MODE=livekit, an exact browser-facing WSS port-443
+LIVEKIT_SERVER_URL, an exact backend-facing HTTPS port-443 LIVEKIT_API_URL,
+and a 60-300 second AUDIO_TOKEN_TTL_SECONDS. Set
+AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS to 660-1,800 seconds, at least
+the token lifetime; the maintained minimum repeat horizon is 660 seconds. Only
+the WSS origin belongs in CSP_CONNECT_SOURCES. LIVEKIT_API_KEY and the
+at-least-32-byte LIVEKIT_API_SECRET belong only in the externally managed
+k-comms-provider-secrets Secret; that Secret is non-optional for production
+edge and worker pods. The browser receives only short-lived participant
+tokens, never provider credentials.
+
+Each credential issuance persists its opaque participant admission identity
+and K-Comms authorization bindings, but never the signed token. Access changes
+commit their admission invalidation and durable media-queue eviction work
+without waiting for LiveKit. The worker retries idempotent participant removal
+and repeats it through at least the configured enforcement horizon, bounding
+replay of a cached self-hosted token without restoring revoked application
+authority. Failed removals continue retrying beyond the horizon; completion
+requires a successful removal at or after it.
+
+This portable production application overlay intentionally does not deploy
+LiveKit, Coturn, or another SFU/TURN service. The selected external media
+composition needs separately reviewed DNS, WSS/HTTPS certificates, TURN
+TLS/UDP/TCP reachability, restricted relay credentials, regional routing,
+expected group size and camera/screen bandwidth capacity plus headroom,
+camera/screen consent and recording-disabled privacy policy,
+content-blind telemetry, provider outage handling, and revocation evidence. Standard HTTP
+Ingress validation is not evidence that RTP/SRTP or TURN works.
+
+The portable self-hosted adapter does not claim instantaneous token
+invalidation. If the approved revocation SLO requires an immediate
+single-participant hard stop, separately implement and qualify LiveKit Cloud
+token revocation. Otherwise whole-room deletion is the immediate fallback and
+disconnects all participants; it is not an equivalent per-participant control.
 
 Set `TRUSTED_PROXY_CIDRS` only to the provider-specific ingress-controller
 source networks and replace the empty `k-comms-edge-ingress` rule with matching
@@ -101,7 +150,8 @@ inside a rendered bundle.
 The provider-neutral overlay is expected to fail this promotion preflight on
 its own. A passing composed bundle has HTTPS notification and scanner
 providers, explicit webhook hosts, a valid public VAPID key, production safety
-flags, authenticated PostgreSQL TLS with a retained CA mount and non-placeholder
+flags, the proposed corporate OIDC/SCIM policy contract, authenticated
+PostgreSQL TLS with a retained CA mount and non-placeholder
 verification hostname, narrowed PostgreSQL egress, non-placeholder origins, and
 one exact immutable image reference, plus matching narrow ingress/proxy trust.
 It also rejects duplicate resource identities, extra workload containers,
@@ -109,6 +159,14 @@ unsafe security contexts, ineffective disruption budgets, and any long-lived
 workload marked for the one-shot
 provider-preflight exemption. Schema validation alone is not a promotion
 decision.
+
+The preflight also rejects disabled or insecure media mode, non-WSS or
+non-port-443 media origins, token TTLs or participant-eviction enforcement
+horizons outside their reviewed ranges, an enforcement horizon shorter than
+the token lifetime, CSP/media origin mismatch, an optional provider Secret, and
+any portable in-namespace LiveKit or TURN workload. A passing configuration
+validates the deployment contract only; it does not prove media reachability,
+audio/video/screen quality, group capacity, call privacy, or the revocation SLO.
 
 The portable PostgreSQL egress rule deliberately excludes link-local addresses
 but permits TCP 5432 globally. The provider composition must narrow it to the
@@ -122,8 +180,14 @@ managed database network and enforce the same destination through its firewall.
 3. Review the diff from the last retained production bundle.
 4. Run the migration Job and retain timing evidence.
 5. Deploy edge and workers, then wait for availability and HPA readiness.
-6. Run synthetic auth, realtime, replay, search, notification, webhook, and
-   clean/malicious attachment journeys.
+6. Run synthetic auth, realtime, replay, search, notification, webhook,
+   clean/malicious attachment, two-party bidirectional audio/video, at least
+   three-participant group-grid, and screen-share publish/subscribe/cleanup
+   journeys, including
+   forced TURN, UDP-blocked fallback, provider interruption/recovery, durable
+   participant eviction, and cached-token replay through the full minimum
+   enforcement horizon, including a successful removal at or after it. Record
+   access-change commit and media-disconnect times separately.
 7. Confirm dashboards, alert routes, backup freshness, and rollback inputs.
 
 An environment is not production ready until the restore, node-loss, zone-loss,

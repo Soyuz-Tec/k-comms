@@ -1,7 +1,7 @@
 defmodule CommsWeb.ServiceAccountPresenter do
-  alias CommsCore.ServiceAccounts.ServiceAccount
+  alias CommsCore.ServiceAccounts.ServiceAccountView
 
-  def service_account(%ServiceAccount{} = account) do
+  def service_account(%ServiceAccountView{} = account) do
     %{
       id: account.id,
       tenant_id: account.tenant_id,
@@ -16,7 +16,7 @@ defmodule CommsWeb.ServiceAccountPresenter do
       last_used_at: account.last_used_at,
       last_rotated_at: account.last_rotated_at,
       revoked_at: account.revoked_at,
-      version: account.lock_version,
+      version: account.version,
       inserted_at: account.inserted_at,
       updated_at: account.updated_at
     }

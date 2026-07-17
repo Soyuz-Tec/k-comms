@@ -65,6 +65,7 @@ a non-expired approved decision.
 | Security | Sobelow, dependency audit, boundary suites, no unresolved critical finding | Re-run/review for candidate |
 | Browser usability | Desktop/mobile journeys and axe representative-state suite | Re-run for candidate |
 | Delivery correctness | Authenticated send, replay, reconnect, search, attachment and administration journeys | Re-run for candidate |
+| Audio/video authorization, media, and eviction | Two-party bidirectional audio/video RTP; three-or-more participant group grid; explicit default-off capture; screen-share publish/subscribe/cleanup; source-restricted grants; persisted admission without JWT; access-change commit during outage; blocked join; durable retry beyond the minimum horizon and successful removal at or after it | Re-run for candidate |
 | Data change | Fresh migration, rollback window, reapply and warnings-as-errors tests | Re-run for candidate |
 | Runtime resilience | Two edge replicas, worker, readiness, pod replacement and no acknowledged-message loss | Re-run for candidate |
 | Recovery | PostgreSQL and object-storage backup plus isolated restore | Re-run for candidate |
@@ -85,6 +86,21 @@ date. An unchecked or expired row blocks production use.
   restricted credentials, and a successful restore/reconciliation drill.
 - [ ] Notification, malware scanning, webhook egress, and Web Push use approved
   real providers. `log` and `allow_all` adapters are not production evidence.
+- [ ] The external LiveKit/TURN composition has approved WSS/HTTPS,
+  UDP/TCP/TURN-TLS reachability, relay controls, expected group size and
+  audio/video/screen bandwidth capacity plus headroom, privacy/consent, outage handling, and
+  content-blind telemetry. `AUDIO_TOKEN_TTL_SECONDS` is 60-300;
+  `AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS` is 660-1,800 and not shorter
+  than the token lifetime.
+- [ ] Every audio/video access-change trigger commits independently of provider I/O,
+  immediately blocks new credentials, and queues durable participant eviction.
+  The provider exercise proves retry recovery and repeated self-hosted removal
+  bounds cached-token replay for the minimum enforcement horizon, retains
+  failures beyond it, and succeeds at or after it.
+- [ ] The approved media revocation SLO explicitly accepts bounded self-hosted
+  eviction or supplies a separately implemented and qualified LiveKit Cloud
+  token-revocation path. Whole-room deletion is documented as an all-caller
+  incident fallback, not as per-participant revocation.
 - [ ] Secrets are externally owned, rotated, scoped, and excluded from Git,
   images, logs, and ordinary support access.
 - [ ] Trusted DNS/TLS, ingress limits, network policy, and authenticated
@@ -92,10 +108,16 @@ date. An unchecked or expired row blocks production use.
 - [ ] Corporate authentication policy is approved. If local passwords remain,
   compensating controls, recovery ownership, session ceilings, and the absence
   of IdP-enforced MFA are explicitly accepted. If corporate OIDC/MFA is
-  required, it is a separate ADR-backed implementation gate and remains open.
+  required, the proposed
+  [ADR-0023 boundary](../02-architecture/adr/0023-corporate-oidc-scim-boundary.md)
+  is a separate implementation and qualification gate and remains open.
 - [ ] Production-scale load, reconnect storm, provider outage/recovery, node or
   zone failure, and soak tests meet approved SLOs at expected peak plus
   headroom.
+- [ ] Camera and screen consent, capture indicators, default-off prejoin,
+  permission denial/revocation, screen-source education, immediate stop,
+  background teardown, recording-disabled provider policy, and privacy incident
+  response have named evidence and approval.
 - [ ] Alerts reach the real on-call receiver and every alert identifies user
   impact, severity, owner, starting query, safe mitigation, stop condition,
   validation, and escalation.
@@ -126,11 +148,15 @@ date. An unchecked or expired row blocks production use.
 
 Roll out by allowlisted tenant cohort with a staffed support channel and a
 documented rollback decision-maker. Stop expansion and evaluate rollback for
-any tenant-isolation failure, acknowledged-message loss, unrecoverable data
-error, critical/serious accessibility blocker, Sev-1/Sev-2 incident, provider
-delivery loop, alert-routing failure, or pilot usability gate regression.
+any tenant-isolation failure, acknowledged-message loss, unauthorized audio
+or video access beyond the approved revocation SLO, unintended camera/screen
+capture, unrecoverable data error,
+critical/serious accessibility blocker, Sev-1/Sev-2 incident, provider delivery
+loop, alert-routing failure, or pilot usability gate regression.
 
-The initial internal release does not add voice/video, federation, end-to-end
-encryption, native mobile clients, active-active writes, arbitrary cluster
-administration from `/ops`, broad self-service multi-IdP, or a claim of general
-availability.
+The initial internal release includes browser one-to-one and group audio/video
+calls plus explicit screen sharing. It does not add SIP, recording,
+transcription, arbitrary media egress, federation, media
+end-to-end encryption, native mobile clients, active-active writes, arbitrary
+cluster administration from `/ops`, broad self-service multi-IdP, or a claim
+of general availability.

@@ -1,8 +1,8 @@
 defmodule CommsWeb.OpsController do
   use CommsWeb, :controller
 
-  alias CommsCore.Operations
-  alias CommsCore.PushSubscriptions
+  alias CommsCore.{Attachments, Integrations, Operations}
+  alias CommsCore.Notifications, as: NotificationDelivery
   alias CommsIntegrations.{Notifications, ObjectStorage, Scanner, Webhooks}
 
   def show(conn, _params) do
@@ -23,7 +23,7 @@ defmodule CommsWeb.OpsController do
 
   def retry(conn, %{"resource_type" => resource_type, "id" => id}) do
     with {:ok, resource} <-
-           Operations.retry(resource_type, id, conn.assigns.current_subject) do
+           retry_resource(resource_type, id, conn.assigns.current_subject) do
       conn
       |> put_status(:accepted)
       |> json(%{data: %{id: resource.id, resource_type: resource_type, status: resource.status}})
@@ -32,13 +32,24 @@ defmodule CommsWeb.OpsController do
 
   def retry(_conn, _params), do: {:error, {:missing_fields, ["resource_type", "id"]}}
 
+  defp retry_resource("notification", id, subject),
+    do: NotificationDelivery.retry_intent(id, subject)
+
+  defp retry_resource("webhook", id, subject),
+    do: Integrations.replay_delivery_view(id, subject)
+
+  defp retry_resource("attachment_scan", id, subject),
+    do: Attachments.retry_scan(id, subject)
+
+  defp retry_resource(_, _, _), do: {:error, :unsupported_operation}
+
   defp provider_statuses(mapper) do
     %{
       notifications: mapper.(Notifications.status()),
       webhooks: mapper.(Webhooks.status()),
       attachment_scanner: mapper.(Scanner.status()),
       object_storage: mapper.(ObjectStorage.status()),
-      browser_push: mapper.(PushSubscriptions.status())
+      browser_push: mapper.(NotificationDelivery.push_status())
     }
   end
 

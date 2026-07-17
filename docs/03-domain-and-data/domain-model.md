@@ -8,6 +8,7 @@
 |---|---|---|
 | Identity and Tenancy | Tenant, User, Device, Session, Service Account, Platform Role Grant | Identity state, tenant status, session revocation, bounded platform authority, service credential lifecycle and scopes |
 | Conversations | Conversation, Membership, Role | Visibility, membership lifecycle, permission assignment |
+| Calls | Call (`audio_calls` storage), Media Kind, Participant Admission, Eviction | Bounded audio/video lifecycle, current join authorization, opaque media identity, durable revocation, and provider-removal progress |
 | Messaging | Message, Mention, Thread, Revision, Reaction, Read Cursor | Ordering, idempotency, explicit recipients, canonical reply roots, edit/delete policy, durable history |
 | Attachments | Attachment, Variant | Ownership, scan state, availability, retention |
 | Notifications | Preference, Notification Intent | Recipient policy, suppression, provider delivery state, user-owned in-app read/dismiss state |
@@ -28,6 +29,19 @@
 - In-app notification read and dismiss state is tenant/user scoped; dismiss always implies read.
 - Search, unread counts, and analytics are derived projections.
 - Presence is not an aggregate and is never evidence of durable receipt.
+- A call has an immutable `media_kind` of `audio` or `video`; the one-active-call
+  invariant applies across both kinds for each conversation.
+- A participant admission persists the opaque provider identity and its
+  tenant, call, conversation, user, device, and session bindings. The signed
+  participant credential is transient and never part of the aggregate.
+- Access loss invalidates matching call admissions and enqueues eviction in
+  the same transaction, without provider I/O. Provider failure cannot restore
+  authority; durable removal retries continue until the minimum enforcement
+  horizon has elapsed and a removal succeeds at or after it.
+- Call creation atomically schedules one unique durable expiry job for its
+  eight-hour deadline. Expiry deletes the provider room before committing the
+  normal ended lifecycle and admission revocation; provider failure retries,
+  while stale jobs cannot end a newer replacement call.
 - A service account owns a dedicated internal user/device identity, but its
   credential authenticates only service routes; scopes never replace active
   tenant/conversation membership.

@@ -41,7 +41,14 @@ defmodule CommsWeb.PasswordRecoveryControllerTest do
     assert unknown == known
 
     intent = Repo.get_by!(Intent, event_type: PasswordRecovery.event_type())
-    {:ok, delivery} = PasswordRecovery.materialize_notification(intent)
+
+    {:ok, delivery} =
+      PasswordRecovery.materialize_notification(%{
+        tenant_id: intent.tenant_id,
+        user_id: intent.user_id,
+        recovery_request_id: intent.payload["recovery_request_id"]
+      })
+
     token = token_from_url(delivery.payload["action_url"])
 
     assert build_conn()

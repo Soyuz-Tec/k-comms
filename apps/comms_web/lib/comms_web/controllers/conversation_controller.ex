@@ -6,7 +6,7 @@ defmodule CommsWeb.ConversationController do
   def index(conn, _params) do
     data =
       conn.assigns.current_subject
-      |> Conversations.list_for_user()
+      |> Conversations.list_for_user_views()
       |> Enum.map(&Presenter.conversation/1)
 
     json(conn, %{data: data})
@@ -14,7 +14,7 @@ defmodule CommsWeb.ConversationController do
 
   def discover_public(conn, params) do
     with {:ok, result} <-
-           Conversations.discover_public_channels(params, conn.assigns.current_subject) do
+           Conversations.discover_public_channel_views(params, conn.assigns.current_subject) do
       json(conn, %{
         data: Enum.map(result.channels, &Presenter.public_channel/1),
         page: %{
@@ -28,13 +28,13 @@ defmodule CommsWeb.ConversationController do
 
   def join_public(conn, %{"id" => id}) do
     with {:ok, result} <-
-           Conversations.join_public_channel(id, conn.assigns.current_subject) do
+           Conversations.join_public_channel_view(id, conn.assigns.current_subject) do
       unless result.replayed do
         CommsWeb.Broadcast.event(id, "membership.changed.v1", %{
           user_id: result.membership.user_id,
           action: "added",
           role: result.membership.role,
-          version: result.membership.lock_version,
+          version: result.membership.version,
           source: "self_service"
         })
 
@@ -55,13 +55,13 @@ defmodule CommsWeb.ConversationController do
 
   def leave_public(conn, %{"id" => id} = params) do
     with {:ok, result} <-
-           Conversations.leave_public_channel(id, params, conn.assigns.current_subject) do
+           Conversations.leave_public_channel_view(id, params, conn.assigns.current_subject) do
       unless result.replayed do
         CommsWeb.Broadcast.event(id, "membership.changed.v1", %{
           user_id: result.membership.user_id,
           action: "removed",
           role: result.membership.role,
-          version: result.membership.lock_version,
+          version: result.membership.version,
           source: "self_service"
         })
 
@@ -79,7 +79,7 @@ defmodule CommsWeb.ConversationController do
   end
 
   def create(conn, params) do
-    with {:ok, conversation} <- Conversations.create(params, conn.assigns.current_subject) do
+    with {:ok, conversation} <- Conversations.create_view(params, conn.assigns.current_subject) do
       CommsWeb.Broadcast.conversation_memberships(conversation.id, "added")
 
       conn
@@ -89,18 +89,18 @@ defmodule CommsWeb.ConversationController do
   end
 
   def show(conn, %{"id" => id}) do
-    with {:ok, result} <- Conversations.get_for_user(id, conn.assigns.current_subject) do
+    with {:ok, result} <- Conversations.get_for_user_view(id, conn.assigns.current_subject) do
       json(conn, %{data: Presenter.conversation(result)})
     end
   end
 
   def update(conn, %{"id" => id} = params) do
     with {:ok, conversation} <-
-           Conversations.update(id, params, conn.assigns.current_subject) do
+           Conversations.update_view(id, params, conn.assigns.current_subject) do
       CommsWeb.Broadcast.event(id, "conversation.updated.v1", %{
         title: conversation.title,
         visibility: conversation.visibility,
-        version: conversation.lock_version
+        version: conversation.version
       })
 
       json(conn, %{data: Presenter.conversation(conversation)})
@@ -109,10 +109,10 @@ defmodule CommsWeb.ConversationController do
 
   def archive(conn, %{"conversation_id" => id} = params) do
     with {:ok, conversation} <-
-           Conversations.archive(id, params, conn.assigns.current_subject) do
+           Conversations.archive_view(id, params, conn.assigns.current_subject) do
       CommsWeb.Broadcast.event(id, "conversation.archived.v1", %{
         archived_at: conversation.archived_at,
-        version: conversation.lock_version
+        version: conversation.version
       })
 
       json(conn, %{data: Presenter.conversation(conversation)})
@@ -120,14 +120,14 @@ defmodule CommsWeb.ConversationController do
   end
 
   def members(conn, %{"conversation_id" => id}) do
-    with {:ok, members} <- Conversations.list_members(id, conn.assigns.current_subject) do
+    with {:ok, members} <- Conversations.list_member_views(id, conn.assigns.current_subject) do
       json(conn, %{data: Enum.map(members, &Presenter.membership/1)})
     end
   end
 
   def add_member(conn, %{"conversation_id" => id, "user_id" => user_id} = params) do
     with {:ok, membership} <-
-           Conversations.add_member(
+           Conversations.add_member_view(
              id,
              user_id,
              params["role"] || "member",
@@ -147,7 +147,7 @@ defmodule CommsWeb.ConversationController do
 
   def remove_member(conn, %{"conversation_id" => id, "user_id" => user_id} = params) do
     with {:ok, _membership} <-
-           Conversations.remove_member(id, user_id, params, conn.assigns.current_subject) do
+           Conversations.remove_member_view(id, user_id, params, conn.assigns.current_subject) do
       CommsWeb.Broadcast.event(id, "membership.changed.v1", %{
         user_id: user_id,
         action: "removed"
@@ -161,16 +161,21 @@ defmodule CommsWeb.ConversationController do
 
   def update_member(conn, %{"conversation_id" => id, "user_id" => user_id} = params) do
     with {:ok, membership} <-
-           Conversations.change_member_role(id, user_id, params, conn.assigns.current_subject) do
+           Conversations.change_member_role_view(
+             id,
+             user_id,
+             params,
+             conn.assigns.current_subject
+           ) do
       CommsWeb.Broadcast.event(id, "membership.changed.v1", %{
         user_id: user_id,
         action: "role_changed",
         role: membership.role,
-        version: membership.lock_version
+        version: membership.version
       })
 
       json(conn, %{
-        data: %{id: membership.id, role: membership.role, version: membership.lock_version}
+        data: %{id: membership.id, role: membership.role, version: membership.version}
       })
     end
   end

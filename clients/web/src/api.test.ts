@@ -118,6 +118,35 @@ describe("conversation membership concurrency", () => {
   });
 });
 
+describe("conversation call API", () => {
+  it("uses the canonical media-neutral endpoints and sends the selected media kind", async () => {
+    const call = { id: "call-1", conversation_id: "conversation-1", started_by_user_id: "user-1", status: "active", started_at: "2026-07-15T10:00:00Z", expires_at: "2026-07-15T11:00:00Z", can_end: true };
+    const joined = { data: call, credential: { server_url: "wss://media.example.test", participant_token: "short-lived-token", expires_in: 300 } };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: null }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(joined), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(joined), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...call, status: "ended" } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.call("conversation-1")).resolves.toBeNull();
+    await expect(api.startCall("conversation-1", "video")).resolves.toEqual(joined);
+    await expect(api.joinCall("conversation-1", "call-1")).resolves.toEqual(joined);
+    await expect(api.endCall("conversation-1", "call-1")).resolves.toMatchObject({ status: "ended" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://comms.test/api/v1/conversations/conversation-1/call",
+      "https://comms.test/api/v1/conversations/conversation-1/calls",
+      "https://comms.test/api/v1/conversations/conversation-1/calls/call-1/join",
+      "https://comms.test/api/v1/conversations/conversation-1/calls/call-1/end"
+    ]);
+    expect(fetchMock.mock.calls.slice(1).every(([, options]) => options?.method === "POST")).toBe(true);
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ media_kind: "video" }));
+  });
+});
+
 describe("platform operations boundary", () => {
   it("uses the platform-operator endpoint instead of tenant operations", async () => {
     const snapshot = { generated_at: "2026-07-12T10:00:00Z", release_revision: "a".repeat(40), database: { status: "ready" }, outbox: { pending: 0, published: 0 }, notifications: {}, webhooks: {}, attachments: {}, queues: [], providers: {} };
@@ -150,6 +179,30 @@ describe("public channel API", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[2]?.[1]?.method).toBe("DELETE");
     expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ version: 4 }));
+  });
+});
+
+describe("message search API", () => {
+  it("encodes server-side filters and the opaque continuation cursor", async () => {
+    const page = { data: [], page: { limit: 25, has_more: false, next_cursor: null } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page), { status: 200, headers: { "content-type": "application/json" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.searchMessagePage("release plan", {
+      limit: 25,
+      cursor: "opaque+/=",
+      conversation_id: "conversation-1",
+      sender_user_id: "user-2",
+      after: "2026-07-01T00:00:00Z",
+      before: "2026-08-01T00:00:00Z"
+    })).resolves.toEqual(page);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/search?q=release+plan&limit=25&cursor=opaque%2B%2F%3D&conversation_id=conversation-1&sender_user_id=user-2&after=2026-07-01T00%3A00%3A00Z&before=2026-08-01T00%3A00%3A00Z"
+    );
   });
 });
 

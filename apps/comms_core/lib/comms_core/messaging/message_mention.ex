@@ -3,7 +3,7 @@ defmodule CommsCore.Messaging.MessageMention do
 
   schema "message_mentions" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:message, CommsCore.Messaging.Message)
+    field(:message_id, :binary_id)
     belongs_to(:user, CommsCore.Accounts.User)
     timestamps(updated_at: false)
   end

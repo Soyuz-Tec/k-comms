@@ -1,12 +1,14 @@
 defmodule CommsCore.Integrations do
   import Ecto.Query
 
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Authorization
-  alias CommsCore.Events.OutboxEvent
+  alias CommsCore.Outbox.Event
 
   alias CommsCore.Integrations.{
     WebhookDelivery,
+    WebhookDeliveryClaim,
+    WebhookDispatchRequest,
     WebhookEndpoint,
     WebhookSecret,
     WebhookSubscription
@@ -18,6 +20,47 @@ defmodule CommsCore.Integrations do
   @claim_timeout_seconds 300
   @max_list_limit 100
   @sensitive_keys ~w(authorization cookie password password_hash refresh_token secret token webhook_secret)
+
+  def list_endpoint_views(subject) do
+    with {:ok, endpoints} <- list_endpoints(subject) do
+      {:ok, Enum.map(endpoints, &CommsCore.Integrations.Projector.endpoint/1)}
+    end
+  end
+
+  def get_endpoint_view(id, subject),
+    do: get_endpoint(id, subject) |> project_result(&CommsCore.Integrations.Projector.endpoint/1)
+
+  def create_endpoint_view(attrs, subject) do
+    with {:ok, result} <- create_endpoint(attrs, subject) do
+      {:ok, %{result | endpoint: CommsCore.Integrations.Projector.endpoint(result.endpoint)}}
+    end
+  end
+
+  def update_endpoint_view(id, attrs, subject),
+    do:
+      update_endpoint(id, attrs, subject)
+      |> project_result(&CommsCore.Integrations.Projector.endpoint/1)
+
+  def disable_endpoint_view(id, subject),
+    do:
+      disable_endpoint(id, subject)
+      |> project_result(&CommsCore.Integrations.Projector.endpoint/1)
+
+  def rotate_secret_view(id, subject) do
+    with {:ok, result} <- rotate_secret(id, subject) do
+      {:ok, %{result | endpoint: CommsCore.Integrations.Projector.endpoint(result.endpoint)}}
+    end
+  end
+
+  def list_delivery_views(subject, opts \\ %{}) do
+    with {:ok, deliveries} <- list_deliveries(subject, opts) do
+      {:ok, Enum.map(deliveries, &CommsCore.Integrations.Projector.delivery/1)}
+    end
+  end
+
+  def replay_delivery_view(id, subject),
+    do:
+      replay_delivery(id, subject) |> project_result(&CommsCore.Integrations.Projector.delivery/1)
 
   def status, do: %{secret_storage: SecretBox.status()}
 
@@ -186,7 +229,7 @@ defmodule CommsCore.Integrations do
     end
   end
 
-  def enqueue_for_event(%OutboxEvent{} = event) do
+  def enqueue_for_event(%Event{} = event) do
     endpoints =
       from(endpoint in WebhookEndpoint,
         join: subscription in WebhookSubscription,
@@ -258,23 +301,25 @@ defmodule CommsCore.Integrations do
       cond do
         delivery.endpoint_id != endpoint.id -> Repo.rollback(:not_found)
         delivery.tenant_id != endpoint.tenant_id -> Repo.rollback(:not_found)
-        delivery.status == :delivered -> {:already_delivered, delivery}
+        delivery.status == :delivered -> :already_delivered
         delivery.status == :failed -> Repo.rollback(:terminal_delivery)
         endpoint.status != :active -> Repo.rollback(:endpoint_disabled)
-        claimable?(delivery) -> update_claim!(delivery)
+        claimable?(delivery) -> delivery |> update_claim!() |> delivery_claim()
         true -> Repo.rollback(:not_claimable)
       end
     end)
     |> unwrap_transaction()
   end
 
-  def delivery_request(%WebhookDelivery{} = claimed) do
+  def delivery_request(%WebhookDeliveryClaim{} = claimed) do
     Repo.transaction(fn ->
+      reference = Repo.get(WebhookDelivery, claimed.id) || Repo.rollback(:not_found)
+
       endpoint =
         Repo.one(
           from(endpoint in WebhookEndpoint,
             where:
-              endpoint.id == ^claimed.endpoint_id and endpoint.tenant_id == ^claimed.tenant_id,
+              endpoint.id == ^reference.endpoint_id and endpoint.tenant_id == ^reference.tenant_id,
             lock: "FOR UPDATE"
           )
         ) || Repo.rollback(:webhook_endpoint_unavailable)
@@ -290,8 +335,6 @@ defmodule CommsCore.Integrations do
       cond do
         delivery.tenant_id != endpoint.tenant_id -> Repo.rollback(:stale_delivery_claim)
         delivery.endpoint_id != endpoint.id -> Repo.rollback(:stale_delivery_claim)
-        delivery.tenant_id != claimed.tenant_id -> Repo.rollback(:stale_delivery_claim)
-        delivery.endpoint_id != claimed.endpoint_id -> Repo.rollback(:stale_delivery_claim)
         endpoint.status != :active -> Repo.rollback(:endpoint_disabled)
         not current_claim?(delivery, claimed) -> Repo.rollback(:stale_delivery_claim)
         true -> materialize_delivery_request!(delivery, endpoint)
@@ -300,12 +343,12 @@ defmodule CommsCore.Integrations do
     |> unwrap_transaction()
   end
 
-  def record_delivery(%WebhookDelivery{} = delivery, result) do
+  def record_delivery(%WebhookDeliveryClaim{} = claim, result) do
     Repo.transaction(fn ->
       locked =
-        Repo.one!(from(d in WebhookDelivery, where: d.id == ^delivery.id, lock: "FOR UPDATE"))
+        Repo.one!(from(d in WebhookDelivery, where: d.id == ^claim.id, lock: "FOR UPDATE"))
 
-      unless current_claim?(locked, delivery) do
+      unless current_claim?(locked, claim) do
         Repo.rollback(:stale_delivery_claim)
       end
 
@@ -315,6 +358,8 @@ defmodule CommsCore.Integrations do
       locked
       |> WebhookDelivery.changeset(delivery_result_attrs(result, attempt_count, completed_at))
       |> Repo.update!()
+
+      :recorded
     end)
     |> unwrap_transaction()
   end
@@ -391,7 +436,7 @@ defmodule CommsCore.Integrations do
     end
   end
 
-  defp enqueue_event_delivery(%OutboxEvent{} = event, %WebhookEndpoint{} = expected_endpoint) do
+  defp enqueue_event_delivery(%Event{} = event, %WebhookEndpoint{} = expected_endpoint) do
     Repo.transaction(fn ->
       endpoint =
         Repo.one(
@@ -636,6 +681,14 @@ defmodule CommsCore.Integrations do
     |> Repo.update!()
   end
 
+  defp delivery_claim(%WebhookDelivery{} = delivery) do
+    struct!(WebhookDeliveryClaim, %{
+      id: delivery.id,
+      claim_generation: delivery.claim_generation,
+      claim_token: delivery.claim_token
+    })
+  end
+
   defp materialize_delivery_request!(%WebhookDelivery{} = delivery, %WebhookEndpoint{} = endpoint) do
     secret =
       Repo.get_by(WebhookSecret,
@@ -656,14 +709,14 @@ defmodule CommsCore.Integrations do
       )
       |> unwrap_or_rollback()
 
-    %{
+    struct!(WebhookDispatchRequest, %{
       url: endpoint.url,
       secret: plaintext,
       body: delivery.payload,
       event_type: delivery.event_type,
       delivery_id: delivery.id,
       idempotency_key: delivery.idempotency_key
-    }
+    })
   end
 
   defp delivery_result_attrs(result, attempt_count, completed_at) do
@@ -777,8 +830,7 @@ defmodule CommsCore.Integrations do
   defp authorize_manage(subject), do: Authorization.authorize(:manage_integrations, subject, %{})
 
   defp audit!(subject, action, resource_type, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -787,8 +839,11 @@ defmodule CommsCore.Integrations do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp drop_nil(map), do: Map.reject(map, fn {_key, val} -> is_nil(val) end)
 
@@ -805,6 +860,8 @@ defmodule CommsCore.Integrations do
   defp unwrap_transaction({:error, reason}), do: {:error, reason}
   defp unwrap_or_rollback({:ok, value}), do: value
   defp unwrap_or_rollback({:error, reason}), do: Repo.rollback(reason)
+  defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
+  defp project_result({:error, _reason} = error, _projector), do: error
 
   defp secret_context(value, version) do
     %{

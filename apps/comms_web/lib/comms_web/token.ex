@@ -3,9 +3,15 @@ defmodule CommsWeb.Token do
 
   @salt "k-comms-access-v1"
 
+  # Test/support callers may still hold the owner-internal bootstrap result.
+  # Production controllers use `Accounts.AuthenticationResult` directly.
+  def issue(%{session: _session} = result) do
+    result |> CommsCore.Accounts.Projector.authentication() |> issue()
+  end
+
   def issue(result) do
     ttl = Application.get_env(:comms_web, :access_token_ttl_seconds, 900)
-    token = Phoenix.Token.sign(CommsWeb.Endpoint, @salt, %{"session_id" => result.session.id})
+    token = Phoenix.Token.sign(CommsWeb.Endpoint, @salt, %{"session_id" => result.session_id})
 
     %{
       access_token: token,
@@ -25,15 +31,8 @@ defmodule CommsWeb.Token do
 
     with {:ok, %{"session_id" => session_id}} <-
            Phoenix.Token.verify(CommsWeb.Endpoint, @salt, token, max_age: ttl),
-         {:ok, session} <- Accounts.get_active_session(session_id) do
-      {:ok,
-       %{
-         subject: Accounts.subject_for_session(session, request_id),
-         session: session,
-         tenant: session.tenant,
-         user: session.user,
-         device: session.device
-       }}
+         {:ok, context} <- Accounts.access_context(session_id, request_id) do
+      {:ok, context}
     else
       _ ->
         CommsObservability.execute([:auth, :failure], %{count: 1})

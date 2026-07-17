@@ -1,12 +1,10 @@
 defmodule CommsCore.AttachmentRestoreRemapTest do
   use CommsCore.DataCase, async: false
 
-  import Ecto.Query
-
   alias CommsCore.Attachments
   alias CommsCore.Attachments.Attachment
   alias CommsCore.Attachments.RestoreRemap
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Release
   alias CommsTestSupport.Fixtures
 
@@ -44,13 +42,10 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     assert Repo.get!(Attachment, second.id).object_version_id == second.object_version_id
 
     remap_audit =
-      Repo.one!(
-        from(event in AuditEvent,
-          where:
-            event.tenant_id == ^account.tenant.id and
-              event.action == "attachment.restore_version_remapped"
-        )
-      )
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
+        action: "attachment.restore_version_remapped"
+      })
 
     assert remap_audit.resource_id == first.id
     assert remap_audit.metadata["actor"] == context.actor
@@ -61,13 +56,10 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     refute inspect(remap_audit.metadata) =~ "restored-first"
 
     summary =
-      Repo.one!(
-        from(event in AuditEvent,
-          where:
-            event.tenant_id == ^account.tenant.id and
-              event.action == "attachment.restore_version_remap_completed"
-        )
-      )
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
+        action: "attachment.restore_version_remap_completed"
+      })
 
     assert summary.resource_id == account.tenant.id
     assert summary.metadata["candidate_count"] == 2
@@ -79,7 +71,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     account = Fixtures.account_fixture()
     first = uploaded_attachment(account, "first.txt", "first restored body")
     second = uploaded_attachment(account, "mismatch.txt", "mismatched body")
-    audit_count = Repo.aggregate(AuditEvent, :count)
+    audit_count = Audit.count(%{tenant_id: account.tenant.id})
 
     verifier = fn attachment ->
       if attachment.id == second.id do
@@ -101,7 +93,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     assert failed_id == second.id
     assert Repo.get!(Attachment, first.id).object_version_id == first.object_version_id
     assert Repo.get!(Attachment, second.id).object_version_id == second.object_version_id
-    assert Repo.aggregate(AuditEvent, :count) == audit_count
+    assert Audit.count(%{tenant_id: account.tenant.id}) == audit_count
   end
 
   test "release guard requires a confirmed one-shot operation and complete audit context" do

@@ -2,12 +2,14 @@ defmodule CommsCore.PasswordRecoveryTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts.{Device, PasswordRecoveryRequest, Session, User}
-  alias CommsCore.Audit.AuditEvent
   alias CommsCore.Notifications
-  alias CommsCore.Notifications.Intent
-  alias CommsCore.{Accounts, PasswordRecovery, Repo}
+  alias CommsCore.Notifications.{Intent, PushSubscription}
+  alias CommsCore.{Accounts, Audit, PasswordRecovery, Repo}
   alias CommsCore.Security.Password
   alias CommsTestSupport.Fixtures
+
+  @p256dh "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
+  @auth "AAECAwQFBgcICQoLDA0ODw"
 
   test "known and unknown recovery requests are indistinguishable and sensitive intents stay hidden" do
     account = Fixtures.account_fixture()
@@ -41,13 +43,18 @@ defmodule CommsCore.PasswordRecoveryTest do
     refute encoded_job =~ "action_url"
     refute encoded_job =~ "token"
 
-    audit = Repo.get_by!(AuditEvent, action: "password_recovery.request")
+    audit =
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
+        action: "password_recovery.request"
+      })
+
     encoded_audit = Jason.encode!(audit.metadata)
     refute encoded_audit =~ account.user.email
     refute encoded_audit =~ account.tenant.slug
     refute encoded_audit =~ "token"
 
-    assert {:ok, delivery} = PasswordRecovery.materialize_notification(intent)
+    assert {:ok, delivery} = materialize_recovery(intent)
     assert delivery.destination == account.user.email
     assert delivery.payload["action_url"] =~ "/reset-password#token="
     refute delivery.payload["action_url"] =~ "?token="
@@ -89,6 +96,12 @@ defmodule CommsCore.PasswordRecoveryTest do
   test "new requests invalidate old tokens and reset consumes once, changes password, and revokes access" do
     account = Fixtures.account_fixture()
     old_password = fixture_password(account)
+
+    assert {:ok, %{subscription: push_subscription}} =
+             Notifications.register_push_subscription(
+               push_subscription_attrs(),
+               Fixtures.subject(account)
+             )
 
     assert {:ok, second_login} =
              Accounts.authenticate(account.tenant.slug, account.user.email, old_password, %{
@@ -145,13 +158,20 @@ defmodule CommsCore.PasswordRecoveryTest do
              :count
            ) == 0
 
+    assert Repo.get!(PushSubscription, push_subscription.id).status == :revoked
+
     assert {:error, :invalid_password_recovery_token} =
              PasswordRecovery.reset(%{
                token: second_token,
                new_password: "another-correct-horse-password"
              })
 
-    consume_audit = Repo.get_by!(AuditEvent, action: "password_recovery.consume")
+    consume_audit =
+      Audit.get_by!(%{
+        tenant_id: account.tenant.id,
+        action: "password_recovery.consume"
+      })
+
     refute Jason.encode!(consume_audit.metadata) =~ second_token
     refute Jason.encode!(consume_audit.metadata) =~ account.user.email
   end
@@ -176,7 +196,7 @@ defmodule CommsCore.PasswordRecoveryTest do
     intent = Repo.get_by!(Intent, event_type: PasswordRecovery.event_type())
 
     assert {:error, :password_recovery_not_deliverable} =
-             PasswordRecovery.materialize_notification(intent)
+             materialize_recovery(intent)
 
     assert {:error, :invalid_password_recovery_token} =
              PasswordRecovery.reset(%{
@@ -240,19 +260,21 @@ defmodule CommsCore.PasswordRecoveryTest do
     })
     |> Repo.update!()
 
-    assert Repo.get_by!(AuditEvent,
+    assert Audit.get_by!(%{
+             tenant_id: account.tenant.id,
              action: "password_recovery.request",
              resource_id: stale.id
-           )
+           })
 
     assert :ok = PasswordRecovery.request(attrs)
     refute Repo.get(PasswordRecoveryRequest, stale.id)
     assert outstanding_request_count(account.user.id) == 1
 
-    assert Repo.get_by!(AuditEvent,
+    assert Audit.get_by!(%{
+             tenant_id: account.tenant.id,
              action: "password_recovery.request",
              resource_id: stale.id
-           )
+           })
   end
 
   defp latest_recovery do
@@ -273,7 +295,7 @@ defmodule CommsCore.PasswordRecoveryTest do
       |> Repo.all()
       |> Enum.find(&(&1.payload["recovery_request_id"] == recovery.id))
 
-    {:ok, delivery} = PasswordRecovery.materialize_notification(intent)
+    {:ok, delivery} = materialize_recovery(intent)
     token_from_url(delivery.payload["action_url"])
   end
 
@@ -300,11 +322,27 @@ defmodule CommsCore.PasswordRecoveryTest do
       intent.event_type == ^PasswordRecovery.event_type() and intent.user_id == ^user_id
     )
     |> Repo.all()
-    |> Enum.count(&match?({:ok, _}, PasswordRecovery.materialize_notification(&1)))
+    |> Enum.count(&match?({:ok, _}, materialize_recovery(&1)))
+  end
+
+  defp materialize_recovery(intent) do
+    PasswordRecovery.materialize_notification(%{
+      tenant_id: intent.tenant_id,
+      user_id: intent.user_id,
+      recovery_request_id: intent.payload["recovery_request_id"]
+    })
   end
 
   defp fixture_password(account) do
     suffix = account.tenant.slug |> String.split("-") |> List.last()
     "correct-horse-battery-#{suffix}"
+  end
+
+  defp push_subscription_attrs do
+    %{
+      endpoint: "https://push.example.test/send/password-recovery-reset",
+      expiration_time: nil,
+      keys: %{p256dh: @p256dh, auth: @auth}
+    }
   end
 end

@@ -16,7 +16,7 @@ defmodule CommsWeb.MeController do
   end
 
   def users(conn, _params) do
-    users = Accounts.list_tenant_users(conn.assigns.current_subject)
+    users = Accounts.list_tenant_user_views(conn.assigns.current_subject)
     json(conn, %{data: Enum.map(users, &Presenter.user/1)})
   end
 end

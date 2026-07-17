@@ -3,7 +3,7 @@ defmodule CommsCore.Messaging.Reaction do
 
   schema "message_reactions" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:message, CommsCore.Messaging.Message)
+    field(:message_id, :binary_id)
     belongs_to(:user, CommsCore.Accounts.User)
     field(:emoji, :string)
     timestamps(updated_at: false)

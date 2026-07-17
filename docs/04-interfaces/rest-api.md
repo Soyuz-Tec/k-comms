@@ -9,6 +9,9 @@
 - `/api/v1/conversations/{conversation_id}/members`
 - `/api/v1/conversations/{conversation_id}/messages`
 - `/api/v1/conversations/{conversation_id}/messages/{message_id}/thread`
+- `/api/v1/conversations/{conversation_id}/call` and
+  `/api/v1/conversations/{conversation_id}/calls` for unified audio/video
+  lifecycle and participant admission
 - `/api/v1/in-app-notifications` and its user-owned read/dismiss operations
 - `/api/v1/attachments`
 - `/api/v1/search`
@@ -52,6 +55,36 @@ Webhook create/update bodies contain only the endpoint name, HTTPS URL, status,
 and subscribed event types. Secret rotation and delivery replay have no request
 body. Operational retry accepts `{resource_type, id}`, where `resource_type` is
 `notification`, `webhook`, or `attachment_scan`.
+
+## Audio and video calls
+
+`GET /api/v1/conversations/{conversation_id}/call` returns the one active,
+non-expired call of either media kind or `null`. `POST
+/api/v1/conversations/{conversation_id}/calls` requires `{ "media_kind":
+"audio" }` or `{ "media_kind": "video" }`. An active call of the requested
+kind is idempotently returned with a newly authorized short-lived participant
+credential; a different requested media kind conflicts and never mutates a
+live room's grants.
+
+Current active members join through `POST
+/api/v1/conversations/{conversation_id}/calls/{call_id}/join`. The starter,
+conversation owner, or moderator ends the room through `POST
+/api/v1/conversations/{conversation_id}/calls/{call_id}/end`. A local leave is a
+client/provider operation and does not end the durable call. Every response
+includes immutable `media_kind`; provider room names and identities are never
+public fields.
+
+`allow_audio_calls` and `allow_video_calls` are separate versioned tenant
+settings. Audio grants publish only microphone. Video grants publish only
+microphone, camera, screen share, and screen-share audio; neither kind permits
+data publication, metadata mutation, administration, recording, or arbitrary
+provider sources. The public status resource reports both `audio_calls` and
+`video_calls` capability booleans.
+
+The historical `/audio-call` and `/audio-calls` routes remain deprecated audio
+aliases for existing clients. New clients use the canonical call routes. Join
+credentials are transient secrets: clients keep them in memory, never URLs or
+durable storage, and discard them on failure, leave, end, or teardown.
 
 ## Message creation example
 

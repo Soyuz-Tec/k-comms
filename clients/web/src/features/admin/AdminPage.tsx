@@ -58,12 +58,12 @@ export function AdminPage() {
   return (
     <main className="page-shell" id="main-content">
       <header className="page-heading admin-heading"><div><span className="eyebrow">Tenant administration</span><h1>Workspace control center</h1><p>Manage access, policies, safety, integrations and audit evidence through tenant-scoped APIs.</p></div></header>
-      <section className="admin-stats" aria-label="Workspace summary"><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
+      <section className="admin-stats" aria-label="Workspace summary" tabIndex={0}><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
       <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}>{label}</button>)}</nav>
       <div id={`admin-section-${section}`} className="admin-section" data-admin-section={section}>
         {section === "workspace" && <TenantSettingsPanel api={api} onUpdated={(updated) => {
           setSession({ ...session, tenant: updated.tenant });
-          setCapabilities((current) => current ? { ...current, allow_public_channels: updated.settings.allow_public_channels, message_edit_window_seconds: updated.settings.message_edit_window_seconds, max_attachment_bytes: updated.settings.max_attachment_bytes } : current);
+          setCapabilities((current) => current ? { ...current, allow_audio_calls: updated.settings.allow_audio_calls, allow_video_calls: updated.settings.allow_video_calls, allow_public_channels: updated.settings.allow_public_channels, message_edit_window_seconds: updated.settings.message_edit_window_seconds, max_attachment_bytes: updated.settings.max_attachment_bytes } : current);
         }} />}
         {section === "people" && <PeoplePanel api={api} actorRole={session.user.role} users={users} setUsers={setUsers} />}
         {section === "safety" && <SafetyPanel api={api} canManageAttachments={canAdministerTenant(session.user.role)} />}

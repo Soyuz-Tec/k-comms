@@ -15,6 +15,8 @@ const state: TenantAdministration = {
   tenant: { id: "tenant-1", name: "Quota workspace", slug: "quota-workspace", status: "active" },
   settings: {
     tenant_id: "tenant-1",
+    allow_audio_calls: true,
+    allow_video_calls: true,
     allow_public_channels: true,
     message_edit_window_seconds: 86_400,
     max_attachment_bytes: 26_214_400,
@@ -66,6 +68,8 @@ describe("TenantSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
 
     expect(updateTenantAdministration).toHaveBeenCalledWith(expect.objectContaining({
+      allow_audio_calls: true,
+      allow_video_calls: true,
       max_active_users: 12,
       max_active_conversations: 20,
       max_conversation_members: 5,

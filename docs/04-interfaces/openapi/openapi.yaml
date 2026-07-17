@@ -10,6 +10,7 @@ tags:
   - name: Sessions
   - name: Users
   - name: Conversations
+  - name: Calls
   - name: Messages
   - name: Attachments
   - name: Administration
@@ -52,6 +53,9 @@ paths:
       responses:
         '200':
           description: Service version and public capability availability
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/StatusResponse'}
   /api/v1/bootstrap:
     post:
       tags: [Sessions]
@@ -329,6 +333,173 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/call:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Calls]
+      operationId: getActiveCall
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Active non-expired audio or video call, or null when none exists
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallLookupResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [Calls]
+      operationId: startCall
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StartCallRequest'}
+      responses:
+        '200':
+          description: Existing active call of the requested media kind and a newly issued participant credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '201':
+          description: Audio or video call started with a participant credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls/{callId}/join:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: joinCall
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Authorized participant credential for the active audio or video call
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls/{callId}/end:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: endCall
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: {type: string, minLength: 3, maxLength: 120}
+      responses:
+        '200':
+          description: Ended audio or video call
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/audio-call:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Calls]
+      operationId: getActiveAudioCall
+      deprecated: true
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Active non-expired audio call, or null when none exists
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallLookupResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/audio-calls:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [Calls]
+      operationId: startAudioCall
+      deprecated: true
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Existing active call and a newly issued participant credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '201':
+          description: Audio call started with a participant credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/audio-calls/{callId}/join:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: joinAudioCall
+      deprecated: true
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Authorized participant credential for the active call
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/audio-calls/{callId}/end:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: endAudioCall
+      deprecated: true
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: {type: string, minLength: 3, maxLength: 120}
+      responses:
+        '200':
+          description: Ended audio call
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/members/{userId}:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -532,8 +703,33 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous search page
+          schema: {type: string}
+        - name: conversation_id
+          in: query
+          description: Restrict matches to one conversation the current user may read
+          schema: {type: string, format: uuid}
+        - name: sender_user_id
+          in: query
+          description: Restrict matches to messages sent by this tenant user
+          schema: {type: string, format: uuid}
+        - name: after
+          in: query
+          description: Inclusive lower bound for message creation time
+          schema: {type: string, format: date-time}
+        - name: before
+          in: query
+          description: Exclusive upper bound for message creation time
+          schema: {type: string, format: date-time}
       responses:
-        '200': {description: Membership-filtered message matches}
+        '200':
+          description: Membership-filtered message matches with an opaque continuation cursor
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageSearchPage'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/attachments:
     post:
       tags: [Attachments]
@@ -1555,6 +1751,11 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    AudioCallId:
+      name: callId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     MessageId:
       name: messageId
       in: path
@@ -1579,6 +1780,28 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    StatusResponse:
+      type: object
+      additionalProperties: false
+      required: [service, version, status, capabilities]
+      properties:
+        service: {const: k-comms}
+        version: {type: string}
+        status: {type: string}
+        capabilities:
+          type: object
+          additionalProperties: false
+          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, notifications, push_notifications, realtime, webhooks]
+          properties:
+            administration: {type: boolean}
+            audio_calls: {type: boolean}
+            video_calls: {type: boolean}
+            attachment_scanning: {type: boolean}
+            bootstrap: {type: boolean}
+            notifications: {type: boolean}
+            push_notifications: {type: boolean}
+            realtime: {type: boolean}
+            webhooks: {type: boolean}
     Error:
       type: object
       required: [error]
@@ -1905,13 +2128,25 @@ components:
       properties:
         resource_type: {enum: [notification, webhook, attachment_scan]}
         id: {type: string, format: uuid}
+    UserCapabilities:
+      type: object
+      additionalProperties: false
+      required: [allow_public_channels, allow_audio_calls, allow_video_calls, message_edit_window_seconds, max_attachment_bytes]
+      properties:
+        allow_public_channels: {type: boolean}
+        allow_audio_calls: {type: boolean}
+        allow_video_calls: {type: boolean}
+        message_edit_window_seconds: {type: integer, minimum: 0}
+        max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
     TenantSettings:
       type: object
       additionalProperties: false
-      required: [tenant_id, allow_public_channels, message_edit_window_seconds, max_attachment_bytes, default_retention_days, max_active_users, max_active_conversations, max_conversation_members, version]
+      required: [tenant_id, allow_public_channels, allow_audio_calls, allow_video_calls, message_edit_window_seconds, max_attachment_bytes, default_retention_days, max_active_users, max_active_conversations, max_conversation_members, version]
       properties:
         tenant_id: {type: string, format: uuid}
         allow_public_channels: {type: boolean}
+        allow_audio_calls: {type: boolean}
+        allow_video_calls: {type: boolean}
         message_edit_window_seconds: {type: integer, minimum: 0}
         max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
         default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
@@ -1974,6 +2209,8 @@ components:
       properties:
         name: {type: string, minLength: 1, maxLength: 120}
         allow_public_channels: {type: boolean}
+        allow_audio_calls: {type: boolean}
+        allow_video_calls: {type: boolean}
         message_edit_window_seconds: {type: integer, minimum: 0, maximum: 2592000}
         max_attachment_bytes: {type: integer, minimum: 1, maximum: 1073741824}
         default_retention_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
@@ -2120,6 +2357,60 @@ components:
         version: {type: integer, minimum: 1}
         inserted_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    StartCallRequest:
+      type: object
+      additionalProperties: false
+      required: [media_kind]
+      properties:
+        media_kind: {enum: [audio, video]}
+    AudioCall:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, conversation_id, media_kind, started_by_user_id, ended_by_user_id, status, started_at, expires_at, ended_at, end_reason, can_end, version]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        media_kind: {enum: [audio, video]}
+        started_by_user_id: {type: string, format: uuid}
+        ended_by_user_id: {type: [string, 'null'], format: uuid}
+        status: {enum: [active, ended]}
+        started_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        ended_at: {type: [string, 'null'], format: date-time}
+        end_reason: {type: [string, 'null'], maxLength: 120}
+        can_end: {type: boolean}
+        version: {type: integer, minimum: 1}
+    AudioCallCredential:
+      type: object
+      additionalProperties: false
+      required: [server_url, participant_token, expires_in]
+      properties:
+        server_url: {type: string, pattern: '^wss?://'}
+        participant_token: {type: string, writeOnly: true}
+        expires_in: {type: integer, minimum: 60, maximum: 300}
+    AudioCallLookupResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          oneOf:
+            - {$ref: '#/components/schemas/AudioCall'}
+            - {type: 'null'}
+    AudioCallResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/AudioCall'}
+    AudioCallCredentialResponse:
+      type: object
+      additionalProperties: false
+      required: [data, credential]
+      properties:
+        data: {$ref: '#/components/schemas/AudioCall'}
+        credential: {$ref: '#/components/schemas/AudioCallCredential'}
     MembershipSummary:
       type: object
       additionalProperties: false
@@ -2232,6 +2523,22 @@ components:
             has_more: {type: boolean}
             next_after_sequence: {type: [integer, 'null']}
             reset_required: {type: boolean}
+    MessageSearchPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [limit, has_more, next_cursor]
+          properties:
+            limit: {type: integer, minimum: 1, maximum: 200}
+            has_more: {type: boolean}
+            next_cursor: {type: [string, 'null']}
     MessageThreadResponse:
       type: object
       additionalProperties: false
@@ -2408,7 +2715,7 @@ components:
         replayed: {type: boolean}
     TokenResponse:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device]
+      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device, capabilities]
       properties:
         access_token: {type: string}
         refresh_token: {type: string}
@@ -2425,3 +2732,4 @@ components:
               type: [string, 'null']
               format: date-time
         device: {type: object}
+        capabilities: {$ref: '#/components/schemas/UserCapabilities'}

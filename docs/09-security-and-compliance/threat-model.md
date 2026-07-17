@@ -16,6 +16,9 @@ required before production traffic.
   policy, and deletion evidence
 - Webhook signing secrets, service-account credentials, encrypted browser-push
   subscriptions, and provider credentials
+- LiveKit API credentials, short-lived participant tokens, TURN credentials,
+  call membership and room identifiers, and private live audio, camera video,
+  and screen-share content
 - PostgreSQL and object-storage backups, restore metadata, encryption keys, and
   retained deployment bundles
 - Short-lived bootstrap, qualification, and platform-role management secrets
@@ -36,6 +39,10 @@ required before production traffic.
    operator identities.
 8. Development/local-proof adapters and credentials to any staging or
    production provider composition.
+9. Browser microphone, camera, and explicit screen capture to the external
+   LiveKit signaling/media plane; K-Comms authorization to LiveKit
+   participant-token issuance; and public clients through the selected TURN
+   relay.
 
 ## Priority threat scenarios and current disposition
 
@@ -58,6 +65,11 @@ required before production traffic.
 | T-015 | Audit CSV triggers spreadsheet execution or exports unbounded data | Tenant-first query, 5,000-row cap, NUL stripping, formula neutralization, quoting, redacted filter evidence, and step-up | Office-client sampling and retention approval remain pending |
 | T-016 | Database and object restore points are mutually inconsistent | Maintenance-window quiescence plus the revision-bound historical integrated restore proof, guarded exact-version remap, restored UI visibility, and authenticated exact-SHA-256 download | Re-run for every exact candidate; preserve this consistency boundary in the provider-native design and prove it with managed-state/PITR recovery before production reliance |
 | T-017 | An invitation takes over an existing or suspended identity | Invitation creation and acceptance both reject every existing human email; audited administrative unsuspension remains the only reactivation path and preserves the existing password | Provider-delivery abuse monitoring and independent identity-flow review remain pending |
+| T-018 | A caller joins, sees, or listens to another tenant or conversation by choosing a room, identity, media kind, or replaying a participant token | Call authorization derives opaque room/identity server-side, requires active session and membership, binds immutable `media_kind`, issues short-lived source-restricted tokens, rejects client-selected grants, and persists admission authority without the token | Independent cross-tenant and media-kind substitution review plus membership/session revocation during active audio/video calls are launch gates |
+| T-019 | LiveKit API or TURN credentials leak, an unauthenticated TURN relay is abused, or provider logs expose call metadata | Provider credentials remain server-only in externally managed Secrets; browsers receive participant tokens only; production requires WSS/TLS, restricted TURN authentication, content-blind logs, and credential rotation | Provider configuration, relay-abuse testing, TLS/TURN reachability, redaction sampling, and rotation rehearsal remain pending |
+| T-020 | Media traffic, reconnect storms, camera resolution, screen sharing, oversized rooms, recording, or provider failure causes denial of service or privacy harm | Calls are isolated from durable text readiness; production must qualify group size, participants, token lifetime, bandwidth/adaptation, recording-disabled policy, and retries and expose content-blind quality/capacity signals | Expected peak plus headroom, three-or-more participant video, forced-TURN, UDP-blocked fallback, provider interruption, privacy approval, and stop-condition exercises remain pending |
+| T-021 | A session, device, user, membership, conversation, or tenant loses access while an admitted media participant remains connected or reconnects with a cached token | The authoritative access change and admission invalidation commit independently of provider I/O; durable media-queue work retries idempotent participant removal, repeats self-hosted enforcement for a 660-1,800 second minimum horizon, retains failures after it, and completes only after a removal succeeds at or after the horizon, without storing JWTs or secrets | Measure the exact access-change-to-disconnect SLO and cached-token replay bound in the provider composition. The self-hosted adapter does not promise instant token invalidation; stricter policy requires separately implemented and qualified LiveKit Cloud token revocation or whole-room deletion, which disconnects everyone |
+| T-022 | Camera starts without informed action, background capture survives teardown, or screen sharing exposes unrelated applications or notifications | Video prejoin defaults camera/microphone off; Permissions Policy restricts capture to the first-party origin; screen sharing requires separate browser source selection and persistent stop control; every local track stops on leave/end/session loss/native track end/teardown; no recording, snapshot, transcript, or media persistence is authorized | Manual browser/privacy review, permission-revocation tests, OS/browser capture-indicator checks, screen-track cleanup, and internal-pilot consent feedback are launch gates |
 
 ## Review rule
 

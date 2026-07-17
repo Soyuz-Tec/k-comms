@@ -1,13 +1,16 @@
 defmodule CommsCore.AdmissionQuotasTest do
   use CommsCore.DataCase, async: false
 
+  alias CommsCore.Administration.AdmissionPolicy
   alias CommsCore.Administration.Invitation
+  alias CommsCore.Conversations.AdmissionUsage
 
   alias CommsCore.{
     Accounts,
     AdmissionQuotas,
     Administration,
     Conversations,
+    Operations,
     Repo,
     ServiceAccounts
   }
@@ -47,7 +50,7 @@ defmodule CommsCore.AdmissionQuotasTest do
              at_capacity: %{active_users: true, any: true},
              over_limit: %{any: false}
            } =
-             AdmissionQuotas.usage(account.tenant.id)
+             admission_usage!(subject)
 
     service_tenant = Fixtures.account_fixture()
     service_subject = Fixtures.step_up(service_tenant)
@@ -64,7 +67,7 @@ defmodule CommsCore.AdmissionQuotasTest do
                service_subject
              )
 
-    assert %{active_users: 2} = AdmissionQuotas.usage(service_tenant.tenant.id)
+    assert %{active_users: 2} = admission_usage!(service_subject)
 
     assert {:error, :active_user_quota_exceeded} =
              create_member(service_subject, "blocked-after-service")
@@ -89,7 +92,7 @@ defmodule CommsCore.AdmissionQuotasTest do
     assert {:error, :active_user_quota_exceeded} = create_member(subject, "direct-blocked")
 
     assert {:ok, invitation_result} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{
                  email: "quota-invited-#{System.unique_integer([:positive])}@example.test",
                  role: "member",
@@ -99,7 +102,7 @@ defmodule CommsCore.AdmissionQuotasTest do
              )
 
     assert {:error, :active_user_quota_exceeded} =
-             Accounts.accept_invitation(%{
+             Administration.accept_invitation(%{
                token: invitation_result.token,
                display_name: "Quota invited",
                password: "correct-horse-quota-invited"
@@ -108,7 +111,7 @@ defmodule CommsCore.AdmissionQuotasTest do
     assert Repo.get!(Invitation, invitation_result.invitation.id).status == :pending
 
     assert {:error, :invitation_identity_conflict} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{
                  email: suspended.email,
                  role: "member",
@@ -171,7 +174,7 @@ defmodule CommsCore.AdmissionQuotasTest do
              Conversations.create(%{kind: "group", title: "Replacement"}, subject)
 
     assert %{active_conversations: 2, over_limit: %{active_conversations: false}} =
-             AdmissionQuotas.usage(account.tenant.id)
+             admission_usage!(subject)
   end
 
   test "initial membership, member add, public self-join, and rejoin enforce one member limit" do
@@ -243,7 +246,59 @@ defmodule CommsCore.AdmissionQuotasTest do
              active_users: 2,
              limits: %{max_active_users: 1},
              over_limit: %{active_users: true, any: true}
-           } = AdmissionQuotas.usage(account.tenant.id)
+           } = admission_usage!(subject)
+  end
+
+  test "conversation owners pass scalar observations to the tenant admission policy" do
+    policy = %AdmissionPolicy{
+      max_active_users: 10,
+      max_active_conversations: 2,
+      max_conversation_members: 2
+    }
+
+    assert :ok = AdmissionQuotas.check_conversation_creation(policy, 1, 2)
+
+    assert {:error, :active_conversation_quota_exceeded} =
+             AdmissionQuotas.check_conversation_creation(policy, 2, 1)
+
+    assert {:error, :conversation_member_quota_exceeded} =
+             AdmissionQuotas.check_conversation_creation(policy, 0, 3)
+
+    assert :ok = AdmissionQuotas.check_conversation_member_capacity(policy, 1)
+
+    assert {:error, :conversation_member_quota_exceeded} =
+             AdmissionQuotas.check_conversation_member_capacity(policy, 2)
+  end
+
+  test "conversation usage is one owner-local database snapshot" do
+    account = Fixtures.account_fixture()
+    parent = self()
+    handler_id = {__MODULE__, :conversation_admission_usage_query, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, test_pid ->
+                 query = Map.get(metadata, :query, "")
+
+                 if String.contains?(query, ~s(FROM "conversations")) do
+                   send(test_pid, {:conversation_admission_usage_query, query})
+                 end
+               end,
+               parent
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert %AdmissionUsage{
+             active_conversations: 1,
+             largest_conversation_members: 1
+           } = Conversations.admission_usage(account.tenant.id)
+
+    assert_receive {:conversation_admission_usage_query, query}
+    assert query =~ ~s(LEFT OUTER JOIN "conversation_memberships")
+    refute_receive {:conversation_admission_usage_query, _query}, 50
   end
 
   defp set_limits!(subject, attrs) do
@@ -260,6 +315,11 @@ defmodule CommsCore.AdmissionQuotasTest do
       nil -> 1
       settings -> settings.lock_version
     end
+  end
+
+  defp admission_usage!(subject) do
+    assert {:ok, usage} = Operations.tenant_admission_usage(subject)
+    usage
   end
 
   defp create_member(subject, label) do

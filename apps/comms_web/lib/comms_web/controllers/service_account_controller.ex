@@ -5,13 +5,13 @@ defmodule CommsWeb.ServiceAccountController do
   alias CommsWeb.ServiceAccountPresenter
 
   def index(conn, _params) do
-    with {:ok, accounts} <- ServiceAccounts.list(conn.assigns.current_subject) do
+    with {:ok, accounts} <- ServiceAccounts.list_views(conn.assigns.current_subject) do
       json(conn, %{data: Enum.map(accounts, &ServiceAccountPresenter.service_account/1)})
     end
   end
 
   def create(conn, params) do
-    with {:ok, result} <- ServiceAccounts.create(params, conn.assigns.current_subject) do
+    with {:ok, result} <- ServiceAccounts.create_view(params, conn.assigns.current_subject) do
       conn
       |> put_status(:created)
       |> json(%{
@@ -23,7 +23,7 @@ defmodule CommsWeb.ServiceAccountController do
   end
 
   def rotate(conn, %{"id" => id} = params) do
-    with {:ok, result} <- ServiceAccounts.rotate(id, params, conn.assigns.current_subject) do
+    with {:ok, result} <- ServiceAccounts.rotate_view(id, params, conn.assigns.current_subject) do
       json(conn, %{
         data: ServiceAccountPresenter.service_account(result.service_account),
         credential: result.credential,
@@ -34,7 +34,7 @@ defmodule CommsWeb.ServiceAccountController do
   end
 
   def revoke(conn, %{"id" => id} = params) do
-    with {:ok, account} <- ServiceAccounts.revoke(id, params, conn.assigns.current_subject) do
+    with {:ok, account} <- ServiceAccounts.revoke_view(id, params, conn.assigns.current_subject) do
       json(conn, %{data: ServiceAccountPresenter.service_account(account)})
     end
   end

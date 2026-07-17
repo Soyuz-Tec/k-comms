@@ -64,6 +64,40 @@ defmodule CommsCore.Accounts.User do
     |> unique_constraint(:email, name: :users_tenant_email_unique)
   end
 
+  # Service identities share the canonical users table and schema, but their
+  # reserved email domain and fixed role require a narrower creation contract
+  # than the human-user changeset.
+  def service_changeset(value, attrs) do
+    value
+    |> cast(attrs, [
+      :tenant_id,
+      :external_subject,
+      :display_name,
+      :email,
+      :role,
+      :status,
+      :account_type,
+      :lock_version
+    ])
+    |> update_change(:email, &normalize_email/1)
+    |> validate_required([
+      :tenant_id,
+      :external_subject,
+      :display_name,
+      :email,
+      :role,
+      :status,
+      :account_type
+    ])
+    |> validate_length(:display_name, min: 2, max: 120)
+    |> validate_format(:email, ~r/@service\.invalid$/)
+    |> validate_inclusion(:account_type, [:service])
+    |> validate_inclusion(:role, [:member])
+    |> unique_constraint([:tenant_id, :external_subject])
+    |> unique_constraint(:email, name: :users_tenant_email_unique)
+    |> check_constraint(:account_type, name: :users_account_type_allowed)
+  end
+
   defp normalize_email(value) when is_binary(value),
     do: value |> String.trim() |> String.downcase()
 

@@ -9,9 +9,31 @@ export function draftKey(tenantId: string, userId: string, conversationId: strin
   return `${scope(tenantId, userId)}${encodeURIComponent(conversationId)}`;
 }
 
+export function threadDraftKey(
+  tenantId: string,
+  userId: string,
+  conversationId: string,
+  threadRootMessageId: string
+): string {
+  return `${scope(tenantId, userId)}thread.${encodeURIComponent(conversationId)}.${encodeURIComponent(threadRootMessageId)}`;
+}
+
 export function loadDraft(tenantId: string, userId: string, conversationId: string): string {
+  return load(draftKey(tenantId, userId, conversationId));
+}
+
+export function loadThreadDraft(
+  tenantId: string,
+  userId: string,
+  conversationId: string,
+  threadRootMessageId: string
+): string {
+  return load(threadDraftKey(tenantId, userId, conversationId, threadRootMessageId));
+}
+
+function load(key: string): string {
   try {
-    return window.localStorage.getItem(draftKey(tenantId, userId, conversationId)) || "";
+    return window.localStorage.getItem(key) || "";
   } catch {
     return "";
   }
@@ -23,8 +45,21 @@ export function storeDraft(
   conversationId: string,
   value: string
 ): void {
+  store(draftKey(tenantId, userId, conversationId), value);
+}
+
+export function storeThreadDraft(
+  tenantId: string,
+  userId: string,
+  conversationId: string,
+  threadRootMessageId: string,
+  value: string
+): void {
+  store(threadDraftKey(tenantId, userId, conversationId, threadRootMessageId), value);
+}
+
+function store(key: string, value: string): void {
   try {
-    const key = draftKey(tenantId, userId, conversationId);
     if (value) window.localStorage.setItem(key, value);
     else window.localStorage.removeItem(key);
   } catch {

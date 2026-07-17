@@ -33,6 +33,28 @@ if config_env() == :prod do
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
   role = System.get_env("K_COMMS_ROLE", "all")
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
+  development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
+
+  audio_provider_mode =
+    System.get_env("AUDIO_PROVIDER_MODE", "disabled") |> String.trim() |> String.downcase()
+
+  livekit_server_url = System.get_env("LIVEKIT_SERVER_URL")
+  livekit_api_url = System.get_env("LIVEKIT_API_URL")
+  livekit_api_key = System.get_env("LIVEKIT_API_KEY")
+  livekit_api_secret = System.get_env("LIVEKIT_API_SECRET")
+
+  audio_token_ttl_seconds =
+    case Integer.parse(System.get_env("AUDIO_TOKEN_TTL_SECONDS", "300")) do
+      {value, ""} -> value
+      _ -> raise "AUDIO_TOKEN_TTL_SECONDS must be an integer"
+    end
+
+  audio_participant_eviction_enforcement_seconds =
+    case Integer.parse(System.get_env("AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS", "660")) do
+      {value, ""} -> value
+      _ -> raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be an integer"
+    end
+
   host = System.get_env("PHX_HOST", "example.invalid")
   port = String.to_integer(System.get_env("PORT", "4000"))
   cluster_query = System.get_env("CLUSTER_DNS_QUERY")
@@ -51,6 +73,66 @@ if config_env() == :prod do
 
   unless runtime_purpose in ["application", "one_shot"] do
     raise "K_COMMS_RUNTIME_PURPOSE must be application or one_shot"
+  end
+
+  unless audio_provider_mode in ["disabled", "livekit"] do
+    raise "AUDIO_PROVIDER_MODE must be disabled or livekit"
+  end
+
+  csp_connect_sources =
+    System.get_env("CSP_CONNECT_SOURCES", "'self' wss://#{host} https://#{host}")
+    |> String.split(" ", trim: true)
+
+  if runtime_purpose == "application" and audio_provider_mode == "disabled" and
+       not development_adapters? do
+    raise "AUDIO_PROVIDER_MODE must be livekit for production application workloads"
+  end
+
+  if runtime_purpose == "application" and audio_provider_mode == "livekit" do
+    livekit_uri = URI.parse(livekit_server_url || "")
+    livekit_api_uri = URI.parse(livekit_api_url || "")
+
+    unless livekit_uri.scheme == "wss" and is_binary(livekit_uri.host) and
+             livekit_uri.port in [nil, 443] and livekit_uri.path in [nil, "", "/"] and
+             is_nil(livekit_uri.userinfo) and is_nil(livekit_uri.query) and
+             is_nil(livekit_uri.fragment) and
+             not String.ends_with?(String.downcase(livekit_uri.host), ".invalid") do
+      raise "LIVEKIT_SERVER_URL must be an exact WSS origin on port 443 in production"
+    end
+
+    unless livekit_api_uri.scheme == "https" and is_binary(livekit_api_uri.host) and
+             livekit_api_uri.port in [nil, 443] and livekit_api_uri.path in [nil, "", "/"] and
+             is_nil(livekit_api_uri.userinfo) and is_nil(livekit_api_uri.query) and
+             is_nil(livekit_api_uri.fragment) and
+             not String.ends_with?(String.downcase(livekit_api_uri.host), ".invalid") do
+      raise "LIVEKIT_API_URL must be an exact HTTPS origin on port 443 in production"
+    end
+
+    for {name, value, minimum_bytes} <- [
+          {"LIVEKIT_API_KEY", livekit_api_key, 8},
+          {"LIVEKIT_API_SECRET", livekit_api_secret, 32}
+        ] do
+      if not is_binary(value) or byte_size(value) < minimum_bytes or
+           Regex.match?(~r/(?:CHANGE_ME|REPLACE_WITH)/i, value) do
+        raise "#{name} must contain a non-placeholder secret of at least #{minimum_bytes} bytes"
+      end
+    end
+
+    unless audio_token_ttl_seconds in 60..300 do
+      raise "AUDIO_TOKEN_TTL_SECONDS must be between 60 and 300 seconds"
+    end
+
+    unless audio_participant_eviction_enforcement_seconds in 660..1_800 do
+      raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be between 660 and 1800 seconds"
+    end
+
+    if audio_participant_eviction_enforcement_seconds < audio_token_ttl_seconds do
+      raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be greater than or equal to AUDIO_TOKEN_TTL_SECONDS"
+    end
+
+    unless livekit_server_url in csp_connect_sources do
+      raise "CSP_CONNECT_SOURCES must contain the exact LIVEKIT_SERVER_URL origin"
+    end
   end
 
   unless public_app_uri.scheme == "https" and is_binary(public_app_uri.host) and
@@ -85,6 +167,8 @@ if config_env() == :prod do
     end
 
   config :comms_core,
+    audio_participant_eviction_enforcement_seconds:
+      audio_participant_eviction_enforcement_seconds,
     cluster_topologies: topologies,
     session_ttl_seconds: String.to_integer(System.get_env("SESSION_TTL_SECONDS", "2592000")),
     session_absolute_ttl_seconds:
@@ -155,9 +239,7 @@ if config_env() == :prod do
     hsts: System.get_env("HSTS_ENABLED", "true") == "true",
     metrics_allow_unauthenticated: false,
     metrics_bearer_token: System.get_env("METRICS_BEARER_TOKEN"),
-    csp_connect_sources:
-      System.get_env("CSP_CONNECT_SOURCES", "'self' wss://#{host} https://#{host}")
-      |> String.split(" ", trim: true),
+    csp_connect_sources: csp_connect_sources,
     access_token_ttl_seconds:
       String.to_integer(System.get_env("ACCESS_TOKEN_TTL_SECONDS", "900")),
     cors_origins: cors_origins,
@@ -181,7 +263,6 @@ if config_env() == :prod do
   notification_mode = System.get_env("NOTIFICATION_PROVIDER_MODE", "disabled")
   scanner_mode = System.get_env("ATTACHMENT_SCANNER_MODE", "disabled")
   webhook_mode = System.get_env("WEBHOOK_PROVIDER_MODE", "disabled")
-  development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
 
   webhook_allowed_hosts =
     System.get_env("WEBHOOK_ALLOWED_HOSTS", "")
@@ -238,6 +319,12 @@ if config_env() == :prod do
     push_delivery_status: provider_runtime.notification_delivery_status
 
   config :comms_integrations,
+    audio_provider_mode: audio_provider_mode,
+    livekit_server_url: livekit_server_url,
+    livekit_api_url: livekit_api_url,
+    livekit_api_key: livekit_api_key,
+    livekit_api_secret: livekit_api_secret,
+    audio_token_ttl_seconds: audio_token_ttl_seconds,
     object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
     notification_adapter: provider_runtime.notification_adapter,
     notification_http: notification_http,

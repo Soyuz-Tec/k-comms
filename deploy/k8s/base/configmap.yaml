@@ -21,6 +21,13 @@ data:
   CORS_ORIGINS: https://k-comms.example.invalid
   HSTS_ENABLED: "true"
   CSP_CONNECT_SOURCES: "'self' wss://k-comms.example.invalid https://k-comms.example.invalid https://objects.example.invalid"
+  # Compatibility-named provider settings govern both audio and video calls.
+  # The portable base deliberately carries no SFU or TURN workload.
+  AUDIO_PROVIDER_MODE: disabled
+  LIVEKIT_SERVER_URL: ""
+  LIVEKIT_API_URL: ""
+  AUDIO_TOKEN_TTL_SECONDS: "300"
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: "660"
   S3_PUBLIC_ENDPOINT: https://objects.example.invalid
   S3_INTERNAL_SCHEME: http
   S3_INTERNAL_HOST: minio
@@ -31,6 +38,16 @@ data:
   S3_URL_TTL_SECONDS: "900"
   MINIO_API_CORS_ALLOW_ORIGIN: https://k-comms.example.invalid
   ALLOW_DEVELOPMENT_ADAPTERS: "false"
+  # Identity-provider modes are a deployment-policy contract. OIDC and SCIM
+  # remain unimplemented until ADR-0023's implementation gates are closed.
+  ALLOW_DEVELOPMENT_IDENTITY_MODES: "false"
+  IDENTITY_PROVIDER_MODE: disabled
+  DIRECTORY_PROVISIONING_MODE: disabled
+  OIDC_ISSUER: ""
+  OIDC_CLIENT_ID: ""
+  OIDC_PROVIDER_NAME: ""
+  OIDC_REQUIRED_ACR_VALUES: ""
+  SCIM_PROVIDER_NAME: ""
   NOTIFICATION_PROVIDER_MODE: disabled
   PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID: primary
   WEB_PUSH_VAPID_PUBLIC_KEY: ""

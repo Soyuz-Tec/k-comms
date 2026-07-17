@@ -2,12 +2,13 @@ defmodule CommsWorkers.DeletionWorker do
   use Oban.Worker, queue: :default, max_attempts: 10
 
   alias CommsCore.Governance
+  alias CommsCore.Governance.DeletionExecution
   alias CommsIntegrations.ObjectStorage
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"deletion_request_id" => request_id}}) do
     case Governance.claim_deletion_request(request_id, __MODULE__) do
-      {:ok, claim} -> execute_claim(claim)
+      {:ok, %DeletionExecution{} = execution} -> execute_claim(execution)
       {:error, :legal_hold_active} -> {:snooze, 300}
       {:error, :not_claimable} -> {:discard, :not_claimable}
       {:error, :not_found} -> {:discard, :not_found}
@@ -17,23 +18,23 @@ defmodule CommsWorkers.DeletionWorker do
 
   def perform(_job), do: {:discard, :deletion_request_id_required}
 
-  defp execute_claim(claim) do
-    case delete_objects(claim.plan.attachments) do
+  defp execute_claim(%DeletionExecution{} = execution) do
+    case delete_objects(execution.objects) do
       {:ok, deleted_count} ->
         case Governance.complete_deletion_request(
-               claim.request.id,
-               claim.request.lock_version,
+               execution.request_id,
+               execution.expected_version,
                %{deleted_object_count: deleted_count},
                __MODULE__
              ) do
           {:ok, _result} -> :ok
           {:error, :already_delivered} -> :ok
           {:error, :legal_hold_active} -> {:snooze, 300}
-          {:error, reason} -> record_failure(claim.request.id, reason)
+          {:error, reason} -> record_failure(execution.request_id, reason)
         end
 
       {:error, reason} ->
-        record_failure(claim.request.id, reason)
+        record_failure(execution.request_id, reason)
     end
   end
 

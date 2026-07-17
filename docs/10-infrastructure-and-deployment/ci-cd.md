@@ -13,10 +13,14 @@
 The architecture gate runs `scripts/test_validate_architecture.py` followed by
 `scripts/validate_architecture.py`. It fails on unclassified umbrella apps,
 forbidden direct dependency edges, core references to adapter applications, and
-direct Repo access outside the non-release test-fixture allowlist. Health and
-metrics use narrowly named core read APIs rather than persistence exceptions.
-Architecture policy changes must update the accepted architecture documentation,
-validator, and regression tests together.
+direct Repo access outside the non-release test-fixture allowlist. The context
+manifest gate also rejects new, changed, or resolved baseline fingerprints,
+undeclared or changed SCC edges, unapproved lifecycle-command call sites, and
+read-only exceptions that issue owner commands, persistence writes, or raw SQL
+DML/DDL. Health and metrics use narrowly named core read APIs rather than
+persistence exceptions. Architecture policy or baseline changes must update the
+accepted architecture documentation, validator, and regression tests together
+and receive architecture review.
 
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested

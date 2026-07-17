@@ -1,13 +1,25 @@
 defmodule CommsCore.Notifications do
   import Ecto.Query
 
+  @behaviour CommsCore.Accounts.NotificationPort
+
+  alias CommsCore.Accounts.{NotificationCommand, NotificationReceipt}
   alias CommsCore.Accounts.User
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Authorization
   alias CommsCore.Conversations.Membership
-  alias CommsCore.Events.OutboxEvent
-  alias CommsCore.Notifications.{Attempt, Intent, Preference}
-  alias CommsCore.PushSubscriptions
+  alias CommsCore.Outbox.Event
+
+  alias CommsCore.Notifications.{
+    Attempt,
+    Delivery,
+    InApp,
+    Intent,
+    Preference,
+    Projector,
+    PushSubscriptions
+  }
+
   alias CommsCore.{Repo, RuntimePorts}
 
   @claim_timeout_seconds 300
@@ -15,19 +27,62 @@ defmodule CommsCore.Notifications do
   @recovery_event_type "account.password_recovery.requested.v1"
   @payload_keys ~w(title body action_url conversation_id message_id sender_user_id aggregate_id aggregate_type event_id recovery_request_id)
 
+  @impl true
+  def execute(%NotificationCommand{operation: :password_recovery} = command) do
+    with :ok <- require_identity_transaction(),
+         {:ok, intent} <-
+           create_intent(%{
+             tenant_id: command.tenant_id,
+             user_id: command.user_id,
+             event_type: @recovery_event_type,
+             channel: :email,
+             destination: command.destination,
+             idempotency_key: "password-recovery:#{command.recovery_request_id}",
+             payload: %{"recovery_request_id" => command.recovery_request_id}
+           }) do
+      {:ok, %NotificationReceipt{id: intent.id}}
+    end
+  end
+
+  def execute(%NotificationCommand{operation: :device_revoked} = command) do
+    with :ok <- require_identity_transaction() do
+      PushSubscriptions.disable_for_device(
+        command.tenant_id,
+        command.user_id,
+        command.device_id,
+        command.reason
+      )
+    end
+  end
+
+  def execute(%NotificationCommand{operation: :user_access_revoked} = command) do
+    with :ok <- require_identity_transaction() do
+      PushSubscriptions.disable_for_user(
+        command.tenant_id,
+        command.user_id,
+        command.reason
+      )
+    end
+  end
+
+  def execute(%NotificationCommand{}), do: {:error, :unsupported_identity_notification_command}
+
   def get_preferences(subject) do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
 
-    Repo.get_by(Preference, tenant_id: tenant_id, user_id: user_id) ||
-      %Preference{
-        tenant_id: tenant_id,
-        user_id: user_id,
-        email_enabled: true,
-        push_enabled: false,
-        in_app_enabled: true,
-        muted_event_types: []
-      }
+    preference =
+      Repo.get_by(Preference, tenant_id: tenant_id, user_id: user_id) ||
+        %Preference{
+          tenant_id: tenant_id,
+          user_id: user_id,
+          email_enabled: true,
+          push_enabled: false,
+          in_app_enabled: true,
+          muted_event_types: []
+        }
+
+    Projector.preference(preference)
   end
 
   def update_preferences(attrs, subject) when is_map(attrs) do
@@ -43,9 +98,64 @@ defmodule CommsCore.Notifications do
 
     existing = Repo.get_by(Preference, tenant_id: tenant_id, user_id: user_id)
 
-    (existing || %Preference{tenant_id: tenant_id, user_id: user_id})
-    |> Preference.changeset(drop_nil(changes))
-    |> Repo.insert_or_update()
+    result =
+      (existing || %Preference{tenant_id: tenant_id, user_id: user_id})
+      |> Preference.changeset(drop_nil(changes))
+      |> Repo.insert_or_update()
+
+    project_result(result, &Projector.preference/1)
+  end
+
+  @spec list_in_app(map(), map()) ::
+          {:ok,
+           %{notifications: [CommsCore.Notifications.IntentView.t()], unread_count: integer()}}
+          | {:error, term()}
+  def list_in_app(subject, opts \\ %{}) do
+    with {:ok, result} <- InApp.list(subject, opts) do
+      {:ok, %{result | notifications: Enum.map(result.notifications, &Projector.intent/1)}}
+    end
+  end
+
+  def unread_count(subject), do: InApp.unread_count(subject)
+
+  def mark_in_app_read(id, subject) do
+    InApp.mark_read(id, subject) |> project_result(&Projector.intent/1)
+  end
+
+  def dismiss_in_app(id, subject) do
+    InApp.dismiss(id, subject) |> project_result(&Projector.intent/1)
+  end
+
+  def mark_all_in_app_read(subject), do: InApp.mark_all_read(subject)
+
+  def push_status, do: PushSubscriptions.status()
+  def push_config(subject), do: PushSubscriptions.config(subject)
+
+  def list_push_subscriptions(subject) do
+    with {:ok, subscriptions} <- PushSubscriptions.list(subject) do
+      {:ok, Enum.map(subscriptions, &Projector.push_subscription/1)}
+    end
+  end
+
+  def register_push_subscription(attrs, subject) do
+    with {:ok, %{subscription: subscription} = result} <-
+           PushSubscriptions.register(attrs, subject) do
+      {:ok, %{result | subscription: Projector.push_subscription(subscription)}}
+    end
+  end
+
+  def revoke_push_subscription(id, subject) do
+    PushSubscriptions.revoke(id, subject) |> project_result(&Projector.push_subscription/1)
+  end
+
+  def materialize_push_destination(subscription_id, version, tenant_id),
+    do: PushSubscriptions.materialize_destination(subscription_id, version, tenant_id)
+
+  def record_push_provider_result(subscription_id, version, result),
+    do: PushSubscriptions.record_provider_result(subscription_id, version, result)
+
+  defp require_identity_transaction do
+    if Repo.in_transaction?(), do: :ok, else: {:error, :transaction_required}
   end
 
   def list_intents(subject, opts \\ %{}) do
@@ -62,7 +172,7 @@ defmodule CommsCore.Notifications do
         |> order_by([intent], desc: intent.inserted_at)
         |> limit(^limit)
 
-      {:ok, Repo.all(query)}
+      {:ok, query |> Repo.all() |> Enum.map(&Projector.intent/1)}
     end
   end
 
@@ -78,16 +188,15 @@ defmodule CommsCore.Notifications do
           on: intent.id == attempt.intent_id and intent.tenant_id == attempt.tenant_id,
           where: attempt.tenant_id == ^tenant_id and intent.event_type != @recovery_event_type,
           order_by: [desc: attempt.inserted_at],
-          limit: ^limit,
-          preload: [intent: intent]
+          limit: ^limit
         )
         |> maybe_attempts_for_user(scope, subject)
 
-      {:ok, Repo.all(query)}
+      {:ok, query |> Repo.all() |> Enum.map(&Projector.attempt/1)}
     end
   end
 
-  def enqueue_for_event(%OutboxEvent{event_type: "message.created.v1"} = event) do
+  def enqueue_for_event(%Event{event_type: "message.created.v1"} = event) do
     sender_user_id = payload_value(event.payload, "sender_user_id")
     conversation_id = payload_value(event.payload, "conversation_id")
     excluded_user_ids = [sender_user_id | mentioned_user_ids(event)] |> Enum.filter(&is_binary/1)
@@ -116,7 +225,7 @@ defmodule CommsCore.Notifications do
     end)
   end
 
-  def enqueue_for_event(%OutboxEvent{event_type: "mention.created.v1"} = event) do
+  def enqueue_for_event(%Event{event_type: "mention.created.v1"} = event) do
     conversation_id = payload_value(event.payload, "conversation_id")
     sender_user_id = payload_value(event.payload, "sender_user_id")
     mentioned_user_ids = mentioned_user_ids(event) |> Enum.reject(&(&1 == sender_user_id))
@@ -145,7 +254,7 @@ defmodule CommsCore.Notifications do
     end)
   end
 
-  def enqueue_for_event(%OutboxEvent{}), do: :ok
+  def enqueue_for_event(%Event{}), do: :ok
 
   def create_intent(attrs) when is_map(attrs) do
     now = now()
@@ -168,13 +277,13 @@ defmodule CommsCore.Notifications do
               idempotency_key: Map.fetch!(attrs, :idempotency_key)
             )
 
-          with :ok <- maybe_enqueue_intent(intent), do: {:ok, intent}
+          with :ok <- maybe_enqueue_intent(intent), do: {:ok, Projector.intent(intent)}
         else
           {:error, changeset}
         end
 
       {:ok, %Intent{} = intent} ->
-        with :ok <- enqueue_job(intent), do: {:ok, intent}
+        with :ok <- enqueue_job(intent), do: {:ok, Projector.intent(intent)}
     end
   end
 
@@ -190,9 +299,10 @@ defmodule CommsCore.Notifications do
       end
     end)
     |> unwrap_transaction()
+    |> project_claim_result()
   end
 
-  def record_delivery(%Intent{} = intent, result) do
+  def record_delivery(%Delivery{} = intent, result) do
     Repo.transaction(fn ->
       locked = Repo.one!(from(i in Intent, where: i.id == ^intent.id, lock: "FOR UPDATE"))
 
@@ -213,6 +323,7 @@ defmodule CommsCore.Notifications do
       |> Repo.update!()
     end)
     |> unwrap_transaction()
+    |> project_result(&Projector.intent/1)
   end
 
   def retry_intent(id, subject) do
@@ -255,15 +366,15 @@ defmodule CommsCore.Notifications do
         updated
       end)
       |> unwrap_transaction()
+      |> project_result(&Projector.intent/1)
     end
   end
 
-  @doc false
-  def enqueue_recipient_event(
-        %OutboxEvent{} = event,
-        %User{account_type: :human} = user,
-        preference
-      ) do
+  defp enqueue_recipient_event(
+         %Event{} = event,
+         %User{account_type: :human} = user,
+         preference
+       ) do
     muted = preference && event.event_type in preference.muted_event_types
 
     if muted do
@@ -277,7 +388,7 @@ defmodule CommsCore.Notifications do
     end
   end
 
-  def enqueue_recipient_event(%OutboxEvent{}, %User{}, _preference), do: :ok
+  defp enqueue_recipient_event(%Event{}, %User{}, _preference), do: :ok
 
   defp maybe_create_in_app(event, user, preference) do
     if is_nil(preference) or preference.in_app_enabled do
@@ -385,7 +496,7 @@ defmodule CommsCore.Notifications do
       :notification_availability_notifier,
       CommsCore.Notifications.AvailabilityNotifier.Noop
     )
-    |> apply(:notify, [intent])
+    |> apply(:notify, [Projector.availability(intent)])
   end
 
   defp enqueue_job(%Intent{channel: :in_app}), do: :ok
@@ -577,8 +688,7 @@ defmodule CommsCore.Notifications do
     do: where(query, [_attempt, intent], intent.user_id == ^value(subject, :user_id))
 
   defp audit!(subject, action, resource_type, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -587,8 +697,11 @@ defmodule CommsCore.Notifications do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp normalize_event_types(values) when is_list(values) do
     values
@@ -669,6 +782,15 @@ defmodule CommsCore.Notifications do
   end
 
   defp integer(_, default), do: default
+  defp project_result({:ok, value}, projector), do: {:ok, projector.(value)}
+  defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp project_claim_result({:ok, {:already_delivered, intent}}),
+    do: {:ok, {:already_delivered, Projector.intent(intent)}}
+
+  defp project_claim_result({:ok, intent}), do: {:ok, Projector.delivery(intent)}
+  defp project_claim_result({:error, _reason} = error), do: error
+
   defp unwrap_transaction({:ok, result}), do: {:ok, result}
   defp unwrap_transaction({:error, reason}), do: {:error, reason}
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))

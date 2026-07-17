@@ -2,9 +2,9 @@ defmodule CommsCore.Administration.Invitation do
   use CommsCore.Schema
 
   schema "invitations" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:invited_by_user, CommsCore.Accounts.User)
-    belongs_to(:accepted_user, CommsCore.Accounts.User)
+    field(:tenant_id, :binary_id)
+    field(:invited_by_user_id, :binary_id)
+    field(:accepted_user_id, :binary_id)
     field(:email, :string)
 
     field(:role, Ecto.Enum,

@@ -5,7 +5,7 @@ defmodule CommsCore.Authorization.Database do
 
   alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, Tenant, User}
   alias CommsCore.Administration.TenantSettings
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Conversations.{Conversation, Membership}
   alias CommsCore.Messaging.Message
   alias CommsCore.Repo
@@ -17,6 +17,10 @@ defmodule CommsCore.Authorization.Database do
     :react_message,
     :upload_attachment
   ]
+
+  @call_member_actions [:read_call]
+  @audio_member_actions [:read_audio_call, :start_audio_call, :join_audio_call]
+  @video_member_actions [:read_video_call, :start_video_call, :join_video_call]
 
   @platform_roles [:platform_operator, :support_operator, :security_operator]
 
@@ -59,6 +63,72 @@ defmodule CommsCore.Authorization.Database do
     if active_subject?(subject) and value(subject, :user_id) == value(resource, :user_id),
       do: :ok,
       else: {:error, :forbidden}
+  end
+
+  def authorize(action, subject, resource) when action in @call_member_actions do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         %Membership{} <- active_membership(subject, conversation_id) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize(action, subject, resource) when action in @audio_member_actions do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         :ok <- audio_calls_enabled(value(subject, :tenant_id)),
+         %Membership{} <- active_membership(subject, conversation_id) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize(action, subject, resource) when action in @video_member_actions do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         :ok <- video_calls_enabled(value(subject, :tenant_id)),
+         %Membership{} <- active_membership(subject, conversation_id) do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize(:end_audio_call, subject, resource) do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         %Membership{} = membership <- active_membership(subject, conversation_id) do
+      if value(subject, :user_id) == value(resource, :started_by_user_id) or
+           membership.role in [:owner, :moderator] do
+        :ok
+      else
+        {:error, :forbidden}
+      end
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def authorize(:end_video_call, subject, resource) do
+    with {:ok, conversation_id} <- conversation_id(resource),
+         true <- active_subject?(subject),
+         %Membership{} = membership <- active_membership(subject, conversation_id) do
+      if value(subject, :user_id) == value(resource, :started_by_user_id) or
+           membership.role in [:owner, :moderator] do
+        :ok
+      else
+        {:error, :forbidden}
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :forbidden}
+    end
   end
 
   @impl true
@@ -398,6 +468,20 @@ defmodule CommsCore.Authorization.Database do
     end
   end
 
+  defp audio_calls_enabled(tenant_id) do
+    case Repo.get_by(TenantSettings, tenant_id: tenant_id) do
+      %TenantSettings{allow_audio_calls: false} -> {:error, :audio_calls_disabled}
+      _ -> :ok
+    end
+  end
+
+  defp video_calls_enabled(tenant_id) do
+    case Repo.get_by(TenantSettings, tenant_id: tenant_id) do
+      %TenantSettings{allow_video_calls: false} -> {:error, :video_calls_disabled}
+      _ -> :ok
+    end
+  end
+
   defp within_edit_window?(%Message{} = message) do
     seconds =
       case Repo.get_by(TenantSettings, tenant_id: message.tenant_id) do
@@ -421,8 +505,7 @@ defmodule CommsCore.Authorization.Database do
          {:ok, _user_uuid} <- Ecto.UUID.cast(user_id),
          true <-
            Repo.exists?(from(u in User, where: u.id == ^user_id and u.tenant_id == ^tenant_id)) do
-      %AuditEvent{}
-      |> AuditEvent.changeset(%{
+      Audit.record(%{
         tenant_id: tenant_id,
         actor_user_id: user_id,
         action: "authorization.denied",
@@ -431,7 +514,6 @@ defmodule CommsCore.Authorization.Database do
         metadata: %{permission: action, reason: reason},
         request_id: value(subject, :request_id)
       })
-      |> Repo.insert()
     end
 
     {:error, reason}

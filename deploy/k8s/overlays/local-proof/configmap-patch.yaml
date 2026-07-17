@@ -8,10 +8,20 @@ data:
   CORS_ORIGINS: https://comms.k-comms.test:8444,http://localhost:4187,http://127.0.0.1:4187
   HSTS_ENABLED: "true"
   CSP_CONNECT_SOURCES: "'self' wss://comms.k-comms.test:8444 https://comms.k-comms.test:8444 https://objects.k-comms.test:8444 ws://localhost:4187 http://localhost:4187 ws://127.0.0.1:4187 http://127.0.0.1:4187"
+  # The Kubernetes local proof has no SFU/TURN. Same-host audio/video media is
+  # qualified by Compose, not by this overlay.
+  AUDIO_PROVIDER_MODE: disabled
+  LIVEKIT_SERVER_URL: ""
+  LIVEKIT_API_URL: ""
+  AUDIO_TOKEN_TTL_SECONDS: "300"
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: "660"
   S3_PUBLIC_ENDPOINT: https://objects.k-comms.test:8444
   S3_INTERNAL_ENDPOINT: http://minio:9000
   MINIO_API_CORS_ALLOW_ORIGIN: https://comms.k-comms.test:8444
   ALLOW_DEVELOPMENT_ADAPTERS: "true"
+  ALLOW_DEVELOPMENT_IDENTITY_MODES: "true"
+  IDENTITY_PROVIDER_MODE: local_password
+  DIRECTORY_PROVISIONING_MODE: manual
   NOTIFICATION_PROVIDER_MODE: log
   ATTACHMENT_SCANNER_MODE: allow_all
   WEBHOOK_PROVIDER_MODE: log

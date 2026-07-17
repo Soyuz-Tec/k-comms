@@ -1,11 +1,14 @@
 defmodule CommsCore.Operations do
   import Ecto.Query
 
-  alias CommsCore.{Attachments, Authorization, Integrations, Notifications, Repo}
+  alias CommsCore.{AdmissionQuotas, Authorization, Conversations, Repo}
+  alias CommsCore.Administration.AdmissionPolicy
   alias CommsCore.Attachments.Attachment
+  alias CommsCore.Conversations.AdmissionUsage
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Integrations.WebhookDelivery
   alias CommsCore.Notifications.Intent
+  alias CommsCore.Operations.TenantQuotaUsage
 
   @full_git_revision ~r/\A[0-9a-f]{40}\z/
 
@@ -55,10 +58,49 @@ defmodule CommsCore.Operations do
     end
   end
 
-  def retry("notification", id, subject), do: Notifications.retry_intent(id, subject)
-  def retry("webhook", id, subject), do: Integrations.replay_delivery(id, subject)
-  def retry("attachment_scan", id, subject), do: Attachments.retry_scan(id, subject)
-  def retry(_, _, _), do: {:error, :unsupported_operation}
+  @doc """
+  Composes tenant admission usage from exact owner projections.
+
+  This reporting view is observational. Admission decisions remain serialized
+  inside their owner transactions by the shared tenant advisory lock.
+  """
+  @spec tenant_admission_usage(map()) ::
+          {:ok, TenantQuotaUsage.t()} | {:error, term()}
+  def tenant_admission_usage(subject) when is_map(subject) do
+    with :ok <- Authorization.authorize(:administer_tenant, subject, %{}) do
+      tenant_id = value(subject, :tenant_id)
+      %AdmissionPolicy{} = policy = AdmissionQuotas.admission_policy(tenant_id)
+      active_users = AdmissionQuotas.active_user_count(tenant_id)
+      %AdmissionUsage{} = conversation_usage = Conversations.admission_usage(tenant_id)
+      limits = Map.from_struct(policy)
+
+      over_limit = %{
+        active_users: active_users > policy.max_active_users,
+        active_conversations:
+          conversation_usage.active_conversations > policy.max_active_conversations,
+        conversation_members:
+          conversation_usage.largest_conversation_members > policy.max_conversation_members
+      }
+
+      at_capacity = %{
+        active_users: active_users == policy.max_active_users,
+        active_conversations:
+          conversation_usage.active_conversations == policy.max_active_conversations,
+        conversation_members:
+          conversation_usage.largest_conversation_members == policy.max_conversation_members
+      }
+
+      {:ok,
+       %TenantQuotaUsage{
+         active_users: active_users,
+         active_conversations: conversation_usage.active_conversations,
+         largest_conversation_members: conversation_usage.largest_conversation_members,
+         limits: limits,
+         at_capacity: with_any(at_capacity),
+         over_limit: with_any(over_limit)
+       }}
+    end
+  end
 
   @doc """
   Performs the bounded database probe used by the unauthenticated readiness
@@ -186,6 +228,10 @@ defmodule CommsCore.Operations do
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+  defp with_any(flags) do
+    Map.put(flags, :any, Enum.any?(flags, fn {_key, value} -> value end))
+  end
 
   defp elapsed_milliseconds(started) do
     started

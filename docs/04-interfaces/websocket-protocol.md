@@ -72,6 +72,14 @@ The content-free `notification.available.v1` user-topic payload contains only
 current unread count. Clients fetch the authenticated notification-center REST
 resource before presenting copy or navigating.
 
+Conversation topics also carry content-free `call.started.v1` and
+`call.ended.v1` events. Their payload identifies the call, conversation,
+immutable `media_kind`, lifecycle status/times, and current caller end
+capability. Clients reconcile through `GET
+/api/v1/conversations/{conversation_id}/call`; they never exchange provider
+credentials, participant state, camera/screen state, SDP, ICE, RTP, or SRTP over
+Phoenix.
+
 ## Rules
 
 - Unknown event fields must be ignored.

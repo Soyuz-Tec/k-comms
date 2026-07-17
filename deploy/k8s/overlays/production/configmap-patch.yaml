@@ -20,7 +20,18 @@ data:
   # Provider composition must set only the ingress-controller source ranges and
   # mirror them in k-comms-edge-ingress. Empty is the fail-closed neutral default.
   TRUSTED_PROXY_CIDRS: ""
-  CSP_CONNECT_SOURCES: "'self' wss://comms.example.invalid https://comms.example.invalid https://objects.example.invalid"
+  CSP_CONNECT_SOURCES: "'self' wss://comms.example.invalid https://comms.example.invalid https://objects.example.invalid wss://media.example.invalid"
+  # These compatibility-named AUDIO_* settings govern audio and video calls.
+  # Provider composition must replace this WSS origin and supply the matching
+  # API credentials through k-comms-provider-secrets. The portable application
+  # bundle deliberately does not deploy an in-cluster SFU.
+  AUDIO_PROVIDER_MODE: livekit
+  LIVEKIT_SERVER_URL: wss://media.example.invalid
+  LIVEKIT_API_URL: https://media-api.example.invalid
+  AUDIO_TOKEN_TTL_SECONDS: "300"
+  # Repeat idempotent RemoveParticipant calls through at least this horizon so
+  # a cached short-lived token cannot restore authority. Failures retry beyond it.
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: "660"
   S3_PUBLIC_ENDPOINT: https://objects.example.invalid
   S3_INTERNAL_SCHEME: https
   S3_INTERNAL_HOST: objects.example.invalid

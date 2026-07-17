@@ -1,12 +1,10 @@
 defmodule CommsCore.ServiceAccounts do
   import Ecto.Query
 
-  alias CommsCore.{AdmissionQuotas, Conversations, Messaging, Repo}
-  alias CommsCore.Accounts.{Device, Session, Tenant}
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.{Conversation, Membership}
-  alias CommsCore.Messaging.Message
-  alias CommsCore.ServiceAccounts.{ServiceAccount, ServiceUser}
+  alias CommsCore.{AdmissionQuotas, Repo}
+  alias CommsCore.Accounts.{Device, Session, Tenant, User}
+  alias CommsCore.Audit
+  alias CommsCore.ServiceAccounts.ServiceAccount
 
   @default_expiry_seconds 90 * 24 * 60 * 60
   @maximum_expiry_seconds 365 * 24 * 60 * 60
@@ -14,6 +12,39 @@ defmodule CommsCore.ServiceAccounts do
   @expiration_batch 100
   @dummy_id "00000000-0000-0000-0000-000000000000"
   @dummy_hash :crypto.hash(:sha256, "k-comms-service-account-dummy-secret")
+
+  def create_view(attrs, subject) do
+    with {:ok, result} <- create(attrs, subject) do
+      {:ok,
+       %{
+         result
+         | service_account:
+             CommsCore.ServiceAccounts.Projector.service_account(result.service_account)
+       }}
+    end
+  end
+
+  def list_views(subject) do
+    with {:ok, accounts} <- list(subject) do
+      {:ok, Enum.map(accounts, &CommsCore.ServiceAccounts.Projector.service_account/1)}
+    end
+  end
+
+  def rotate_view(id, attrs, subject) do
+    with {:ok, result} <- rotate(id, attrs, subject) do
+      {:ok,
+       %{
+         result
+         | service_account:
+             CommsCore.ServiceAccounts.Projector.service_account(result.service_account)
+       }}
+    end
+  end
+
+  def revoke_view(id, attrs, subject) do
+    revoke(id, attrs, subject)
+    |> project_result(&CommsCore.ServiceAccounts.Projector.service_account/1)
+  end
 
   def create(attrs, subject) when is_map(attrs) and is_map(subject) do
     with {:ok, name} <- valid_name(value(attrs, :name)),
@@ -32,8 +63,8 @@ defmodule CommsCore.ServiceAccounts do
         quota_ok!(AdmissionQuotas.ensure_active_user_capacity(value(subject, :tenant_id)))
 
         user =
-          %ServiceUser{id: user_id}
-          |> ServiceUser.service_changeset(%{
+          %User{id: user_id}
+          |> User.service_changeset(%{
             tenant_id: value(subject, :tenant_id),
             external_subject: "service:#{account_id}",
             display_name: name,
@@ -173,7 +204,7 @@ defmodule CommsCore.ServiceAccounts do
     secret_valid = secure_equals(expected, digest)
 
     case identity do
-      {%ServiceAccount{} = account, %ServiceUser{} = user, %Device{} = device, %Tenant{} = tenant}
+      {%ServiceAccount{} = account, %User{} = user, %Device{} = device, %Tenant{} = tenant}
       when secret_valid ->
         if active_identity?(account, user, device, tenant) do
           touch_last_used(account)
@@ -198,112 +229,31 @@ defmodule CommsCore.ServiceAccounts do
     end
   end
 
-  def list_conversations(subject) do
-    with :ok <- authorize_service(subject, "conversations:read") do
-      {:ok,
-       subject
-       |> Conversations.list_for_user()
-       |> Enum.reject(& &1.conversation.archived_at)}
-    end
-  end
+  @doc """
+  Revalidates a service identity and one requested capability.
 
-  def list_messages(conversation_id, subject, opts \\ []) when is_binary(conversation_id) do
-    with :ok <- authorize_service(subject, "messages:read", conversation_id) do
-      Messaging.list_history(
-        conversation_id,
-        subject,
-        Keyword.put(opts, :authorize, &service_authorizer/3)
-      )
-    end
-  end
-
-  def send_message(conversation_id, attrs, subject)
-      when is_binary(conversation_id) and is_map(attrs) do
-    with :ok <- reject_service_attachments(attrs),
-         :ok <- authorize_service(subject, "messages:write", conversation_id) do
-      message_attrs =
-        attrs
-        |> Map.put(:tenant_id, value(subject, :tenant_id))
-        |> Map.put(:conversation_id, conversation_id)
-        |> Map.put(:sender_user_id, value(subject, :user_id))
-        |> Map.put(:sender_device_id, value(subject, :device_id))
-        |> Map.put(:attachment_ids, [])
-
-      Messaging.accept_message_with_status(message_attrs, subject,
-        authorize: &service_authorizer/3
-      )
-    end
-  end
-
-  def search(query, subject, opts \\ []) when is_binary(query) do
-    with :ok <- authorize_service(subject, "search:read") do
-      query_text = String.trim(query)
-
-      if query_text == "" do
-        {:ok, []}
-      else
-        limit_count = opts |> Keyword.get(:limit, 50) |> integer(50) |> max(1) |> min(100)
-
-        results =
-          Repo.all(
-            from(message in Message,
-              join: membership in Membership,
-              on:
-                membership.conversation_id == message.conversation_id and
-                  membership.tenant_id == message.tenant_id,
-              join: conversation in Conversation,
-              on:
-                conversation.id == message.conversation_id and
-                  conversation.tenant_id == message.tenant_id,
-              where:
-                message.tenant_id == ^value(subject, :tenant_id) and
-                  membership.user_id == ^value(subject, :user_id) and
-                  is_nil(membership.left_at) and is_nil(conversation.archived_at) and
-                  message.status == :active and
-                  fragment(
-                    "to_tsvector('simple', coalesce(?, '')) @@ plainto_tsquery('simple', ?)",
-                    message.body,
-                    ^query_text
-                  ),
-              order_by: [desc: message.inserted_at],
-              limit: ^limit_count,
-              preload: [:attachments, :reactions]
-            )
-          )
-
-        {:ok, results}
-      end
-    end
-  end
-
-  def authorize_service(subject, required_scope, conversation_id \\ nil)
-
-  def authorize_service(subject, required_scope, conversation_id)
+  Conversation membership and archive policy belong to Conversations and are
+  intentionally not evaluated here.
+  """
+  @spec authorize_service(map(), String.t()) :: :ok | {:error, :forbidden}
+  def authorize_service(subject, required_scope)
       when is_map(subject) and is_binary(required_scope) do
     with true <- value(subject, :auth_type) == :service,
          true <- required_scope in ServiceAccount.scopes(),
-         %ServiceAccount{} = account <- current_service_account(subject),
-         true <- required_scope in account.scopes,
-         :ok <- maybe_authorize_membership(account, conversation_id) do
+         {:ok, identity_key} <- service_identity_key(subject),
+         %ServiceAccount{} = account <- current_service_account(identity_key),
+         true <- required_scope in account.scopes do
       :ok
     else
       _ -> {:error, :forbidden}
     end
   end
 
-  def authorize_service(_, _, _), do: {:error, :forbidden}
-
-  defp service_authorizer(:send_message, subject, %Conversation{id: id}),
-    do: authorize_service(subject, "messages:write", id)
-
-  defp service_authorizer(:read_conversation, subject, %{id: id}),
-    do: authorize_service(subject, "messages:read", id)
-
-  defp service_authorizer(_, _, _), do: {:error, :forbidden}
+  def authorize_service(_, _), do: {:error, :forbidden}
 
   defp authorize_admin(subject) do
     case human_admin_identity(subject) do
-      {%ServiceUser{role: role}, %Session{step_up_at: stepped_up_at}}
+      {%User{role: role}, %Session{step_up_at: stepped_up_at}}
       when role in [:owner, :admin] ->
         if recent_step_up?(stepped_up_at), do: :ok, else: {:error, :step_up_required}
 
@@ -323,7 +273,7 @@ defmodule CommsCore.ServiceAccounts do
     timestamp = now()
 
     Repo.one(
-      from(user in ServiceUser,
+      from(user in User,
         join: tenant in Tenant,
         on: tenant.id == user.tenant_id,
         join: device in Device,
@@ -352,12 +302,12 @@ defmodule CommsCore.ServiceAccounts do
 
   defp recent_step_up?(_), do: false
 
-  defp current_service_account(subject) do
+  defp current_service_account(identity_key) do
     timestamp = now()
 
     Repo.one(
       from(account in ServiceAccount,
-        join: user in ServiceUser,
+        join: user in User,
         on: user.id == account.user_id and user.tenant_id == account.tenant_id,
         join: device in Device,
         on:
@@ -366,14 +316,14 @@ defmodule CommsCore.ServiceAccounts do
         join: tenant in Tenant,
         on: tenant.id == account.tenant_id,
         where:
-          account.id == ^value(subject, :service_account_id) and
-            account.tenant_id == ^value(subject, :tenant_id) and
-            account.user_id == ^value(subject, :user_id) and
-            account.device_id == ^value(subject, :device_id) and
-            account.credential_generation == ^value(subject, :credential_generation) and
+          account.id == ^identity_key.service_account_id and
+            account.tenant_id == ^identity_key.tenant_id and
+            account.user_id == ^identity_key.user_id and
+            account.device_id == ^identity_key.device_id and
+            account.credential_generation == ^identity_key.credential_generation and
             account.status == :active and account.expires_at > ^timestamp and
             user.account_type == :service and user.status == :active and
-            is_nil(user.password_hash) and
+            user.role == :member and is_nil(user.platform_role) and is_nil(user.password_hash) and
             device.platform == "service_account" and is_nil(device.revoked_at) and
             tenant.status == :active,
         select: account
@@ -381,31 +331,34 @@ defmodule CommsCore.ServiceAccounts do
     )
   end
 
-  defp maybe_authorize_membership(_account, nil), do: :ok
-
-  defp maybe_authorize_membership(account, conversation_id) do
-    exists =
-      Repo.exists?(
-        from(membership in Membership,
-          join: conversation in Conversation,
-          on:
-            conversation.id == membership.conversation_id and
-              conversation.tenant_id == membership.tenant_id,
-          where:
-            membership.tenant_id == ^account.tenant_id and
-              membership.user_id == ^account.user_id and
-              membership.conversation_id == ^conversation_id and is_nil(membership.left_at) and
-              is_nil(conversation.archived_at)
-        )
-      )
-
-    if exists, do: :ok, else: {:error, :forbidden}
+  defp service_identity_key(subject) do
+    with {:ok, service_account_id} <- cast_uuid(value(subject, :service_account_id)),
+         {:ok, tenant_id} <- cast_uuid(value(subject, :tenant_id)),
+         {:ok, user_id} <- cast_uuid(value(subject, :user_id)),
+         {:ok, device_id} <- cast_uuid(value(subject, :device_id)),
+         credential_generation
+         when is_integer(credential_generation) and credential_generation > 0 <-
+           value(subject, :credential_generation) do
+      {:ok,
+       %{
+         service_account_id: service_account_id,
+         tenant_id: tenant_id,
+         user_id: user_id,
+         device_id: device_id,
+         credential_generation: credential_generation
+       }}
+    else
+      _ -> {:error, :forbidden}
+    end
   end
+
+  defp cast_uuid(value) when is_binary(value), do: Ecto.UUID.cast(value)
+  defp cast_uuid(_value), do: :error
 
   defp service_identity(account_id) do
     Repo.one(
       from(account in ServiceAccount,
-        join: user in ServiceUser,
+        join: user in User,
         on: user.id == account.user_id and user.tenant_id == account.tenant_id,
         join: device in Device,
         on:
@@ -498,7 +451,7 @@ defmodule CommsCore.ServiceAccounts do
 
     user =
       Repo.one!(
-        from(candidate in ServiceUser,
+        from(candidate in User,
           where: candidate.id == ^account.user_id,
           lock: "FOR UPDATE"
         )
@@ -605,14 +558,6 @@ defmodule CommsCore.ServiceAccounts do
     end
   end
 
-  defp reject_service_attachments(attrs) do
-    case value(attrs, :attachment_ids) do
-      nil -> :ok
-      [] -> :ok
-      _ -> {:error, :invalid_attachments}
-    end
-  end
-
   defp credential(account_id) do
     secret = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
     prefix = "kcsa_#{account_id}"
@@ -652,8 +597,7 @@ defmodule CommsCore.ServiceAccounts do
   defp secure_equals(_, _), do: false
 
   defp insert_audit!(subject, action, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -662,12 +606,11 @@ defmodule CommsCore.ServiceAccounts do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> insert_or_rollback()
+    |> audit_or_rollback()
   end
 
   defp insert_system_audit!(account, action, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: account.tenant_id,
       actor_user_id: nil,
       action: action,
@@ -675,8 +618,11 @@ defmodule CommsCore.ServiceAccounts do
       resource_id: account.id,
       metadata: metadata
     })
-    |> insert_or_rollback()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do
@@ -697,17 +643,9 @@ defmodule CommsCore.ServiceAccounts do
 
   defp transaction_result({:ok, value}), do: {:ok, value}
   defp transaction_result({:error, reason}), do: {:error, reason}
+  defp project_result({:ok, value}, projector), do: {:ok, projector.(value)}
+  defp project_result({:error, _reason} = error, _projector), do: error
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
-  defp integer(value, _) when is_integer(value), do: value
-
-  defp integer(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, ""} -> parsed
-      _ -> default
-    end
-  end
-
-  defp integer(_, default), do: default
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

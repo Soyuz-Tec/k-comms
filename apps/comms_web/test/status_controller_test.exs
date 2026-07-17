@@ -20,11 +20,25 @@ defmodule CommsWeb.StatusControllerTest do
 
   test "GET /api/v1/status", %{conn: conn} do
     conn = get(conn, "/api/v1/status")
-    assert %{"service" => "k-comms"} = json_response(conn, 200)
+
+    assert %{
+             "service" => "k-comms",
+             "capabilities" => %{
+               "audio_calls" => audio_available,
+               "video_calls" => video_available
+             }
+           } = json_response(conn, 200)
+
+    assert audio_available == video_available
     assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
     assert get_resp_header(conn, "x-frame-options") == ["DENY"]
     assert [policy] = get_resp_header(conn, "content-security-policy")
     assert policy =~ "frame-ancestors 'none'"
+    assert policy =~ "ws://127.0.0.1:7880"
+
+    assert get_resp_header(conn, "permissions-policy") == [
+             "camera=(self), microphone=(self), geolocation=()"
+           ]
   end
 
   test "GET /metrics", %{conn: conn} do

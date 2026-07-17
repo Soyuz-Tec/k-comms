@@ -2,7 +2,7 @@ defmodule CommsCore.Integrations.WebhookSecret do
   use CommsCore.Schema
 
   schema "webhook_secret_versions" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, :binary_id)
     belongs_to(:endpoint, CommsCore.Integrations.WebhookEndpoint)
     field(:version, :integer)
     field(:ciphertext, :binary, redact: true)

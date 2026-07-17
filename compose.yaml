@@ -14,7 +14,14 @@ x-app-environment: &app-environment
   SESSION_ABSOLUTE_TTL_SECONDS: ${SESSION_ABSOLUTE_TTL_SECONDS:-2592000}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
   HSTS_ENABLED: ${HSTS_ENABLED:-false}
-  CSP_CONNECT_SOURCES: ${CSP_CONNECT_SOURCES:-'self' http://localhost:4000 ws://localhost:4000 http://localhost:9000}
+  CSP_CONNECT_SOURCES: ${CSP_CONNECT_SOURCES:-'self' http://localhost:4000 ws://localhost:4000 http://localhost:9000 ws://127.0.0.1:7880}
+  AUDIO_PROVIDER_MODE: ${AUDIO_PROVIDER_MODE:-livekit}
+  LIVEKIT_SERVER_URL: ${LIVEKIT_SERVER_URL:-ws://127.0.0.1:7880}
+  LIVEKIT_API_URL: ${LIVEKIT_API_URL:-http://livekit:7880}
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-kcomms-local-api-key}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-kcomms-local-api-secret-not-for-prod}
+  AUDIO_TOKEN_TTL_SECONDS: ${AUDIO_TOKEN_TTL_SECONDS:-300}
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: ${AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS:-660}
   S3_PUBLIC_HOST: ${S3_PUBLIC_HOST:-localhost}
   S3_PUBLIC_PORT: ${S3_PUBLIC_PORT:-9000}
   S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
@@ -34,6 +41,7 @@ x-app-environment: &app-environment
 services:
   postgres:
     image: docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -50,6 +58,7 @@ services:
 
   minio:
     image: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-kcomms}
@@ -83,10 +92,28 @@ services:
         condition: service_healthy
     restart: "no"
 
+  livekit:
+    image: docker.io/livekit/livekit-server:v1.12.0@sha256:b1281e66e35e8f9749ffbcf0fe6ab4d40d1438aa00f36c2ea7e6975e5e261e2e
+    restart: unless-stopped
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-kcomms-local-api-key}: ${LIVEKIT_API_SECRET:-kcomms-local-api-secret-not-for-prod}"
+    command:
+      - --bind
+      - 0.0.0.0
+      - --node-ip
+      - ${LIVEKIT_NODE_IP:-127.0.0.1}
+      - --udp-port
+      - "7882"
+    ports:
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${LIVEKIT_SIGNAL_PORT:-7880}:7880/tcp"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${LIVEKIT_TCP_PORT:-7881}:7881/tcp"
+      - "${K_COMMS_BIND_ADDRESS:-127.0.0.1}:${LIVEKIT_UDP_PORT:-7882}:7882/udp"
+
   app:
     build:
       context: .
       target: dev
+    restart: unless-stopped
     environment:
       <<: *app-environment
       MIX_ENV: dev
@@ -112,6 +139,7 @@ services:
 
   web:
     image: docker.io/library/node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
+    restart: unless-stopped
     working_dir: /workspace/clients/web
     command: >-
       sh -lc "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0"

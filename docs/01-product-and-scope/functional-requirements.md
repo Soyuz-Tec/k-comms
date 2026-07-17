@@ -16,6 +16,7 @@ production gate; they are not missing local UI/API surfaces.
 | FR-MSG-002 | Edit and delete messages according to tenant policy. | Must | Edit-window, author/moderator authorization, revision, tombstone, governance, and retention tests | Implemented |
 | FR-MSG-003 | Support replies, reactions, mentions, and canonical threads. | Should | Ordered thread/reply, mention validation, reaction, notification, and browser journeys | Implemented |
 | FR-RT-001 | Deliver authorized live events to connected clients. | Must | Phoenix join/command authorization, Presence/typing, one-time socket tickets, and disconnect tests | Implemented; production fan-out capacity pending |
+| FR-COM-001 | Provide authorized one-to-one and group audio/video calls with explicit capture controls and screen sharing. | Must | Unified call lifecycle and media kind, source-restricted LiveKit grants, responsive group grid, screen-share cleanup, durable expiry/eviction, and live multi-participant RTP journeys | Implemented local same-host baseline; production WSS/TURN/capacity/privacy evidence pending |
 | FR-SYNC-001 | Recover missed durable events after reconnect. | Must | REST and Phoenix replay, paging, sequence ordering, disconnect/reconnect, and idempotent retry tests | Implemented |
 | FR-PRES-001 | Show approximate presence and typing state without treating it as durable delivery. | Should | Presence/typing channel behavior and client state tests | Implemented |
 | FR-FILE-001 | Upload, verify, scan, quarantine, download, and delete attachments. | Must | Signed checksum, version ID/ETag, exact-version scan/download/delete, stale-object, malicious-object, 25 MB ingress, quota tests, and guarded integrated restored-version remap proof | Application and portable staging restore implemented; production provider-native recovery qualification pending |
@@ -28,6 +29,6 @@ production gate; they are not missing local UI/API surfaces.
 | FR-SVC-001 | Provide scoped non-human communication credentials. | Should | One-time service credential, separate route boundary, scope/membership enforcement, expiry, rotation/revocation, idempotent send, and search tests | Implemented; production credential operations pending |
 | FR-OPS-001 | Provide content-blind tenant and platform operations views. | Must | Separate `/ops` UI, persisted platform-role checks, protected metrics, provider/queue/health projections, and no-content response tests | Implemented package; alert routing and staffed operations pending |
 
-Voice/video, federation, active-active multi-region writes, OIDC/SAML/SCIM,
-MFA/passkeys, and true end-to-end encryption are outside the 0.3.0 scope unless
-introduced through a dedicated requirement and ADR.
+SIP, recording, transcription, federation, active-active multi-region writes,
+OIDC/SAML/SCIM, MFA/passkeys, and true end-to-end encryption are outside the
+0.3.0 scope unless introduced through a dedicated requirement and ADR.

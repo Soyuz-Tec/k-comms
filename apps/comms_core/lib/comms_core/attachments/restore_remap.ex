@@ -4,7 +4,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
   import Ecto.Query
 
   alias CommsCore.Attachments.Attachment
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Repo
 
   @object_backed_statuses [:uploaded, :ready, :quarantined, :scan_failed]
@@ -181,8 +181,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
   end
 
   defp audit_attachment!(attachment, identity, context) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: attachment.tenant_id,
       action: "attachment.restore_version_remapped",
       resource_type: "attachment",
@@ -197,7 +196,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
       },
       request_id: "restore:#{value(context, :operation_id)}"
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
 
   defp audit_summaries!(results, context, fail_closed_by_tenant) do
@@ -210,8 +209,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
       tenant_report =
         report(tenant_results, %{tenant_id => Map.get(fail_closed_by_tenant, tenant_id, 0)})
 
-      %AuditEvent{}
-      |> AuditEvent.changeset(%{
+      Audit.record(%{
         tenant_id: tenant_id,
         action: "attachment.restore_version_remap_completed",
         resource_type: "attachment_restore",
@@ -224,9 +222,12 @@ defmodule CommsCore.Attachments.RestoreRemap do
           }),
         request_id: "restore:#{value(context, :operation_id)}"
       })
-      |> Repo.insert!()
+      |> audit_or_rollback()
     end)
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp report(results, fail_closed_by_tenant) do
     %{

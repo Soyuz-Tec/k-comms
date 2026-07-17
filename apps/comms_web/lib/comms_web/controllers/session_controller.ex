@@ -8,7 +8,7 @@ defmodule CommsWeb.SessionController do
     device = params["device"] || %{}
 
     with {:ok, result} <-
-           Accounts.authenticate(
+           Accounts.authenticate_view(
              params["tenant_slug"],
              params["email"],
              params["password"],
@@ -24,7 +24,7 @@ defmodule CommsWeb.SessionController do
   end
 
   def refresh(conn, %{"refresh_token" => refresh_token}) do
-    with {:ok, result} <- Accounts.refresh_session(refresh_token) do
+    with {:ok, result} <- Accounts.refresh_session_view(refresh_token) do
       CommsObservability.execute([:auth, :success], %{count: 1}, %{tenant_id: result.tenant.id})
       json(conn, Token.issue(result))
     else

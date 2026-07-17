@@ -157,6 +157,14 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
              "reset_required" => false
            }
 
+    deleted =
+      authenticated_conn(token)
+      |> delete("/api/v1/messages/#{message_id}")
+      |> json_response(200)
+
+    assert deleted["data"]["status"] == "deleted"
+    assert is_nil(deleted["data"]["body"])
+
     assert authenticated_conn(token) |> delete("/api/v1/sessions/current") |> response(204)
     assert authenticated_conn(token) |> get("/api/v1/me") |> response(401)
   end

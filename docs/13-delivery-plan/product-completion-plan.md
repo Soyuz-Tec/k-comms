@@ -63,5 +63,7 @@ acceptance evidence apply to the promoted immutable release. Deferred provider
 or environment decisions remain explicit launch blockers; a logging adapter,
 unchecked box, or unexercised runbook is not production evidence.
 
-Voice/video, federation, active-active multi-region writes, and true end-to-end
-encryption remain outside this release unless superseded by a dedicated ADR.
+ADR-0025 brings browser audio/video and screen sharing into this release. SIP,
+recording, transcription, arbitrary media egress, federation, active-active
+multi-region writes, and true end-to-end encryption remain outside it unless
+superseded by another dedicated ADR.

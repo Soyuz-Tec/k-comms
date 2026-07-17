@@ -17,6 +17,8 @@ interface WorkspaceDataValue {
   conversations: Conversation[];
   users: User[];
   capabilities: UserCapabilities | null;
+  audioCallsAvailable: boolean;
+  videoCallsAvailable: boolean;
   loading: boolean;
   error: string | null;
   setError: (error: string | null) => void;
@@ -35,6 +37,8 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [capabilities, setCapabilities] = useState<UserCapabilities | null>(null);
+  const [audioCallsAvailable, setAudioCallsAvailable] = useState(false);
+  const [videoCallsAvailable, setVideoCallsAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,10 +51,11 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
     if (!session) return;
     setError(null);
     try {
-      const [identity, tenantUsers, available] = await Promise.all([
+      const [identity, tenantUsers, available, serviceStatus] = await Promise.all([
         api.me(),
         api.users(),
-        api.conversations()
+        api.conversations(),
+        api.status().catch(() => null)
       ]);
       setSession({
         ...session,
@@ -61,6 +66,8 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       setUsers(tenantUsers);
       setConversations(available);
       setCapabilities(identity.capabilities);
+      setAudioCallsAvailable(serviceStatus?.capabilities?.audio_calls === true);
+      setVideoCallsAvailable(serviceStatus?.capabilities?.video_calls === true);
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
@@ -171,6 +178,8 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       conversations,
       users,
       capabilities,
+      audioCallsAvailable,
+      videoCallsAvailable,
       loading,
       error,
       setError,
@@ -184,6 +193,8 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
     [
       conversations,
       capabilities,
+      audioCallsAvailable,
+      videoCallsAvailable,
       createConversation,
       error,
       loading,

@@ -1,12 +1,30 @@
 defmodule CommsCore.Accounts do
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, SocketTicket, Tenant, User}
-  alias CommsCore.Administration.Invitation
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.{Conversation, Membership}
-  alias CommsCore.Governance.DeletionRequest
-  alias CommsCore.{AdmissionQuotas, Authorization, PushSubscriptions, Repo}
+  alias CommsCore.Accounts.{
+    ConversationBootstrapPort,
+    Device,
+    InitialConversationCommand,
+    InvitedUserCommand,
+    NotificationCommand,
+    NotificationPort,
+    PlatformRoleGrant,
+    Session,
+    SocketTicket,
+    Tenant,
+    User
+  }
+
+  alias CommsCore.Audit
+
+  alias CommsCore.{
+    Administration,
+    AdmissionQuotas,
+    AudioCalls,
+    Authorization,
+    Repo
+  }
+
   alias CommsCore.Security.Password
 
   @session_bytes 32
@@ -14,6 +32,176 @@ defmodule CommsCore.Accounts do
   @platform_roles PlatformRoleGrant.roles()
   @platform_role_min_ttl_seconds 300
   @platform_role_max_ttl_seconds 28_800
+
+  # Adapter-facing API. These functions are the stable projection boundary;
+  # persistence-returning operations below remain available to owner internals
+  # while callers migrate.
+  def bootstrap_tenant_view(attrs) do
+    with {:ok, result} <- bootstrap_tenant(attrs) do
+      {:ok, CommsCore.Accounts.Projector.authentication(result)}
+    end
+  end
+
+  def authenticate_view(tenant_slug, email, password, device_attrs \\ %{}) do
+    authenticate(tenant_slug, email, password, device_attrs)
+    |> project_result(&CommsCore.Accounts.Projector.authentication/1)
+  end
+
+  def refresh_session_view(token) do
+    refresh_session(token) |> project_result(&CommsCore.Accounts.Projector.authentication/1)
+  end
+
+  def access_context(session_id, request_id \\ nil) do
+    with {:ok, session} <- get_active_session(session_id) do
+      {:ok,
+       CommsCore.Accounts.Projector.access_context(
+         session,
+         subject_for_session(session, request_id)
+       )}
+    end
+  end
+
+  def list_tenant_user_views(subject),
+    do: subject |> list_tenant_users() |> Enum.map(&CommsCore.Accounts.Projector.user/1)
+
+  def list_admin_user_views(subject) do
+    with {:ok, users} <- list_admin_users(subject) do
+      {:ok, Enum.map(users, &CommsCore.Accounts.Projector.user(&1, platform_access: true))}
+    end
+  end
+
+  def update_profile_view(attrs, subject),
+    do:
+      update_profile(attrs, subject)
+      |> project_result(&CommsCore.Accounts.Projector.user(&1, platform_access: true))
+
+  def list_device_views(subject),
+    do: subject |> list_devices() |> Enum.map(&CommsCore.Accounts.Projector.device/1)
+
+  def list_session_views(subject),
+    do: subject |> list_sessions() |> Enum.map(&CommsCore.Accounts.Projector.session/1)
+
+  def list_user_session_views(user_id, subject) do
+    with {:ok, sessions} <- list_user_sessions(user_id, subject) do
+      {:ok, Enum.map(sessions, &CommsCore.Accounts.Projector.session/1)}
+    end
+  end
+
+  def change_user_with_effects_view(id, attrs, subject) do
+    with {:ok, result} <- change_user_with_effects(id, attrs, subject) do
+      {:ok,
+       %{result | user: CommsCore.Accounts.Projector.user(result.user, platform_access: true)}}
+    end
+  end
+
+  def step_up_view(attrs, subject),
+    do: step_up(attrs, subject) |> project_result(&CommsCore.Accounts.Projector.session/1)
+
+  def change_password_command(attrs, subject) do
+    with {:ok, result} <- change_password_with_effects(attrs, subject) do
+      {:ok, Map.take(result, [:revoked_session_ids])}
+    end
+  end
+
+  def revoke_device_command(id, subject) do
+    with {:ok, result} <- revoke_device(id, subject) do
+      {:ok, Map.take(result, [:revoked_session_ids])}
+    end
+  end
+
+  def revoke_own_session_command(id, subject) do
+    with {:ok, _session} <- revoke_own_session(id, subject), do: :ok
+  end
+
+  def admin_revoke_session_command(user_id, session_id, attrs, subject) do
+    with {:ok, _session} <- admin_revoke_session(user_id, session_id, attrs, subject), do: :ok
+  end
+
+  @doc false
+  def validate_invitation_password(password), do: validate_password(password)
+
+  @doc false
+  def authorize_invitation_identity(subject, email, role)
+      when is_map(subject) and is_binary(email) do
+    with :ok <- reject_service_identity_email(value(subject, :tenant_id), email),
+         :ok <- authorize_role_assignment(subject, role) do
+      :ok
+    end
+  end
+
+  @doc false
+  def ensure_invitation_identity_available(tenant_id, email)
+      when is_binary(tenant_id) and is_binary(email),
+      do: reject_existing_human_identity(tenant_id, email)
+
+  @doc false
+  def enroll_invited_user(%InvitedUserCommand{} = command) do
+    if Repo.in_transaction?() do
+      with :ok <- reject_existing_human_identity(command.tenant_id, command.email),
+           {:ok, user} <-
+             %User{id: Ecto.UUID.generate()}
+             |> User.changeset(%{
+               tenant_id: command.tenant_id,
+               external_subject: "local:#{command.email}",
+               display_name: command.display_name,
+               email: command.email,
+               password_hash: Password.hash(command.password),
+               account_type: :human,
+               role: command.role,
+               status: :active
+             })
+             |> Repo.insert() do
+        {:ok, CommsCore.Accounts.Projector.user(user)}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  @doc """
+  Erases an IdentityAccess-owned user inside a caller-owned governance transaction.
+
+  The caller supplies the pending user-deletion projection used by the last-owner
+  invariant. The operation returns identifiers only and never exposes persistence
+  schemas across the owner boundary.
+  """
+  @spec erase_user_for_governance(map()) ::
+          {:ok, %{user_id: Ecto.UUID.t(), revoked_session_ids: [Ecto.UUID.t()]}}
+          | {:error,
+             :invalid_erasure_command
+             | :last_owner_required
+             | :not_found
+             | :transaction_required
+             | Ecto.Changeset.t()}
+  def erase_user_for_governance(command) when is_map(command) do
+    tenant_id = value(command, :tenant_id)
+    user_id = value(command, :user_id)
+    pending_deletion_user_ids = value(command, :pending_deletion_user_ids)
+    timestamp = value(command, :timestamp)
+
+    cond do
+      not valid_governance_erasure_command?(
+        tenant_id,
+        user_id,
+        pending_deletion_user_ids,
+        timestamp
+      ) ->
+        {:error, :invalid_erasure_command}
+
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      true ->
+        erase_user_for_governance(
+          tenant_id,
+          user_id,
+          Enum.uniq(pending_deletion_user_ids),
+          timestamp
+        )
+    end
+  end
+
+  def erase_user_for_governance(_command), do: {:error, :invalid_erasure_command}
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
     with :ok <- validate_password(value(attrs, :password)) do
@@ -26,15 +214,22 @@ defmodule CommsCore.Accounts do
       session_id = Ecto.UUID.generate()
       {refresh_token, refresh_hash} = refresh_token(session_id)
 
+      initial_conversation = %InitialConversationCommand{
+        id: conversation_id,
+        tenant_id: tenant_id,
+        owner_user_id: user_id,
+        joined_at: now
+      }
+
       multi =
         Ecto.Multi.new()
-        |> Ecto.Multi.insert(
+        |> Administration.append_bootstrap_tenant(
           :tenant,
-          Tenant.changeset(%Tenant{id: tenant_id}, %{
+          %{
+            id: tenant_id,
             name: value(attrs, :tenant_name),
-            slug: value(attrs, :tenant_slug),
-            status: :active
-          })
+            slug: value(attrs, :tenant_slug)
+          }
         )
         |> Ecto.Multi.insert(
           :user,
@@ -59,27 +254,9 @@ defmodule CommsCore.Accounts do
             last_seen_at: now
           })
         )
-        |> Ecto.Multi.insert(
+        |> ConversationBootstrapPort.append_initial_channel(
           :conversation,
-          Conversation.changeset(%Conversation{id: conversation_id}, %{
-            tenant_id: tenant_id,
-            created_by_user_id: user_id,
-            kind: :channel,
-            title: "General",
-            visibility: :tenant,
-            next_sequence: 1
-          })
-        )
-        |> Ecto.Multi.insert(
-          :membership,
-          Membership.changeset(%Membership{}, %{
-            tenant_id: tenant_id,
-            conversation_id: conversation_id,
-            user_id: user_id,
-            role: :owner,
-            joined_at: now,
-            last_read_sequence: 0
-          })
+          initial_conversation
         )
         |> Ecto.Multi.insert(
           :session,
@@ -93,17 +270,14 @@ defmodule CommsCore.Accounts do
             last_used_at: now
           })
         )
-        |> Ecto.Multi.insert(
-          :audit,
-          AuditEvent.changeset(%AuditEvent{}, %{
-            tenant_id: tenant_id,
-            actor_user_id: user_id,
-            action: "tenant.bootstrap",
-            resource_type: "tenant",
-            resource_id: tenant_id,
-            metadata: %{initial_conversation_id: conversation_id}
-          })
-        )
+        |> Audit.append(%{
+          tenant_id: tenant_id,
+          actor_user_id: user_id,
+          action: "tenant.bootstrap",
+          resource_type: "tenant",
+          resource_id: tenant_id,
+          metadata: %{initial_conversation_id: conversation_id}
+        })
 
       case Repo.transaction(multi) do
         {:ok, result} ->
@@ -144,12 +318,12 @@ defmodule CommsCore.Accounts do
           [@bootstrap_lock_key]
         )
 
-        case Repo.get_by(Tenant, slug: identity.tenant_slug) do
-          %Tenant{} = tenant ->
+        case Administration.get_bootstrap_tenant_by_slug(identity.tenant_slug) do
+          %{id: _id} = tenant ->
             existing_bootstrap(tenant, identity)
 
           nil ->
-            if Repo.exists?(Tenant) do
+            if Administration.any_tenant?() do
               Repo.rollback(:bootstrap_identity_conflict)
             else
               create_one_time_bootstrap(attrs, identity, password_hash)
@@ -188,17 +362,6 @@ defmodule CommsCore.Accounts do
           status: :active
         })
 
-      audit_changeset =
-        AuditEvent.changeset(%AuditEvent{}, %{
-          tenant_id: tenant_id,
-          actor_user_id: value(subject, :user_id),
-          action: "user.create",
-          resource_type: "user",
-          resource_id: user_id,
-          metadata: %{email: email, role: requested_role},
-          request_id: value(subject, :request_id)
-        })
-
       Ecto.Multi.new()
       |> Ecto.Multi.run(:admission_quota, fn _repo, _changes ->
         case AdmissionQuotas.ensure_active_user_capacity(tenant_id) do
@@ -207,7 +370,15 @@ defmodule CommsCore.Accounts do
         end
       end)
       |> Ecto.Multi.insert(:user, user_changeset)
-      |> Ecto.Multi.insert(:audit, audit_changeset)
+      |> Audit.append(%{
+        tenant_id: tenant_id,
+        actor_user_id: value(subject, :user_id),
+        action: "user.create",
+        resource_type: "user",
+        resource_id: user_id,
+        metadata: %{email: email, role: requested_role},
+        request_id: value(subject, :request_id)
+      })
       |> Repo.transaction()
       |> case do
         {:ok, %{user: user}} -> {:ok, user}
@@ -370,11 +541,26 @@ defmodule CommsCore.Accounts do
   def consume_socket_ticket(_ticket), do: {:error, :invalid_socket_ticket}
 
   def revoke_session(session_id, user_id) do
-    query = from(s in Session, where: s.id == ^session_id and s.user_id == ^user_id)
+    Repo.transaction(fn ->
+      session =
+        Repo.one(
+          from(s in Session,
+            where: s.id == ^session_id and s.user_id == ^user_id,
+            lock: "FOR UPDATE"
+          )
+        ) || Repo.rollback(:not_found)
 
-    case Repo.update_all(query, set: [revoked_at: now(), updated_at: now()]) do
-      {1, _} -> :ok
-      _ -> {:error, :not_found}
+      session |> Session.changeset(%{revoked_at: now()}) |> update_or_rollback()
+
+      audio_revocation_ok!(
+        AudioCalls.revoke_for_sessions(session.tenant_id, [session.id], "session_logout")
+      )
+
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -562,7 +748,17 @@ defmodule CommsCore.Accounts do
       )
       |> Repo.update_all(set: [revoked_at: now, updated_at: now])
 
-      :ok = PushSubscriptions.disable_for_device(device.tenant_id, device.user_id, device.id)
+      NotificationCommand.device_revoked(
+        device.tenant_id,
+        device.user_id,
+        device.id
+      )
+      |> NotificationPort.execute()
+      |> notification_ok!()
+
+      audio_revocation_ok!(
+        AudioCalls.revoke_for_device(device.tenant_id, device.id, "device_revoked")
+      )
 
       insert_audit!(subject, "device.revoke", "device", device.id, %{})
       %{device: device, revoked_session_ids: session_ids}
@@ -634,6 +830,10 @@ defmodule CommsCore.Accounts do
           |> Session.changeset(%{revoked_at: now()})
           |> update_or_rollback()
 
+        audio_revocation_ok!(
+          AudioCalls.revoke_for_sessions(target.tenant_id, [revoked.id], "session_admin_revoked")
+        )
+
         insert_audit!(subject, "session.admin_revoke", "session", session.id, %{
           user_id: target.id,
           reason: reason
@@ -654,196 +854,82 @@ defmodule CommsCore.Accounts do
 
   def change_user_with_effects(user_id, attrs, subject)
       when is_map(attrs) and is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-
-    with :ok <- reject_platform_role_attribute(attrs),
-         :ok <- reject_service_account_attribute(attrs),
-         :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
-         {:ok, reason} <- required_reason(attrs),
-         {:ok, expected_version} <- expected_version(attrs),
-         {:ok, role} <- optional_role(attrs),
-         {:ok, status} <- optional_status(attrs) do
+    with {:ok, command} <- validate_user_lifecycle_change(attrs, subject) do
       Repo.transaction(fn ->
-        quota_ok!(AdmissionQuotas.lock_tenant(tenant_id))
-        lock_tenant_users!(tenant_id)
+        apply_user_lifecycle_change!(
+          user_id,
+          command,
+          subject,
+          :governance_policy_required
+        )
+      end)
+      |> transaction_result()
+    end
+  end
 
-        target =
-          Repo.one(
-            from(u in User,
-              where:
-                u.id == ^user_id and u.tenant_id == ^tenant_id and u.status != :deleted and
-                  u.account_type == :human,
-              lock: "FOR UPDATE"
+  @doc false
+  def preflight_user_lifecycle_change(user_id, attrs, subject)
+      when is_map(attrs) and is_map(subject) do
+    cond do
+      not valid_uuid?(user_id) ->
+        {:error, :not_found}
+
+      not valid_uuid?(value(subject, :tenant_id)) ->
+        {:error, :forbidden}
+
+      true ->
+        with {:ok, _command} <- validate_user_lifecycle_change(attrs, subject), do: :ok
+    end
+  end
+
+  def preflight_user_lifecycle_change(_user_id, _attrs, _subject),
+    do: {:error, :not_found}
+
+  @doc """
+  Applies a governed user-lifecycle change inside a caller-owned transaction.
+
+  The caller supplies only user identifiers excluded from the active-owner
+  calculation. IdentityAccess owns authorization, locking, mutation, access
+  revocation, audit, and the returned projection.
+  """
+  @spec apply_user_lifecycle_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()]) ::
+          {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [Ecto.UUID.t()]}}
+          | {:error,
+             :invalid_owner_exclusions
+             | :not_found
+             | :transaction_required
+             | atom()
+             | Ecto.Changeset.t()}
+  def apply_user_lifecycle_change(user_id, attrs, subject, excluded_owner_ids)
+      when is_map(attrs) and is_map(subject) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(user_id) ->
+        {:error, :not_found}
+
+      not valid_owner_exclusions?(excluded_owner_ids) ->
+        {:error, :invalid_owner_exclusions}
+
+      true ->
+        with {:ok, command} <- validate_user_lifecycle_change(attrs, subject) do
+          result =
+            apply_user_lifecycle_change!(
+              user_id,
+              command,
+              subject,
+              Enum.uniq(excluded_owner_ids)
             )
-          ) || Repo.rollback(:not_found)
 
-        if target.lock_version != expected_version, do: Repo.rollback(:stale_version)
-
-        actor =
-          Repo.get_by!(User,
-            id: value(subject, :user_id),
-            tenant_id: tenant_id,
-            status: :active,
-            account_type: :human
-          )
-
-        authorize_user_change!(actor, target, role, status)
-        ensure_last_owner!(target, role, status)
-
-        if target.status != :active and status == :active do
-          quota_ok!(AdmissionQuotas.ensure_active_user_capacity(tenant_id))
+          {:ok,
+           %{result | user: CommsCore.Accounts.Projector.user(result.user, platform_access: true)}}
         end
-
-        changes =
-          %{}
-          |> maybe_put(:role, role)
-          |> maybe_put(:status, status)
-          |> maybe_put(:display_name, value(attrs, :display_name))
-
-        updated =
-          target
-          |> User.changeset(changes)
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-          |> update_or_rollback()
-
-        revoked_session_ids =
-          if updated.status != :active, do: revoke_user_access!(updated), else: []
-
-        insert_audit!(subject, "user.lifecycle_update", "user", target.id, %{
-          reason: reason,
-          before: %{role: target.role, status: target.status, display_name: target.display_name},
-          after: %{role: updated.role, status: updated.status, display_name: updated.display_name}
-        })
-
-        %{user: updated, revoked_session_ids: revoked_session_ids}
-      end)
-      |> transaction_result()
     end
   end
 
-  def create_invitation(attrs, subject) when is_map(attrs) and is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    email = value(attrs, :email) |> to_string() |> String.trim() |> String.downcase()
-    idempotency_key = value(attrs, :idempotency_key)
-
-    with {:ok, role} <- requested_role(attrs),
-         :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
-         :ok <- reject_service_identity_email(tenant_id, email),
-         :ok <- authorize_role_assignment(subject, role),
-         :ok <- expire_pending_invitations(tenant_id, email) do
-      case existing_idempotent(Invitation, tenant_id, idempotency_key) do
-        %Invitation{} = invitation ->
-          {:ok, %{invitation: invitation, token: nil, replayed: true}}
-
-        nil ->
-          id = Ecto.UUID.generate()
-          {token, token_hash} = one_time_token(id)
-
-          multi =
-            Ecto.Multi.new()
-            |> Ecto.Multi.run(:identity_available, fn _repo, _changes ->
-              with :ok <- AdmissionQuotas.lock_tenant(tenant_id),
-                   :ok <- reject_existing_human_identity(tenant_id, email) do
-                {:ok, :available}
-              end
-            end)
-            |> Ecto.Multi.insert(
-              :invitation,
-              Invitation.changeset(%Invitation{id: id}, %{
-                tenant_id: tenant_id,
-                invited_by_user_id: value(subject, :user_id),
-                email: email,
-                role: role,
-                token_hash: token_hash,
-                status: :pending,
-                expires_at: invitation_expires_at(),
-                idempotency_key: idempotency_key
-              })
-            )
-            |> Ecto.Multi.insert(
-              :audit,
-              audit_changeset(subject, "invitation.create", "invitation", id, %{
-                email: email,
-                role: role
-              })
-            )
-
-          case Repo.transaction(multi) do
-            {:ok, %{invitation: invitation}} ->
-              {:ok, %{invitation: invitation, token: token, replayed: false}}
-
-            {:error, _step, reason, _changes} ->
-              {:error, reason}
-          end
-      end
-    end
-  end
-
-  def list_invitations(subject, status \\ nil) do
-    with :ok <-
-           Authorization.authorize(:administer_tenant, subject, %{id: value(subject, :tenant_id)}),
-         :ok <- expire_pending_invitations(value(subject, :tenant_id)) do
-      query =
-        Invitation
-        |> where([i], i.tenant_id == ^value(subject, :tenant_id))
-        |> maybe_filter_invitation_status(status)
-        |> order_by([i], desc: i.inserted_at)
-
-      {:ok, Repo.all(query)}
-    end
-  end
-
-  def revoke_invitation(id, attrs, subject) do
-    with :ok <-
-           Authorization.authorize(:manage_user_lifecycle, subject, %{
-             id: value(subject, :tenant_id)
-           }),
-         {:ok, reason} <- required_reason(attrs),
-         {:ok, expected_version} <- expected_version(attrs) do
-      Repo.transaction(fn ->
-        invitation =
-          Repo.one(
-            from(i in Invitation,
-              where: i.id == ^id and i.tenant_id == ^value(subject, :tenant_id),
-              lock: "FOR UPDATE"
-            )
-          ) || Repo.rollback(:not_found)
-
-        if invitation.lock_version != expected_version, do: Repo.rollback(:stale_version)
-        if invitation.status != :pending, do: Repo.rollback(:invitation_not_pending)
-
-        updated =
-          invitation
-          |> Invitation.changeset(%{status: :revoked, revoked_at: now()})
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-          |> update_or_rollback()
-
-        insert_audit!(subject, "invitation.revoke", "invitation", id, %{
-          email: invitation.email,
-          reason: reason
-        })
-
-        updated
-      end)
-      |> transaction_result()
-    end
-  end
-
-  def accept_invitation(attrs) when is_map(attrs) do
-    token = value(attrs, :token)
-    password = value(attrs, :password)
-
-    with :ok <- validate_password(password),
-         {:ok, invitation_id, secret} <- parse_one_time_token(token) do
-      case Repo.transaction(fn ->
-             accept_locked_invitation(invitation_id, secret, password, attrs)
-           end) do
-        {:ok, {:error, reason}} -> {:error, reason}
-        {:ok, %User{} = user} -> {:ok, user}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
+  def apply_user_lifecycle_change(_user_id, _attrs, _subject, _excluded_owner_ids),
+    do: {:error, :invalid_owner_exclusions}
 
   def get_user_for_subject(subject) do
     Repo.get_by(User,
@@ -911,8 +997,7 @@ defmodule CommsCore.Accounts do
 
         action = if is_nil(platform_role), do: "platform_role.revoke", else: "platform_role.grant"
 
-        %AuditEvent{}
-        |> AuditEvent.changeset(%{
+        Audit.record(%{
           tenant_id: user.tenant_id,
           actor_user_id: nil,
           action: action,
@@ -931,7 +1016,7 @@ defmodule CommsCore.Accounts do
             ttl_seconds: ttl_seconds
           }
         })
-        |> insert_or_rollback()
+        |> audit_or_rollback()
 
         updated
       end)
@@ -1164,13 +1249,12 @@ defmodule CommsCore.Accounts do
     conversation_id = Ecto.UUID.generate()
 
     tenant =
-      insert_or_rollback(
-        Tenant.changeset(%Tenant{id: tenant_id}, %{
-          name: value(attrs, :tenant_name),
-          slug: identity.tenant_slug,
-          status: :active
-        })
-      )
+      Administration.create_bootstrap_tenant(%{
+        id: tenant_id,
+        name: value(attrs, :tenant_name),
+        slug: identity.tenant_slug
+      })
+      |> owner_result_or_rollback()
 
     user =
       insert_or_rollback(
@@ -1187,40 +1271,24 @@ defmodule CommsCore.Accounts do
       )
 
     conversation =
-      insert_or_rollback(
-        Conversation.changeset(%Conversation{id: conversation_id}, %{
-          tenant_id: tenant_id,
-          created_by_user_id: user_id,
-          kind: :channel,
-          title: "General",
-          visibility: :tenant,
-          next_sequence: 1
-        })
-      )
-
-    _membership =
-      insert_or_rollback(
-        Membership.changeset(%Membership{}, %{
-          tenant_id: tenant_id,
-          conversation_id: conversation_id,
-          user_id: user_id,
-          role: :owner,
-          joined_at: now,
-          last_read_sequence: 0
-        })
-      )
+      ConversationBootstrapPort.create_initial_channel(%InitialConversationCommand{
+        id: conversation_id,
+        tenant_id: tenant_id,
+        owner_user_id: user_id,
+        joined_at: now
+      })
+      |> owner_result_or_rollback()
 
     _audit =
-      insert_or_rollback(
-        AuditEvent.changeset(%AuditEvent{}, %{
-          tenant_id: tenant_id,
-          actor_user_id: user_id,
-          action: "tenant.bootstrap",
-          resource_type: "tenant",
-          resource_id: tenant_id,
-          metadata: %{initial_conversation_id: conversation_id, source: "release"}
-        })
-      )
+      Audit.record(%{
+        tenant_id: tenant_id,
+        actor_user_id: user_id,
+        action: "tenant.bootstrap",
+        resource_type: "tenant",
+        resource_id: tenant_id,
+        metadata: %{initial_conversation_id: conversation_id, source: "release"}
+      })
+      |> audit_or_rollback()
 
     user = maybe_apply_bootstrap_platform_role!(user)
 
@@ -1241,22 +1309,16 @@ defmodule CommsCore.Accounts do
 
     case owner do
       %User{} = user ->
-        conversation =
-          Repo.one(
-            from(c in Conversation,
-              where:
-                c.tenant_id == ^tenant.id and c.created_by_user_id == ^user.id and
-                  c.kind == :channel and c.title == "General",
-              order_by: [asc: c.inserted_at],
-              limit: 1
-            )
-          )
+        case ConversationBootstrapPort.fetch_initial_channel(tenant.id, user.id) do
+          {:ok, conversation} when not is_nil(conversation) ->
+            user = maybe_apply_bootstrap_platform_role!(user)
+            %{status: :existing, tenant: tenant, user: user, conversation: conversation}
 
-        if conversation do
-          user = maybe_apply_bootstrap_platform_role!(user)
-          %{status: :existing, tenant: tenant, user: user, conversation: conversation}
-        else
-          Repo.rollback(:bootstrap_identity_conflict)
+          {:ok, nil} ->
+            Repo.rollback(:bootstrap_identity_conflict)
+
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
 
       nil ->
@@ -1318,8 +1380,7 @@ defmodule CommsCore.Accounts do
     expires_at = DateTime.add(now(), ttl_seconds, :second)
     current_grant = replace_platform_role_grant!(user, previous_grant, role, expires_at)
 
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: user.tenant_id,
       actor_user_id: nil,
       action: "platform_role.bootstrap_grant",
@@ -1338,7 +1399,7 @@ defmodule CommsCore.Accounts do
         ttl_seconds: ttl_seconds
       }
     })
-    |> insert_or_rollback()
+    |> audit_or_rollback()
 
     with_platform_access(user, role, expires_at)
   end
@@ -1364,6 +1425,11 @@ defmodule CommsCore.Accounts do
 
       now = now()
       session |> Session.changeset(%{revoked_at: now}) |> update_or_rollback()
+
+      audio_revocation_ok!(
+        AudioCalls.revoke_for_sessions(session.tenant_id, [session.id], "session_revoked")
+      )
+
       insert_audit!(subject, action, "session", session.id, %{user_id: user_id})
       session
     end)
@@ -1381,6 +1447,11 @@ defmodule CommsCore.Accounts do
 
     ids = query |> select([s], s.id) |> Repo.all()
     Repo.update_all(query, set: [revoked_at: now(), updated_at: now()])
+
+    audio_revocation_ok!(
+      AudioCalls.revoke_for_sessions(value(subject, :tenant_id), ids, "password_changed")
+    )
+
     ids
   end
 
@@ -1405,38 +1476,246 @@ defmodule CommsCore.Accounts do
     )
     |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
 
-    :ok = PushSubscriptions.disable_for_user(user.tenant_id, user.id, "user_lifecycle_revoked")
+    NotificationCommand.user_access_revoked(
+      user.tenant_id,
+      user.id,
+      "user_lifecycle_revoked"
+    )
+    |> NotificationPort.execute()
+    |> notification_ok!()
+
+    audio_revocation_ok!(
+      AudioCalls.revoke_for_user(user.tenant_id, user.id, "user_lifecycle_revoked")
+    )
 
     session_ids
   end
 
-  defp lock_tenant_users!(tenant_id) do
-    Repo.all(from(u in User, where: u.tenant_id == ^tenant_id, select: u.id, lock: "FOR UPDATE"))
+  defp audio_revocation_ok!({:ok, _count}), do: :ok
+  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+
+  defp notification_ok!(:ok), do: :ok
+  defp notification_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp notification_ok!(_unexpected), do: Repo.rollback(:notification_delivery_unavailable)
+
+  defp erase_user_for_governance(
+         tenant_id,
+         user_id,
+         pending_deletion_user_ids,
+         timestamp
+       ) do
+    lock_tenant_users!(tenant_id)
+
+    with %User{} = user <-
+           Repo.one(
+             from(u in User,
+               where: u.id == ^user_id and u.tenant_id == ^tenant_id,
+               lock: "FOR UPDATE"
+             )
+           ),
+         :ok <- ensure_governance_erasure_owner_safe(user, pending_deletion_user_ids),
+         {:ok, _anonymized_user} <- anonymize_user_for_governance(user),
+         revoked_session_ids <- revoke_user_access_for_governance(user, timestamp) do
+      {:ok, %{user_id: user.id, revoked_session_ids: revoked_session_ids}}
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp ensure_last_owner!(%User{role: :owner, status: :active} = target, role, status)
-       when role not in [nil, :owner] or status not in [nil, :active] do
-    pending_deletions =
-      from(r in DeletionRequest,
-        where:
-          r.tenant_id == ^target.tenant_id and r.target_type == :user and
-            r.status in [:approved, :in_progress],
-        select: r.subject_user_id
+  defp ensure_governance_erasure_owner_safe(
+         %User{role: :owner, status: :active} = user,
+         pending_deletion_user_ids
+       ) do
+    remaining =
+      User
+      |> where(
+        [candidate],
+        candidate.tenant_id == ^user.tenant_id and candidate.id != ^user.id and
+          candidate.role == :owner and candidate.status == :active and
+          candidate.id not in ^pending_deletion_user_ids
+      )
+      |> Repo.aggregate(:count)
+
+    if remaining == 0, do: {:error, :last_owner_required}, else: :ok
+  end
+
+  defp ensure_governance_erasure_owner_safe(_user, _pending_deletion_user_ids), do: :ok
+
+  defp anonymize_user_for_governance(user) do
+    anonymized = "deleted-#{user.id}"
+
+    user
+    |> User.changeset(%{
+      external_subject: anonymized,
+      display_name: "Deleted user",
+      email: "#{anonymized}@invalid.example",
+      status: :deleted
+    })
+    |> Ecto.Changeset.optimistic_lock(:lock_version)
+    |> Repo.update()
+  end
+
+  defp revoke_user_access_for_governance(user, timestamp) do
+    session_query =
+      from(s in Session,
+        where: s.tenant_id == ^user.tenant_id and s.user_id == ^user.id and is_nil(s.revoked_at)
       )
 
+    revoked_session_ids = session_query |> select([s], s.id) |> Repo.all()
+    Repo.update_all(session_query, set: [revoked_at: timestamp, updated_at: timestamp])
+
+    Device
+    |> where(
+      [d],
+      d.tenant_id == ^user.tenant_id and d.user_id == ^user.id and is_nil(d.revoked_at)
+    )
+    |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
+
+    revoked_session_ids
+  end
+
+  defp valid_governance_erasure_command?(
+         tenant_id,
+         user_id,
+         pending_deletion_user_ids,
+         timestamp
+       ) do
+    valid_uuid?(tenant_id) and valid_uuid?(user_id) and is_list(pending_deletion_user_ids) and
+      Enum.all?(pending_deletion_user_ids, &valid_uuid?/1) and match?(%DateTime{}, timestamp)
+  end
+
+  defp validate_user_lifecycle_change(attrs, subject) do
+    tenant_id = value(subject, :tenant_id)
+
+    if valid_uuid?(tenant_id) do
+      with :ok <- reject_platform_role_attribute(attrs),
+           :ok <- reject_service_account_attribute(attrs),
+           :ok <- Authorization.authorize(:manage_user_lifecycle, subject, %{id: tenant_id}),
+           {:ok, reason} <- required_reason(attrs),
+           {:ok, expected_version} <- expected_version(attrs),
+           {:ok, role} <- optional_role(attrs),
+           {:ok, status} <- optional_status(attrs) do
+        {:ok,
+         %{
+           tenant_id: tenant_id,
+           reason: reason,
+           expected_version: expected_version,
+           role: role,
+           status: status,
+           display_name: value(attrs, :display_name)
+         }}
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp apply_user_lifecycle_change!(user_id, command, subject, excluded_owner_ids) do
+    tenant_id = command.tenant_id
+
+    quota_ok!(AdmissionQuotas.lock_tenant(tenant_id))
+    lock_tenant_users!(tenant_id)
+
+    target =
+      Repo.one(
+        from(u in User,
+          where:
+            u.id == ^user_id and u.tenant_id == ^tenant_id and u.status != :deleted and
+              u.account_type == :human,
+          lock: "FOR UPDATE"
+        )
+      ) || Repo.rollback(:not_found)
+
+    if target.lock_version != command.expected_version, do: Repo.rollback(:stale_version)
+
+    actor =
+      Repo.get_by!(User,
+        id: value(subject, :user_id),
+        tenant_id: tenant_id,
+        status: :active,
+        account_type: :human
+      )
+
+    authorize_user_change!(actor, target, command.role, command.status)
+    ensure_last_owner!(target, command.role, command.status, excluded_owner_ids)
+
+    if target.status != :active and command.status == :active do
+      quota_ok!(AdmissionQuotas.ensure_active_user_capacity(tenant_id))
+    end
+
+    changes =
+      %{}
+      |> maybe_put(:role, command.role)
+      |> maybe_put(:status, command.status)
+      |> maybe_put(:display_name, command.display_name)
+
+    updated =
+      target
+      |> User.changeset(changes)
+      |> Ecto.Changeset.optimistic_lock(:lock_version)
+      |> update_or_rollback()
+
+    revoked_session_ids =
+      if updated.status != :active, do: revoke_user_access!(updated), else: []
+
+    insert_audit!(subject, "user.lifecycle_update", "user", target.id, %{
+      reason: command.reason,
+      before: %{role: target.role, status: target.status, display_name: target.display_name},
+      after: %{role: updated.role, status: updated.status, display_name: updated.display_name}
+    })
+
+    %{user: updated, revoked_session_ids: revoked_session_ids}
+  end
+
+  defp valid_owner_exclusions?(values) when is_list(values),
+    do: Enum.all?(values, &valid_uuid?/1)
+
+  defp valid_owner_exclusions?(_values), do: false
+
+  defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
+
+  defp lock_tenant_users!(tenant_id) do
+    Repo.all(
+      from(u in User,
+        where: u.tenant_id == ^tenant_id,
+        order_by: [asc: u.id],
+        select: u.id,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp ensure_last_owner!(
+         %User{role: :owner, status: :active},
+         role,
+         status,
+         :governance_policy_required
+       )
+       when role not in [nil, :owner] or status not in [nil, :active],
+       do: Repo.rollback(:governance_policy_required)
+
+  defp ensure_last_owner!(
+         %User{role: :owner, status: :active} = target,
+         role,
+         status,
+         excluded_owner_ids
+       )
+       when (role not in [nil, :owner] or status not in [nil, :active]) and
+              is_list(excluded_owner_ids) do
     remaining =
       User
       |> where(
         [u],
         u.tenant_id == ^target.tenant_id and u.id != ^target.id and u.role == :owner and
-          u.status == :active and u.id not in subquery(pending_deletions)
+          u.status == :active and u.id not in ^excluded_owner_ids
       )
       |> Repo.aggregate(:count)
 
     if remaining == 0, do: Repo.rollback(:last_owner_required)
   end
 
-  defp ensure_last_owner!(_, _, _), do: :ok
+  defp ensure_last_owner!(_, _, _, _), do: :ok
 
   defp authorize_user_change!(%User{role: :owner}, _target, _role, _status), do: :ok
 
@@ -1701,128 +1980,6 @@ defmodule CommsCore.Accounts do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp one_time_token(id) do
-    secret = :crypto.strong_rand_bytes(@session_bytes)
-    {"#{id}.#{Base.url_encode64(secret, padding: false)}", :crypto.hash(:sha256, secret)}
-  end
-
-  defp parse_one_time_token(token) when is_binary(token) do
-    case String.split(token, ".", parts: 2) do
-      [id, encoded] ->
-        with {:ok, _} <- Ecto.UUID.cast(id),
-             {:ok, secret} <- Base.url_decode64(encoded, padding: false) do
-          {:ok, id, secret}
-        else
-          _ -> {:error, :invalid_invitation}
-        end
-
-      _ ->
-        {:error, :invalid_invitation}
-    end
-  end
-
-  defp parse_one_time_token(_), do: {:error, :invalid_invitation}
-
-  defp invitation_expires_at do
-    ttl = Application.get_env(:comms_core, :invitation_ttl_seconds, 604_800)
-    DateTime.add(now(), ttl, :second)
-  end
-
-  defp accept_locked_invitation(invitation_id, secret, password, attrs) do
-    invitation =
-      Repo.one(from(i in Invitation, where: i.id == ^invitation_id, lock: "FOR UPDATE")) ||
-        Repo.rollback(:invalid_invitation)
-
-    cond do
-      invitation.status != :pending ->
-        {:error, :invalid_invitation}
-
-      DateTime.compare(invitation.expires_at, now()) != :gt ->
-        invitation
-        |> Invitation.changeset(%{status: :expired})
-        |> Ecto.Changeset.optimistic_lock(:lock_version)
-        |> update_or_rollback()
-
-        {:error, :invalid_invitation}
-
-      not secure_hash_equals(invitation.token_hash, secret) ->
-        {:error, :invalid_invitation}
-
-      true ->
-        quota_ok!(AdmissionQuotas.lock_tenant(invitation.tenant_id))
-        ensure_invitation_identity_available!(invitation)
-        quota_ok!(AdmissionQuotas.ensure_active_user_capacity(invitation.tenant_id))
-        user = create_invited_user!(invitation, password, attrs)
-
-        invitation
-        |> Invitation.changeset(%{
-          status: :accepted,
-          accepted_user_id: user.id,
-          accepted_at: now()
-        })
-        |> Ecto.Changeset.optimistic_lock(:lock_version)
-        |> update_or_rollback()
-
-        %AuditEvent{}
-        |> AuditEvent.changeset(%{
-          tenant_id: invitation.tenant_id,
-          actor_user_id: user.id,
-          action: "invitation.accept",
-          resource_type: "invitation",
-          resource_id: invitation.id,
-          metadata: %{email: invitation.email, role: invitation.role, enrollment: "new_identity"}
-        })
-        |> insert_or_rollback()
-
-        user
-    end
-  end
-
-  defp create_invited_user!(invitation, password, attrs) do
-    %User{id: Ecto.UUID.generate()}
-    |> User.changeset(%{
-      tenant_id: invitation.tenant_id,
-      external_subject: "local:#{invitation.email}",
-      display_name: value(attrs, :display_name),
-      email: invitation.email,
-      password_hash: Password.hash(password),
-      account_type: :human,
-      role: invitation.role,
-      status: :active
-    })
-    |> insert_or_rollback()
-  end
-
-  defp expire_pending_invitations(tenant_id, email \\ nil) do
-    query =
-      from(i in Invitation,
-        where: i.tenant_id == ^tenant_id and i.status == :pending and i.expires_at <= ^now()
-      )
-
-    query =
-      if is_binary(email),
-        do: where(query, [i], fragment("lower(?)", i.email) == ^String.downcase(email)),
-        else: query
-
-    Repo.update_all(query, set: [status: :expired, updated_at: now()])
-    :ok
-  end
-
-  defp existing_idempotent(_schema, _tenant_id, nil), do: nil
-
-  defp existing_idempotent(schema, tenant_id, key) do
-    Repo.get_by(schema, tenant_id: tenant_id, idempotency_key: key)
-  end
-
-  defp maybe_filter_invitation_status(query, nil), do: query
-
-  defp maybe_filter_invitation_status(query, status) do
-    case normalize_enum(status, [:pending, :accepted, :revoked, :expired]) do
-      nil -> query
-      normalized -> where(query, [i], i.status == ^normalized)
-    end
-  end
-
   defp active_actor(subject) do
     Repo.get_by(User,
       id: value(subject, :user_id),
@@ -1864,13 +2021,6 @@ defmodule CommsCore.Accounts do
     if existing_identity?, do: {:error, :invitation_identity_conflict}, else: :ok
   end
 
-  defp ensure_invitation_identity_available!(invitation) do
-    case reject_existing_human_identity(invitation.tenant_id, invitation.email) do
-      :ok -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
   defp validate_unchanged_profile_email(attrs, current_email) do
     supplied_emails =
       [:email, "email"]
@@ -1902,8 +2052,8 @@ defmodule CommsCore.Accounts do
 
   defp authorize_session_target(_, _), do: {:error, :forbidden}
 
-  defp audit_changeset(subject, action, resource_type, resource_id, metadata) do
-    AuditEvent.changeset(%AuditEvent{}, %{
+  defp audit_command(subject, action, resource_type, resource_id, metadata) do
+    %{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -1911,14 +2061,21 @@ defmodule CommsCore.Accounts do
       resource_id: resource_id,
       metadata: metadata,
       request_id: value(subject, :request_id)
-    })
+    }
   end
 
   defp insert_audit!(subject, action, resource_type, resource_id, metadata) do
     subject
-    |> audit_changeset(action, resource_type, resource_id, metadata)
-    |> Repo.insert!()
+    |> audit_command(action, resource_type, resource_id, metadata)
+    |> Audit.record()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
+
+  defp owner_result_or_rollback({:ok, value}), do: value
+  defp owner_result_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp update_or_rollback(changeset) do
     case Repo.update(changeset) do
@@ -1932,6 +2089,8 @@ defmodule CommsCore.Accounts do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+  defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
+  defp project_result({:error, _reason} = error, _projector), do: error
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

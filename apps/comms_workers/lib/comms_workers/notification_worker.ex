@@ -2,9 +2,8 @@ defmodule CommsWorkers.NotificationWorker do
   use Oban.Worker, queue: :notifications, max_attempts: 10
 
   alias CommsCore.Notifications
-  alias CommsCore.Notifications.Intent
+  alias CommsCore.Notifications.Delivery
   alias CommsCore.PasswordRecovery
-  alias CommsCore.PushSubscriptions
   alias CommsIntegrations.Notifications, as: Provider
 
   @recovery_event_type "account.password_recovery.requested.v1"
@@ -15,7 +14,7 @@ defmodule CommsWorkers.NotificationWorker do
       {:ok, {:already_delivered, _intent}} ->
         :ok
 
-      {:ok, %Intent{} = intent} ->
+      {:ok, %Delivery{} = intent} ->
         result = deliver(intent)
 
         case Notifications.record_delivery(intent, result) do
@@ -43,22 +42,28 @@ defmodule CommsWorkers.NotificationWorker do
 
   def perform(_), do: {:discard, :intent_id_required}
 
-  defp deliver(%Intent{event_type: @recovery_event_type} = intent) do
-    case PasswordRecovery.materialize_notification(intent) do
+  defp deliver(%Delivery{event_type: @recovery_event_type} = intent) do
+    recovery = %{
+      tenant_id: intent.tenant_id,
+      user_id: intent.user_id,
+      recovery_request_id: Map.get(intent.payload, "recovery_request_id")
+    }
+
+    case PasswordRecovery.materialize_notification(recovery) do
       {:ok, delivery} -> Provider.deliver(provider_request(intent, delivery))
       {:error, reason} -> {:error, :permanent, safe_reason(reason)}
     end
   end
 
   defp deliver(
-         %Intent{
+         %Delivery{
            channel: :push,
            push_subscription_id: subscription_id,
            push_subscription_version: version
          } = intent
        )
        when is_binary(subscription_id) and is_integer(version) do
-    case PushSubscriptions.materialize_destination(subscription_id, version, intent.tenant_id) do
+    case Notifications.materialize_push_destination(subscription_id, version, intent.tenant_id) do
       {:ok, destination} ->
         Provider.deliver(provider_request(intent, %{destination: destination}))
 
@@ -67,13 +72,13 @@ defmodule CommsWorkers.NotificationWorker do
     end
   end
 
-  defp deliver(%Intent{channel: :push}),
+  defp deliver(%Delivery{channel: :push}),
     do: {:error, :permanent, :push_subscription_stale}
 
-  defp deliver(%Intent{} = intent), do: Provider.deliver(provider_request(intent, %{}))
+  defp deliver(%Delivery{} = intent), do: Provider.deliver(provider_request(intent, %{}))
 
   defp record_push_result(
-         %Intent{
+         %Delivery{
            channel: :push,
            push_subscription_id: subscription_id,
            push_subscription_version: version
@@ -81,7 +86,7 @@ defmodule CommsWorkers.NotificationWorker do
          result
        )
        when is_binary(subscription_id) and is_integer(version) do
-    PushSubscriptions.record_provider_result(subscription_id, version, result)
+    Notifications.record_push_provider_result(subscription_id, version, result)
   end
 
   defp record_push_result(_intent, _result), do: :ok

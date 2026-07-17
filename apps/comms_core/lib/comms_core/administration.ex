@@ -2,12 +2,93 @@ defmodule CommsCore.Administration do
   import Ecto.Query
 
   alias CommsCore.Accounts.Tenant
-  alias CommsCore.Administration.TenantSettings
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.{AdmissionQuotas, Authorization, Repo, RuntimePorts}
+  alias CommsCore.Administration.{Invitations, Projector, RetentionDefaults, TenantSettings}
+  alias CommsCore.Audit
+  alias CommsCore.{AdmissionQuotas, AudioCalls, Authorization, Repo, RuntimePorts}
 
   @default_limit 50
   @max_limit 100
+
+  def create_invitation(attrs, subject), do: Invitations.create(attrs, subject)
+  def list_invitations(subject, status \\ nil), do: Invitations.list(subject, status)
+  def revoke_invitation(id, attrs, subject), do: Invitations.revoke(id, attrs, subject)
+  def accept_invitation(attrs), do: Invitations.accept(attrs)
+
+  @doc """
+  Adds a tenant-owned bootstrap insert to a caller-owned transaction.
+
+  The operation returns a `TenantView`; the Tenant persistence schema never
+  crosses this owner boundary.
+  """
+  def append_bootstrap_tenant(multi, operation, attrs)
+      when is_atom(operation) and is_map(attrs) do
+    Ecto.Multi.run(multi, operation, fn repo, _changes ->
+      persist_bootstrap_tenant(repo, attrs)
+    end)
+  end
+
+  @doc false
+  def create_bootstrap_tenant(attrs) when is_map(attrs) do
+    if Repo.in_transaction?(),
+      do: persist_bootstrap_tenant(Repo, attrs),
+      else: {:error, :transaction_required}
+  end
+
+  @doc false
+  def get_bootstrap_tenant_by_slug(slug) when is_binary(slug) do
+    Tenant
+    |> Repo.get_by(slug: slug)
+    |> case do
+      %Tenant{} = tenant -> Projector.tenant(tenant)
+      nil -> nil
+    end
+  end
+
+  @doc false
+  def any_tenant?, do: Repo.exists?(Tenant)
+
+  @doc """
+  Returns the tenant's optional default retention period as a stable projection.
+
+  Callers receive no TenantSettings persistence details. A tenant without a
+  persisted settings row has no configured default retention period.
+  """
+  @spec retention_defaults(Ecto.UUID.t()) ::
+          {:ok, RetentionDefaults.t()} | {:error, :invalid_tenant_id}
+  def retention_defaults(tenant_id) when is_binary(tenant_id) do
+    case Ecto.UUID.cast(tenant_id) do
+      {:ok, _uuid} ->
+        default_retention_days =
+          TenantSettings
+          |> where([settings], settings.tenant_id == ^tenant_id)
+          |> select([settings], settings.default_retention_days)
+          |> Repo.one()
+
+        {:ok,
+         %RetentionDefaults{
+           tenant_id: tenant_id,
+           default_retention_days: default_retention_days
+         }}
+
+      :error ->
+        {:error, :invalid_tenant_id}
+    end
+  end
+
+  def retention_defaults(_tenant_id), do: {:error, :invalid_tenant_id}
+
+  def get_tenant_settings_view(subject) do
+    with {:ok, result} <- get_tenant_settings(subject) do
+      {:ok, project_tenant_settings_result(result)}
+    end
+  end
+
+  def update_tenant_settings_view(attrs, subject) do
+    with {:ok, result} <- update_tenant_settings(attrs, subject) do
+      {:ok, project_tenant_settings_result(result)}
+    end
+  end
+
   def member_capabilities(subject) do
     tenant_id = value(subject, :tenant_id)
 
@@ -17,6 +98,8 @@ defmodule CommsCore.Administration do
       {:ok,
        %{
          allow_public_channels: settings.allow_public_channels,
+         allow_audio_calls: settings.allow_audio_calls,
+         allow_video_calls: settings.allow_video_calls,
          message_edit_window_seconds: settings.message_edit_window_seconds,
          max_attachment_bytes: settings.max_attachment_bytes
        }}
@@ -31,7 +114,7 @@ defmodule CommsCore.Administration do
         Repo.get_by(TenantSettings, tenant_id: tenant.id) ||
           %TenantSettings{tenant_id: tenant.id}
 
-      {:ok, %{tenant: tenant, settings: settings, usage: AdmissionQuotas.usage(tenant.id)}}
+      {:ok, %{tenant: tenant, settings: settings}}
     else
       nil -> {:error, :not_found}
       {:error, _} = error -> error
@@ -65,6 +148,8 @@ defmodule CommsCore.Administration do
           attrs
           |> Map.take([
             :allow_public_channels,
+            :allow_audio_calls,
+            :allow_video_calls,
             :message_edit_window_seconds,
             :max_attachment_bytes,
             :default_retention_days,
@@ -72,6 +157,8 @@ defmodule CommsCore.Administration do
             :max_active_conversations,
             :max_conversation_members,
             "allow_public_channels",
+            "allow_audio_calls",
+            "allow_video_calls",
             "message_edit_window_seconds",
             "max_attachment_bytes",
             "default_retention_days",
@@ -98,6 +185,18 @@ defmodule CommsCore.Administration do
             name -> tenant |> Tenant.changeset(%{name: name}) |> update_or_rollback()
           end
 
+        if current.allow_audio_calls and not updated_settings.allow_audio_calls do
+          media_revocation_ok!(
+            AudioCalls.revoke_for_tenant_kind(tenant.id, :audio, "tenant_audio_disabled")
+          )
+        end
+
+        if current.allow_video_calls and not updated_settings.allow_video_calls do
+          media_revocation_ok!(
+            AudioCalls.revoke_for_tenant_kind(tenant.id, :video, "tenant_video_disabled")
+          )
+        end
+
         audit!(subject, "tenant.settings_update", "tenant", tenant.id, %{
           version: updated_settings.lock_version,
           changed_fields: changed_fields(attrs)
@@ -105,11 +204,7 @@ defmodule CommsCore.Administration do
 
         enqueue_retention!(tenant.id)
 
-        %{
-          tenant: updated_tenant,
-          settings: updated_settings,
-          usage: AdmissionQuotas.usage(tenant_id)
-        }
+        %{tenant: updated_tenant, settings: updated_settings}
       end)
       |> transaction_result()
     end
@@ -122,19 +217,17 @@ defmodule CommsCore.Administration do
       limit = parse_limit(value(params, :limit))
 
       Repo.transaction(fn ->
-        query =
-          AuditEvent
-          |> where([e], e.tenant_id == ^value(subject, :tenant_id))
-          |> maybe_equal(:action, value(params, :action))
-          |> maybe_equal(:resource_type, value(params, :resource_type))
-          |> maybe_equal(:actor_user_id, value(params, :actor_user_id))
-          |> maybe_equal(:request_id, value(params, :request_id))
-          |> maybe_before(before)
-          |> maybe_after(after_timestamp)
-          |> order_by([e], desc: e.inserted_at, desc: e.id)
-          |> limit(^limit)
-
-        events = Repo.all(query)
+        events =
+          Audit.list(%{
+            tenant_id: value(subject, :tenant_id),
+            action: value(params, :action),
+            resource_type: value(params, :resource_type),
+            actor_user_id: value(params, :actor_user_id),
+            request_id: value(params, :request_id),
+            before: before,
+            after: after_timestamp,
+            limit: limit
+          })
 
         audit!(subject, "audit.read", "tenant", value(subject, :tenant_id), %{
           filters: audit_filters(params),
@@ -146,26 +239,6 @@ defmodule CommsCore.Administration do
       |> transaction_result()
     end
   end
-
-  defp maybe_equal(query, _field, nil), do: query
-  defp maybe_equal(query, _field, ""), do: query
-  defp maybe_equal(query, field, value), do: where(query, [e], field(e, ^field) == ^value)
-
-  defp maybe_before(query, nil), do: query
-
-  defp maybe_before(query, {timestamp, nil}),
-    do: where(query, [e], e.inserted_at < ^timestamp)
-
-  defp maybe_before(query, {timestamp, id}) do
-    where(
-      query,
-      [e],
-      e.inserted_at < ^timestamp or (e.inserted_at == ^timestamp and e.id < ^id)
-    )
-  end
-
-  defp maybe_after(query, nil), do: query
-  defp maybe_after(query, timestamp), do: where(query, [e], e.inserted_at >= ^timestamp)
 
   defp optional_datetime(nil), do: {:ok, nil}
   defp optional_datetime(%DateTime{} = value), do: {:ok, value}
@@ -249,7 +322,7 @@ defmodule CommsCore.Administration do
 
   defp changed_fields(attrs) do
     allowed =
-      ~w(name allow_public_channels message_edit_window_seconds max_attachment_bytes default_retention_days max_active_users max_active_conversations max_conversation_members)
+      ~w(name allow_public_channels allow_audio_calls allow_video_calls message_edit_window_seconds max_attachment_bytes default_retention_days max_active_users max_active_conversations max_conversation_members)
 
     attrs
     |> Map.keys()
@@ -259,8 +332,7 @@ defmodule CommsCore.Administration do
   end
 
   defp audit!(subject, action, resource_type, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -269,8 +341,11 @@ defmodule CommsCore.Administration do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> insert_or_rollback()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp enqueue_retention!(tenant_id) do
     %{"tenant_id" => tenant_id}
@@ -307,8 +382,32 @@ defmodule CommsCore.Administration do
   defp quota_ok!(:ok), do: :ok
   defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
 
+  defp media_revocation_ok!({:ok, _count}), do: :ok
+  defp media_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+
+  defp project_tenant_settings_result(result) do
+    %{
+      tenant: CommsCore.Administration.Projector.tenant(result.tenant),
+      settings: CommsCore.Administration.Projector.settings(result.settings)
+    }
+  end
+
+  defp persist_bootstrap_tenant(repo, attrs) do
+    %Tenant{id: value(attrs, :id)}
+    |> Tenant.changeset(%{
+      name: value(attrs, :name),
+      slug: value(attrs, :slug),
+      status: :active
+    })
+    |> repo.insert()
+    |> case do
+      {:ok, tenant} -> {:ok, Projector.tenant(tenant)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp value(map, key) do
     case Map.fetch(map, key) do

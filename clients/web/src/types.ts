@@ -171,10 +171,58 @@ export interface MeResponse {
 }
 
 export interface UserCapabilities {
+  allow_audio_calls: boolean;
+  allow_video_calls: boolean;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;
 }
+
+export type CallMediaKind = "audio" | "video";
+
+export interface Call {
+  id: string;
+  conversation_id: string;
+  started_by_user_id: string;
+  /** Omitted only by legacy audio broadcasts during a rolling deployment. */
+  media_kind?: CallMediaKind;
+  status: "active" | "ended";
+  started_at: string;
+  expires_at: string;
+  ended_at?: string | null;
+  can_end: boolean;
+}
+
+export interface CallRealtimeEvent {
+  id: string;
+  conversation_id: string;
+  started_by_user_id: string;
+  /** Omitted only by legacy audio broadcasts during a rolling deployment. */
+  media_kind?: CallMediaKind;
+  status: "active" | "ended";
+  started_at: string;
+  expires_at: string;
+  ended_by_user_id?: string | null;
+  ended_at?: string | null;
+  end_reason?: string | null;
+}
+
+export interface CallCredential {
+  server_url: string;
+  participant_token: string;
+  expires_in: number;
+}
+
+export interface CallSessionResponse {
+  data: Call;
+  credential: CallCredential;
+}
+
+/** Compatibility aliases for consumers migrating from the audio-only surface. */
+export type AudioCall = Call;
+export type AudioCallRealtimeEvent = CallRealtimeEvent;
+export type AudioCallCredential = CallCredential;
+export type AudioCallSessionResponse = CallSessionResponse;
 
 export interface ListResponse<T> {
   data: T[];
@@ -204,6 +252,24 @@ export interface MessagePage {
   };
 }
 
+export interface MessageSearchOptions {
+  conversation_id?: string;
+  sender_user_id?: string;
+  after?: string;
+  before?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
+export interface MessageSearchPage {
+  data: Message[];
+  page: {
+    limit: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
 export interface ServiceStatus {
   service: string;
   version: string;
@@ -211,9 +277,12 @@ export interface ServiceStatus {
   node?: string;
   capabilities?: {
     administration: boolean;
+    audio_calls?: boolean;
+    video_calls?: boolean;
     attachment_scanning: boolean;
     bootstrap: boolean;
     notifications: boolean;
+    push_notifications?: boolean;
     realtime: boolean;
     webhooks: boolean;
   };
@@ -235,6 +304,8 @@ export interface AccountSession {
 
 export interface TenantSettings {
   tenant_id: string;
+  allow_audio_calls: boolean;
+  allow_video_calls: boolean;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;

@@ -2,7 +2,7 @@ defmodule CommsCore.Integrations.WebhookDelivery do
   use CommsCore.Schema
 
   schema "webhook_deliveries" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, :binary_id)
     belongs_to(:endpoint, CommsCore.Integrations.WebhookEndpoint)
     belongs_to(:outbox_event, CommsCore.Events.OutboxEvent)
     field(:event_type, :string)

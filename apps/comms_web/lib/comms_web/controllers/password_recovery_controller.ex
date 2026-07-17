@@ -12,7 +12,7 @@ defmodule CommsWeb.PasswordRecoveryController do
   end
 
   def reset(conn, params) do
-    with {:ok, result} <- PasswordRecovery.reset(params) do
+    with {:ok, result} <- PasswordRecovery.reset_command(params) do
       Enum.each(result.revoked_session_ids, &disconnect_session/1)
       send_resp(conn, :no_content, "")
     end

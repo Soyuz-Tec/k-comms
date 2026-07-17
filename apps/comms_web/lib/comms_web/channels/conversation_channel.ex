@@ -27,7 +27,7 @@ defmodule CommsWeb.ConversationChannel do
     subject = subject(socket)
     after_sequence = integer(payload["after_sequence"] || payload[:after_sequence], 0)
 
-    with {:ok, _conversation} <- Conversations.get_for_user(conversation_id, subject),
+    with {:ok, _conversation} <- Conversations.get_for_user_view(conversation_id, subject),
          {:ok, replay_messages} <-
            Messaging.list_history(conversation_id, subject,
              after_sequence: after_sequence,

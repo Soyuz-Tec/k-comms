@@ -5,6 +5,10 @@
 - Bootstrap/login, access-token validation, single-use refresh rotation, logout, and revocation tests pass.
 - Tenant substitution, membership removal, and session/device mismatch tests fail closed.
 - Direct/group creation, ordered idempotent send, edit/delete, reaction, read cursor, search, and replay tests pass.
+- Canonical one-to-one/group audio/video call routes, immutable media kind,
+  independent tenant policies, source-restricted grants, durable eight-hour
+  expiry/eviction, two-party bidirectional RTP, three-participant group state,
+  screen-share publish/subscribe/cleanup, and deprecated audio aliases pass.
 - Public-channel browse/join/leave/rejoin, threads, mentions, in-app notifications, and inactive-inbox tests pass.
 - Invitation, lifecycle, last-owner, role, admission-quota, account-recovery, and device/session administration tests pass.
 - Moderation, retention, legal-hold, deletion, audit, and neutralized bounded CSV-export tests pass.
@@ -50,6 +54,9 @@
 - No unresolved critical security findings remain.
 - The controlled internal pilot and validated usability gates pass for the
   exact immutable release revision.
+- External WSS/HTTPS and TURN/TLS paths, expected audio/video/screen bandwidth
+  and group size plus headroom, camera/screen consent, recording-disabled
+  policy, provider outage, and media incident response are approved.
 
 Passing the communication-platform and local staging gate does not imply that
 external production infrastructure or organizational launch approvals have

@@ -23,6 +23,12 @@ spec:
               app.kubernetes.io/component: edge
       containers:
         - name: edge
+          envFrom:
+            - configMapRef:
+                name: k-comms-config
+            - secretRef:
+                name: k-comms-provider-secrets
+                optional: false
           imagePullPolicy: IfNotPresent
           resources:
             requests:

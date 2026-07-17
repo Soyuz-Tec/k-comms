@@ -2,8 +2,8 @@ defmodule CommsCore.Integrations.WebhookEndpoint do
   use CommsCore.Schema
 
   schema "webhook_endpoints" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:created_by_user, CommsCore.Accounts.User)
+    field(:tenant_id, :binary_id)
+    field(:created_by_user_id, :binary_id)
     field(:name, :string)
     field(:url, :string)
     field(:status, Ecto.Enum, values: [:active, :disabled], default: :active)

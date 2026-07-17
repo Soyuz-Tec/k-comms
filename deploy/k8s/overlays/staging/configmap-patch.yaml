@@ -8,12 +8,25 @@ data:
   CORS_ORIGINS: https://comms.staging.example.invalid
   HSTS_ENABLED: "true"
   CSP_CONNECT_SOURCES: "'self' wss://comms.staging.example.invalid https://comms.staging.example.invalid https://objects.staging.example.invalid"
+  # Portable staging carries no in-cluster SFU. Compose qualifies local
+  # audio/video; AUDIO_* names govern both media kinds for compatibility. A
+  # provider-composed staging bundle must supply WSS LiveKit separately.
+  AUDIO_PROVIDER_MODE: disabled
+  LIVEKIT_SERVER_URL: ""
+  LIVEKIT_API_URL: ""
+  AUDIO_TOKEN_TTL_SECONDS: "300"
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: "660"
   S3_PUBLIC_ENDPOINT: https://objects.staging.example.invalid
   S3_BUCKET: k-comms-staging
   MINIO_API_CORS_ALLOW_ORIGIN: https://comms.staging.example.invalid
   # Portable staging uses content-free local qualification adapters. Replace
   # these with the reviewed provider patch before any production promotion.
   ALLOW_DEVELOPMENT_ADAPTERS: "true"
+  # Portable staging intentionally exercises the implemented local identity
+  # lifecycle. These declarations are rejected by production preflight.
+  ALLOW_DEVELOPMENT_IDENTITY_MODES: "true"
+  IDENTITY_PROVIDER_MODE: local_password
+  DIRECTORY_PROVISIONING_MODE: manual
   NOTIFICATION_PROVIDER_MODE: log
   ATTACHMENT_SCANNER_MODE: allow_all
   WEBHOOK_PROVIDER_MODE: log

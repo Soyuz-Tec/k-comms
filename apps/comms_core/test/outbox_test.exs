@@ -3,6 +3,7 @@ defmodule CommsCore.OutboxTest do
 
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Outbox
+  alias CommsCore.Outbox.Event
   alias CommsCore.Repo
   alias CommsCore.RuntimePorts
   alias CommsTestSupport.Fixtures
@@ -13,8 +14,10 @@ defmodule CommsCore.OutboxTest do
     worker = RuntimePorts.job_worker!(:outbox_publication)
 
     assert {:ok, fetched} = Outbox.fetch_for_publication(event.id, worker)
-    assert fetched.id == event.id
-    assert fetched.attempts == 0
+    assert %Event{id: event_id} = fetched
+    assert event_id == event.id
+    refute Map.has_key?(fetched, :attempts)
+    refute inspect(fetched) =~ "payload"
 
     assert :ok = Outbox.record_attempt(event.id, worker)
     assert Repo.get!(OutboxEvent, event.id).attempts == 1

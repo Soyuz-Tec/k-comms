@@ -10,4 +10,7 @@
 | Server-readable encrypted messages | ADR-0006 | Accepted for MVP | 2026-07-12 | E2EE product requirement |
 | React/TypeScript reference client | ADR-0007 | Accepted for MVP | 2026-07-12 | Client portfolio or accessibility evidence |
 | Podman and Kubernetes-neutral platform | ADR-0008 | Accepted for MVP | 2026-07-12 | Provider-specific production decision |
-| Voice/video deferred | ADR-0009 | Accepted for MVP | 2026-07-12 | Media roadmap approval |
+| Voice/video deferred | ADR-0009 | Superseded for audio/video | 2026-07-12 | SIP, recording, transcription, or media-egress approval |
+| Corporate OIDC and SCIM identity boundary | ADR-0023 | Proposed | 2026-07-15 | Identity provider selection, SAML requirement, or federated identity implementation |
+| Audio-only calls through a LiveKit media plane | ADR-0024 | Superseded for active implementation | 2026-07-15 | Historical audio boundary; see ADR-0025 |
+| Unified audio/video calls on the LiveKit media plane | ADR-0025 | Accepted for implementation and internal pilot | 2026-07-15 | Recording, SIP, stricter revocation, group scale, residency, or provider constraint |

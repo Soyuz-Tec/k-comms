@@ -1,16 +1,15 @@
 defmodule CommsIntegrations.ObjectStorageTest do
   use ExUnit.Case, async: false
 
-  alias CommsCore.Attachments.Attachment
-
   test "memory adapter returns bounded upload and download intents" do
-    attachment = %Attachment{
-      tenant_id: "tenant",
-      object_key: "tenant/file name.txt",
-      content_type: "text/plain",
-      checksum_sha256: String.duplicate("a", 64),
-      object_version_id: "memory-v1"
-    }
+    attachment =
+      attachment(%{
+        tenant_id: "tenant",
+        object_key: "tenant/file name.txt",
+        content_type: "text/plain",
+        checksum_sha256: String.duplicate("a", 64),
+        object_version_id: "memory-v1"
+      })
 
     assert {:ok,
             %{
@@ -60,13 +59,14 @@ defmodule CommsIntegrations.ObjectStorageTest do
 
     checksum = String.duplicate("a", 64)
 
-    attachment = %Attachment{
-      tenant_id: "tenant",
-      object_key: "tenant/message.txt",
-      content_type: "text/plain",
-      checksum_sha256: checksum,
-      object_version_id: "version-1"
-    }
+    attachment =
+      attachment(%{
+        tenant_id: "tenant",
+        object_key: "tenant/message.txt",
+        content_type: "text/plain",
+        checksum_sha256: checksum,
+        object_version_id: "version-1"
+      })
 
     assert {:ok,
             %{
@@ -132,12 +132,13 @@ defmodule CommsIntegrations.ObjectStorageTest do
       restore_env(:allow_insecure_local_object_storage, previous_allow)
     end)
 
-    attachment = %Attachment{
-      tenant_id: "tenant",
-      object_key: "tenant/file.txt",
-      content_type: "text/plain",
-      checksum_sha256: String.duplicate("a", 64)
-    }
+    attachment =
+      attachment(%{
+        tenant_id: "tenant",
+        object_key: "tenant/file.txt",
+        content_type: "text/plain",
+        checksum_sha256: String.duplicate("a", 64)
+      })
 
     assert {:error, :insecure_public_object_storage_endpoint} =
              CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
@@ -225,13 +226,14 @@ defmodule CommsIntegrations.ObjectStorageTest do
     clean_body = "known-clean-content"
     clean_checksum = sha256(clean_body)
 
-    clean = %Attachment{
-      tenant_id: tenant_id,
-      object_key: object_key,
-      content_type: "text/plain",
-      byte_size: byte_size(clean_body),
-      checksum_sha256: clean_checksum
-    }
+    clean =
+      attachment(%{
+        tenant_id: tenant_id,
+        object_key: object_key,
+        content_type: "text/plain",
+        byte_size: byte_size(clean_body),
+        checksum_sha256: clean_checksum
+      })
 
     assert :ok = upload(clean, clean_body)
     assert {:ok, identity} = CommsIntegrations.ObjectStorage.S3.verify_upload(clean)
@@ -246,7 +248,7 @@ defmodule CommsIntegrations.ObjectStorageTest do
 
     assert :ok = upload(replacement, replacement_body)
 
-    versioned = struct(clean, identity)
+    versioned = Map.merge(clean, identity)
     assert {:ok, descriptor} = CommsIntegrations.ObjectStorage.S3.presign_download(versioned)
 
     request = Finch.build(:get, descriptor.url, Map.to_list(descriptor.headers))
@@ -274,13 +276,14 @@ defmodule CommsIntegrations.ObjectStorageTest do
     body = "portable-restored-content"
     checksum = sha256(body)
 
-    original = %Attachment{
-      tenant_id: tenant_id,
-      object_key: object_key,
-      content_type: "text/plain",
-      byte_size: byte_size(body),
-      checksum_sha256: checksum
-    }
+    original =
+      attachment(%{
+        tenant_id: tenant_id,
+        object_key: object_key,
+        content_type: "text/plain",
+        byte_size: byte_size(body),
+        checksum_sha256: checksum
+      })
 
     assert :ok = upload(original, body)
     assert {:ok, original_identity} = CommsIntegrations.ObjectStorage.S3.verify_upload(original)
@@ -290,7 +293,7 @@ defmodule CommsIntegrations.ObjectStorageTest do
 
     restored =
       original
-      |> struct(original_identity)
+      |> Map.merge(original_identity)
       |> Map.put(:verified_checksum_sha256, checksum)
 
     assert {:ok, restored_identity} =
@@ -313,6 +316,21 @@ defmodule CommsIntegrations.ObjectStorageTest do
 
     assert {:error, :object_checksum_mismatch} =
              CommsIntegrations.ObjectStorage.S3.verify_restored_object(opaque_etag)
+  end
+
+  defp attachment(attrs) do
+    Map.merge(
+      %{
+        id: "attachment-test-id",
+        tenant_id: "tenant",
+        owner_user_id: "owner",
+        file_name: "file.txt",
+        content_type: "text/plain",
+        byte_size: 1,
+        status: :pending
+      },
+      attrs
+    )
   end
 
   defp upload(attachment, body) do

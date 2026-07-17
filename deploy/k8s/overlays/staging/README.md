@@ -5,6 +5,22 @@ PostgreSQL pod and one MinIO pod; production must replace them with approved
 data services. Run every command from the repository root in a controlled
 deployment shell.
 
+The portable staging overlay keeps AUDIO_PROVIDER_MODE=disabled and does not
+deploy LiveKit or TURN. This is accepted only through staging's explicit
+`ALLOW_DEVELOPMENT_ADAPTERS=true` gate; production cannot use that exemption.
+Local same-host audio/video and screen sharing are qualified by Compose. An
+environment-specific staging composition may enable LiveKit only when it adds
+an externally managed WSS origin, the matching exact CSP source, validated
+provider credentials, WSS/HTTPS and TURN/TLS network evidence, group/bandwidth
+capacity limits, privacy approval, and the audio/video/screen journeys described
+by the production provider contract. Keep
+AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS at the maintained 660-second
+minimum repeat horizon unless the composed environment is qualifying another
+production-valid 660-1,800 second value. The horizon must not be shorter than
+the participant-token lifetime. Failed removal attempts remain durable after
+the horizon until one succeeds at or after it. A green
+portable staging run therefore does not claim audio or video readiness.
+
 ## 1. Configure, validate, and render
 
 Use an immutable promoted image digest. The evidence directory must be
@@ -421,6 +437,22 @@ Retain command output, rendered-bundle checksum, image digest, backup/restore
 evidence, migration logs, and timestamps. Authentication, message send/replay,
 an attachment near the 25,000,000-byte limit, download, and session revocation
 must also be exercised through the client before promotion.
+
+For any provider-composed audio/video staging run, retain a content-free receipt
+that
+proves participant admissions persist only the opaque identity and
+authorization bindings, never the JWT. During an induced LiveKit outage,
+membership/session revocation must commit and block new joins while durable
+eviction stays queued. After recovery, prove retry plus repeated self-hosted
+removal through at least the configured enforcement horizon, including a
+synthetic cached-token reconnect attempt and a successful removal at or after
+the horizon. Failures must remain queued beyond it. Record aggregate times and
+attempt counts only;
+exclude room names, participant identities, user identifiers, tokens, and
+audio/video/screen content. Also prove two-party bidirectional camera media,
+three-or-more participant group state, screen-share publish/subscribe/cleanup,
+and source-restricted grants. This is bounded eviction evidence, not a claim of
+LiveKit Cloud token revocation.
 
 Set the environment documented by `node scripts/staging_acceptance.mjs --help`,
 then capture the result of `node scripts/staging_acceptance.mjs` as smoke evidence.

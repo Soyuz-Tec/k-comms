@@ -5,7 +5,7 @@ defmodule CommsCore.ServiceAccounts.ServiceAccount do
 
   schema "service_accounts" do
     belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:user, CommsCore.ServiceAccounts.ServiceUser)
+    belongs_to(:user, CommsCore.Accounts.User)
     belongs_to(:device, CommsCore.Accounts.Device)
     belongs_to(:created_by_user, CommsCore.Accounts.User)
     field(:name, :string)

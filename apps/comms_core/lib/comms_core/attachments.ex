@@ -3,15 +3,53 @@ defmodule CommsCore.Attachments do
 
   alias CommsCore.{Authorization, Repo, RuntimePorts}
   alias CommsCore.Administration.TenantSettings
-  alias CommsCore.Attachments.{Attachment, ScanAttempt}
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Messaging.Message
+  alias CommsCore.Attachments.{Attachment, AttachmentView, Projector, ScanAttempt}
+  alias CommsCore.Audit
 
   @allowed_prefixes ["image/", "text/"]
   @allowed_exact ["application/pdf", "application/zip", "application/json"]
   @default_max_bytes 26_214_400
   @schema_max_bytes 1_073_741_824
   @scan_claim_timeout_seconds 300
+
+  @doc """
+  Marks tenant-scoped attachments deleted as part of an existing erasure transaction.
+
+  The persisted row is retained while user-visible file identity and the source
+  checksum are scrubbed. Returns only the number of affected rows.
+  """
+  @spec mark_deleted_for_erasure(Ecto.UUID.t(), [Ecto.UUID.t()], DateTime.t()) ::
+          {:ok, %{attachments_deleted: non_neg_integer()}}
+          | {:error, :invalid_erasure_scope | :transaction_required}
+  def mark_deleted_for_erasure(tenant_id, attachment_ids, %DateTime{} = timestamp)
+      when is_binary(tenant_id) and is_list(attachment_ids) do
+    if Repo.in_transaction?() do
+      attachment_ids = Enum.uniq(attachment_ids)
+
+      with :ok <- validate_erasure_scope(tenant_id, attachment_ids) do
+        {attachments_deleted, _} =
+          Repo.update_all(
+            from(attachment in Attachment,
+              where: attachment.tenant_id == ^tenant_id and attachment.id in ^attachment_ids
+            ),
+            set: [
+              status: :deleted,
+              file_name: "deleted",
+              content_type: "application/octet-stream",
+              checksum_sha256: nil,
+              updated_at: timestamp
+            ]
+          )
+
+        {:ok, %{attachments_deleted: attachments_deleted}}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def mark_deleted_for_erasure(_tenant_id, _attachment_ids, _timestamp),
+    do: {:error, :invalid_erasure_scope}
 
   def create_intent(attrs, subject) do
     content_type = value(attrs, :content_type) || "application/octet-stream"
@@ -38,6 +76,7 @@ defmodule CommsCore.Attachments do
         status: :pending
       })
       |> Repo.insert()
+      |> project_result()
     end
   end
 
@@ -81,6 +120,7 @@ defmodule CommsCore.Attachments do
         attachment
       end)
       |> unwrap_transaction()
+      |> project_result()
     end
   end
 
@@ -88,7 +128,7 @@ defmodule CommsCore.Attachments do
     with %Attachment{} = attachment <-
            Repo.get_by(Attachment, id: id, tenant_id: value(subject, :tenant_id)),
          :ok <- authorize_attachment(attachment, subject) do
-      {:ok, attachment}
+      {:ok, Projector.attachment(attachment)}
     else
       nil -> {:error, :not_found}
       {:error, _} = error -> error
@@ -105,6 +145,7 @@ defmodule CommsCore.Attachments do
     )
     |> order_by([a], asc: a.inserted_at)
     |> Repo.all()
+    |> Projector.attachments()
   end
 
   def list_safety(subject, opts \\ %{}) do
@@ -120,7 +161,7 @@ defmodule CommsCore.Attachments do
         |> limit(^limit)
         |> preload(:scan_attempt_records)
 
-      {:ok, Repo.all(query)}
+      {:ok, query |> Repo.all() |> Projector.attachments()}
     end
   end
 
@@ -153,9 +194,10 @@ defmodule CommsCore.Attachments do
       end
     end)
     |> unwrap_transaction()
+    |> project_claim_result()
   end
 
-  def record_scan(%Attachment{} = attachment, result) do
+  def record_scan(%AttachmentView{} = attachment, result) do
     Repo.transaction(fn ->
       locked =
         Repo.one!(from(a in Attachment, where: a.id == ^attachment.id, lock: "FOR UPDATE"))
@@ -177,6 +219,7 @@ defmodule CommsCore.Attachments do
       |> Repo.update!()
     end)
     |> unwrap_transaction()
+    |> project_result()
   end
 
   def retry_scan(id, subject) do
@@ -210,10 +253,11 @@ defmodule CommsCore.Attachments do
         updated
       end)
       |> unwrap_transaction()
+      |> project_result()
     end
   end
 
-  def downloadable?(%Attachment{} = attachment) do
+  def downloadable?(%AttachmentView{} = attachment) do
     attachment.status == :ready and attachment.scan_status == :clean and
       is_binary(attachment.object_version_id) and attachment.object_version_id != "" and
       is_binary(attachment.object_etag) and attachment.object_etag != "" and
@@ -221,7 +265,8 @@ defmodule CommsCore.Attachments do
       attachment.verified_checksum_sha256 == attachment.checksum_sha256
   end
 
-  def attach_ready(ids, %Message{} = message, subject) when is_list(ids) do
+  def attach_ready(ids, message_id, tenant_id, subject)
+      when is_list(ids) and is_binary(message_id) and is_binary(tenant_id) do
     ids = Enum.uniq(ids)
 
     if ids == [] do
@@ -230,13 +275,13 @@ defmodule CommsCore.Attachments do
       query =
         from(a in Attachment,
           where:
-            a.id in ^ids and a.tenant_id == ^message.tenant_id and
+            a.id in ^ids and a.tenant_id == ^tenant_id and
               a.owner_user_id == ^value(subject, :user_id) and a.status == :ready and
               a.scan_status == :clean and not is_nil(a.object_version_id) and
               a.verified_checksum_sha256 == a.checksum_sha256 and is_nil(a.message_id)
         )
 
-      {count, _} = Repo.update_all(query, set: [message_id: message.id, updated_at: now()])
+      {count, _} = Repo.update_all(query, set: [message_id: message_id, updated_at: now()])
       if count == length(ids), do: :ok, else: Repo.rollback(:invalid_attachments)
     end
   end
@@ -262,9 +307,26 @@ defmodule CommsCore.Attachments do
 
   defp authorize_attached_message(%Attachment{message_id: message_id}, subject)
        when is_binary(message_id) do
-    case Repo.get(Message, message_id) do
-      %Message{} = message -> Authorization.authorize(:read_conversation, subject, message)
-      nil -> {:error, :forbidden}
+    message =
+      Repo.one(
+        from(message in "messages",
+          where:
+            message.id == type(^message_id, :binary_id) and
+              message.tenant_id == type(^value(subject, :tenant_id), :binary_id),
+          select: %{
+            id: message.id,
+            tenant_id: message.tenant_id,
+            conversation_id: message.conversation_id
+          }
+        )
+      )
+
+    case message do
+      %{conversation_id: _conversation_id} ->
+        Authorization.authorize(:read_conversation, subject, message)
+
+      nil ->
+        {:error, :forbidden}
     end
   end
 
@@ -484,8 +546,7 @@ defmodule CommsCore.Attachments do
     do: where(query, [attachment], attachment.scan_status == ^status)
 
   defp audit!(subject, action, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -494,8 +555,11 @@ defmodule CommsCore.Attachments do
       metadata: metadata,
       request_id: value(subject, :request_id)
     })
-    |> Repo.insert!()
+    |> audit_or_rollback()
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp normalize_checksum(nil), do: nil
 
@@ -571,6 +635,28 @@ defmodule CommsCore.Attachments do
   defp integer(_, default), do: default
   defp unwrap_transaction({:ok, result}), do: {:ok, result}
   defp unwrap_transaction({:error, reason}), do: {:error, reason}
+
+  defp project_result({:ok, %Attachment{} = attachment}),
+    do: {:ok, Projector.attachment(attachment)}
+
+  defp project_result({:error, reason}), do: {:error, reason}
+
+  defp project_claim_result({:ok, {:already_clean, %Attachment{} = attachment}}),
+    do: {:ok, {:already_clean, Projector.attachment(attachment)}}
+
+  defp project_claim_result({:ok, %Attachment{} = attachment}),
+    do: {:ok, Projector.attachment(attachment)}
+
+  defp project_claim_result({:error, reason}), do: {:error, reason}
+
+  defp validate_erasure_scope(tenant_id, ids) do
+    if valid_uuid?(tenant_id) and Enum.all?(ids, &valid_uuid?/1),
+      do: :ok,
+      else: {:error, :invalid_erasure_scope}
+  end
+
+  defp valid_uuid?(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
+
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 end

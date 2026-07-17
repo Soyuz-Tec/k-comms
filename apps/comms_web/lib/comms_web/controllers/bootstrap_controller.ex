@@ -6,7 +6,7 @@ defmodule CommsWeb.BootstrapController do
 
   def create(conn, params) do
     if Application.get_env(:comms_web, :allow_bootstrap, false) do
-      with {:ok, result} <- Accounts.bootstrap_tenant(params) do
+      with {:ok, result} <- Accounts.bootstrap_tenant_view(params) do
         conn
         |> put_status(:created)
         |> json(

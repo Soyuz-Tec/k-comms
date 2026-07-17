@@ -9,6 +9,7 @@ from validate_staging_secrets import (
     AES_256_KEYS,
     BOOTSTRAP_REQUIRED,
     RUNTIME_REQUIRED,
+    PROVIDER_REQUIRED,
     STAGING_RUNTIME_REQUIRED,
     validate,
 )
@@ -18,6 +19,30 @@ STAGING_WITH_SINGLE_KEYS = STAGING_RUNTIME_REQUIRED | AES_256_KEYS
 
 
 class ValidateStagingSecretsTest(unittest.TestCase):
+    def test_provider_file_requires_non_placeholder_livekit_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "provider-secrets.env"
+            self.write(path, PROVIDER_REQUIRED - {"LIVEKIT_API_SECRET"})
+
+            errors = validate(path)
+            self.assertIn(f"{path}: missing required key LIVEKIT_API_SECRET", errors)
+
+            self.write(
+                path,
+                PROVIDER_REQUIRED,
+                {"LIVEKIT_API_KEY": "short", "LIVEKIT_API_SECRET": "too-short"},
+            )
+            errors = validate(path)
+            self.assertTrue(any("LIVEKIT_API_KEY" in error for error in errors))
+            self.assertTrue(any("LIVEKIT_API_SECRET" in error for error in errors))
+
+            self.write(
+                path,
+                PROVIDER_REQUIRED,
+                {"LIVEKIT_API_KEY": "production-key", "LIVEKIT_API_SECRET": "s" * 32},
+            )
+            self.assertEqual(validate(path), [])
+
     def test_runtime_file_requires_every_release_and_data_secret(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "secrets.env"
@@ -263,6 +288,10 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             "POSTGRES_DB": "k_comms",
             "MINIO_ROOT_USER": "kcomms",
             "MINIO_ROOT_PASSWORD": minio_password,
+            "LIVEKIT_API_KEY": "production-key",
+            "LIVEKIT_API_SECRET": "l" * 32,
+            "NOTIFICATION_PROVIDER_TOKEN": "n" * 32,
+            "ATTACHMENT_SCANNER_TOKEN": "a" * 32,
             "BOOTSTRAP_TENANT_NAME": "K-Comms Test",
             "BOOTSTRAP_TENANT_SLUG": "k-comms-test",
             "BOOTSTRAP_OWNER_DISPLAY_NAME": "Test Owner",

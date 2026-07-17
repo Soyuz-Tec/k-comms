@@ -6,13 +6,13 @@ defmodule CommsWeb.WebhookEndpointController do
   alias CommsWeb.IntegrationPresenter
 
   def index(conn, _params) do
-    with {:ok, endpoints} <- Integrations.list_endpoints(conn.assigns.current_subject) do
+    with {:ok, endpoints} <- Integrations.list_endpoint_views(conn.assigns.current_subject) do
       json(conn, %{data: Enum.map(endpoints, &IntegrationPresenter.webhook_endpoint/1)})
     end
   end
 
   def show(conn, %{"id" => id}) do
-    with {:ok, endpoint} <- Integrations.get_endpoint(id, conn.assigns.current_subject) do
+    with {:ok, endpoint} <- Integrations.get_endpoint_view(id, conn.assigns.current_subject) do
       json(conn, %{data: IntegrationPresenter.webhook_endpoint(endpoint)})
     end
   end
@@ -20,7 +20,7 @@ defmodule CommsWeb.WebhookEndpointController do
   def create(conn, params) do
     with :ok <- validate_destination(params),
          {:ok, %{endpoint: endpoint, secret: secret}} <-
-           Integrations.create_endpoint(params, conn.assigns.current_subject) do
+           Integrations.create_endpoint_view(params, conn.assigns.current_subject) do
       conn
       |> put_status(:created)
       |> json(%{
@@ -34,20 +34,20 @@ defmodule CommsWeb.WebhookEndpointController do
   def update(conn, %{"id" => id} = params) do
     with :ok <- validate_destination(params),
          {:ok, endpoint} <-
-           Integrations.update_endpoint(id, params, conn.assigns.current_subject) do
+           Integrations.update_endpoint_view(id, params, conn.assigns.current_subject) do
       json(conn, %{data: IntegrationPresenter.webhook_endpoint(endpoint)})
     end
   end
 
   def delete(conn, %{"id" => id}) do
-    with {:ok, _endpoint} <- Integrations.disable_endpoint(id, conn.assigns.current_subject) do
+    with {:ok, _endpoint} <- Integrations.disable_endpoint_view(id, conn.assigns.current_subject) do
       send_resp(conn, :no_content, "")
     end
   end
 
   def rotate_secret(conn, %{"id" => id}) do
     with {:ok, %{endpoint: endpoint, secret: secret}} <-
-           Integrations.rotate_secret(id, conn.assigns.current_subject) do
+           Integrations.rotate_secret_view(id, conn.assigns.current_subject) do
       json(conn, %{
         data: IntegrationPresenter.webhook_endpoint(endpoint),
         secret: secret,

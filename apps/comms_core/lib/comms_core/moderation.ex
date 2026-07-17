@@ -2,13 +2,45 @@ defmodule CommsCore.Moderation do
   import Ecto.Query
 
   alias CommsCore.Accounts.User
-  alias CommsCore.Audit.AuditEvent
+  alias CommsCore.Audit
   alias CommsCore.Conversations.Conversation
   alias CommsCore.Messaging.Message
   alias CommsCore.Moderation.{ModerationAction, ModerationCase}
   alias CommsCore.{Authorization, Repo}
 
   @max_limit 100
+
+  def create_case_view(attrs, subject) do
+    with {:ok, result} <- create_case(attrs, subject) do
+      {:ok, %{result | case: CommsCore.Moderation.Projector.case_view(result.case)}}
+    end
+  end
+
+  def list_case_views(params, subject) do
+    with {:ok, cases} <- list_cases(params, subject) do
+      {:ok, Enum.map(cases, &CommsCore.Moderation.Projector.case_view/1)}
+    end
+  end
+
+  def get_case_view(id, subject) do
+    with {:ok, result} <- get_case(id, subject) do
+      {:ok,
+       %{
+         case: CommsCore.Moderation.Projector.case_view(result.case),
+         actions: Enum.map(result.actions, &CommsCore.Moderation.Projector.action/1)
+       }}
+    end
+  end
+
+  def add_action_view(case_id, attrs, subject) do
+    with {:ok, result} <- add_action(case_id, attrs, subject) do
+      {:ok,
+       %{
+         case: CommsCore.Moderation.Projector.case_view(result.case),
+         action: CommsCore.Moderation.Projector.action(result.action)
+       }}
+    end
+  end
 
   def create_case(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
@@ -43,9 +75,8 @@ defmodule CommsCore.Moderation do
             :case,
             ModerationCase.changeset(%ModerationCase{id: case_id}, case_attrs)
           )
-          |> Ecto.Multi.insert(
-            :audit,
-            audit_changeset(subject, "moderation.case_create", "moderation_case", case_id, %{
+          |> Audit.append(
+            audit_command(subject, "moderation.case_create", "moderation_case", case_id, %{
               category: value(attrs, :category),
               priority: value(attrs, :priority) || "normal"
             })
@@ -145,9 +176,8 @@ defmodule CommsCore.Moderation do
           })
           |> insert_or_rollback()
 
-        %AuditEvent{}
-        |> audit_changeset(
-          subject,
+        subject
+        |> audit_command(
           "moderation.#{action_type}",
           "moderation_case",
           moderation_case.id,
@@ -157,7 +187,8 @@ defmodule CommsCore.Moderation do
             version: updated_case.lock_version
           }
         )
-        |> insert_or_rollback()
+        |> Audit.record()
+        |> audit_or_rollback()
 
         %{case: updated_case, action: action}
       end)
@@ -324,15 +355,8 @@ defmodule CommsCore.Moderation do
 
   defp parse_limit(_), do: 50
 
-  defp audit_changeset(
-         %AuditEvent{} = event,
-         subject,
-         action,
-         resource_type,
-         resource_id,
-         metadata
-       ) do
-    AuditEvent.changeset(event, %{
+  defp audit_command(subject, action, resource_type, resource_id, metadata) do
+    %{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -340,11 +364,7 @@ defmodule CommsCore.Moderation do
       resource_id: resource_id,
       metadata: metadata,
       request_id: value(subject, :request_id)
-    })
-  end
-
-  defp audit_changeset(subject, action, resource_type, resource_id, metadata) do
-    audit_changeset(%AuditEvent{}, subject, action, resource_type, resource_id, metadata)
+    }
   end
 
   defp transaction_result({:ok, result}), do: {:ok, result}
@@ -356,6 +376,9 @@ defmodule CommsCore.Moderation do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp update_or_rollback(changeset) do
     case Repo.update(changeset) do

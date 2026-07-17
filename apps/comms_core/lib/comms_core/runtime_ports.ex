@@ -8,6 +8,8 @@ defmodule CommsCore.RuntimePorts do
   """
 
   @job_kinds [
+    :audio_call_expiry,
+    :audio_participant_eviction,
     :attachment_scan,
     :deletion,
     :notification_delivery,

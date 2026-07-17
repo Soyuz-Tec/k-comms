@@ -4,6 +4,13 @@ This overlay runs the staging package unchanged except for local hostnames and
 an image loaded directly into a kind node. It is for environment-gate evidence,
 not a production topology.
 
+The overlay deliberately keeps the media provider disabled and deploys neither
+LiveKit nor TURN. The repository's loopback Compose stack is the same-host
+functional proof for one-to-one/group audio/video and screen sharing. A passing
+local-proof overlay therefore does not claim media readiness, external
+WSS/HTTPS or TURN/TLS reachability, group/bandwidth capacity, or privacy and
+incident-response approval.
+
 - Kubernetes: kind v0.32 with the pinned Kubernetes 1.34 node image
 - Ingress: the final ingress-nginx kind manifest used only for this local proof
 - Public-style hosts: `comms.k-comms.test` and `objects.k-comms.test`

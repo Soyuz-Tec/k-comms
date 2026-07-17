@@ -1,38 +1,140 @@
 defmodule CommsCore.Governance do
   import Ecto.Query
 
-  alias CommsCore.Accounts.{Device, Session, User}
-  alias CommsCore.Administration.TenantSettings
+  alias CommsCore.Accounts.User
+  alias CommsCore.Administration.RetentionDefaults
   alias CommsCore.Attachments.Attachment
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Conversations.{Conversation, Membership}
-  alias CommsCore.Governance.{DeletionRequest, LegalHold, RetentionPolicy}
-  alias CommsCore.Messaging.{Message, MessageRevision, Reaction}
-  alias CommsCore.{Authorization, Repo, RuntimePorts}
+  alias CommsCore.Audit
+  alias CommsCore.Conversations.Conversation
+
+  alias CommsCore.Governance.{
+    DeletionExecution,
+    DeletionRequest,
+    LegalHold,
+    RetentionDefaultsReader,
+    RetentionPolicy
+  }
+
+  alias CommsCore.Messaging.Message
+  alias CommsCore.Messaging.MessageDeletionCandidate
+
+  alias CommsCore.{
+    Accounts,
+    Attachments,
+    AudioCalls,
+    Authorization,
+    Conversations,
+    Messaging,
+    Repo,
+    RuntimePorts
+  }
 
   @max_limit 100
 
-  def authorize_message_deletion(tenant_id, load_and_authorize)
-      when is_binary(tenant_id) and is_function(load_and_authorize, 0) do
-    governance_lock!(tenant_id)
-
-    with {:ok, %Message{tenant_id: ^tenant_id} = message} <- load_and_authorize.() do
-      if active_legal_hold?(
-           message.tenant_id,
-           [message.conversation_id],
-           [message.sender_user_id]
-         ) do
-        {:error, :legal_hold_active}
-      else
-        {:ok, message}
-      end
-    else
-      {:error, _} = error -> error
-      _ -> {:error, :forbidden}
+  def create_retention_policy_view(attrs, subject) do
+    with {:ok, result} <- create_retention_policy(attrs, subject) do
+      {:ok, %{result | policy: CommsCore.Governance.Projector.retention_policy(result.policy)}}
     end
   end
 
-  def authorize_message_deletion(_tenant_id, _load_and_authorize), do: {:error, :forbidden}
+  def list_retention_policy_views(params, subject) do
+    with {:ok, policies} <- list_retention_policies(params, subject) do
+      {:ok, Enum.map(policies, &CommsCore.Governance.Projector.retention_policy/1)}
+    end
+  end
+
+  def update_retention_policy_view(id, attrs, subject),
+    do:
+      update_retention_policy(id, attrs, subject)
+      |> project_result(&CommsCore.Governance.Projector.retention_policy/1)
+
+  def create_legal_hold_view(attrs, subject) do
+    with {:ok, result} <- create_legal_hold(attrs, subject) do
+      {:ok, %{result | hold: CommsCore.Governance.Projector.legal_hold(result.hold)}}
+    end
+  end
+
+  def list_legal_hold_views(params, subject) do
+    with {:ok, holds} <- list_legal_holds(params, subject) do
+      {:ok, Enum.map(holds, &CommsCore.Governance.Projector.legal_hold/1)}
+    end
+  end
+
+  def release_legal_hold_view(id, attrs, subject),
+    do:
+      release_legal_hold(id, attrs, subject)
+      |> project_result(&CommsCore.Governance.Projector.legal_hold/1)
+
+  def create_deletion_request_view(attrs, subject) do
+    with {:ok, result} <- create_deletion_request(attrs, subject) do
+      {:ok, %{result | request: CommsCore.Governance.Projector.deletion_request(result.request)}}
+    end
+  end
+
+  def list_deletion_request_views(params, subject) do
+    with {:ok, requests} <- list_deletion_requests(params, subject) do
+      {:ok, Enum.map(requests, &CommsCore.Governance.Projector.deletion_request/1)}
+    end
+  end
+
+  def transition_deletion_request_view(id, attrs, subject),
+    do:
+      transition_deletion_request(id, attrs, subject)
+      |> project_result(&CommsCore.Governance.Projector.deletion_request/1)
+
+  @doc """
+  Coordinates an IdentityAccess user-lifecycle change with Governance policy.
+
+  Approved and in-progress deletion requests are reduced to user identifiers
+  and supplied to the IdentityAccess owner command in the same transaction.
+  """
+  def change_user_lifecycle_view(user_id, attrs, subject)
+      when is_binary(user_id) and is_map(attrs) and is_map(subject) do
+    tenant_id = value(subject, :tenant_id)
+
+    with :ok <- Accounts.preflight_user_lifecycle_change(user_id, attrs, subject) do
+      Repo.transaction(fn ->
+        governance_lock!(tenant_id)
+
+        Accounts.apply_user_lifecycle_change(
+          user_id,
+          attrs,
+          subject,
+          pending_deletion_user_ids(tenant_id)
+        )
+        |> owner_command_or_rollback()
+      end)
+      |> transaction_result()
+    end
+  end
+
+  def change_user_lifecycle_view(_user_id, _attrs, _subject), do: {:error, :not_found}
+
+  def delete_message(message_id, subject) when is_binary(message_id) and is_map(subject) do
+    Repo.transaction(fn ->
+      case Messaging.delete_message(message_id, subject, &authorize_message_deletion/1) do
+        {:ok, message} -> message
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> transaction_result()
+  end
+
+  def delete_message(_message_id, _subject), do: {:error, :not_found}
+
+  defp authorize_message_deletion(%MessageDeletionCandidate{} = candidate) do
+    governance_lock!(candidate.tenant_id)
+
+    if active_legal_hold?(
+         candidate.tenant_id,
+         [candidate.conversation_id],
+         [candidate.sender_user_id]
+       ) do
+      {:error, :legal_hold_active}
+    else
+      :ok
+    end
+  end
 
   def create_retention_policy(attrs, subject) when is_map(attrs) do
     tenant_id = value(subject, :tenant_id)
@@ -230,12 +332,19 @@ defmodule CommsCore.Governance do
   end
 
   def transition_deletion_request(id, attrs, subject) do
+    tenant_id = value(subject, :tenant_id)
+
     with :ok <-
-           Authorization.authorize(:govern_tenant, subject, %{id: value(subject, :tenant_id)}),
+           Authorization.authorize(:govern_tenant, subject, %{id: tenant_id}),
          {:ok, expected_version} <- expected_version(attrs),
          {:ok, status} <- administrative_deletion_status(value(attrs, :status)),
          :ok <- require_reason(value(attrs, :transition_reason)) do
       Repo.transaction(fn ->
+        governance_lock!(tenant_id)
+
+        Authorization.authorize(:govern_tenant, subject, %{id: tenant_id})
+        |> authorization_or_rollback!()
+
         request = lock_record!(DeletionRequest, id, subject)
         verify_version!(request, expected_version)
         validate_deletion_transition!(request.status, status)
@@ -269,11 +378,7 @@ defmodule CommsCore.Governance do
   def claim_deletion_request(id, caller) do
     if RuntimePorts.authorized_job_worker?(:deletion, caller) do
       Repo.transaction(fn ->
-        request =
-          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-            Repo.rollback(:not_found)
-
-        governance_lock!(request.tenant_id)
+        request = lock_deletion_request_for_worker!(id)
 
         if request.status not in [:approved, :in_progress], do: Repo.rollback(:not_claimable)
         if legal_hold_blocks?(request), do: Repo.rollback(:legal_hold_active)
@@ -295,7 +400,13 @@ defmodule CommsCore.Governance do
           version: claimed.lock_version
         })
 
-        %{request: claimed, plan: deletion_plan(claimed)}
+        plan = deletion_plan(claimed)
+
+        struct!(DeletionExecution, %{
+          request_id: claimed.id,
+          expected_version: claimed.lock_version,
+          objects: plan.attachments
+        })
       end)
       |> transaction_result()
     else
@@ -307,11 +418,7 @@ defmodule CommsCore.Governance do
       when is_map(worker_evidence) do
     if RuntimePorts.authorized_job_worker?(:deletion, caller) do
       Repo.transaction(fn ->
-        request =
-          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-            Repo.rollback(:not_found)
-
-        governance_lock!(request.tenant_id)
+        request = lock_deletion_request_for_worker!(id)
 
         if request.status == :completed, do: Repo.rollback(:already_delivered)
         if request.status != :in_progress, do: Repo.rollback(:not_claimable)
@@ -369,9 +476,7 @@ defmodule CommsCore.Governance do
       safe_reason = reason |> inspect(limit: 20, printable_limit: 200) |> String.slice(0, 500)
 
       Repo.transaction(fn ->
-        request =
-          Repo.one(from(r in DeletionRequest, where: r.id == ^id, lock: "FOR UPDATE")) ||
-            Repo.rollback(:not_found)
+        request = lock_deletion_request_for_worker!(id)
 
         if request.status != :in_progress, do: Repo.rollback(:not_claimable)
 
@@ -480,7 +585,7 @@ defmodule CommsCore.Governance do
   defp insert_with_audit(key, changeset, subject, action, resource_type, id, metadata) do
     Ecto.Multi.new()
     |> Ecto.Multi.insert(key, changeset)
-    |> Ecto.Multi.insert(:audit, audit_changeset(subject, action, resource_type, id, metadata))
+    |> Audit.append(audit_command(subject, action, resource_type, id, metadata))
     |> Repo.transaction()
     |> case do
       {:ok, result} -> {:ok, %{key => Map.fetch!(result, key), replayed: false}}
@@ -538,6 +643,21 @@ defmodule CommsCore.Governance do
     Repo.one(
       from(r in schema,
         where: r.id == ^id and r.tenant_id == ^value(subject, :tenant_id),
+        lock: "FOR UPDATE"
+      )
+    ) || Repo.rollback(:not_found)
+  end
+
+  defp lock_deletion_request_for_worker!(id) do
+    tenant_id =
+      Repo.one(from(r in DeletionRequest, where: r.id == ^id, select: r.tenant_id)) ||
+        Repo.rollback(:not_found)
+
+    governance_lock!(tenant_id)
+
+    Repo.one(
+      from(r in DeletionRequest,
+        where: r.id == ^id and r.tenant_id == ^tenant_id,
         lock: "FOR UPDATE"
       )
     ) || Repo.rollback(:not_found)
@@ -655,12 +775,15 @@ defmodule CommsCore.Governance do
 
     tenant_policy = Enum.find(policies, &(&1.scope_type == :tenant))
     conversation_policies = Map.new(policies, &{&1.conversation_id, &1})
-    settings = Repo.get_by(TenantSettings, tenant_id: tenant_id)
+
+    %RetentionDefaults{default_retention_days: configured_default_days} =
+      RetentionDefaultsReader.fetch(tenant_id)
+      |> owner_command_or_rollback()
 
     default_days =
       if tenant_policy,
         do: tenant_policy.retention_days,
-        else: settings && settings.default_retention_days
+        else: configured_default_days
 
     existing_requests =
       from(r in DeletionRequest,
@@ -838,36 +961,19 @@ defmodule CommsCore.Governance do
     message_ids = plan.message_ids
     attachment_ids = Enum.map(plan.attachments, & &1.id)
 
-    if message_ids != [] do
-      Repo.delete_all(from(r in MessageRevision, where: r.message_id in ^message_ids))
-      Repo.delete_all(from(r in Reaction, where: r.message_id in ^message_ids))
+    content_result =
+      Messaging.tombstone_for_erasure(request.tenant_id, message_ids, timestamp)
+      |> owner_command_or_rollback()
 
-      Repo.update_all(
-        from(m in Message, where: m.tenant_id == ^request.tenant_id and m.id in ^message_ids),
-        set: [body: nil, metadata: %{}, status: :deleted, deleted_at: timestamp]
-      )
-    end
-
-    if attachment_ids != [] do
-      Repo.update_all(
-        from(a in Attachment,
-          where: a.tenant_id == ^request.tenant_id and a.id in ^attachment_ids
-        ),
-        set: [
-          status: :deleted,
-          file_name: "deleted",
-          content_type: "application/octet-stream",
-          checksum_sha256: nil,
-          updated_at: timestamp
-        ]
-      )
-    end
+    attachment_result =
+      Attachments.mark_deleted_for_erasure(request.tenant_id, attachment_ids, timestamp)
+      |> owner_command_or_rollback()
 
     revoked_session_ids = apply_target_deletion!(request, timestamp)
 
     %{
-      messages_tombstoned: length(message_ids),
-      attachments_deleted: length(attachment_ids),
+      messages_tombstoned: content_result.messages_tombstoned,
+      attachments_deleted: attachment_result.attachments_deleted,
       revoked_session_ids: revoked_session_ids
     }
   end
@@ -875,72 +981,57 @@ defmodule CommsCore.Governance do
   defp apply_target_deletion!(%DeletionRequest{target_type: :message}, _timestamp), do: []
 
   defp apply_target_deletion!(%DeletionRequest{target_type: :conversation} = request, timestamp) do
-    Repo.update_all(
-      from(c in Conversation,
-        where: c.id == ^request.conversation_id and c.tenant_id == ^request.tenant_id
-      ),
-      set: [archived_at: timestamp, updated_at: timestamp]
+    Conversations.archive_for_erasure(request.tenant_id, request.conversation_id, timestamp)
+    |> owner_command_or_rollback()
+
+    audio_revocation_ok!(
+      AudioCalls.revoke_for_conversation(
+        request.tenant_id,
+        request.conversation_id,
+        "governance_conversation_deleted"
+      )
     )
 
     []
   end
 
   defp apply_target_deletion!(%DeletionRequest{target_type: :user} = request, timestamp) do
+    identity_result =
+      Accounts.erase_user_for_governance(%{
+        tenant_id: request.tenant_id,
+        user_id: request.subject_user_id,
+        pending_deletion_user_ids: pending_deletion_user_ids(request.tenant_id),
+        timestamp: timestamp
+      })
+      |> owner_command_or_rollback()
+
+    Conversations.remove_user_memberships_for_erasure(
+      request.tenant_id,
+      identity_result.user_id,
+      timestamp
+    )
+    |> owner_command_or_rollback()
+
+    audio_revocation_ok!(
+      AudioCalls.revoke_for_user(
+        request.tenant_id,
+        identity_result.user_id,
+        "governance_user_deleted"
+      )
+    )
+
+    identity_result.revoked_session_ids
+  end
+
+  defp pending_deletion_user_ids(tenant_id) do
     Repo.all(
-      from(u in User,
-        where: u.tenant_id == ^request.tenant_id,
-        select: u.id,
-        lock: "FOR UPDATE"
+      from(r in DeletionRequest,
+        where:
+          r.tenant_id == ^tenant_id and r.target_type == :user and
+            r.status in [:approved, :in_progress],
+        select: r.subject_user_id
       )
     )
-
-    user =
-      Repo.one(
-        from(u in User,
-          where: u.id == ^request.subject_user_id and u.tenant_id == ^request.tenant_id,
-          lock: "FOR UPDATE"
-        )
-      ) || Repo.rollback(:not_found)
-
-    ensure_deletable_owner!(user)
-
-    session_query =
-      from(s in Session,
-        where:
-          s.tenant_id == ^request.tenant_id and s.user_id == ^user.id and is_nil(s.revoked_at)
-      )
-
-    session_ids = session_query |> select([s], s.id) |> Repo.all()
-    Repo.update_all(session_query, set: [revoked_at: timestamp, updated_at: timestamp])
-
-    Repo.update_all(
-      from(d in Device,
-        where:
-          d.tenant_id == ^request.tenant_id and d.user_id == ^user.id and is_nil(d.revoked_at)
-      ),
-      set: [revoked_at: timestamp, updated_at: timestamp]
-    )
-
-    Repo.update_all(
-      from(m in Membership,
-        where: m.tenant_id == ^request.tenant_id and m.user_id == ^user.id and is_nil(m.left_at)
-      ),
-      set: [left_at: timestamp, updated_at: timestamp]
-    )
-
-    anonymized = "deleted-#{user.id}"
-
-    user
-    |> User.changeset(%{
-      external_subject: anonymized,
-      display_name: "Deleted user",
-      email: "#{anonymized}@invalid.example",
-      status: :deleted
-    })
-    |> Ecto.Changeset.optimistic_lock(:lock_version)
-    |> update_or_rollback()
-
-    session_ids
   end
 
   defp ensure_deletable_owner!(%User{role: :owner, status: :active} = user) do
@@ -971,6 +1062,7 @@ defmodule CommsCore.Governance do
     Repo.all(
       from(u in User,
         where: u.tenant_id == ^request.tenant_id,
+        order_by: [asc: u.id],
         select: u.id,
         lock: "FOR UPDATE"
       )
@@ -1171,13 +1263,13 @@ defmodule CommsCore.Governance do
 
   defp audit!(subject, action, resource_type, resource_id, metadata) do
     subject
-    |> audit_changeset(action, resource_type, resource_id, metadata)
-    |> insert_or_rollback()
+    |> audit_command(action, resource_type, resource_id, metadata)
+    |> Audit.record()
+    |> audit_or_rollback()
   end
 
   defp audit_system!(tenant_id, action, resource_id, metadata) do
-    %AuditEvent{}
-    |> AuditEvent.changeset(%{
+    Audit.record(%{
       tenant_id: tenant_id,
       actor_user_id: nil,
       action: action,
@@ -1186,11 +1278,11 @@ defmodule CommsCore.Governance do
       metadata: metadata,
       request_id: "worker:deletion"
     })
-    |> insert_or_rollback()
+    |> audit_or_rollback()
   end
 
-  defp audit_changeset(subject, action, resource_type, resource_id, metadata) do
-    AuditEvent.changeset(%AuditEvent{}, %{
+  defp audit_command(subject, action, resource_type, resource_id, metadata) do
+    %{
       tenant_id: value(subject, :tenant_id),
       actor_user_id: value(subject, :user_id),
       action: action,
@@ -1198,11 +1290,23 @@ defmodule CommsCore.Governance do
       resource_id: resource_id,
       metadata: metadata,
       request_id: value(subject, :request_id)
-    })
+    }
   end
+
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
+  defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
+  defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp audio_revocation_ok!({:ok, _count}), do: :ok
+  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp authorization_or_rollback!(:ok), do: :ok
+  defp authorization_or_rollback!({:error, reason}), do: Repo.rollback(reason)
+  defp owner_command_or_rollback({:ok, result}), do: result
+  defp owner_command_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do

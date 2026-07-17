@@ -1,10 +1,19 @@
 defmodule CommsCore.ServiceAccountsTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Conversations, PasswordRecovery, Repo, ServiceAccounts}
-  alias CommsCore.Accounts.Device
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.ServiceAccounts.{ServiceAccount, ServiceUser}
+  alias CommsCore.{
+    Accounts,
+    Administration,
+    Audit,
+    Conversations,
+    Messaging,
+    PasswordRecovery,
+    Repo,
+    ServiceAccounts
+  }
+
+  alias CommsCore.Accounts.{Device, User}
+  alias CommsCore.ServiceAccounts.ServiceAccount
   alias CommsTestSupport.Fixtures
 
   test "credentials are one-time, versioned, human-login isolated, and revoked atomically" do
@@ -26,7 +35,7 @@ defmodule CommsCore.ServiceAccountsTest do
     refute account.secret_hash == :crypto.hash(:sha256, created.credential)
     refute inspect(account) =~ created.credential
 
-    service_user = Repo.get!(ServiceUser, account.user_id)
+    service_user = Repo.get!(User, account.user_id)
     device = Repo.get!(Device, account.device_id)
     assert service_user.account_type == :service
     assert service_user.role == :member
@@ -46,7 +55,7 @@ defmodule CommsCore.ServiceAccountsTest do
              )
 
     assert {:error, :forbidden} =
-             Accounts.create_invitation(
+             Administration.create_invitation(
                %{email: service_user.email, role: "member", idempotency_key: "bot-invite"},
                subject
              )
@@ -97,13 +106,11 @@ defmodule CommsCore.ServiceAccountsTest do
     assert revoked.status == :revoked
     assert revoked.lock_version == 3
     assert {:error, :invalid_service_token} = ServiceAccounts.authenticate(rotated.credential)
-    assert Repo.get!(ServiceUser, account.user_id).status == :suspended
+    assert Repo.get!(User, account.user_id).status == :suspended
     refute is_nil(Repo.get!(Device, account.device_id).revoked_at)
 
     audit_text =
-      AuditEvent
-      |> where([event], event.resource_id == ^account.id)
-      |> Repo.all()
+      Audit.list(%{tenant_id: owner.tenant.id, resource_id: account.id})
       |> Enum.map_join(" ", &inspect(&1.metadata))
 
     refute audit_text =~ "kcsa_"
@@ -138,31 +145,80 @@ defmodule CommsCore.ServiceAccountsTest do
 
     assert {:ok, service_subject} = ServiceAccounts.authenticate(created.credential)
 
-    assert {:ok, conversations} = ServiceAccounts.list_conversations(service_subject)
-    assert Enum.any?(conversations, &(&1.conversation.id == owner.conversation.id))
+    assert {:ok, conversations} = Conversations.list_for_service(service_subject)
+    assert Enum.any?(conversations, &(&1.id == owner.conversation.id))
 
     message_attrs = %{
       client_message_id: "service-idempotency-0001",
       body: "Release 42 is ready",
-      metadata: %{"source" => "release-bot"}
+      metadata: %{"source" => "release-bot"},
+      tenant_id: Ecto.UUID.generate(),
+      conversation_id: Ecto.UUID.generate(),
+      sender_user_id: Ecto.UUID.generate(),
+      sender_device_id: Ecto.UUID.generate()
     }
 
-    assert {:ok, first, :created} =
-             ServiceAccounts.send_message(owner.conversation.id, message_attrs, service_subject)
+    assert {:error, :invalid_attachments} =
+             Messaging.accept_service_message_with_status(
+               owner.conversation.id,
+               Map.put(message_attrs, :attachment_ids, [Ecto.UUID.generate()]),
+               service_subject
+             )
 
+    caller = self()
+    tracer = spawn_link(fn -> forward_traces(caller) end)
+    trace_target = {Conversations, :authorize_service_access, 3}
+    :erlang.trace(caller, true, [:call, {:tracer, tracer}])
+    :erlang.trace_pattern(trace_target, true, [:local])
+
+    first =
+      try do
+        assert {:ok, first, :created} =
+                 Messaging.accept_service_message_with_status(
+                   owner.conversation.id,
+                   message_attrs,
+                   service_subject
+                 )
+
+        assert_receive {:trace, ^caller, :call,
+                        {Conversations, :authorize_service_access,
+                         [^service_subject, "messages:write", conversation_id]}},
+                       1_000
+
+        assert conversation_id == owner.conversation.id
+
+        assert_receive {:trace, ^caller, :call,
+                        {Conversations, :authorize_service_access,
+                         [^service_subject, "messages:write", conversation_id]}},
+                       1_000
+
+        assert conversation_id == owner.conversation.id
+        first
+      after
+        :erlang.trace(caller, false, [:call])
+        :erlang.trace_pattern(trace_target, false, [:local])
+        send(tracer, :stop)
+      end
+
+    assert first.tenant_id == owner.tenant.id
+    assert first.conversation_id == owner.conversation.id
     assert first.sender_user_id == bot_id
     assert first.sender_device_id == created.service_account.device_id
 
     assert {:ok, replay, :duplicate} =
-             ServiceAccounts.send_message(owner.conversation.id, message_attrs, service_subject)
+             Messaging.accept_service_message_with_status(
+               owner.conversation.id,
+               message_attrs,
+               service_subject
+             )
 
     assert replay.id == first.id
 
     assert {:ok, history} =
-             ServiceAccounts.list_messages(owner.conversation.id, service_subject, limit: 20)
+             Messaging.list_service_history(owner.conversation.id, service_subject, limit: 20)
 
     assert Enum.any?(history, &(&1.id == first.id))
-    assert {:ok, search} = ServiceAccounts.search("Release 42", service_subject)
+    assert {:ok, search} = Messaging.search_for_service("Release 42", service_subject)
     assert Enum.any?(search, &(&1.id == first.id))
 
     assert {:ok, _archived} =
@@ -172,7 +228,26 @@ defmodule CommsCore.ServiceAccountsTest do
                subject
              )
 
-    assert {:ok, archived_search} = ServiceAccounts.search("Release 42", service_subject)
+    assert {:error, :forbidden} =
+             Messaging.list_service_history(owner.conversation.id, service_subject)
+
+    assert {:error, :forbidden} =
+             Messaging.accept_service_message_with_status(
+               owner.conversation.id,
+               message_attrs,
+               service_subject
+             )
+
+    assert {:error, :forbidden} =
+             Messaging.accept_service_message_with_status(
+               owner.conversation.id,
+               %{message_attrs | client_message_id: "service-after-archive-0001"},
+               service_subject
+             )
+
+    assert {:ok, archived_search} =
+             Messaging.search_for_service("Release 42", service_subject)
+
     refute Enum.any?(archived_search, &(&1.id == first.id))
 
     assert {:ok, private_conversation} =
@@ -182,15 +257,22 @@ defmodule CommsCore.ServiceAccountsTest do
              )
 
     assert {:error, :forbidden} =
-             ServiceAccounts.list_messages(private_conversation.id, service_subject)
+             Messaging.list_service_history(private_conversation.id, service_subject)
 
     assert {:error, :forbidden} =
-             ServiceAccounts.send_message(private_conversation.id, message_attrs, service_subject)
+             Messaging.accept_service_message_with_status(
+               private_conversation.id,
+               message_attrs,
+               service_subject
+             )
 
     other_tenant = Fixtures.account_fixture()
 
     assert {:error, :forbidden} =
-             ServiceAccounts.list_messages(other_tenant.conversation.id, service_subject)
+             Messaging.list_service_history(other_tenant.conversation.id, service_subject)
+
+    assert {:error, :forbidden} =
+             Messaging.list_service_history("not-a-conversation-id", service_subject)
   end
 
   test "each service endpoint capability fails closed when its scope is absent" do
@@ -216,19 +298,57 @@ defmodule CommsCore.ServiceAccountsTest do
              )
 
     assert {:ok, service_subject} = ServiceAccounts.authenticate(created.credential)
-    assert {:ok, _} = ServiceAccounts.list_conversations(service_subject)
+    assert {:ok, _} = Conversations.list_for_service(service_subject)
 
     assert {:error, :forbidden} =
-             ServiceAccounts.list_messages(owner.conversation.id, service_subject)
+             Messaging.list_service_history(owner.conversation.id, service_subject)
 
     assert {:error, :forbidden} =
-             ServiceAccounts.send_message(
+             Messaging.accept_service_message_with_status(
                owner.conversation.id,
                %{client_message_id: "wrong-scope-0001", body: "blocked"},
                service_subject
              )
 
-    assert {:error, :forbidden} = ServiceAccounts.search("blocked", service_subject)
+    assert {:error, :forbidden} = Messaging.search_for_service("blocked", service_subject)
+    assert {:error, :forbidden} = Messaging.search_for_service("   ", service_subject)
+  end
+
+  test "service authorization rejects malformed identities and non-member service users" do
+    malformed_subject = %{
+      auth_type: :service,
+      service_account_id: "bad",
+      tenant_id: "bad",
+      user_id: "bad",
+      device_id: "bad",
+      credential_generation: 1,
+      scopes: ["conversations:read"]
+    }
+
+    assert {:error, :forbidden} =
+             ServiceAccounts.authorize_service(malformed_subject, "conversations:read")
+
+    owner = Fixtures.account_fixture()
+    subject = Fixtures.step_up(owner)
+
+    assert {:ok, created} =
+             ServiceAccounts.create(
+               %{
+                 name: "Integrity Bot",
+                 scopes: ["conversations:read"],
+                 reason: "Exercise command-time identity integrity"
+               },
+               subject
+             )
+
+    assert {:ok, service_subject} = ServiceAccounts.authenticate(created.credential)
+    assert :ok = ServiceAccounts.authorize_service(service_subject, "conversations:read")
+
+    from(user in User, where: user.id == ^created.service_account.user_id)
+    |> Repo.update_all(set: [role: :owner])
+
+    assert {:error, :forbidden} =
+             ServiceAccounts.authorize_service(service_subject, "conversations:read")
   end
 
   test "expiry is bounded and cleanup disables the durable bot identity" do
@@ -267,7 +387,18 @@ defmodule CommsCore.ServiceAccountsTest do
     assert {:error, :invalid_service_token} = ServiceAccounts.authenticate(created.credential)
     assert {:ok, [expired]} = ServiceAccounts.list(subject)
     assert expired.status == :expired
-    assert Repo.get!(ServiceUser, expired.user_id).status == :suspended
+    assert Repo.get!(User, expired.user_id).status == :suspended
     refute is_nil(Repo.get!(Device, expired.device_id).revoked_at)
+  end
+
+  defp forward_traces(parent) do
+    receive do
+      :stop ->
+        :ok
+
+      message ->
+        send(parent, message)
+        forward_traces(parent)
+    end
   end
 end

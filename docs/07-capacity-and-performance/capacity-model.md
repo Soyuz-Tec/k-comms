@@ -28,6 +28,8 @@ multi-node fan-out limits, failure headroom, or production SLO compliance.
 | `r_online` | Average online recipients per message |
 | `s_message` | Average stored bytes per message including indexes/metadata |
 | `a_day` | Attachment bytes uploaded per day |
+| `c_media` | Peak concurrent call participants by media kind and group-size distribution |
+| `b_media` | Measured SFU ingress/egress and TURN-relay bitrate per participant profile |
 | `h` | Headroom multiplier |
 
 ## Core formulas
@@ -38,6 +40,8 @@ live_deliveries_per_second = mps × r_online × h
 message_storage_per_day = messages_per_day × s_message × replication_and_index_factor
 edge_nodes = ceil(peak_connections / tested_safe_connections_per_node) + failure_reserve
 worker_concurrency = peak_job_arrival_rate × target_processing_time × h
+media_egress = sum(concurrent_subscriptions × measured_adaptive_track_bitrate) × h
+turn_capacity = forced_relay_participants × measured_relay_bitrate × h
 ```
 
 ## Scenario table
@@ -50,6 +54,8 @@ worker_concurrency = peak_job_arrival_rate × target_processing_time × h
 | Average online recipients | Measured launch forecast | Measured growth forecast | Approved stress scenario |
 | Maximum channel size | Tenant limit, default 250 | Approved growth limit | Maximum tested limit |
 | Daily attachment volume | External forecast | External forecast | Approved stress scenario |
+| Concurrent audio/video participants and group-size distribution | External forecast | External forecast | Approved direct/group stress scenario |
+| Camera/screen profiles and forced-TURN fraction | Measured approved profile | Measured approved profile | Approved degraded-network scenario |
 
 Do not populate this launch/growth/stress table from the local qualification
 run. Those inputs require an approved workload forecast and representative
@@ -64,5 +70,14 @@ multi-node tests.
 - Object-storage and CDN throughput
 - Search-index ingest and query capacity
 - Observability ingest and retention cost
+- LiveKit room/participant, SFU CPU/network, regional egress, and TURN/TLS relay
+  capacity for direct and representative group video plus screen sharing
 
 Do not convert theoretical BEAM process limits directly into production capacity. Use safe thresholds from representative soak tests with realistic payloads and failure injection.
+
+The local loopback Compose call proof establishes functional signaling and
+same-host media only. It cannot establish internet bandwidth, NAT traversal,
+TURN/TLS throughput, browser/device decode limits, or a safe maximum group size.
+Each production environment must approve those limits from representative
+audio/video/screen profiles at expected peak plus failure headroom; this release
+does not invent a portable hard application participant cap.

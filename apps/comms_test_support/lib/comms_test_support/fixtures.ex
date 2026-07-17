@@ -1,6 +1,7 @@
 defmodule CommsTestSupport.Fixtures do
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.User
+  alias CommsCore.Accounts.{Tenant, User}
+  alias CommsCore.Conversations.Conversation
   alias CommsCore.Repo
   alias CommsCore.Security.Password
 
@@ -22,7 +23,12 @@ defmodule CommsTestSupport.Fixtures do
       )
 
     {:ok, account} = Accounts.bootstrap_tenant(attrs)
-    account
+
+    %{
+      account
+      | tenant: Repo.get!(Tenant, account.tenant.id),
+        conversation: Repo.get!(Conversation, account.conversation.id)
+    }
   end
 
   def user_fixture(account, overrides \\ %{}) do

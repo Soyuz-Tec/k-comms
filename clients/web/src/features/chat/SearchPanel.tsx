@@ -27,10 +27,12 @@ export function SearchPanel({
   onSelect: (message: Message) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [rawResults, setRawResults] = useState<Message[]>([]);
+  const [results, setResults] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState("all");
   const [senderId, setSenderId] = useState("all");
   const [dateScope, setDateScope] = useState<DateScope>("any");
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,33 +43,46 @@ export function SearchPanel({
   );
   const resultButtons = useRef<Array<HTMLButtonElement | null>>([]);
   const requestId = useRef(0);
+  const submittedAfter = useRef<string | undefined>(undefined);
   const dialogRef = useModalDialog(onClose);
-
-  const results = useMemo(() => {
-    const cutoff = dateScope === "any" ? null : Date.now() - DATE_WINDOWS[dateScope];
-    return rawResults.filter((message) => {
-      if (conversationId !== "all" && message.conversation_id !== conversationId) return false;
-      if (senderId !== "all" && message.sender_user_id !== senderId) return false;
-      if (cutoff !== null && new Date(message.inserted_at).getTime() < cutoff) return false;
-      return true;
-    });
-  }, [conversationId, dateScope, rawResults, senderId]);
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await loadResults(null, false);
+  }
+
+  async function loadResults(nextCursor: string | null, append: boolean) {
     if (!query.trim()) return;
     const currentRequest = ++requestId.current;
+    const after = append
+      ? submittedAfter.current
+      : dateScope === "any"
+        ? undefined
+        : new Date(Date.now() - DATE_WINDOWS[dateScope]).toISOString();
+    if (!append) submittedAfter.current = after;
     setBusy(true);
     setError(null);
     try {
-      const nextResults = await api.searchMessages(query.trim());
+      const response = await api.searchMessagePage(query.trim(), {
+        limit: 25,
+        cursor: nextCursor,
+        conversation_id: conversationId === "all" ? undefined : conversationId,
+        sender_user_id: senderId === "all" ? undefined : senderId,
+        after
+      });
       if (currentRequest !== requestId.current) return;
-      setRawResults(nextResults);
+      setResults((current) => append ? [...current, ...response.data] : response.data);
+      setCursor(response.page.next_cursor);
+      setHasMore(response.page.has_more);
       setHasSearched(true);
     } catch (reason: unknown) {
       if (currentRequest !== requestId.current) return;
-      setRawResults([]);
-      setHasSearched(false);
+      if (!append) {
+        setResults([]);
+        setCursor(null);
+        setHasMore(false);
+        setHasSearched(false);
+      }
       setError(errorText(reason));
     } finally {
       if (currentRequest === requestId.current) setBusy(false);
@@ -75,9 +90,16 @@ export function SearchPanel({
   }
 
   function queryChanged(value: string) {
-    requestId.current += 1;
     setQuery(value);
-    setRawResults([]);
+    resetResults();
+  }
+
+  function resetResults() {
+    requestId.current += 1;
+    setResults([]);
+    setCursor(null);
+    setHasMore(false);
+    submittedAfter.current = undefined;
     setHasSearched(false);
     setBusy(false);
     setError(null);
@@ -105,19 +127,19 @@ export function SearchPanel({
           <fieldset className="message-search-filters">
             <legend>Refine results</legend>
             <label>Conversation
-              <select value={conversationId} onChange={(event) => setConversationId(event.target.value)}>
+              <select value={conversationId} onChange={(event) => { setConversationId(event.target.value); resetResults(); }}>
                 <option value="all">All conversations</option>
                 {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationTitle(conversation)}</option>)}
               </select>
             </label>
             <label>Sender
-              <select value={senderId} onChange={(event) => setSenderId(event.target.value)}>
+              <select value={senderId} onChange={(event) => { setSenderId(event.target.value); resetResults(); }}>
                 <option value="all">Anyone</option>
                 {users.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}
               </select>
             </label>
             <label>Date
-              <select value={dateScope} onChange={(event) => setDateScope(event.target.value as DateScope)}>
+              <select value={dateScope} onChange={(event) => { setDateScope(event.target.value as DateScope); resetResults(); }}>
                 <option value="any">Any time</option>
                 <option value="day">Past 24 hours</option>
                 <option value="week">Past 7 days</option>
@@ -129,13 +151,14 @@ export function SearchPanel({
         </form>
         {error && <div className="form-error" role="alert">{error}</div>}
         {hasSearched && <p id="message-search-summary" className="search-result-summary" role="status" aria-live="polite" aria-atomic="true">{results.length} {results.length === 1 ? "result" : "results"} shown.</p>}
-        {!busy && hasSearched && results.length === 0 && <p className="empty-copy">{rawResults.length === 0 ? "No accessible messages found." : "No messages match these filters."}</p>}
+        {!busy && hasSearched && results.length === 0 && <p className="empty-copy">No accessible messages match this search.</p>}
         <ol className="search-results" aria-describedby={hasSearched ? "message-search-summary" : undefined}>
           {results.map((message, index) => {
             const conversation = conversationsById.get(message.conversation_id);
             return <li key={message.id}><button ref={(element) => { resultButtons.current[index] = element; }} type="button" onKeyDown={(event) => moveResultFocus(event, index)} onClick={() => onSelect(message)}><span><strong>{conversation ? conversationTitle(conversation) : "Conversation"}</strong><time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time></span><p>{message.body || "Message unavailable"}</p><small>{usersById.get(message.sender_user_id)?.display_name || "Unknown user"}</small></button></li>;
           })}
         </ol>
+        {hasMore && <button className="button ghost full" type="button" disabled={busy || !cursor} onClick={() => void loadResults(cursor, true)}>{busy ? "Loading…" : "Load more results"}</button>}
       </aside>
     </div>
   );

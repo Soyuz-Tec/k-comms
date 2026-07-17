@@ -27,6 +27,8 @@ export function TenantSettingsPanel({ api, onUpdated }: { api: ApiClient; onUpda
     try {
       const updated = await runWithStepUp(() => api.updateTenantAdministration({
         name: stringValue(values, "name"),
+        allow_audio_calls: values.get("allow_audio_calls") === "on",
+        allow_video_calls: values.get("allow_video_calls") === "on",
         allow_public_channels: values.get("allow_public_channels") === "on",
         message_edit_window_seconds: Number(values.get("message_edit_window_seconds")),
         max_attachment_bytes: Number(values.get("max_attachment_bytes")),
@@ -69,6 +71,8 @@ export function TenantSettingsPanel({ api, onUpdated }: { api: ApiClient; onUpda
       <label className="field">Maximum active conversations<input name="max_active_conversations" type="number" min={1} max={10_000_000} defaultValue={state.settings.max_active_conversations} required /><small>Archived conversations do not consume capacity.</small></label>
       <label className="field">Maximum members per conversation<input name="max_conversation_members" type="number" min={2} max={100_000} defaultValue={state.settings.max_conversation_members} required /><small>At least two preserves direct conversations; left memberships do not consume capacity.</small></label>
     </div>
+    <label className="checkbox-field"><input name="allow_audio_calls" type="checkbox" defaultChecked={state.settings.allow_audio_calls} />Allow members to start and join audio calls</label>
+    <label className="checkbox-field"><input name="allow_video_calls" type="checkbox" defaultChecked={state.settings.allow_video_calls} />Allow members to start and join video calls</label>
     <label className="checkbox-field"><input name="allow_public_channels" type="checkbox" defaultChecked={state.settings.allow_public_channels} />Allow workspace-visible public channels</label>
     <div className="form-actions"><button className="button primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save workspace settings"}</button></div>
   </form>;

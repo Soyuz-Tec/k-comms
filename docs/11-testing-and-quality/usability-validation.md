@@ -62,8 +62,11 @@ those cohorts.
 3. Give participants role-specific test accounts. Never use production data or
    credentials.
 4. Enable a controllable disconnect and one failed-send condition.
-5. Record browser, viewport, input/access method, revision, and environment.
-6. Verify the normal security, durability, browser, and staging gates before
+5. For media evaluation, use synthetic direct and three-person group calls with
+   non-sensitive camera test patterns and a synthetic share source. Never
+   capture a participant's personal desktop, notification, or unrelated app.
+6. Record browser, viewport, input/access method, revision, and environment.
+7. Verify the normal security, durability, browser, and staging gates before
    the first session.
 
 ## Core tasks
@@ -154,6 +157,14 @@ Manually exercise:
 Verify skip navigation, route orientation, authentication tabs, every dialog,
 Escape, Tab/Shift+Tab containment, focus restoration, composer, search results,
 threads, notifications, errors, and destructive confirmations.
+
+For calls, manually verify understandable audio/video choice, default-off
+camera and microphone, preview/device selection, non-color capture and speaking
+state, accessible participant names, logical grid focus order at responsive
+sizes, keyboard camera/mute/share/leave/end controls, persistent sharing status,
+immediate stop sharing, focus restoration, permission-denial recovery, and
+complete track cleanup. Screen-reader users must receive state changes without
+continuous speaking/activity announcements.
 
 ## Validated release gates
 

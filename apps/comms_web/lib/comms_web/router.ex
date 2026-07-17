@@ -101,6 +101,14 @@ defmodule CommsWeb.Router do
 
     resources "/conversations", ConversationController, only: [:index, :create, :show, :update] do
       post("/archive", ConversationController, :archive)
+      get("/call", AudioCallController, :show)
+      post("/calls", AudioCallController, :create)
+      post("/calls/:call_id/join", AudioCallController, :join)
+      post("/calls/:call_id/end", AudioCallController, :end_call)
+      get("/audio-call", AudioCallController, :show_audio)
+      post("/audio-calls", AudioCallController, :create_audio)
+      post("/audio-calls/:call_id/join", AudioCallController, :join_audio)
+      post("/audio-calls/:call_id/end", AudioCallController, :end_audio)
       get("/members", ConversationController, :members)
       post("/members", ConversationController, :add_member)
       patch("/members/:user_id", ConversationController, :update_member)

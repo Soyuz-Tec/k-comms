@@ -3,11 +3,19 @@ defmodule CommsCore.PasswordRecovery do
 
   require Logger
 
-  alias CommsCore.Accounts.{Device, PasswordRecoveryRequest, Session, Tenant, User}
-  alias CommsCore.Audit.AuditEvent
-  alias CommsCore.Notifications
-  alias CommsCore.Notifications.Intent
-  alias CommsCore.PushSubscriptions
+  alias CommsCore.Accounts.{
+    Device,
+    NotificationCommand,
+    NotificationPort,
+    NotificationReceipt,
+    PasswordRecoveryRequest,
+    Session,
+    Tenant,
+    User
+  }
+
+  alias CommsCore.AudioCalls
+  alias CommsCore.Audit
   alias CommsCore.Repo
   alias CommsCore.Security.Password
 
@@ -16,6 +24,12 @@ defmodule CommsCore.PasswordRecovery do
   @minimum_key_bytes 32
 
   def event_type, do: @event_type
+
+  def reset_command(attrs) do
+    with {:ok, result} <- reset(attrs) do
+      {:ok, Map.take(result, [:revoked_session_ids])}
+    end
+  end
 
   @doc """
   Accepts a recovery request without revealing whether the identity exists.
@@ -129,8 +143,7 @@ defmodule CommsCore.PasswordRecovery do
 
         revoked_session_ids = revoke_access!(updated_user, timestamp)
 
-        %AuditEvent{}
-        |> AuditEvent.changeset(%{
+        Audit.record(%{
           tenant_id: user.tenant_id,
           actor_user_id: nil,
           action: "password_recovery.consume",
@@ -141,7 +154,7 @@ defmodule CommsCore.PasswordRecovery do
             revoked_session_count: length(revoked_session_ids)
           }
         })
-        |> insert_or_rollback()
+        |> audit_or_rollback()
 
         %{user: updated_user, revoked_session_ids: revoked_session_ids}
       end)
@@ -160,22 +173,24 @@ defmodule CommsCore.PasswordRecovery do
   provider dispatch. The raw token and URL are never persisted or returned by
   ordinary notification APIs.
   """
-  def materialize_notification(%Intent{event_type: @event_type} = intent) do
-    request_id = payload_value(intent.payload, "recovery_request_id")
-
+  def materialize_notification(%{
+        tenant_id: tenant_id,
+        user_id: user_id,
+        recovery_request_id: request_id
+      }) do
     with {:ok, key} <- signing_key(),
          true <- is_binary(request_id),
          %PasswordRecoveryRequest{} = recovery <-
            Repo.get_by(PasswordRecoveryRequest,
              id: request_id,
-             tenant_id: intent.tenant_id,
-             user_id: intent.user_id
+             tenant_id: tenant_id,
+             user_id: user_id
            ),
          true <- deliverable?(recovery),
          %User{status: :active} = user <-
            Repo.get_by(User,
-             id: intent.user_id,
-             tenant_id: intent.tenant_id,
+             id: user_id,
+             tenant_id: tenant_id,
              account_type: :human
            ),
          token <- materialize_token(recovery.id, key),
@@ -234,30 +249,25 @@ defmodule CommsCore.PasswordRecovery do
              })
              |> insert_or_rollback()
 
-           intent =
-             case Notifications.create_intent(%{
-                    tenant_id: locked_user.tenant_id,
-                    user_id: locked_user.id,
-                    event_type: @event_type,
-                    channel: :email,
-                    destination: locked_user.email,
-                    idempotency_key: "password-recovery:#{recovery.id}",
-                    payload: %{"recovery_request_id" => recovery.id}
-                  }) do
-               {:ok, %Intent{} = intent} -> intent
-               {:error, reason} -> Repo.rollback(reason)
-             end
+           receipt =
+             NotificationCommand.password_recovery(
+               locked_user.tenant_id,
+               locked_user.id,
+               locked_user.email,
+               recovery.id
+             )
+             |> NotificationPort.execute()
+             |> notification_receipt_or_rollback()
 
-           %AuditEvent{}
-           |> AuditEvent.changeset(%{
+           Audit.record(%{
              tenant_id: locked_user.tenant_id,
              actor_user_id: nil,
              action: "password_recovery.request",
              resource_type: "password_recovery_request",
              resource_id: recovery.id,
-             metadata: %{source: "public_recovery", notification_intent_id: intent.id}
+             metadata: %{source: "public_recovery", notification_intent_id: receipt.id}
            })
-           |> insert_or_rollback()
+           |> audit_or_rollback()
 
            recovery
          end) do
@@ -363,10 +373,27 @@ defmodule CommsCore.PasswordRecovery do
     )
     |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
 
-    :ok = PushSubscriptions.disable_for_user(user.tenant_id, user.id, "password_recovery")
+    NotificationCommand.user_access_revoked(user.tenant_id, user.id, "password_recovery")
+    |> NotificationPort.execute()
+    |> notification_ok!()
+
+    audio_revocation_ok!(AudioCalls.revoke_for_user(user.tenant_id, user.id, "password_recovery"))
 
     session_ids
   end
+
+  defp audio_revocation_ok!({:ok, _count}), do: :ok
+  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+
+  defp notification_receipt_or_rollback({:ok, %NotificationReceipt{} = receipt}), do: receipt
+  defp notification_receipt_or_rollback({:error, reason}), do: Repo.rollback(reason)
+
+  defp notification_receipt_or_rollback(_unexpected),
+    do: Repo.rollback(:notification_delivery_unavailable)
+
+  defp notification_ok!(:ok), do: :ok
+  defp notification_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp notification_ok!(_unexpected), do: Repo.rollback(:notification_delivery_unavailable)
 
   defp dummy_work(key_result, tenant_slug, email) do
     key =
@@ -438,6 +465,9 @@ defmodule CommsCore.PasswordRecovery do
     end
   end
 
+  defp audit_or_rollback({:ok, event}), do: event
+  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
+
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
 
@@ -446,12 +476,6 @@ defmodule CommsCore.PasswordRecovery do
 
   defp normalized_text(_value), do: ""
   defp normalized_email(value), do: normalized_text(value)
-
-  defp payload_value(payload, key) when is_map(payload) do
-    Map.get(payload, key) || Map.get(payload, :recovery_request_id)
-  end
-
-  defp payload_value(_payload, _key), do: nil
 
   defp value(map, key) when is_map(map) do
     case Map.fetch(map, key) do

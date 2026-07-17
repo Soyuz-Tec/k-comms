@@ -1,8 +1,8 @@
-defmodule CommsCore.InAppNotificationsTest do
+defmodule CommsCore.Notifications.InAppTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.InAppNotifications
-  alias CommsCore.Notifications.Intent
+  alias CommsCore.Notifications
+  alias CommsCore.Notifications.{Intent, IntentView}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -25,7 +25,8 @@ defmodule CommsCore.InAppNotificationsTest do
     _recovery =
       insert_intent(account, %{event_type: "account.password_recovery.requested.v1"})
 
-    assert {:ok, result} = InAppNotifications.list(subject)
+    assert {:ok, result} = Notifications.list_in_app(subject)
+    assert Enum.all?(result.notifications, &match?(%IntentView{}, &1))
 
     assert Enum.map(result.notifications, & &1.id) |> MapSet.new() ==
              MapSet.new([unread.id, already_read.id])
@@ -34,25 +35,26 @@ defmodule CommsCore.InAppNotificationsTest do
     refute email.id in Enum.map(result.notifications, & &1.id)
     refute dismissed.id in Enum.map(result.notifications, & &1.id)
 
-    assert {:ok, read} = InAppNotifications.mark_read(unread.id, subject)
+    assert {:ok, read} = Notifications.mark_in_app_read(unread.id, subject)
     assert read.read_at
-    assert {:ok, replayed_read} = InAppNotifications.mark_read(unread.id, subject)
+    assert {:ok, replayed_read} = Notifications.mark_in_app_read(unread.id, subject)
     assert replayed_read.read_at == read.read_at
-    assert {:ok, 0} = InAppNotifications.unread_count(subject)
+    assert {:ok, 0} = Notifications.unread_count(subject)
 
-    assert {:error, :not_found} = InAppNotifications.mark_read(other_user_intent.id, subject)
+    assert {:error, :not_found} =
+             Notifications.mark_in_app_read(other_user_intent.id, subject)
 
-    assert {:ok, dismissed_read} = InAppNotifications.dismiss(unread.id, subject)
+    assert {:ok, dismissed_read} = Notifications.dismiss_in_app(unread.id, subject)
     assert dismissed_read.dismissed_at
-    assert {:ok, replayed_dismiss} = InAppNotifications.dismiss(unread.id, subject)
+    assert {:ok, replayed_dismiss} = Notifications.dismiss_in_app(unread.id, subject)
     assert replayed_dismiss.dismissed_at == dismissed_read.dismissed_at
 
     insert_intent(account)
     insert_intent(account)
 
-    assert {:ok, bulk_result} = InAppNotifications.mark_all_read(subject)
+    assert {:ok, bulk_result} = Notifications.mark_all_in_app_read(subject)
     assert bulk_result.updated_count == 2
-    assert {:ok, current_unread_count} = InAppNotifications.unread_count(subject)
+    assert {:ok, current_unread_count} = Notifications.unread_count(subject)
     assert bulk_result.unread_count == current_unread_count
 
     assert Repo.get!(Intent, other_user_intent.id).read_at == nil
