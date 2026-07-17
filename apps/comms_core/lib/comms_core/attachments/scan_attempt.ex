@@ -2,7 +2,7 @@ defmodule CommsCore.Attachments.ScanAttempt do
   use CommsCore.Schema
 
   schema "attachment_scan_attempts" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     field(:attachment_id, :binary_id)
     field(:attempt_number, :integer)
     field(:provider, :string)

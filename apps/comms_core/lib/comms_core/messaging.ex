@@ -576,12 +576,11 @@ defmodule CommsCore.Messaging do
          true <- same_tenant?(message, subject),
          true <- value(subject, :user_id) == message.sender_user_id,
          true <- message.status == :active,
-         {:ok, capabilities} <- Administration.member_capabilities(subject),
-         :ok <-
-           enforce_edit_window(
-             message,
-             Map.get(capabilities, :message_edit_window_seconds, 86_400)
-           ) do
+         {:ok,
+          %Administration.ConversationContentPolicy{
+            message_edit_window_seconds: edit_window_seconds
+          }} <- Administration.conversation_content_policy(subject),
+         :ok <- enforce_edit_window(message, edit_window_seconds) do
       :ok
     else
       {:error, :edit_window_expired} = error -> error

@@ -2,9 +2,9 @@ defmodule CommsCore.Messaging.MessageRevision do
   use CommsCore.Schema
 
   schema "message_revisions" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:message, CommsCore.Messaging.Message)
-    belongs_to(:editor_user, CommsCore.Accounts.User)
+    field(:editor_user_id, Ecto.UUID)
     field(:body, :string)
     field(:revision, :integer)
     timestamps(updated_at: false)

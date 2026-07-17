@@ -6,6 +6,7 @@ defmodule CommsCore.Administration do
   alias CommsCore.Administration.{
     AuthorizationActor,
     AuthorizationActorPort,
+    ConversationContentPolicy,
     IdentityAccessPort,
     IdentityGrant,
     Invitations,
@@ -150,6 +151,32 @@ defmodule CommsCore.Administration do
       {:ok, project_tenant_settings_result(result)}
     end
   end
+
+  @doc """
+  Returns the minimal tenant policy consumed by ConversationContent.
+
+  The caller must hold ordinary tenant capability access. Missing persisted
+  settings use the same defaults as tenant administration without exposing the
+  TenantSettings schema or unrelated capabilities.
+  """
+  @spec conversation_content_policy(map()) ::
+          {:ok, ConversationContentPolicy.t()} | {:error, :forbidden}
+  def conversation_content_policy(subject) when is_map(subject) do
+    tenant_id = value(subject, :tenant_id)
+
+    with :ok <- authorize_read_capabilities(subject) do
+      settings = Repo.get_by(TenantSettings, tenant_id: tenant_id) || %TenantSettings{}
+
+      {:ok,
+       %ConversationContentPolicy{
+         tenant_id: tenant_id,
+         message_edit_window_seconds: settings.message_edit_window_seconds,
+         max_attachment_bytes: settings.max_attachment_bytes
+       }}
+    end
+  end
+
+  def conversation_content_policy(_subject), do: {:error, :forbidden}
 
   def member_capabilities(subject) do
     tenant_id = value(subject, :tenant_id)

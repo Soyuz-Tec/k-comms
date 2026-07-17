@@ -8,6 +8,11 @@ defmodule CommsCore.Attachments do
     AttachmentDeletionObject,
     AttachmentView,
     Projector,
+    RestoreCandidate,
+    RestoreContext,
+    RestoreRemap,
+    RestoreReport,
+    RestoredObjectIdentity,
     ScanAttempt
   }
 
@@ -18,6 +23,24 @@ defmodule CommsCore.Attachments do
   @default_max_bytes 26_214_400
   @schema_max_bytes 1_073_741_824
   @scan_claim_timeout_seconds 300
+
+  @doc """
+  Verifies and atomically remaps restored attachment object versions.
+
+  The verifier receives a persistence-neutral `RestoreCandidate`; attachment
+  schemas and lifecycle state remain internal to this boundary.
+  """
+  @spec remap_restored_attachment_versions(
+          (RestoreCandidate.t() -> {:ok, RestoredObjectIdentity.t()} | {:error, term()}),
+          RestoreContext.t()
+        ) :: {:ok, RestoreReport.t()} | {:error, term()}
+  def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)
+      when is_function(verifier, 1) do
+    RestoreRemap.run(verifier, context)
+  end
+
+  def remap_restored_attachment_versions(_verifier, _context),
+    do: {:error, :invalid_restore_remap_invocation}
 
   @doc """
   Returns the object-storage identities owned by an attachment erasure scope.
@@ -308,25 +331,38 @@ defmodule CommsCore.Attachments do
       attachment.verified_checksum_sha256 == attachment.checksum_sha256
   end
 
+  @doc """
+  Claims ready attachments for a message inside the caller's transaction.
+
+  Messaging owns the surrounding message transaction; this contributed write
+  refuses to run independently so the message and attachment claims cannot
+  commit separately.
+  """
+  @spec attach_ready([String.t()], String.t(), String.t(), map()) ::
+          :ok | {:error, :transaction_required}
   def attach_ready(ids, message_id, tenant_id, subject)
       when is_list(ids) and is_binary(message_id) and is_binary(tenant_id) do
-    ids = Enum.uniq(ids)
-
-    if ids == [] do
-      :ok
+    if Repo.in_transaction?() do
+      attach_ready_in_transaction(Enum.uniq(ids), message_id, tenant_id, subject)
     else
-      query =
-        from(a in Attachment,
-          where:
-            a.id in ^ids and a.tenant_id == ^tenant_id and
-              a.owner_user_id == ^value(subject, :user_id) and a.status == :ready and
-              a.scan_status == :clean and not is_nil(a.object_version_id) and
-              a.verified_checksum_sha256 == a.checksum_sha256 and is_nil(a.message_id)
-        )
-
-      {count, _} = Repo.update_all(query, set: [message_id: message_id, updated_at: now()])
-      if count == length(ids), do: :ok, else: Repo.rollback(:invalid_attachments)
+      {:error, :transaction_required}
     end
+  end
+
+  defp attach_ready_in_transaction([], _message_id, _tenant_id, _subject), do: :ok
+
+  defp attach_ready_in_transaction(ids, message_id, tenant_id, subject) do
+    query =
+      from(a in Attachment,
+        where:
+          a.id in ^ids and a.tenant_id == ^tenant_id and
+            a.owner_user_id == ^value(subject, :user_id) and a.status == :ready and
+            a.scan_status == :clean and not is_nil(a.object_version_id) and
+            a.verified_checksum_sha256 == a.checksum_sha256 and is_nil(a.message_id)
+      )
+
+    {count, _} = Repo.update_all(query, set: [message_id: message_id, updated_at: now()])
+    if count == length(ids), do: :ok, else: Repo.rollback(:invalid_attachments)
   end
 
   defp owned_for_update(id, subject) do
@@ -650,12 +686,12 @@ defmodule CommsCore.Attachments do
   end
 
   defp attachment_limit(subject) do
-    case Administration.member_capabilities(subject) do
-      {:ok, %{max_attachment_bytes: limit}}
+    case Administration.conversation_content_policy(subject) do
+      {:ok, %Administration.ConversationContentPolicy{max_attachment_bytes: limit}}
       when is_integer(limit) and limit > 0 and limit <= @schema_max_bytes ->
         {:ok, limit}
 
-      {:ok, _capabilities} ->
+      {:ok, _policy} ->
         {:ok, @default_max_bytes}
 
       {:error, _reason} = error ->

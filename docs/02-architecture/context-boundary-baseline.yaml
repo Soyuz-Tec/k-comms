@@ -41,18 +41,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/accounts/user.ex
   detail: CommsCore.Accounts.User references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 281d9add61ab8c61
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/attachments/attachment.ex
-  detail: CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 4d0c0c815493288e
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/attachments/attachment.ex
-  detail: CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 7ac0c7ca4d4d6af3
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/attachments/scan_attempt.ex
-  detail: CommsCore.Attachments.ScanAttempt references owner-internal schema CommsCore.Accounts.Tenant
 - fingerprint: fc1a11f2a5f8452a
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/audio_calls.ex
@@ -133,46 +121,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex
   detail: CommsCore.Integrations.WebhookDelivery references owner-internal schema CommsCore.Events.OutboxEvent
-- fingerprint: b55f1875cf2b64d8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message.ex
-  detail: CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.Device
-- fingerprint: f1940a85836a5231
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message.ex
-  detail: CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 0bb3a37c40cc67ed
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message.ex
-  detail: CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 7189e4399b7315ba
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message.ex
-  detail: CommsCore.Messaging.Message references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: e7095da760d0066e
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message_mention.ex
-  detail: CommsCore.Messaging.MessageMention references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 7cefa81ef6dff66b
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message_mention.ex
-  detail: CommsCore.Messaging.MessageMention references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 0eed2537c58046a8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message_revision.ex
-  detail: CommsCore.Messaging.MessageRevision references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 1e36cf5947105a60
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/message_revision.ex
-  detail: CommsCore.Messaging.MessageRevision references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 00fed2fc66ac6b5f
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/reaction.ex
-  detail: CommsCore.Messaging.Reaction references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: f30df696bf8e3c3c
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/messaging/reaction.ex
-  detail: CommsCore.Messaging.Reaction references owner-internal schema CommsCore.Accounts.User
 - fingerprint: c3292521cd5c5918
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/password_recovery.ex

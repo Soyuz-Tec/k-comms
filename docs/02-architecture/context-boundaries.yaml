@@ -143,6 +143,25 @@ enforcement:
         - fd674ae8b306fa26
       adr: docs/02-architecture/adr/0039-contain-trust-governance-persistence.md
       removal_condition: Remove this exact 81-to-59 finding transition after the TrustGovernance containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-conversation-content-persistence
+      previous_baseline_sha256: 75fb767635aaf4a695dc2f0c6e27f7d77fc4a1a42f3f5f745b0b6d30f0ccf1c5
+      added_fingerprints: []
+      removed_fingerprints:
+        - 00fed2fc66ac6b5f
+        - 0bb3a37c40cc67ed
+        - 0eed2537c58046a8
+        - 1e36cf5947105a60
+        - 281d9add61ab8c61
+        - 4d0c0c815493288e
+        - 7189e4399b7315ba
+        - 7ac0c7ca4d4d6af3
+        - 7cefa81ef6dff66b
+        - b55f1875cf2b64d8
+        - e7095da760d0066e
+        - f1940a85836a5231
+        - f30df696bf8e3c3c
+      adr: docs/02-architecture/adr/0040-contain-conversation-content-persistence.md
+      removal_condition: Remove this exact 59-to-46 finding transition after the ConversationContent containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -202,6 +221,7 @@ contexts:
       - CommsCore.Administration.AdmissionPolicy
       - CommsCore.Administration.AuthorizationActor
       - CommsCore.Administration.AuthorizationActorPort
+      - CommsCore.Administration.ConversationContentPolicy
       - CommsCore.Administration.IdentityAccessPort
       - CommsCore.Administration.IdentityGrant
       - CommsCore.Administration.InvitationView
@@ -247,6 +267,10 @@ contexts:
       - CommsCore.Messaging.ReactionView
       - CommsCore.Attachments.AttachmentDeletionObject
       - CommsCore.Attachments.AttachmentView
+      - CommsCore.Attachments.RestoreCandidate
+      - CommsCore.Attachments.RestoreContext
+      - CommsCore.Attachments.RestoreReport
+      - CommsCore.Attachments.RestoredObjectIdentity
       - CommsCore.Attachments.ScanAttemptView
     internal_namespaces: [CommsCore.Messaging, CommsCore.Attachments]
     allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
@@ -668,9 +692,6 @@ temporary_violations:
         - 2239525a78f246a4
         - 9c00206437b708a1
         - 6e01f546438ba1e0
-        - 281d9add61ab8c61
-        - 4d0c0c815493288e
-        - 7ac0c7ca4d4d6af3
         - fc1a11f2a5f8452a
         - 8ee1149661d778c8
         - 605ae97a5fa655cc
@@ -691,16 +712,6 @@ temporary_violations:
         - e3c6574035e85b56
         - c94c7774541553d1
         - c06055a43f05a1f7
-        - b55f1875cf2b64d8
-        - f1940a85836a5231
-        - 0bb3a37c40cc67ed
-        - 7189e4399b7315ba
-        - e7095da760d0066e
-        - 7cefa81ef6dff66b
-        - 0eed2537c58046a8
-        - 1e36cf5947105a60
-        - 00fed2fc66ac6b5f
-        - f30df696bf8e3c3c
         - c3292521cd5c5918
         - 82083a1e5dce0f4c
         - 3d08a6a84ca380ce

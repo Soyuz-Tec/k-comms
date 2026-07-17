@@ -4,7 +4,7 @@ Generated from `scripts/validate_architecture.py --write-boundary-baseline`.
 Existing fingerprints are migration debt. Relative to the checked-in baseline,
 new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
 
-Total tracked violations: **59**.
+Total tracked violations: **46**.
 
 ## adapter_schema_import (1)
 
@@ -18,7 +18,7 @@ Total tracked violations: **59**.
 |---|---|---|
 | `a26844eb317ed35d` | `docs/02-architecture/context-boundaries.yaml` | members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls |
 
-## foreign_schema_import (43)
+## foreign_schema_import (30)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
@@ -29,9 +29,6 @@ Total tracked violations: **59**.
 | `2239525a78f246a4` | `apps/comms_core/lib/comms_core/accounts/session.ex` | CommsCore.Accounts.Session references owner-internal schema CommsCore.Accounts.Tenant |
 | `9c00206437b708a1` | `apps/comms_core/lib/comms_core/accounts/socket_ticket.ex` | CommsCore.Accounts.SocketTicket references owner-internal schema CommsCore.Accounts.Tenant |
 | `6e01f546438ba1e0` | `apps/comms_core/lib/comms_core/accounts/user.ex` | CommsCore.Accounts.User references owner-internal schema CommsCore.Accounts.Tenant |
-| `281d9add61ab8c61` | `apps/comms_core/lib/comms_core/attachments/attachment.ex` | CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.Tenant |
-| `4d0c0c815493288e` | `apps/comms_core/lib/comms_core/attachments/attachment.ex` | CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.User |
-| `7ac0c7ca4d4d6af3` | `apps/comms_core/lib/comms_core/attachments/scan_attempt.ex` | CommsCore.Attachments.ScanAttempt references owner-internal schema CommsCore.Accounts.Tenant |
 | `fc1a11f2a5f8452a` | `apps/comms_core/lib/comms_core/audio_calls.ex` | CommsCore.AudioCalls references owner-internal schema CommsCore.Accounts.Session |
 | `8ee1149661d778c8` | `apps/comms_core/lib/comms_core/audio_calls.ex` | CommsCore.AudioCalls references owner-internal schema CommsCore.Accounts.Tenant |
 | `605ae97a5fa655cc` | `apps/comms_core/lib/comms_core/audio_calls.ex` | CommsCore.AudioCalls references owner-internal schema CommsCore.Conversations.Conversation |
@@ -52,16 +49,6 @@ Total tracked violations: **59**.
 | `e3c6574035e85b56` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Conversation |
 | `c94c7774541553d1` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership |
 | `c06055a43f05a1f7` | `apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex` | CommsCore.Integrations.WebhookDelivery references owner-internal schema CommsCore.Events.OutboxEvent |
-| `b55f1875cf2b64d8` | `apps/comms_core/lib/comms_core/messaging/message.ex` | CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.Device |
-| `f1940a85836a5231` | `apps/comms_core/lib/comms_core/messaging/message.ex` | CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.Tenant |
-| `0bb3a37c40cc67ed` | `apps/comms_core/lib/comms_core/messaging/message.ex` | CommsCore.Messaging.Message references owner-internal schema CommsCore.Accounts.User |
-| `7189e4399b7315ba` | `apps/comms_core/lib/comms_core/messaging/message.ex` | CommsCore.Messaging.Message references owner-internal schema CommsCore.Conversations.Conversation |
-| `e7095da760d0066e` | `apps/comms_core/lib/comms_core/messaging/message_mention.ex` | CommsCore.Messaging.MessageMention references owner-internal schema CommsCore.Accounts.Tenant |
-| `7cefa81ef6dff66b` | `apps/comms_core/lib/comms_core/messaging/message_mention.ex` | CommsCore.Messaging.MessageMention references owner-internal schema CommsCore.Accounts.User |
-| `0eed2537c58046a8` | `apps/comms_core/lib/comms_core/messaging/message_revision.ex` | CommsCore.Messaging.MessageRevision references owner-internal schema CommsCore.Accounts.Tenant |
-| `1e36cf5947105a60` | `apps/comms_core/lib/comms_core/messaging/message_revision.ex` | CommsCore.Messaging.MessageRevision references owner-internal schema CommsCore.Accounts.User |
-| `00fed2fc66ac6b5f` | `apps/comms_core/lib/comms_core/messaging/reaction.ex` | CommsCore.Messaging.Reaction references owner-internal schema CommsCore.Accounts.Tenant |
-| `f30df696bf8e3c3c` | `apps/comms_core/lib/comms_core/messaging/reaction.ex` | CommsCore.Messaging.Reaction references owner-internal schema CommsCore.Accounts.User |
 | `c3292521cd5c5918` | `apps/comms_core/lib/comms_core/password_recovery.ex` | CommsCore.PasswordRecovery references owner-internal schema CommsCore.Accounts.Tenant |
 | `82083a1e5dce0f4c` | `apps/comms_core/lib/comms_core/service_accounts.ex` | CommsCore.ServiceAccounts references owner-internal schema CommsCore.Accounts.Tenant |
 | `3d08a6a84ca380ce` | `apps/comms_core/lib/comms_core/service_accounts/service_account.ex` | CommsCore.ServiceAccounts.ServiceAccount references owner-internal schema CommsCore.Accounts.Tenant |

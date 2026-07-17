@@ -44,6 +44,17 @@ Attachment, and ScanAttempt view contracts rather than persistence structs.
 The validator enforces the one-way internal namespace rule, and the former
 five-file Messaging/Attachments xref cycle has been removed.
 
+The later ADR-0040 containment cut also replaces every foreign association in
+the Message, Mention, Revision, Reaction, Attachment, and ScanAttempt schemas
+with scalar IDs while preserving useful same-owner associations. Messaging and
+Attachments consume the narrow `ConversationContentPolicy` projection rather
+than a broad tenant-capability map. Restore verification is exposed through
+the Attachments facade with Ecto-free candidate, context, identity, and report
+contracts; Release no longer imports the internal restore implementation.
+`Attachments.attach_ready/4` now requires the message-publication transaction.
+The reviewed baseline transition removes exactly thirteen findings, from 59 to
+46, without adding a migration or architecture exception.
+
 ## 4. Notification delivery consolidation — completed 2026-07-16
 
 Notification preferences, intents, delivery attempts, in-app state, and browser

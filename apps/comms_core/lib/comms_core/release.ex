@@ -1,8 +1,8 @@
 defmodule CommsCore.Release do
   @app :comms_core
 
-  alias CommsCore.Attachments.RestoreRemap
-  alias CommsCore.{Accounts, Repo}
+  alias CommsCore.{Accounts, Attachments, Repo}
+  alias CommsCore.Attachments.RestoreContext
 
   @restore_remap_confirmation "remap-restored-attachment-versions"
 
@@ -59,7 +59,7 @@ defmodule CommsCore.Release do
 
       {:ok, result, _started_apps} =
         Ecto.Migrator.with_repo(Repo, fn _repo ->
-          RestoreRemap.run(verifier, context)
+          Attachments.remap_restored_attachment_versions(verifier, context)
         end)
 
       case result do
@@ -116,7 +116,7 @@ defmodule CommsCore.Release do
 
       true ->
         {:ok,
-         %{
+         %RestoreContext{
            operation_id: operation_id,
            actor: String.trim(actor),
            reason: String.trim(reason)

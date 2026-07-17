@@ -2,8 +2,15 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Attachments
-  alias CommsCore.Attachments.Attachment
-  alias CommsCore.Attachments.RestoreRemap
+
+  alias CommsCore.Attachments.{
+    Attachment,
+    RestoreCandidate,
+    RestoreContext,
+    RestoreReport,
+    RestoredObjectIdentity
+  }
+
   alias CommsCore.Audit
   alias CommsCore.Release
   alias CommsTestSupport.Fixtures
@@ -14,21 +21,26 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     second = uploaded_attachment(account, "second.txt", "second restored body")
     context = restore_context()
 
-    verifier = fn attachment ->
+    verifier = fn candidate ->
+      assert %RestoreCandidate{} = candidate
+      refute Map.has_key?(candidate, :__meta__)
+      refute Map.has_key?(candidate, :status)
+      refute Map.has_key?(candidate, :object_version_id)
+
       version =
-        if attachment.id == first.id, do: "restored-first", else: attachment.object_version_id
+        if candidate.id == first.id, do: "restored-first", else: second.object_version_id
 
       {:ok,
-       %{
+       %RestoredObjectIdentity{
          object_version_id: version,
-         object_etag: attachment.object_etag,
-         verified_checksum_sha256: attachment.verified_checksum_sha256,
+         object_etag: candidate.object_etag,
+         verified_checksum_sha256: candidate.verified_checksum_sha256,
          etag_verification: :matched
        }}
     end
 
     assert {:ok,
-            %{
+            %RestoreReport{
               candidate_count: 2,
               verified_count: 2,
               remapped_count: 1,
@@ -36,7 +48,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
               trustworthy_etag_count: 2,
               untrusted_etag_count: 0,
               tenant_count: 1
-            }} = RestoreRemap.run(verifier, context)
+            }} = Attachments.remap_restored_attachment_versions(verifier, context)
 
     assert Repo.get!(Attachment, first.id).object_version_id == "restored-first"
     assert Repo.get!(Attachment, second.id).object_version_id == second.object_version_id
@@ -73,27 +85,37 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
     second = uploaded_attachment(account, "mismatch.txt", "mismatched body")
     audit_count = Audit.count(%{tenant_id: account.tenant.id})
 
-    verifier = fn attachment ->
-      if attachment.id == second.id do
+    verifier = fn candidate ->
+      if candidate.id == second.id do
         {:error, :object_checksum_mismatch}
       else
         {:ok,
-         %{
+         %RestoredObjectIdentity{
            object_version_id: "must-not-commit",
-           object_etag: attachment.object_etag,
-           verified_checksum_sha256: attachment.verified_checksum_sha256,
+           object_etag: candidate.object_etag,
+           verified_checksum_sha256: candidate.verified_checksum_sha256,
            etag_verification: :matched
          }}
       end
     end
 
     assert {:error, {:verification_failed, failed_id, :object_checksum_mismatch}} =
-             RestoreRemap.run(verifier, restore_context())
+             Attachments.remap_restored_attachment_versions(verifier, restore_context())
 
     assert failed_id == second.id
     assert Repo.get!(Attachment, first.id).object_version_id == first.object_version_id
     assert Repo.get!(Attachment, second.id).object_version_id == second.object_version_id
     assert Audit.count(%{tenant_id: account.tenant.id}) == audit_count
+  end
+
+  test "release code routes restore remaps through the public Attachments facade" do
+    source =
+      Path.expand("../lib/comms_core/release.ex", __DIR__)
+      |> File.read!()
+
+    assert source =~ "Attachments.remap_restored_attachment_versions(verifier, context)"
+    refute source =~ "CommsCore.Attachments.RestoreRemap"
+    refute source =~ "RestoreRemap.run"
   end
 
   test "release guard requires a confirmed one-shot operation and complete audit context" do
@@ -107,7 +129,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
       "K_COMMS_RESTORE_REASON" => "Validate portable object-store disaster recovery"
     }
 
-    assert {:ok, context} =
+    assert {:ok, %RestoreContext{} = context} =
              Release.validate_restore_remap_environment(&Map.get(environment, &1))
 
     assert context.operation_id == operation_id
@@ -172,7 +194,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
   end
 
   defp restore_context do
-    %{
+    %RestoreContext{
       operation_id: Ecto.UUID.generate(),
       actor: "staging-release@example.test",
       reason: "Restore rehearsal"

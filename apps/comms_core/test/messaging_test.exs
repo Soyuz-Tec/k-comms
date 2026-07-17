@@ -139,6 +139,39 @@ defmodule CommsCore.MessagingTest do
            )
   end
 
+  test "attachment claims require and remain part of the message transaction" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    attachment = ready_attachment(account, "8")
+    client_message_id = "attachment-owner-contributed-transaction"
+
+    assert {:error, :transaction_required} =
+             Attachments.attach_ready(
+               [],
+               Ecto.UUID.generate(),
+               account.tenant.id,
+               subject
+             )
+
+    assert {:error, :forced_rollback} =
+             Repo.transaction(fn ->
+               assert {:ok, message} =
+                        account
+                        |> message_attrs(client_message_id, [attachment.id])
+                        |> Messaging.accept_message(subject)
+
+               assert Repo.get!(Attachment, attachment.id).message_id == message.id
+               Repo.rollback(:forced_rollback)
+             end)
+
+    assert Repo.get!(Attachment, attachment.id).message_id == nil
+
+    refute Repo.get_by(Message,
+             tenant_id: account.tenant.id,
+             client_message_id: client_message_id
+           )
+  end
+
   test "rejects pending and foreign-tenant attachments without committing a message" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)

@@ -42,5 +42,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0036 | Invert TenantAdministration identity workflows | Accepted |
 | 0037 | Contain NotificationDelivery persistence | Accepted |
 | 0038 | Contain Conversations persistence | Accepted |
+| 0039 | Contain TrustGovernance persistence | Accepted |
+| 0040 | Contain ConversationContent persistence | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

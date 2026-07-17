@@ -2,10 +2,10 @@ defmodule CommsCore.Messaging.Message do
   use CommsCore.Schema
 
   schema "messages" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:sender_user, CommsCore.Accounts.User)
-    belongs_to(:sender_device, CommsCore.Accounts.Device)
+    field(:tenant_id, Ecto.UUID)
+    field(:conversation_id, Ecto.UUID)
+    field(:sender_user_id, Ecto.UUID)
+    field(:sender_device_id, Ecto.UUID)
     belongs_to(:reply_to_message, __MODULE__)
     belongs_to(:thread_root_message, __MODULE__)
     field(:client_message_id, :string)

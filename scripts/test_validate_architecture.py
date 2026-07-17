@@ -737,6 +737,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Messaging.ReactionView",
                 "CommsCore.Attachments.AttachmentDeletionObject",
                 "CommsCore.Attachments.AttachmentView",
+                "CommsCore.Attachments.RestoreCandidate",
+                "CommsCore.Attachments.RestoreContext",
+                "CommsCore.Attachments.RestoreReport",
+                "CommsCore.Attachments.RestoredObjectIdentity",
                 "CommsCore.Attachments.ScanAttemptView",
             ],
         )
@@ -874,6 +878,163 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "owner": "identity_access",
                 "canonical_schema": "CommsCore.Accounts.User",
                 "role": "source",
+            },
+        )
+
+    def test_repository_contains_conversation_content_persistence_and_restore_seams(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        violations = analyze_context_boundaries(root, manifest)
+
+        scalar_fields = {
+            "apps/comms_core/lib/comms_core/messaging/message.ex": (
+                "tenant_id",
+                "conversation_id",
+                "sender_user_id",
+                "sender_device_id",
+            ),
+            "apps/comms_core/lib/comms_core/messaging/message_mention.ex": (
+                "tenant_id",
+                "user_id",
+            ),
+            "apps/comms_core/lib/comms_core/messaging/message_revision.ex": (
+                "tenant_id",
+                "editor_user_id",
+            ),
+            "apps/comms_core/lib/comms_core/messaging/reaction.ex": (
+                "tenant_id",
+                "user_id",
+            ),
+            "apps/comms_core/lib/comms_core/attachments/attachment.ex": (
+                "tenant_id",
+                "owner_user_id",
+            ),
+            "apps/comms_core/lib/comms_core/attachments/scan_attempt.ex": (
+                "tenant_id",
+            ),
+        }
+        schema_paths = set(scalar_fields)
+        foreign_schema_violations = [
+            (item.path, item.detail)
+            for item in violations
+            if item.rule == "foreign_schema_import" and item.path in schema_paths
+        ]
+        self.assertEqual(foreign_schema_violations, [])
+
+        for relative_path, fields in scalar_fields.items():
+            with self.subTest(schema=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                for field in fields:
+                    self.assertIn(f"field(:{field}, Ecto.UUID)", source)
+
+        tenant_contracts = set(
+            manifest["contexts"]["tenant_administration"]["public_contracts"]
+        )
+        self.assertIn(
+            "CommsCore.Administration.ConversationContentPolicy",
+            tenant_contracts,
+        )
+
+        policy_source = (
+            root
+            / "apps/comms_core/lib/comms_core/administration/"
+            "conversation_content_policy.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("defstruct", policy_source)
+        self.assertNotIn("use CommsCore.Schema", policy_source)
+        self.assertNotIn("use Ecto.Schema", policy_source)
+
+        for relative_path in (
+            "apps/comms_core/lib/comms_core/messaging.ex",
+            "apps/comms_core/lib/comms_core/attachments.ex",
+        ):
+            with self.subTest(policy_consumer=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                self.assertIn("Administration.conversation_content_policy", source)
+                self.assertIn("Administration.ConversationContentPolicy", source)
+                self.assertNotIn("Administration.member_capabilities", source)
+
+        restore_contracts = {
+            "CommsCore.Attachments.RestoreCandidate":
+                "apps/comms_core/lib/comms_core/attachments/restore_candidate.ex",
+            "CommsCore.Attachments.RestoreContext":
+                "apps/comms_core/lib/comms_core/attachments/restore_context.ex",
+            "CommsCore.Attachments.RestoreReport":
+                "apps/comms_core/lib/comms_core/attachments/restore_report.ex",
+            "CommsCore.Attachments.RestoredObjectIdentity":
+                "apps/comms_core/lib/comms_core/attachments/"
+                "restored_object_identity.ex",
+        }
+        declared_content_contracts = set(
+            manifest["contexts"]["conversation_content"]["public_contracts"]
+        )
+        self.assertTrue(set(restore_contracts).issubset(declared_content_contracts))
+        for contract, relative_path in restore_contracts.items():
+            with self.subTest(contract=contract):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                self.assertIn("defstruct", source)
+                self.assertNotIn("use CommsCore.Schema", source)
+                self.assertNotIn("use Ecto.Schema", source)
+                self.assertNotIn('schema "', source)
+
+        attachments = (
+            root / "apps/comms_core/lib/comms_core/attachments.ex"
+        ).read_text(encoding="utf-8")
+        restore_remap = (
+            root / "apps/comms_core/lib/comms_core/attachments/restore_remap.ex"
+        ).read_text(encoding="utf-8")
+        release = (
+            root / "apps/comms_core/lib/comms_core/release.ex"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)",
+            attachments,
+        )
+        self.assertIn("RestoreCandidate.t()", attachments)
+        self.assertIn("RestoredObjectIdentity.t()", attachments)
+        self.assertIn("%RestoreCandidate{", restore_remap)
+        self.assertIn("verifier.(candidate)", restore_remap)
+        self.assertIn(
+            "Attachments.remap_restored_attachment_versions(verifier, context)",
+            release,
+        )
+        self.assertNotIn("RestoreRemap", release)
+
+        attach_ready = attachments[attachments.index("def attach_ready("):]
+        attach_ready = attach_ready[: attach_ready.index("defp owned_for_update(")]
+        self.assertIn("Repo.in_transaction?()", attach_ready)
+        self.assertIn("{:error, :transaction_required}", attach_ready)
+        self.assertIn("defp attach_ready_in_transaction(", attach_ready)
+
+        transition = next(
+            item
+            for item in manifest["enforcement"]["reviewed_baseline_transitions"]
+            if item["id"] == "contain-conversation-content-persistence"
+        )
+        self.assertEqual(
+            transition["previous_baseline_sha256"],
+            "75fb767635aaf4a695dc2f0c6e27f7d77fc4a1a42f3f5f745b0b6d30f0ccf1c5",
+        )
+        self.assertEqual(transition["added_fingerprints"], [])
+        self.assertEqual(
+            set(transition["removed_fingerprints"]),
+            {
+                "00fed2fc66ac6b5f",
+                "0bb3a37c40cc67ed",
+                "0eed2537c58046a8",
+                "1e36cf5947105a60",
+                "281d9add61ab8c61",
+                "4d0c0c815493288e",
+                "7189e4399b7315ba",
+                "7ac0c7ca4d4d6af3",
+                "7cefa81ef6dff66b",
+                "b55f1875cf2b64d8",
+                "e7095da760d0066e",
+                "f1940a85836a5231",
+                "f30df696bf8e3c3c",
             },
         )
 

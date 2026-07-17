@@ -3,13 +3,20 @@ defmodule CommsCore.Attachments.RestoreRemap do
 
   import Ecto.Query
 
-  alias CommsCore.Attachments.Attachment
+  alias CommsCore.Attachments.{
+    Attachment,
+    RestoreCandidate,
+    RestoreContext,
+    RestoreReport,
+    RestoredObjectIdentity
+  }
+
   alias CommsCore.Audit
   alias CommsCore.Repo
 
   @object_backed_statuses [:uploaded, :ready, :quarantined, :scan_failed]
 
-  def run(verifier, context) when is_function(verifier, 1) and is_map(context) do
+  def run(verifier, %RestoreContext{} = context) when is_function(verifier, 1) do
     with :ok <- validate_context(context),
          candidates <- candidates(),
          fail_closed_by_tenant <- unversioned_fail_closed_counts(),
@@ -29,6 +36,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
     )
     |> order_by([attachment], asc: attachment.id)
     |> Repo.all()
+    |> Enum.map(&candidate/1)
   end
 
   defp unversioned_fail_closed_counts do
@@ -45,16 +53,16 @@ defmodule CommsCore.Attachments.RestoreRemap do
   end
 
   defp verify_all(candidates, verifier) do
-    Enum.reduce_while(candidates, {:ok, []}, fn attachment, {:ok, verified} ->
-      case safely_verify(verifier, attachment) do
+    Enum.reduce_while(candidates, {:ok, []}, fn {snapshot, candidate}, {:ok, verified} ->
+      case safely_verify(verifier, candidate) do
         {:ok, identity} ->
-          case validate_identity(attachment, identity) do
-            {:ok, identity} -> {:cont, {:ok, [{snapshot(attachment), identity} | verified]}}
-            {:error, reason} -> {:halt, verification_error(attachment, reason)}
+          case validate_identity(candidate, identity) do
+            {:ok, identity} -> {:cont, {:ok, [{snapshot, identity} | verified]}}
+            {:error, reason} -> {:halt, verification_error(candidate, reason)}
           end
 
         {:error, reason} ->
-          {:halt, verification_error(attachment, reason)}
+          {:halt, verification_error(candidate, reason)}
       end
     end)
     |> case do
@@ -63,8 +71,8 @@ defmodule CommsCore.Attachments.RestoreRemap do
     end
   end
 
-  defp safely_verify(verifier, attachment) do
-    verifier.(attachment)
+  defp safely_verify(verifier, candidate) do
+    verifier.(candidate)
   rescue
     _ -> {:error, :object_verification_failed}
   catch
@@ -75,7 +83,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
     {:error, {:verification_failed, attachment.id, safe_reason(reason)}}
   end
 
-  defp validate_identity(attachment, identity) when is_map(identity) do
+  defp validate_identity(attachment, %RestoredObjectIdentity{} = identity) do
     version = value(identity, :object_version_id)
     etag = value(identity, :object_etag)
     checksum = normalize_checksum(value(identity, :verified_checksum_sha256))
@@ -97,7 +105,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
 
       true ->
         {:ok,
-         %{
+         %RestoredObjectIdentity{
            object_version_id: String.slice(version, 0, 1_024),
            object_etag: String.slice(etag, 0, 255),
            verified_checksum_sha256: checksum,
@@ -165,6 +173,21 @@ defmodule CommsCore.Attachments.RestoreRemap do
       end)
   end
 
+  defp candidate(attachment) do
+    {
+      snapshot(attachment),
+      %RestoreCandidate{
+        id: attachment.id,
+        tenant_id: attachment.tenant_id,
+        object_key: attachment.object_key,
+        byte_size: attachment.byte_size,
+        checksum_sha256: attachment.checksum_sha256,
+        object_etag: attachment.object_etag,
+        verified_checksum_sha256: attachment.verified_checksum_sha256
+      }
+    }
+  end
+
   defp snapshot(attachment) do
     Map.take(attachment, [
       :id,
@@ -215,7 +238,9 @@ defmodule CommsCore.Attachments.RestoreRemap do
         resource_type: "attachment_restore",
         resource_id: tenant_id,
         metadata:
-          Map.merge(tenant_report, %{
+          tenant_report
+          |> Map.from_struct()
+          |> Map.merge(%{
             actor: value(context, :actor),
             reason: value(context, :reason),
             restore_operation_id: value(context, :operation_id)
@@ -230,7 +255,7 @@ defmodule CommsCore.Attachments.RestoreRemap do
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp report(results, fail_closed_by_tenant) do
-    %{
+    %RestoreReport{
       candidate_count: length(results),
       verified_count: length(results),
       remapped_count: Enum.count(results, & &1.changed?),
