@@ -190,6 +190,98 @@ defmodule CommsCore.Accounts do
   def resolve_user_views(_tenant_id, _user_ids), do: []
 
   @doc """
+  Verifies that a governance target exists in the exact tenant.
+  """
+  @spec validate_governance_user(String.t(), String.t()) :: :ok | {:error, :not_found}
+  def validate_governance_user(tenant_id, user_id) do
+    if valid_uuid?(tenant_id) and valid_uuid?(user_id) and
+         Repo.exists?(
+           from(user in User, where: user.tenant_id == ^tenant_id and user.id == ^user_id)
+         ) do
+      :ok
+    else
+      {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Verifies that a moderation assignee is active and carries an eligible tenant
+  role in the exact tenant.
+  """
+  @spec validate_moderation_assignee(String.t(), String.t()) ::
+          :ok | {:error, :invalid_assignee}
+  def validate_moderation_assignee(tenant_id, user_id) do
+    eligible? =
+      valid_uuid?(tenant_id) and valid_uuid?(user_id) and
+        Repo.exists?(
+          from(user in User,
+            where:
+              user.tenant_id == ^tenant_id and user.id == ^user_id and
+                user.status == :active and user.role in [:owner, :admin, :moderator]
+          )
+        )
+
+    if eligible?, do: :ok, else: {:error, :invalid_assignee}
+  end
+
+  @doc """
+  Returns the earliest-created active owner ID used for retention work.
+  """
+  @spec retention_actor_id(String.t()) ::
+          {:ok, String.t()} | {:error, :last_owner_required}
+  def retention_actor_id(tenant_id) do
+    owner_id =
+      if valid_uuid?(tenant_id) do
+        User
+        |> where([user], user.tenant_id == ^tenant_id and user.role == :owner)
+        |> where([user], user.status == :active)
+        |> order_by([user], asc: user.inserted_at, asc: user.id)
+        |> select([user], user.id)
+        |> limit(1)
+        |> Repo.one()
+      end
+
+    if owner_id, do: {:ok, owner_id}, else: {:error, :last_owner_required}
+  end
+
+  @doc """
+  Locks IdentityAccess users and verifies that a governed erasure can preserve
+  an active owner after excluding approved or in-progress user deletions.
+
+  The caller must already own the transaction that will perform the governed
+  transition.
+  """
+  @spec ensure_governance_erasure_allowed(String.t(), String.t(), [String.t()]) ::
+          :ok
+          | {:error,
+             :invalid_owner_exclusions
+             | :last_owner_required
+             | :not_found
+             | :transaction_required}
+  def ensure_governance_erasure_allowed(tenant_id, user_id, excluded_user_ids) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(tenant_id) or not valid_uuid?(user_id) ->
+        {:error, :not_found}
+
+      not valid_owner_exclusions?(excluded_user_ids) ->
+        {:error, :invalid_owner_exclusions}
+
+      true ->
+        case governance_erasure_target(
+               tenant_id,
+               user_id,
+               Enum.uniq(excluded_user_ids)
+             ) do
+          {:ok, %User{}} -> :ok
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  @doc """
   Resolves active human users into the minimal projection needed for
   notification delivery.
 
@@ -1928,19 +2020,26 @@ defmodule CommsCore.Accounts do
          pending_deletion_user_ids,
          timestamp
        ) do
+    with {:ok, %User{} = user} <-
+           governance_erasure_target(tenant_id, user_id, pending_deletion_user_ids),
+         {:ok, _anonymized_user} <- anonymize_user_for_governance(user),
+         revoked_session_ids <- revoke_user_access_for_governance(user, timestamp) do
+      {:ok, %{user_id: user.id, revoked_session_ids: revoked_session_ids}}
+    end
+  end
+
+  defp governance_erasure_target(tenant_id, user_id, excluded_user_ids) do
     lock_tenant_users!(tenant_id)
 
     with %User{} = user <-
            Repo.one(
-             from(u in User,
-               where: u.id == ^user_id and u.tenant_id == ^tenant_id,
+             from(candidate in User,
+               where: candidate.id == ^user_id and candidate.tenant_id == ^tenant_id,
                lock: "FOR UPDATE"
              )
            ),
-         :ok <- ensure_governance_erasure_owner_safe(user, pending_deletion_user_ids),
-         {:ok, _anonymized_user} <- anonymize_user_for_governance(user),
-         revoked_session_ids <- revoke_user_access_for_governance(user, timestamp) do
-      {:ok, %{user_id: user.id, revoked_session_ids: revoked_session_ids}}
+         :ok <- ensure_governance_erasure_owner_safe(user, excluded_user_ids) do
+      {:ok, user}
     else
       nil -> {:error, :not_found}
       {:error, _reason} = error -> error

@@ -2,8 +2,8 @@ defmodule CommsCore.Governance.RetentionPolicy do
   use CommsCore.Schema
 
   schema "retention_policies" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
+    field(:tenant_id, Ecto.UUID)
+    field(:conversation_id, Ecto.UUID)
     field(:name, :string)
     field(:scope_type, Ecto.Enum, values: [:tenant, :conversation], default: :tenant)
     field(:retention_days, :integer)

@@ -129,58 +129,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: b9eb079551e887da
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance.ex
-  detail: CommsCore.Governance references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 0ce8e87873a601ba
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance.ex
-  detail: CommsCore.Governance references owner-internal schema CommsCore.Attachments.Attachment
-- fingerprint: 6649c5c8afcc1451
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance.ex
-  detail: CommsCore.Governance references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: fbe03345ca68ae0e
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance.ex
-  detail: CommsCore.Governance references owner-internal schema CommsCore.Messaging.Message
-- fingerprint: 3fb3b9127af11031
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/deletion_request.ex
-  detail: CommsCore.Governance.DeletionRequest references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: fd674ae8b306fa26
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/deletion_request.ex
-  detail: CommsCore.Governance.DeletionRequest references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 9dde14a81ec1bedf
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/deletion_request.ex
-  detail: CommsCore.Governance.DeletionRequest references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: 4024443a7852f0ba
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/deletion_request.ex
-  detail: CommsCore.Governance.DeletionRequest references owner-internal schema CommsCore.Messaging.Message
-- fingerprint: b9d112a8c4fed848
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/legal_hold.ex
-  detail: CommsCore.Governance.LegalHold references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 02a344526496fff1
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/legal_hold.ex
-  detail: CommsCore.Governance.LegalHold references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 39d2b55a0831efb3
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/legal_hold.ex
-  detail: CommsCore.Governance.LegalHold references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: 91455ba0a93f09b2
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/retention_policy.ex
-  detail: CommsCore.Governance.RetentionPolicy references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 6b606b572e7256e4
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/governance/retention_policy.ex
-  detail: CommsCore.Governance.RetentionPolicy references owner-internal schema CommsCore.Conversations.Conversation
 - fingerprint: c06055a43f05a1f7
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex
@@ -225,42 +173,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/messaging/reaction.ex
   detail: CommsCore.Messaging.Reaction references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 931b221d49955995
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation.ex
-  detail: CommsCore.Moderation references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 5eb997f15e01638a
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation.ex
-  detail: CommsCore.Moderation references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: 21514fd0a6bcff09
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation.ex
-  detail: CommsCore.Moderation references owner-internal schema CommsCore.Messaging.Message
-- fingerprint: ca44a9b4fcec3602
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_action.ex
-  detail: CommsCore.Moderation.ModerationAction references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 15be140bfa74d0b1
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_action.ex
-  detail: CommsCore.Moderation.ModerationAction references owner-internal schema CommsCore.Accounts.User
-- fingerprint: a0a0818fd52b5b6f
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_case.ex
-  detail: CommsCore.Moderation.ModerationCase references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: 58b919fe1323a5b8
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_case.ex
-  detail: CommsCore.Moderation.ModerationCase references owner-internal schema CommsCore.Accounts.User
-- fingerprint: ddc7d93ab9361594
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_case.ex
-  detail: CommsCore.Moderation.ModerationCase references owner-internal schema CommsCore.Conversations.Conversation
-- fingerprint: 6ec655792ddf69c9
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/moderation/moderation_case.ex
-  detail: CommsCore.Moderation.ModerationCase references owner-internal schema CommsCore.Messaging.Message
 - fingerprint: c3292521cd5c5918
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/password_recovery.ex

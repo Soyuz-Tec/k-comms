@@ -174,6 +174,12 @@ APPLICATION_BINDING_RE = re.compile(
 )
 
 
+def canonical_text_sha256(path: Path) -> str:
+    """Hash text with platform-independent LF line endings."""
+    content = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(content).hexdigest()
+
+
 @dataclass(frozen=True, order=True)
 class Violation:
     rule: str
@@ -3855,7 +3861,7 @@ def compare_boundary_baselines(
     if transition_errors:
         return transition_errors
 
-    actual_hash = hashlib.sha256(base_path.read_bytes()).hexdigest()
+    actual_hash = canonical_text_sha256(base_path)
     transitions = enforcement.get("reviewed_baseline_transitions", [])
     matching_transitions = [
         transition

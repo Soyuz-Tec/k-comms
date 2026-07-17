@@ -2,7 +2,15 @@ defmodule CommsCore.Attachments do
   import Ecto.Query
 
   alias CommsCore.{Accounts, Administration, Conversations, Repo, RuntimePorts}
-  alias CommsCore.Attachments.{Attachment, AttachmentView, Projector, ScanAttempt}
+
+  alias CommsCore.Attachments.{
+    Attachment,
+    AttachmentDeletionObject,
+    AttachmentView,
+    Projector,
+    ScanAttempt
+  }
+
   alias CommsCore.Audit
 
   @allowed_prefixes ["image/", "text/"]
@@ -10,6 +18,42 @@ defmodule CommsCore.Attachments do
   @default_max_bytes 26_214_400
   @schema_max_bytes 1_073_741_824
   @scan_claim_timeout_seconds 300
+
+  @doc """
+  Returns the object-storage identities owned by an attachment erasure scope.
+
+  Message-owned attachments are selected by `message_ids`. When
+  `owner_user_id` is present, attachments directly owned by that user are
+  included as the same tenant-scoped union. Deleted rows are never returned.
+  Invalid scopes fail closed with an empty projection.
+  """
+  @spec erasure_objects(String.t(), [String.t()], String.t() | nil) ::
+          [AttachmentDeletionObject.t()]
+  def erasure_objects(tenant_id, message_ids, owner_user_id)
+      when is_binary(tenant_id) and is_list(message_ids) and
+             (is_binary(owner_user_id) or is_nil(owner_user_id)) do
+    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+         {:ok, message_ids} <- cast_uuid_list(message_ids),
+         {:ok, owner_user_id} <- cast_optional_uuid(owner_user_id) do
+      Attachment
+      |> where([attachment], attachment.tenant_id == ^tenant_id)
+      |> where([attachment], attachment.status != :deleted)
+      |> erasure_scope_filter(message_ids, owner_user_id)
+      |> order_by([attachment], asc: attachment.id)
+      |> select([attachment], %{
+        id: attachment.id,
+        tenant_id: attachment.tenant_id,
+        object_key: attachment.object_key,
+        object_version_id: attachment.object_version_id
+      })
+      |> Repo.all()
+      |> Enum.map(&struct!(AttachmentDeletionObject, &1))
+    else
+      _ -> []
+    end
+  end
+
+  def erasure_objects(_tenant_id, _message_ids, _owner_user_id), do: []
 
   @doc """
   Marks tenant-scoped attachments deleted as part of an existing erasure transaction.
@@ -668,6 +712,40 @@ defmodule CommsCore.Attachments do
       do: :ok,
       else: {:error, :invalid_erasure_scope}
   end
+
+  defp erasure_scope_filter(query, [], nil), do: where(query, [attachment], false)
+
+  defp erasure_scope_filter(query, message_ids, nil),
+    do: where(query, [attachment], attachment.message_id in ^message_ids)
+
+  defp erasure_scope_filter(query, [], owner_user_id),
+    do: where(query, [attachment], attachment.owner_user_id == ^owner_user_id)
+
+  defp erasure_scope_filter(query, message_ids, owner_user_id) do
+    where(
+      query,
+      [attachment],
+      attachment.message_id in ^message_ids or attachment.owner_user_id == ^owner_user_id
+    )
+  end
+
+  defp cast_uuid_list(values) do
+    values
+    |> Enum.uniq()
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, ids} ->
+      case Ecto.UUID.cast(value) do
+        {:ok, id} -> {:cont, {:ok, [id | ids]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, Enum.reverse(ids)}
+      :error -> :error
+    end
+  end
+
+  defp cast_optional_uuid(nil), do: {:ok, nil}
+  defp cast_optional_uuid(value), do: Ecto.UUID.cast(value)
 
   defp valid_uuid?(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
 

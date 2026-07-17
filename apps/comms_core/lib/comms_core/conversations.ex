@@ -371,6 +371,53 @@ defmodule CommsCore.Conversations do
     do: {:error, :invalid_mentions}
 
   @doc """
+  Validates an exact tenant-scoped conversation reference.
+
+  The result contains no conversation persistence details and intentionally
+  treats malformed, missing, and foreign-tenant identifiers as not found.
+  Archived conversations remain valid references while their row exists.
+  """
+  @spec validate_reference(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, :not_found}
+  def validate_reference(tenant_id, conversation_id) do
+    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+         {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         true <-
+           Repo.exists?(
+             from(conversation in Conversation,
+               where: conversation.tenant_id == ^tenant_id and conversation.id == ^conversation_id
+             )
+           ) do
+      :ok
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Returns every conversation ID in a tenant's retention scope.
+
+  Archived conversations remain in scope, matching the durable conversation
+  rows considered by retention processing. IDs are returned deterministically
+  without exposing conversation persistence.
+  """
+  @spec retention_scope_ids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
+  def retention_scope_ids(tenant_id) do
+    case Ecto.UUID.cast(tenant_id) do
+      {:ok, tenant_id} ->
+        Repo.all(
+          from(conversation in Conversation,
+            where: conversation.tenant_id == ^tenant_id,
+            order_by: [asc: conversation.id],
+            select: conversation.id
+          )
+        )
+
+      :error ->
+        []
+    end
+  end
+
+  @doc """
   Returns the active conversation IDs visible to a subject.
 
   This is a read projection for content queries; callers do not receive

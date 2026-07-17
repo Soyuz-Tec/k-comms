@@ -2,11 +2,11 @@ defmodule CommsCore.Governance.DeletionRequest do
   use CommsCore.Schema
 
   schema "deletion_requests" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:requested_by_user, CommsCore.Accounts.User)
-    belongs_to(:subject_user, CommsCore.Accounts.User)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:message, CommsCore.Messaging.Message)
+    field(:tenant_id, Ecto.UUID)
+    field(:requested_by_user_id, Ecto.UUID)
+    field(:subject_user_id, Ecto.UUID)
+    field(:conversation_id, Ecto.UUID)
+    field(:message_id, Ecto.UUID)
     field(:target_type, Ecto.Enum, values: [:user, :conversation, :message])
     field(:reason, :string)
 

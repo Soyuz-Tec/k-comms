@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import re
 import tempfile
 import unittest
@@ -14,6 +13,7 @@ from validate_architecture import (
     REPO_ACCESS_ALLOWLIST,
     TEMPORARY_EXACT_MAPPING_POLICY,
     analyze_context_boundaries,
+    canonical_text_sha256,
     compare_boundary_baselines,
     context_cycle_violations,
     context_graphs,
@@ -731,7 +731,11 @@ class ValidateArchitectureTest(unittest.TestCase):
             [
                 "CommsCore.Messaging.MessageView",
                 "CommsCore.Messaging.MessageDeletionCandidate",
+                "CommsCore.Messaging.GovernanceImpact",
+                "CommsCore.Messaging.RetentionScope",
+                "CommsCore.Messaging.RetentionCandidate",
                 "CommsCore.Messaging.ReactionView",
+                "CommsCore.Attachments.AttachmentDeletionObject",
                 "CommsCore.Attachments.AttachmentView",
                 "CommsCore.Attachments.ScanAttemptView",
             ],
@@ -2022,6 +2026,143 @@ class ValidateArchitectureTest(unittest.TestCase):
             "Messaging.tombstone_for_erasure",
         ):
             self.assertIn(owner_call, source)
+
+    def test_repository_contains_trust_governance_persistence_behind_owner_apis(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        violations = analyze_context_boundaries(root, manifest)
+
+        trust_governance_prefixes = (
+            "apps/comms_core/lib/comms_core/governance",
+            "apps/comms_core/lib/comms_core/moderation",
+        )
+        foreign_schema_violations = [
+            (item.path, item.detail)
+            for item in violations
+            if item.rule == "foreign_schema_import"
+            and item.path.startswith(trust_governance_prefixes)
+        ]
+        self.assertEqual(foreign_schema_violations, [])
+
+        scalar_fields = {
+            "apps/comms_core/lib/comms_core/governance/deletion_request.ex": (
+                "tenant_id",
+                "requested_by_user_id",
+                "subject_user_id",
+                "conversation_id",
+                "message_id",
+            ),
+            "apps/comms_core/lib/comms_core/governance/legal_hold.ex": (
+                "tenant_id",
+                "created_by_user_id",
+                "subject_user_id",
+                "conversation_id",
+            ),
+            "apps/comms_core/lib/comms_core/governance/retention_policy.ex": (
+                "tenant_id",
+                "conversation_id",
+            ),
+            "apps/comms_core/lib/comms_core/moderation/moderation_case.ex": (
+                "tenant_id",
+                "reporter_user_id",
+                "subject_user_id",
+                "conversation_id",
+                "message_id",
+                "assigned_to_user_id",
+            ),
+            "apps/comms_core/lib/comms_core/moderation/moderation_action.ex": (
+                "tenant_id",
+                "actor_user_id",
+            ),
+        }
+        for relative_path, fields in scalar_fields.items():
+            with self.subTest(schema=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                for field in fields:
+                    self.assertIn(f"field(:{field}, Ecto.UUID)", source)
+
+        moderation_action = (
+            root
+            / "apps/comms_core/lib/comms_core/moderation/moderation_action.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "belongs_to(:moderation_case, CommsCore.Moderation.ModerationCase)",
+            moderation_action,
+        )
+
+        owner_apis = {
+            "apps/comms_core/lib/comms_core/accounts.ex": (
+                "def validate_governance_user(",
+                "def validate_moderation_assignee(",
+                "def retention_actor_id(",
+                "def ensure_governance_erasure_allowed(",
+            ),
+            "apps/comms_core/lib/comms_core/conversations.ex": (
+                "def validate_reference(",
+                "def retention_scope_ids(",
+            ),
+            "apps/comms_core/lib/comms_core/messaging.ex": (
+                "def governance_impact(",
+                "def retention_candidates(",
+            ),
+            "apps/comms_core/lib/comms_core/attachments.ex": (
+                "def erasure_objects(",
+            ),
+        }
+        for relative_path, functions in owner_apis.items():
+            with self.subTest(owner=relative_path):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                for function in functions:
+                    self.assertIn(function, source)
+
+        governance_source = (
+            root / "apps/comms_core/lib/comms_core/governance.ex"
+        ).read_text(encoding="utf-8")
+        moderation_source = (
+            root / "apps/comms_core/lib/comms_core/moderation.ex"
+        ).read_text(encoding="utf-8")
+        for owner_call in (
+            "Accounts.validate_governance_user",
+            "Accounts.retention_actor_id",
+            "Accounts.ensure_governance_erasure_allowed",
+            "Conversations.validate_reference",
+            "Conversations.retention_scope_ids",
+            "Messaging.governance_impact",
+            "Messaging.retention_candidates",
+            "Attachments.erasure_objects",
+        ):
+            self.assertIn(owner_call, governance_source)
+        for owner_call in (
+            "Accounts.validate_governance_user",
+            "Accounts.validate_moderation_assignee",
+            "Conversations.validate_reference",
+            "Messaging.governance_impact",
+        ):
+            self.assertIn(owner_call, moderation_source)
+
+        dto_paths = {
+            "CommsCore.Messaging.GovernanceImpact":
+                "apps/comms_core/lib/comms_core/messaging/governance_impact.ex",
+            "CommsCore.Messaging.RetentionScope":
+                "apps/comms_core/lib/comms_core/messaging/retention_scope.ex",
+            "CommsCore.Messaging.RetentionCandidate":
+                "apps/comms_core/lib/comms_core/messaging/retention_candidate.ex",
+            "CommsCore.Attachments.AttachmentDeletionObject":
+                "apps/comms_core/lib/comms_core/attachments/attachment_deletion_object.ex",
+        }
+        declared_contracts = set(
+            manifest["contexts"]["conversation_content"]["public_contracts"]
+        )
+        self.assertTrue(set(dto_paths).issubset(declared_contracts))
+        for contract, relative_path in dto_paths.items():
+            with self.subTest(contract=contract):
+                source = (root / relative_path).read_text(encoding="utf-8")
+                self.assertIn("defstruct", source)
+                self.assertNotIn("use CommsCore.Schema", source)
+                self.assertNotIn("use Ecto.Schema", source)
+                self.assertNotIn('schema "', source)
 
     def test_repository_routes_user_lifecycle_and_retention_reads_one_way(
         self,
@@ -3910,9 +4051,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest.setdefault("enforcement", {})["baseline_adoption"] = {
-                "previous_baseline_sha256": hashlib.sha256(
-                    base.read_bytes()
-                ).hexdigest(),
+                "previous_baseline_sha256": canonical_text_sha256(base),
                 "allowed_discovery_fingerprints": first_fingerprints,
                 "removal_condition": "Remove after the analyzer baseline lands.",
             }
@@ -4025,9 +4164,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             manifest["enforcement"]["reviewed_baseline_transitions"] = [
                 {
                     "id": "replace-first-with-second",
-                    "previous_baseline_sha256": hashlib.sha256(
-                        base.read_bytes()
-                    ).hexdigest(),
+                    "previous_baseline_sha256": canonical_text_sha256(base),
                     "added_fingerprints": added,
                     "removed_fingerprints": removed,
                     "adr": adr,
@@ -4067,6 +4204,21 @@ class ValidateArchitectureTest(unittest.TestCase):
             self.assertTrue(
                 any("stale declared added fingerprints" in error for error in errors),
                 errors,
+            )
+
+    def test_baseline_transition_hash_is_line_ending_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lf_baseline = root / "baseline-lf.yaml"
+            crlf_baseline = root / "baseline-crlf.yaml"
+            content = "version: 1\nviolations:\n- fingerprint: abcdef0123456789\n"
+
+            lf_baseline.write_bytes(content.encode("utf-8"))
+            crlf_baseline.write_bytes(content.replace("\n", "\r\n").encode("utf-8"))
+
+            self.assertEqual(
+                canonical_text_sha256(lf_baseline),
+                canonical_text_sha256(crlf_baseline),
             )
 
     def test_reviewed_baseline_transition_rejects_wrong_or_duplicate_base_hash(
@@ -4132,7 +4284,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 errors,
             )
 
-            base_hash = hashlib.sha256(base.read_bytes()).hexdigest()
+            base_hash = canonical_text_sha256(base)
             first_transition = {
                 **transition,
                 "id": "first",

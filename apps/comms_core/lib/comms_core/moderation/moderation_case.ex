@@ -2,12 +2,12 @@ defmodule CommsCore.Moderation.ModerationCase do
   use CommsCore.Schema
 
   schema "moderation_cases" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:reporter_user, CommsCore.Accounts.User)
-    belongs_to(:subject_user, CommsCore.Accounts.User)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:message, CommsCore.Messaging.Message)
-    belongs_to(:assigned_to_user, CommsCore.Accounts.User)
+    field(:tenant_id, Ecto.UUID)
+    field(:reporter_user_id, Ecto.UUID)
+    field(:subject_user_id, Ecto.UUID)
+    field(:conversation_id, Ecto.UUID)
+    field(:message_id, Ecto.UUID)
+    field(:assigned_to_user_id, Ecto.UUID)
     field(:category, :string)
     field(:summary, :string)
     field(:details, :string)

@@ -1,11 +1,9 @@
 defmodule CommsCore.Governance do
   import Ecto.Query
 
-  alias CommsCore.Accounts.{AccessGrant, User}
+  alias CommsCore.Accounts.AccessGrant
   alias CommsCore.Administration.RetentionDefaults
-  alias CommsCore.Attachments.Attachment
   alias CommsCore.Audit
-  alias CommsCore.Conversations.Conversation
 
   alias CommsCore.Governance.{
     DeletionExecution,
@@ -15,8 +13,12 @@ defmodule CommsCore.Governance do
     RetentionPolicy
   }
 
-  alias CommsCore.Messaging.Message
-  alias CommsCore.Messaging.MessageDeletionCandidate
+  alias CommsCore.Messaging.{
+    GovernanceImpact,
+    MessageDeletionCandidate,
+    RetentionCandidate,
+    RetentionScope
+  }
 
   alias CommsCore.{
     Accounts,
@@ -520,26 +522,19 @@ defmodule CommsCore.Governance do
 
   def enqueue_due_retention(tenant_id, caller) when is_binary(tenant_id) do
     if RuntimePorts.authorized_job_worker?(:retention, caller) do
-      owner =
-        Repo.one(
-          from(u in User,
-            where: u.tenant_id == ^tenant_id and u.role == :owner and u.status == :active,
-            order_by: [asc: u.inserted_at],
-            limit: 1
-          )
-        )
+      case Accounts.retention_actor_id(tenant_id) do
+        {:ok, owner_id} ->
+          due = due_retention_messages(tenant_id, 100)
 
-      if owner do
-        due = due_retention_messages(tenant_id, 100)
+          enqueued =
+            Enum.count(due, fn candidate ->
+              enqueue_retention_deletion(owner_id, candidate)
+            end)
 
-        enqueued =
-          Enum.count(due, fn candidate ->
-            enqueue_retention_deletion(owner, candidate)
-          end)
+          {:ok, %{enqueued: enqueued, scanned: length(due), has_more: length(due) == 100}}
 
-        {:ok, %{enqueued: enqueued, scanned: length(due), has_more: length(due) == 100}}
-      else
-        {:error, :last_owner_required}
+        {:error, :last_owner_required} = error ->
+          error
       end
     else
       {:error, :forbidden}
@@ -689,9 +684,9 @@ defmodule CommsCore.Governance do
   defp validate_conversation(_tenant_id, nil), do: :ok
 
   defp validate_conversation(tenant_id, id) do
-    if Repo.exists?(from(c in Conversation, where: c.id == ^id and c.tenant_id == ^tenant_id)),
-      do: :ok,
-      else: {:error, :invalid_governance_target}
+    tenant_id
+    |> Conversations.validate_reference(id)
+    |> governance_target_result()
   end
 
   defp validate_hold_target(attrs, tenant_id) do
@@ -702,13 +697,9 @@ defmodule CommsCore.Governance do
           else: {:error, :invalid_governance_target}
 
       :user ->
-        if Repo.exists?(
-             from(u in User,
-               where: u.id == ^value(attrs, :subject_user_id) and u.tenant_id == ^tenant_id
-             )
-           ),
-           do: :ok,
-           else: {:error, :invalid_governance_target}
+        tenant_id
+        |> Accounts.validate_governance_user(value(attrs, :subject_user_id))
+        |> governance_target_result()
 
       :conversation ->
         validate_conversation(tenant_id, value(attrs, :conversation_id))
@@ -721,26 +712,36 @@ defmodule CommsCore.Governance do
   defp validate_deletion_target(attrs, tenant_id) do
     case enum(value(attrs, :target_type), [:user, :conversation, :message]) do
       :user ->
-        exists_target?(User, value(attrs, :subject_user_id), tenant_id)
+        tenant_id
+        |> Accounts.validate_governance_user(value(attrs, :subject_user_id))
+        |> governance_target_result()
 
       :conversation ->
-        exists_target?(Conversation, value(attrs, :conversation_id), tenant_id)
+        tenant_id
+        |> Conversations.validate_reference(value(attrs, :conversation_id))
+        |> governance_target_result()
 
       :message ->
-        exists_target?(Message, value(attrs, :message_id), tenant_id)
+        validate_message_target(tenant_id, value(attrs, :message_id))
 
       nil ->
         {:error, :invalid_governance_target}
     end
   end
 
-  defp exists_target?(_schema, nil, _tenant_id), do: {:error, :invalid_governance_target}
-
-  defp exists_target?(schema, id, tenant_id) do
-    if Repo.exists?(from(r in schema, where: r.id == ^id and r.tenant_id == ^tenant_id)),
-      do: :ok,
-      else: {:error, :invalid_governance_target}
+  defp validate_message_target(tenant_id, message_id)
+       when is_binary(tenant_id) and is_binary(message_id) do
+    case Messaging.governance_impact(tenant_id, :message, message_id) do
+      %GovernanceImpact{found?: true} -> :ok
+      %GovernanceImpact{} -> {:error, :invalid_governance_target}
+    end
   end
+
+  defp validate_message_target(_tenant_id, _message_id),
+    do: {:error, :invalid_governance_target}
+
+  defp governance_target_result(:ok), do: :ok
+  defp governance_target_result({:error, _reason}), do: {:error, :invalid_governance_target}
 
   defp enqueue_deletion!(request) do
     %{"deletion_request_id" => request.id, "tenant_id" => request.tenant_id}
@@ -804,58 +805,58 @@ defmodule CommsCore.Governance do
         do: tenant_policy.retention_days,
         else: configured_default_days
 
-    existing_requests =
-      from(r in DeletionRequest,
-        where:
-          r.tenant_id == ^tenant_id and r.target_type == :message and
-            r.status in [:pending, :approved, :in_progress, :completed],
-        select: r.message_id
+    excluded_message_ids =
+      Repo.all(
+        from(r in DeletionRequest,
+          where:
+            r.tenant_id == ^tenant_id and r.target_type == :message and
+              r.status in [:pending, :approved, :in_progress, :completed],
+          select: r.message_id
+        )
       )
+      |> Enum.reject(&is_nil/1)
 
-    conversations = Repo.all(from(c in Conversation, where: c.tenant_id == ^tenant_id))
+    scan_started_at = now()
 
-    Enum.reduce_while(conversations, [], fn conversation, acc ->
-      remaining = limit - length(acc)
-
-      if remaining <= 0 do
-        {:halt, acc}
-      else
-        policy = Map.get(conversation_policies, conversation.id) || tenant_policy
+    {scopes, metadata_by_conversation_id} =
+      tenant_id
+      |> Conversations.retention_scope_ids()
+      |> Enum.reduce({[], %{}}, fn conversation_id, {scopes, metadata} ->
+        policy = Map.get(conversation_policies, conversation_id) || tenant_policy
         days = if policy, do: policy.retention_days, else: default_days
 
         if is_integer(days) and days > 0 do
-          cutoff = DateTime.add(now(), -days * 86_400, :second)
+          scope = %RetentionScope{
+            conversation_id: conversation_id,
+            cutoff_at: DateTime.add(scan_started_at, -days * 86_400, :second)
+          }
 
-          candidates =
-            Repo.all(
-              from(m in Message,
-                where:
-                  m.tenant_id == ^tenant_id and m.conversation_id == ^conversation.id and
-                    m.status != :deleted and m.inserted_at < ^cutoff and
-                    m.id not in subquery(existing_requests),
-                order_by: [asc: m.inserted_at, asc: m.id],
-                limit: ^remaining,
-                select: m.id
-              )
-            )
-            |> Enum.map(fn message_id ->
-              %{
-                tenant_id: tenant_id,
-                message_id: message_id,
-                policy_id: policy && policy.id,
-                delete_attachments: if(policy, do: policy.delete_attachments, else: true)
-              }
-            end)
+          retention_metadata = %{
+            policy_id: policy && policy.id,
+            delete_attachments: if(policy, do: policy.delete_attachments, else: true)
+          }
 
-          {:cont, acc ++ candidates}
+          {[scope | scopes], Map.put(metadata, conversation_id, retention_metadata)}
         else
-          {:cont, acc}
+          {scopes, metadata}
         end
-      end
+      end)
+
+    tenant_id
+    |> Messaging.retention_candidates(scopes, excluded_message_ids, limit)
+    |> Enum.map(fn %RetentionCandidate{} = candidate ->
+      metadata = Map.fetch!(metadata_by_conversation_id, candidate.conversation_id)
+
+      %{
+        tenant_id: tenant_id,
+        message_id: candidate.message_id,
+        policy_id: metadata.policy_id,
+        delete_attachments: metadata.delete_attachments
+      }
     end)
   end
 
-  defp enqueue_retention_deletion(owner, candidate) do
+  defp enqueue_retention_deletion(owner_id, candidate) do
     idempotency_key = "retention:#{candidate.message_id}"
 
     case Repo.transaction(fn ->
@@ -874,7 +875,7 @@ defmodule CommsCore.Governance do
                %DeletionRequest{id: id}
                |> DeletionRequest.changeset(%{
                  tenant_id: candidate.tenant_id,
-                 requested_by_user_id: owner.id,
+                 requested_by_user_id: owner_id,
                  message_id: candidate.message_id,
                  target_type: :message,
                  reason: "Retention policy expiration",
@@ -905,40 +906,22 @@ defmodule CommsCore.Governance do
   defp deletion_plan(request) do
     message_ids = deletion_message_ids(request)
 
-    attachment_query =
-      from(a in Attachment,
-        where: a.tenant_id == ^request.tenant_id and a.status != :deleted
-      )
-
-    attachment_query =
+    attachments =
       case request.target_type do
         :user ->
-          where(
-            attachment_query,
-            [a],
-            a.owner_user_id == ^request.subject_user_id or a.message_id in ^message_ids
+          Attachments.erasure_objects(
+            request.tenant_id,
+            message_ids,
+            request.subject_user_id
           )
 
         _ ->
           if retention_keeps_attachments?(request) do
-            where(attachment_query, [a], false)
+            []
           else
-            where(attachment_query, [a], a.message_id in ^message_ids)
+            Attachments.erasure_objects(request.tenant_id, message_ids, nil)
           end
       end
-
-    attachments =
-      attachment_query
-      |> order_by([a], asc: a.id)
-      |> Repo.all()
-      |> Enum.map(fn attachment ->
-        %{
-          id: attachment.id,
-          tenant_id: attachment.tenant_id,
-          object_key: attachment.object_key,
-          object_version_id: Map.get(attachment, :object_version_id)
-        }
-      end)
 
     %{
       request_id: request.id,
@@ -954,23 +937,17 @@ defmodule CommsCore.Governance do
   end
 
   defp deletion_message_ids(%DeletionRequest{target_type: :user} = request) do
-    Repo.all(
-      from(m in Message,
-        where: m.tenant_id == ^request.tenant_id and m.sender_user_id == ^request.subject_user_id,
-        select: m.id
-      )
-    )
+    %GovernanceImpact{message_ids: message_ids} =
+      Messaging.governance_impact(request.tenant_id, :user, request.subject_user_id)
+
+    message_ids
   end
 
   defp deletion_message_ids(%DeletionRequest{target_type: :conversation} = request) do
-    Repo.all(
-      from(m in Message,
-        where:
-          m.tenant_id == ^request.tenant_id and
-            m.conversation_id == ^request.conversation_id,
-        select: m.id
-      )
-    )
+    %GovernanceImpact{message_ids: message_ids} =
+      Messaging.governance_impact(request.tenant_id, :conversation, request.conversation_id)
+
+    message_ids
   end
 
   defp deletion_message_ids(%DeletionRequest{target_type: :message, message_id: id}), do: [id]
@@ -1053,45 +1030,13 @@ defmodule CommsCore.Governance do
     )
   end
 
-  defp ensure_deletable_owner!(%User{role: :owner, status: :active} = user) do
-    pending_deletions =
-      from(r in DeletionRequest,
-        where:
-          r.tenant_id == ^user.tenant_id and r.target_type == :user and
-            r.status in [:approved, :in_progress],
-        select: r.subject_user_id
-      )
-
-    remaining =
-      Repo.aggregate(
-        from(u in User,
-          where:
-            u.tenant_id == ^user.tenant_id and u.id != ^user.id and u.role == :owner and
-              u.status == :active and u.id not in subquery(pending_deletions)
-        ),
-        :count
-      )
-
-    if remaining == 0, do: Repo.rollback(:last_owner_required)
-  end
-
-  defp ensure_deletable_owner!(_user), do: :ok
-
   defp ensure_deletion_preconditions!(%DeletionRequest{target_type: :user} = request) do
-    Repo.all(
-      from(u in User,
-        where: u.tenant_id == ^request.tenant_id,
-        order_by: [asc: u.id],
-        select: u.id,
-        lock: "FOR UPDATE"
-      )
+    Accounts.ensure_governance_erasure_allowed(
+      request.tenant_id,
+      request.subject_user_id,
+      pending_deletion_user_ids(request.tenant_id)
     )
-
-    user =
-      Repo.get_by(User, id: request.subject_user_id, tenant_id: request.tenant_id) ||
-        Repo.rollback(:not_found)
-
-    ensure_deletable_owner!(user)
+    |> precondition_or_rollback!()
   end
 
   defp ensure_deletion_preconditions!(_request), do: :ok
@@ -1157,40 +1102,22 @@ defmodule CommsCore.Governance do
   end
 
   defp protected_targets(%DeletionRequest{target_type: :user} = request) do
-    conversation_ids =
-      Repo.all(
-        from(m in Message,
-          where:
-            m.tenant_id == ^request.tenant_id and m.sender_user_id == ^request.subject_user_id,
-          distinct: true,
-          select: m.conversation_id
-        )
-      )
+    %GovernanceImpact{conversation_ids: conversation_ids} =
+      Messaging.governance_impact(request.tenant_id, :user, request.subject_user_id)
 
     {conversation_ids, [request.subject_user_id]}
   end
 
   defp protected_targets(%DeletionRequest{target_type: :message} = request) do
-    case Repo.get_by(Message, id: request.message_id, tenant_id: request.tenant_id) do
-      %Message{conversation_id: conversation_id, sender_user_id: sender_user_id} ->
-        {[conversation_id], [sender_user_id]}
+    %GovernanceImpact{conversation_ids: conversation_ids, user_ids: user_ids} =
+      Messaging.governance_impact(request.tenant_id, :message, request.message_id)
 
-      nil ->
-        {[], []}
-    end
+    {conversation_ids, user_ids}
   end
 
   defp protected_targets(%DeletionRequest{target_type: :conversation} = request) do
-    user_ids =
-      Repo.all(
-        from(m in Message,
-          where:
-            m.tenant_id == ^request.tenant_id and
-              m.conversation_id == ^request.conversation_id,
-          distinct: true,
-          select: m.sender_user_id
-        )
-      )
+    %GovernanceImpact{user_ids: user_ids} =
+      Messaging.governance_impact(request.tenant_id, :conversation, request.conversation_id)
 
     {[request.conversation_id], user_ids}
   end
@@ -1324,6 +1251,8 @@ defmodule CommsCore.Governance do
   defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
   defp authorization_or_rollback!(:ok), do: :ok
   defp authorization_or_rollback!({:error, reason}), do: Repo.rollback(reason)
+  defp precondition_or_rollback!(:ok), do: :ok
+  defp precondition_or_rollback!({:error, reason}), do: Repo.rollback(reason)
   defp owner_command_or_rollback({:ok, result}), do: result
   defp owner_command_or_rollback({:error, reason}), do: Repo.rollback(reason)
 

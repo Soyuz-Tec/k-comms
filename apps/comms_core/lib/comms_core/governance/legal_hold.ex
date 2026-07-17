@@ -2,10 +2,10 @@ defmodule CommsCore.Governance.LegalHold do
   use CommsCore.Schema
 
   schema "legal_holds" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:created_by_user, CommsCore.Accounts.User)
-    belongs_to(:subject_user, CommsCore.Accounts.User)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
+    field(:tenant_id, Ecto.UUID)
+    field(:created_by_user_id, Ecto.UUID)
+    field(:subject_user_id, Ecto.UUID)
+    field(:conversation_id, Ecto.UUID)
     field(:name, :string)
     field(:reason, :string)
     field(:scope_type, Ecto.Enum, values: [:tenant, :user, :conversation])

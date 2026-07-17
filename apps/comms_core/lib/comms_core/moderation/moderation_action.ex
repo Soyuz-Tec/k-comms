@@ -2,9 +2,9 @@ defmodule CommsCore.Moderation.ModerationAction do
   use CommsCore.Schema
 
   schema "moderation_actions" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:moderation_case, CommsCore.Moderation.ModerationCase)
-    belongs_to(:actor_user, CommsCore.Accounts.User)
+    field(:actor_user_id, Ecto.UUID)
 
     field(:action_type, Ecto.Enum,
       values: [:note, :assign, :start_review, :resolve, :dismiss, :reopen]

@@ -115,6 +115,34 @@ enforcement:
         - fc4e10c723ffa345
       adr: docs/02-architecture/adr/0038-contain-conversations-persistence.md
       removal_condition: Remove this exact 87-to-81 finding transition after the Conversations containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-trust-governance-persistence
+      previous_baseline_sha256: d7a0afe7c18e67b6ac8c7bf4c0ccf0800756b3322f788046f4689512f55ae0ae
+      added_fingerprints: []
+      removed_fingerprints:
+        - 02a344526496fff1
+        - 0ce8e87873a601ba
+        - 15be140bfa74d0b1
+        - 21514fd0a6bcff09
+        - 39d2b55a0831efb3
+        - 3fb3b9127af11031
+        - 4024443a7852f0ba
+        - 58b919fe1323a5b8
+        - 5eb997f15e01638a
+        - 6649c5c8afcc1451
+        - 6b606b572e7256e4
+        - 6ec655792ddf69c9
+        - 91455ba0a93f09b2
+        - 931b221d49955995
+        - 9dde14a81ec1bedf
+        - a0a0818fd52b5b6f
+        - b9d112a8c4fed848
+        - b9eb079551e887da
+        - ca44a9b4fcec3602
+        - ddc7d93ab9361594
+        - fbe03345ca68ae0e
+        - fd674ae8b306fa26
+      adr: docs/02-architecture/adr/0039-contain-trust-governance-persistence.md
+      removal_condition: Remove this exact 81-to-59 finding transition after the TrustGovernance containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -213,7 +241,11 @@ contexts:
     public_contracts:
       - CommsCore.Messaging.MessageView
       - CommsCore.Messaging.MessageDeletionCandidate
+      - CommsCore.Messaging.GovernanceImpact
+      - CommsCore.Messaging.RetentionScope
+      - CommsCore.Messaging.RetentionCandidate
       - CommsCore.Messaging.ReactionView
+      - CommsCore.Attachments.AttachmentDeletionObject
       - CommsCore.Attachments.AttachmentView
       - CommsCore.Attachments.ScanAttemptView
     internal_namespaces: [CommsCore.Messaging, CommsCore.Attachments]
@@ -658,19 +690,6 @@ temporary_violations:
         - 99cd7470375bce8f
         - e3c6574035e85b56
         - c94c7774541553d1
-        - b9eb079551e887da
-        - 0ce8e87873a601ba
-        - 6649c5c8afcc1451
-        - fbe03345ca68ae0e
-        - 3fb3b9127af11031
-        - fd674ae8b306fa26
-        - 9dde14a81ec1bedf
-        - 4024443a7852f0ba
-        - b9d112a8c4fed848
-        - 02a344526496fff1
-        - 39d2b55a0831efb3
-        - 91455ba0a93f09b2
-        - 6b606b572e7256e4
         - c06055a43f05a1f7
         - b55f1875cf2b64d8
         - f1940a85836a5231
@@ -682,15 +701,6 @@ temporary_violations:
         - 1e36cf5947105a60
         - 00fed2fc66ac6b5f
         - f30df696bf8e3c3c
-        - 931b221d49955995
-        - 5eb997f15e01638a
-        - 21514fd0a6bcff09
-        - ca44a9b4fcec3602
-        - 15be140bfa74d0b1
-        - a0a0818fd52b5b6f
-        - 58b919fe1323a5b8
-        - ddc7d93ab9361594
-        - 6ec655792ddf69c9
         - c3292521cd5c5918
         - 82083a1e5dce0f4c
         - 3d08a6a84ca380ce

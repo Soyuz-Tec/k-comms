@@ -45,6 +45,56 @@ defmodule CommsCore.ConversationsTest do
              Conversations.authorize_manage(conversation_id, other_subject)
   end
 
+  test "governance reference and retention queries are tenant scoped and schema free" do
+    account = Fixtures.account_fixture()
+    other_account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, active_conversation} =
+             Conversations.create(
+               %{kind: "group", title: "Active retention scope"},
+               subject
+             )
+
+    assert {:ok, archived_conversation} =
+             Conversations.create(
+               %{kind: "group", title: "Archived retention scope"},
+               subject
+             )
+
+    assert {:ok, _archived} =
+             Conversations.archive(
+               archived_conversation.id,
+               %{version: archived_conversation.lock_version},
+               subject
+             )
+
+    assert :ok = Conversations.validate_reference(account.tenant.id, active_conversation.id)
+    assert :ok = Conversations.validate_reference(account.tenant.id, archived_conversation.id)
+
+    assert {:error, :not_found} =
+             Conversations.validate_reference(account.tenant.id, other_account.conversation.id)
+
+    assert {:error, :not_found} =
+             Conversations.validate_reference(account.tenant.id, Ecto.UUID.generate())
+
+    assert {:error, :not_found} =
+             Conversations.validate_reference("not-a-tenant-id", active_conversation.id)
+
+    assert Conversations.retention_scope_ids(account.tenant.id) ==
+             Enum.sort([
+               account.conversation.id,
+               active_conversation.id,
+               archived_conversation.id
+             ])
+
+    assert Conversations.retention_scope_ids(other_account.tenant.id) == [
+             other_account.conversation.id
+           ]
+
+    assert Conversations.retention_scope_ids("not-a-tenant-id") == []
+  end
+
   test "creates a group and advances the read cursor monotonically" do
     account = Fixtures.account_fixture()
     member = Fixtures.user_fixture(account)

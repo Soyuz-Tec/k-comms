@@ -1,11 +1,10 @@
 defmodule CommsCore.Moderation do
   import Ecto.Query
 
-  alias CommsCore.Accounts
-  alias CommsCore.Accounts.{AccessGrant, User}
+  alias CommsCore.{Accounts, Conversations, Messaging}
+  alias CommsCore.Accounts.AccessGrant
   alias CommsCore.Audit
-  alias CommsCore.Conversations.Conversation
-  alias CommsCore.Messaging.Message
+  alias CommsCore.Messaging.GovernanceImpact
   alias CommsCore.Moderation.{ModerationAction, ModerationCase}
   alias CommsCore.Repo
 
@@ -150,8 +149,7 @@ defmodule CommsCore.Moderation do
          %ModerationCase{} = moderation_case <-
            Repo.one(
              from(c in ModerationCase,
-               where: c.id == ^id and c.tenant_id == ^value(subject, :tenant_id),
-               preload: [:reporter_user, :subject_user, :assigned_to_user]
+               where: c.id == ^id and c.tenant_id == ^value(subject, :tenant_id)
              )
            ) do
       actions =
@@ -272,29 +270,29 @@ defmodule CommsCore.Moderation do
   defp validate_user_target(_tenant_id, nil), do: :ok
 
   defp validate_user_target(tenant_id, user_id) do
-    if Repo.exists?(from(u in User, where: u.id == ^user_id and u.tenant_id == ^tenant_id)),
-      do: :ok,
-      else: {:error, :invalid_moderation_target}
+    case Accounts.validate_governance_user(tenant_id, user_id) do
+      :ok -> :ok
+      {:error, :not_found} -> {:error, :invalid_moderation_target}
+    end
   end
 
   defp validate_message_target(_tenant_id, nil), do: {:ok, nil}
 
   defp validate_message_target(tenant_id, message_id) do
-    case Repo.get_by(Message, id: message_id, tenant_id: tenant_id) do
-      %Message{conversation_id: conversation_id} -> {:ok, conversation_id}
-      nil -> {:error, :invalid_moderation_target}
+    case Messaging.governance_impact(tenant_id, :message, message_id) do
+      %GovernanceImpact{found?: true, conversation_ids: [conversation_id]} ->
+        {:ok, conversation_id}
+
+      _ ->
+        {:error, :invalid_moderation_target}
     end
   end
 
   defp validate_conversation_target(nil, _subject), do: :ok
 
   defp validate_conversation_target(conversation_id, subject) do
-    with %Conversation{} <-
-           Repo.get_by(Conversation,
-             id: conversation_id,
-             tenant_id: value(subject, :tenant_id)
-           ),
-         :ok <- CommsCore.Conversations.authorize_read(conversation_id, subject) do
+    with :ok <- Conversations.validate_reference(value(subject, :tenant_id), conversation_id),
+         :ok <- Conversations.authorize_read(conversation_id, subject) do
       :ok
     else
       _ -> {:error, :invalid_moderation_target}
@@ -309,17 +307,12 @@ defmodule CommsCore.Moderation do
 
     assignee_id = value(attrs, :assigned_to_user_id)
 
-    assignee =
-      Repo.get_by(User,
-        id: assignee_id,
-        tenant_id: moderation_case.tenant_id,
-        status: :active
-      )
+    case Accounts.validate_moderation_assignee(moderation_case.tenant_id, assignee_id) do
+      :ok -> :ok
+      {:error, :invalid_assignee} -> Repo.rollback(:invalid_assignee)
+    end
 
-    unless assignee && assignee.role in [:owner, :admin, :moderator],
-      do: Repo.rollback(:invalid_assignee)
-
-    %{assigned_to_user_id: assignee.id, status: :in_review, resolved_at: nil}
+    %{assigned_to_user_id: assignee_id, status: :in_review, resolved_at: nil}
   end
 
   defp transition!(moderation_case, :start_review, _attrs) do
