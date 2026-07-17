@@ -978,7 +978,22 @@ class ValidateArchitectureTest(unittest.TestCase):
             {
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",
+                "tenant-authorization-actor",
+                "tenant-identity-access",
+                "tenant-invitation-identity",
             },
+        )
+        self.assertEqual(
+            collaborations["tenant-identity-access"]["transaction"],
+            "independent",
+        )
+        self.assertEqual(
+            collaborations["tenant-authorization-actor"]["transaction"],
+            "independent",
+        )
+        self.assertEqual(
+            collaborations["tenant-invitation-identity"]["transaction"],
+            "required",
         )
         self.assertEqual(
             collaborations["identity-initial-conversation-bootstrap"],
@@ -1332,6 +1347,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             read_model["owners"],
             [
+                "identity_access",
                 "tenant_administration",
                 "conversations",
                 "conversation_content",
@@ -1351,9 +1367,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             read_model["access"]["public_queries"],
             [
-                "CommsCore.AdmissionQuotas.active_user_count/1",
                 "CommsCore.AdmissionQuotas.admission_policy/1",
                 "CommsCore.Administration.authorize_administer_tenant/1",
+                "CommsCore.Accounts.active_user_count/1",
+                "CommsCore.Accounts.authorize_view_platform_operations/1",
                 "CommsCore.Conversations.admission_usage/1",
             ],
         )
@@ -1432,12 +1449,12 @@ class ValidateArchitectureTest(unittest.TestCase):
             root / "apps/comms_core/lib/comms_core/operations.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("def tenant_admission_usage(", operations_source)
-        self.assertIn("AdmissionQuotas.active_user_count(", operations_source)
+        self.assertIn("Accounts.active_user_count(", operations_source)
         self.assertIn("AdmissionQuotas.admission_policy(", operations_source)
         self.assertIn("Conversations.admission_usage(", operations_source)
 
         projection_callers = {
-            "AdmissionQuotas.active_user_count(": [],
+            "Accounts.active_user_count(": [],
             "AdmissionQuotas.admission_policy(": [],
             "Conversations.admission_usage(": [],
         }
@@ -1449,7 +1466,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             projection_callers,
             {
-                "AdmissionQuotas.active_user_count(": [
+                "Accounts.active_user_count(": [
                     "apps/comms_core/lib/comms_core/operations.ex"
                 ],
                 "AdmissionQuotas.admission_policy(": [
@@ -1910,7 +1927,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("ConversationBootstrapPort.create_initial_channel", source)
         self.assertIn("ConversationBootstrapPort.fetch_initial_channel", source)
         self.assertNotIn("CommsCore.Conversations", source)
-        self.assertNotIn("CommsCore.Administration.Invitation", source)
+        self.assertNotRegex(
+            source,
+            r"(?m)^\s*alias\s+CommsCore\.Administration\.Invitation\s*$",
+        )
+        self.assertNotIn("%Invitation{", source)
         self.assertNotIn("CommsCore.Conversations.Conversation", source)
         self.assertNotIn("CommsCore.Conversations.Membership", source)
         self.assertEqual(
@@ -3758,6 +3779,31 @@ class ValidateArchitectureTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(compare_boundary_baselines(root, base), [])
+
+            manifest = read_yaml(manifest_path)
+            manifest["enforcement"]["baseline_adoption"][
+                "allowed_discovery_fingerprints"
+            ] = sorted(["0000000000000000", *first_fingerprints])
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any(
+                    "stale allowed discovery fingerprints" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+            manifest["enforcement"]["baseline_adoption"][
+                "allowed_discovery_fingerprints"
+            ] = first_fingerprints
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
 
             second = root / "apps/comms_core/lib/comms_core/alpha/second.ex"
             second.write_text(

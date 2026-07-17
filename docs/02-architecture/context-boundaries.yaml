@@ -10,43 +10,24 @@ enforcement:
     previous_baseline_sha256: 12ad7c5959dbcd0ceacf6797ded33ad83aebcde080af45ce8c64ff878d3d8639
     allowed_discovery_fingerprints:
       - 0189e4bac08f3c6e
-      - 1b2308af763271a1
-      - 218671b946ba8171
       - 22d29c8a33ec3581
-      - 23dcf56239fd3c92
-      - 25b5955b95d7e60a
-      - 27fdff1b69d498a8
-      - 2d311ace1698b140
-      - 32a70724daad9d65
-      - 41f842b58173a549
-      - 44028c557f9d7ca2
       - 47659f71148ad7cd
       - 4f52bd7c42b47a5d
-      - 662a5c4f703eb585
-      - 73b9ff4f915229c8
-      - 84932ac0d5fa25b9
-      - 8a77894c283aac7a
-      - 8c5d4bc9c14685e9
       - 8dd4f3b5e1378ffb
-      - 97986c01688edbd7
       - 99cd7470375bce8f
-      - a74facb531f49387
-      - c00fd3d1192fbcc6
+      - a26844eb317ed35d
       - c94c7774541553d1
       - d312276f5a39310f
-      - d800fbf3e8ef2cc5
       - db68fcb3dac3ef04
       - de83107f64cbc690
-      - e2aa023f11e60616
       - e3c6574035e85b56
-      - e442c942c91deaa0
     removal_condition: Remove this content-bound one-time analyzer adoption after the truthful baseline is present on the protected branch; it never permits fingerprints outside this exact set or against another base baseline.
   reviewed_baseline_transitions:
-    - id: non-media-authorization-owner-policies
+    - id: non-media-authorization-and-tenant-identity-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
       added_fingerprints:
-        - 1b2308af763271a1
         - 47659f71148ad7cd
+        - a26844eb317ed35d
       removed_fingerprints:
         - 121f7164c64045fa
         - 218671b946ba8171
@@ -69,8 +50,9 @@ enforcement:
         - d800fbf3e8ef2cc5
         - e2aa023f11e60616
         - e442c942c91deaa0
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: Remove this exact 123-to-104 finding transition after the non-media authorization owner-policy baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+        - fd24bbd537ca4f95
+      adr: docs/02-architecture/adr/0036-invert-tenant-identity-workflows.md
+      removal_condition: Remove this exact 123-to-103 finding transition after the non-media authorization and TenantAdministration-to-IdentityAccess boundary baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -108,7 +90,6 @@ contexts:
       - CommsCore.Accounts.DeviceView
       - CommsCore.Accounts.InitialConversationCommand
       - CommsCore.Accounts.InitialConversationReceipt
-      - CommsCore.Accounts.InvitedUserCommand
       - CommsCore.Accounts.NotificationCommand
       - CommsCore.Accounts.NotificationPort
       - CommsCore.Accounts.NotificationReceipt
@@ -128,13 +109,21 @@ contexts:
     public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas, CommsCore.AuditExport]
     public_contracts:
       - CommsCore.Administration.AdmissionPolicy
+      - CommsCore.Administration.AuthorizationActor
+      - CommsCore.Administration.AuthorizationActorPort
+      - CommsCore.Administration.IdentityAccessPort
+      - CommsCore.Administration.IdentityGrant
       - CommsCore.Administration.InvitationView
+      - CommsCore.Administration.InvitationIdentityAuthorization
+      - CommsCore.Administration.InvitationIdentityPort
+      - CommsCore.Administration.InvitedIdentityReceipt
+      - CommsCore.Administration.InvitedUserCommand
       - CommsCore.Administration.RetentionDefaults
       - CommsCore.Administration.TenantSettingsView
       - CommsCore.Administration.TenantView
     owned_modules: [CommsCore.AuditExport]
     internal_namespaces: [CommsCore.Administration]
-    allowed_dependencies: [identity_access, audit, platform_eventing]
+    allowed_dependencies: [audit, platform_eventing]
     publishes: [tenant.settings_changed.v1, tenant.invitation_created.v1]
     consumes: []
   conversations:
@@ -350,6 +339,10 @@ namespace_dependency_rules:
     from: CommsCore.ServiceAccounts
     forbidden: [CommsCore.Conversations]
     condition: Conversations owns service directory and membership policy; ServiceAccounts validates only the durable service identity and requested capability.
+  - id: invitations-do-not-depend-on-accounts
+    from: CommsCore.Administration.Invitations
+    forbidden: [CommsCore.Accounts]
+    condition: TenantAdministration invokes IdentityAccess only through its exact configured ports; Invitations must not import the Accounts facade, contracts, schemas, or implementation modules.
 
 runtime_collaborations:
   - id: identity-initial-conversation-bootstrap
@@ -391,6 +384,66 @@ runtime_collaborations:
       compile_dependency: notification_delivery_to_identity_access
       static_cycle_policy: dependency_inversion
     condition: IdentityAccess owns the recovery and access-revocation command/result contract while NotificationDelivery implements the contribution on the caller transaction; this reviewed collaboration may not acquire new callers, operations, or bindings without architecture review.
+  - id: tenant-identity-access
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.IdentityAccessPort
+    result_contract: CommsCore.Administration.IdentityGrant
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration]
+    operations:
+      - {name: resolve_access, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_identity_access_adapter
+      module: CommsCore.Accounts
+    transaction: independent
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the bounded access-grant query contract while IdentityAccess verifies canonical user, tenant, device, and session state; callers may not bypass this exact query port.
+  - id: tenant-authorization-actor
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.AuthorizationActorPort
+    result_contract: CommsCore.Administration.AuthorizationActor
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration]
+    operations:
+      - {name: resolve_authorization_actor, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_authorization_actor_adapter
+      module: CommsCore.Accounts
+    transaction: independent
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the exact authorization-attribution DTO while IdentityAccess verifies the claimed tenant and user; the request correlation id must match the caller subject exactly.
+  - id: tenant-invitation-identity
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.InvitationIdentityPort
+    result_contract: CommsCore.Administration.InvitedIdentityReceipt
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration.Invitations]
+    operations:
+      - {name: authorize_invitation, arity: 1}
+      - {name: validate_invitation_password, arity: 1}
+      - {name: ensure_invitation_identity_available, arity: 2}
+      - {name: enroll_invited_user, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_invitation_identity_adapter
+      module: CommsCore.Accounts
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the invitation workflow command and receipt contracts while IdentityAccess verifies role assignment, identity uniqueness, active-user capacity, and enrollment on the caller transaction.
 
 retired_modules:
   - CommsCore.InAppNotifications
@@ -440,15 +493,16 @@ read_model_exceptions:
   - id: operations-cross-context-read-model
     module: CommsCore.Operations
     mode: read_only
-    owners: [tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
+    owners: [identity_access, tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
     access:
       public_contracts:
         - CommsCore.Administration.AdmissionPolicy
         - CommsCore.Conversations.AdmissionUsage
       public_queries:
-        - CommsCore.AdmissionQuotas.active_user_count/1
         - CommsCore.AdmissionQuotas.admission_policy/1
         - CommsCore.Administration.authorize_administer_tenant/1
+        - CommsCore.Accounts.active_user_count/1
+        - CommsCore.Accounts.authorize_view_platform_operations/1
         - CommsCore.Conversations.admission_usage/1
       source_tables: [attachments, notification_intents, webhook_deliveries, oban_jobs, outbox_events]
     condition: CommsCore.Operations may execute only the declared operational source-table reads and exact owner projection queries; owner-command calls, Repo writes, raw SQL DML or DDL, and source-table ownership are prohibited.
@@ -506,7 +560,7 @@ temporary_violations:
   groups:
     - id: baseline-business-context-cycle
       rule: business_context_cycle
-      fingerprints: [1b2308af763271a1]
+      fingerprints: [a26844eb317ed35d]
       adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
       removal_condition: Remove the non-media reverse edges represented by this exact SCC fingerprint; any later Calls-driven SCC must have its own newly reviewed exact declaration.
     - id: baseline-foreign-schema-imports
@@ -519,7 +573,6 @@ temporary_violations:
         - 2239525a78f246a4
         - 9c00206437b708a1
         - 6e01f546438ba1e0
-        - fd24bbd537ca4f95
         - 281d9add61ab8c61
         - 4d0c0c815493288e
         - 7ac0c7ca4d4d6af3

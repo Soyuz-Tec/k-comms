@@ -1,4 +1,8 @@
 defmodule CommsCore.Accounts do
+  @behaviour CommsCore.Administration.AuthorizationActorPort
+  @behaviour CommsCore.Administration.IdentityAccessPort
+  @behaviour CommsCore.Administration.InvitationIdentityPort
+
   import Ecto.Query
 
   alias CommsCore.Accounts.{
@@ -6,9 +10,9 @@ defmodule CommsCore.Accounts do
     ConversationBootstrapPort,
     Device,
     InitialConversationCommand,
-    InvitedUserCommand,
     NotificationCommand,
     NotificationPort,
+    PlatformAccess,
     PlatformRoleGrant,
     Session,
     SocketTicket,
@@ -18,6 +22,15 @@ defmodule CommsCore.Accounts do
 
   alias CommsCore.Audit
   alias CommsCore.Audit.Actor
+
+  alias CommsCore.Administration.{
+    AdmissionPolicy,
+    AuthorizationActor,
+    IdentityGrant,
+    InvitationIdentityAuthorization,
+    InvitedIdentityReceipt,
+    InvitedUserCommand
+  }
 
   alias CommsCore.{
     Administration,
@@ -95,6 +108,65 @@ defmodule CommsCore.Accounts do
   end
 
   def access_grant(_subject), do: {:error, :forbidden}
+
+  @impl CommsCore.Administration.IdentityAccessPort
+  def resolve_access(subject) when is_map(subject) do
+    with {:ok, %AccessGrant{} = grant} <- access_grant(subject) do
+      {:ok,
+       %IdentityGrant{
+         tenant_id: grant.tenant_id,
+         user_id: grant.user_id,
+         role: grant.role,
+         step_up_recent?: grant.step_up_recent?
+       }}
+    end
+  end
+
+  def resolve_access(_subject), do: {:error, :forbidden}
+
+  @impl CommsCore.Administration.AuthorizationActorPort
+  def resolve_authorization_actor(subject) do
+    with {:ok, %Actor{} = actor} <- authorization_audit_actor(subject) do
+      {:ok,
+       %AuthorizationActor{
+         tenant_id: actor.tenant_id,
+         user_id: actor.user_id,
+         request_id: actor.request_id
+       }}
+    end
+  end
+
+  @doc """
+  Counts active IdentityAccess users for the tenant without exposing User
+  persistence.
+  """
+  @spec active_user_count(Ecto.UUID.t()) :: non_neg_integer()
+  def active_user_count(tenant_id) when is_binary(tenant_id) do
+    User
+    |> where([user], user.tenant_id == ^tenant_id and user.status == :active)
+    |> Repo.aggregate(:count)
+  end
+
+  @doc false
+  @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::
+          :ok
+          | {:error, :active_user_quota_exceeded | :quota_transaction_required}
+  def ensure_active_user_capacity(
+        tenant_id,
+        %AdmissionPolicy{} = policy,
+        increment \\ 1
+      )
+      when is_binary(tenant_id) and is_integer(increment) and increment > 0 do
+    if Repo.in_transaction?() do
+      AdmissionQuotas.check_active_user_capacity(
+        policy,
+        active_user_count(tenant_id),
+        increment
+      )
+    else
+      {:error, :quota_transaction_required}
+    end
+  end
 
   @doc """
   Resolves the verified tenant/user pair used to audit an authorization denial.
@@ -312,26 +384,50 @@ defmodule CommsCore.Accounts do
   end
 
   @doc false
-  def validate_invitation_password(password), do: validate_password(password)
+  @impl CommsCore.Administration.InvitationIdentityPort
+  def validate_invitation_password(password) do
+    if Repo.in_transaction?(),
+      do: validate_password(password),
+      else: {:error, :transaction_required}
+  end
 
   @doc false
-  def authorize_invitation_identity(subject, email, role)
-      when is_map(subject) and is_binary(email) do
-    with :ok <- reject_service_identity_email(value(subject, :tenant_id), email),
-         :ok <- authorize_role_assignment(subject, role) do
-      :ok
+  @impl CommsCore.Administration.InvitationIdentityPort
+  def authorize_invitation(%InvitationIdentityAuthorization{} = authorization) do
+    if Repo.in_transaction?() do
+      subject = %{
+        tenant_id: authorization.tenant_id,
+        user_id: authorization.actor_user_id
+      }
+
+      with :ok <- reject_service_identity_email(authorization.tenant_id, authorization.email),
+           :ok <- authorize_role_assignment(subject, authorization.role) do
+        :ok
+      end
+    else
+      {:error, :transaction_required}
     end
   end
 
   @doc false
+  @impl CommsCore.Administration.InvitationIdentityPort
   def ensure_invitation_identity_available(tenant_id, email)
-      when is_binary(tenant_id) and is_binary(email),
-      do: reject_existing_human_identity(tenant_id, email)
+      when is_binary(tenant_id) and is_binary(email) do
+    if Repo.in_transaction?(),
+      do: reject_existing_human_identity(tenant_id, email),
+      else: {:error, :transaction_required}
+  end
 
   @doc false
+  @impl CommsCore.Administration.InvitationIdentityPort
   def enroll_invited_user(%InvitedUserCommand{} = command) do
     if Repo.in_transaction?() do
       with :ok <- reject_existing_human_identity(command.tenant_id, command.email),
+           :ok <-
+             ensure_active_user_capacity(
+               command.tenant_id,
+               command.admission_policy
+             ),
            {:ok, user} <-
              %User{id: Ecto.UUID.generate()}
              |> User.changeset(%{
@@ -345,11 +441,24 @@ defmodule CommsCore.Accounts do
                status: :active
              })
              |> Repo.insert() do
-        {:ok, CommsCore.Accounts.Projector.user(user)}
+        {:ok, invited_identity_receipt(user)}
       end
     else
       {:error, :transaction_required}
     end
+  end
+
+  defp invited_identity_receipt(%User{} = user) do
+    %InvitedIdentityReceipt{
+      id: user.id,
+      tenant_id: user.tenant_id,
+      display_name: user.display_name,
+      email: user.email,
+      account_type: user.account_type,
+      role: user.role,
+      status: user.status,
+      version: user.lock_version
+    }
   end
 
   @doc """
@@ -558,9 +667,9 @@ defmodule CommsCore.Accounts do
 
       Ecto.Multi.new()
       |> Ecto.Multi.run(:admission_quota, fn _repo, _changes ->
-        case AdmissionQuotas.ensure_active_user_capacity(tenant_id) do
-          :ok -> {:ok, :admitted}
-          {:error, reason} -> {:error, reason}
+        with {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
+             :ok <- ensure_active_user_capacity(tenant_id, policy) do
+          {:ok, :admitted}
         end
       end)
       |> Ecto.Multi.insert(:user, user_changeset)
@@ -1218,20 +1327,9 @@ defmodule CommsCore.Accounts do
   def set_platform_role_from_console(_user_id, _role, _attrs),
     do: {:error, :invalid_platform_role_request}
 
-  @doc "Returns only a currently active platform role and its exact deadline."
-  def platform_access_for_user(%User{} = user) do
-    case effective_platform_role_grant(user) do
-      %PlatformRoleGrant{} = grant ->
-        public_platform_access(grant)
-
-      nil ->
-        empty_platform_access()
-    end
-  end
-
   def subject_for_session(%Session{} = session, request_id \\ nil) do
     session = Repo.preload(session, [user: :platform_role_grant], force: true)
-    platform_access = subject_platform_access(session.user)
+    platform_access = PlatformAccess.for_subject(session.user)
 
     Map.merge(
       %{
@@ -1805,7 +1903,7 @@ defmodule CommsCore.Accounts do
   defp apply_user_lifecycle_change!(user_id, command, subject, excluded_owner_ids) do
     tenant_id = command.tenant_id
 
-    quota_ok!(AdmissionQuotas.lock_tenant(tenant_id))
+    policy = AdmissionQuotas.locked_policy(tenant_id) |> admission_policy_or_rollback()
     lock_tenant_users!(tenant_id)
 
     target =
@@ -1832,7 +1930,7 @@ defmodule CommsCore.Accounts do
     ensure_last_owner!(target, command.role, command.status, excluded_owner_ids)
 
     if target.status != :active and command.status == :active do
-      quota_ok!(AdmissionQuotas.ensure_active_user_capacity(tenant_id))
+      quota_ok!(ensure_active_user_capacity(tenant_id, policy))
     end
 
     changes =
@@ -2045,14 +2143,6 @@ defmodule CommsCore.Accounts do
     Repo.get_by(PlatformRoleGrant, user_id: user_id, tenant_id: tenant_id)
   end
 
-  defp active_platform_role_grant(user_id, tenant_id) do
-    Repo.one(
-      from(g in PlatformRoleGrant,
-        where: g.user_id == ^user_id and g.tenant_id == ^tenant_id and g.expires_at > ^now()
-      )
-    )
-  end
-
   defp authorize_platform_role_target!(_user, nil), do: :ok
 
   defp authorize_platform_role_target!(%User{status: :active, account_type: :human}, _role),
@@ -2093,34 +2183,6 @@ defmodule CommsCore.Accounts do
   defp with_platform_access(%User{} = user, role, expires_at) do
     %{user | platform_role: role, platform_role_expires_at: expires_at}
   end
-
-  defp effective_platform_role_grant(%User{platform_role_grant: %PlatformRoleGrant{} = grant}) do
-    if PlatformRoleGrant.active_at?(grant, now()), do: grant
-  end
-
-  defp effective_platform_role_grant(%User{platform_role_grant: nil}), do: nil
-
-  defp effective_platform_role_grant(%User{} = user),
-    do: active_platform_role_grant(user.id, user.tenant_id)
-
-  defp subject_platform_access(%User{} = user) do
-    case effective_platform_role_grant(user) do
-      %PlatformRoleGrant{} = grant ->
-        grant
-        |> public_platform_access()
-        |> Map.put(:platform_role_grant_id, grant.id)
-
-      nil ->
-        empty_platform_access()
-        |> Map.put(:platform_role_grant_id, nil)
-    end
-  end
-
-  defp public_platform_access(%PlatformRoleGrant{} = grant),
-    do: %{platform_role: grant.role, platform_role_expires_at: grant.expires_at}
-
-  defp empty_platform_access,
-    do: %{platform_role: nil, platform_role_expires_at: nil}
 
   defp platform_role_management_secret do
     case Application.get_env(:comms_core, :platform_role_management_secret) do
@@ -2277,6 +2339,9 @@ defmodule CommsCore.Accounts do
 
   defp quota_ok!(:ok), do: :ok
   defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
+
+  defp admission_policy_or_rollback({:ok, %AdmissionPolicy{} = policy}), do: policy
+  defp admission_policy_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}

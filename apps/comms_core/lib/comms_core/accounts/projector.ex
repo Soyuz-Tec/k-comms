@@ -6,6 +6,7 @@ defmodule CommsCore.Accounts.Projector do
     AuthenticationResult,
     Device,
     DeviceView,
+    PlatformAccess,
     Session,
     SessionView,
     User,
@@ -17,7 +18,7 @@ defmodule CommsCore.Accounts.Projector do
   def user(%User{} = user, opts \\ []) do
     platform_access =
       if Keyword.get(opts, :platform_access, false) do
-        CommsCore.Accounts.platform_access_for_user(user)
+        PlatformAccess.for_user(user)
       else
         %{platform_role: nil, platform_role_expires_at: nil}
       end
@@ -50,7 +51,7 @@ defmodule CommsCore.Accounts.Projector do
   def session(%Session{} = session) do
     platform_access =
       case session.user do
-        %User{} = user -> CommsCore.Accounts.platform_access_for_user(user)
+        %User{} = user -> PlatformAccess.for_user(user)
         _ -> %{platform_role: nil, platform_role_expires_at: nil}
       end
 

@@ -249,12 +249,20 @@ defmodule CommsCore.AdmissionQuotasTest do
            } = admission_usage!(subject)
   end
 
-  test "conversation owners pass scalar observations to the tenant admission policy" do
+  test "resource owners pass scalar observations to the tenant admission policy" do
     policy = %AdmissionPolicy{
       max_active_users: 10,
       max_active_conversations: 2,
       max_conversation_members: 2
     }
+
+    assert :ok = AdmissionQuotas.check_active_user_capacity(policy, 9)
+
+    assert {:error, :active_user_quota_exceeded} =
+             AdmissionQuotas.check_active_user_capacity(policy, 10)
+
+    assert {:error, :active_user_quota_exceeded} =
+             AdmissionQuotas.check_active_user_capacity(policy, 9, 2)
 
     assert :ok = AdmissionQuotas.check_conversation_creation(policy, 1, 2)
 

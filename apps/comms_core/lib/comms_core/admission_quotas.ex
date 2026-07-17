@@ -8,9 +8,6 @@ defmodule CommsCore.AdmissionQuotas do
   ownership to TenantAdministration.
   """
 
-  import Ecto.Query
-
-  alias CommsCore.Accounts.User
   alias CommsCore.Administration.{AdmissionPolicy, TenantSettings}
   alias CommsCore.Repo
 
@@ -53,25 +50,24 @@ defmodule CommsCore.AdmissionQuotas do
     }
   end
 
-  @spec active_user_count(Ecto.UUID.t()) :: non_neg_integer()
-  def active_user_count(tenant_id) when is_binary(tenant_id) do
-    User
-    |> where([user], user.tenant_id == ^tenant_id and user.status == :active)
-    |> Repo.aggregate(:count)
-  end
-
-  def ensure_active_user_capacity(tenant_id, increment \\ 1)
-      when is_binary(tenant_id) and is_integer(increment) and increment > 0 do
-    with {:ok, policy} <- locked_policy(tenant_id) do
-      current = active_user_count(tenant_id)
-
-      ensure_capacity(
-        current,
-        increment,
-        policy.max_active_users,
-        :active_user_quota_exceeded
+  @spec check_active_user_capacity(
+          AdmissionPolicy.t(),
+          non_neg_integer(),
+          pos_integer()
+        ) :: :ok | {:error, :active_user_quota_exceeded}
+  def check_active_user_capacity(
+        %AdmissionPolicy{} = policy,
+        current_active_users,
+        increment \\ 1
       )
-    end
+      when is_integer(current_active_users) and current_active_users >= 0 and
+             is_integer(increment) and increment > 0 do
+    ensure_capacity(
+      current_active_users,
+      increment,
+      policy.max_active_users,
+      :active_user_quota_exceeded
+    )
   end
 
   @spec check_conversation_creation(

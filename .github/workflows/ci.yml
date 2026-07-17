@@ -77,13 +77,6 @@ jobs:
           cat > "$expected" <<'EOF'
           4 cycles found. Showing them in decreasing size:
 
-          Cycle of length 4:
-
-              lib/comms_core/accounts.ex
-              lib/comms_core/accounts/projector.ex
-              lib/comms_core/administration.ex
-              lib/comms_core/administration/invitations.ex
-
           Cycle of length 3:
 
               lib/comms_core/integrations/webhook_delivery.ex
@@ -94,6 +87,11 @@ jobs:
 
               lib/comms_core/authorization.ex
               lib/comms_core/authorization/deny_all.ex
+
+          Cycle of length 2:
+
+              lib/comms_core/administration.ex
+              lib/comms_core/administration/invitations.ex
 
           Cycle of length 2:
 

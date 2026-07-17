@@ -2,8 +2,8 @@ defmodule CommsCore.AdministrationTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.{Accounts, Administration, Audit, Governance, Repo}
-  alias CommsCore.Administration.{Invitation, InvitationView}
-  alias CommsCore.Accounts.{Session, SocketTicket, UserView}
+  alias CommsCore.Administration.{Invitation, InvitationView, InvitedIdentityReceipt}
+  alias CommsCore.Accounts.{Session, SocketTicket}
   alias CommsCore.Audit.{Event, TestSupport}
   alias CommsCore.Security.Password
   alias CommsTestSupport.Fixtures
@@ -38,7 +38,7 @@ defmodule CommsCore.AdministrationTest do
              })
 
     assert invited_user.tenant_id == account.tenant.id
-    assert %UserView{} = invited_user
+    assert %InvitedIdentityReceipt{} = invited_user
     assert invited_user.role == :moderator
 
     assert Password.verify(
@@ -87,6 +87,137 @@ defmodule CommsCore.AdministrationTest do
 
     assert replacement.invitation.id != first.invitation.id
     assert Repo.get!(Invitation, first.invitation.id).status == :expired
+  end
+
+  test "denied invitation creation persists its authorization audit" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:error, :step_up_required} =
+             Administration.create_invitation(
+               %{
+                 email: "denied-invitation@example.test",
+                 role: "member",
+                 idempotency_key: "denied-invitation"
+               },
+               subject
+             )
+
+    refute Repo.get_by(Invitation,
+             tenant_id: account.tenant.id,
+             email: "denied-invitation@example.test"
+           )
+
+    assert Enum.any?(
+             Audit.list(%{
+               tenant_id: account.tenant.id,
+               actor_user_id: account.user.id,
+               action: "authorization.denied",
+               limit: 10
+             }),
+             fn event ->
+               event.metadata["permission"] == "manage_invitations" and
+                 event.metadata["reason"] == "step_up_required"
+             end
+           )
+  end
+
+  test "invitation acceptance acquires the tenant lock before the invitation row lock" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, invitation_result} =
+             Administration.create_invitation(
+               %{
+                 email: "ordered-lock-invitation@example.test",
+                 role: "member",
+                 idempotency_key: "ordered-lock-invitation"
+               },
+               subject
+             )
+
+    parent = self()
+    handler_id = {__MODULE__, :invitation_acceptance_lock_order, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, test_pid ->
+                 send(test_pid, {:invitation_acceptance_query, Map.get(metadata, :query, "")})
+               end,
+               parent
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, %InvitedIdentityReceipt{}} =
+             Administration.accept_invitation(%{
+               token: invitation_result.token,
+               display_name: "Ordered Lock Invitee",
+               password: "correct-horse-ordered-lock-invitee"
+             })
+
+    queries = collect_invitation_acceptance_queries([])
+
+    tenant_lock_index =
+      Enum.find_index(queries, &String.contains?(&1, "pg_advisory_xact_lock"))
+
+    invitation_row_lock_index =
+      Enum.find_index(queries, fn query ->
+        String.contains?(query, ~s(FROM "invitations")) and
+          String.contains?(query, "FOR UPDATE")
+      end)
+
+    assert is_integer(tenant_lock_index)
+    assert is_integer(invitation_row_lock_index)
+    assert tenant_lock_index < invitation_row_lock_index
+  end
+
+  test "an invalid invitation secret does not acquire the tenant admission lock" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert {:ok, invitation_result} =
+             Administration.create_invitation(
+               %{
+                 email: "invalid-secret-invitation@example.test",
+                 role: "member",
+                 idempotency_key: "invalid-secret-invitation"
+               },
+               subject
+             )
+
+    invalid_token =
+      invitation_result.invitation.id <>
+        "." <>
+        Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    parent = self()
+    handler_id = {__MODULE__, :invalid_invitation_secret_lock, make_ref()}
+
+    assert :ok =
+             :telemetry.attach(
+               handler_id,
+               [:comms_core, :repo, :query],
+               fn _event, _measurements, metadata, test_pid ->
+                 send(test_pid, {:invalid_invitation_query, Map.get(metadata, :query, "")})
+               end,
+               parent
+             )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:error, :invalid_invitation} =
+             Administration.accept_invitation(%{
+               token: invalid_token,
+               display_name: "Rejected Invitee",
+               password: "correct-horse-rejected-invitee"
+             })
+
+    queries = collect_invalid_invitation_queries([])
+    refute Enum.any?(queries, &String.contains?(&1, "pg_advisory_xact_lock"))
+    assert Repo.get!(Invitation, invitation_result.invitation.id).status == :pending
   end
 
   test "invitations reject every existing human identity without changing its lifecycle" do
@@ -138,6 +269,24 @@ defmodule CommsCore.AdministrationTest do
 
     assert reactivated.status == :active
     assert Password.verify(original_password, reactivated.password_hash)
+  end
+
+  defp collect_invitation_acceptance_queries(queries) do
+    receive do
+      {:invitation_acceptance_query, query} ->
+        collect_invitation_acceptance_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
+    end
+  end
+
+  defp collect_invalid_invitation_queries(queries) do
+    receive do
+      {:invalid_invitation_query, query} ->
+        collect_invalid_invitation_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
+    end
   end
 
   test "invitation acceptance cannot replace or reactivate an identity created after invitation" do

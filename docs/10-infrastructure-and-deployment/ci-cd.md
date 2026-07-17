@@ -26,6 +26,12 @@ Comparing to the event's base commit, rather than a mutable branch name, keeps
 the result reproducible and prevents a same-branch baseline edit from
 grandfathering new debt.
 
+An architecture-reviewed transition may replace that ordinary no-growth rule
+only for one exact preceding baseline hash and exact sorted sets of added and
+removed fingerprints. Undeclared additions, undeclared removals, or stale
+declared deltas fail. The transition is removed after its resulting baseline
+reaches the protected branch.
+
 The truthful-analyzer transition also has one content-bound adoption rule for
 the pre-endgame 95-finding checkpoint. The manifest records the exact SHA-256
 of that baseline and the exact sorted fingerprints exposed only because the
@@ -62,8 +68,8 @@ After warnings-as-errors compilation, the backend job runs two xref gates in
 - `mix xref graph --format cycles --label compile-connected` must report no
   compile-connected cycles.
 - `mix xref graph --format cycles` must match the exact four-cycle checkpoint:
-  Accounts/Projector/Administration/Invitations, the three Webhook schemas,
-  Authorization/DenyAll, and PlatformRoleGrant/User.
+  the three Webhook schemas, Authorization/DenyAll,
+  Administration/Invitations, and PlatformRoleGrant/User.
 
 The exact cycle check is deliberately stricter than a count check: adding,
 changing, or resolving a cycle requires an architecture-reviewed update to the

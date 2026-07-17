@@ -1,6 +1,13 @@
 defmodule CommsWeb.Presenter do
   alias CommsCore.Accounts.{DeviceView, InitialConversationReceipt, SessionView, UserView}
-  alias CommsCore.Administration.{InvitationView, TenantSettingsView, TenantView}
+
+  alias CommsCore.Administration.{
+    InvitationView,
+    InvitedIdentityReceipt,
+    TenantSettingsView,
+    TenantView
+  }
+
   alias CommsCore.Attachments.AttachmentView
   alias CommsCore.AudioCalls.AudioCall
   alias CommsCore.Audit.Event
@@ -14,6 +21,19 @@ defmodule CommsWeb.Presenter do
   end
 
   def user(%UserView{} = user) do
+    %{
+      id: user.id,
+      tenant_id: user.tenant_id,
+      display_name: user.display_name,
+      email: user.email,
+      account_type: user.account_type,
+      role: user.role,
+      status: user.status,
+      version: user.version
+    }
+  end
+
+  def user(%InvitedIdentityReceipt{} = user) do
     %{
       id: user.id,
       tenant_id: user.tenant_id,

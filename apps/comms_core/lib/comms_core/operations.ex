@@ -71,7 +71,7 @@ defmodule CommsCore.Operations do
     with :ok <- authorize_tenant_operations(subject) do
       tenant_id = value(subject, :tenant_id)
       %AdmissionPolicy{} = policy = AdmissionQuotas.admission_policy(tenant_id)
-      active_users = AdmissionQuotas.active_user_count(tenant_id)
+      active_users = Accounts.active_user_count(tenant_id)
       %AdmissionUsage{} = conversation_usage = Conversations.admission_usage(tenant_id)
       limits = Map.from_struct(policy)
 

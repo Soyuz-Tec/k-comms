@@ -6,13 +6,13 @@ violations:
   rule: adapter_schema_import
   path: apps/comms_web/lib/comms_web/presenter.ex
   detail: adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall
-- fingerprint: 1b2308af763271a1
+- fingerprint: a26844eb317ed35d
   rule: business_context_cycle
   path: docs/02-architecture/context-boundaries.yaml
   detail: 'members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations,
     authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations,
     calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration,
-    identity_access->calls, identity_access->tenant_administration, tenant_administration->calls, tenant_administration->identity_access'
+    identity_access->calls, identity_access->tenant_administration, tenant_administration->calls'
 - fingerprint: 46833d9e4f37a9f4
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/accounts.ex
@@ -41,10 +41,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/accounts/user.ex
   detail: CommsCore.Accounts.User references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: fd24bbd537ca4f95
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/admission_quotas.ex
-  detail: CommsCore.AdmissionQuotas references owner-internal schema CommsCore.Accounts.User
 - fingerprint: 281d9add61ab8c61
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/attachments/attachment.ex

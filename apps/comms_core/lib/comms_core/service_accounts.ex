@@ -1,7 +1,7 @@
 defmodule CommsCore.ServiceAccounts do
   import Ecto.Query
 
-  alias CommsCore.{AdmissionQuotas, Repo}
+  alias CommsCore.{Accounts, AdmissionQuotas, Repo}
   alias CommsCore.Accounts.{Device, Session, Tenant, User}
   alias CommsCore.Audit
   alias CommsCore.ServiceAccounts.ServiceAccount
@@ -60,7 +60,15 @@ defmodule CommsCore.ServiceAccounts do
 
       Repo.transaction(fn ->
         authorize_admin!(subject)
-        quota_ok!(AdmissionQuotas.ensure_active_user_capacity(value(subject, :tenant_id)))
+        tenant_id = value(subject, :tenant_id)
+
+        policy =
+          case AdmissionQuotas.locked_policy(tenant_id) do
+            {:ok, policy} -> policy
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+        quota_ok!(Accounts.ensure_active_user_capacity(tenant_id, policy))
 
         user =
           %User{id: user_id}

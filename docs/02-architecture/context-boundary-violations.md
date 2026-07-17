@@ -4,7 +4,7 @@ Generated from `scripts/validate_architecture.py --write-boundary-baseline`.
 Existing fingerprints are migration debt. Relative to the checked-in baseline,
 new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
 
-Total tracked violations: **104**.
+Total tracked violations: **103**.
 
 ## adapter_schema_import (1)
 
@@ -16,9 +16,9 @@ Total tracked violations: **104**.
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
-| `1b2308af763271a1` | `docs/02-architecture/context-boundaries.yaml` | members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls, tenant_administration->identity_access |
+| `a26844eb317ed35d` | `docs/02-architecture/context-boundaries.yaml` | members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls |
 
-## foreign_schema_import (84)
+## foreign_schema_import (83)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
@@ -29,7 +29,6 @@ Total tracked violations: **104**.
 | `2239525a78f246a4` | `apps/comms_core/lib/comms_core/accounts/session.ex` | CommsCore.Accounts.Session references owner-internal schema CommsCore.Accounts.Tenant |
 | `9c00206437b708a1` | `apps/comms_core/lib/comms_core/accounts/socket_ticket.ex` | CommsCore.Accounts.SocketTicket references owner-internal schema CommsCore.Accounts.Tenant |
 | `6e01f546438ba1e0` | `apps/comms_core/lib/comms_core/accounts/user.ex` | CommsCore.Accounts.User references owner-internal schema CommsCore.Accounts.Tenant |
-| `fd24bbd537ca4f95` | `apps/comms_core/lib/comms_core/admission_quotas.ex` | CommsCore.AdmissionQuotas references owner-internal schema CommsCore.Accounts.User |
 | `281d9add61ab8c61` | `apps/comms_core/lib/comms_core/attachments/attachment.ex` | CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.Tenant |
 | `4d0c0c815493288e` | `apps/comms_core/lib/comms_core/attachments/attachment.ex` | CommsCore.Attachments.Attachment references owner-internal schema CommsCore.Accounts.User |
 | `7ac0c7ca4d4d6af3` | `apps/comms_core/lib/comms_core/attachments/scan_attempt.ex` | CommsCore.Attachments.ScanAttempt references owner-internal schema CommsCore.Accounts.Tenant |
@@ -150,11 +149,11 @@ Static production module references (source owner -> referenced owner).
 | `identity_access` | `audit`, `calls`, `tenant_administration` |
 | `notification_delivery` | `audit`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration` |
 | `operations_read_model` | `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
-| `tenant_administration` | `audit`, `calls`, `identity_access` |
+| `tenant_administration` | `audit`, `calls` |
 | `trust_governance` | `audit`, `calls`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **46**. Strongly connected components: **1**.
+Edges: **45**. Strongly connected components: **1**.
 
 - `authorization_kernel`, `calls`, `conversations`, `identity_access`, `tenant_administration`
 
@@ -165,8 +164,9 @@ Declared runtime control flow (consumer -> provider).
 | Source | Targets |
 |---|---|
 | `identity_access` | `conversations`, `notification_delivery` |
+| `tenant_administration` | `identity_access` |
 
-Edges: **2**. Strongly connected components: **0**.
+Edges: **3**. Strongly connected components: **0**.
 
 ### Combined graph
 

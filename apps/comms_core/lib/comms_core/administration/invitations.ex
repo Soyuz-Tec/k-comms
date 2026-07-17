@@ -3,10 +3,16 @@ defmodule CommsCore.Administration.Invitations do
 
   import Ecto.Query
 
-  alias CommsCore.Accounts
-  alias CommsCore.Accounts.InvitedUserCommand
   alias CommsCore.Administration
-  alias CommsCore.Administration.{Invitation, Projector}
+
+  alias CommsCore.Administration.{
+    Invitation,
+    InvitationIdentityAuthorization,
+    InvitationIdentityPort,
+    InvitedUserCommand,
+    Projector
+  }
+
   alias CommsCore.Audit
   alias CommsCore.{AdmissionQuotas, Repo}
 
@@ -20,16 +26,33 @@ defmodule CommsCore.Administration.Invitations do
     idempotency_key = value(attrs, :idempotency_key)
 
     with {:ok, role} <- requested_role(attrs),
-         :ok <- Administration.authorize_manage_invitations(subject),
-         :ok <- Accounts.authorize_invitation_identity(subject, email, role),
-         :ok <- expire_pending(tenant_id, email) do
-      case existing_idempotent(tenant_id, idempotency_key) do
-        %Invitation{} = invitation ->
-          {:ok, %{invitation: Projector.invitation(invitation), token: nil, replayed: true}}
+         :ok <- Administration.authorize_manage_invitations(subject) do
+      Repo.transaction(fn ->
+        with :ok <- AdmissionQuotas.lock_tenant(tenant_id),
+             :ok <-
+               InvitationIdentityPort.authorize_invitation(%InvitationIdentityAuthorization{
+                 tenant_id: tenant_id,
+                 actor_user_id: value(subject, :user_id),
+                 email: email,
+                 role: role
+               }),
+             :ok <- expire_pending(tenant_id, email) do
+          case existing_idempotent(tenant_id, idempotency_key) do
+            %Invitation{} = invitation ->
+              %{
+                invitation: Projector.invitation(invitation),
+                token: nil,
+                replayed: true
+              }
 
-        nil ->
-          insert(attrs, subject, email, role, idempotency_key)
-      end
+            nil ->
+              insert_locked(subject, email, role, idempotency_key)
+          end
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+      |> transaction_result()
     end
   end
 
@@ -96,33 +119,50 @@ defmodule CommsCore.Administration.Invitations do
   def accept(attrs) when is_map(attrs) do
     password = value(attrs, :password)
 
-    with :ok <- Accounts.validate_invitation_password(password),
-         {:ok, invitation_id, secret} <- parse_one_time_token(value(attrs, :token)) do
+    with {:ok, invitation_id, secret} <- parse_one_time_token(value(attrs, :token)) do
       case Repo.transaction(fn ->
-             accept_locked(invitation_id, secret, password, value(attrs, :display_name))
+             with :ok <- InvitationIdentityPort.validate_invitation_password(password),
+                  {:ok, preflight} <- invitation_acceptance_preflight(invitation_id, secret) do
+               case preflight do
+                 {:eligible, tenant_id} ->
+                   with {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id) do
+                     accept_locked(
+                       invitation_id,
+                       tenant_id,
+                       secret,
+                       password,
+                       value(attrs, :display_name),
+                       policy
+                     )
+                   end
+
+                 {:expired, tenant_id} ->
+                   expire_invitation_locked(invitation_id, tenant_id)
+               end
+             end
            end) do
         {:ok, {:error, reason}} -> {:error, reason}
-        {:ok, user_view} -> {:ok, user_view}
+        {:ok, receipt} -> {:ok, receipt}
         {:error, reason} -> {:error, reason}
       end
     end
   end
 
-  defp insert(_attrs, subject, email, role, idempotency_key) do
+  defp insert_locked(subject, email, role, idempotency_key) do
     tenant_id = value(subject, :tenant_id)
     id = Ecto.UUID.generate()
     {token, token_hash} = one_time_token(id)
 
-    Ecto.Multi.new()
-    |> Ecto.Multi.run(:identity_available, fn _repo, _changes ->
-      with :ok <- AdmissionQuotas.lock_tenant(tenant_id),
-           :ok <- Accounts.ensure_invitation_identity_available(tenant_id, email) do
-        {:ok, :available}
-      end
-    end)
-    |> Ecto.Multi.insert(
-      :invitation,
-      Invitation.changeset(%Invitation{id: id}, %{
+    identity_ok!(
+      InvitationIdentityPort.ensure_invitation_identity_available(
+        tenant_id,
+        email
+      )
+    )
+
+    invitation =
+      %Invitation{id: id}
+      |> Invitation.changeset(%{
         tenant_id: tenant_id,
         invited_by_user_id: value(subject, :user_id),
         email: email,
@@ -132,31 +172,30 @@ defmodule CommsCore.Administration.Invitations do
         expires_at: invitation_expires_at(),
         idempotency_key: idempotency_key
       })
-    )
-    |> Audit.append(%{
-      tenant_id: tenant_id,
-      actor_user_id: value(subject, :user_id),
-      action: "invitation.create",
-      resource_type: "invitation",
-      resource_id: id,
-      metadata: %{email: email, role: role},
-      request_id: value(subject, :request_id)
-    })
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{invitation: invitation}} ->
-        {:ok, %{invitation: Projector.invitation(invitation), token: token, replayed: false}}
+      |> insert_or_rollback()
 
-      {:error, _step, reason, _changes} ->
-        {:error, reason}
-    end
+    audit_or_rollback(
+      Audit.record(%{
+        tenant_id: tenant_id,
+        actor_user_id: value(subject, :user_id),
+        action: "invitation.create",
+        resource_type: "invitation",
+        resource_id: id,
+        metadata: %{email: email, role: role},
+        request_id: value(subject, :request_id)
+      })
+    )
+
+    %{invitation: Projector.invitation(invitation), token: token, replayed: false}
   end
 
-  defp accept_locked(invitation_id, secret, password, display_name) do
+  defp accept_locked(invitation_id, tenant_id, secret, password, display_name, policy) do
     invitation =
       Repo.one(
         from(invitation in Invitation,
-          where: invitation.id == ^invitation_id,
+          where:
+            invitation.id == ^invitation_id and
+              invitation.tenant_id == ^tenant_id,
           lock: "FOR UPDATE"
         )
       ) || Repo.rollback(:invalid_invitation)
@@ -177,31 +216,30 @@ defmodule CommsCore.Administration.Invitations do
         {:error, :invalid_invitation}
 
       true ->
-        quota_ok!(AdmissionQuotas.lock_tenant(invitation.tenant_id))
-
         identity_ok!(
-          Accounts.ensure_invitation_identity_available(
+          InvitationIdentityPort.ensure_invitation_identity_available(
             invitation.tenant_id,
             invitation.email
           )
         )
-
-        quota_ok!(AdmissionQuotas.ensure_active_user_capacity(invitation.tenant_id))
 
         command = %InvitedUserCommand{
           tenant_id: invitation.tenant_id,
           email: invitation.email,
           display_name: display_name,
           role: invitation.role,
-          password: password
+          password: password,
+          admission_policy: policy
         }
 
-        user = Accounts.enroll_invited_user(command) |> identity_or_rollback()
+        identity =
+          InvitationIdentityPort.enroll_invited_user(command)
+          |> identity_or_rollback()
 
         invitation
         |> Invitation.changeset(%{
           status: :accepted,
-          accepted_user_id: user.id,
+          accepted_user_id: identity.id,
           accepted_at: now()
         })
         |> Ecto.Changeset.optimistic_lock(:lock_version)
@@ -210,7 +248,7 @@ defmodule CommsCore.Administration.Invitations do
         audit_or_rollback(
           Audit.record(%{
             tenant_id: invitation.tenant_id,
-            actor_user_id: user.id,
+            actor_user_id: identity.id,
             action: "invitation.accept",
             resource_type: "invitation",
             resource_id: invitation.id,
@@ -222,8 +260,63 @@ defmodule CommsCore.Administration.Invitations do
           })
         )
 
-        user
+        identity
     end
+  end
+
+  defp invitation_acceptance_preflight(invitation_id, secret) do
+    case Repo.one(
+           from(invitation in Invitation,
+             where: invitation.id == ^invitation_id,
+             select: %{
+               tenant_id: invitation.tenant_id,
+               status: invitation.status,
+               expires_at: invitation.expires_at,
+               token_hash: invitation.token_hash
+             }
+           )
+         ) do
+      %{status: :pending, expires_at: expires_at, tenant_id: tenant_id} = invitation
+      when is_binary(tenant_id) ->
+        cond do
+          DateTime.compare(expires_at, now()) != :gt ->
+            {:ok, {:expired, tenant_id}}
+
+          secure_hash_equals(invitation.token_hash, secret) ->
+            {:ok, {:eligible, tenant_id}}
+
+          true ->
+            {:error, :invalid_invitation}
+        end
+
+      %{status: _status} ->
+        {:error, :invalid_invitation}
+
+      nil ->
+        {:error, :invalid_invitation}
+    end
+  end
+
+  defp expire_invitation_locked(invitation_id, tenant_id) do
+    invitation =
+      Repo.one(
+        from(invitation in Invitation,
+          where:
+            invitation.id == ^invitation_id and
+              invitation.tenant_id == ^tenant_id,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    if invitation && invitation.status == :pending &&
+         DateTime.compare(invitation.expires_at, now()) != :gt do
+      invitation
+      |> Invitation.changeset(%{status: :expired})
+      |> Ecto.Changeset.optimistic_lock(:lock_version)
+      |> update_or_rollback()
+    end
+
+    {:error, :invalid_invitation}
   end
 
   defp expire_pending(tenant_id, email \\ nil) do
@@ -364,6 +457,13 @@ defmodule CommsCore.Administration.Invitations do
     end
   end
 
+  defp insert_or_rollback(changeset) do
+    case Repo.insert(changeset) do
+      {:ok, value} -> value
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp audit_or_rollback({:ok, event}), do: event
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
@@ -372,9 +472,6 @@ defmodule CommsCore.Administration.Invitations do
 
   defp identity_ok!(:ok), do: :ok
   defp identity_ok!({:error, reason}), do: Repo.rollback(reason)
-
-  defp quota_ok!(:ok), do: :ok
-  defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}

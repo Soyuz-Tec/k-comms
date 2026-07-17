@@ -3910,6 +3910,13 @@ def compare_boundary_baselines(
                         for fingerprint in configured
                         if isinstance(fingerprint, str)
                     }
+                    actual_added = current_fingerprints - base_fingerprints
+                    stale = sorted(adopted_fingerprints - actual_added)
+                    if stale:
+                        errors.append(
+                            "baseline adoption has stale allowed discovery "
+                            f"fingerprints: {', '.join(stale)}"
+                        )
     growth = sorted(
         (
             entry

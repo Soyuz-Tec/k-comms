@@ -15,7 +15,7 @@ defmodule CommsCore.AccountsTest do
     UserView
   }
 
-  alias CommsCore.Accounts.{Device, PlatformRoleGrant, Session, Tenant, User}
+  alias CommsCore.Accounts.{Device, PlatformAccess, PlatformRoleGrant, Session, Tenant, User}
   alias CommsCore.Audit
   alias CommsCore.Administration.TenantView
   alias CommsCore.Conversations.{Conversation, Membership}
@@ -565,7 +565,7 @@ defmodule CommsCore.AccountsTest do
     )
 
     assert %{platform_role: nil, platform_role_expires_at: nil} =
-             Accounts.platform_access_for_user(account.user)
+             PlatformAccess.for_user(account.user)
 
     assert {:ok,
             %AccessGrant{

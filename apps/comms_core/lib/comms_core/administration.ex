@@ -1,9 +1,19 @@
 defmodule CommsCore.Administration do
   import Ecto.Query
 
-  alias CommsCore.Accounts
-  alias CommsCore.Accounts.{AccessGrant, Tenant}
-  alias CommsCore.Administration.{Invitations, Projector, RetentionDefaults, TenantSettings}
+  alias CommsCore.Accounts.Tenant
+
+  alias CommsCore.Administration.{
+    AuthorizationActor,
+    AuthorizationActorPort,
+    IdentityAccessPort,
+    IdentityGrant,
+    Invitations,
+    Projector,
+    RetentionDefaults,
+    TenantSettings
+  }
+
   alias CommsCore.Audit
   alias CommsCore.{AdmissionQuotas, AudioCalls, Repo, RuntimePorts}
 
@@ -20,8 +30,8 @@ defmodule CommsCore.Administration do
   """
   @spec authorize_read_capabilities(map()) :: :ok | {:error, :forbidden}
   def authorize_read_capabilities(subject) when is_map(subject) do
-    case Accounts.access_grant(subject) do
-      {:ok, %AccessGrant{}} -> :ok
+    case IdentityAccessPort.resolve_access(subject) do
+      {:ok, %IdentityGrant{}} -> :ok
       {:error, :forbidden} -> {:error, :forbidden}
     end
   end
@@ -399,8 +409,8 @@ defmodule CommsCore.Administration do
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp authorize_roles(action, subject, roles, step_up_required?) do
-    case Accounts.access_grant(subject) do
-      {:ok, %AccessGrant{} = grant} ->
+    case IdentityAccessPort.resolve_access(subject) do
+      {:ok, %IdentityGrant{} = grant} ->
         cond do
           not Enum.member?(roles, grant.role) ->
             deny_authorization(action, subject, :forbidden)
@@ -417,8 +427,23 @@ defmodule CommsCore.Administration do
     end
   end
 
-  defp deny_authorization(action, subject, reason),
-    do: Accounts.audit_authorization_denial(action, subject, reason)
+  defp deny_authorization(action, subject, reason) do
+    case AuthorizationActorPort.resolve_authorization_actor(subject) do
+      {:ok, %AuthorizationActor{} = actor} ->
+        Audit.authorization_denied(
+          action,
+          %CommsCore.Audit.Actor{
+            tenant_id: actor.tenant_id,
+            user_id: actor.user_id,
+            request_id: actor.request_id
+          },
+          reason
+        )
+
+      {:error, :unknown_authorization_actor} ->
+        {:error, reason}
+    end
+  end
 
   defp enqueue_retention!(tenant_id) do
     %{"tenant_id" => tenant_id}
