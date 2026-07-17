@@ -53,6 +53,7 @@ defmodule CommsWeb.MessageController do
         Broadcast.event(conversation_id, "message.created.v1", payload)
 
         Broadcast.conversation_activity(
+          subject.tenant_id,
           conversation_id,
           message.conversation_sequence,
           "message.created.v1"
@@ -107,6 +108,7 @@ defmodule CommsWeb.MessageController do
       Broadcast.event(message.conversation_id, "message.updated.v1", payload)
 
       Broadcast.conversation_activity(
+        message.tenant_id,
         message.conversation_id,
         message.conversation_sequence,
         "message.updated.v1"
@@ -122,6 +124,7 @@ defmodule CommsWeb.MessageController do
       Broadcast.event(message.conversation_id, "message.deleted.v1", payload)
 
       Broadcast.conversation_activity(
+        message.tenant_id,
         message.conversation_id,
         message.conversation_sequence,
         "message.deleted.v1"

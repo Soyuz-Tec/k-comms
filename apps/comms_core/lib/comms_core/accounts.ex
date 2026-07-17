@@ -149,6 +149,47 @@ defmodule CommsCore.Accounts do
   end
 
   @doc """
+  Resolves requested user IDs that are active in the exact tenant.
+
+  Human and service identities are both eligible. Results are de-duplicated by
+  persistence and returned in user-id order.
+  """
+  @spec resolve_active_user_ids(String.t(), [String.t()]) :: [String.t()]
+  def resolve_active_user_ids(tenant_id, user_ids)
+      when is_binary(tenant_id) and is_list(user_ids) do
+    User
+    |> where(
+      [user],
+      user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
+        user.account_type in [:human, :service]
+    )
+    |> order_by([user], asc: user.id)
+    |> select([user], user.id)
+    |> Repo.all()
+  end
+
+  def resolve_active_user_ids(_tenant_id, _user_ids), do: []
+
+  @doc """
+  Resolves requested tenant users into stable identity projections.
+
+  Existing identities are returned regardless of lifecycle status so owner
+  contexts can display suspended or erased members without receiving User
+  persistence. Results are ordered by display name and then user ID.
+  """
+  @spec resolve_user_views(String.t(), [String.t()]) :: [CommsCore.Accounts.UserView.t()]
+  def resolve_user_views(tenant_id, user_ids)
+      when is_binary(tenant_id) and is_list(user_ids) do
+    User
+    |> where([user], user.tenant_id == ^tenant_id and user.id in ^user_ids)
+    |> order_by([user], asc: user.display_name, asc: user.id)
+    |> Repo.all()
+    |> Enum.map(&CommsCore.Accounts.Projector.user/1)
+  end
+
+  def resolve_user_views(_tenant_id, _user_ids), do: []
+
+  @doc """
   Resolves active human users into the minimal projection needed for
   notification delivery.
 

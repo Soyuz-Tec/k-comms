@@ -17,8 +17,7 @@ defmodule CommsCore.Conversations do
   alias CommsCore.Accounts.{
     ConversationBootstrapPort,
     InitialConversationCommand,
-    InitialConversationReceipt,
-    User
+    InitialConversationReceipt
   }
 
   alias CommsCore.Audit
@@ -338,8 +337,9 @@ defmodule CommsCore.Conversations do
   @doc """
   Validates that every supplied user is an active member of the conversation.
 
-  Membership and user persistence stay inside Conversations; content callers
-  exchange only identifiers and the validation result.
+  Membership persistence stays inside Conversations. IdentityAccess resolves
+  active user IDs through its facade; content callers exchange only identifiers
+  and the validation result.
   """
   @spec validate_active_members(Ecto.UUID.t(), Ecto.UUID.t(), [Ecto.UUID.t()]) ::
           :ok | {:error, :invalid_mentions}
@@ -347,13 +347,9 @@ defmodule CommsCore.Conversations do
 
   def validate_active_members(tenant_id, conversation_id, user_ids)
       when is_binary(tenant_id) and is_binary(conversation_id) and is_list(user_ids) do
-    valid_user_ids =
+    member_user_ids =
       Repo.all(
         from(membership in Membership,
-          join: user in User,
-          on:
-            user.id == membership.user_id and user.tenant_id == membership.tenant_id and
-              user.status == :active,
           where:
             membership.tenant_id == ^tenant_id and
               membership.conversation_id == ^conversation_id and
@@ -362,9 +358,13 @@ defmodule CommsCore.Conversations do
         )
       )
 
-    if MapSet.new(valid_user_ids) == MapSet.new(user_ids),
-      do: :ok,
-      else: {:error, :invalid_mentions}
+    requested_user_ids = MapSet.new(user_ids)
+    active_user_ids = Accounts.resolve_active_user_ids(tenant_id, member_user_ids)
+
+    if MapSet.new(member_user_ids) == requested_user_ids and
+         MapSet.new(active_user_ids) == requested_user_ids,
+       do: :ok,
+       else: {:error, :invalid_mentions}
   end
 
   def validate_active_members(_tenant_id, _conversation_id, _user_ids),
@@ -839,28 +839,28 @@ defmodule CommsCore.Conversations do
 
   def list_members(conversation_id, subject) do
     with :ok <- authorize_read(conversation_id, subject) do
-      query =
-        from(m in Membership,
-          join: u in User,
-          on: u.id == m.user_id,
-          where:
-            m.conversation_id == ^conversation_id and
-              m.tenant_id == ^value(subject, :tenant_id) and is_nil(m.left_at),
-          order_by: [asc: u.display_name],
-          select: %{membership: m, user: u}
+      tenant_id = value(subject, :tenant_id)
+
+      memberships =
+        Repo.all(
+          from(membership in Membership,
+            where:
+              membership.conversation_id == ^conversation_id and
+                membership.tenant_id == ^tenant_id and is_nil(membership.left_at)
+          )
         )
 
-      {:ok, Repo.all(query)}
-    end
-  end
+      memberships_by_user_id = Map.new(memberships, &{&1.user_id, &1})
 
-  def active_member_ids(conversation_id) when is_binary(conversation_id) do
-    Repo.all(
-      from(m in Membership,
-        where: m.conversation_id == ^conversation_id and is_nil(m.left_at),
-        select: m.user_id
-      )
-    )
+      members =
+        tenant_id
+        |> Accounts.resolve_user_views(Map.keys(memberships_by_user_id))
+        |> Enum.map(fn user ->
+          %{membership: Map.fetch!(memberships_by_user_id, user.id), user: user}
+        end)
+
+      {:ok, members}
+    end
   end
 
   @doc """
@@ -892,11 +892,8 @@ defmodule CommsCore.Conversations do
         authorize_in_transaction!(fn -> authorize_manage(conversation.id, subject) end)
         policy = admission_policy!(conversation.tenant_id)
 
-        Repo.get_by(User,
-          id: user_id,
-          tenant_id: conversation.tenant_id,
-          status: :active
-        ) || Repo.rollback(:invalid_member)
+        unless Accounts.resolve_active_user_ids(conversation.tenant_id, [user_id]) == [user_id],
+          do: Repo.rollback(:invalid_member)
 
         timestamp = now()
 
@@ -1133,12 +1130,11 @@ defmodule CommsCore.Conversations do
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
 
   defp validate_members(tenant_id, member_ids) do
-    count =
-      User
-      |> where([u], u.tenant_id == ^tenant_id and u.id in ^member_ids and u.status == :active)
-      |> Repo.aggregate(:count)
+    active_user_ids = Accounts.resolve_active_user_ids(tenant_id, member_ids)
 
-    if count == length(member_ids), do: :ok, else: {:error, :invalid_members}
+    if MapSet.new(active_user_ids) == MapSet.new(member_ids),
+      do: :ok,
+      else: {:error, :invalid_members}
   end
 
   defp direct_key(:direct, member_ids) when length(member_ids) == 2 do

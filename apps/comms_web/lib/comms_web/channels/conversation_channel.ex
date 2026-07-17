@@ -101,6 +101,7 @@ defmodule CommsWeb.ConversationChannel do
         broadcast!(socket, "message.created.v1", event)
 
         CommsWeb.Broadcast.conversation_activity(
+          socket.assigns.tenant_id,
           socket.assigns.conversation_id,
           message.conversation_sequence,
           "message.created.v1"

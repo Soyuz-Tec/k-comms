@@ -33,7 +33,13 @@ defmodule CommsWeb.BroadcastTest do
       assert :ok = CommsWeb.Endpoint.subscribe(topic)
     end
 
-    assert :ok = Broadcast.conversation_activity(conversation.id, 41, "message.created.v1")
+    assert :ok =
+             Broadcast.conversation_activity(
+               account.tenant.id,
+               conversation.id,
+               41,
+               "message.created.v1"
+             )
 
     expected_activity = %{
       conversation_id: conversation.id,
@@ -69,7 +75,12 @@ defmodule CommsWeb.BroadcastTest do
                subject
              )
 
-    assert :ok = Broadcast.conversation_memberships(conversation.id, "removed")
+    assert :ok =
+             Broadcast.conversation_memberships(
+               account.tenant.id,
+               conversation.id,
+               "removed"
+             )
 
     assert_receive %Phoenix.Socket.Broadcast{
       topic: ^owner_topic,

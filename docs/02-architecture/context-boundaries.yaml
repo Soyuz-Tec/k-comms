@@ -29,6 +29,7 @@ enforcement:
         - 47659f71148ad7cd
         - a26844eb317ed35d
       removed_fingerprints:
+        - 01480f3bb95a9c16
         - 044ad0a09865bdff
         - 121f7164c64045fa
         - 1e1d10760987004e
@@ -54,25 +55,31 @@ enforcement:
         - 87dbcd607e0b12b6
         - 8a77894c283aac7a
         - 8c5d4bc9c14685e9
+        - 8e1a8065ef4e942a
         - 97986c01688edbd7
         - a34ca28aa15ea541
         - a74facb531f49387
         - af08c6b0f0c514cf
+        - b57d207c73d50d3c
+        - b868ec00572fc392
         - c00fd3d1192fbcc6
         - c0c0fa81093ad554
         - c3db96cf85cb9698
         - d800fbf3e8ef2cc5
         - e2aa023f11e60616
         - e442c942c91deaa0
+        - e62a5587406838f2
         - e80e50669f5d670e
         - eb5d23e247bfa767
+        - fc4e10c723ffa345
         - fd24bbd537ca4f95
       adr: docs/02-architecture/adr/0036-invert-tenant-identity-workflows.md
-      removal_condition: Remove this cumulative exact 123-to-87 transition after the ADR-0036 authorization/TenantAdministration-to-IdentityAccess tranche and the separately declared ADR-0037 NotificationDelivery transition are present on the protected branch; it may not authorize any later fingerprint delta.
-    - id: contain-notification-delivery-persistence
+      removal_condition: Remove this cumulative exact 123-to-81 transition after the ADR-0036 authorization/TenantAdministration-to-IdentityAccess tranche and the separately declared ADR-0037 NotificationDelivery and ADR-0038 Conversations transitions are present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-notification-delivery-and-conversations-persistence
       previous_baseline_sha256: c06f24d6ea25a5eed325b528952f44f7ec212d3e2698a7ad10f93213bab069e4
       added_fingerprints: []
       removed_fingerprints:
+        - 01480f3bb95a9c16
         - 044ad0a09865bdff
         - 1e1d10760987004e
         - 1ee6ff99500eaa19
@@ -83,14 +90,31 @@ enforcement:
         - 7df5d18a55a8e299
         - 84a5b72a3c38e9e8
         - 87dbcd607e0b12b6
+        - 8e1a8065ef4e942a
         - a34ca28aa15ea541
         - af08c6b0f0c514cf
+        - b57d207c73d50d3c
+        - b868ec00572fc392
         - c0c0fa81093ad554
         - c3db96cf85cb9698
+        - e62a5587406838f2
         - e80e50669f5d670e
         - eb5d23e247bfa767
+        - fc4e10c723ffa345
       adr: docs/02-architecture/adr/0037-contain-notification-delivery-persistence.md
-      removal_condition: Remove this exact 103-to-87 finding transition after the NotificationDelivery containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+      removal_condition: Remove this cumulative exact 103-to-81 transition after the ADR-0037 NotificationDelivery tranche and the separately declared ADR-0038 Conversations transition are present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-conversations-persistence
+      previous_baseline_sha256: a51bfc494a91b8a58a50ce21b0f75c64ab539527c2a1bb0957d0a251b136fa40
+      added_fingerprints: []
+      removed_fingerprints:
+        - 01480f3bb95a9c16
+        - 8e1a8065ef4e942a
+        - b57d207c73d50d3c
+        - b868ec00572fc392
+        - e62a5587406838f2
+        - fc4e10c723ffa345
+      adr: docs/02-architecture/adr/0038-contain-conversations-persistence.md
+      removal_condition: Remove this exact 87-to-81 finding transition after the Conversations containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
     active: false
     activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
@@ -634,12 +658,6 @@ temporary_violations:
         - 99cd7470375bce8f
         - e3c6574035e85b56
         - c94c7774541553d1
-        - 8e1a8065ef4e942a
-        - 01480f3bb95a9c16
-        - b868ec00572fc392
-        - e62a5587406838f2
-        - fc4e10c723ffa345
-        - b57d207c73d50d3c
         - b9eb079551e887da
         - 0ce8e87873a601ba
         - 6649c5c8afcc1451

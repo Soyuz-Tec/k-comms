@@ -80,7 +80,11 @@ defmodule CommsWeb.ConversationController do
 
   def create(conn, params) do
     with {:ok, conversation} <- Conversations.create_view(params, conn.assigns.current_subject) do
-      CommsWeb.Broadcast.conversation_memberships(conversation.id, "added")
+      CommsWeb.Broadcast.conversation_memberships(
+        conversation.tenant_id,
+        conversation.id,
+        "added"
+      )
 
       conn
       |> put_status(:created)

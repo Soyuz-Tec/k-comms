@@ -2,9 +2,9 @@ defmodule CommsCore.Conversations.Membership do
   use CommsCore.Schema
 
   schema "conversation_memberships" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:user, CommsCore.Accounts.User)
+    field(:user_id, Ecto.UUID)
     field(:role, Ecto.Enum, values: [:member, :moderator, :owner], default: :member)
     field(:joined_at, :utc_datetime_usec)
     field(:left_at, :utc_datetime_usec)

@@ -129,30 +129,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: 8e1a8065ef4e942a
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations.ex
-  detail: CommsCore.Conversations references owner-internal schema CommsCore.Accounts.User
-- fingerprint: 01480f3bb95a9c16
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations/conversation.ex
-  detail: CommsCore.Conversations.Conversation references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: b868ec00572fc392
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations/conversation.ex
-  detail: CommsCore.Conversations.Conversation references owner-internal schema CommsCore.Accounts.User
-- fingerprint: e62a5587406838f2
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations/membership.ex
-  detail: CommsCore.Conversations.Membership references owner-internal schema CommsCore.Accounts.Tenant
-- fingerprint: fc4e10c723ffa345
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations/membership.ex
-  detail: CommsCore.Conversations.Membership references owner-internal schema CommsCore.Accounts.User
-- fingerprint: b57d207c73d50d3c
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/conversations/projector.ex
-  detail: CommsCore.Conversations.Projector references owner-internal schema CommsCore.Accounts.User
 - fingerprint: b9eb079551e887da
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/governance.ex

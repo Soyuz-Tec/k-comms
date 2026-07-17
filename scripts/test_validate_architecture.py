@@ -604,6 +604,87 @@ class ValidateArchitectureTest(unittest.TestCase):
             manifest["contexts"]["conversations"]["public_contracts"],
         )
 
+    def test_repository_contains_conversations_persistence_behind_owner_apis(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        conversations_root = root / "apps/comms_core/lib/comms_core/conversations"
+        conversation_sources = [
+            root / "apps/comms_core/lib/comms_core/conversations.ex",
+            *sorted(conversations_root.rglob("*.ex")),
+        ]
+        forbidden_identity_internals = {
+            "CommsCore.Accounts.Projector",
+            "CommsCore.Accounts.Tenant",
+            "CommsCore.Accounts.User",
+        }
+        foreign_references = []
+
+        for path in conversation_sources:
+            references = core_module_references(path.read_text(encoding="utf-8"))
+            leaked = sorted(references.intersection(forbidden_identity_internals))
+            if leaked:
+                foreign_references.append(
+                    (path.relative_to(root).as_posix(), leaked)
+                )
+
+        self.assertEqual(foreign_references, [])
+
+        scalar_fields = {
+            "conversation.ex": (
+                "field(:tenant_id, Ecto.UUID)",
+                "field(:created_by_user_id, Ecto.UUID)",
+            ),
+            "membership.ex": (
+                "field(:tenant_id, Ecto.UUID)",
+                "field(:user_id, Ecto.UUID)",
+            ),
+        }
+        for filename, fields in scalar_fields.items():
+            with self.subTest(schema=filename):
+                source = (conversations_root / filename).read_text(encoding="utf-8")
+                for field in fields:
+                    self.assertIn(field, source)
+
+        conversations_source = conversation_sources[0].read_text(encoding="utf-8")
+        self.assertIn("Accounts.resolve_active_user_ids(", conversations_source)
+        self.assertIn("Accounts.resolve_user_views(", conversations_source)
+        self.assertEqual(conversations_source.count("def active_member_ids("), 1)
+        self.assertIn(
+            "def active_member_ids(tenant_id, conversation_id)",
+            conversations_source,
+        )
+
+        accounts_source = (
+            root / "apps/comms_core/lib/comms_core/accounts.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def resolve_active_user_ids(tenant_id, user_ids)", accounts_source)
+        self.assertIn("def resolve_user_views(tenant_id, user_ids)", accounts_source)
+        self.assertIn(
+            "CommsCore.Accounts.UserView",
+            manifest["contexts"]["identity_access"]["public_contracts"],
+        )
+
+        active_member_callers = []
+        for path in sorted((root / "apps").glob("*/lib/**/*.ex")):
+            for module, function, arity in qualified_function_calls(
+                path.read_text(encoding="utf-8")
+            ):
+                if (
+                    module == "CommsCore.Conversations"
+                    and function == "active_member_ids"
+                ):
+                    active_member_callers.append(
+                        (path.relative_to(root).as_posix(), arity)
+                    )
+
+        self.assertTrue(active_member_callers)
+        self.assertTrue(
+            all(arity == 2 for _path, arity in active_member_callers),
+            active_member_callers,
+        )
+
     def test_repository_keeps_audit_persistence_inside_the_audit_implementation(
         self,
     ) -> None:

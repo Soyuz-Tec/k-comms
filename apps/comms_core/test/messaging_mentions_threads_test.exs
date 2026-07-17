@@ -55,6 +55,22 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
              :count
            ) == 1
 
+    assert {:ok, %{user: %{status: :suspended}}} =
+             Governance.change_user_lifecycle_view(
+               mentioned.id,
+               %{
+                 version: mentioned.lock_version,
+                 status: "suspended",
+                 reason: "Verify mention eligibility follows identity lifecycle"
+               },
+               Fixtures.step_up(account, subject)
+             )
+
+    assert {:error, :invalid_mentions} =
+             account
+             |> message_attrs("mention-suspended-member", %{mentioned_user_ids: [mentioned.id]})
+             |> Messaging.accept_message(subject)
+
     nonmember = Fixtures.user_fixture(account).user
 
     assert {:error, :invalid_mentions} =

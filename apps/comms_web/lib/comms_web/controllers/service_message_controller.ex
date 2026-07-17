@@ -50,6 +50,7 @@ defmodule CommsWeb.ServiceMessageController do
         Broadcast.event(conversation_id, "message.created.v1", payload)
 
         Broadcast.conversation_activity(
+          subject.tenant_id,
           conversation_id,
           message.conversation_sequence,
           "message.created.v1"

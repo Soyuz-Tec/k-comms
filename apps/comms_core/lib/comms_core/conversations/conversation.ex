@@ -2,8 +2,8 @@ defmodule CommsCore.Conversations.Conversation do
   use CommsCore.Schema
 
   schema "conversations" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:created_by_user, CommsCore.Accounts.User)
+    field(:tenant_id, Ecto.UUID)
+    field(:created_by_user_id, Ecto.UUID)
     field(:kind, Ecto.Enum, values: [:direct, :group, :channel], default: :group)
     field(:title, :string)
     field(:visibility, Ecto.Enum, values: [:private, :tenant], default: :private)

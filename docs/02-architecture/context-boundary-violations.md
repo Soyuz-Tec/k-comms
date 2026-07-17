@@ -4,7 +4,7 @@ Generated from `scripts/validate_architecture.py --write-boundary-baseline`.
 Existing fingerprints are migration debt. Relative to the checked-in baseline,
 new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
 
-Total tracked violations: **87**.
+Total tracked violations: **81**.
 
 ## adapter_schema_import (1)
 
@@ -18,7 +18,7 @@ Total tracked violations: **87**.
 |---|---|---|
 | `a26844eb317ed35d` | `docs/02-architecture/context-boundaries.yaml` | members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls |
 
-## foreign_schema_import (71)
+## foreign_schema_import (65)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
@@ -51,12 +51,6 @@ Total tracked violations: **87**.
 | `99cd7470375bce8f` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Administration.TenantSettings |
 | `e3c6574035e85b56` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Conversation |
 | `c94c7774541553d1` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership |
-| `8e1a8065ef4e942a` | `apps/comms_core/lib/comms_core/conversations.ex` | CommsCore.Conversations references owner-internal schema CommsCore.Accounts.User |
-| `01480f3bb95a9c16` | `apps/comms_core/lib/comms_core/conversations/conversation.ex` | CommsCore.Conversations.Conversation references owner-internal schema CommsCore.Accounts.Tenant |
-| `b868ec00572fc392` | `apps/comms_core/lib/comms_core/conversations/conversation.ex` | CommsCore.Conversations.Conversation references owner-internal schema CommsCore.Accounts.User |
-| `e62a5587406838f2` | `apps/comms_core/lib/comms_core/conversations/membership.ex` | CommsCore.Conversations.Membership references owner-internal schema CommsCore.Accounts.Tenant |
-| `fc4e10c723ffa345` | `apps/comms_core/lib/comms_core/conversations/membership.ex` | CommsCore.Conversations.Membership references owner-internal schema CommsCore.Accounts.User |
-| `b57d207c73d50d3c` | `apps/comms_core/lib/comms_core/conversations/projector.ex` | CommsCore.Conversations.Projector references owner-internal schema CommsCore.Accounts.User |
 | `b9eb079551e887da` | `apps/comms_core/lib/comms_core/governance.ex` | CommsCore.Governance references owner-internal schema CommsCore.Accounts.User |
 | `0ce8e87873a601ba` | `apps/comms_core/lib/comms_core/governance.ex` | CommsCore.Governance references owner-internal schema CommsCore.Attachments.Attachment |
 | `6649c5c8afcc1451` | `apps/comms_core/lib/comms_core/governance.ex` | CommsCore.Governance references owner-internal schema CommsCore.Conversations.Conversation |

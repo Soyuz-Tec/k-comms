@@ -1,8 +1,7 @@
 defmodule CommsCore.Conversations.Projector do
   @moduledoc false
 
-  alias CommsCore.Accounts.Projector, as: AccountsProjector
-  alias CommsCore.Accounts.User
+  alias CommsCore.Accounts.UserView
   alias CommsCore.Conversations.{Conversation, ConversationView, Membership, MembershipView}
 
   def conversation(%Conversation{} = conversation) do
@@ -40,9 +39,9 @@ defmodule CommsCore.Conversations.Projector do
     })
   end
 
-  def membership(%{membership: %Membership{} = membership, user: %User{} = user}) do
+  def membership(%{membership: %Membership{} = membership, user: %UserView{} = user}) do
     membership(membership)
-    |> Map.put(:user, AccountsProjector.user(user))
+    |> Map.put(:user, user)
   end
 
   def membership(%Membership{} = membership) do
