@@ -2,7 +2,7 @@ defmodule CommsCore.Release do
   @app :comms_core
 
   alias CommsCore.{Accounts, Attachments, Repo}
-  alias CommsCore.Attachments.RestoreContext
+  alias CommsCore.Attachments.{RestoreCandidate, RestoreContext, RestoredObjectIdentity}
 
   @restore_remap_confirmation "remap-restored-attachment-versions"
 
@@ -53,6 +53,9 @@ defmodule CommsCore.Release do
   normal application runtime and requires the documented one-shot environment
   confirmation plus an operation ID, actor, and reason for the audit ledger.
   """
+  @spec remap_restored_attachment_versions((RestoreCandidate.t() ->
+                                              {:ok, RestoredObjectIdentity.t()} | {:error, term()})) ::
+          :ok
   def remap_restored_attachment_versions(verifier) when is_function(verifier, 1) do
     with {:ok, context} <- validate_restore_remap_environment(&System.get_env/1) do
       load_app()

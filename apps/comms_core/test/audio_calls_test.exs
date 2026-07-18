@@ -150,7 +150,7 @@ defmodule CommsCore.AudioCallsTest do
              AudioCalls.with_join_authorized(
                direct.id,
                direct_call.id,
-               Fixtures.subject(member),
+               member.subject,
                fn _request -> {:ok, :joined} end
              )
 
@@ -527,7 +527,7 @@ defmodule CommsCore.AudioCallsTest do
                account.conversation.id,
                call.id,
                %{},
-               Fixtures.subject(member),
+               member.subject,
                fn _call -> :ok end
              )
 
@@ -538,7 +538,7 @@ defmodule CommsCore.AudioCallsTest do
                account.conversation.id,
                call.id,
                %{reason: "moderator_ended"},
-               Fixtures.subject(member),
+               member.subject,
                fn _call -> :ok end
              )
 
@@ -1057,14 +1057,15 @@ defmodule CommsCore.AudioCallsTest do
     suffix = String.replace_prefix(local, "member-", "")
 
     {:ok, signed_in} =
-      Accounts.authenticate(
+      Accounts.authenticate_view(
         account.tenant.slug,
         member.user.email,
         "correct-horse-battery-#{suffix}",
         %{name: "Member browser", platform: "test"}
       )
 
-    signed_in
+    {:ok, access_context} = Accounts.access_context(signed_in.session_id)
+    %{user: signed_in.user, subject: access_context.subject}
   end
 
   defp eviction_job_count(participant_id) do

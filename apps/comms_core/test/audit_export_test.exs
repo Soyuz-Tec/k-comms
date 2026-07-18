@@ -149,11 +149,12 @@ defmodule CommsCore.AuditExportTest do
              )
 
     assert {:ok, authentication} =
-             Accounts.authenticate(account.tenant.slug, user.email, password, %{
+             Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
                name: "Audit export browser",
                platform: "test"
              })
 
-    %{subject: Accounts.subject_for_session(authentication.session), password: password}
+    assert {:ok, %{subject: subject}} = Accounts.access_context(authentication.session_id)
+    %{subject: subject, password: password}
   end
 end

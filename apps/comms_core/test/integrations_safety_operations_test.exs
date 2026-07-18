@@ -983,11 +983,12 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              )
 
     assert {:ok, authentication} =
-             Accounts.authenticate(account.tenant.slug, user.email, password, %{
+             Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
                name: "Authorization policy browser",
                platform: "test"
              })
 
-    Accounts.subject_for_session(authentication.session)
+    {:ok, access_context} = Accounts.access_context(authentication.session_id)
+    access_context.subject
   end
 end

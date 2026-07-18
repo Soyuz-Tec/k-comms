@@ -38,7 +38,8 @@ defmodule CommsCore.Accounts do
   alias CommsCore.{
     Administration,
     AdmissionQuotas,
-    Repo
+    Repo,
+    ValidationError
   }
 
   alias CommsCore.Security.Password
@@ -575,8 +576,7 @@ defmodule CommsCore.Accounts do
   def authorize_operate_platform(_subject), do: {:error, :forbidden}
 
   # Adapter-facing API. These functions are the stable projection boundary;
-  # persistence-returning operations below remain available to owner internals
-  # while callers migrate.
+  # persistence-returning operations remain private owner implementations.
   def bootstrap_tenant_view(attrs) do
     with {:ok, result} <- bootstrap_tenant(attrs) do
       {:ok, CommsCore.Accounts.Projector.authentication(result)}
@@ -751,7 +751,7 @@ defmodule CommsCore.Accounts do
              | :last_owner_required
              | :not_found
              | :transaction_required
-             | Ecto.Changeset.t()}
+             | :user_erasure_failed}
   def erase_user_for_governance(command) when is_map(command) do
     tenant_id = value(command, :tenant_id)
     user_id = value(command, :user_id)
@@ -966,7 +966,7 @@ defmodule CommsCore.Accounts do
     end
   end
 
-  def authenticate(tenant_slug, email, password, device_attrs \\ %{}) do
+  defp authenticate(tenant_slug, email, password, device_attrs) do
     normalized_email = email |> to_string() |> String.trim() |> String.downcase()
 
     with {:ok, tenant} <- Administration.active_tenant_by_slug(tenant_slug),
@@ -1153,7 +1153,7 @@ defmodule CommsCore.Accounts do
     end
   end
 
-  def list_tenant_users(subject) do
+  defp list_tenant_users(subject) do
     tenant_id = value(subject, :tenant_id)
 
     User
@@ -1485,11 +1485,11 @@ defmodule CommsCore.Accounts do
   @spec apply_user_lifecycle_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()]) ::
           {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [Ecto.UUID.t()]}}
           | {:error,
-             :invalid_owner_exclusions
+             ValidationError.t()
+             | :invalid_owner_exclusions
              | :not_found
              | :transaction_required
-             | atom()
-             | Ecto.Changeset.t()}
+             | atom()}
   def apply_user_lifecycle_change(user_id, attrs, subject, excluded_owner_ids)
       when is_map(attrs) and is_map(subject) do
     cond do
@@ -2152,6 +2152,10 @@ defmodule CommsCore.Accounts do
     })
     |> Ecto.Changeset.optimistic_lock(:lock_version)
     |> Repo.update()
+    |> case do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:error, :user_erasure_failed}
+    end
   end
 
   defp revoke_user_access_for_governance(user, timestamp) do
@@ -2252,7 +2256,7 @@ defmodule CommsCore.Accounts do
       target
       |> User.changeset(changes)
       |> Ecto.Changeset.optimistic_lock(:lock_version)
-      |> update_or_rollback()
+      |> update_or_validation_error()
 
     revoked_session_ids =
       if updated.status != :active, do: revoke_user_access!(updated), else: []
@@ -2643,6 +2647,17 @@ defmodule CommsCore.Accounts do
     case Repo.update(changeset) do
       {:ok, value} -> value
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp update_or_validation_error(changeset) do
+    case Repo.update(changeset) do
+      {:ok, value} ->
+        value
+
+      {:error, invalid_changeset} ->
+        {:ok, error} = ValidationError.from(invalid_changeset)
+        Repo.rollback(error)
     end
   end
 

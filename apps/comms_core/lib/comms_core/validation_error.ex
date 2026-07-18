@@ -3,6 +3,9 @@ defmodule CommsCore.ValidationError do
 
   defstruct [:details]
 
+  @type t :: %__MODULE__{details: map()}
+
+  @spec from(term()) :: {:ok, t()} | :error
   def from(%Ecto.Changeset{} = changeset) do
     details =
       Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->

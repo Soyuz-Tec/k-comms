@@ -500,6 +500,27 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assert_rule(root, "duplicate_table_mapping")
 
+    def test_rejects_duplicate_table_mappings_in_adapter_apps(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root, "CommsCore.Alpha.Record", "alpha_records", "alpha/record.ex"
+            )
+            adapter_schema = (
+                root / "apps/comms_web/lib/comms_web/alpha_record.ex"
+            )
+            adapter_schema.parent.mkdir(parents=True, exist_ok=True)
+            adapter_schema.write_text(
+                "defmodule CommsWeb.AlphaRecord do\n"
+                "  use Ecto.Schema\n"
+                '  schema "alpha_records" do\n'
+                "    field :name, :string\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "duplicate_table_mapping")
+
     def test_external_framework_tables_support_schema_or_accessor_declarations(
         self,
     ) -> None:
@@ -3450,6 +3471,281 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assert_rule(root, "mixed_owner_migration")
 
+    def test_attributes_literal_table_and_multi_bulk_writes(self) -> None:
+        unsafe_writes = (
+            'Repo.insert_all("beta_records", [])',
+            "Repo.update_all(:beta_records, [])",
+            'Repo.delete_all("beta_records")',
+            "Ecto.Multi.new() "
+            '|> Ecto.Multi.insert_all(:copy, "beta_records", [])',
+            "Ecto.Multi.update_all(Ecto.Multi.new(), :copy, :beta_records, [])",
+            "Ecto.Multi.delete_all(Ecto.Multi.new(), :copy, :beta_records)",
+        )
+        for write in unsafe_writes:
+            with self.subTest(write=write), self.boundary_fixture() as root:
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                self.write_schema(
+                    root,
+                    "CommsCore.Beta.Record",
+                    "beta_records",
+                    "beta/record.ex",
+                )
+                source = root / "apps/comms_core/lib/comms_core/alpha/writer.ex"
+                source.write_text(
+                    "defmodule CommsCore.Alpha.Writer do\n"
+                    "  alias CommsCore.Repo\n"
+                    f"  def write, do: {write}\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "direct_foreign_write")
+
+    def test_rejects_unresolved_bulk_and_raw_sql_mutations_everywhere(self) -> None:
+        unsafe_writes = (
+            "Repo.insert_all(target, [])",
+            "Repo.update_all(queryable(), [])",
+            "Ecto.Multi.delete_all(Ecto.Multi.new(), :copy, target)",
+            "Ecto.Adapters.SQL.query(Repo, statement, [])",
+            'Ecto.Adapters.SQL.query(Repo, "DROP INDEX unknown_idx", [])',
+        )
+        for write in unsafe_writes:
+            with self.subTest(write=write), self.boundary_fixture() as root:
+                source = root / "apps/comms_core/lib/comms_core/alpha/writer.ex"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(
+                    "defmodule CommsCore.Alpha.Writer do\n"
+                    "  alias CommsCore.Repo\n"
+                    f"  def write(target \\\\ nil, statement \\\\ nil), do: {write}\n"
+                    "  defp queryable, do: target()\n"
+                    "  defp target, do: :dynamic\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "unresolved_persistence_write")
+
+    def test_rejects_unattributed_repo_writes_and_dispatch_evasions(self) -> None:
+        unsafe_modules = (
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  def write(value), do: Repo.insert(value)\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  def write(value), do: Repo.update(value)\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  def write(value), do: Repo.delete(value)\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  def write(value), do: Repo.insert_or_update(value)\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  import CommsCore.Repo\n"
+            '  def write, do: insert_all("beta_records", [])\n'
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  def writer, do: &Repo.insert/1\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Writer do\n"
+            "  alias CommsCore.Repo\n"
+            "  defdelegate write(value), to: Repo, as: :insert\n"
+            "end\n",
+        )
+        for source_text in unsafe_modules:
+            with (
+                self.subTest(source_text=source_text),
+                self.boundary_fixture() as root,
+            ):
+                source = root / "apps/comms_core/lib/comms_core/alpha/writer.ex"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(source_text, encoding="utf-8")
+
+                self.assert_rule(root, "unresolved_persistence_write")
+
+    def test_attributes_raw_sql_foreign_writes_and_allows_static_selects(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            source = root / "apps/comms_core/lib/comms_core/alpha/sql.ex"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "defmodule CommsCore.Alpha.Sql do\n"
+                "  alias CommsCore.Repo\n"
+                "  def read, do: Ecto.Adapters.SQL.query(Repo, \"SELECT 1\", [])\n"
+                "  # Ecto.Adapters.SQL.query(Repo, "
+                "\"DELETE FROM beta_records\", [])\n"
+                "  def write, do: Ecto.Adapters.SQL.query("
+                "Repo, \"UPDATE beta_records SET id = id\", [])\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "direct_foreign_write")
+            violations = analyze_context_boundaries(
+                root,
+                read_yaml(root / "docs/02-architecture/context-boundaries.yaml"),
+            )
+            self.assertFalse(
+                any(
+                    item.rule == "unresolved_persistence_write"
+                    for item in violations
+                ),
+                violations,
+            )
+
+    def test_migration_parser_covers_ecto_sql_and_references(self) -> None:
+        with self.boundary_fixture() as root:
+            migration_root = root / "apps/comms_core/priv/repo/migrations"
+            migration_root.mkdir(parents=True, exist_ok=True)
+            mixed = migration_root / "1_index_constraint.exs"
+            mixed.write_text(
+                "create index(:alpha_records, [:id])\n"
+                "create constraint(:beta_records, :valid, check: \"id IS NOT NULL\")\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "mixed_owner_migration")
+
+            mixed.unlink()
+            reference = migration_root / "2_reference.exs"
+            reference.write_text(
+                "create table(:alpha_records) do\n"
+                "  add :beta_id, references(:beta_records)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assert_not_rule(root, "mixed_owner_migration")
+            self.assert_not_rule(root, "undeclared_migration_reference")
+
+            reference.write_text(
+                "create table(:alpha_records) do\n"
+                "  add :beta_id, references(:missing_records)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "undeclared_migration_reference")
+
+    def test_migration_parser_rejects_raw_sql_and_dynamic_targets(self) -> None:
+        with self.boundary_fixture() as root:
+            migration_root = root / "apps/comms_core/priv/repo/migrations"
+            migration_root.mkdir(parents=True, exist_ok=True)
+            raw = migration_root / "1_raw.exs"
+            raw.write_text(
+                'execute("UPDATE alpha_records SET id = id")\n'
+                'execute("DELETE FROM beta_records")\n',
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "mixed_owner_migration")
+
+            raw.write_text(
+                "def change(table_name, statement) do\n"
+                "  alter table(table_name), do: add(:name, :text)\n"
+                "  execute(statement)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "unresolved_migration_target")
+
+    def test_migration_parser_rejects_parenless_execute_one_and_two(self) -> None:
+        variants = (
+            (
+                'execute "UPDATE alpha_records SET id = id"\n'
+                'execute "DELETE FROM beta_records"\n',
+                "mixed_owner_migration",
+            ),
+            (
+                'execute "UPDATE alpha_records SET id = id", '
+                '"UPDATE beta_records SET id = id"\n',
+                "mixed_owner_migration",
+            ),
+            (
+                'execute """\nUPDATE alpha_records SET id = id\n"""\n'
+                'execute """\nDELETE FROM beta_records\n"""\n',
+                "mixed_owner_migration",
+            ),
+            (
+                "def change(statement) do\n"
+                "  execute statement\n"
+                "end\n",
+                "unresolved_migration_target",
+            ),
+        )
+        for source, expected_rule in variants:
+            with self.subTest(source=source), self.boundary_fixture() as root:
+                migration = (
+                    root / "apps/comms_core/priv/repo/migrations/1_parenless.exs"
+                )
+                migration.parent.mkdir(parents=True, exist_ok=True)
+                migration.write_text(source, encoding="utf-8")
+
+                self.assert_rule(root, expected_rule)
+
+    def test_migration_exception_is_content_bound_and_exact(self) -> None:
+        with self.boundary_fixture() as root:
+            migration = root / "apps/comms_core/priv/repo/migrations/1_mixed.exs"
+            migration.parent.mkdir(parents=True, exist_ok=True)
+            migration.write_text(
+                "alter table(:alpha_records), do: add(:name, :text)\n"
+                "alter table(:beta_records), do: add(:name, :text)\n",
+                encoding="utf-8",
+            )
+            adr = root / "docs/02-architecture/adr/9999-migration-exception.md"
+            adr.parent.mkdir(parents=True, exist_ok=True)
+            adr.write_text(
+                "# Migration exception\n\n- **Status:** Accepted\n",
+                encoding="utf-8",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["migration_exceptions"] = [
+                {
+                    "id": "historical-mixed",
+                    "adr": "docs/02-architecture/adr/9999-migration-exception.md",
+                    "condition": "The immutable migration predates context ownership.",
+                    "paths": [
+                        {
+                            "path": (
+                                "apps/comms_core/priv/repo/migrations/1_mixed.exs"
+                            ),
+                            "sha256": canonical_text_sha256(migration),
+                            "rules": ["mixed_owner_migration"],
+                        }
+                    ],
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            self.assert_not_rule(root, "mixed_owner_migration")
+            self.assert_not_rule(root, "invalid_migration_exception")
+
+            adr.write_text(
+                "# Migration exception\n\n- **Status:** Proposed\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "invalid_migration_exception")
+            adr.write_text(
+                "# Migration exception\n\n- **Status:** Accepted\n",
+                encoding="utf-8",
+            )
+
+            migration.write_text(
+                migration.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "invalid_migration_exception")
+
     def test_rejects_public_facades_that_expose_ecto_schemas(self) -> None:
         with self.boundary_fixture() as root:
             self.write_schema(
@@ -3466,6 +3762,58 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
 
             self.assert_rule(root, "public_ecto_contract")
+
+    def test_rejects_embedded_schemas_as_public_contracts(self) -> None:
+        with self.boundary_fixture() as root:
+            embedded = root / "apps/comms_core/lib/comms_core/alpha/payload.ex"
+            embedded.parent.mkdir(parents=True, exist_ok=True)
+            embedded.write_text(
+                "defmodule CommsCore.Alpha.Payload do\n"
+                "  use Ecto.Schema\n"
+                "  embedded_schema do\n"
+                "    field :name, :string\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["contexts"]["alpha"]["public_contracts"] = [
+                "CommsCore.Alpha.Payload"
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "public_contract_is_schema")
+
+    def test_rejects_changesets_in_public_specs_but_ignores_private_specs(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            facade.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  @spec save(map()) :: {:ok, map()} | "
+                "{:error, Ecto.Changeset.t()}\n"
+                "  def save(value), do: {:ok, value}\n"
+                "  @spec internal(CommsCore.Beta.Record.t()) :: :ok\n"
+                "  defp internal(_record), do: :ok\n"
+                "  @typep internal_record :: CommsCore.Beta.Record.t()\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            violations = analyze_context_boundaries(
+                root,
+                read_yaml(root / "docs/02-architecture/context-boundaries.yaml"),
+            )
+            ecto_findings = [
+                item for item in violations if item.rule == "public_ecto_contract"
+            ]
+            self.assertEqual(len(ecto_findings), 1, ecto_findings)
+            self.assertIn("Ecto.Changeset", ecto_findings[0].detail)
 
     def test_rejects_alias_exposed_ecto_schema_in_public_spec(self) -> None:
         with self.boundary_fixture() as root:
@@ -4576,6 +4924,33 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_validates_exact_configured_technical_interface(self) -> None:
         with self.technical_interface_fixture() as root:
             self.assertEqual(validate(root), [])
+
+    def test_technical_interface_ignores_typespec_type_references(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                caller.read_text(encoding="utf-8").replace(
+                    '  def run, do: Dispatcher.execute(%Payload{id: "fixture"})\n',
+                    "  @spec run() :: Dispatcher.t()\n"
+                    '  def run, do: Dispatcher.execute(%Payload{id: "fixture"})\n',
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate(root), [])
+
+    def test_declared_technical_operation_requires_a_public_spec(self) -> None:
+        with self.technical_interface_fixture() as root:
+            dispatcher = root / "apps/comms_core/lib/comms_core/alpha/dispatcher.ex"
+            dispatcher.write_text(
+                dispatcher.read_text(encoding="utf-8").replace(
+                    "  @spec execute(Payload.t()) :: :ok\n",
+                    "",
+                ),
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "public_operation_missing_spec")
 
     def test_rejects_technical_interface_contract_drift(self) -> None:
         mutations = (
@@ -6749,6 +7124,381 @@ class ValidateArchitectureTest(unittest.TestCase):
                 [],
             )
 
+    def test_base_manifest_rejects_unreviewed_semantic_widening(self) -> None:
+        variants = (
+            (
+                "table-owner",
+                lambda document: document["tables"]["alpha_records"].update(
+                    owner="beta"
+                ),
+            ),
+            (
+                "canonical-schema",
+                lambda document: document["tables"]["alpha_records"].update(
+                    canonical_schema="CommsCore.Beta.Record"
+                ),
+            ),
+            (
+                "schema-access",
+                lambda document: document["tables"]["alpha_records"].update(
+                    access_namespaces=["CommsCore.Alpha", "CommsCore.Beta"]
+                ),
+            ),
+            (
+                "dependency",
+                lambda document: document["contexts"]["alpha"][
+                    "allowed_dependencies"
+                ].append("beta"),
+            ),
+            (
+                "public-surface",
+                lambda document: document["contexts"]["alpha"][
+                    "public_contracts"
+                ].append("CommsCore.Alpha.NewContract"),
+            ),
+            (
+                "event",
+                lambda document: document["contexts"]["alpha"].update(
+                    publishes=["alpha.changed"]
+                ),
+            ),
+            (
+                "read-model",
+                lambda document: document.update(
+                    read_model_exceptions=[
+                        {
+                            "id": "alpha-read",
+                            "module": "CommsCore.Alpha.Reader",
+                            "mode": "read_only",
+                            "owners": ["beta"],
+                            "access": {
+                                "public_contracts": [],
+                                "public_queries": [],
+                                "source_tables": ["beta_records"],
+                            },
+                            "condition": "Reviewed reads only.",
+                        }
+                    ]
+                ),
+            ),
+            (
+                "migration",
+                lambda document: document.update(
+                    migration_exceptions=[
+                        {
+                            "id": "future",
+                            "paths": [
+                                {
+                                    "path": (
+                                        "apps/comms_core/priv/repo/migrations/"
+                                        "2_future.exs"
+                                    ),
+                                    "sha256": "0" * 64,
+                                    "rules": ["mixed_owner_migration"],
+                                }
+                            ],
+                            "condition": "Future exception.",
+                        }
+                    ]
+                ),
+            ),
+            (
+                "runtime",
+                lambda document: document.update(
+                    runtime_collaborations=[
+                        {
+                            "id": "alpha-beta",
+                            "consumer": "alpha",
+                            "provider": "beta",
+                        }
+                    ]
+                ),
+            ),
+            (
+                "technical",
+                lambda document: document.update(
+                    technical_interfaces=[
+                        {
+                            "id": "alpha-interface",
+                            "owner": "alpha",
+                            "interface": "CommsCore.Alpha",
+                        }
+                    ]
+                ),
+            ),
+        )
+        for label, mutate in variants:
+            with self.subTest(label=label), self.boundary_fixture() as root:
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                base_path = root / "base-context-boundaries.yaml"
+                base = read_yaml(manifest_path)
+                base_path.write_text(
+                    yaml.safe_dump(base, sort_keys=False),
+                    encoding="utf-8",
+                )
+                current = copy.deepcopy(base)
+                mutate(current)
+                manifest_path.write_text(
+                    yaml.safe_dump(current, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                errors = compare_boundary_manifests(root, base_path)
+                self.assertTrue(
+                    any("unreviewed semantic widening" in error for error in errors),
+                    errors,
+                )
+
+    def test_exact_adr_backed_manifest_transition_authorizes_only_its_delta(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_path = root / "base-context-boundaries.yaml"
+            base = read_yaml(manifest_path)
+            base_path.write_text(
+                yaml.safe_dump(base, sort_keys=False),
+                encoding="utf-8",
+            )
+            current = copy.deepcopy(base)
+            current["contexts"]["alpha"]["allowed_dependencies"].append("beta")
+            adr = "docs/02-architecture/adr/9999-manifest-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text(
+                "# Manifest transition\n\n- **Status:** Accepted\n",
+                encoding="utf-8",
+            )
+            current["enforcement"]["reviewed_manifest_transitions"] = [
+                {
+                    "id": "alpha-depends-on-beta",
+                    "previous_manifest_sha256": canonical_text_sha256(base_path),
+                    "approved_changes": [
+                        "context:alpha:allowed_dependencies:add:beta"
+                    ],
+                    "adr": adr,
+                    "removal_condition": "Remove after this exact delta lands.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(compare_boundary_manifests(root, base_path), [])
+
+            current["enforcement"]["reviewed_manifest_transitions"][0][
+                "approved_changes"
+            ] = ["context:alpha:public_facades:add:CommsCore.Alpha.Future"]
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_manifests(root, base_path)
+            self.assertTrue(
+                any("undeclared change" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("stale approved change" in error for error in errors),
+                errors,
+            )
+
+            adr_path.write_text(
+                "# Manifest transition\n\n- **Status:** Proposed\n",
+                encoding="utf-8",
+            )
+            proposed_errors = compare_boundary_manifests(root, base_path)
+            self.assertTrue(
+                any("accepted architecture ADR" in error for error in proposed_errors),
+                proposed_errors,
+            )
+
+    def test_new_manifest_declaration_approval_is_content_bound(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_path = root / "base-context-boundaries.yaml"
+            base = read_yaml(manifest_path)
+            base_path.write_text(
+                yaml.safe_dump(base, sort_keys=False),
+                encoding="utf-8",
+            )
+            current = copy.deepcopy(base)
+            current["runtime_collaborations"] = [
+                {
+                    "id": "alpha-beta",
+                    "consumer": "alpha",
+                    "provider": "beta",
+                    "transaction": "required",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_manifests(root, base_path)
+            prefix = "boundary manifest has unreviewed semantic widening: "
+            approved_change = next(
+                error.removeprefix(prefix)
+                for error in errors
+                if error.startswith(prefix)
+            )
+
+            adr = "docs/02-architecture/adr/9999-content-bound-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text(
+                "# Content-bound transition\n\n- **Status:** Accepted\n",
+                encoding="utf-8",
+            )
+            current["enforcement"]["reviewed_manifest_transitions"] = [
+                {
+                    "id": "alpha-beta-collaboration",
+                    "previous_manifest_sha256": canonical_text_sha256(base_path),
+                    "approved_changes": [approved_change],
+                    "adr": adr,
+                    "removal_condition": "Remove after this exact declaration lands.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(compare_boundary_manifests(root, base_path), [])
+
+            current["runtime_collaborations"][0]["transaction"] = "independent"
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            changed_errors = compare_boundary_manifests(root, base_path)
+            self.assertTrue(
+                any("undeclared change" in error for error in changed_errors),
+                changed_errors,
+            )
+            self.assertTrue(
+                any("stale approved change" in error for error in changed_errors),
+                changed_errors,
+            )
+
+    def test_existing_migration_exception_changes_require_review(self) -> None:
+        variants = (
+            (
+                "sha256",
+                lambda entry: entry.update(sha256="1" * 64),
+            ),
+            (
+                "rules",
+                lambda entry: entry.update(
+                    rules=[
+                        "mixed_owner_migration",
+                        "unresolved_migration_target",
+                    ]
+                ),
+            ),
+        )
+        for label, mutate in variants:
+            with self.subTest(label=label), self.boundary_fixture() as root:
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                base_path = root / "base-context-boundaries.yaml"
+                base = read_yaml(manifest_path)
+                base["migration_exceptions"] = [
+                    {
+                        "id": "historical",
+                        "adr": (
+                            "docs/02-architecture/adr/"
+                            "9999-migration-exception.md"
+                        ),
+                        "condition": "Immutable historical migration.",
+                        "paths": [
+                            {
+                                "path": (
+                                    "apps/comms_core/priv/repo/migrations/"
+                                    "1_historical.exs"
+                                ),
+                                "sha256": "0" * 64,
+                                "rules": ["mixed_owner_migration"],
+                            }
+                        ],
+                    }
+                ]
+                base_path.write_text(
+                    yaml.safe_dump(base, sort_keys=False),
+                    encoding="utf-8",
+                )
+                current = copy.deepcopy(base)
+                mutate(current["migration_exceptions"][0]["paths"][0])
+                manifest_path.write_text(
+                    yaml.safe_dump(current, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                errors = compare_boundary_manifests(root, base_path)
+                self.assertTrue(
+                    any("unreviewed semantic widening" in error for error in errors),
+                    errors,
+                )
+
+    def test_rejects_reviewed_transition_for_a_different_base(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_path = root / "base-context-boundaries.yaml"
+            base = read_yaml(manifest_path)
+            base_path.write_text(
+                yaml.safe_dump(base, sort_keys=False),
+                encoding="utf-8",
+            )
+            adr = "docs/02-architecture/adr/9999-stale-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text(
+                "# Stale transition\n\n- **Status:** Accepted\n",
+                encoding="utf-8",
+            )
+            current = copy.deepcopy(base)
+            current["enforcement"]["reviewed_manifest_transitions"] = [
+                {
+                    "id": "stale-transition",
+                    "previous_manifest_sha256": "0" * 64,
+                    "approved_changes": [
+                        "context:alpha:allowed_dependencies:add:beta"
+                    ],
+                    "adr": adr,
+                    "removal_condition": "Remove after the approved delta lands.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = compare_boundary_manifests(root, base_path)
+            self.assertTrue(
+                any(
+                    "stale for the current immutable base" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_base_manifest_allows_permission_narrowing_without_transition(
+        self,
+    ) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_path = root / "base-context-boundaries.yaml"
+            base = read_yaml(manifest_path)
+            base_path.write_text(
+                yaml.safe_dump(base, sort_keys=False),
+                encoding="utf-8",
+            )
+            current = copy.deepcopy(base)
+            current["contexts"]["alpha"]["allowed_dependencies"] = []
+            manifest_path.write_text(
+                yaml.safe_dump(current, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(compare_boundary_manifests(root, base_path), [])
+
     def test_base_manifest_allows_strict_promotion_only_after_cleanup(
         self,
     ) -> None:
@@ -7321,6 +8071,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         dispatcher.write_text(
             "defmodule CommsCore.Alpha.Dispatcher do\n"
             "  alias CommsCore.Alpha.Payload\n"
+            "  @spec execute(Payload.t()) :: :ok\n"
             "  def execute(%Payload{} = payload) do\n"
             "    implementation = "
             "Application.get_env(:comms_core, :alpha_technical_adapter)\n"

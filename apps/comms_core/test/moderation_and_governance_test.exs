@@ -714,12 +714,13 @@ defmodule CommsCore.ModerationAndGovernanceTest do
     password = "correct-horse-battery-#{password_suffix}"
 
     {:ok, result} =
-      Accounts.authenticate(account.tenant.slug, user.email, password, %{
+      Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
         name: device_name,
         platform: "test"
       })
 
-    Accounts.subject_for_session(result.session)
+    {:ok, access_context} = Accounts.access_context(result.session_id)
+    access_context.subject
   end
 
   defp tenant_audit_count(tenant_id) do

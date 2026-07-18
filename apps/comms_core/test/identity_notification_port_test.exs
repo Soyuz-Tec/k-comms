@@ -179,14 +179,14 @@ defmodule CommsCore.Accounts.NotificationPortTest do
              )
 
     assert {:ok, login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                member.email,
                password,
                %{name: "Lifecycle rollback browser", platform: "test"}
              )
 
-    member_subject = Accounts.subject_for_session(login.session)
+    assert {:ok, %{subject: member_subject}} = Accounts.access_context(login.session_id)
 
     assert {:ok, %{subscription: subscription}} =
              Notifications.register_push_subscription(
@@ -215,7 +215,7 @@ defmodule CommsCore.Accounts.NotificationPortTest do
     assert unchanged.status == :active
     assert unchanged.lock_version == member.lock_version
     assert is_nil(Repo.get!(Device, login.device.id).revoked_at)
-    assert is_nil(Repo.get!(Session, login.session.id).revoked_at)
+    assert is_nil(Repo.get!(Session, login.session_id).revoked_at)
 
     assert {:ok, [%{id: id, status: :active}]} =
              Notifications.list_push_subscriptions(member_subject)

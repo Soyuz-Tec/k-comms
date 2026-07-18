@@ -226,12 +226,13 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
       )
 
     {:ok, login} =
-      Accounts.authenticate(account.tenant.slug, user.email, password, %{
+      Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
         name: "Thread nonmember browser",
         platform: "test"
       })
 
-    Accounts.subject_for_session(login.session)
+    {:ok, access_context} = Accounts.access_context(login.session_id)
+    access_context.subject
   end
 
   defp message_attrs(account, client_message_id, overrides \\ %{}) do

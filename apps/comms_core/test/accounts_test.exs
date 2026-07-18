@@ -1,7 +1,7 @@
 defmodule CommsCore.AccountsTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Administration}
+  alias CommsCore.{Accounts, Administration, ValidationError}
 
   alias CommsCore.Accounts.{
     AccessGrant,
@@ -32,7 +32,7 @@ defmodule CommsCore.AccountsTest do
     assert is_binary(account.refresh_token)
 
     assert {:ok, authenticated} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                account.user.email,
                account_fixture_password(account),
@@ -42,7 +42,7 @@ defmodule CommsCore.AccountsTest do
     assert authenticated.user.id == account.user.id
     assert authenticated.device.user_id == account.user.id
     assert {:ok, refreshed} = Accounts.refresh_session(authenticated.refresh_token)
-    assert refreshed.session.id == authenticated.session.id
+    assert refreshed.session.id == authenticated.session_id
     assert refreshed.refresh_token != authenticated.refresh_token
   end
 
@@ -55,7 +55,7 @@ defmodule CommsCore.AccountsTest do
               tenant: %TenantView{id: tenant_id, status: :active},
               user: %UserView{},
               device: %DeviceView{}
-            }} =
+            } = authentication} =
              Accounts.authenticate_view(
                account.tenant.slug,
                account.user.email,
@@ -64,6 +64,19 @@ defmodule CommsCore.AccountsTest do
              )
 
     assert tenant_id == account.tenant.id
+
+    for projection <- [
+          authentication,
+          authentication.tenant,
+          authentication.user,
+          authentication.device
+        ] do
+      refute Map.has_key?(Map.from_struct(projection), :__meta__)
+    end
+
+    refute function_exported?(Accounts, :authenticate, 3)
+    refute function_exported?(Accounts, :authenticate, 4)
+    refute function_exported?(Accounts, :list_tenant_users, 1)
 
     assert {:ok,
             %AccessContext{
@@ -247,6 +260,35 @@ defmodule CommsCore.AccountsTest do
              end)
   end
 
+  test "governed lifecycle returns a persistence-free validation error and rolls back" do
+    account = Fixtures.account_fixture()
+    managed_user = Fixtures.user_fixture(account).user
+    subject = Fixtures.step_up(account)
+
+    assert {:error, %ValidationError{details: %{display_name: messages}}} =
+             Repo.transaction(fn ->
+               Accounts.apply_user_lifecycle_change(
+                 managed_user.id,
+                 %{
+                   version: managed_user.lock_version,
+                   display_name: "",
+                   reason: "reject an invalid lifecycle update"
+                 },
+                 subject,
+                 []
+               )
+             end)
+
+    assert "can't be blank" in messages
+    assert Repo.get!(User, managed_user.id).display_name == managed_user.display_name
+
+    assert Audit.count(%{
+             tenant_id: account.tenant.id,
+             action: "user.lifecycle_update",
+             resource_id: managed_user.id
+           }) == 0
+  end
+
   test "governance erasure anonymizes the user and revokes IdentityAccess state" do
     account = Fixtures.account_fixture()
     _remaining_owner = Fixtures.user_fixture(account, %{role: :owner})
@@ -392,7 +434,7 @@ defmodule CommsCore.AccountsTest do
     assert Repo.aggregate(Session, :count) == 0
 
     assert {:ok, authenticated} =
-             Accounts.authenticate(attrs.tenant_slug, attrs.email, attrs.password)
+             Accounts.authenticate_view(attrs.tenant_slug, attrs.email, attrs.password)
 
     assert authenticated.user.id == created.user.id
   end
@@ -773,7 +815,11 @@ defmodule CommsCore.AccountsTest do
     account = Fixtures.account_fixture()
 
     assert {:error, :invalid_credentials} =
-             Accounts.authenticate(account.tenant.slug, account.user.email, "not-the-password")
+             Accounts.authenticate_view(
+               account.tenant.slug,
+               account.user.email,
+               "not-the-password"
+             )
   end
 
   test "tenant inactivity fails closed across sign-in, refresh, and active-session lookup" do
@@ -784,7 +830,7 @@ defmodule CommsCore.AccountsTest do
     |> Repo.update!()
 
     assert {:error, :invalid_credentials} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                account.user.email,
                account_fixture_password(account)
@@ -937,14 +983,14 @@ defmodule CommsCore.AccountsTest do
     assert Password.verify(admin_password, admin.password_hash)
 
     assert {:ok, admin_login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                admin.email,
                admin_password,
                %{name: "Admin browser", platform: "test"}
              )
 
-    admin_subject = Accounts.subject_for_session(admin_login.session)
+    assert {:ok, %{subject: admin_subject}} = Accounts.access_context(admin_login.session_id)
 
     assert {:ok, _session} =
              Accounts.step_up(%{current_password: admin_password}, admin_subject)

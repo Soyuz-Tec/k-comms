@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -54,12 +55,24 @@ TEMPORARY_EXACT_MAPPING_POLICY = {
 TEMPORARY_ADR_RE = re.compile(
     r"^docs/02-architecture/adr/[0-9]{4}-[A-Za-z0-9][A-Za-z0-9._-]*\.md$"
 )
+ACCEPTED_ADR_STATUS_RE = re.compile(
+    r"(?mi)^\s*(?:-\s*)?(?:\*\*)?Status:(?:\*\*)?\s*Accepted\s*$"
+)
 REVIEWED_BASELINE_TRANSITION_FIELDS = frozenset(
     {
         "id",
         "previous_baseline_sha256",
         "added_fingerprints",
         "removed_fingerprints",
+        "adr",
+        "removal_condition",
+    }
+)
+REVIEWED_MANIFEST_TRANSITION_FIELDS = frozenset(
+    {
+        "id",
+        "previous_manifest_sha256",
+        "approved_changes",
         "adr",
         "removal_condition",
     }
@@ -71,6 +84,7 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "duplicate_table_mapping",
         "invalid_context_declaration",
         "invalid_dependency_graph_declaration",
+        "invalid_migration_exception",
         "invalid_read_model_exception",
         "invalid_runtime_collaboration",
         "invalid_table_declaration",
@@ -82,10 +96,16 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "public_ecto_contract",
         "public_facade_is_schema",
         "public_facade_missing",
+        "public_operation_missing_spec",
         "read_model_scope_violation",
         "read_model_write",
         "read_model_reverse_dependency",
         "retired_runtime_binding",
+        "undeclared_migration_reference",
+        "undeclared_migration_table",
+        "unowned_persistence_write",
+        "unresolved_migration_target",
+        "unresolved_persistence_write",
         "unclassified_core_module",
         "undeclared_runtime_binding",
     }
@@ -159,7 +179,6 @@ SIMPLE_CORE_ALIAS_RE = re.compile(
     r"(?:\s*,\s*as:\s*([A-Z][A-Za-z0-9_]*))?\s*$",
     re.MULTILINE,
 )
-MIGRATION_TABLE_RE = re.compile(r"\btable\(:(\w+)")
 PUBLIC_QUERY_RE = re.compile(
     r"^(CommsCore(?:\.[A-Z][A-Za-z0-9_]*)+)\."
     r"([a-z_][A-Za-z0-9_]*[!?]?)/([0-9]+)$"
@@ -202,6 +221,17 @@ def canonical_text_sha256(path: Path) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def accepted_architecture_adr(root: Path, adr: object) -> bool:
+    """Return whether an ADR reference exists and records an accepted decision."""
+
+    if not isinstance(adr, str) or not TEMPORARY_ADR_RE.fullmatch(adr):
+        return False
+    path = root / adr
+    return path.is_file() and ACCEPTED_ADR_STATUS_RE.search(
+        path.read_text(encoding="utf-8")
+    ) is not None
+
+
 @dataclass(frozen=True, order=True)
 class Violation:
     rule: str
@@ -229,6 +259,24 @@ class ContextGraphs:
             ("runtime", self.runtime),
             ("combined", self.combined),
         )
+
+
+@dataclass(frozen=True)
+class PersistenceMutationTargets:
+    """Statically attributable persistence targets and fail-closed evidence."""
+
+    schemas: frozenset[str]
+    tables: frozenset[str]
+    unresolved: frozenset[str]
+
+
+@dataclass(frozen=True)
+class MigrationTargets:
+    """Tables mutated or referenced by one migration."""
+
+    mutated: frozenset[str]
+    referenced: frozenset[str]
+    unresolved: frozenset[str]
 
 
 class UniqueKeySafeLoader(yaml.SafeLoader):
@@ -723,15 +771,34 @@ def ecto_schema_source(text: str) -> tuple[str | None, bool]:
 
 def discover_schemas(root: Path) -> dict[str, list[tuple[str, str]]]:
     schemas: dict[str, list[tuple[str, str]]] = {}
-    for path in production_sources(root / "apps/comms_core"):
-        text = path.read_text(encoding="utf-8")
-        module_match = MODULE_RE.search(elixir_code_only(text))
-        schema_source, _unresolved = ecto_schema_source(text)
-        if module_match and schema_source:
-            schemas.setdefault(schema_source, []).append(
-                (module_match.group(1), relative(path, root))
-            )
+    apps_root = root / "apps"
+    for app_dir in sorted(path for path in apps_root.iterdir() if path.is_dir()):
+        for path in production_sources(app_dir):
+            text = path.read_text(encoding="utf-8")
+            module_match = RELEASED_MODULE_RE.search(elixir_code_only(text))
+            schema_source, _unresolved = ecto_schema_source(text)
+            if module_match and schema_source:
+                schemas.setdefault(schema_source, []).append(
+                    (module_match.group(1), relative(path, root))
+                )
     return schemas
+
+
+def discover_embedded_schemas(root: Path) -> dict[str, str]:
+    """Return Ecto embedded-schema modules, which are not stable public DTOs."""
+
+    embedded: dict[str, str] = {}
+    apps_root = root / "apps"
+    for app_dir in sorted(path for path in apps_root.iterdir() if path.is_dir()):
+        for path in production_sources(app_dir):
+            text = path.read_text(encoding="utf-8")
+            module_match = RELEASED_MODULE_RE.search(elixir_code_only(text))
+            if module_match and re.search(
+                r"(?m)^[ \t]*embedded_schema(?:\s*\(\s*\))?[ \t]+do\b",
+                elixir_code_only(text),
+            ):
+                embedded[module_match.group(1)] = relative(path, root)
+    return embedded
 
 
 @lru_cache(maxsize=4096)
@@ -1009,6 +1076,22 @@ def resolved_function_calls(text: str) -> set[tuple[str, str, int]]:
         | statically_bound_function_calls(text)
         | delegated_function_calls(text)
     )
+
+
+def runtime_function_calls(text: str) -> set[tuple[str, str, int]]:
+    """Return function calls while excluding compile-time typespec references."""
+
+    code = elixir_code_only(text)
+    typespec_re = re.compile(
+        r"(?ms)^[ \t]*@(?:spec|callback|macrocallback|typep?|opaque)\b"
+        r".*?(?=^[ \t]*(?:@[a-z_]|def(?:p|macro|macrop|delegate|struct|exception)?\b"
+        r"|end\b)|\Z)"
+    )
+
+    def mask(match: re.Match[str]) -> str:
+        return "".join("\n" if character == "\n" else " " for character in match.group(0))
+
+    return resolved_function_calls(typespec_re.sub(mask, code))
 
 
 def parenless_call_arguments(text: str, start: int) -> str:
@@ -2115,7 +2198,7 @@ def _technical_interface_violations(
         module: core_module_references(text) for module, text in source_texts.items()
     }
     source_calls = {
-        module: resolved_function_calls(text) for module, text in source_texts.items()
+        module: runtime_function_calls(text) for module, text in source_texts.items()
     }
     seen_ids: set[str] = set()
     seen_bindings: set[tuple[str, str]] = set()
@@ -2649,6 +2732,35 @@ RAW_SQL_DML_RE = re.compile(
     r"SET|RESET|LOCK|DISCARD|CHECKPOINT)\b",
     re.IGNORECASE,
 )
+RAW_SQL_TABLE_TARGET_RES = (
+    re.compile(
+        r"\b(?:INSERT\s+INTO|MERGE\s+INTO|UPDATE|DELETE\s+FROM|"
+        r"ALTER\s+TABLE|CREATE\s+TABLE|DROP\s+TABLE|TRUNCATE(?:\s+TABLE)?|COPY)"
+        r"\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?"
+        r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)[.])?'
+        r'"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bCREATE\s+(?:UNIQUE\s+)?INDEX(?:\s+CONCURRENTLY)?"
+        r"(?:\s+IF\s+NOT\s+EXISTS)?\s+[^\s;]+\s+ON\s+"
+        r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)[.])?'
+        r'"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:CREATE|DROP)\s+TRIGGER\b[\s\S]*?\bON\s+"
+        r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)[.])?'
+        r'"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
+        re.IGNORECASE,
+    ),
+)
+RAW_SQL_TABLE_MUTATION_RE = re.compile(
+    r"\b(?:INSERT\s+INTO|MERGE\s+INTO|UPDATE|DELETE\s+FROM|"
+    r"ALTER\s+TABLE|CREATE\s+TABLE|DROP\s+TABLE|TRUNCATE(?:\s+TABLE)?|"
+    r"COPY|CREATE\s+(?:UNIQUE\s+)?INDEX|CREATE\s+TRIGGER|DROP\s+TRIGGER)\b",
+    re.IGNORECASE,
+)
 
 
 def balanced_call_arguments(text: str, open_index: int) -> tuple[str, int] | None:
@@ -2703,47 +2815,101 @@ def _static_sql_expression(text: str, expression: str) -> str | None:
     return expression
 
 
-def raw_sql_write_or_unresolved(text: str) -> bool:
-    """Reject mutating SQL and SQL whose statement cannot be statically reviewed."""
+def _literal_table_name(text: str, expression: str) -> str | None:
+    """Resolve a literal table atom/string or a literal module attribute."""
 
-    indirect_calls = statically_bound_function_calls(text) | delegated_function_calls(
-        text
-    )
-    if any(
-        module == "Ecto.Adapters.SQL" and function in {"query", "query!"}
-        for module, function, _arity in indirect_calls
-    ):
-        return True
+    expression = expression.strip()
+    attribute = re.fullmatch(r"@([a-z_][A-Za-z0-9_]*)", expression)
+    if attribute:
+        value = _module_attribute_value(text, attribute.group(1))
+        return _literal_table_name(text, value) if value else None
+    literal = re.fullmatch(r':([a-z_][A-Za-z0-9_]*)', expression)
+    if literal:
+        return literal.group(1)
+    literal = re.fullmatch(r'"([a-z_][A-Za-z0-9_]*)"', expression)
+    return literal.group(1) if literal else None
 
-    if module_function_evasions(
-        text,
-        {"Ecto.Adapters.SQL": {"query", "query!"}},
-    ):
-        return True
 
-    aliases = module_aliases(text)
-    query_calls: list[re.Match[str]] = []
-    for call in QUALIFIED_CALL_RE.finditer(text):
+def _raw_sql_targets(sql: str) -> tuple[set[str], bool]:
+    """Return statically named SQL mutation targets and unresolved mutation state."""
+
+    if not RAW_SQL_DML_RE.search(sql):
+        return set(), False
+    targets = {
+        match.group("table")
+        for pattern in RAW_SQL_TABLE_TARGET_RES
+        for match in pattern.finditer(sql)
+        if match.group("table").upper()
+        not in {"OF", "SET", "IF", "ONLY", "WHERE", "ON"}
+    }
+    return targets, not targets
+
+
+def _raw_sql_query_calls(text: str) -> tuple[list[re.Match[str]], set[str]]:
+    """Locate statically callable Ecto SQL queries and dynamic evasions."""
+
+    code = elixir_code_only(text)
+    aliases = module_aliases(code)
+    bindings = static_module_bindings(code)
+    calls: list[re.Match[str]] = []
+    for call in QUALIFIED_CALL_RE.finditer(code):
         receiver, function = call.groups()
         module = resolve_module_reference(receiver, aliases)
         if module == "Ecto.Adapters.SQL" and function in {"query", "query!"}:
-            query_calls.append(call)
+            calls.append(call)
+    bound_call_re = re.compile(
+        r"(?<![A-Za-z0-9_])(?P<receiver>@?[a-z_][A-Za-z0-9_]*)\."
+        r"(?P<function>query!?)\s*\("
+    )
+    for call in bound_call_re.finditer(code):
+        if bindings.get(call.group("receiver")) == "Ecto.Adapters.SQL":
+            calls.append(call)
+    if "Ecto.Adapters.SQL" in imported_modules(code):
+        calls.extend(re.finditer(r"(?<![A-Za-z0-9_.])query!?\s*\(", code))
+    evasions = module_function_evasions(
+        text,
+        {"Ecto.Adapters.SQL": {"query", "query!"}},
+    )
+    if any(
+        module == "Ecto.Adapters.SQL" and function in {"query", "query!"}
+        for module, function, _arity in delegated_function_calls(text)
+    ):
+        evasions.add("delegates an Ecto.Adapters.SQL query")
+    return calls, evasions
 
-    if "Ecto.Adapters.SQL" in imported_modules(text):
-        query_calls.extend(re.finditer(r"(?<![A-Za-z0-9_.])query!?\s*\(", text))
 
+def raw_sql_mutation_targets(text: str) -> tuple[set[str], set[str]]:
+    """Return raw-SQL mutation tables and fail-closed unresolved evidence."""
+
+    tables: set[str] = set()
+    unresolved: set[str] = set()
+    query_calls, evasions = _raw_sql_query_calls(text)
+    unresolved.update(evasions)
     for call in query_calls:
         parsed = balanced_call_arguments(text, call.end() - 1)
         if not parsed:
-            return True
-        arguments_text, _ = parsed
-        arguments = split_top_level_args(arguments_text)
+            unresolved.add("cannot parse Ecto.Adapters.SQL query arguments")
+            continue
+        arguments = split_top_level_args(parsed[0])
         if len(arguments) < 2:
-            return True
+            unresolved.add("Ecto.Adapters.SQL query has no SQL argument")
+            continue
         sql = _static_sql_expression(text, arguments[1])
-        if sql is None or RAW_SQL_DML_RE.search(sql):
-            return True
-    return False
+        if sql is None:
+            unresolved.add("Ecto.Adapters.SQL query uses dynamic SQL")
+            continue
+        targets, target_unresolved = _raw_sql_targets(sql)
+        tables.update(targets)
+        if target_unresolved:
+            unresolved.add("raw SQL mutation target cannot be attributed")
+    return tables, unresolved
+
+
+def raw_sql_write_or_unresolved(text: str) -> bool:
+    """Reject mutating SQL and SQL whose statement cannot be statically reviewed."""
+
+    tables, unresolved = raw_sql_mutation_targets(text)
+    return bool(tables or unresolved)
 
 
 def read_model_mutation_references(text: str) -> set[str]:
@@ -2894,8 +3060,25 @@ def _resolve_schema_expression(
     if leading:
         return tokens[leading.group("schema")]
 
+    pipeline_root = re.search(
+        rf"(?:\bcase\s+|(?:^|\n)\s*)(?P<schema>{token_pattern})\s*"
+        r"(?:\|>|$)",
+        expression,
+    )
+    if pipeline_root:
+        return tokens[pipeline_root.group("schema")]
+
     variable = re.match(r"\s*([a-z_][A-Za-z0-9_]*)\b", expression)
     if variable:
+        typed_bindings = list(
+            re.finditer(
+                rf"%(?P<schema>{token_pattern})\s*\{{[^}}]*\}}\s*=\s*"
+                rf"{re.escape(variable.group(1))}\b",
+                source[:before],
+            )
+        )
+        if typed_bindings:
+            return tokens[typed_bindings[-1].group("schema")]
         binding = _binding_expression(source, variable.group(1), before)
         if binding:
             bound_expression, bound_at = binding
@@ -2907,6 +3090,51 @@ def _resolve_schema_expression(
                 before=bound_at,
                 depth=depth + 1,
             )
+    for variable_name in re.findall(r"\b([a-z_][A-Za-z0-9_]*)\b", expression):
+        binding = _binding_expression(source, variable_name, before)
+        if not binding:
+            continue
+        bound_expression, bound_at = binding
+        resolved = _resolve_schema_expression(
+            bound_expression,
+            aliases=aliases,
+            schema_modules=schema_modules,
+            source=source,
+            before=bound_at,
+            depth=depth + 1,
+        )
+        if resolved:
+            return resolved
+
+    for function_name in re.findall(
+        r"(?<![A-Za-z0-9_.])([a-z_][A-Za-z0-9_]*)\s*\(",
+        expression,
+    ):
+        definition = re.search(
+            rf"(?m)^\s*defp?\s+{re.escape(function_name)}\s*\([^)]*\)\s+do\b",
+            source,
+        )
+        if not definition:
+            continue
+        following = re.search(
+            r"(?m)^\s*defp?\s+[a-z_][A-Za-z0-9_!?]*\s*\(",
+            source[definition.end() :],
+        )
+        body_end = (
+            definition.end() + following.start()
+            if following
+            else len(source)
+        )
+        resolved = _resolve_schema_expression(
+            source[definition.end() : body_end],
+            aliases=aliases,
+            schema_modules=schema_modules,
+            source=source,
+            before=definition.start(),
+            depth=depth + 1,
+        )
+        if resolved:
+            return resolved
     return None
 
 
@@ -2917,9 +3145,11 @@ def _write_target_expression(
     pipeline_input: str | None,
 ) -> str | None:
     if receiver == "Repo":
+        if pipeline_input is not None:
+            return pipeline_input
         if arguments:
             return arguments[0]
-        return pipeline_input
+        return None
 
     piped = pipeline_input is not None
     if operation in {"insert_all", "update_all", "delete_all"}:
@@ -2931,14 +3161,14 @@ def _write_target_expression(
     return None
 
 
-def _local_write_wrappers(text: str) -> dict[str, int]:
+def _local_write_wrappers(text: str) -> dict[str, tuple[int, str]]:
     definitions = list(
         re.finditer(
-            r"(?m)^\s*defp?\s+([a-z_][A-Za-z0-9_!?]*)\s*\(([^)]*)\)",
+            r"(?m)^\s*defp\s+([a-z_][A-Za-z0-9_!?]*)\s*\(([^)]*)\)",
             text,
         )
     )
-    wrappers: dict[str, int] = {}
+    wrappers: dict[str, tuple[int, str]] = {}
     aliases = module_aliases(text)
     for index, definition in enumerate(definitions):
         block_end = (
@@ -2988,7 +3218,10 @@ def _local_write_wrappers(text: str) -> dict[str, int]:
                     rf"\s*{re.escape(parameter)}\s*",
                     target,
                 ):
-                    wrappers[definition.group(1)] = parameter_index
+                    wrappers[definition.group(1)] = (
+                        parameter_index,
+                        call.group("operation"),
+                    )
 
     aliases = module_aliases(text)
     for declaration in re.finditer(
@@ -3026,22 +3259,137 @@ def _local_write_wrappers(text: str) -> dict[str, int]:
             and target_function in REPO_MUTATION_FUNCTIONS
             and arguments
         ):
-            wrappers[declaration.group("function")] = 0
+            wrappers[declaration.group("function")] = (0, target_function)
         elif (
             target_module == "Ecto.Multi"
             and target_function in ECTO_MULTI_MUTATION_FUNCTIONS
             and arguments
         ):
-            wrappers[declaration.group("function")] = min(2, len(arguments) - 1)
+            wrappers[declaration.group("function")] = (
+                min(2, len(arguments) - 1),
+                target_function,
+            )
     return wrappers
 
 
-def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
-    """Return canonical schemas that production code demonstrably persists."""
+def _resolve_persistence_target(
+    expression: str,
+    *,
+    aliases: dict[str, str],
+    schema_modules: set[str],
+    schema_tables: dict[str, str],
+    source: str,
+    before: int,
+    depth: int = 0,
+) -> tuple[str, str] | None:
+    """Resolve a schema or literal table used as an Ecto persistence target."""
+
+    if depth > 3:
+        return None
+    schema = _resolve_schema_expression(
+        expression,
+        aliases=aliases,
+        schema_modules=schema_modules,
+        source=source,
+        before=before,
+        depth=depth,
+    )
+    if schema:
+        return "schema", schema
+
+    stripped = expression.strip()
+    attribute = re.fullmatch(r"@([a-z_][A-Za-z0-9_]*)", stripped)
+    if attribute:
+        value = _module_attribute_value(source, attribute.group(1))
+        if value:
+            return _resolve_persistence_target(
+                value,
+                aliases=aliases,
+                schema_modules=schema_modules,
+                schema_tables=schema_tables,
+                source=source,
+                before=before,
+                depth=depth + 1,
+            )
+        return None
+
+    literal_table = _literal_table_name(source, stripped)
+    if literal_table:
+        return "table", literal_table
+
+    query_literal = re.search(
+        r"\bfrom\s*(?:\(\s*)?(?:[a-z_][A-Za-z0-9_]*\s+in\s+)?"
+        r'(?P<table>:[a-z_][A-Za-z0-9_]*|"[a-z_][A-Za-z0-9_]*")',
+        stripped,
+    )
+    if query_literal:
+        table = _literal_table_name(source, query_literal.group("table"))
+        if table:
+            return "table", table
+
+    variable = re.match(r"\s*([a-z_][A-Za-z0-9_]*)\b", stripped)
+    if variable:
+        binding = _binding_expression(source, variable.group(1), before)
+        if binding:
+            bound_expression, bound_at = binding
+            return _resolve_persistence_target(
+                bound_expression,
+                aliases=aliases,
+                schema_modules=schema_modules,
+                schema_tables=schema_tables,
+                source=source,
+                before=bound_at,
+                depth=depth + 1,
+            )
+    return None
+
+
+def _wrapper_target_parameter(
+    text: str,
+    call_start: int,
+    target_expression: str,
+    wrappers: dict[str, tuple[int, str]],
+) -> bool:
+    """Whether an unresolved call is the generic body of a reviewed local wrapper."""
+
+    definitions = list(
+        re.finditer(
+            r"(?m)^\s*defp?\s+([a-z_][A-Za-z0-9_!?]*)\s*\(([^)]*)\)",
+            text[:call_start],
+        )
+    )
+    if not definitions:
+        return False
+    definition = definitions[-1]
+    wrapper = definition.group(1)
+    wrapper_declaration = wrappers.get(wrapper)
+    if wrapper_declaration is None:
+        return False
+    parameter_index, _operation = wrapper_declaration
+    parameters = [
+        re.sub(r"\s*\\\\.*$", "", item).strip()
+        for item in split_top_level_args(definition.group(2))
+    ]
+    return (
+        parameter_index < len(parameters)
+        and target_expression.strip() == parameters[parameter_index]
+    )
+
+
+def persistence_mutation_targets(
+    text: str,
+    schema_modules: set[str],
+    schema_tables: dict[str, str],
+) -> PersistenceMutationTargets:
+    """Return all statically attributable Ecto/SQL writes, failing closed."""
 
     aliases = module_aliases(text)
     bindings = static_module_bindings(text)
-    write_targets: set[str] = set()
+    code = elixir_code_only(text)
+    schemas: set[str] = set()
+    tables: set[str] = set()
+    unresolved: set[str] = set()
+    wrappers = _local_write_wrappers(text)
 
     calls = [
         *(
@@ -3049,11 +3397,19 @@ def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
                 call,
                 resolve_module_reference(call.group("receiver"), aliases),
             )
-            for call in WRITE_CALL_RE.finditer(text)
+            for call in WRITE_CALL_RE.finditer(code)
         ),
         *(
-            (call, bindings.get(call.group("receiver")))
-            for call in BOUND_WRITE_CALL_RE.finditer(text)
+            (
+                call,
+                bindings.get(call.group("receiver"))
+                or (
+                    "CommsCore.Repo"
+                    if call.group("receiver").lstrip("@") == "repo"
+                    else None
+                ),
+            )
+            for call in BOUND_WRITE_CALL_RE.finditer(code)
         ),
     ]
     for call, resolved_receiver in calls:
@@ -3072,23 +3428,38 @@ def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
             pipeline_input,
         )
         if not target_expression:
+            unresolved.add(
+                f"{resolved_receiver}.{call.group('operation')} has no write target"
+            )
             continue
-        schema = _resolve_schema_expression(
+        target = _resolve_persistence_target(
             target_expression,
             aliases=aliases,
             schema_modules=schema_modules,
+            schema_tables=schema_tables,
             source=text,
             before=call.start(),
         )
-        if schema:
-            write_targets.add(schema)
+        if target:
+            kind, name = target
+            (schemas if kind == "schema" else tables).add(name)
+        elif not _wrapper_target_parameter(
+                text,
+                call.start(),
+                target_expression,
+                wrappers,
+            ):
+            unresolved.add(
+                f"{resolved_receiver}.{call.group('operation')} target "
+                f"{target_expression.strip()[:80]!r} cannot be attributed"
+            )
 
-    for wrapper, parameter_index in _local_write_wrappers(text).items():
-        for call in re.finditer(rf"\b{re.escape(wrapper)}\s*\(", text):
+    for wrapper, (parameter_index, wrapper_operation) in wrappers.items():
+        for call in re.finditer(rf"\b{re.escape(wrapper)}\s*\(", code):
             line_start = text.rfind("\n", 0, call.start()) + 1
             declaration_prefix = text[line_start : call.start()]
             if re.match(
-                rf"\s*(?:defp?|defdelegate)\s+{re.escape(wrapper)}\s*$",
+                r"\s*(?:defp?|defdelegate)\s*$",
                 declaration_prefix,
             ):
                 continue
@@ -3098,25 +3469,295 @@ def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
             arguments_text, _ = parsed
             arguments = split_top_level_args(arguments_text)
             pipeline_input = pipeline_input_before(text, call.start())
-            if len(arguments) > parameter_index:
-                target_expression = arguments[parameter_index]
-            elif parameter_index == 0:
+            if pipeline_input is not None and parameter_index == 0:
                 target_expression = pipeline_input
+            elif (
+                pipeline_input is not None
+                and len(arguments) > parameter_index - 1
+            ):
+                target_expression = arguments[parameter_index - 1]
+            elif pipeline_input is None and len(arguments) > parameter_index:
+                target_expression = arguments[parameter_index]
             else:
                 target_expression = None
             if not target_expression:
                 continue
-            schema = _resolve_schema_expression(
+            target = _resolve_persistence_target(
                 target_expression,
                 aliases=aliases,
                 schema_modules=schema_modules,
+                schema_tables=schema_tables,
                 source=text,
                 before=call.start(),
             )
-            if schema:
-                write_targets.add(schema)
+            if target:
+                kind, name = target
+                (schemas if kind == "schema" else tables).add(name)
+            else:
+                unresolved.add(
+                    f"local write wrapper {wrapper} target "
+                    f"{target_expression.strip()[:80]!r} cannot be attributed"
+                )
 
-    return write_targets
+    protected_write_modules = {
+        "CommsCore.Repo": set(REPO_MUTATION_FUNCTIONS),
+        "Ecto.Multi": set(ECTO_MULTI_MUTATION_FUNCTIONS),
+    }
+    unresolved.update(
+        module_function_evasions(
+            text,
+            protected_write_modules,
+            reject_unknown_dynamic_target=False,
+        )
+    )
+    unresolved.update(
+        f"delegates {module}.{operation}/{arity} without an attributable write target"
+        for module, operation, arity in delegated_function_calls(text)
+        if module in protected_write_modules
+        and operation in protected_write_modules[module]
+    )
+
+    raw_tables, raw_unresolved = raw_sql_mutation_targets(text)
+    tables.update(raw_tables)
+    unresolved.update(raw_unresolved)
+    return PersistenceMutationTargets(
+        frozenset(schemas),
+        frozenset(tables),
+        frozenset(unresolved),
+    )
+
+
+def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
+    """Backward-compatible schema-only view used by focused unit tests."""
+
+    return set(
+        persistence_mutation_targets(text, schema_modules, {}).schemas
+    )
+
+
+MIGRATION_TARGET_CALL_RE = re.compile(
+    r"\b(?P<kind>table|index|unique_index|constraint|references)\s*\("
+)
+MIGRATION_EXECUTE_RE = re.compile(r"\bexecute\s*\(")
+MIGRATION_PARENLESS_EXECUTE_RE = re.compile(
+    r"(?m)(?<![A-Za-z0-9_.])execute(?!\s*\()(?=\s)"
+)
+SQL_REFERENCE_RE = re.compile(
+    r"\bREFERENCES\s+"
+    r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)[.])?'
+    r'"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
+    re.IGNORECASE,
+)
+SQL_DROP_INDEX_RE = re.compile(
+    r"\bDROP\s+INDEX(?:\s+CONCURRENTLY)?(?:\s+IF\s+EXISTS)?\s+"
+    r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)[.])?'
+    r'"?(?P<index>[A-Za-z_][A-Za-z0-9_]*)"?',
+    re.IGNORECASE,
+)
+SQL_LOCK_TABLE_RE = re.compile(
+    r"\bLOCK\s+TABLE\s+(?P<tables>[\s\S]*?)\s+IN\s+"
+    r"(?:ACCESS\s+SHARE|ROW\s+SHARE|ROW\s+EXCLUSIVE|SHARE\s+UPDATE\s+EXCLUSIVE|"
+    r"SHARE|SHARE\s+ROW\s+EXCLUSIVE|EXCLUSIVE|ACCESS\s+EXCLUSIVE)\s+MODE\b",
+    re.IGNORECASE,
+)
+MIGRATION_EXCEPTION_RULES = frozenset(
+    {"mixed_owner_migration", "unresolved_migration_target"}
+)
+
+
+def _migration_sql_targets(
+    sql: str,
+    known_tables: set[str],
+) -> tuple[set[str], set[str], bool]:
+    mutated, _raw_unresolved = _raw_sql_targets(sql)
+    unresolved = False
+    referenced = {
+        match.group("table") for match in SQL_REFERENCE_RE.finditer(sql)
+    }
+    for match in SQL_DROP_INDEX_RE.finditer(sql):
+        index = match.group("index")
+        candidates = [
+            table
+            for table in known_tables
+            if index == table or index.startswith(f"{table}_")
+        ]
+        if candidates:
+            mutated.add(max(candidates, key=len))
+        else:
+            unresolved = True
+    for lock in SQL_LOCK_TABLE_RE.finditer(sql):
+        lock_targets = {
+            token.strip().strip('"')
+            for token in lock.group("tables").split(",")
+            if re.fullmatch(
+                r'\s*"?[A-Za-z_][A-Za-z0-9_]*"?\s*',
+                token,
+            )
+        }
+        if lock_targets:
+            mutated.update(lock_targets)
+        else:
+            unresolved = True
+    if RAW_SQL_TABLE_MUTATION_RE.search(sql) and not mutated:
+        unresolved = True
+    return mutated, referenced, unresolved
+
+
+def _parenless_migration_execute_arguments(
+    text: str,
+    start: int,
+) -> list[str]:
+    """Read execute/1 or execute/2 arguments, including heredoc literals."""
+
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if text.startswith('"""', index):
+        end = text.find('"""', index + 3)
+        if end == -1:
+            return [text[index:]]
+        expressions = [text[index : end + 3]]
+        next_index = end + 3
+        while next_index < len(text) and text[next_index].isspace():
+            next_index += 1
+        if next_index < len(text) and text[next_index] == ",":
+            expressions.extend(
+                _parenless_migration_execute_arguments(text, next_index + 1)
+            )
+        return expressions[:2]
+    arguments = parenless_call_arguments(text, start)
+    return split_top_level_args(arguments)
+
+
+def migration_targets(text: str, known_tables: set[str]) -> MigrationTargets:
+    """Attribute Ecto and static-SQL migration operations to declared tables."""
+
+    code = elixir_code_only(text)
+    mutated: set[str] = set()
+    referenced: set[str] = set()
+    unresolved: set[str] = set()
+    for call in MIGRATION_TARGET_CALL_RE.finditer(code):
+        parsed = balanced_call_arguments(text, call.end() - 1)
+        if not parsed:
+            unresolved.add(f"cannot parse {call.group('kind')} migration operation")
+            continue
+        arguments = split_top_level_args(parsed[0])
+        target = _literal_table_name(text, arguments[0]) if arguments else None
+        if not target:
+            unresolved.add(
+                f"{call.group('kind')} migration target cannot be attributed"
+            )
+            continue
+        if call.group("kind") == "references":
+            referenced.add(target)
+        else:
+            mutated.add(target)
+
+    for call in MIGRATION_EXECUTE_RE.finditer(code):
+        parsed = balanced_call_arguments(text, call.end() - 1)
+        if not parsed:
+            unresolved.add("cannot parse execute migration operation")
+            continue
+        arguments = split_top_level_args(parsed[0])
+        if not arguments:
+            unresolved.add("execute migration operation has no SQL argument")
+            continue
+        for expression in arguments[:2]:
+            sql = _static_sql_expression(text, expression)
+            if sql is None:
+                unresolved.add("execute migration operation uses dynamic SQL")
+                continue
+            sql_mutated, sql_referenced, sql_unresolved = _migration_sql_targets(
+                sql,
+                known_tables,
+            )
+            mutated.update(sql_mutated)
+            referenced.update(sql_referenced)
+            if sql_unresolved:
+                unresolved.add("static SQL migration target cannot be attributed")
+
+    for call in MIGRATION_PARENLESS_EXECUTE_RE.finditer(code):
+        line_start = text.rfind("\n", 0, call.start()) + 1
+        if re.search(r"\bdef(?:p|macro|macrop)?\s*$", text[line_start : call.start()]):
+            continue
+        arguments = _parenless_migration_execute_arguments(text, call.end())
+        if not arguments:
+            unresolved.add("parenless execute migration operation has no SQL argument")
+            continue
+        for expression in arguments[:2]:
+            sql = _static_sql_expression(text, expression)
+            if sql is None:
+                unresolved.add("parenless execute migration operation uses dynamic SQL")
+                continue
+            sql_mutated, sql_referenced, sql_unresolved = _migration_sql_targets(
+                sql,
+                known_tables,
+            )
+            mutated.update(sql_mutated)
+            referenced.update(sql_referenced)
+            if sql_unresolved:
+                unresolved.add(
+                    "parenless static SQL migration target cannot be attributed"
+                )
+
+    return MigrationTargets(
+        frozenset(mutated),
+        frozenset(referenced),
+        frozenset(unresolved),
+    )
+
+
+def public_typespec_blocks(text: str) -> list[str]:
+    """Return only typespecs that form part of a module's public API."""
+
+    code = elixir_code_only(text)
+    blocks: list[str] = []
+    public_type_re = re.compile(
+        r"(?m)^[ \t]*@(?:callback|macrocallback|type|opaque)\b"
+        r"[\s\S]*?(?=^[ \t]*(?:@|def|defp)\b|\Z)"
+    )
+    blocks.extend(match.group(0) for match in public_type_re.finditer(code))
+
+    spec_re = re.compile(
+        r"(?m)^[ \t]*@spec\s+(?P<function>[a-z_][A-Za-z0-9_!?]*)\b"
+        r"[\s\S]*?(?=^[ \t]*(?:@|def|defp)\b|\Z)"
+    )
+    for match in spec_re.finditer(code):
+        following_definition = re.search(
+            rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
+            rf"{re.escape(match.group('function'))}\b",
+            code[match.end() :],
+        )
+        if following_definition and following_definition.group("kind") == "def":
+            blocks.append(match.group(0))
+    return blocks
+
+
+def public_spec_operations(text: str) -> set[tuple[str, int]]:
+    """Return public function name/arities that have explicit specs."""
+
+    code = elixir_code_only(text)
+    operations: set[tuple[str, int]] = set()
+    for spec in re.finditer(
+        r"(?m)^[ \t]*@spec\s+(?P<function>[a-z_][A-Za-z0-9_!?]*)\s*\(",
+        code,
+    ):
+        parsed = balanced_call_arguments(text, spec.end() - 1)
+        if not parsed:
+            continue
+        following_definition = re.search(
+            rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
+            rf"{re.escape(spec.group('function'))}\b",
+            code[parsed[1] :],
+        )
+        if following_definition and following_definition.group("kind") == "def":
+            operations.add(
+                (
+                    spec.group("function"),
+                    len(split_top_level_args(parsed[0])),
+                )
+            )
+    return operations
 
 
 def strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]]:
@@ -3563,6 +4204,8 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     schema_modules = {
         module for declarations in schemas.values() for module, _ in declarations
     }
+    embedded_schema_modules = set(discover_embedded_schemas(root))
+    ecto_contract_modules = schema_modules | embedded_schema_modules
     module_sources: dict[str, Path] = {}
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
@@ -3594,7 +4237,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
         manifest,
         contexts,
         schema_owners,
-        schema_modules,
+        ecto_contract_modules,
         module_sources,
     )
     violations.update(runtime_violations)
@@ -3605,7 +4248,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
             manifest,
             contexts,
             schema_owners,
-            schema_modules,
+            ecto_contract_modules,
             all_module_sources,
         )
     )
@@ -3945,6 +4588,44 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                 },
             }
 
+    required_public_specs: dict[str, set[tuple[str, int]]] = {}
+    for declaration in manifest.get("technical_interfaces", []):
+        if not isinstance(declaration, dict):
+            continue
+        interface = declaration.get("interface")
+        if not isinstance(interface, str):
+            continue
+        for operation in declaration.get("operations", []):
+            if (
+                isinstance(operation, dict)
+                and isinstance(operation.get("name"), str)
+                and isinstance(operation.get("arity"), int)
+            ):
+                required_public_specs.setdefault(interface, set()).add(
+                    (operation["name"], operation["arity"])
+                )
+    for policy in read_model_policies.values():
+        for query in policy["public_queries"]:
+            match = PUBLIC_QUERY_RE.fullmatch(query)
+            if match:
+                required_public_specs.setdefault(match.group(1), set()).add(
+                    (match.group(2), int(match.group(3)))
+                )
+    for module, required_operations in sorted(required_public_specs.items()):
+        source = module_sources.get(module)
+        if source is None:
+            continue
+        declared_specs = public_spec_operations(source.read_text(encoding="utf-8"))
+        for function, arity in sorted(required_operations - declared_specs):
+            violations.add(
+                Violation(
+                    "public_operation_missing_spec",
+                    relative(source, root),
+                    f"declared public operation {module}.{function}/{arity} "
+                    "must have an explicit public Ecto-free @spec",
+                )
+            )
+
     for context_name, context in sorted(contexts.items()):
         for facade in context.get("public_facades", []):
             source = module_sources.get(facade)
@@ -3956,7 +4637,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         f"{context_name} declares missing public facade {facade}",
                     )
                 )
-            elif facade in schema_modules:
+            elif facade in ecto_contract_modules:
                 violations.add(
                     Violation(
                         "public_facade_is_schema",
@@ -3974,7 +4655,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         f"{context_name} declares missing public contract {contract}",
                     )
                 )
-            elif contract in schema_modules:
+            elif contract in ecto_contract_modules:
                 violations.add(
                     Violation(
                         "public_contract_is_schema",
@@ -4031,7 +4712,9 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         "adapter references Ecto.Changeset instead of a stable validation contract",
                     )
                 )
-            for schema_module in sorted(schema_modules.intersection(references)):
+            for schema_module in sorted(
+                ecto_contract_modules.intersection(references)
+            ):
                 violations.add(
                     Violation(
                         "adapter_schema_import",
@@ -4041,7 +4724,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                 )
             for internal_module in sorted(
                 references.intersection(module_sources)
-                - schema_modules
+                - ecto_contract_modules
                 - approved_adapter_modules
             ):
                 violations.add(
@@ -4271,11 +4954,43 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                     )
                 )
 
+        mutation_targets = persistence_mutation_targets(
+            text,
+            schema_modules,
+            schema_tables,
+        )
         foreign_write_targets: dict[str, set[str]] = {}
-        for schema_module in schema_write_references(text, schema_modules):
+        for schema_module in mutation_targets.schemas:
             target_owner = schema_owners.get(schema_module)
             if target_owner and target_owner != source_owner:
                 foreign_write_targets.setdefault(target_owner, set()).add(schema_module)
+        for table in mutation_targets.tables:
+            declaration = tables.get(table)
+            if not isinstance(declaration, dict) or not declaration.get("owner"):
+                violations.add(
+                    Violation(
+                        "unowned_persistence_write",
+                        relative(path, root),
+                        f"{source_module} writes undeclared table {table}",
+                    )
+                )
+                continue
+            target_owner = declaration["owner"]
+            if target_owner != source_owner:
+                foreign_write_targets.setdefault(target_owner, set()).add(
+                    f"table:{table}"
+                )
+        if mutation_targets.unresolved:
+            violations.add(
+                Violation(
+                    "unresolved_persistence_write",
+                    relative(path, root),
+                    f"{source_module} has persistence mutations whose targets "
+                    "cannot be attributed ("
+                    + "; ".join(sorted(mutation_targets.unresolved))
+                    + ")",
+                )
+            )
         for target_owner, modules in sorted(foreign_write_targets.items()):
             violations.add(
                 Violation(
@@ -4292,7 +5007,11 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
         mutation_evidence = (
             read_model_mutation_references(text) if source_is_read_only else set()
         )
-        if source_is_read_only and raw_sql_write_or_unresolved(text):
+        if source_is_read_only and (
+            mutation_targets.schemas
+            or mutation_targets.tables
+            or mutation_targets.unresolved
+        ):
             mutation_evidence.add("uses mutating or unresolved raw SQL")
         if source_is_read_only and mutation_evidence:
             violations.add(
@@ -4307,13 +5026,8 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
         public_facades = set(contexts[source_owner].get("public_facades", []))
         public_contracts = set(contexts[source_owner].get("public_contracts", []))
         if source_module in public_facades | public_contracts:
-            contract_blocks = re.findall(
-                r"(?m)^[ \t]*@(?:spec|callback|macrocallback|type|typep|opaque)\b"
-                r"[\s\S]*?(?=^[ \t]*(?:@|def|defp)\b|\Z)",
-                text,
-            )
             aliases = module_aliases(text)
-            contract_code = elixir_code_only("\n".join(contract_blocks))
+            contract_code = "\n".join(public_typespec_blocks(text))
             referenced_contract_modules = {
                 resolve_module_reference(token, aliases)
                 for token in re.findall(
@@ -4322,7 +5036,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                 )
             }
             for schema_module in sorted(
-                schema_modules.intersection(referenced_contract_modules)
+                ecto_contract_modules.intersection(referenced_contract_modules)
             ):
                 surface = (
                     "public facade"
@@ -4334,6 +5048,19 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         "public_ecto_contract",
                         relative(path, root),
                         f"{surface} type contract exposes {schema_module}",
+                    )
+                )
+            if "Ecto.Changeset" in referenced_contract_modules:
+                surface = (
+                    "public facade"
+                    if source_module in public_facades
+                    else "public contract"
+                )
+                violations.add(
+                    Violation(
+                        "public_ecto_contract",
+                        relative(path, root),
+                        f"{surface} type contract exposes Ecto.Changeset",
                     )
                 )
 
@@ -4352,22 +5079,264 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     runtime_graph = context_graphs(root, manifest).runtime
     violations.update(context_cycle_violations(runtime_graph, "runtime_context_cycle"))
 
-    migration_exceptions = {
-        path
-        for exception in manifest.get("migration_exceptions", [])
-        for path in exception.get("paths", [])
-    }
     migration_root = root / "apps/comms_core/priv/repo/migrations"
+    migration_scans: dict[str, MigrationTargets] = {}
     for path in sorted(migration_root.glob("*.exs")):
-        touched = set(MIGRATION_TABLE_RE.findall(path.read_text(encoding="utf-8")))
-        owners = {tables[table]["owner"] for table in touched if table in tables}
         path_key = relative(path, root)
-        if len(owners) > 1 and path_key not in migration_exceptions:
+        migration_scans[path_key] = migration_targets(
+            path.read_text(encoding="utf-8"),
+            set(tables),
+        )
+
+    required_migration_rules: dict[str, set[str]] = {}
+    for path_key, scan in migration_scans.items():
+        owners = {
+            tables[table]["owner"]
+            for table in scan.mutated
+            if table in tables and isinstance(tables[table], dict)
+        }
+        if len(owners) > 1:
+            required_migration_rules.setdefault(path_key, set()).add(
+                "mixed_owner_migration"
+            )
+        if scan.unresolved:
+            required_migration_rules.setdefault(path_key, set()).add(
+                "unresolved_migration_target"
+            )
+        for table in sorted(scan.mutated - set(tables)):
+            violations.add(
+                Violation(
+                    "undeclared_migration_table",
+                    path_key,
+                    f"migration mutates undeclared table {table}",
+                )
+            )
+        for table in sorted(scan.referenced - set(tables)):
+            violations.add(
+                Violation(
+                    "undeclared_migration_reference",
+                    path_key,
+                    f"migration references undeclared table {table}",
+                )
+            )
+
+    valid_migration_exceptions: dict[str, set[str]] = {}
+    raw_migration_exceptions = manifest.get("migration_exceptions", [])
+    seen_exception_ids: set[str] = set()
+    seen_exception_paths: set[str] = set()
+    if not isinstance(raw_migration_exceptions, list):
+        violations.add(
+            Violation(
+                "invalid_migration_exception",
+                MANIFEST_PATH.as_posix(),
+                "migration_exceptions must be a list",
+            )
+        )
+        raw_migration_exceptions = []
+    for index, exception in enumerate(raw_migration_exceptions):
+        label = f"migration_exceptions[{index}]"
+        group_valid = True
+        if not isinstance(exception, dict):
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label} must be a mapping",
+                )
+            )
+            continue
+        expected_fields = {"id", "adr", "condition", "paths"}
+        if set(exception) != expected_fields:
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label} must contain exactly "
+                    + ", ".join(sorted(expected_fields)),
+                )
+            )
+        exception_id = exception.get("id")
+        if (
+            not isinstance(exception_id, str)
+            or not exception_id.strip()
+            or exception_id in seen_exception_ids
+        ):
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label}.id must be non-empty and unique",
+                )
+            )
+        else:
+            seen_exception_ids.add(exception_id)
+        condition = exception.get("condition")
+        if not isinstance(condition, str) or not condition.strip():
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label}.condition must be non-empty",
+                )
+            )
+        adr = exception.get("adr")
+        if not accepted_architecture_adr(root, adr):
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label}.adr must reference an accepted architecture ADR",
+                )
+            )
+        entries = exception.get("paths")
+        if not isinstance(entries, list) or not entries:
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label}.paths must be a non-empty list",
+                )
+            )
+            entries = []
+        rendered_paths = [
+            entry.get("path")
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        ]
+        if rendered_paths != sorted(rendered_paths):
+            group_valid = False
+            violations.add(
+                Violation(
+                    "invalid_migration_exception",
+                    MANIFEST_PATH.as_posix(),
+                    f"{label}.paths must be sorted by path",
+                )
+            )
+        candidate_entries: list[tuple[str, set[str]]] = []
+        for path_index, entry in enumerate(entries):
+            entry_label = f"{label}.paths[{path_index}]"
+            entry_valid = group_valid
+            if not isinstance(entry, dict) or set(entry) != {
+                "path",
+                "sha256",
+                "rules",
+            }:
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label} must contain exactly path, rules, sha256",
+                    )
+                )
+                continue
+            path_key = entry.get("path")
+            expected_prefix = "apps/comms_core/priv/repo/migrations/"
+            if (
+                not isinstance(path_key, str)
+                or not path_key.startswith(expected_prefix)
+                or "/" in path_key[len(expected_prefix) :]
+                or not path_key.endswith(".exs")
+                or path_key in seen_exception_paths
+            ):
+                entry_valid = False
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label}.path must be a unique migration path",
+                    )
+                )
+            else:
+                seen_exception_paths.add(path_key)
+            candidate = root / path_key if isinstance(path_key, str) else root
+            if not candidate.is_file():
+                entry_valid = False
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label}.path references a missing migration",
+                    )
+                )
+            expected_hash = entry.get("sha256")
+            if (
+                not isinstance(expected_hash, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_hash)
+                or not candidate.is_file()
+                or canonical_text_sha256(candidate) != expected_hash
+            ):
+                entry_valid = False
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label}.sha256 must match the migration content",
+                    )
+                )
+            rules = entry.get("rules")
+            if (
+                not isinstance(rules, list)
+                or not rules
+                or rules != sorted(set(rules))
+                or not set(rules).issubset(MIGRATION_EXCEPTION_RULES)
+            ):
+                entry_valid = False
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label}.rules must be a sorted unique subset of "
+                        f"{', '.join(sorted(MIGRATION_EXCEPTION_RULES))}",
+                    )
+                )
+                rules = []
+            actual_rules = required_migration_rules.get(path_key, set())
+            if set(rules) != actual_rules:
+                entry_valid = False
+                violations.add(
+                    Violation(
+                        "invalid_migration_exception",
+                        MANIFEST_PATH.as_posix(),
+                        f"{entry_label} is stale or incomplete: declares "
+                        f"{', '.join(rules) or '(none)'}, currently requires "
+                        f"{', '.join(sorted(actual_rules)) or '(none)'}",
+                    )
+                )
+            if entry_valid:
+                candidate_entries.append((path_key, set(rules)))
+        if group_valid:
+            for path_key, rules in candidate_entries:
+                valid_migration_exceptions[path_key] = rules
+
+    for path_key, rules in sorted(required_migration_rules.items()):
+        allowed_rules = valid_migration_exceptions.get(path_key, set())
+        scan = migration_scans[path_key]
+        owners = {
+            tables[table]["owner"]
+            for table in scan.mutated
+            if table in tables and isinstance(tables[table], dict)
+        }
+        if "mixed_owner_migration" in rules - allowed_rules:
             violations.add(
                 Violation(
                     "mixed_owner_migration",
                     path_key,
                     f"migration touches owners {', '.join(sorted(owners))}",
+                )
+            )
+        if "unresolved_migration_target" in rules - allowed_rules:
+            violations.add(
+                Violation(
+                    "unresolved_migration_target",
+                    path_key,
+                    "migration has mutating targets that cannot be attributed ("
+                    + "; ".join(sorted(scan.unresolved))
+                    + ")",
                 )
             )
 
@@ -5459,6 +6428,421 @@ def generated_report_errors(root: Path) -> list[str]:
     return []
 
 
+def _stable_value(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _string_set(value: object) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    return {item for item in value if isinstance(item, str)}
+
+
+def _declarations_by(
+    value: object,
+    key: str,
+) -> dict[str, dict]:
+    if not isinstance(value, list):
+        return {}
+    return {
+        declaration[key]: declaration
+        for declaration in value
+        if isinstance(declaration, dict)
+        and isinstance(declaration.get(key), str)
+    }
+
+
+def _added_tokens(
+    tokens: set[str],
+    prefix: str,
+    base: object,
+    current: object,
+) -> None:
+    for item in sorted(_string_set(current) - _string_set(base)):
+        tokens.add(f"{prefix}:add:{item}")
+
+
+def _manifest_semantic_widenings(base: dict, current: dict) -> set[str]:
+    """Return exact review tokens for ownership or permission growth."""
+
+    tokens: set[str] = set()
+    base_contexts = base.get("contexts", {})
+    current_contexts = current.get("contexts", {})
+    if not isinstance(base_contexts, dict):
+        base_contexts = {}
+    if not isinstance(current_contexts, dict):
+        current_contexts = {}
+    for name, context in current_contexts.items():
+        if not isinstance(context, dict):
+            continue
+        previous = base_contexts.get(name)
+        if not isinstance(previous, dict):
+            tokens.add(f"context:{name}:add:{_stable_value(context)}")
+            continue
+        for field in (
+            "allowed_dependencies",
+            "public_facades",
+            "public_contracts",
+            "internal_namespaces",
+            "owned_modules",
+            "publishes",
+            "consumes",
+        ):
+            _added_tokens(
+                tokens,
+                f"context:{name}:{field}",
+                previous.get(field),
+                context.get(field),
+            )
+        if (
+            previous.get("kind") != context.get("kind")
+            and context.get("kind") is not None
+        ):
+            tokens.add(
+                f"context:{name}:kind:"
+                f"{previous.get('kind')}->{context.get('kind')}"
+            )
+        if (
+            previous.get("graph_scope", "included") == "included"
+            and context.get("graph_scope", "included") == "excluded"
+        ):
+            tokens.add(f"context:{name}:graph_scope:included->excluded")
+
+    base_tables = base.get("tables", {})
+    current_tables = current.get("tables", {})
+    if not isinstance(base_tables, dict):
+        base_tables = {}
+    if not isinstance(current_tables, dict):
+        current_tables = {}
+    ownership_fields = (
+        "owner",
+        "canonical_schema",
+        "canonical_accessor",
+        "role",
+        "external_schema",
+        "access",
+    )
+    for table, declaration in current_tables.items():
+        if not isinstance(declaration, dict):
+            continue
+        previous = base_tables.get(table)
+        if not isinstance(previous, dict):
+            tokens.add(f"table:{table}:add:{_stable_value(declaration)}")
+            continue
+        for field in ownership_fields:
+            if previous.get(field) != declaration.get(field):
+                tokens.add(
+                    f"table:{table}:{field}:"
+                    f"{_stable_value(previous.get(field))}->"
+                    f"{_stable_value(declaration.get(field))}"
+                )
+        previous_owner = previous.get("owner")
+        current_owner = declaration.get("owner")
+        previous_context = (
+            base_contexts.get(previous_owner, {})
+            if isinstance(previous_owner, str)
+            else {}
+        )
+        current_context = (
+            current_contexts.get(current_owner, {})
+            if isinstance(current_owner, str)
+            else {}
+        )
+        previous_access = previous.get(
+            "access_namespaces",
+            previous_context.get("internal_namespaces", [])
+            if isinstance(previous_context, dict)
+            else [],
+        )
+        current_access = declaration.get(
+            "access_namespaces",
+            current_context.get("internal_namespaces", [])
+            if isinstance(current_context, dict)
+            else [],
+        )
+        _added_tokens(
+            tokens,
+            f"table:{table}:access_namespaces",
+            previous_access,
+            current_access,
+        )
+
+    base_read_models = _declarations_by(
+        base.get("read_model_exceptions"),
+        "module",
+    )
+    current_read_models = _declarations_by(
+        current.get("read_model_exceptions"),
+        "module",
+    )
+    for module, declaration in current_read_models.items():
+        previous = base_read_models.get(module)
+        if previous is None:
+            tokens.add(
+                f"read_model:{module}:add:{_stable_value(declaration)}"
+            )
+            continue
+        if previous.get("mode") != declaration.get("mode"):
+            tokens.add(
+                f"read_model:{module}:mode:"
+                f"{previous.get('mode')}->{declaration.get('mode')}"
+            )
+        _added_tokens(
+            tokens,
+            f"read_model:{module}:owners",
+            previous.get("owners"),
+            declaration.get("owners"),
+        )
+        previous_access = previous.get("access", {})
+        current_access = declaration.get("access", {})
+        if not isinstance(previous_access, dict):
+            previous_access = {}
+        if not isinstance(current_access, dict):
+            current_access = {}
+        for field in ("public_contracts", "public_queries", "source_tables"):
+            _added_tokens(
+                tokens,
+                f"read_model:{module}:{field}",
+                previous_access.get(field),
+                current_access.get(field),
+            )
+
+    def migration_entries(document: dict) -> dict[str, dict[str, object]]:
+        entries: dict[str, dict[str, object]] = {}
+        declarations = document.get("migration_exceptions", [])
+        if not isinstance(declarations, list):
+            return entries
+        for declaration in declarations:
+            if not isinstance(declaration, dict):
+                continue
+            for entry in declaration.get("paths", []):
+                if not isinstance(entry, dict) or not isinstance(
+                    entry.get("path"),
+                    str,
+                ):
+                    continue
+                entries[entry["path"]] = {
+                    "rules": entry.get("rules"),
+                    "sha256": entry.get("sha256"),
+                }
+        return entries
+
+    base_migrations = migration_entries(base)
+    current_migrations = migration_entries(current)
+    for path, declaration in current_migrations.items():
+        previous = base_migrations.get(path)
+        if previous is None:
+            tokens.add(
+                f"migration_exception:{path}:add:{_stable_value(declaration)}"
+            )
+            continue
+        for field in ("rules", "sha256"):
+            if previous.get(field) != declaration.get(field):
+                tokens.add(
+                    f"migration_exception:{path}:{field}:"
+                    f"{_stable_value(previous.get(field))}->"
+                    f"{_stable_value(declaration.get(field))}"
+                )
+
+    def collaboration_tokens(
+        section: str,
+        scalar_fields: tuple[str, ...],
+        list_fields: tuple[str, ...],
+    ) -> None:
+        previous_by_id = _declarations_by(base.get(section), "id")
+        current_by_id = _declarations_by(current.get(section), "id")
+        for declaration_id, declaration in current_by_id.items():
+            previous = previous_by_id.get(declaration_id)
+            prefix = f"{section}:{declaration_id}"
+            if previous is None:
+                tokens.add(f"{prefix}:add:{_stable_value(declaration)}")
+                continue
+            for field in scalar_fields:
+                if previous.get(field) != declaration.get(field):
+                    if (
+                        field == "transaction"
+                        and previous.get(field) == "independent"
+                        and declaration.get(field) == "required"
+                    ):
+                        continue
+                    tokens.add(
+                        f"{prefix}:{field}:"
+                        f"{_stable_value(previous.get(field))}->"
+                        f"{_stable_value(declaration.get(field))}"
+                    )
+            for field in list_fields:
+                previous_items = {
+                    _stable_value(item)
+                    for item in previous.get(field, [])
+                } if isinstance(previous.get(field), list) else set()
+                current_items = {
+                    _stable_value(item)
+                    for item in declaration.get(field, [])
+                } if isinstance(declaration.get(field), list) else set()
+                for item in sorted(current_items - previous_items):
+                    tokens.add(f"{prefix}:{field}:add:{item}")
+
+    collaboration_tokens(
+        "runtime_collaborations",
+        (
+            "consumer",
+            "provider",
+            "port",
+            "result_contract",
+            "implementation",
+            "binding",
+            "graph_semantics",
+            "transaction",
+        ),
+        ("callers", "operations"),
+    )
+    collaboration_tokens(
+        "technical_interfaces",
+        (
+            "owner",
+            "interface",
+            "dispatch",
+            "behaviour",
+            "implementation",
+            "binding",
+            "transaction",
+        ),
+        ("callers", "operations", "contracts"),
+    )
+
+    base_namespace_rules = _declarations_by(
+        base.get("namespace_dependency_rules"),
+        "id",
+    )
+    current_namespace_rules = _declarations_by(
+        current.get("namespace_dependency_rules"),
+        "id",
+    )
+    for rule_id, previous in base_namespace_rules.items():
+        declaration = current_namespace_rules.get(rule_id)
+        if declaration is None:
+            tokens.add(f"namespace_rule:{rule_id}:removed")
+            continue
+        if previous.get("from") != declaration.get("from"):
+            tokens.add(
+                f"namespace_rule:{rule_id}:from:"
+                f"{previous.get('from')}->{declaration.get('from')}"
+            )
+        for forbidden in sorted(
+            _string_set(previous.get("forbidden"))
+            - _string_set(declaration.get("forbidden"))
+        ):
+            tokens.add(f"namespace_rule:{rule_id}:forbidden:remove:{forbidden}")
+    return tokens
+
+
+def _reviewed_manifest_transition_errors(
+    root: Path,
+    base_path: Path,
+    base: dict,
+    current: dict,
+) -> list[str]:
+    """Require an exact ADR-backed declaration for every semantic widening."""
+
+    enforcement = current.get("enforcement", {})
+    if not isinstance(enforcement, dict):
+        return ["current boundary manifest enforcement must be a mapping"]
+    raw_transitions = enforcement.get("reviewed_manifest_transitions", [])
+    if not isinstance(raw_transitions, list):
+        return [
+            "enforcement.reviewed_manifest_transitions must be a list"
+        ]
+    errors: list[str] = []
+    transitions: list[dict] = []
+    seen_ids: set[str] = set()
+    seen_hashes: set[str] = set()
+    for index, transition in enumerate(raw_transitions):
+        label = f"enforcement.reviewed_manifest_transitions[{index}]"
+        if not isinstance(transition, dict):
+            errors.append(f"{label} must be a mapping")
+            continue
+        if set(transition) != REVIEWED_MANIFEST_TRANSITION_FIELDS:
+            errors.append(
+                f"{label} must contain exactly "
+                + ", ".join(sorted(REVIEWED_MANIFEST_TRANSITION_FIELDS))
+            )
+            continue
+        transition_id = transition.get("id")
+        previous_hash = transition.get("previous_manifest_sha256")
+        changes = transition.get("approved_changes")
+        adr = transition.get("adr")
+        removal = transition.get("removal_condition")
+        valid = True
+        if (
+            not isinstance(transition_id, str)
+            or not transition_id.strip()
+            or transition_id in seen_ids
+        ):
+            errors.append(f"{label}.id must be non-empty and unique")
+            valid = False
+        else:
+            seen_ids.add(transition_id)
+        if (
+            not isinstance(previous_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", previous_hash)
+            or previous_hash in seen_hashes
+        ):
+            errors.append(
+                f"{label}.previous_manifest_sha256 must be a unique lowercase SHA-256"
+            )
+            valid = False
+        else:
+            seen_hashes.add(previous_hash)
+        if (
+            not isinstance(changes, list)
+            or not changes
+            or not all(isinstance(change, str) and change for change in changes)
+            or changes != sorted(set(changes))
+        ):
+            errors.append(
+                f"{label}.approved_changes must be a non-empty sorted unique list"
+            )
+            valid = False
+        if not accepted_architecture_adr(root, adr):
+            errors.append(f"{label}.adr must reference an accepted architecture ADR")
+            valid = False
+        if not isinstance(removal, str) or not removal.strip():
+            errors.append(f"{label}.removal_condition must be non-empty")
+            valid = False
+        if valid:
+            transitions.append(transition)
+
+    actual_hash = canonical_text_sha256(base_path)
+    for transition in transitions:
+        if transition["previous_manifest_sha256"] != actual_hash:
+            errors.append(
+                "reviewed manifest transition is stale for the current immutable "
+                f"base: {transition['id']}"
+            )
+    matching = [
+        transition
+        for transition in transitions
+        if transition["previous_manifest_sha256"] == actual_hash
+    ]
+    actual_changes = _manifest_semantic_widenings(base, current)
+    if actual_changes and not matching:
+        errors.extend(
+            f"boundary manifest has unreviewed semantic widening: {change}"
+            for change in sorted(actual_changes)
+        )
+    elif matching:
+        declared = set(matching[0]["approved_changes"])
+        errors.extend(
+            f"reviewed manifest transition has undeclared change: {change}"
+            for change in sorted(actual_changes - declared)
+        )
+        errors.extend(
+            f"reviewed manifest transition has stale approved change: {change}"
+            for change in sorted(declared - actual_changes)
+        )
+    return errors
+
+
 def compare_boundary_manifests(
     root: Path,
     base_path: Path,
@@ -5486,6 +6870,15 @@ def compare_boundary_manifests(
         base = {}
     if errors:
         return errors
+
+    errors.extend(
+        _reviewed_manifest_transition_errors(
+            root,
+            base_path,
+            base,
+            current,
+        )
+    )
 
     current_enforcement = current.get("enforcement", {})
     base_enforcement = base.get("enforcement", {})

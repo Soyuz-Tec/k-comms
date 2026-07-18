@@ -5,7 +5,9 @@
 
 # Modular-monolith architecture control plane.
 /.github/CODEOWNERS @Soyuz-Tec
-/.github/workflows/ci.yml @Soyuz-Tec
+/.github/dependabot.yml @Soyuz-Tec
+/.github/trivy/ @Soyuz-Tec
+/.github/workflows/ @Soyuz-Tec
 /scripts/validate_architecture.py @Soyuz-Tec
 /scripts/test_validate_architecture.py @Soyuz-Tec
 /docs/02-architecture/context-boundaries.yaml @Soyuz-Tec

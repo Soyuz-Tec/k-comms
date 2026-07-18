@@ -156,10 +156,15 @@ defmodule CommsCore.PasswordRecoveryTest do
              )
 
     assert {:ok, second_login} =
-             Accounts.authenticate(account.tenant.slug, account.user.email, old_password, %{
-               name: "Recovery test browser",
-               platform: "test"
-             })
+             Accounts.authenticate_view(
+               account.tenant.slug,
+               account.user.email,
+               old_password,
+               %{
+                 name: "Recovery test browser",
+                 platform: "test"
+               }
+             )
 
     attrs = %{tenant_slug: account.tenant.slug, email: account.user.email}
     assert :ok = PasswordRecovery.request(attrs)
@@ -189,7 +194,7 @@ defmodule CommsCore.PasswordRecoveryTest do
              })
 
     assert account.session.id in result.revoked_session_ids
-    assert second_login.session.id in result.revoked_session_ids
+    assert second_login.session_id in result.revoked_session_ids
     assert Repo.get!(PasswordRecoveryRequest, second.id).consumed_at
 
     user = Repo.get!(User, account.user.id)
