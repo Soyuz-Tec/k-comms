@@ -20,4 +20,9 @@
 
 ## Release gate
 
-No production release proceeds without successful staging rehearsal, migration timing evidence, rollback procedure, observability coverage, and named incident ownership.
+No production release proceeds without successful staging rehearsal, migration
+timing evidence, rollback procedure, observability coverage, named incident
+ownership, and verification of both digest-bound publication attestations:
+SLSA build provenance and the CycloneDX SBOM. The verification must constrain
+the signer to `Soyuz-Tec/k-comms/.github/workflows/container.yml`; an SBOM file
+downloaded without its valid attestation is inventory, not promotion evidence.

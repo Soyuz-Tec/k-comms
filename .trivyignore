@@ -1,0 +1,3 @@
+# These ConfigMaps contain TTL durations and encryption key identifiers only;
+# runtime key material is sourced exclusively from Kubernetes Secrets.
+KSV-0109

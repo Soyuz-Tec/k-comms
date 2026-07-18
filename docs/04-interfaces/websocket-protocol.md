@@ -2,18 +2,27 @@
 
 ## Connection
 
-A short-lived access token identifies tenant, user, device, and session. The
-session and conversation membership are revalidated for every command.
+An authenticated HTTPS client first creates a socket ticket with
+`POST /api/v1/socket-tickets`. The returned random ticket is short lived,
+stored only as a hash, bound to tenant/user/device/session, and consumed exactly
+once during the WebSocket handshake. Access and refresh tokens are never placed
+in the WebSocket URL. Every reconnect obtains a new ticket before replaying from
+the last contiguous durable cursor.
+
+The active session and conversation membership are revalidated for every
+command and outbound event. Revocation disconnects the session socket.
 
 ## Topic namespaces
 
 ```text
 user:<user_id>
-device:<device_id>
 conversation:<conversation_id>
-tenant:<tenant_id>:announcements
-call:<call_id>
 ```
+
+Only the authenticated user may join `user:<user_id>`. That topic carries
+content-free conversation activity/membership and notification-availability
+signals for inbox refresh. It does not carry message or notification bodies.
+Conversation topics require active membership.
 
 ## Join payload
 
@@ -48,11 +57,28 @@ types are `message.send.v1`, `conversation.read.v1`, `typing.start.v1`, and
   "conversation_id": "opaque-id",
   "conversation_sequence": 48292,
   "client_message_id": "device-generated-idempotency-key",
+  "reply_to_message_id": null,
+  "thread_root_message_id": null,
+  "thread_reply_count": 0,
+  "mentioned_user_ids": [],
   "body": "Example message",
   "status": "active",
   "inserted_at": "server-time"
 }
 ```
+
+The content-free `notification.available.v1` user-topic payload contains only
+`notification_id`, `event_type`, optional conversation/message IDs, and the
+current unread count. Clients fetch the authenticated notification-center REST
+resource before presenting copy or navigating.
+
+Conversation topics also carry content-free `call.started.v1` and
+`call.ended.v1` events. Their payload identifies the call, conversation,
+immutable `media_kind`, lifecycle status/times, and current caller end
+capability. Clients reconcile through `GET
+/api/v1/conversations/{conversation_id}/call`; they never exchange provider
+credentials, participant state, camera/screen state, SDP, ICE, RTP, or SRTP over
+Phoenix.
 
 ## Rules
 

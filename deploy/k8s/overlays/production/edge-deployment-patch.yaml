@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k-comms-edge
+spec:
+  replicas: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: edge
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: edge
+      containers:
+        - name: edge
+          envFrom:
+            - configMapRef:
+                name: k-comms-config
+            - secretRef:
+                name: k-comms-provider-secrets
+                optional: false
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: database-ca
+              mountPath: /etc/k-comms/database-ca
+              readOnly: true
+      volumes:
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            defaultMode: 0444
+            items:
+              - key: ca.crt
+                path: ca.crt

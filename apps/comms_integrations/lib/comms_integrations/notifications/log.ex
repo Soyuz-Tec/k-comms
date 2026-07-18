@@ -9,8 +9,11 @@ defmodule CommsIntegrations.Notifications.Log do
       event_type: value(payload, "event_type")
     )
 
-    :ok
+    {:ok, %{provider: "log", mode: "development"}}
   end
+
+  @impl true
+  def status, do: %{status: :degraded, adapter: "log", reason: :development_only}
 
   defp value(payload, "tenant_id"),
     do: Map.get(payload, "tenant_id") || Map.get(payload, :tenant_id)

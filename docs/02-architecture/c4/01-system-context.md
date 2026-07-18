@@ -10,7 +10,7 @@ flowchart LR
     Push[Push and Email Providers]
     Storage[Object Storage and CDN]
     Integrations[External Systems / Bots]
-    Media[Optional WebRTC Media Platform]
+    Media[External LiveKit WebRTC Media Platform]
 
     EndUser -->|HTTPS, WebSocket| Platform
     TenantAdmin -->|Admin UI / API| Platform
@@ -19,7 +19,8 @@ flowchart LR
     Platform -->|Notifications| Push
     Platform -->|Signed upload/download| Storage
     Platform <-->|REST, webhooks, events| Integrations
-    Platform <-->|Signaling and call authorization| Media
+    Platform -->|Short-lived authorized room credentials| Media
+    EndUser <-->|WebRTC audio, video, screen media and signaling| Media
 ```
 
 ## Context notes
@@ -27,4 +28,7 @@ flowchart LR
 - The platform owns authorization and durable communication state.
 - Identity providers authenticate or provision identities but do not authorize conversation access.
 - Object storage owns binary durability; the platform owns attachment metadata and policy.
-- Optional media infrastructure transports audio/video; Phoenix carries signaling, not RTP/SRTP media.
+- The media infrastructure transports audio, camera video, screen media, and
+  WebRTC signaling. Phoenix carries only content-free call lifecycle events,
+  never SDP, ICE, RTP, SRTP, or provider credentials. ADR-0025 defines the
+  unified media-source and privacy boundary.

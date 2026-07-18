@@ -5,8 +5,11 @@ defmodule CommsIntegrations.Webhooks.Log do
   @impl true
   def deliver(payload) do
     Logger.info("webhook accepted by log adapter", event_type: value(payload, "event_type"))
-    :ok
+    {:ok, %{provider: "log", mode: "development"}}
   end
+
+  @impl true
+  def status, do: %{status: :degraded, adapter: "log", reason: :development_only}
 
   defp value(payload, "event_type"),
     do: Map.get(payload, "event_type") || Map.get(payload, :event_type)

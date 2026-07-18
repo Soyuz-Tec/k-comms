@@ -1,10 +1,12 @@
 defmodule CommsWeb.ConversationChannel do
   use CommsWeb, :channel
 
-  alias CommsCore.{Authorization, Conversations, Messaging}
+  alias CommsCore.{Conversations, Messaging}
   alias CommsWeb.Presenter
 
   @authorized_events [
+    "conversation.updated.v1",
+    "conversation.archived.v1",
     "message.created.v1",
     "message.updated.v1",
     "message.deleted.v1",
@@ -25,7 +27,7 @@ defmodule CommsWeb.ConversationChannel do
     subject = subject(socket)
     after_sequence = integer(payload["after_sequence"] || payload[:after_sequence], 0)
 
-    with {:ok, _conversation} <- Conversations.get_for_user(conversation_id, subject),
+    with {:ok, _conversation} <- Conversations.get_for_user_view(conversation_id, subject),
          {:ok, replay_messages} <-
            Messaging.list_history(conversation_id, subject,
              after_sequence: after_sequence,
@@ -49,7 +51,7 @@ defmodule CommsWeb.ConversationChannel do
 
   @impl true
   def handle_info(:after_join, socket) do
-    case authorize_command(:read_conversation, socket) do
+    case authorize_read(socket) do
       :ok ->
         {:ok, _} =
           CommsWeb.Presence.track(socket, socket.assigns.user_id, %{
@@ -90,13 +92,20 @@ defmodule CommsWeb.ConversationChannel do
         sender_device_id: socket.assigns.device_id
       })
 
-    with :ok <- authorize_command(:send_message, socket),
+    with :ok <- authorize_send_message(socket),
          {:ok, message, status} <-
            Messaging.accept_message_with_status(attrs, subject(socket)) do
       event = Presenter.message(message)
 
       if status == :created do
         broadcast!(socket, "message.created.v1", event)
+
+        CommsWeb.Broadcast.conversation_activity(
+          socket.assigns.tenant_id,
+          socket.assigns.conversation_id,
+          message.conversation_sequence,
+          "message.created.v1"
+        )
       end
 
       {:reply, {:ok, event}, socket}
@@ -107,7 +116,7 @@ defmodule CommsWeb.ConversationChannel do
   end
 
   def handle_in("conversation.read", %{"sequence" => sequence}, socket) do
-    with :ok <- authorize_command(:mark_read, socket),
+    with :ok <- authorize_mark_read(socket),
          {:ok, stored} <-
            Conversations.mark_read(
              socket.assigns.conversation_id,
@@ -124,7 +133,7 @@ defmodule CommsWeb.ConversationChannel do
   end
 
   def handle_in(event, _payload, socket) when event in ["typing.start", "typing.stop"] do
-    case authorize_command(:read_conversation, socket) do
+    case authorize_read(socket) do
       :ok ->
         broadcast_from!(socket, event, %{user_id: socket.assigns.user_id})
         {:noreply, socket}
@@ -136,7 +145,7 @@ defmodule CommsWeb.ConversationChannel do
 
   @impl true
   def handle_out(event, payload, socket) when event in @authorized_events do
-    case authorize_command(:read_conversation, socket) do
+    case authorize_read(socket) do
       :ok ->
         push(socket, event, payload)
         {:noreply, socket}
@@ -146,9 +155,14 @@ defmodule CommsWeb.ConversationChannel do
     end
   end
 
-  defp authorize_command(action, socket) do
-    Authorization.authorize(action, subject(socket), %{id: socket.assigns.conversation_id})
-  end
+  defp authorize_read(socket),
+    do: Conversations.authorize_read(socket.assigns.conversation_id, subject(socket))
+
+  defp authorize_send_message(socket),
+    do: Conversations.authorize_send_message(socket.assigns.conversation_id, subject(socket))
+
+  defp authorize_mark_read(socket),
+    do: Conversations.authorize_mark_read(socket.assigns.conversation_id, subject(socket))
 
   defp dispatch_command("message.send.v1", command_id, payload, socket) do
     handle_in("message.send", Map.put(payload, "client_message_id", command_id), socket)
@@ -173,7 +187,7 @@ defmodule CommsWeb.ConversationChannel do
   defp invalid_command(socket), do: {:reply, {:error, %{reason: "invalid_command"}}, socket}
 
   defp handle_typing_command(state, _payload, socket) do
-    case authorize_command(:read_conversation, socket) do
+    case authorize_read(socket) do
       :ok ->
         broadcast_from!(socket, "typing.v1", %{user_id: socket.assigns.user_id, state: state})
         {:noreply, socket}

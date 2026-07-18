@@ -1,5 +1,92 @@
 {
-  "title": "K-Comms Service Overview",
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Authentication rate",
+      "description": "Successful and failed authentication attempts per second.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(k_comms_auth_success_total[5m]))", "legendFormat": "success", "refId": "A"},
+        {"expr": "sum(rate(k_comms_auth_failure_total[5m]))", "legendFormat": "failure", "refId": "B"}
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Durable message commit latency",
+      "description": "Server-side latency from accepted command to committed authoritative message.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(k_comms_message_commit_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(k_comms_message_commit_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(k_comms_message_commit_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Oldest runnable job",
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 300}, {"color": "red", "value": 900}]}}, "overrides": []},
+      "targets": [{"expr": "max(k_comms_oban_queue_age_seconds)", "refId": "A"}]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Pending jobs",
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 8},
+      "targets": [{"expr": "sum(k_comms_oban_jobs_pending)", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Discarded jobs",
+      "gridPos": {"h": 6, "w": 6, "x": 12, "y": 8},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "targets": [{"expr": "sum(k_comms_oban_jobs_discarded)", "refId": "A"}]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Pending outbox events",
+      "gridPos": {"h": 6, "w": 6, "x": 18, "y": 8},
+      "targets": [{"expr": "sum(k_comms_outbox_pending)", "refId": "A"}]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Safety and provider failures",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "targets": [
+        {"expr": "sum(k_comms_attachments_quarantined)", "legendFormat": "quarantined attachments", "refId": "A"},
+        {"expr": "sum(k_comms_attachment_scan_failures)", "legendFormat": "scan failures", "refId": "B"},
+        {"expr": "sum(k_comms_notification_failures)", "legendFormat": "notification failures", "refId": "C"},
+        {"expr": "sum(k_comms_webhook_failures)", "legendFormat": "webhook failures", "refId": "D"}
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "BEAM runtime",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "targets": [
+        {"expr": "sum(k_comms_beam_process_count)", "legendFormat": "processes", "refId": "A"},
+        {"expr": "sum(k_comms_beam_memory_bytes) / 1024 / 1024", "legendFormat": "memory MiB", "refId": "B"}
+      ]
+    }
+  ],
+  "refresh": "30s",
   "schemaVersion": 39,
-  "panels": []
+  "tags": ["k-comms", "production"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "K-Comms Service Overview",
+  "uid": "k-comms-service-overview",
+  "version": 1
 }

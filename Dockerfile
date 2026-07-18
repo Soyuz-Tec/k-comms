@@ -1,6 +1,6 @@
-ARG ELIXIR_IMAGE=elixir:1.20.1-otp-29-slim
-ARG NODE_IMAGE=node:22-bookworm-slim
-ARG RUNTIME_IMAGE=debian:trixie-slim
+ARG ELIXIR_IMAGE=elixir:1.20.1-otp-29-slim@sha256:91ea8d8bddc3d883e17b7d7f02d8d86f29ffdbff0ce0037240258c450ede1fd8
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
+ARG RUNTIME_IMAGE=debian:trixie-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2
 ARG OCI_SOURCE=https://github.com/Soyuz-Tec/k-comms
 ARG OCI_REVISION=unknown
 ARG OCI_VERSION=dev
@@ -53,6 +53,7 @@ ENV LANG=C.UTF-8 \
     HOME=/tmp \
     PORT=4000 \
     K_COMMS_ROLE=all \
+    K_COMMS_RELEASE_REVISION=${OCI_REVISION} \
     ERL_CRASH_DUMP=/tmp/erl_crash.dump
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

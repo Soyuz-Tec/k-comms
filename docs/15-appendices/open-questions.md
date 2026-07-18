@@ -3,7 +3,8 @@
 ## Product and protocol
 
 - Is end-to-end encryption required at launch?
-- Is voice/video part of the platform or an external integration?
+- What provider regions, safe maximum group size, camera/screen profiles, and
+  TURN fraction must the ADR-0025 media composition support at launch?
 - Which clients and minimum versions are supported?
 - Is federation required, and under which protocol?
 - What are maximum conversation and channel sizes?

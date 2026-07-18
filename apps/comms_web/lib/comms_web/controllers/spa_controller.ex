@@ -15,7 +15,9 @@ defmodule CommsWeb.SpaController do
     index_path = Application.app_dir(:comms_web, "priv/static/app/index.html")
 
     if File.exists?(index_path) do
-      send_file(conn, 200, index_path)
+      conn
+      |> put_resp_content_type("text/html")
+      |> send_file(200, index_path)
     else
       conn
       |> put_resp_content_type("text/html")

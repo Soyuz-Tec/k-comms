@@ -2,3 +2,18 @@
 /docs/ @Soyuz-Tec
 /contracts/ @Soyuz-Tec
 /infra/ @Soyuz-Tec
+
+# Modular-monolith architecture control plane.
+/.github/CODEOWNERS @Soyuz-Tec
+/.github/workflows/ci.yml @Soyuz-Tec
+/scripts/validate_architecture.py @Soyuz-Tec
+/scripts/test_validate_architecture.py @Soyuz-Tec
+/docs/02-architecture/context-boundaries.yaml @Soyuz-Tec
+/docs/02-architecture/context-boundary-baseline.yaml @Soyuz-Tec
+/docs/02-architecture/context-boundary-violations.md @Soyuz-Tec
+/docs/02-architecture/adr/README.md @Soyuz-Tec
+/docs/02-architecture/adr/0026-enforce-business-context-boundaries.md @Soyuz-Tec
+/docs/02-architecture/adr/0035-complete-boundary-control-plane.md @Soyuz-Tec
+/docs/02-architecture/adr/0042-complete-non-audio-modularization.md @Soyuz-Tec
+/docs/02-architecture/non-audio-modularization-completion.md @Soyuz-Tec
+/docs/10-infrastructure-and-deployment/ci-cd.md @Soyuz-Tec

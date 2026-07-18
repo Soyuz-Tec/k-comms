@@ -106,12 +106,15 @@ fi
 common_env=(
   --env "DATABASE_URL=ecto://postgres:postgres@${postgres}:5432/k_comms_smoke"
   --env "SECRET_KEY_BASE=${secret_key_base}"
+  --env "PUBLIC_APP_URL=https://localhost"
+  --env "PASSWORD_RECOVERY_SIGNING_KEY=container-smoke-password-recovery-signing-key-32-bytes"
+  --env "PUSH_SUBSCRIPTION_ENCRYPTION_KEY=push-subscription-test-key-32byt"
+  --env "WEB_PUSH_VAPID_PUBLIC_KEY=BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
   --env "PHX_HOST=localhost"
   --env "PORT=4000"
   --env "K_COMMS_ROLE=all"
   --env "ALLOW_BOOTSTRAP=true"
   --env "HSTS_ENABLED=false"
-  --env "CSP_CONNECT_SOURCES='self' http://127.0.0.1:4000 ws://127.0.0.1:4000"
   --env "S3_PUBLIC_ENDPOINT=http://minio.invalid:9000"
   --env "S3_INTERNAL_SCHEME=http"
   --env "S3_INTERNAL_HOST=minio.invalid"
@@ -123,11 +126,24 @@ common_env=(
   --env "S3_SECRET_ACCESS_KEY=smoke-only-secret"
 )
 
-"${engine}" run --rm --network "${network}" "${common_env[@]}" \
+application_env=(
+  --env "K_COMMS_RUNTIME_PURPOSE=application"
+  --env "AUDIO_PROVIDER_MODE=livekit"
+  --env "LIVEKIT_SERVER_URL=wss://media.container-smoke.test"
+  --env "LIVEKIT_API_URL=https://media-api.container-smoke.test"
+  --env "LIVEKIT_API_KEY=container-smoke-key"
+  --env "LIVEKIT_API_SECRET=container-smoke-livekit-api-secret-at-least-32-bytes"
+  --env "AUDIO_TOKEN_TTL_SECONDS=300"
+  --env "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS=660"
+  --env "CSP_CONNECT_SOURCES='self' http://127.0.0.1:4000 ws://127.0.0.1:4000 wss://media.container-smoke.test"
+)
+
+"${engine}" run --rm --network "${network}" \
+  --env "K_COMMS_RUNTIME_PURPOSE=one_shot" "${common_env[@]}" \
   "${image}" eval 'CommsCore.Release.migrate()'
 
 "${engine}" run --detach --name "${app}" --network "${network}" \
-  "${common_env[@]}" "${image}" >/dev/null
+  "${common_env[@]}" "${application_env[@]}" "${image}" >/dev/null
 
 healthy=false
 for _ in $(seq 1 45); do
@@ -160,6 +176,13 @@ fi
   http://127.0.0.1:4000/health/ready >/dev/null
 "${engine}" exec "${app}" curl --fail --silent --show-error \
   http://127.0.0.1:4000/app/index.html >/dev/null
+"${engine}" exec "${app}" sh -lc '
+  curl --fail --silent --show-error --dump-header /tmp/k-comms-sw.headers \
+    --output /tmp/k-comms-sw.js http://127.0.0.1:4000/app/k-comms-sw.js
+  grep -Eiq "^content-type: (text|application)/javascript" /tmp/k-comms-sw.headers
+  grep -Fq "safeActionUrl" /tmp/k-comms-sw.js
+  ! grep -Eiq "<!doctype html|<html" /tmp/k-comms-sw.js
+'
 
 bootstrap_payload='{"tenant_name":"Container Smoke","tenant_slug":"container-smoke","display_name":"Smoke Owner","email":"owner@container-smoke.test","password":"correct-horse-battery-smoke"}'
 bootstrap_response="$("${engine}" exec "${app}" curl --fail-with-body --silent --show-error \

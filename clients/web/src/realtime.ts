@@ -1,14 +1,90 @@
 import { Socket } from "phoenix";
 import type { Channel } from "phoenix";
 import type {
+  CallRealtimeEvent,
   ConnectionStatus,
+  ConversationActivityEvent,
+  ConversationMembershipEvent,
   Message,
+  MembershipEvent,
+  NotificationAvailableEvent,
   ReactionEvent,
   ReadCursorEvent
 } from "./types";
 
 interface DynamicSocket extends Socket {
-  channel(topic: string, params: () => Record<string, unknown>): Channel;
+  channel(topic: string, params: Record<string, unknown> | (() => Record<string, unknown>)): Channel;
+}
+
+export interface RealtimeInboxCallbacks {
+  onConnected: () => void;
+  onActivity: (event: ConversationActivityEvent) => void;
+  onMembership: (event: ConversationMembershipEvent) => void;
+  onNotification: (event: NotificationAvailableEvent) => void;
+  onError: (message: string) => void;
+  onReconnectRequired: () => void;
+}
+
+export class RealtimeInbox {
+  private readonly socket: Socket;
+  private readonly channel: Channel;
+  private stopped = false;
+  private reconnectRequested = false;
+
+  constructor(
+    endpoint: string,
+    socketTicket: string,
+    userId: string,
+    private readonly callbacks: RealtimeInboxCallbacks
+  ) {
+    this.socket = new Socket(endpoint, {
+      params: { socket_ticket: socketTicket },
+      reconnectAfterMs: () => 60_000,
+      rejoinAfterMs: (tries) => [1_000, 2_000, 5_000, 10_000][tries - 1] ?? 15_000
+    });
+    this.channel = (this.socket as DynamicSocket).channel(`user:${userId}`, { protocol_version: 1 });
+    this.channel.on("conversation.activity.v1", (payload?: unknown) => {
+      if (isConversationActivityEvent(payload)) this.callbacks.onActivity(payload);
+    });
+    this.channel.on("conversation.membership.v1", (payload?: unknown) => {
+      if (isConversationMembershipEvent(payload)) this.callbacks.onMembership(payload);
+    });
+    this.channel.on("notification.available.v1", (payload?: unknown) => {
+      if (isNotificationAvailableEvent(payload)) this.callbacks.onNotification(payload);
+    });
+    this.socket.onError(() => this.requestReconnect());
+    this.socket.onClose(() => this.requestReconnect());
+    this.channel.onError(() => this.requestReconnect());
+  }
+
+  connect(): void {
+    this.socket.connect();
+    this.channel
+      .join()
+      .receive("ok", () => {
+        if (!this.stopped) this.callbacks.onConnected();
+      })
+      .receive("error", (response?: unknown) => {
+        if (!this.stopped) {
+          this.callbacks.onError(readReason(response, "Unable to join the user inbox"));
+          this.requestReconnect();
+        }
+      })
+      .receive("timeout", () => this.requestReconnect());
+  }
+
+  disconnect(): void {
+    this.stopped = true;
+    this.channel.leave();
+    this.socket.disconnect();
+  }
+
+  private requestReconnect(): void {
+    if (this.stopped || this.reconnectRequested) return;
+    this.reconnectRequested = true;
+    this.socket.disconnect();
+    this.callbacks.onReconnectRequired();
+  }
 }
 
 export interface RealtimeCallbacks {
@@ -17,9 +93,17 @@ export interface RealtimeCallbacks {
   onReactionAdded: (event: ReactionEvent) => void;
   onReactionRemoved: (event: ReactionEvent) => void;
   onRead: (event: ReadCursorEvent) => void;
+  onMembershipChanged: (event: MembershipEvent) => void;
+  onConversationChanged: () => void;
+  onCallStarted?: (event: CallRealtimeEvent) => void;
+  onCallEnded?: (event: CallRealtimeEvent) => void;
+  onAudioCallStarted: (event: CallRealtimeEvent) => void;
+  onAudioCallEnded: (event: CallRealtimeEvent) => void;
+  onCatchUpRequired: (afterSequence: number) => void;
   onTyping: (userId: string, active: boolean) => void;
   onPresence: (onlineUsers: number) => void;
   onError: (message: string) => void;
+  onReconnectRequired: () => void;
 }
 
 export class RealtimeConversation {
@@ -27,17 +111,19 @@ export class RealtimeConversation {
   private readonly channel: Channel;
   private stopped = false;
   private onlineUsers = 0;
+  private reconnectRequested = false;
+  private readonly deliveredCallEvents = new Set<string>();
 
   constructor(
     endpoint: string,
-    accessToken: string,
+    socketTicket: string,
     conversationId: string,
     private readonly afterSequence: () => number,
     private readonly callbacks: RealtimeCallbacks
   ) {
     this.socket = new Socket(endpoint, {
-      params: { access_token: accessToken },
-      reconnectAfterMs: (tries) => [1_000, 2_000, 5_000, 10_000][tries - 1] ?? 15_000,
+      params: { socket_ticket: socketTicket },
+      reconnectAfterMs: () => 60_000,
       rejoinAfterMs: (tries) => [1_000, 2_000, 5_000, 10_000][tries - 1] ?? 15_000
     });
 
@@ -57,16 +143,19 @@ export class RealtimeConversation {
       .join()
       .receive("ok", (response?: unknown) => {
         if (this.stopped) return;
-        const messages = readMessages(response);
+        const { messages, hasMore, nextAfterSequence } = readReplay(response);
         if (messages.length > 0) this.callbacks.onMessages(messages);
+        if (hasMore) this.callbacks.onCatchUpRequired(nextAfterSequence);
         this.callbacks.onStatus("live");
       })
       .receive("error", (response?: unknown) => {
         this.callbacks.onStatus("reconnecting");
         this.callbacks.onError(readReason(response, "Unable to join the conversation"));
+        this.requestReconnect();
       })
       .receive("timeout", () => {
         this.callbacks.onStatus("reconnecting");
+        this.requestReconnect();
       });
   }
 
@@ -81,6 +170,8 @@ export class RealtimeConversation {
     client_message_id: string;
     body: string;
     attachment_ids: string[];
+    reply_to_message_id?: string | null;
+    mentioned_user_ids?: string[];
   }): Promise<Message> {
     const { client_message_id: commandId, ...payload } = input;
     return this.command<Message>("message.send.v1", payload, commandId);
@@ -99,13 +190,22 @@ export class RealtimeConversation {
       if (!this.stopped) this.callbacks.onStatus("connecting");
     });
     this.socket.onError(() => {
-      if (!this.stopped) this.callbacks.onStatus("reconnecting");
+      if (!this.stopped) {
+        this.callbacks.onStatus("reconnecting");
+        this.requestReconnect();
+      }
     });
     this.socket.onClose(() => {
-      if (!this.stopped) this.callbacks.onStatus("reconnecting");
+      if (!this.stopped) {
+        this.callbacks.onStatus("reconnecting");
+        this.requestReconnect();
+      }
     });
     this.channel.onError(() => {
-      if (!this.stopped) this.callbacks.onStatus("reconnecting");
+      if (!this.stopped) {
+        this.callbacks.onStatus("reconnecting");
+        this.requestReconnect();
+      }
     });
 
     for (const event of ["message.created.v1", "message.updated.v1", "message.deleted.v1"]) {
@@ -121,6 +221,29 @@ export class RealtimeConversation {
     });
     this.channel.on("conversation.read.v1", (payload?: unknown) => {
       if (isReadCursorEvent(payload)) this.callbacks.onRead(payload);
+    });
+    this.channel.on("membership.changed.v1", (payload?: unknown) => {
+      if (isMembershipEvent(payload)) this.callbacks.onMembershipChanged(payload);
+    });
+    this.channel.on("conversation.updated.v1", () => this.callbacks.onConversationChanged());
+    this.channel.on("conversation.archived.v1", () => this.callbacks.onConversationChanged());
+    this.channel.on("call.started.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "active", true)) this.deliverCallEvent(payload);
+    });
+    this.channel.on("call.ended.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "ended", true)) this.deliverCallEvent(payload);
+    });
+    this.channel.on("audio_call.started.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "active")) {
+        if (!this.callbacks.onCallStarted) this.callbacks.onAudioCallStarted(payload);
+        this.deliverCallEvent({ ...payload, media_kind: "audio" });
+      }
+    });
+    this.channel.on("audio_call.ended.v1", (payload?: unknown) => {
+      if (isCallRealtimeEvent(payload, "ended")) {
+        if (!this.callbacks.onCallEnded) this.callbacks.onAudioCallEnded(payload);
+        this.deliverCallEvent({ ...payload, media_kind: "audio" });
+      }
     });
     this.channel.on("typing.start", (payload?: unknown) => {
       const userId = readString(payload, "user_id");
@@ -149,6 +272,14 @@ export class RealtimeConversation {
     });
   }
 
+  private deliverCallEvent(event: CallRealtimeEvent): void {
+    const key = `${event.id}:${event.status}`;
+    if (this.deliveredCallEvents.has(key)) return;
+    this.deliveredCallEvents.add(key);
+    if (event.status === "active") this.callbacks.onCallStarted?.(event);
+    else this.callbacks.onCallEnded?.(event);
+  }
+
   private push<T>(event: string, payload: Record<string, unknown>): Promise<T> {
     return new Promise((resolve, reject) => {
       this.channel
@@ -168,6 +299,13 @@ export class RealtimeConversation {
   ): Promise<T> {
     return this.push<T>("command", commandEnvelope(type, payload, id));
   }
+
+  private requestReconnect(): void {
+    if (this.stopped || this.reconnectRequested) return;
+    this.reconnectRequested = true;
+    this.socket.disconnect();
+    this.callbacks.onReconnectRequired();
+  }
 }
 
 export function socketEndpoint(apiBase: string): string {
@@ -183,10 +321,85 @@ export function socketEndpoint(apiBase: string): string {
   }
 }
 
-function readMessages(value: unknown): Message[] {
-  if (!value || typeof value !== "object") return [];
-  const messages = (value as { messages?: unknown }).messages;
-  return Array.isArray(messages) ? messages.filter(isMessage) : [];
+function readReplay(value: unknown): {
+  messages: Message[];
+  hasMore: boolean;
+  nextAfterSequence: number;
+} {
+  if (!value || typeof value !== "object") {
+    return { messages: [], hasMore: false, nextAfterSequence: 0 };
+  }
+  const response = value as {
+    messages?: unknown;
+    has_more?: unknown;
+    next_after_sequence?: unknown;
+  };
+  const messages = Array.isArray(response.messages) ? response.messages.filter(isMessage) : [];
+  const lastSequence = messages.at(-1)?.conversation_sequence || 0;
+  return {
+    messages,
+    hasMore: response.has_more === true,
+    nextAfterSequence:
+      typeof response.next_after_sequence === "number"
+        ? response.next_after_sequence
+        : lastSequence
+  };
+}
+
+function isMembershipEvent(value: unknown): value is MembershipEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<MembershipEvent>;
+  return (
+    typeof candidate.user_id === "string" &&
+    (candidate.action === "added" || candidate.action === "removed" || candidate.action === "role_changed")
+  );
+}
+
+function isCallRealtimeEvent(
+  value: unknown,
+  expectedStatus: CallRealtimeEvent["status"],
+  mediaKindRequired = false
+): value is CallRealtimeEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<CallRealtimeEvent>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.conversation_id === "string" &&
+    typeof candidate.started_by_user_id === "string" &&
+    candidate.status === expectedStatus &&
+    (!mediaKindRequired || candidate.media_kind === "audio" || candidate.media_kind === "video") &&
+    typeof candidate.started_at === "string" &&
+    typeof candidate.expires_at === "string"
+  );
+}
+
+function isConversationActivityEvent(value: unknown): value is ConversationActivityEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ConversationActivityEvent>;
+  return (
+    typeof candidate.conversation_id === "string" &&
+    typeof candidate.latest_sequence === "number" &&
+    typeof candidate.event_type === "string"
+  );
+}
+
+function isConversationMembershipEvent(value: unknown): value is ConversationMembershipEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ConversationMembershipEvent>;
+  return (
+    typeof candidate.conversation_id === "string" &&
+    (candidate.action === "added" || candidate.action === "removed")
+  );
+}
+
+function isNotificationAvailableEvent(value: unknown): value is NotificationAvailableEvent {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<NotificationAvailableEvent>;
+  return (
+    typeof candidate.notification_id === "string" &&
+    typeof candidate.event_type === "string" &&
+    typeof candidate.unread_count === "number"
+  );
 }
 
 function isMessage(value: unknown): value is Message {

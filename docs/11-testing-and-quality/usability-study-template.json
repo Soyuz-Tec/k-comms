@@ -1,0 +1,125 @@
+{
+  "schema_version": 2,
+  "release_revision": "REPLACE_WITH_FULL_GIT_SHA",
+  "environment": "internal-staging",
+  "study_started_on": "YYYY-MM-DD",
+  "study_completed_on": "YYYY-MM-DD",
+  "security_regression": false,
+  "authorization_regression": false,
+  "tenant_isolation_regression": false,
+  "durability_regression": false,
+  "staging_gates_pass": false,
+  "manual_accessibility": {
+    "wcag_2_2_a_aa_status": "not_completed",
+    "assistive_technology_matrix_status": "not_completed",
+    "open_a_aa_failures": 0,
+    "completed_on": null
+  },
+  "accessibility_findings": [],
+  "approver_receipt": {
+    "status": "not_approved",
+    "approver_role": "release_approver",
+    "approved_on": null,
+    "evidence_reference": null
+  },
+  "sessions": [
+    {
+      "participant_id": "P01",
+      "cohort": "member",
+      "access_method": "keyboard",
+      "mobile_first": true,
+      "browser_name": "REPLACE_WITH_BROWSER",
+      "browser_version": "REPLACE_WITH_VERSION",
+      "viewport_width_css_px": 390,
+      "viewport_height_css_px": 844,
+      "sus_responses": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      "sensitive_action_confidence": 1,
+      "tasks": [
+        {
+          "id": "invite-first-message",
+          "category": "invite",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "channel-collaboration",
+          "category": "routine",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "attachment-safety",
+          "category": "routine",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "history-search",
+          "category": "routine",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "send-recovery",
+          "category": "routine",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "notification-control",
+          "category": "other",
+          "critical": false,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "device-revocation",
+          "category": "other",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        }
+      ]
+    }
+  ]
+}

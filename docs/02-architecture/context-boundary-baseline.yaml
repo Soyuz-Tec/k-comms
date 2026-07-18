@@ -1,0 +1,4 @@
+version: 1
+policy: Relative to the checked-in baseline, new, changed, or resolved fingerprints fail CI; baseline edits require architecture
+  review.
+violations: []

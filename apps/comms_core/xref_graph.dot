@@ -1,0 +1,520 @@
+digraph "xref graph" {
+  "lib/comms_core.ex"
+  "lib/comms_core/accounts.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/device.ex" [label="(export)"]
+  "lib/comms_core/accounts/device.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/tenant.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts/device.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/user.ex" -> "lib/comms_core/accounts/platform_role_grant.ex"
+  "lib/comms_core/accounts/platform_role_grant.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/platform_role_grant.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/platform_role_grant.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts/user.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/user.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts/device.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/invited_user_command.ex" [label="(export)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/platform_role_grant.ex" [label="(compile)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/projector.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/access_context.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/authentication_result.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/device.ex" [label="(export)"]
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/device_view.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/session.ex" [label="(export)"]
+  "lib/comms_core/accounts/session.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/accounts/session.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/session.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/session.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/session_view.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/accounts/user_view.ex"
+  "lib/comms_core/accounts/projector.ex" -> "lib/comms_core/administration/projector.ex"
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/accounts/tenant.ex" [label="(export)"]
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/administration/invitation.ex" [label="(export)"]
+  "lib/comms_core/administration/invitation.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/administration/invitation_view.ex"
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/administration/tenant_settings.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/administration/tenant_settings.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/administration/tenant_settings_view.ex"
+  "lib/comms_core/administration/projector.ex" -> "lib/comms_core/administration/tenant_view.ex" [label="(export)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/session.ex" [label="(export)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/socket_ticket.ex" [label="(export)"]
+  "lib/comms_core/accounts/socket_ticket.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/accounts/socket_ticket.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/accounts/socket_ticket.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/socket_ticket.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/socket_ticket.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/tenant.ex" [label="(export)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/administration.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/accounts/tenant.ex" [label="(export)"]
+  "lib/comms_core/administration.ex" -> "lib/comms_core/administration/invitations.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/accounts.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/accounts/invited_user_command.ex" [label="(export)"]
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/administration/invitation.ex" [label="(export)"]
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/administration/projector.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/admission_quotas.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/admission_quotas.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/admission_quotas.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/conversations/conversation.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/conversations/conversation.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/conversations/conversation.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/admission_quotas.ex" -> "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/conversations/membership.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/conversations/membership.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/conversations/membership.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/conversations/membership.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/admission_quotas.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/audit.ex" -> "lib/comms_core/audit/audit_event.ex" [label="(export)"]
+  "lib/comms_core/audit/audit_event.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/audit.ex" -> "lib/comms_core/audit/error.ex"
+  "lib/comms_core/audit.ex" -> "lib/comms_core/audit/event.ex"
+  "lib/comms_core/audit.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/authorization.ex" -> "lib/comms_core/authorization/deny_all.ex"
+  "lib/comms_core/authorization/deny_all.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/administration/invitations.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/administration/projector.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/administration.ex" -> "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/audio_calls/audio_call.ex" [label="(export)"]
+  "lib/comms_core/audio_calls/audio_call.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/audio_calls/audio_call.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/audio_calls/audio_call.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/audio_calls/audio_call.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/audio_calls/audio_call_participant.ex" [label="(export)"]
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/audio_calls/audio_call.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/outbox.ex"
+  "lib/comms_core/outbox.ex" -> "lib/comms_core/events/outbox_event.ex" [label="(export)"]
+  "lib/comms_core/events/outbox_event.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/outbox.ex" -> "lib/comms_core/outbox/event.ex"
+  "lib/comms_core/outbox.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/outbox.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/audio_calls.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/administration.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/conversations.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/conversations/conversation.ex" [label="(export)"]
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/conversations/conversation_view.ex" [label="(export)"]
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/conversations/membership.ex" [label="(export)"]
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/conversations/message_write_slot.ex" [label="(export)"]
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/conversations/projector.ex"
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/accounts/projector.ex"
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/conversations/conversation.ex" [label="(export)"]
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/conversations/conversation_view.ex"
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/conversations/membership.ex" [label="(export)"]
+  "lib/comms_core/conversations/projector.ex" -> "lib/comms_core/conversations/membership_view.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/outbox.ex"
+  "lib/comms_core/conversations.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/governance/deletion_request.ex"
+  "lib/comms_core/governance/deletion_request.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/governance/deletion_request.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/governance/deletion_request.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/governance/deletion_request.ex" -> "lib/comms_core/messaging/message.ex"
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/attachments/attachment.ex"
+  "lib/comms_core/attachments/attachment.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/attachments/attachment.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/attachments/attachment.ex" -> "lib/comms_core/attachments/scan_attempt.ex"
+  "lib/comms_core/attachments/scan_attempt.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/attachments/scan_attempt.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/attachments/attachment.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/messaging/message_mention.ex"
+  "lib/comms_core/messaging/message_mention.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/messaging/message_mention.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/messaging/message_mention.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/messaging/reaction.ex"
+  "lib/comms_core/messaging/reaction.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/messaging/reaction.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/messaging/reaction.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/messaging/message.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/governance/deletion_request.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/notifications.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/attempt.ex" [label="(export)"]
+  "lib/comms_core/notifications/attempt.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/notifications/attempt.ex" -> "lib/comms_core/notifications/intent.ex"
+  "lib/comms_core/notifications/intent.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/notifications/intent.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/notifications/intent.ex" -> "lib/comms_core/notifications/push_subscription.ex"
+  "lib/comms_core/notifications/push_subscription.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/notifications/push_subscription.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/notifications/push_subscription.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/notifications/push_subscription.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/notifications/intent.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/notifications/attempt.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/availability_notifier.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/delivery.ex" [label="(export)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/in_app.ex"
+  "lib/comms_core/notifications/in_app.ex" -> "lib/comms_core/notifications/intent.ex"
+  "lib/comms_core/notifications/in_app.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/intent.ex" [label="(export)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/preference.ex" [label="(export)"]
+  "lib/comms_core/notifications/preference.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/notifications/preference.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/notifications/preference.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/projector.ex"
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/attempt.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/attempt_view.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/availability.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/delivery.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/intent.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/intent_view.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/preference.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/preference_view.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/push_subscription.ex" [label="(export)"]
+  "lib/comms_core/notifications/projector.ex" -> "lib/comms_core/notifications/push_subscription_view.ex" [label="(export)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/notifications/push_subscriptions.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/notifications/push_subscription.ex" [label="(export)"]
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex" -> "lib/comms_core/security/push_subscription_box.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/outbox/event.ex" [label="(export)"]
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/notifications.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/accounts.ex" -> "lib/comms_core/security/password.ex"
+  "lib/comms_core/accounts/access_context.ex"
+  "lib/comms_core/accounts/authentication_result.ex"
+  "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/accounts/device_view.ex"
+  "lib/comms_core/accounts/invited_user_command.ex"
+  "lib/comms_core/accounts/password_recovery_request.ex"
+  "lib/comms_core/accounts/password_recovery_request.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/password_recovery_request.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/password_recovery_request.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/accounts/platform_role_grant.ex"
+  "lib/comms_core/accounts/projector.ex"
+  "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/accounts/session_view.ex"
+  "lib/comms_core/accounts/socket_ticket.ex"
+  "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/accounts/user_view.ex"
+  "lib/comms_core/administration.ex"
+  "lib/comms_core/administration/invitation.ex"
+  "lib/comms_core/administration/invitation_view.ex"
+  "lib/comms_core/administration/invitations.ex"
+  "lib/comms_core/administration/projector.ex"
+  "lib/comms_core/administration/tenant_settings.ex"
+  "lib/comms_core/administration/tenant_settings_view.ex"
+  "lib/comms_core/administration/tenant_view.ex"
+  "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/application.ex"
+  "lib/comms_core/application.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/attachments.ex"
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/attachments/attachment.ex" [label="(export)"]
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/attachments/attachment_view.ex" [label="(export)"]
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/attachments/projector.ex"
+  "lib/comms_core/attachments/projector.ex" -> "lib/comms_core/attachments/attachment.ex" [label="(export)"]
+  "lib/comms_core/attachments/projector.ex" -> "lib/comms_core/attachments/attachment_view.ex" [label="(export)"]
+  "lib/comms_core/attachments/projector.ex" -> "lib/comms_core/attachments/scan_attempt.ex" [label="(export)"]
+  "lib/comms_core/attachments/projector.ex" -> "lib/comms_core/attachments/scan_attempt_view.ex" [label="(export)"]
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/attachments/scan_attempt.ex" [label="(export)"]
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/attachments.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/attachments/attachment.ex"
+  "lib/comms_core/attachments/attachment_view.ex"
+  "lib/comms_core/attachments/projector.ex"
+  "lib/comms_core/attachments/restore_remap.ex"
+  "lib/comms_core/attachments/restore_remap.ex" -> "lib/comms_core/attachments/attachment.ex" [label="(export)"]
+  "lib/comms_core/attachments/restore_remap.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/attachments/restore_remap.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/attachments/scan_attempt.ex"
+  "lib/comms_core/attachments/scan_attempt_view.ex"
+  "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/audio_calls/audio_call.ex"
+  "lib/comms_core/audio_calls/audio_call_participant.ex"
+  "lib/comms_core/audit.ex"
+  "lib/comms_core/audit/audit_event.ex"
+  "lib/comms_core/audit/error.ex"
+  "lib/comms_core/audit/event.ex"
+  "lib/comms_core/audit_export.ex"
+  "lib/comms_core/audit_export.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/audit_export.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/audit_export.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/authorization.ex"
+  "lib/comms_core/authorization/database.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/accounts/platform_role_grant.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/administration/tenant_settings.ex" [label="(export)"]
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/conversations/conversation.ex" [label="(export)"]
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/conversations/membership.ex" [label="(export)"]
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/messaging/message.ex" [label="(export)"]
+  "lib/comms_core/authorization/database.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/authorization/deny_all.ex"
+  "lib/comms_core/conversations.ex"
+  "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/conversations/conversation_view.ex"
+  "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/conversations/membership_view.ex"
+  "lib/comms_core/conversations/message_write_slot.ex"
+  "lib/comms_core/conversations/projector.ex"
+  "lib/comms_core/database_tls.ex"
+  "lib/comms_core/events/outbox_event.ex"
+  "lib/comms_core/governance.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/administration/tenant_settings.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/attachments/attachment.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/governance/deletion_execution.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/governance/deletion_request.ex" [label="(export)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/governance/legal_hold.ex" [label="(export)"]
+  "lib/comms_core/governance/legal_hold.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/governance/legal_hold.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/governance/legal_hold.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/governance/legal_hold.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/governance/projector.ex"
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/deletion_request.ex" [label="(export)"]
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/deletion_request_view.ex"
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/legal_hold.ex" [label="(export)"]
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/legal_hold_view.ex"
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/retention_policy.ex" [label="(export)"]
+  "lib/comms_core/governance/retention_policy.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/governance/retention_policy.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/governance/retention_policy.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/governance/projector.ex" -> "lib/comms_core/governance/retention_policy_view.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/governance/retention_policy.ex" [label="(export)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/messaging/message.ex" [label="(export)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/messaging/message_revision.ex"
+  "lib/comms_core/messaging/message_revision.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/messaging/message_revision.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/messaging/message_revision.ex" -> "lib/comms_core/messaging/message.ex"
+  "lib/comms_core/messaging/message_revision.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/governance.ex" -> "lib/comms_core/messaging/reaction.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/governance.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/governance/deletion_execution.ex"
+  "lib/comms_core/governance/deletion_request.ex"
+  "lib/comms_core/governance/deletion_request_view.ex"
+  "lib/comms_core/governance/legal_hold.ex"
+  "lib/comms_core/governance/legal_hold_view.ex"
+  "lib/comms_core/governance/projector.ex"
+  "lib/comms_core/governance/retention_policy.ex"
+  "lib/comms_core/governance/retention_policy_view.ex"
+  "lib/comms_core/integrations.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/projector.ex"
+  "lib/comms_core/integrations/projector.ex" -> "lib/comms_core/integrations/webhook_delivery.ex" [label="(export)"]
+  "lib/comms_core/integrations/webhook_delivery.ex" -> "lib/comms_core/events/outbox_event.ex"
+  "lib/comms_core/integrations/webhook_delivery.ex" -> "lib/comms_core/integrations/webhook_endpoint.ex"
+  "lib/comms_core/integrations/webhook_endpoint.ex" -> "lib/comms_core/integrations/webhook_delivery.ex"
+  "lib/comms_core/integrations/webhook_endpoint.ex" -> "lib/comms_core/integrations/webhook_subscription.ex"
+  "lib/comms_core/integrations/webhook_subscription.ex" -> "lib/comms_core/integrations/webhook_endpoint.ex"
+  "lib/comms_core/integrations/webhook_subscription.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/integrations/webhook_endpoint.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/integrations/webhook_delivery.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/integrations/projector.ex" -> "lib/comms_core/integrations/webhook_delivery_view.ex"
+  "lib/comms_core/integrations/projector.ex" -> "lib/comms_core/integrations/webhook_endpoint.ex" [label="(export)"]
+  "lib/comms_core/integrations/projector.ex" -> "lib/comms_core/integrations/webhook_endpoint_view.ex"
+  "lib/comms_core/integrations/projector.ex" -> "lib/comms_core/integrations/webhook_subscription.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_delivery.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_delivery_claim.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_dispatch_request.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_endpoint.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_secret.ex" [label="(export)"]
+  "lib/comms_core/integrations/webhook_secret.ex" -> "lib/comms_core/integrations/webhook_endpoint.ex"
+  "lib/comms_core/integrations/webhook_secret.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/integrations/webhook_subscription.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/outbox/event.ex" [label="(export)"]
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/integrations.ex" -> "lib/comms_core/security/secret_box.ex"
+  "lib/comms_core/integrations/projector.ex"
+  "lib/comms_core/integrations/webhook_delivery.ex"
+  "lib/comms_core/integrations/webhook_delivery_claim.ex"
+  "lib/comms_core/integrations/webhook_delivery_view.ex"
+  "lib/comms_core/integrations/webhook_dispatch_request.ex"
+  "lib/comms_core/integrations/webhook_endpoint.ex"
+  "lib/comms_core/integrations/webhook_endpoint_view.ex"
+  "lib/comms_core/integrations/webhook_secret.ex"
+  "lib/comms_core/integrations/webhook_subscription.ex"
+  "lib/comms_core/messaging.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/attachments.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/conversations.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/conversations/message_write_slot.ex" [label="(export)"]
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/governance.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/messaging/message.ex" [label="(export)"]
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/messaging/message_mention.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/messaging/message_revision.ex" [label="(export)"]
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/messaging/projector.ex"
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/attachments/projector.ex"
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/messaging/message.ex" [label="(export)"]
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/messaging/message_mention.ex" [label="(export)"]
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/messaging/message_view.ex" [label="(export)"]
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/messaging/reaction.ex" [label="(export)"]
+  "lib/comms_core/messaging/projector.ex" -> "lib/comms_core/messaging/reaction_view.ex" [label="(export)"]
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/messaging/reaction.ex" [label="(export)"]
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/outbox.ex"
+  "lib/comms_core/messaging.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/messaging/message.ex"
+  "lib/comms_core/messaging/message_mention.ex"
+  "lib/comms_core/messaging/message_revision.ex"
+  "lib/comms_core/messaging/message_view.ex"
+  "lib/comms_core/messaging/projector.ex"
+  "lib/comms_core/messaging/reaction.ex"
+  "lib/comms_core/messaging/reaction_view.ex"
+  "lib/comms_core/moderation.ex"
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/conversations/conversation.ex" [label="(export)"]
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/messaging/message.ex" [label="(export)"]
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/moderation/moderation_action.ex" [label="(export)"]
+  "lib/comms_core/moderation/moderation_action.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/moderation/moderation_action.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/moderation/moderation_action.ex" -> "lib/comms_core/moderation/moderation_case.ex"
+  "lib/comms_core/moderation/moderation_case.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/moderation/moderation_case.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/moderation/moderation_case.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/moderation/moderation_case.ex" -> "lib/comms_core/messaging/message.ex"
+  "lib/comms_core/moderation/moderation_case.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/moderation/moderation_action.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/moderation/moderation_case.ex" [label="(export)"]
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/moderation/projector.ex"
+  "lib/comms_core/moderation/projector.ex" -> "lib/comms_core/moderation/action_view.ex"
+  "lib/comms_core/moderation/projector.ex" -> "lib/comms_core/moderation/case_view.ex"
+  "lib/comms_core/moderation/projector.ex" -> "lib/comms_core/moderation/moderation_action.ex" [label="(export)"]
+  "lib/comms_core/moderation/projector.ex" -> "lib/comms_core/moderation/moderation_case.ex" [label="(export)"]
+  "lib/comms_core/moderation.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/moderation/action_view.ex"
+  "lib/comms_core/moderation/case_view.ex"
+  "lib/comms_core/moderation/moderation_action.ex"
+  "lib/comms_core/moderation/moderation_case.ex"
+  "lib/comms_core/moderation/projector.ex"
+  "lib/comms_core/notifications.ex"
+  "lib/comms_core/notifications/attempt.ex"
+  "lib/comms_core/notifications/attempt_view.ex"
+  "lib/comms_core/notifications/availability.ex"
+  "lib/comms_core/notifications/availability_notifier.ex"
+  "lib/comms_core/notifications/delivery.ex"
+  "lib/comms_core/notifications/in_app.ex"
+  "lib/comms_core/notifications/intent.ex"
+  "lib/comms_core/notifications/intent_view.ex"
+  "lib/comms_core/notifications/preference.ex"
+  "lib/comms_core/notifications/preference_view.ex"
+  "lib/comms_core/notifications/projector.ex"
+  "lib/comms_core/notifications/push_subscription.ex"
+  "lib/comms_core/notifications/push_subscription_view.ex"
+  "lib/comms_core/notifications/push_subscriptions.ex"
+  "lib/comms_core/operations.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/attachments.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/attachments/attachment.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/authorization.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/events/outbox_event.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/integrations.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/integrations/webhook_delivery.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/notifications.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/notifications/intent.ex"
+  "lib/comms_core/operations.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/outbox.ex"
+  "lib/comms_core/outbox/event.ex"
+  "lib/comms_core/password_recovery.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/accounts/password_recovery_request.ex" [label="(export)"]
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/accounts/session.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/audio_calls.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/notifications.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/notifications/intent_view.ex" [label="(export)"]
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/password_recovery.ex" -> "lib/comms_core/security/password.ex"
+  "lib/comms_core/release.ex"
+  "lib/comms_core/release.ex" -> "lib/comms_core/accounts.ex"
+  "lib/comms_core/release.ex" -> "lib/comms_core/attachments/restore_remap.ex"
+  "lib/comms_core/release.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/repo.ex"
+  "lib/comms_core/runtime_ports.ex"
+  "lib/comms_core/schema.ex"
+  "lib/comms_core/security/password.ex"
+  "lib/comms_core/security/push_subscription_box.ex"
+  "lib/comms_core/security/secret_box.ex"
+  "lib/comms_core/service_accounts.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/accounts/device.ex" [label="(export)"]
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/accounts/session.ex" [label="(export)"]
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/accounts/tenant.ex" [label="(export)"]
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/accounts/user.ex" [label="(export)"]
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/admission_quotas.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/audit.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/conversations.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/conversations/conversation.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/conversations/membership.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/messaging.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/repo.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/service_accounts/projector.ex"
+  "lib/comms_core/service_accounts/projector.ex" -> "lib/comms_core/service_accounts/service_account.ex" [label="(export)"]
+  "lib/comms_core/service_accounts/service_account.ex" -> "lib/comms_core/accounts/device.ex"
+  "lib/comms_core/service_accounts/service_account.ex" -> "lib/comms_core/accounts/tenant.ex"
+  "lib/comms_core/service_accounts/service_account.ex" -> "lib/comms_core/accounts/user.ex"
+  "lib/comms_core/service_accounts/service_account.ex" -> "lib/comms_core/schema.ex" [label="(compile)"]
+  "lib/comms_core/service_accounts/projector.ex" -> "lib/comms_core/service_accounts/service_account_view.ex"
+  "lib/comms_core/service_accounts.ex" -> "lib/comms_core/service_accounts/service_account.ex" [label="(export)"]
+  "lib/comms_core/service_accounts/projector.ex"
+  "lib/comms_core/service_accounts/service_account.ex"
+  "lib/comms_core/service_accounts/service_account_view.ex"
+  "lib/comms_core/validation_error.ex"
+  "test/support/audit_test_support.ex"
+  "test/support/audit_test_support.ex" -> "lib/comms_core/audit/audit_event.ex" [label="(export)"]
+  "test/support/audit_test_support.ex" -> "lib/comms_core/audit/event.ex"
+  "test/support/audit_test_support.ex" -> "lib/comms_core/repo.ex"
+  "test/support/data_case.ex"
+  "test/support/data_case.ex" -> "lib/comms_core/repo.ex"
+}

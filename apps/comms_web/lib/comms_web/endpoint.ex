@@ -17,6 +17,7 @@ defmodule CommsWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(CommsWeb.Plugs.TrustedProxy)
   plug(CommsWeb.Plugs.Cors)
 
   plug(Plug.Parsers,

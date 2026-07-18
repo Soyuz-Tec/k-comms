@@ -1,6 +1,8 @@
 defmodule CommsTestSupport.Fixtures do
   alias CommsCore.Accounts
   alias CommsCore.Accounts.User
+  alias CommsCore.Administration.Tenant
+  alias CommsCore.Conversations.Conversation
   alias CommsCore.Repo
   alias CommsCore.Security.Password
 
@@ -22,7 +24,16 @@ defmodule CommsTestSupport.Fixtures do
       )
 
     {:ok, account} = Accounts.bootstrap_tenant(attrs)
-    account
+
+    %{
+      account
+      | tenant: Repo.get!(Tenant, account.tenant.id),
+        conversation: Repo.get!(Conversation, account.conversation.id)
+    }
+  end
+
+  def authentication_result(account) when is_map(account) do
+    CommsCore.Accounts.Projector.authentication(account)
   end
 
   def user_fixture(account, overrides \\ %{}) do
@@ -58,5 +69,15 @@ defmodule CommsTestSupport.Fixtures do
       },
       overrides
     )
+  end
+
+  def step_up(account, subject \\ nil) do
+    subject = subject || subject(account)
+    suffix = account.tenant.slug |> String.split("-") |> List.last()
+
+    {:ok, _session} =
+      Accounts.step_up(%{current_password: "correct-horse-battery-#{suffix}"}, subject)
+
+    subject
   end
 end

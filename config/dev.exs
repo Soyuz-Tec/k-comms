@@ -6,9 +6,44 @@ config :comms_core, CommsCore.Repo,
   show_sensitive_data_on_connection_error: true,
   stacktrace: true
 
+config :comms_core,
+  audio_participant_eviction_enforcement_seconds:
+    String.to_integer(System.get_env("AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS", "660")),
+  webhook_secret_encryption_key: "development-only-webhook-key-32b",
+  push_subscription_encryption_key: "push-subscription-test-key-32byt",
+  push_delivery_status: :degraded,
+  web_push_vapid_public_key:
+    "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo",
+  password_recovery_signing_key: "development-only-password-recovery-signing-key",
+  password_recovery_ttl_seconds: 1_800,
+  password_recovery_retention_seconds: 2_592_000,
+  public_app_url: System.get_env("PUBLIC_APP_URL", "http://localhost:5173")
+
+config :comms_integrations,
+  allow_insecure_local_object_storage: true,
+  audio_provider_mode: System.get_env("AUDIO_PROVIDER_MODE", "livekit"),
+  livekit_server_url: System.get_env("LIVEKIT_SERVER_URL", "ws://127.0.0.1:7880"),
+  livekit_api_url: System.get_env("LIVEKIT_API_URL", "http://livekit:7880"),
+  livekit_api_key: System.get_env("LIVEKIT_API_KEY", "kcomms-local-api-key"),
+  livekit_api_secret:
+    System.get_env("LIVEKIT_API_SECRET", "kcomms-local-api-secret-not-for-prod"),
+  audio_token_ttl_seconds: String.to_integer(System.get_env("AUDIO_TOKEN_TTL_SECONDS", "300")),
+  notification_adapter: CommsIntegrations.Notifications.Log,
+  scanner_adapter: CommsIntegrations.Scanner.AllowAll,
+  webhook_adapter: CommsIntegrations.Webhooks.Log,
+  webhook_allowed_hosts: ["webhook.local"],
+  webhook_http: [allowed_hosts: ["webhook.local"], allowed_ports: [443], timeout_ms: 10_000]
+
 config :comms_web,
   allow_bootstrap: true,
-  access_token_ttl_seconds: 3_600
+  access_token_ttl_seconds: 3_600,
+  metrics_allow_unauthenticated: true,
+  csp_connect_sources:
+    System.get_env(
+      "CSP_CONNECT_SOURCES",
+      "'self' http://localhost:4000 ws://localhost:4000 http://localhost:9000 ws://127.0.0.1:7880"
+    )
+    |> String.split(" ", trim: true)
 
 config :comms_web, CommsWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: String.to_integer(System.get_env("PORT", "4000"))],

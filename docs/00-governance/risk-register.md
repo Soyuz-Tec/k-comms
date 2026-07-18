@@ -1,20 +1,33 @@
 # Engineering Risk Register
 
-**Status:** Draft
+**Status:** Active for K-Comms 0.3.0. `Controlled` means the repository has a
+tested mitigation but residual environment risk remains; it does not mean the
+risk is closed for production.
 
-| ID | Risk | Probability | Impact | Leading indicator | Mitigation | Owner |
-|---|---|---:|---:|---|---|---|
-| R-001 | Hot conversations serialize on sequence allocation. | Medium | High | Lock wait and commit latency by conversation | Partitioned sequencing design; benchmark large rooms | Messaging |
-| R-002 | Large channels cause excessive real-time fan-out. | High | High | PubSub latency and node mailbox growth | Fan-out budgets, batching, selective delivery, large-room mode | Realtime |
-| R-003 | Client reconnect storms overload API and database. | Medium | High | Join rate, sync queries, pool saturation | Jittered reconnect, admission control, cached sync metadata | Realtime/SRE |
-| R-004 | Tenant authorization omission leaks data. | Low | Critical | Security tests or anomalous audit access | Mandatory tenant context, query helpers, policy tests, RLS evaluation | Security |
-| R-005 | Job retries duplicate notifications or webhooks. | Medium | Medium | Duplicate provider IDs and retry volume | Stable idempotency keys and delivery ledger | Integrations |
-| R-006 | Database migration blocks message writes. | Medium | High | Lock duration during staging rehearsal | Expand/contract migration policy and lock-time budgets | Data |
-| R-007 | Search projection diverges from source data. | Medium | Medium | Index lag and reconciliation mismatches | Replayable indexing and scheduled reconciliation | Search |
-| R-008 | Attachment pipeline becomes malware ingress. | Medium | High | Scan failures, suspicious MIME mismatch | Quarantine-first workflow, scanning, signed URLs | Security/Media |
-| R-009 | Observability captures message content or secrets. | Medium | High | Log sampling and DLP findings | Structured allow-list logging and redaction tests | SRE/Security |
-| R-010 | Multi-region requirements arrive after incompatible IDs/order assumptions. | Medium | High | Product roadmap change | Region-aware identifiers and home-region ADR before scale-out | Architecture |
+| ID | Risk | Probability | Impact | Leading indicator | Current mitigation and required next action | Owner | State |
+|---|---|---:|---:|---|---|---|---|
+| R-001 | Hot conversations serialize on sequence allocation. | Medium | High | Lock wait and commit latency by conversation | Transactional ordering is correct; benchmark large rooms and design partitioned sequencing only if measured limits require it | Messaging | Active |
+| R-002 | Large channels cause excessive realtime fan-out or node mailbox growth. | High | High | PubSub latency, mailbox depth, reconnect lag | Bounded payload/replay behavior exists; run representative large-room and reconnect-storm capacity tests before launch | Realtime/SRE | Active |
+| R-003 | Client reconnect storms overload edge and PostgreSQL. | Medium | High | Join rate, sync queries, pool saturation | Client backoff and bounded replay exist; add ingress admission limits and production storm testing | Realtime/SRE | Active |
+| R-004 | A tenant scope or privileged-action authorization omission leaks data or grants persistence. | Low | Critical | Negative-test failure, unexpected audit access, privilege changes | Central policy checks, server-side recent step-up for sensitive operations, and negative tests exist; promotion requires a sealed exact-commit security result with no unresolved reportable finding | Security/Domain | Controlled by release gate |
+| R-005 | Worker retries duplicate notifications or webhooks. | Low | Medium | Duplicate provider IDs, repeated claim generations, retry volume | Stable idempotency keys, claim tokens, delivery ledger, and concurrency tests; qualify real provider idempotency | Integrations | Controlled |
+| R-006 | A database migration blocks writes or prevents safe old-image rollback. | Medium | High | Lock duration, migration timeout, rollback smoke failure | Additive migrations, migration-before-rollout runbook, rehearsal, and old/current image proof; measure production data volume | Data | Controlled |
+| R-007 | Search returns content after membership, message, or conversation state changes. | Low | High | Authorization mismatch or stale search result | Search queries authoritative PostgreSQL state and active membership; retain negative reconciliation tests | Search/Security | Controlled |
+| R-008 | The attachment path becomes malware ingress or serves a substituted object. | Medium | High | Scan failures, checksum/ETag mismatch, unexpected version | Quarantine, signed checksum, exact-version identity, scanner gate, and egress controls; qualify the real scanner/object provider | Security/Media | Controlled |
+| R-009 | Logs, traces, exports, or operations views capture content or credentials. | Medium | High | DLP finding, redaction-test failure, sensitive response field | Allow-listed logging, safe presenters, content-blind ops, CSV neutralization, and CI secret scanning exist; require sealed exact-commit security evidence and production sampling | SRE/Security | Active production risk |
+| R-010 | Multi-region requirements arrive after incompatible ordering or identity assumptions. | Medium | High | Product roadmap adds active-active writes | Keep 0.3.0 single-authority; require a home-region/order ADR before multi-region writes | Architecture | Accepted for 0.3.0 |
+| R-011 | Node-local rate limits use an ingress proxy address or multiply across replicas. | Medium | High | Shared-user 429s, uneven auth attempts, password-hash CPU | Trusted-proxy CIDRs, spoof-resistance tests, and production auth-ingress connection/rate/burst limits are implemented; qualify globally distributed provider-edge semantics and load | Security/SRE | Controlled |
+| R-012 | Restored PostgreSQL rows reference S3 version IDs absent from an `mc mirror` restore. | Low | Critical | Restored attachment returns version-not-found or cannot scan/download | Guarded remap verifies all current object bytes before an atomic database remap/audit; the isolated integrated proof passed with authenticated exact-SHA-256 download and legacy unversioned rows remained quarantined fail-closed; qualify provider-native recovery | Data/Platform | Controlled for portable staging |
+| R-013 | Database and object backups represent different write points. | Medium | Critical | Missing object/reference after restore | The portable proof used enforced quiescence and verified both stores through the application; retain this boundary and adopt a provider-consistent managed recovery design before production | Data/Platform | Active production risk |
+| R-014 | Local log/allow-all providers are mistaken for real delivery or malware protection. | Medium | Critical | Production bundle contains development modes or no provider evidence | Runtime development gate and semantic production preflight exist; retain exact bundle and qualify real providers/outages | Release/Security | Active blocker |
+| R-015 | Independent review finds a security issue after the staging package is declared complete. | Medium | Critical | SAST/manual finding or unresolved audit item | Dependency/redaction/authorization tests are baseline only; block promotion until the exact-commit scan is sealed and every reportable finding is remediated or explicitly accepted, then repeat after source changes | AppSec | Release gate |
+| R-016 | Mutable base or qualification image tags drift between evidence and rebuild. | Low | High | Image ID changes without source revision change | Build, data-service, and qualification inputs are digest-pinned; promotion must substitute and retain the exact application image digest | Release/Supply Chain | Controlled |
+| R-017 | A production or public release proceeds without an owner-selected license. | Medium | High | Release/tag or external adoption request while license remains unset | Treat `LICENSE-DECISION.md` as an owner-controlled public-release gate; do not infer or choose a license in engineering work | Repository owner | Active blocker |
+| R-018 | Group video or screen sharing exceeds provider/device/network capacity or captures unintended content. | Medium | Critical | Join/publish failures, decode/CPU limits, bitrate collapse, TURN saturation, capture complaints, or recording-policy drift | Explicit default-off capture and stop controls, source-restricted grants, no baseline recording, and local direct/group tests exist; qualify external WSS/TURN/TLS, expected group/bandwidth headroom, privacy consent, provider configuration, and incident response before production | Media/Privacy/Platform | Active production blocker |
 
 ## Risk review
 
-Review at each architecture gate and delivery milestone. Critical risks require an explicit acceptance, mitigation plan, or scope change.
+Review this register at each architecture gate, release candidate, provider
+composition, and recovery/security exercise. A critical active blocker requires
+verified mitigation, explicit owner acceptance, or a documented scope change
+before the affected environment is promoted.

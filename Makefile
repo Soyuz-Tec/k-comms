@@ -2,12 +2,23 @@ CONTAINER_ENGINE ?= podman
 COMPOSE ?= $(CONTAINER_ENGINE) compose
 CONTAINER_BUILD_FLAGS ?= $(if $(filter podman podman.exe,$(notdir $(firstword $(CONTAINER_ENGINE)))),--format docker,)
 IMAGE ?= localhost/k-comms:dev
+OCI_REVISION ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+OCI_VERSION ?= 0.3.0
 PYTHON ?= python3
 KUBE_OVERLAY ?= deploy/k8s/overlays/staging
+PRODUCTION_OVERLAY ?= deploy/k8s/overlays/production
+LOCAL_PROOF_OVERLAY ?= deploy/k8s/overlays/local-proof
+PLATFORM_ROLE_OPERATION ?= deploy/k8s/operations/platform-role
+ATTACHMENT_RESTORE_OPERATION ?= deploy/k8s/operations/attachment-restore-remap
+PRODUCTION_BUNDLE ?=
 TEST_DATABASE_URL ?= ecto://postgres:postgres@postgres:5432/k_comms_test
+RELEASE_EVIDENCE_NAMESPACE ?= k-comms-staging
+RELEASE_EVIDENCE_OUTPUT ?=
+RELEASE_EVIDENCE_ARGS ?=
 
 .PHONY: bootstrap dev stop logs shell check test format web-check contracts docs-check \
-	validation-deps build container-smoke compose-validate kube-validate release clean
+	validation-deps qualification-script-tests build container-smoke compose-validate \
+	kube-validate production-preflight release-evidence release clean
 
 bootstrap:
 	$(COMPOSE) up -d postgres minio minio-init
@@ -37,7 +48,7 @@ format:
 	$(COMPOSE) run --rm app mix format
 
 web-check:
-	$(COMPOSE) run --rm web sh -lc "npm ci --no-audit --no-fund && npm audit --omit=dev --audit-level=high && npm run lint && npm run typecheck && npm run build"
+	$(COMPOSE) run --rm web sh -lc "npm ci --no-audit --no-fund && npm audit --omit=dev --audit-level=high && npm run lint && npm run typecheck && npm run test && npm run build"
 
 validation-deps:
 	$(PYTHON) -m pip install -r requirements-validation.txt
@@ -48,8 +59,27 @@ contracts:
 docs-check:
 	$(PYTHON) scripts/validate_docs.py
 
+qualification-script-tests:
+	$(PYTHON) scripts/test_validate_staging_secrets.py
+	$(PYTHON) scripts/test_validate_production_bundle.py
+	$(PYTHON) scripts/test_collect_release_evidence.py
+	$(PYTHON) scripts/test_validate_compose_exposure.py
+	$(PYTHON) scripts/validate_compose_exposure.py
+	$(PYTHON) scripts/test_validate_ops_assets.py
+	$(PYTHON) scripts/validate_ops_assets.py
+	$(PYTHON) scripts/test_validate_readiness_ledger.py
+	$(PYTHON) scripts/validate_readiness_ledger.py \
+		docs/13-delivery-plan/internal-production-readiness-ledger.template.json
+	node --test scripts/staging_acceptance.test.mjs \
+		scripts/staging_product_acceptance.test.mjs \
+		scripts/staging_load.test.mjs \
+		scripts/score_usability_study.test.mjs \
+		scripts/score_usability_pilot.test.mjs
+
 build:
-	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime --tag $(IMAGE) .
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime \
+		--build-arg OCI_REVISION=$(OCI_REVISION) --build-arg OCI_VERSION=$(OCI_VERSION) \
+		--tag $(IMAGE) .
 
 container-smoke:
 	CONTAINER_ENGINE=$(CONTAINER_ENGINE) IMAGE=$(IMAGE) bash scripts/container_smoke.sh
@@ -64,10 +94,29 @@ kube-validate:
 		if [ ! -f "$$secrets" ]; then cp "$$secrets.example" "$$secrets"; created=1; fi; \
 		trap 'if [ "$$created" = 1 ]; then rm -f "$$secrets"; fi' EXIT; \
 		kubectl kustomize "$(KUBE_OVERLAY)" >/dev/null; \
-		kubectl kustomize "$(KUBE_OVERLAY)/bootstrap" >/dev/null
+		kubectl kustomize "$(KUBE_OVERLAY)/bootstrap" >/dev/null; \
+		kubectl kustomize "$(LOCAL_PROOF_OVERLAY)" >/dev/null; \
+		kubectl kustomize "$(PRODUCTION_OVERLAY)" >/dev/null; \
+		kubectl kustomize "$(PLATFORM_ROLE_OPERATION)" >/dev/null; \
+		kubectl kustomize "$(ATTACHMENT_RESTORE_OPERATION)" >/dev/null
+
+production-preflight:
+	@test -n "$(PRODUCTION_BUNDLE)" || \
+		(echo "set PRODUCTION_BUNDLE to the reviewed rendered provider bundle" >&2; exit 2)
+	$(PYTHON) scripts/validate_production_bundle.py "$(PRODUCTION_BUNDLE)"
+
+release-evidence:
+	@test -n "$(RELEASE_EVIDENCE_OUTPUT)" || \
+		(echo "set RELEASE_EVIDENCE_OUTPUT to the JSON artifact destination" >&2; exit 2)
+	$(PYTHON) scripts/collect_release_evidence.py \
+		--image "$(IMAGE)" \
+		--namespace "$(RELEASE_EVIDENCE_NAMESPACE)" \
+		--output "$(RELEASE_EVIDENCE_OUTPUT)" $(RELEASE_EVIDENCE_ARGS)
 
 release:
-	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime --tag $(IMAGE) .
+	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime \
+		--build-arg OCI_REVISION=$(OCI_REVISION) --build-arg OCI_VERSION=$(OCI_VERSION) \
+		--tag $(IMAGE) .
 
 clean:
 	$(COMPOSE) down -v --remove-orphans

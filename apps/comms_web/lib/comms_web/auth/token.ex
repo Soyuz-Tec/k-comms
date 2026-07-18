@@ -3,11 +3,8 @@ defmodule CommsWeb.Auth.Token do
 
   @impl true
   def authenticate(params, _connect_info) do
-    token = params["access_token"] || params[:access_token]
+    ticket = params["socket_ticket"] || params[:socket_ticket]
 
-    case CommsWeb.Token.verify(token) do
-      {:ok, context} -> {:ok, context.subject}
-      {:error, _} = error -> error
-    end
+    CommsCore.Accounts.consume_socket_ticket(ticket)
   end
 end

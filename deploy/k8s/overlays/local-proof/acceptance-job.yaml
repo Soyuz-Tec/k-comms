@@ -4,20 +4,22 @@ metadata:
   name: k-comms-acceptance
   namespace: k-comms-staging
   labels:
-    app.kubernetes.io/name: k-comms-acceptance
-    app.kubernetes.io/component: acceptance
+    app.kubernetes.io/name: k-comms-qualification
+    app.kubernetes.io/component: baseline
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 600
+  activeDeadlineSeconds: 1200
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: k-comms-acceptance
-        app.kubernetes.io/component: acceptance
+        app.kubernetes.io/name: k-comms-qualification
+        app.kubernetes.io/component: baseline
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -25,15 +27,15 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: acceptance
-          image: docker.io/library/node:22-bookworm-slim
+        - name: qualification
+          image: docker.io/library/node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
           imagePullPolicy: IfNotPresent
-          command: ["node", "/acceptance/staging_acceptance.mjs"]
+          command: ["node", "/qualification/staging_acceptance.mjs"]
           env:
             - name: K_COMMS_BASE_URL
-              value: https://comms.k-comms.test
+              value: https://comms.k-comms.test:8444
             - name: K_COMMS_OBJECT_URL
-              value: https://objects.k-comms.test
+              value: https://objects.k-comms.test:8444
             - name: K_COMMS_TIMEOUT_MS
               value: "120000"
             - name: K_COMMS_ATTACHMENT_BYTES
@@ -43,33 +45,33 @@ spec:
             - name: K_COMMS_TENANT_SLUG
               valueFrom:
                 secretKeyRef:
-                  name: k-comms-bootstrap
-                  key: BOOTSTRAP_TENANT_SLUG
+                  name: k-comms-qualification
+                  key: K_COMMS_TENANT_SLUG
             - name: K_COMMS_OWNER_EMAIL
               valueFrom:
                 secretKeyRef:
-                  name: k-comms-bootstrap
-                  key: BOOTSTRAP_OWNER_EMAIL
+                  name: k-comms-qualification
+                  key: K_COMMS_OWNER_EMAIL
             - name: K_COMMS_OWNER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: k-comms-bootstrap
-                  key: BOOTSTRAP_OWNER_PASSWORD
+                  name: k-comms-qualification
+                  key: K_COMMS_OWNER_PASSWORD
           resources:
             requests:
-              cpu: 25m
-              memory: 64Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: acceptance-script
-              mountPath: /acceptance
+            - name: qualification-scripts
+              mountPath: /qualification
               readOnly: true
             - name: local-ca
               mountPath: /ca
@@ -77,12 +79,17 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: acceptance-script
+        - name: qualification-scripts
           configMap:
-            name: k-comms-acceptance-script
+            name: k-comms-qualification-scripts
+            defaultMode: 0444
         - name: local-ca
           configMap:
             name: k-comms-local-ca
+            defaultMode: 0444
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: tmp
           emptyDir:
-            sizeLimit: 32Mi
+            sizeLimit: 128Mi

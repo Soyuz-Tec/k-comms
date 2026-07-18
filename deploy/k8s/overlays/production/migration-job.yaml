@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k-comms-migrate
+  labels:
+    app.kubernetes.io/name: k-comms
+    app.kubernetes.io/part-of: k-comms
+    app.kubernetes.io/component: migration
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k-comms
+        app.kubernetes.io/part-of: k-comms
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: k-comms
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: ghcr.io/soyuz-tec/k-comms:production-candidate
+          imagePullPolicy: IfNotPresent
+          command: ["/app/bin/k_comms"]
+          args: ["eval", "CommsCore.Release.migrate()"]
+          envFrom:
+            - configMapRef:
+                name: k-comms-config
+          env:
+            - name: K_COMMS_ROLE
+              value: worker
+            - name: K_COMMS_RUNTIME_PURPOSE
+              value: one_shot
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: k-comms-secrets, key: DATABASE_URL }
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef: { name: k-comms-secrets, key: SECRET_KEY_BASE }
+            - name: PASSWORD_RECOVERY_SIGNING_KEY
+              valueFrom:
+                secretKeyRef: { name: k-comms-secrets, key: PASSWORD_RECOVERY_SIGNING_KEY }
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: { name: k-comms-secrets, key: S3_ACCESS_KEY_ID }
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: k-comms-secrets, key: S3_SECRET_ACCESS_KEY }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: database-ca, mountPath: /etc/k-comms/database-ca, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            defaultMode: 0444
+            items:
+              - { key: ca.crt, path: ca.crt }

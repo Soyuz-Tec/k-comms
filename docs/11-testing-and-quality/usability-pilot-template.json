@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "release_revision": "REPLACE_WITH_FULL_GIT_SHA",
+  "environment": "internal-staging",
+  "pilot_started_on": "YYYY-MM-DD",
+  "pilot_completed_on": "YYYY-MM-DD",
+  "formal_study_passed": false,
+  "formal_study_receipt_reference": null,
+  "staging_gates_pass": false,
+  "invited_user_count": 0,
+  "activated_user_count": 0,
+  "active_user_count": 0,
+  "tenant_admin_count": 0,
+  "trained_operator_count": 0,
+  "weekly_activity": [
+    {
+      "week_started_on": "YYYY-MM-DD",
+      "active_user_count": 0
+    },
+    {
+      "week_started_on": "YYYY-MM-DD",
+      "active_user_count": 0
+    }
+  ],
+  "usability_support_request_count": 0,
+  "accessibility_blocker_count": 0,
+  "sev1_incident_count": 0,
+  "sev2_incident_count": 0,
+  "acknowledged_message_loss_count": 0,
+  "tenant_boundary_failure_count": 0,
+  "signoffs": {
+    "product": {
+      "status": "not_approved",
+      "approved_on": null,
+      "evidence_reference": null
+    },
+    "accessibility": {
+      "status": "not_approved",
+      "approved_on": null,
+      "evidence_reference": null
+    },
+    "security": {
+      "status": "not_approved",
+      "approved_on": null,
+      "evidence_reference": null
+    },
+    "operations": {
+      "status": "not_approved",
+      "approved_on": null,
+      "evidence_reference": null
+    }
+  }
+}

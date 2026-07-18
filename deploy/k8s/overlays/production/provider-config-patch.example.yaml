@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  # This is the non-secret target contract from ADR-0023. Supplying it does not
+  # implement or qualify OIDC/SCIM; promotion still requires the provider-backed
+  # code paths and exact-candidate end-to-end receipts described by the ADR.
+  ALLOW_DEVELOPMENT_IDENTITY_MODES: "false"
+  IDENTITY_PROVIDER_MODE: oidc
+  DIRECTORY_PROVISIONING_MODE: scim
+  OIDC_ISSUER: https://identity.example.invalid/tenant/v2.0
+  OIDC_CLIENT_ID: REPLACE_WITH_REGISTERED_CLIENT_ID
+  OIDC_PROVIDER_NAME: approved-corporate-idp
+  OIDC_REQUIRED_ACR_VALUES: REPLACE_WITH_APPROVED_ACR_VALUES
+  SCIM_PROVIDER_NAME: approved-corporate-directory
+  # AUDIO_* names are retained compatibility keys for unified audio/video calls.
+  AUDIO_PROVIDER_MODE: livekit
+  LIVEKIT_SERVER_URL: wss://media.example.invalid
+  LIVEKIT_API_URL: https://media-api.example.invalid
+  AUDIO_TOKEN_TTL_SECONDS: "300"
+  # Production preflight accepts 660-1800 seconds. Keep this minimum repeat
+  # horizon at least as long as AUDIO_TOKEN_TTL_SECONDS and validate the SLO.
+  AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS: "660"
+  # This source list must contain the exact LIVEKIT_SERVER_URL WSS origin.
+  CSP_CONNECT_SOURCES: "'self' wss://comms.example.invalid https://comms.example.invalid https://objects.example.invalid wss://media.example.invalid"
+  # Replace with the exact ingress-controller source range(s), never a generic
+  # RFC1918 block. Keep this identical to the NetworkPolicy ipBlock below.
+  TRUSTED_PROXY_CIDRS: 10.42.7.0/24
+  NOTIFICATION_PROVIDER_MODE: http
+  NOTIFICATION_PROVIDER_ENDPOINT: https://notifications.example.invalid/v1/deliver
+  NOTIFICATION_PROVIDER_NAME: approved-provider
+  NOTIFICATION_PROVIDER_ALLOWED_HOSTS: notifications.example.invalid
+  NOTIFICATION_PROVIDER_TIMEOUT_MS: "10000"
+  # Public half only. The matching VAPID private key remains in the provider.
+  WEB_PUSH_VAPID_PUBLIC_KEY: REPLACE_WITH_PROVIDER_VAPID_PUBLIC_KEY
+  ATTACHMENT_SCANNER_MODE: http
+  ATTACHMENT_SCANNER_ENDPOINT: https://scanner.example.invalid/v1/scan
+  ATTACHMENT_SCANNER_PROVIDER_NAME: approved-scanner
+  ATTACHMENT_SCANNER_ALLOWED_HOSTS: scanner.example.invalid
+  ATTACHMENT_SCANNER_TIMEOUT_MS: "30000"
+  WEBHOOK_PROVIDER_MODE: http
+  WEBHOOK_ALLOWED_HOSTS: hooks.customer-a.example,hooks.customer-b.example
+  WEBHOOK_TIMEOUT_MS: "10000"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-edge-ingress
+spec:
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.42.7.0/24
+      ports:
+        - protocol: TCP
+          port: 4000

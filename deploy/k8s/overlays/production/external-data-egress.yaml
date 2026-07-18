@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-managed-postgres-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: k-comms
+  policyTypes: ["Egress"]
+  egress:
+    # The provider composition must narrow this CIDR to the managed database
+    # network before apply. Port restriction plus provider firewall is the
+    # portable fallback for the rendered application bundle.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+      ports:
+        - { protocol: TCP, port: 5432 }

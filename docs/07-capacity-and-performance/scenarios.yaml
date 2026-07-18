@@ -1,4 +1,12 @@
 scenarios:
+  local_qualification:
+    evidence_class: local_regression_only
+    canonical_messages: 300
+    duration_seconds: 60
+    maximum_concurrency: 6
+    duplicate_probes: 10
+    maximum_p95_milliseconds: 750
+    require_zero_loss: true
   launch:
     monthly_active_users: null
     peak_concurrent_fraction: null

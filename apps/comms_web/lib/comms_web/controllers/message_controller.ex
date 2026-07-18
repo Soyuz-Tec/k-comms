@@ -1,7 +1,7 @@
 defmodule CommsWeb.MessageController do
   use CommsWeb, :controller
 
-  alias CommsCore.Messaging
+  alias CommsCore.{Governance, Messaging}
   alias CommsWeb.Broadcast
 
   def index(conn, %{"conversation_id" => conversation_id} = params) do
@@ -48,7 +48,17 @@ defmodule CommsWeb.MessageController do
            }),
          {:ok, message, status} <- Messaging.accept_message_with_status(attrs, subject) do
       payload = Presenter.message(message)
-      if status == :created, do: Broadcast.event(conversation_id, "message.created.v1", payload)
+
+      if status == :created do
+        Broadcast.event(conversation_id, "message.created.v1", payload)
+
+        Broadcast.conversation_activity(
+          subject.tenant_id,
+          conversation_id,
+          message.conversation_sequence,
+          "message.created.v1"
+        )
+      end
 
       duration_seconds =
         System.monotonic_time()
@@ -70,18 +80,56 @@ defmodule CommsWeb.MessageController do
     end
   end
 
+  def thread(conn, %{"conversation_id" => conversation_id, "message_id" => message_id} = params) do
+    limit = params["limit"] |> integer(50) |> max(1) |> min(100)
+
+    with {:ok, result} <-
+           Messaging.get_thread(conversation_id, message_id, conn.assigns.current_subject,
+             before_sequence: params["before_sequence"],
+             limit: limit
+           ) do
+      json(conn, %{
+        data: %{
+          root: Presenter.message(result.root),
+          replies: Enum.map(result.replies, &Presenter.message/1),
+          reply_count: result.reply_count
+        },
+        page: %{
+          has_more: result.has_more,
+          next_before_sequence: result.next_before_sequence
+        }
+      })
+    end
+  end
+
   def update(conn, %{"id" => id, "body" => body}) do
     with {:ok, message} <- Messaging.edit_message(id, body, conn.assigns.current_subject) do
       payload = Presenter.message(message)
       Broadcast.event(message.conversation_id, "message.updated.v1", payload)
+
+      Broadcast.conversation_activity(
+        message.tenant_id,
+        message.conversation_id,
+        message.conversation_sequence,
+        "message.updated.v1"
+      )
+
       json(conn, %{data: payload})
     end
   end
 
   def delete(conn, %{"id" => id}) do
-    with {:ok, message} <- Messaging.delete_message(id, conn.assigns.current_subject) do
+    with {:ok, message} <- Governance.delete_message(id, conn.assigns.current_subject) do
       payload = Presenter.message(message)
       Broadcast.event(message.conversation_id, "message.deleted.v1", payload)
+
+      Broadcast.conversation_activity(
+        message.tenant_id,
+        message.conversation_id,
+        message.conversation_sequence,
+        "message.deleted.v1"
+      )
+
       json(conn, %{data: payload})
     end
   end

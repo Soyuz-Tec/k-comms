@@ -1,11 +1,12 @@
 defmodule CommsWeb.Token do
   alias CommsCore.Accounts
+  alias CommsCore.Accounts.AuthenticationResult
 
   @salt "k-comms-access-v1"
 
-  def issue(result) do
+  def issue(%AuthenticationResult{} = result) do
     ttl = Application.get_env(:comms_web, :access_token_ttl_seconds, 900)
-    token = Phoenix.Token.sign(CommsWeb.Endpoint, @salt, %{"session_id" => result.session.id})
+    token = Phoenix.Token.sign(CommsWeb.Endpoint, @salt, %{"session_id" => result.session_id})
 
     %{
       access_token: token,
@@ -13,7 +14,7 @@ defmodule CommsWeb.Token do
       token_type: "Bearer",
       expires_in: ttl,
       tenant: CommsWeb.Presenter.tenant(result.tenant),
-      user: CommsWeb.Presenter.user(result.user),
+      user: CommsWeb.Presenter.identity_user(result.user),
       device: CommsWeb.Presenter.device(result.device)
     }
   end
@@ -25,15 +26,8 @@ defmodule CommsWeb.Token do
 
     with {:ok, %{"session_id" => session_id}} <-
            Phoenix.Token.verify(CommsWeb.Endpoint, @salt, token, max_age: ttl),
-         {:ok, session} <- Accounts.get_active_session(session_id) do
-      {:ok,
-       %{
-         subject: Accounts.subject_for_session(session, request_id),
-         session: session,
-         tenant: session.tenant,
-         user: session.user,
-         device: session.device
-       }}
+         {:ok, context} <- Accounts.access_context(session_id, request_id) do
+      {:ok, context}
     else
       _ ->
         CommsObservability.execute([:auth, :failure], %{count: 1})

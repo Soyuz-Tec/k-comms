@@ -1,0 +1,11 @@
+# Inventory template only; do not apply this placeholder. Provider composition
+# must source the exact managed PostgreSQL CA bundle into key ca.crt.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-database-ca
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_PROVIDER_CA_PEM
+    -----END CERTIFICATE-----

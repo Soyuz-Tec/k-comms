@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.Device do
   use CommsCore.Schema
 
   schema "devices" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
+    field(:tenant_id, Ecto.UUID)
     belongs_to(:user, CommsCore.Accounts.User)
     field(:name, :string)
     field(:platform, :string)

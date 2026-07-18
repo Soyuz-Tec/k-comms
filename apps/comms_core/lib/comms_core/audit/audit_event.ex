@@ -1,9 +1,11 @@
 defmodule CommsCore.Audit.AuditEvent do
+  @moduledoc false
+
   use CommsCore.Schema
 
   schema "audit_events" do
-    belongs_to(:tenant, CommsCore.Accounts.Tenant)
-    belongs_to(:actor_user, CommsCore.Accounts.User)
+    field(:tenant_id, :binary_id)
+    field(:actor_user_id, :binary_id)
     field(:action, :string)
     field(:resource_type, :string)
     field(:resource_id, :binary_id)
@@ -25,4 +27,6 @@ defmodule CommsCore.Audit.AuditEvent do
         :request_id
       ])
       |> validate_required([:tenant_id, :action, :resource_type, :resource_id, :metadata])
+      |> foreign_key_constraint(:tenant_id)
+      |> foreign_key_constraint(:actor_user_id)
 end

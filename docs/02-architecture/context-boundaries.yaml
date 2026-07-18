@@ -1,0 +1,823 @@
+version: 1
+status: enforced
+decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
+enforcement:
+  mode: strict
+  target_mode: strict
+  baseline: docs/02-architecture/context-boundary-baseline.yaml
+  reject_new_violations: true
+  reviewed_baseline_transitions:
+    - id: non-media-authorization-tenant-identity-and-notification-boundaries
+      previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
+      added_fingerprints:
+        - 47659f71148ad7cd
+        - a26844eb317ed35d
+      removed_fingerprints:
+        - 01480f3bb95a9c16
+        - 044ad0a09865bdff
+        - 121f7164c64045fa
+        - 1e1d10760987004e
+        - 1ee6ff99500eaa19
+        - 218671b946ba8171
+        - 23dcf56239fd3c92
+        - 25b5955b95d7e60a
+        - 27fdff1b69d498a8
+        - 2d311ace1698b140
+        - 32a70724daad9d65
+        - 41f842b58173a549
+        - 44028c557f9d7ca2
+        - 474e0a1759a65216
+        - 4cc7ca468d6af0e4
+        - 4f6b857dddd8871e
+        - 5b2474b6c792fe32
+        - 662a5c4f703eb585
+        - 6b82842b18ee1b7c
+        - 73b9ff4f915229c8
+        - 7df5d18a55a8e299
+        - 84932ac0d5fa25b9
+        - 84a5b72a3c38e9e8
+        - 87dbcd607e0b12b6
+        - 8a77894c283aac7a
+        - 8c5d4bc9c14685e9
+        - 8e1a8065ef4e942a
+        - 97986c01688edbd7
+        - a34ca28aa15ea541
+        - a74facb531f49387
+        - af08c6b0f0c514cf
+        - b57d207c73d50d3c
+        - b868ec00572fc392
+        - c00fd3d1192fbcc6
+        - c0c0fa81093ad554
+        - c3db96cf85cb9698
+        - d800fbf3e8ef2cc5
+        - e2aa023f11e60616
+        - e442c942c91deaa0
+        - e62a5587406838f2
+        - e80e50669f5d670e
+        - eb5d23e247bfa767
+        - fc4e10c723ffa345
+        - fd24bbd537ca4f95
+      adr: docs/02-architecture/adr/0036-invert-tenant-identity-workflows.md
+      removal_condition: Remove this cumulative exact 123-to-81 transition after the ADR-0036 authorization/TenantAdministration-to-IdentityAccess tranche and the separately declared ADR-0037 NotificationDelivery and ADR-0038 Conversations transitions are present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-notification-delivery-and-conversations-persistence
+      previous_baseline_sha256: c06f24d6ea25a5eed325b528952f44f7ec212d3e2698a7ad10f93213bab069e4
+      added_fingerprints: []
+      removed_fingerprints:
+        - 01480f3bb95a9c16
+        - 044ad0a09865bdff
+        - 1e1d10760987004e
+        - 1ee6ff99500eaa19
+        - 474e0a1759a65216
+        - 4cc7ca468d6af0e4
+        - 4f6b857dddd8871e
+        - 6b82842b18ee1b7c
+        - 7df5d18a55a8e299
+        - 84a5b72a3c38e9e8
+        - 87dbcd607e0b12b6
+        - 8e1a8065ef4e942a
+        - a34ca28aa15ea541
+        - af08c6b0f0c514cf
+        - b57d207c73d50d3c
+        - b868ec00572fc392
+        - c0c0fa81093ad554
+        - c3db96cf85cb9698
+        - e62a5587406838f2
+        - e80e50669f5d670e
+        - eb5d23e247bfa767
+        - fc4e10c723ffa345
+      adr: docs/02-architecture/adr/0037-contain-notification-delivery-persistence.md
+      removal_condition: Remove this cumulative exact 103-to-81 transition after the ADR-0037 NotificationDelivery tranche and the separately declared ADR-0038 Conversations transition are present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-conversations-persistence
+      previous_baseline_sha256: a51bfc494a91b8a58a50ce21b0f75c64ab539527c2a1bb0957d0a251b136fa40
+      added_fingerprints: []
+      removed_fingerprints:
+        - 01480f3bb95a9c16
+        - 8e1a8065ef4e942a
+        - b57d207c73d50d3c
+        - b868ec00572fc392
+        - e62a5587406838f2
+        - fc4e10c723ffa345
+      adr: docs/02-architecture/adr/0038-contain-conversations-persistence.md
+      removal_condition: Remove this exact 87-to-81 finding transition after the Conversations containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-trust-governance-persistence
+      previous_baseline_sha256: d7a0afe7c18e67b6ac8c7bf4c0ccf0800756b3322f788046f4689512f55ae0ae
+      added_fingerprints: []
+      removed_fingerprints:
+        - 02a344526496fff1
+        - 0ce8e87873a601ba
+        - 15be140bfa74d0b1
+        - 21514fd0a6bcff09
+        - 39d2b55a0831efb3
+        - 3fb3b9127af11031
+        - 4024443a7852f0ba
+        - 58b919fe1323a5b8
+        - 5eb997f15e01638a
+        - 6649c5c8afcc1451
+        - 6b606b572e7256e4
+        - 6ec655792ddf69c9
+        - 91455ba0a93f09b2
+        - 931b221d49955995
+        - 9dde14a81ec1bedf
+        - a0a0818fd52b5b6f
+        - b9d112a8c4fed848
+        - b9eb079551e887da
+        - ca44a9b4fcec3602
+        - ddc7d93ab9361594
+        - fbe03345ca68ae0e
+        - fd674ae8b306fa26
+      adr: docs/02-architecture/adr/0039-contain-trust-governance-persistence.md
+      removal_condition: Remove this exact 81-to-59 finding transition after the TrustGovernance containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: contain-conversation-content-persistence
+      previous_baseline_sha256: 75fb767635aaf4a695dc2f0c6e27f7d77fc4a1a42f3f5f745b0b6d30f0ccf1c5
+      added_fingerprints: []
+      removed_fingerprints:
+        - 00fed2fc66ac6b5f
+        - 0bb3a37c40cc67ed
+        - 0eed2537c58046a8
+        - 1e36cf5947105a60
+        - 281d9add61ab8c61
+        - 4d0c0c815493288e
+        - 7189e4399b7315ba
+        - 7ac0c7ca4d4d6af3
+        - 7cefa81ef6dff66b
+        - b55f1875cf2b64d8
+        - e7095da760d0066e
+        - f1940a85836a5231
+        - f30df696bf8e3c3c
+      adr: docs/02-architecture/adr/0040-contain-conversation-content-persistence.md
+      removal_condition: Remove this exact 59-to-46 finding transition after the ConversationContent containment baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: assign-tenants-to-tenant-administration
+      previous_baseline_sha256: 2693d8743484856dfda3bb39fa5c02214e277f50db914f341632c65b8ee97762
+      added_fingerprints:
+        - 245ad9a0716b68dd
+        - 64ebb8611dae56b3
+        - a99d73667cfe396f
+        - d4743d3326027747
+        - eb0650068879158b
+      removed_fingerprints:
+        - 2239525a78f246a4
+        - 22d29c8a33ec3581
+        - 242e1087dab4d610
+        - 24d261bf4611f799
+        - 2a53bebf9a2c2b68
+        - 3d08a6a84ca380ce
+        - 42cd72ee581f329d
+        - 440a0becf16cccb8
+        - 46833d9e4f37a9f4
+        - 537281a03df0f98f
+        - 6e01f546438ba1e0
+        - 7e866a84330fe233
+        - 82083a1e5dce0f4c
+        - 830bbf4ebd3732c3
+        - 8ee1149661d778c8
+        - 9c00206437b708a1
+        - b881cf0b24fc1a13
+        - c3292521cd5c5918
+        - d312276f5a39310f
+      adr: docs/02-architecture/adr/0041-assign-tenants-to-tenant-administration.md
+      removal_condition: Remove this exact 46-to-32 finding transition after the TenantAdministration ownership baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: complete-non-audio-modularization
+      previous_baseline_sha256: 9190df9731fc781d1154e9e9d6ec1b27f7557a60cac6afc582b8d7d6f0ceb4d6
+      added_fingerprints: []
+      removed_fingerprints:
+        - 4791022b743e09fb
+        - 8ab1b96f6b510f3d
+        - c06055a43f05a1f7
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+      removal_condition: Remove this exact 32-to-29 transition after the internal platform and adapter cleanup is present and strict_with_explicit_deferrals is active; it may not authorize any later fingerprint delta.
+    - id: complete-calls-modularization
+      previous_baseline_sha256: 90a52be007eecd64627b35212ec3da314e742f232373a6e954523116f4fa1da6
+      added_fingerprints: []
+      removed_fingerprints:
+        - 0189e4bac08f3c6e
+        - 0e985916a4de06ec
+        - 245ad9a0716b68dd
+        - 47659f71148ad7cd
+        - 4f52bd7c42b47a5d
+        - 605ae97a5fa655cc
+        - 64ebb8611dae56b3
+        - 66c2fbf2a79936f4
+        - 6af6e9564cd1b152
+        - 6b641d47b77c08c7
+        - 7a1ffc82ac877370
+        - 7c47ce0ca3e555a9
+        - 7c601f7c21a5fe6c
+        - 7fbfb2c4017910ce
+        - 889ca078f04b8132
+        - 8dd4f3b5e1378ffb
+        - 96d281b6465f8b8b
+        - 99cd7470375bce8f
+        - 9fa2f7bb1abcc6b0
+        - a26844eb317ed35d
+        - a99d73667cfe396f
+        - bec8b11dfcf061c7
+        - c94c7774541553d1
+        - d4743d3326027747
+        - db68fcb3dac3ef04
+        - de83107f64cbc690
+        - e3c6574035e85b56
+        - eb0650068879158b
+        - fc1a11f2a5f8452a
+      adr: docs/02-architecture/adr/0043-complete-calls-boundary.md
+      removal_condition: Remove this exact 29-to-0 transition after the Calls boundary, retired authorization namespace, empty baseline, and strict enforcement mode are present on the protected branch; it may not authorize any later fingerprint delta.
+
+contexts:
+  identity_access:
+    kind: business
+    responsibility: Human and service identity, credentials, sessions, devices, recovery, and platform grants.
+    current_contexts: [Accounts, PasswordRecovery, ServiceAccounts]
+    fold_in: [PasswordRecovery, ServiceAccounts]
+    public_facades: [CommsCore.Accounts, CommsCore.PasswordRecovery, CommsCore.ServiceAccounts]
+    public_contracts:
+      - CommsCore.Accounts.AccessContext
+      - CommsCore.Accounts.AccessGrant
+      - CommsCore.Accounts.AuthenticationResult
+      - CommsCore.Accounts.CallLifecycleCommand
+      - CommsCore.Accounts.CallLifecyclePort
+      - CommsCore.Accounts.CallLifecycleReceipt
+      - CommsCore.Accounts.ConversationBootstrapPort
+      - CommsCore.Accounts.DeviceView
+      - CommsCore.Accounts.InitialConversationCommand
+      - CommsCore.Accounts.InitialConversationReceipt
+      - CommsCore.Accounts.NotificationCommand
+      - CommsCore.Accounts.NotificationPort
+      - CommsCore.Accounts.NotificationRecipient
+      - CommsCore.Accounts.NotificationReceipt
+      - CommsCore.Accounts.PasswordRecoveryResult
+      - CommsCore.Accounts.SessionView
+      - CommsCore.Accounts.UserView
+      - CommsCore.ServiceAccounts.ServiceAccountView
+    owned_modules: [CommsCore.Security.Password]
+    internal_namespaces: [CommsCore.Accounts, CommsCore.ServiceAccounts]
+    allowed_dependencies: [tenant_administration, audit, platform_eventing]
+    publishes: [identity.user_created.v1, identity.session_revoked.v1]
+    consumes: []
+  tenant_administration:
+    kind: business
+    responsibility: Tenant lifecycle, tenant settings, invitations, and admission policy.
+    current_contexts: [Administration, AdmissionQuotas]
+    fold_in: [AdmissionQuotas]
+    public_facades: [CommsCore.Administration, CommsCore.AdmissionQuotas, CommsCore.AuditExport]
+    public_contracts:
+      - CommsCore.Administration.AdmissionPolicy
+      - CommsCore.Administration.AuthorizationActor
+      - CommsCore.Administration.AuthorizationActorPort
+      - CommsCore.Administration.CallLifecycleCommand
+      - CommsCore.Administration.CallLifecyclePort
+      - CommsCore.Administration.CallLifecycleReceipt
+      - CommsCore.Administration.CallPolicy
+      - CommsCore.Administration.ConversationContentPolicy
+      - CommsCore.Administration.IdentityAccessPort
+      - CommsCore.Administration.IdentityGrant
+      - CommsCore.Administration.InvitationView
+      - CommsCore.Administration.InvitationIdentityAuthorization
+      - CommsCore.Administration.InvitationIdentityPort
+      - CommsCore.Administration.InvitedIdentityReceipt
+      - CommsCore.Administration.InvitedUserCommand
+      - CommsCore.Administration.RetentionDefaults
+      - CommsCore.Administration.TenantSettingsView
+      - CommsCore.Administration.TenantView
+    owned_modules: [CommsCore.AuditExport]
+    internal_namespaces: [CommsCore.Administration]
+    allowed_dependencies: [audit, platform_eventing]
+    publishes: [tenant.settings_changed.v1, tenant.invitation_created.v1]
+    consumes: []
+  conversations:
+    kind: business
+    responsibility: Conversation lifecycle, membership, discovery, and read cursors.
+    current_contexts: [Conversations]
+    fold_in: []
+    public_facades: [CommsCore.Conversations]
+    public_contracts:
+      - CommsCore.Conversations.AdmissionUsage
+      - CommsCore.Conversations.CallConversation
+      - CommsCore.Conversations.CallLifecycleCommand
+      - CommsCore.Conversations.CallLifecyclePort
+      - CommsCore.Conversations.CallLifecycleReceipt
+      - CommsCore.Conversations.CallMembership
+      - CommsCore.Conversations.ConversationView
+      - CommsCore.Conversations.MessageWriteSlot
+      - CommsCore.Conversations.MembershipView
+    internal_namespaces: [CommsCore.Conversations]
+    allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
+    publishes: [conversation.created.v1, conversation.membership_changed.v1]
+    consumes: []
+  conversation_content:
+    kind: business
+    responsibility: Messages, threads, mentions, reactions, revisions, attachments, and attachment safety state.
+    current_contexts: [Messaging, Attachments]
+    fold_in: [Attachments]
+    public_facades: [CommsCore.Messaging, CommsCore.Attachments]
+    public_contracts:
+      - CommsCore.Messaging.MessageView
+      - CommsCore.Messaging.MessageDeletionCandidate
+      - CommsCore.Messaging.GovernanceImpact
+      - CommsCore.Messaging.RetentionScope
+      - CommsCore.Messaging.RetentionCandidate
+      - CommsCore.Messaging.ReactionView
+      - CommsCore.Attachments.AttachmentDeletionObject
+      - CommsCore.Attachments.AttachmentView
+      - CommsCore.Attachments.RestoreCandidate
+      - CommsCore.Attachments.RestoreContext
+      - CommsCore.Attachments.RestoreReport
+      - CommsCore.Attachments.RestoredObjectIdentity
+      - CommsCore.Attachments.ScanAttemptView
+    internal_namespaces: [CommsCore.Messaging, CommsCore.Attachments]
+    allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
+    publishes: [content.message_created.v1, content.attachment_ready.v1, content.attachment_rejected.v1]
+    consumes: [governance.content_restriction_changed.v1]
+  calls:
+    kind: business
+    responsibility: Audio and video call lifecycle, admission, participants, and expiry.
+    current_contexts: [AudioCalls]
+    fold_in: []
+    public_facades: [CommsCore.AudioCalls]
+    public_contracts:
+      - CommsCore.AudioCalls.CallView
+      - CommsCore.AudioCalls.CredentialRequest
+      - CommsCore.AudioCalls.EvictionClaim
+      - CommsCore.AudioCalls.EvictionProgress
+      - CommsCore.AudioCalls.ProviderCall
+    internal_namespaces: [CommsCore.AudioCalls]
+    allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
+    publishes: [audio_call.started.v1, audio_call.ended.v1, call.started.v1, call.ended.v1]
+    consumes: []
+  notification_delivery:
+    kind: business
+    responsibility: Notification preferences, intent, attempts, in-app state, push subscriptions, and delivery coordination.
+    current_contexts: [Notifications]
+    fold_in: [InAppNotifications, PushSubscriptions]
+    public_facades: [CommsCore.Notifications]
+    public_contracts:
+      - CommsCore.Notifications.AttemptView
+      - CommsCore.Notifications.Availability
+      - CommsCore.Notifications.Delivery
+      - CommsCore.Notifications.IntentView
+      - CommsCore.Notifications.PreferenceView
+      - CommsCore.Notifications.PushSubscriptionView
+    owned_modules: [CommsCore.Security.PushSubscriptionBox]
+    internal_namespaces: [CommsCore.Notifications]
+    allowed_dependencies: [identity_access, conversations, audit, platform_eventing]
+    publishes: []
+    consumes: [message.created.v1, mention.created.v1]
+  webhook_management:
+    kind: business
+    responsibility: Webhook endpoints, subscriptions, secrets, delivery policy, and delivery state.
+    current_contexts: [Integrations]
+    fold_in: []
+    public_facades: [CommsCore.Integrations]
+    public_contracts:
+      - CommsCore.Integrations.WebhookDeliveryClaim
+      - CommsCore.Integrations.WebhookDeliveryView
+      - CommsCore.Integrations.WebhookDispatchRequest
+      - CommsCore.Integrations.WebhookEndpointView
+    owned_modules: [CommsCore.Security.SecretBox]
+    internal_namespaces: [CommsCore.Integrations]
+    allowed_dependencies: [identity_access, audit, platform_eventing]
+    publishes: [webhook.delivery_requested.v1, webhook.delivery_completed.v1]
+    consumes: [content.message_created.v1]
+  trust_governance:
+    kind: business
+    responsibility: Moderation, retention, legal holds, deletion policy, and owner-coordinated erasure.
+    current_contexts: [Governance, Moderation]
+    fold_in: [Moderation]
+    public_facades: [CommsCore.Governance, CommsCore.Moderation]
+    public_contracts:
+      - CommsCore.Governance.DeletionExecution
+      - CommsCore.Governance.DeletionRequestView
+      - CommsCore.Governance.LegalHoldView
+      - CommsCore.Governance.RetentionPolicyView
+      - CommsCore.Moderation.ActionView
+      - CommsCore.Moderation.CaseView
+    internal_namespaces: [CommsCore.Governance, CommsCore.Moderation]
+    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, calls, audit, platform_eventing]
+    publishes: [governance.content_restriction_changed.v1, governance.erasure_requested.v1]
+    consumes: []
+  audit:
+    kind: business
+    responsibility: Append-only audit recording and querying through Ecto-free event projections.
+    current_contexts: [Audit]
+    fold_in: []
+    public_facades: [CommsCore.Audit]
+    public_contracts: [CommsCore.Audit.Actor, CommsCore.Audit.Event, CommsCore.Audit.Error]
+    internal_namespaces: [CommsCore.Audit]
+    allowed_dependencies: []
+    publishes: []
+    consumes: []
+  operations_read_model:
+    kind: business_read_model
+    responsibility: Read-only operational, administrative-capacity, and readiness projections; owns no source-of-truth business tables.
+    current_contexts: [Operations]
+    fold_in: []
+    public_facades: [CommsCore.Operations]
+    public_contracts: [CommsCore.Operations.TenantQuotaUsage]
+    internal_namespaces: []
+    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
+    publishes: []
+    consumes: [content.attachment_ready.v1, notification.delivery_completed.v1, webhook.delivery_completed.v1]
+  platform_runtime:
+    kind: technical
+    graph_scope: excluded
+    responsibility: OTP composition, release-only administration, runtime adapter resolution, and stable adapter-facing validation errors.
+    current_contexts: [Application, Release, RuntimePorts, ValidationError]
+    fold_in: []
+    public_facades: [CommsCore.Release, CommsCore.RuntimePorts]
+    public_contracts: [CommsCore.ValidationError]
+    owned_modules:
+      - CommsCore.Application
+      - CommsCore.Release
+      - CommsCore.RuntimePorts
+      - CommsCore.ValidationError
+    internal_namespaces: []
+    allowed_dependencies: [identity_access, conversation_content, platform_persistence]
+    publishes: []
+    consumes: []
+  platform_persistence:
+    kind: technical
+    graph_scope: excluded
+    responsibility: Repository migration metadata and third-party background-job runtime persistence.
+    current_contexts: [Repo, EctoMigrations, Oban]
+    fold_in: []
+    public_facades: []
+    public_contracts: []
+    owned_modules:
+      - CommsCore.DatabaseTLS
+      - CommsCore.Repo
+      - CommsCore.Schema
+    internal_namespaces: []
+    allowed_dependencies: []
+    publishes: []
+    consumes: []
+  platform_eventing:
+    kind: technical
+    graph_scope: included
+    responsibility: Transactional outbox persistence and stable internal event envelopes.
+    current_contexts: [Outbox, Events]
+    fold_in: []
+    public_facades: [CommsCore.Outbox]
+    public_contracts: [CommsCore.Outbox.Event]
+    internal_namespaces: [CommsCore.Events]
+    allowed_dependencies: []
+    publishes: []
+    consumes: []
+
+dependency_graphs:
+  compiled:
+    source: Production CommsCore module references after canonical-schema and exact-module ownership attribution.
+    edge_direction: referencing_owner_to_referenced_owner
+    includes: Contexts whose graph_scope is included or omitted; included is the default.
+    excludes: Contexts whose graph_scope is excluded remain ownership, schema-access, write, and adapter enforcement subjects but do not add compiled graph edges.
+    cycle_policy: A cycle is a violation unless every retained cycle fingerprint has one exact ADR-backed temporary-violation declaration.
+  runtime:
+    source: runtime_collaborations
+    edge_direction: consumer_to_provider
+    includes: Exact declared consumer, provider, port, caller, operation, binding, result contract, and transaction semantics.
+    cycle_policy: Runtime cycles are forbidden unless an exact ADR-backed temporary violation states the invariant and removal condition.
+  combined:
+    source: Union of compiled and runtime edges.
+    edge_direction: preserve_source_graph_direction
+    includes: All included compiled owners and all declared runtime collaborations.
+    cycle_policy: Combined cycles are always reported. A cycle produced solely by an exact validated dependency-inversion collaboration is accepted graph topology; every other combined cycle must be removed or represented by a compiled-cycle or runtime-cycle violation.
+
+namespace_dependency_rules:
+  - id: attachments-do-not-depend-on-messaging
+    from: CommsCore.Attachments
+    forbidden: [CommsCore.Messaging]
+    condition: Messaging orchestrates transactional attachment claiming by IDs; Attachments must not import message schemas or implementation modules.
+  - id: service-accounts-do-not-depend-on-conversation-content
+    from: CommsCore.ServiceAccounts
+    forbidden: [CommsCore.Messaging, CommsCore.Attachments]
+    condition: ConversationContent owns service message reads, writes, search, and attachment policy; ServiceAccounts supplies only identity and scoped capability validation.
+  - id: accounts-do-not-depend-on-conversations
+    from: CommsCore.Accounts
+    forbidden: [CommsCore.Conversations]
+    condition: IdentityAccess composes the initial channel through its transaction-scoped bootstrap port; Accounts must not import Conversations facades, contracts, schemas, or implementation modules.
+  - id: service-accounts-do-not-depend-on-conversations
+    from: CommsCore.ServiceAccounts
+    forbidden: [CommsCore.Conversations]
+    condition: Conversations owns service directory and membership policy; ServiceAccounts validates only the durable service identity and requested capability.
+  - id: invitations-do-not-depend-on-accounts
+    from: CommsCore.Administration.Invitations
+    forbidden: [CommsCore.Accounts]
+    condition: TenantAdministration invokes IdentityAccess only through its exact configured ports; Invitations must not import the Accounts facade, contracts, schemas, or implementation modules.
+  - id: accounts-do-not-depend-on-calls
+    from: CommsCore.Accounts
+    forbidden: [CommsCore.AudioCalls]
+    condition: IdentityAccess contributes session, device, and user-access revocation through its transaction-required CallLifecyclePort; Accounts must not import the Calls facade, contracts, schemas, or implementation modules.
+  - id: password-recovery-does-not-depend-on-calls
+    from: CommsCore.PasswordRecovery
+    forbidden: [CommsCore.AudioCalls]
+    condition: The public recovery facade delegates to IdentityAccess, whose internal recovery workflow invokes the consumer-owned CallLifecyclePort on the existing transaction.
+  - id: tenant-administration-does-not-depend-on-calls
+    from: CommsCore.Administration
+    forbidden: [CommsCore.AudioCalls]
+    condition: TenantAdministration contributes media-disable revocation through its transaction-required CallLifecyclePort; it must not invoke the Calls facade directly.
+  - id: conversations-do-not-depend-on-calls
+    from: CommsCore.Conversations
+    forbidden: [CommsCore.AudioCalls]
+    condition: Conversations contributes membership and archive revocation through its transaction-required CallLifecyclePort; it must not invoke the Calls facade directly.
+  - id: authorization-namespace-remains-retired
+    from: CommsCore
+    forbidden: [CommsCore.Authorization]
+    condition: Authorization policy belongs to the owner of protected state; the deleted centralized authorization namespace must not be declared or referenced again.
+
+runtime_collaborations:
+  - id: identity-call-lifecycle
+    consumer: identity_access
+    provider: calls
+    port: CommsCore.Accounts.CallLifecyclePort
+    result_contract: CommsCore.Accounts.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    operations:
+      - {name: revoke_identity_access, arity: 1}
+    binding:
+      application: comms_core
+      key: identity_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: identity_access_to_calls
+      compile_dependency: calls_to_identity_access
+      static_cycle_policy: dependency_inversion
+    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while Calls revokes matching admissions and schedules durable participant eviction on the caller transaction; callers, operation, command variants, receipt, and binding may not grow without architecture review.
+  - id: identity-initial-conversation-bootstrap
+    consumer: identity_access
+    provider: conversations
+    port: CommsCore.Accounts.ConversationBootstrapPort
+    result_contract: CommsCore.Accounts.InitialConversationReceipt
+    implementation: CommsCore.Conversations
+    callers: [CommsCore.Accounts]
+    operations:
+      - {name: create_initial_channel, arity: 1}
+      - {name: fetch_initial_channel, arity: 2}
+    binding:
+      application: comms_core
+      key: identity_conversation_bootstrap_adapter
+      module: CommsCore.Conversations
+    transaction: required
+    graph_semantics:
+      control_flow: identity_access_to_conversations
+      compile_dependency: conversations_to_identity_access
+      static_cycle_policy: dependency_inversion
+    condition: IdentityAccess owns the narrow bootstrap command/result contract while Conversations implements and persists its owner contribution on the caller transaction; this reviewed runtime collaboration is reported separately from compiled context edges and may not grow beyond the declared operations or caller.
+  - id: identity-notification-lifecycle
+    consumer: identity_access
+    provider: notification_delivery
+    port: CommsCore.Accounts.NotificationPort
+    result_contract: CommsCore.Accounts.NotificationReceipt
+    implementation: CommsCore.Notifications
+    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    operations:
+      - {name: execute, arity: 1}
+    binding:
+      application: comms_core
+      key: identity_notification_adapter
+      module: CommsCore.Notifications
+    transaction: required
+    graph_semantics:
+      control_flow: identity_access_to_notification_delivery
+      compile_dependency: notification_delivery_to_identity_access
+      static_cycle_policy: dependency_inversion
+    condition: IdentityAccess owns the recovery and access-revocation command/result contract while NotificationDelivery implements the contribution on the caller transaction; this reviewed collaboration may not acquire new callers, operations, or bindings without architecture review.
+  - id: tenant-identity-access
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.IdentityAccessPort
+    result_contract: CommsCore.Administration.IdentityGrant
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration.AuthorizationPolicy]
+    operations:
+      - {name: resolve_access, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_identity_access_adapter
+      module: CommsCore.Accounts
+    transaction: independent
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the bounded access-grant query contract while IdentityAccess verifies canonical user, tenant, device, and session state; callers may not bypass this exact query port.
+  - id: tenant-authorization-actor
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.AuthorizationActorPort
+    result_contract: CommsCore.Administration.AuthorizationActor
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration.AuthorizationPolicy]
+    operations:
+      - {name: resolve_authorization_actor, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_authorization_actor_adapter
+      module: CommsCore.Accounts
+    transaction: independent
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the exact authorization-attribution DTO while IdentityAccess verifies the claimed tenant and user; the request correlation id must match the caller subject exactly.
+  - id: tenant-call-lifecycle
+    consumer: tenant_administration
+    provider: calls
+    port: CommsCore.Administration.CallLifecyclePort
+    result_contract: CommsCore.Administration.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Administration]
+    operations:
+      - {name: revoke_tenant_media, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_calls
+      compile_dependency: calls_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the exact media-disable command and receipt while Calls revokes only the requested tenant media kind on the settings-update transaction; caller, operation, command variant, receipt, and binding may not grow without architecture review.
+  - id: tenant-invitation-identity
+    consumer: tenant_administration
+    provider: identity_access
+    port: CommsCore.Administration.InvitationIdentityPort
+    result_contract: CommsCore.Administration.InvitedIdentityReceipt
+    implementation: CommsCore.Accounts
+    callers: [CommsCore.Administration.Invitations]
+    operations:
+      - {name: authorize_invitation, arity: 1}
+      - {name: validate_invitation_password, arity: 1}
+      - {name: ensure_invitation_identity_available, arity: 2}
+      - {name: enroll_invited_user, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_invitation_identity_adapter
+      module: CommsCore.Accounts
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_identity_access
+      compile_dependency: identity_access_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the invitation workflow command and receipt contracts while IdentityAccess verifies role assignment, identity uniqueness, active-user capacity, and enrollment on the caller transaction.
+  - id: conversation-call-lifecycle
+    consumer: conversations
+    provider: calls
+    port: CommsCore.Conversations.CallLifecyclePort
+    result_contract: CommsCore.Conversations.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Conversations]
+    operations:
+      - {name: revoke_conversation_access, arity: 1}
+    binding:
+      application: comms_core
+      key: conversation_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: conversations_to_calls
+      compile_dependency: calls_to_conversations
+      static_cycle_policy: dependency_inversion
+    condition: Conversations owns the exact membership/archive revocation command and receipt while Calls revokes matching admissions on the membership or archive transaction; caller, operation, command variants, receipt, and binding may not grow without architecture review.
+
+technical_interfaces:
+  - id: web-validation-error-rendering
+    owner: platform_runtime
+    interface: CommsCore.ValidationError
+    callers: [CommsWeb.FallbackController]
+    operations:
+      - {name: from, arity: 1}
+    dispatch: direct
+    contracts: [CommsCore.ValidationError]
+    transaction: independent
+    condition: The web fallback adapter renders only the stable validation-error DTO and cannot depend on Ecto.Changeset.
+  - id: worker-attachment-restore-release
+    owner: platform_runtime
+    interface: CommsCore.Release
+    callers: [CommsWorkers.Release]
+    operations:
+      - {name: remap_restored_attachment_versions, arity: 1}
+    dispatch: direct
+    contracts:
+      - CommsCore.Attachments.RestoreCandidate
+      - CommsCore.Attachments.RestoredObjectIdentity
+    transaction: independent
+    condition: The one-shot worker release adapter supplies a verifier over Ecto-free restore contracts while CommsCore.Release owns repository startup and transaction scope.
+  - id: worker-outbox-publication
+    owner: platform_eventing
+    interface: CommsCore.Outbox
+    callers: [CommsWorkers.OutboxWorker]
+    operations:
+      - {name: fetch_for_publication, arity: 2}
+      - {name: mark_published, arity: 2}
+      - {name: record_attempt, arity: 2}
+    dispatch: direct
+    contracts: [CommsCore.Outbox.Event]
+    transaction: independent
+    condition: The publication worker consumes only the stable event envelope and exact authorized publication operations; OutboxEvent, Repo, and Oban persistence remain owner-internal.
+  - id: notification-availability-adapter
+    owner: notification_delivery
+    interface: CommsCore.Notifications.AvailabilityNotifier
+    callers: [CommsCore.Notifications]
+    operations:
+      - {name: notify, arity: 1}
+    dispatch: configured
+    contracts: [CommsCore.Notifications.Availability]
+    behaviour: CommsCore.Notifications.AvailabilityNotifier.Contract
+    implementation: CommsWeb.NotificationAvailabilityNotifier
+    binding:
+      application: comms_core
+      key: notification_availability_notifier
+      module: CommsWeb.NotificationAvailabilityNotifier
+    transaction: independent
+    condition: NotificationDelivery emits only the content-free availability projection through the exact configured web adapter; an outbox retry may re-signal the same idempotent intent after a delivery error, and no persistence struct crosses the boundary.
+
+retired_modules:
+  - CommsCore.Authorization
+  - CommsCore.InAppNotifications
+  - CommsCore.PushSubscriptions
+
+retired_runtime_bindings:
+  - {application: comms_core, key: authorization_adapter}
+
+tables:
+  tenants: {owner: tenant_administration, canonical_schema: CommsCore.Administration.Tenant, role: source}
+  tenant_settings: {owner: tenant_administration, canonical_schema: CommsCore.Administration.TenantSettings, role: source}
+  invitations: {owner: tenant_administration, canonical_schema: CommsCore.Administration.Invitation, role: source}
+  users: {owner: identity_access, canonical_schema: CommsCore.Accounts.User, role: source}
+  devices: {owner: identity_access, canonical_schema: CommsCore.Accounts.Device, role: source}
+  sessions: {owner: identity_access, canonical_schema: CommsCore.Accounts.Session, role: source}
+  socket_tickets: {owner: identity_access, canonical_schema: CommsCore.Accounts.SocketTicket, role: source}
+  password_recovery_requests: {owner: identity_access, canonical_schema: CommsCore.Accounts.PasswordRecoveryRequest, role: source}
+  platform_role_grants: {owner: identity_access, canonical_schema: CommsCore.Accounts.PlatformRoleGrant, role: source}
+  service_accounts: {owner: identity_access, canonical_schema: CommsCore.ServiceAccounts.ServiceAccount, role: source}
+  conversations: {owner: conversations, canonical_schema: CommsCore.Conversations.Conversation, role: source}
+  conversation_memberships: {owner: conversations, canonical_schema: CommsCore.Conversations.Membership, role: source}
+  messages: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Message, role: source}
+  message_mentions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageMention, role: source}
+  message_reactions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Reaction, role: source}
+  message_revisions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageRevision, role: source}
+  attachments: {owner: conversation_content, canonical_schema: CommsCore.Attachments.Attachment, role: source}
+  attachment_scan_attempts: {owner: conversation_content, canonical_schema: CommsCore.Attachments.ScanAttempt, role: source}
+  audio_calls: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCall, role: source}
+  audio_call_participants: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCallParticipant, role: source}
+  notification_preferences: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Preference, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
+  notification_intents: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Intent, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications, CommsCore.Operations]}
+  notification_attempts: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Attempt, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
+  push_subscriptions: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.PushSubscription, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
+  webhook_endpoints: {owner: webhook_management, canonical_schema: CommsCore.Integrations.WebhookEndpoint, role: source}
+  webhook_subscriptions: {owner: webhook_management, canonical_schema: CommsCore.Integrations.WebhookSubscription, role: source}
+  webhook_secret_versions: {owner: webhook_management, canonical_schema: CommsCore.Integrations.WebhookSecret, role: source}
+  webhook_deliveries: {owner: webhook_management, canonical_schema: CommsCore.Integrations.WebhookDelivery, role: source}
+  moderation_cases: {owner: trust_governance, canonical_schema: CommsCore.Moderation.ModerationCase, role: source}
+  moderation_actions: {owner: trust_governance, canonical_schema: CommsCore.Moderation.ModerationAction, role: source}
+  retention_policies: {owner: trust_governance, canonical_schema: CommsCore.Governance.RetentionPolicy, role: source}
+  legal_holds: {owner: trust_governance, canonical_schema: CommsCore.Governance.LegalHold, role: source}
+  deletion_requests: {owner: trust_governance, canonical_schema: CommsCore.Governance.DeletionRequest, role: source}
+  audit_events: {owner: audit, canonical_schema: CommsCore.Audit.AuditEvent, role: source, access: owner_only, access_namespaces: [CommsCore.Audit]}
+  oban_jobs: {owner: platform_persistence, canonical_schema: Oban.Job, role: technical, external_schema: true}
+  oban_peers: {owner: platform_persistence, canonical_accessor: Oban.Peers.Database, role: technical, external_schema: true}
+  outbox_events: {owner: platform_eventing, canonical_schema: CommsCore.Events.OutboxEvent, role: technical}
+  schema_migrations: {owner: platform_persistence, canonical_schema: Ecto.Migration.SchemaMigration, role: technical, external_schema: true}
+
+read_model_exceptions:
+  - id: operations-cross-context-read-model
+    module: CommsCore.Operations
+    mode: read_only
+    owners: [identity_access, tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
+    access:
+      public_contracts:
+        - CommsCore.Administration.AdmissionPolicy
+        - CommsCore.Conversations.AdmissionUsage
+      public_queries:
+        - CommsCore.AdmissionQuotas.admission_policy/1
+        - CommsCore.Administration.authorize_administer_tenant/1
+        - CommsCore.Accounts.active_user_count/1
+        - CommsCore.Accounts.authorize_view_platform_operations/1
+        - CommsCore.Conversations.admission_usage/1
+      source_tables: [attachments, notification_intents, webhook_deliveries, oban_jobs, outbox_events]
+    condition: CommsCore.Operations may execute only the declared operational source-table reads and exact owner projection queries; owner-command calls, Repo writes, raw SQL DML or DDL, and source-table ownership are prohibited.
+  - id: governance-retention-defaults
+    module: CommsCore.Governance.RetentionDefaultsReader
+    mode: read_only
+    owners: [tenant_administration]
+    access:
+      public_contracts: [CommsCore.Administration.RetentionDefaults]
+      public_queries: [CommsCore.Administration.retention_defaults/1]
+      source_tables: []
+    condition: The internal Governance reader may call only CommsCore.Administration.retention_defaults/1 and consume RetentionDefaults; it may not import TenantSettings or read or write tenant_settings directly.
+
+migration_exceptions:
+  - id: historical-mixed-migrations
+    paths:
+      - apps/comms_core/priv/repo/migrations/20260711000100_create_core_tables.exs
+      - apps/comms_core/priv/repo/migrations/20260712000100_complete_mvp_schema.exs
+      - apps/comms_core/priv/repo/migrations/20260712000200_enforce_tenant_relationships.exs
+      - apps/comms_core/priv/repo/migrations/20260712000300_add_administration_and_governance.exs
+      - apps/comms_core/priv/repo/migrations/20260712000310_add_integrations_safety_operations.exs
+      - apps/comms_core/priv/repo/migrations/20260712000320_harden_administration_and_governance.exs
+      - apps/comms_core/priv/repo/migrations/20260712000330_harden_integrations_and_attachment_identity.exs
+      - apps/comms_core/priv/repo/migrations/20260712000380_add_push_subscriptions.exs
+      - apps/comms_core/priv/repo/migrations/20260712000390_add_mentions_threads_and_notification_state.exs
+      - apps/comms_core/priv/repo/migrations/20260715000100_add_audio_calls.exs
+      - apps/comms_core/priv/repo/migrations/20260715000400_add_video_calls.exs
+    condition: Historical only; every new migration must touch tables owned by one context or add a specific ADR-backed exception.

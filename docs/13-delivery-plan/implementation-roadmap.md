@@ -2,7 +2,9 @@
 
 ## Phase 0 — Decisions and proof points
 
-- Resolve E2EE, voice/video, scale, retention, RPO/RTO, residency, and client scope.
+- Resolve E2EE, call/media-plane boundaries, scale, retention, RPO/RTO,
+  residency, and client scope. ADR-0025 resolves the audio/video boundary while
+  production provider evidence remains open.
 - Approve critical ADRs.
 - Prototype message transaction, sequence allocation, channel replay, and node failure.
 - Establish baseline repository, CI, environments, and telemetry.
@@ -30,6 +32,7 @@
 ## Phase 3 — Product completion
 
 - Attachments, notifications, search, reactions, replies, read state
+- Unified one-to-one/group audio/video calls and explicit screen sharing
 - Moderation, audit, retention, integrations
 - Mobile/desktop synchronization contracts
 
@@ -48,4 +51,4 @@
 
 - Sharding/partitioning as evidence requires
 - Advanced compliance and enterprise identity
-- Optional media plane, federation, E2EE, or multi-region architecture
+- Media-region/group-scale evolution, federation, E2EE, or multi-region architecture

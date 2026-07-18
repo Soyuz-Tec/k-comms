@@ -2,6 +2,8 @@
 /deps/
 /cover/
 /doc/
+__pycache__/
+*.py[cod]
 /.elixir_ls/
 /.lexical/
 /.idea/
