@@ -1,12 +1,28 @@
-defmodule CommsWorkers.OutboxWorkerTest.FailingAvailabilityNotifier do
-  def notify(_intent), do: {:error, :forced_availability_failure}
+defmodule CommsWorkers.OutboxWorkerTest.FailOnceAvailabilityNotifier do
+  @behaviour CommsCore.Notifications.AvailabilityNotifier.Contract
+
+  @impl true
+  def notify(_availability) do
+    tracker =
+      Application.fetch_env!(
+        :comms_core,
+        :notification_availability_notifier_test_tracker
+      )
+
+    Agent.get_and_update(tracker, fn
+      0 -> {{:error, :forced_availability_failure}, 1}
+      attempt_count -> {:ok, attempt_count + 1}
+    end)
+  end
 end
 
 defmodule CommsWorkers.OutboxWorkerTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Conversations
-  alias CommsCore.Events.OutboxEvent
+  alias CommsCore.Notifications
+  alias CommsCore.Outbox
+  alias CommsCore.Outbox.Event
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
   alias CommsWorkers.OutboxWorker
@@ -21,25 +37,19 @@ defmodule CommsWorkers.OutboxWorkerTest do
     event = outbox_event(account.tenant.id)
 
     assert :ok = OutboxWorker.perform(%Oban.Job{args: %{"event_id" => event.id}})
-
-    published = Repo.get!(OutboxEvent, event.id)
-    assert published.published_at
-    assert published.attempts == 1
+    assert :already_published = Outbox.fetch_for_publication(event.id, OutboxWorker)
   end
 
   test "does not republish a completed event" do
     account = Fixtures.account_fixture()
-    published_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    event = outbox_event(account.tenant.id, published_at: published_at, attempts: 3)
+    event = outbox_event(account.tenant.id)
+    assert :ok = Outbox.mark_published(event.id, OutboxWorker)
 
     assert :ok = OutboxWorker.perform(%Oban.Job{args: %{"event_id" => event.id}})
-
-    persisted = Repo.get!(OutboxEvent, event.id)
-    assert persisted.published_at == published_at
-    assert persisted.attempts == 3
+    assert :already_published = Outbox.fetch_for_publication(event.id, OutboxWorker)
   end
 
-  test "records one attempt and leaves the event pending when delivery fanout fails" do
+  test "retries availability signaling for an idempotent intent and then publishes the event" do
     account = Fixtures.account_fixture()
     member = Fixtures.user_fixture(account)
     subject = Fixtures.subject(account)
@@ -58,17 +68,43 @@ defmodule CommsWorkers.OutboxWorkerTest do
     previous_notifier =
       Application.fetch_env!(:comms_core, :notification_availability_notifier)
 
+    tracker = start_supervised!({Agent, fn -> 0 end})
+    telemetry_handler = {__MODULE__, :attempt_recorded, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        telemetry_handler,
+        [:k_comms, :outbox, :attempt, :recorded],
+        fn event_name, measurements, metadata, test_pid ->
+          send(test_pid, {event_name, measurements, metadata})
+        end,
+        self()
+      )
+
     Application.put_env(
       :comms_core,
       :notification_availability_notifier,
-      CommsWorkers.OutboxWorkerTest.FailingAvailabilityNotifier
+      CommsWorkers.OutboxWorkerTest.FailOnceAvailabilityNotifier
+    )
+
+    Application.put_env(
+      :comms_core,
+      :notification_availability_notifier_test_tracker,
+      tracker
     )
 
     on_exit(fn ->
+      :telemetry.detach(telemetry_handler)
+
       Application.put_env(
         :comms_core,
         :notification_availability_notifier,
         previous_notifier
+      )
+
+      Application.delete_env(
+        :comms_core,
+        :notification_availability_notifier_test_tracker
       )
     end)
 
@@ -87,9 +123,25 @@ defmodule CommsWorkers.OutboxWorkerTest do
     assert {:error, :forced_availability_failure} =
              OutboxWorker.perform(%Oban.Job{args: %{"event_id" => event.id}})
 
-    persisted = Repo.get!(OutboxEvent, event.id)
-    assert persisted.attempts == 1
-    assert is_nil(persisted.published_at)
+    assert_receive {[:k_comms, :outbox, :attempt, :recorded], %{count: 1}, %{event_id: event_id}}
+
+    assert event_id == event.id
+    assert Agent.get(tracker, & &1) == 1
+
+    assert {:ok, %Event{id: pending_event_id}} =
+             Outbox.fetch_for_publication(event.id, OutboxWorker)
+
+    assert pending_event_id == event.id
+
+    assert :ok = OutboxWorker.perform(%Oban.Job{args: %{"event_id" => event.id}})
+    assert Agent.get(tracker, & &1) == 2
+    assert :already_published = Outbox.fetch_for_publication(event.id, OutboxWorker)
+
+    assert {:ok, %{notifications: [_intent]}} =
+             Notifications.list_in_app(%{
+               tenant_id: account.tenant.id,
+               user_id: member.user.id
+             })
   end
 
   defp outbox_event(tenant_id, overrides \\ []) do
@@ -104,8 +156,7 @@ defmodule CommsWorkers.OutboxWorkerTest do
       }
       |> Map.merge(Map.new(overrides))
 
-    %OutboxEvent{}
-    |> OutboxEvent.changeset(attrs)
-    |> Repo.insert!()
+    {:ok, event} = Repo.transaction(fn -> Outbox.insert_and_enqueue!(attrs) end)
+    event
   end
 end

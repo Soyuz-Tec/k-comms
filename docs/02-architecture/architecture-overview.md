@@ -1,7 +1,8 @@
 # Architecture Overview
 
 **Status:** Accepted implementation baseline for K-Comms 0.3.0
-**Style:** Modular monolith with independently scalable runtime roles
+**Style:** Modular monolith with independently scalable runtime roles and one
+explicitly deferred Calls boundary
 
 ## Architectural principles
 
@@ -50,6 +51,32 @@ composition root. They may bind core-owned ports and runtime identifiers to
 concrete adapter implementations. Concrete names must remain in that
 composition layer or in the adapter application; they must not leak back into
 `apps/comms_core/lib`.
+
+### Business-context control plane
+
+`context-boundaries.yaml` is the executable ownership source of truth. It
+assigns every production `CommsCore` module and source table exactly once,
+publishes stable facades and Ecto-free contracts, validates one-way compiled
+and runtime collaborations, and declares exact adapter-facing technical
+interfaces. Production web, worker, and integration code may reference only
+published facades/contracts or a declared technical interface; owner-internal
+schemas and projectors are rejected.
+
+The gate runs in `strict_with_explicit_deferrals` mode. Every retained
+fingerprint must map one-to-one to an ADR-backed declaration and must involve
+the Calls context or its temporary Calls-only authorization kernel. The current
+29 retained findings are therefore an explicit Calls tranche, not a generic
+migration baseline. Residual-cycle analysis rejects independent non-audio
+cycles hidden inside a Calls SCC. Paired immutable-base baseline/manifest
+comparison permits the baseline only to shrink and prevents strict enforcement
+from being removed or downgraded. No non-audio deferral is permitted.
+
+The combined diagnostic graph can still report SCCs created by declared
+dependency inversions: consumer-to-provider runtime control flow is paired
+with provider-to-consumer compile-time implementation of a consumer-owned
+port. Those exact validated inversions are accepted topology, not retained
+violation fingerprints. The only retained violation SCC is the Calls-driven
+compiled SCC.
 
 ### Persistence access policy
 
@@ -112,20 +139,23 @@ worker runtime owns provider-room cleanup and then invokes the same durable
 ended/outbox/admission-revocation transition used by an authorized manual end;
 provider failure retries without transferring lifecycle authority to LiveKit.
 
-## Boundaries
+## Business boundaries
 
-- Identity and tenancy
-- Service-principal authentication
-- Conversations and membership
-- Messaging
-- Realtime and synchronization
-- Presence
-- Attachments
-- Notifications
-- Search
-- Integrations
-- Unified audio/video call lifecycle and media-provider authorization
-- Administration and compliance
+- IdentityAccess
+- TenantAdministration
+- Conversations
+- ConversationContent, including Messaging and Attachments
+- Calls
+- NotificationDelivery
+- WebhookManagement
+- TrustGovernance
+- Audit
+- OperationsReadModel
+
+PlatformRuntime, PlatformPersistence, and PlatformEventing are narrow technical
+owners rather than business contexts. The authorization kernel is temporary
+and may contain only the exact Calls-specific policy clauses declared in
+ADR-0042.
 
 Tenant identity, conversation, and membership growth passes through one
 `AdmissionQuotas` domain boundary. Admission checks and tenant-limit updates
@@ -138,7 +168,10 @@ Messaging persists explicit mention recipients and canonical thread roots in
 the same transaction as the message and outbox events. Notifications consume
 those identifiers for human-only fanout. In-app read/dismiss state is durable;
 the user WebSocket topic carries only content-free availability metadata and
-clients reconcile full state through authenticated REST reads.
+clients reconcile full state through authenticated REST reads. If availability
+delivery fails after the durable intent insert, the outbox retry re-signals the
+same idempotent projection rather than creating another intent. Outbox
+event/job creation itself requires an active caller transaction.
 
 ## Evolution path
 

@@ -1,8 +1,8 @@
 version: 1
 status: enforced
-decision: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+decision: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
 enforcement:
-  mode: baseline
+  mode: strict_with_explicit_deferrals
   target_mode: strict_with_explicit_deferrals
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
@@ -192,20 +192,31 @@ enforcement:
         - d312276f5a39310f
       adr: docs/02-architecture/adr/0041-assign-tenants-to-tenant-administration.md
       removal_condition: Remove this exact 46-to-32 finding transition after the TenantAdministration ownership baseline is present on the protected branch; it may not authorize any later fingerprint delta.
+    - id: complete-non-audio-modularization
+      previous_baseline_sha256: 9190df9731fc781d1154e9e9d6ec1b27f7557a60cac6afc582b8d7d6f0ceb4d6
+      added_fingerprints: []
+      removed_fingerprints:
+        - 4791022b743e09fb
+        - 8ab1b96f6b510f3d
+        - c06055a43f05a1f7
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+      removal_condition: Remove this exact 32-to-29 transition after the internal platform and adapter cleanup is present and strict_with_explicit_deferrals is active; it may not authorize any later fingerprint delta.
   strict_with_explicit_deferrals:
-    active: false
-    activation_condition: Regenerate the truthful graph after every production module has exactly one owner, then map every retained baseline fingerprint to exactly one reviewed temporary violation.
+    active: true
+    activation_condition: The truthful non-audio graph is complete and every retained baseline fingerprint maps exactly once to the separately authorized Calls boundary.
     exact_mapping: true
     reject_missing_declarations: true
     reject_stale_declarations: true
     reject_duplicate_fingerprints: true
     require_base_branch_no_growth: true
     require_deterministic_report: true
+    allowed_deferral_contexts: [authorization_kernel, calls]
     non_baselinable_rules:
       - ambiguous_context_owner
       - direct_foreign_write
       - duplicate_table_mapping
       - invalid_runtime_collaboration
+      - invalid_technical_interface
       - invalid_temporary_violation
       - public_ecto_contract
       - unclassified_core_module
@@ -540,7 +551,7 @@ runtime_collaborations:
     port: CommsCore.Administration.IdentityAccessPort
     result_contract: CommsCore.Administration.IdentityGrant
     implementation: CommsCore.Accounts
-    callers: [CommsCore.Administration]
+    callers: [CommsCore.Administration.AuthorizationPolicy]
     operations:
       - {name: resolve_access, arity: 1}
     binding:
@@ -559,7 +570,7 @@ runtime_collaborations:
     port: CommsCore.Administration.AuthorizationActorPort
     result_contract: CommsCore.Administration.AuthorizationActor
     implementation: CommsCore.Accounts
-    callers: [CommsCore.Administration]
+    callers: [CommsCore.Administration.AuthorizationPolicy]
     operations:
       - {name: resolve_authorization_actor, arity: 1}
     binding:
@@ -594,6 +605,58 @@ runtime_collaborations:
       compile_dependency: identity_access_to_tenant_administration
       static_cycle_policy: dependency_inversion
     condition: TenantAdministration owns the invitation workflow command and receipt contracts while IdentityAccess verifies role assignment, identity uniqueness, active-user capacity, and enrollment on the caller transaction.
+
+technical_interfaces:
+  - id: web-validation-error-rendering
+    owner: platform_runtime
+    interface: CommsCore.ValidationError
+    callers: [CommsWeb.FallbackController]
+    operations:
+      - {name: from, arity: 1}
+    dispatch: direct
+    contracts: [CommsCore.ValidationError]
+    transaction: independent
+    condition: The web fallback adapter renders only the stable validation-error DTO and cannot depend on Ecto.Changeset.
+  - id: worker-attachment-restore-release
+    owner: platform_runtime
+    interface: CommsCore.Release
+    callers: [CommsWorkers.Release]
+    operations:
+      - {name: remap_restored_attachment_versions, arity: 1}
+    dispatch: direct
+    contracts:
+      - CommsCore.Attachments.RestoreCandidate
+      - CommsCore.Attachments.RestoredObjectIdentity
+    transaction: independent
+    condition: The one-shot worker release adapter supplies a verifier over Ecto-free restore contracts while CommsCore.Release owns repository startup and transaction scope.
+  - id: worker-outbox-publication
+    owner: platform_eventing
+    interface: CommsCore.Outbox
+    callers: [CommsWorkers.OutboxWorker]
+    operations:
+      - {name: fetch_for_publication, arity: 2}
+      - {name: mark_published, arity: 2}
+      - {name: record_attempt, arity: 2}
+    dispatch: direct
+    contracts: [CommsCore.Outbox.Event]
+    transaction: independent
+    condition: The publication worker consumes only the stable event envelope and exact authorized publication operations; OutboxEvent, Repo, and Oban persistence remain owner-internal.
+  - id: notification-availability-adapter
+    owner: notification_delivery
+    interface: CommsCore.Notifications.AvailabilityNotifier
+    callers: [CommsCore.Notifications]
+    operations:
+      - {name: notify, arity: 1}
+    dispatch: configured
+    contracts: [CommsCore.Notifications.Availability]
+    behaviour: CommsCore.Notifications.AvailabilityNotifier.Contract
+    implementation: CommsWeb.NotificationAvailabilityNotifier
+    binding:
+      application: comms_core
+      key: notification_availability_notifier
+      module: CommsWeb.NotificationAvailabilityNotifier
+    transaction: independent
+    condition: NotificationDelivery emits only the content-free availability projection through the exact configured web adapter; an outbox retry may re-signal the same idempotent intent after a delivery error, and no persistence struct crosses the boundary.
 
 retired_modules:
   - CommsCore.InAppNotifications
@@ -708,76 +771,55 @@ temporary_violations:
     business_context_cycle: Remove the bidirectional edge or document a narrowly reviewed exception.
     runtime_context_cycle: Remove the bidirectional runtime collaboration or document one exact invariant and removal condition.
   groups:
-    - id: baseline-business-context-cycle
+    - id: deferred-calls-business-context-cycle
       rule: business_context_cycle
       fingerprints: [a26844eb317ed35d]
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: Remove the non-media reverse edges represented by this exact SCC fingerprint; any later Calls-driven SCC must have its own newly reviewed exact declaration.
-    - id: baseline-foreign-schema-imports
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+      removal_condition: In the separately authorized Calls tranche, replace the exact Calls-driven SCC with one-way facade, DTO, command, and event contracts; no other cycle may join this deferral.
+    - id: deferred-calls-foreign-schema-imports
       rule: foreign_schema_import
       fingerprints:
-        - fc1a11f2a5f8452a
+        - 245ad9a0716b68dd
         - 605ae97a5fa655cc
-        - 7fbfb2c4017910ce
-        - 9fa2f7bb1abcc6b0
-        - 6af6e9564cd1b152
+        - 64ebb8611dae56b3
         - 66c2fbf2a79936f4
-        - 7c601f7c21a5fe6c
-        - 96d281b6465f8b8b
+        - 6af6e9564cd1b152
         - 6b641d47b77c08c7
+        - 7c601f7c21a5fe6c
+        - 7fbfb2c4017910ce
         - 8dd4f3b5e1378ffb
+        - 96d281b6465f8b8b
+        - 99cd7470375bce8f
+        - 9fa2f7bb1abcc6b0
+        - a99d73667cfe396f
+        - c94c7774541553d1
+        - d4743d3326027747
         - db68fcb3dac3ef04
         - de83107f64cbc690
-        - 99cd7470375bce8f
         - e3c6574035e85b56
-        - c94c7774541553d1
-        - c06055a43f05a1f7
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: Replace every listed foreign Ecto schema reference with the owning facade, an Ecto-free DTO or projection, or an owner-contributed transaction API; remove each fingerprint as its call site is migrated.
-    - id: baseline-internal-schema-access
-      rule: internal_schema_access
-      fingerprints:
-        - 4791022b743e09fb
-        - 8ab1b96f6b510f3d
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: Move each persistence access into its owner's declared implementation namespace and expose only a stable facade result.
-    - id: baseline-undeclared-context-edges
+        - fc1a11f2a5f8452a
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+      removal_condition: In the separately authorized Calls tranche, replace these exact AudioCalls and Calls-only Authorization.Database schema references with Calls-owned persistence and Ecto-free owner contracts; no other fingerprint may join this deferral.
+    - id: deferred-calls-undeclared-context-edges
       rule: undeclared_context_edge
       fingerprints:
-        - 889ca078f04b8132
-        - 0e985916a4de06ec
         - 0189e4bac08f3c6e
-        - 4f52bd7c42b47a5d
+        - 0e985916a4de06ec
         - 47659f71148ad7cd
-        - bec8b11dfcf061c7
+        - 4f52bd7c42b47a5d
         - 7c47ce0ca3e555a9
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: Remove the listed undeclared compiled edge or replace it with a reviewed one-way owner contract or exact runtime collaboration; do not add it to allowed_dependencies merely to silence validation.
-    - id: deferred-calls-tenant-schema-relocation
-      rule: foreign_schema_import
-      fingerprints:
-        - 64ebb8611dae56b3
-        - a99d73667cfe396f
-        - d4743d3326027747
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: In the separately authorized Calls tranche, replace these exact TenantAdministration schema references with scalar IDs and Calls-owned policy inputs; no other fingerprint may join this deferral.
-    - id: deferred-authorization-tenant-schema-relocation
-      rule: foreign_schema_import
-      fingerprints: [245ad9a0716b68dd]
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: In the separately authorized Calls tranche, move this exact tenant decision behind the Calls facade and delete Authorization.Database; no other fingerprint may join this deferral.
-    - id: deferred-authorization-tenant-edge-relocation
-      rule: undeclared_context_edge
-      fingerprints: [eb0650068879158b]
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
-      removal_condition: In the separately authorized Calls tranche, remove this exact Authorization.Database-to-TenantAdministration edge with the transitional authorization kernel; no other fingerprint may join this deferral.
+        - 889ca078f04b8132
+        - bec8b11dfcf061c7
+        - eb0650068879158b
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+      removal_condition: In the separately authorized Calls tranche, remove these exact incoming, outgoing, and Calls-only authorization edges through stable one-way APIs; no other edge may join this deferral.
   explicit:
     - id: deferred-audio-call-presenter-projection
       fingerprint: 7a1ffc82ac877370
       rule: adapter_schema_import
       path: apps/comms_web/lib/comms_web/presenter.ex
       detail: adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall
-      adr: docs/02-architecture/adr/0035-complete-boundary-control-plane.md
+      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
       removal_condition: Replace the presenter input with a Calls-owned Ecto-free call view when the separately authorized Calls boundary tranche begins.
       mode: read_only
-      condition: Proof Point 5 explicitly excludes unrelated audio/video work; replace with a Calls-owned view when that work resumes.
+      condition: The non-audio endgame explicitly excludes Calls behavior; replace this exact presenter input when the separately authorized Calls tranche begins.

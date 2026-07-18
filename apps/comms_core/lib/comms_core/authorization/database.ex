@@ -7,7 +7,7 @@ defmodule CommsCore.Authorization.Database do
   boundary and must be deleted in the separate Calls tranche.
   """
 
-  @behaviour CommsCore.Authorization
+  @behaviour CommsCore.Authorization.Policy
 
   import Ecto.Query
 

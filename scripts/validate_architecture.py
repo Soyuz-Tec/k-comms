@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -73,6 +74,7 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "invalid_read_model_exception",
         "invalid_runtime_collaboration",
         "invalid_table_declaration",
+        "invalid_technical_interface",
         "invalid_temporary_violation",
         "multiple_context_modules_file",
         "public_ecto_contract",
@@ -92,6 +94,7 @@ NO_NEW_DEFERRAL_RULES = frozenset(
 SUPPORTED_ENFORCEMENT_MODES = frozenset(
     {"baseline", "strict", "strict_with_explicit_deferrals"}
 )
+REQUIRED_ENFORCED_TARGET_MODE = "strict_with_explicit_deferrals"
 
 ALLOWED_UMBRELLA_DEPENDENCIES: dict[str, frozenset[str]] = {
     "comms_core": frozenset(),
@@ -126,9 +129,16 @@ GROUPED_REPO_ALIAS_RE = re.compile(
     r"\balias\s+CommsCore\.\{[^}]*\bRepo\b[^}]*\}", re.DOTALL
 )
 MODULE_RE = re.compile(
-    r"^defmodule\s+(CommsCore(?:\.[A-Z][A-Za-z0-9_]*)+)", re.MULTILINE
+    r"^[ \t]*defmodule\s*(?:\(\s*)?(?:Elixir\.)?"
+    r"(CommsCore(?:\.[A-Z][A-Za-z0-9_]*)+)\s*\)?",
+    re.MULTILINE,
 )
-SCHEMA_RE = re.compile(r'^\s*schema\s+"([a-z0-9_]+)"', re.MULTILINE)
+RELEASED_MODULE_RE = re.compile(
+    r"^[ \t]*defmodule\s*(?:\(\s*)?(?:Elixir\.)?"
+    r"((?:CommsCore|CommsWeb|CommsWorkers|CommsIntegrations|CommsObservability)"
+    r"(?:\.[A-Z][A-Za-z0-9_]*)+)\s*\)?",
+    re.MULTILINE,
+)
 CORE_MODULE_REFERENCE_RE = re.compile(r"\b(CommsCore(?:\.[A-Z][A-Za-z0-9_]*)+)\b")
 GROUPED_CORE_ALIAS_RE = re.compile(
     r"\balias\s+(CommsCore(?:\.[A-Z][A-Za-z0-9_]*)*)\.\{([^}]+)\}",
@@ -154,6 +164,12 @@ GENERIC_GROUPED_ALIAS_RE = re.compile(
     rf"\balias\s+({GENERIC_MODULE_NAME})\.\{{" r"([^}]+)\}",
     re.DOTALL,
 )
+PARENTHESIZED_GROUPED_ALIAS_RE = re.compile(
+    rf"\balias\s*\(\s*({GENERIC_MODULE_NAME})\.\{{"
+    r"([^}]+)\}"
+    r"\s*(?:,[^)]*)?\)",
+    re.DOTALL,
+)
 GENERIC_IMPORT_RE = re.compile(
     rf"^\s*import\s+({GENERIC_MODULE_NAME})\b",
     re.MULTILINE,
@@ -168,10 +184,6 @@ QUALIFIED_FUNCTION_REFERENCE_RE = re.compile(
 )
 CALLBACK_RE = re.compile(r"(?m)^\s*@callback\s+([a-z_][A-Za-z0-9_]*[!?]?)\s*\(")
 BEHAVIOUR_RE = re.compile(rf"(?m)^\s*@behaviou?r\s+({GENERIC_MODULE_NAME})\s*$")
-APPLICATION_BINDING_RE = re.compile(
-    r"Application\.(?:fetch_env!?|get_env)\s*\(\s*"
-    r":([a-z][a-z0-9_]*)\s*,\s*:([a-z][a-z0-9_]*)"
-)
 
 
 def canonical_text_sha256(path: Path) -> str:
@@ -359,9 +371,7 @@ def _elixir_interpolation_end(text: str, start: int) -> int | None:
     length = len(text)
     while cursor < length:
         character = text[cursor]
-        if character == "#" and not (
-            cursor > start and text[cursor - 1] == "?"
-        ):
+        if character == "#" and not (cursor > start and text[cursor - 1] == "?"):
             newline = text.find("\n", cursor)
             cursor = length if newline == -1 else newline + 1
             continue
@@ -384,6 +394,7 @@ def _elixir_interpolation_end(text: str, start: int) -> int | None:
     return None
 
 
+@lru_cache(maxsize=4096)
 def elixir_code_only(text: str) -> str:
     """Return an offset-preserving view containing only executable Elixir code.
 
@@ -430,6 +441,12 @@ def core_module_declarations(text: str) -> list[str]:
     """Return real CommsCore defmodule declarations, excluding literal prose."""
 
     return MODULE_RE.findall(elixir_code_only(text))
+
+
+def released_module_declarations(text: str) -> list[str]:
+    """Return production umbrella module declarations, excluding literal prose."""
+
+    return RELEASED_MODULE_RE.findall(elixir_code_only(text))
 
 
 def validate_umbrella_dependencies(root: Path) -> list[str]:
@@ -488,7 +505,7 @@ def validate_repo_access(root: Path) -> list[str]:
             continue
         for path in production_sources(app_dir):
             text = path.read_text(encoding="utf-8")
-            if "CommsCore.Repo" not in text and not GROUPED_REPO_ALIAS_RE.search(text):
+            if "CommsCore.Repo" not in core_module_references(text):
                 continue
             path_key = relative(path, root)
             if path_key in REPO_ACCESS_ALLOWLIST:
@@ -634,41 +651,169 @@ def exact_module_reference(text: str, module: str) -> bool:
     )
 
 
+def normalize_module_name(module: str) -> str:
+    """Normalize an Elixir module atom rendered with an optional Elixir prefix."""
+
+    while module.startswith("Elixir."):
+        module = module[len("Elixir.") :]
+    return module
+
+
+def resolve_module_reference(module: str, aliases: dict[str, str]) -> str:
+    """Expand the first alias segment and normalize the resulting module."""
+
+    resolved = normalize_module_name(module)
+    seen: set[str] = set()
+    while resolved not in seen:
+        seen.add(resolved)
+        root, separator, suffix = resolved.partition(".")
+        expanded_root = aliases.get(root)
+        if not expanded_root:
+            break
+        resolved = normalize_module_name(
+            f"{expanded_root}.{suffix}" if separator else expanded_root
+        )
+    return resolved
+
+
+def ecto_schema_source(text: str) -> tuple[str | None, bool]:
+    """Resolve a literal or module-attribute Ecto schema source."""
+
+    literal = re.search(
+        r'(?m)^[ \t]*schema\s*(?:\(\s*)?"(?P<table>[a-z0-9_]+)"',
+        text,
+    )
+    if literal:
+        return literal.group("table"), False
+
+    attribute_schema = re.search(
+        r"(?m)^[ \t]*schema\s*(?:\(\s*)?"
+        r"@(?P<attribute>[a-z_][A-Za-z0-9_]*)\b",
+        text,
+    )
+    if attribute_schema:
+        attribute = attribute_schema.group("attribute")
+        declaration = re.search(
+            rf'(?m)^[ \t]*@{re.escape(attribute)}\s+"'
+            r'(?P<table>[a-z0-9_]+)"\s*$',
+            text,
+        )
+        if declaration:
+            return declaration.group("table"), False
+        return None, True
+
+    has_schema_macro = re.search(
+        r"(?m)^[ \t]*schema"
+        r"(?:\s*\([^)\n]*\)|[ \t]+[^\n]+?)"
+        r"[ \t]+do\b",
+        elixir_code_only(text),
+    )
+    return None, has_schema_macro is not None
+
+
 def discover_schemas(root: Path) -> dict[str, list[tuple[str, str]]]:
     schemas: dict[str, list[tuple[str, str]]] = {}
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
         module_match = MODULE_RE.search(elixir_code_only(text))
-        schema_match = SCHEMA_RE.search(text)
-        if module_match and schema_match:
-            schemas.setdefault(schema_match.group(1), []).append(
+        schema_source, _unresolved = ecto_schema_source(text)
+        if module_match and schema_source:
+            schemas.setdefault(schema_source, []).append(
                 (module_match.group(1), relative(path, root))
             )
     return schemas
 
 
+@lru_cache(maxsize=4096)
 def core_module_references(text: str) -> set[str]:
     code = elixir_code_only(text)
-    references = set(CORE_MODULE_REFERENCE_RE.findall(code))
+    aliases = module_aliases(code)
+    references = {
+        normalize_module_name(module)
+        for module in CORE_MODULE_REFERENCE_RE.findall(code)
+    }
     for prefix, members in GROUPED_CORE_ALIAS_RE.findall(code):
         for member in members.split(","):
             cleaned = member.strip()
             if re.fullmatch(GENERIC_MODULE_NAME, cleaned):
-                references.add(f"{prefix}.{cleaned}")
-    references.update(core_aliases(code).values())
+                references.add(resolve_module_reference(f"{prefix}.{cleaned}", aliases))
+    for token in re.findall(rf"(?<![A-Za-z0-9_])({GENERIC_MODULE_NAME})", code):
+        resolved = resolve_module_reference(token, aliases)
+        if resolved.startswith("CommsCore."):
+            references.add(resolved)
+    references.update(
+        normalize_module_name(module) for module in core_aliases(code).values()
+    )
     return references
 
 
+@lru_cache(maxsize=4096)
+def simple_module_alias_declarations(text: str) -> list[tuple[str, str]]:
+    """Return simple alias names and targets across directive syntaxes."""
+
+    text = elixir_code_only(text)
+    declarations: list[tuple[str, str]] = []
+    for declaration in re.finditer(
+        rf"(?m)^\s*alias\s+(?P<module>{GENERIC_MODULE_NAME})"
+        r"(?P<options>[^\n]*)",
+        text,
+    ):
+        options = declaration.group("options")
+        if options.lstrip().startswith(".{"):
+            continue
+        cursor = declaration.end()
+        while options.rstrip().endswith(",") and cursor < len(text):
+            line_end = text.find("\n", cursor + 1)
+            line_end = len(text) if line_end == -1 else line_end
+            options += text[cursor:line_end]
+            cursor = line_end
+        explicit = re.search(
+            r"(?:^|,)\s*as:\s*([A-Z][A-Za-z0-9_]*)",
+            options,
+        )
+        module = declaration.group("module")
+        declarations.append(
+            (
+                explicit.group(1) if explicit else module.rsplit(".", 1)[-1],
+                module,
+            )
+        )
+    for declaration in re.finditer(
+        rf"\balias\s*\(\s*(?P<module>{GENERIC_MODULE_NAME})"
+        r"(?P<options>[^)]*)\)",
+        text,
+    ):
+        if declaration.group("options").lstrip().startswith(".{"):
+            continue
+        explicit = re.search(
+            r"(?:^|,)\s*as:\s*([A-Z][A-Za-z0-9_]*)",
+            declaration.group("options"),
+        )
+        module = declaration.group("module")
+        declarations.append(
+            (
+                explicit.group(1) if explicit else module.rsplit(".", 1)[-1],
+                module,
+            )
+        )
+    return declarations
+
+
+@lru_cache(maxsize=4096)
 def module_aliases(text: str) -> dict[str, str]:
     text = elixir_code_only(text)
     aliases: dict[str, str] = {}
-    for module, explicit_name in GENERIC_SIMPLE_ALIAS_RE.findall(text):
-        aliases[explicit_name or module.rsplit(".", 1)[-1]] = module
-    for prefix, members in GENERIC_GROUPED_ALIAS_RE.findall(text):
-        for member in members.split(","):
-            cleaned = member.strip()
-            if re.fullmatch(GENERIC_MODULE_NAME, cleaned):
-                aliases[cleaned.rsplit(".", 1)[-1]] = f"{prefix}.{cleaned}"
+    for name, module in simple_module_alias_declarations(text):
+        aliases[name] = module
+    for grouped_pattern in (
+        GENERIC_GROUPED_ALIAS_RE,
+        PARENTHESIZED_GROUPED_ALIAS_RE,
+    ):
+        for prefix, members in grouped_pattern.findall(text):
+            for member in members.split(","):
+                cleaned = member.strip()
+                if re.fullmatch(GENERIC_MODULE_NAME, cleaned):
+                    aliases[cleaned.rsplit(".", 1)[-1]] = f"{prefix}.{cleaned}"
 
     for _iteration in range(len(aliases) + 1):
         changed = False
@@ -683,7 +828,7 @@ def module_aliases(text: str) -> dict[str, str]:
                 changed = True
         if not changed:
             break
-    return aliases
+    return {name: normalize_module_name(module) for name, module in aliases.items()}
 
 
 def core_aliases(text: str) -> dict[str, str]:
@@ -694,12 +839,25 @@ def core_aliases(text: str) -> dict[str, str]:
     }
 
 
+@lru_cache(maxsize=4096)
 def imported_modules(text: str) -> set[str]:
     code = elixir_code_only(text)
     aliases = module_aliases(code)
-    return {aliases.get(module, module) for module in GENERIC_IMPORT_RE.findall(code)}
+    modules = {
+        resolve_module_reference(module, aliases)
+        for module in GENERIC_IMPORT_RE.findall(code)
+    }
+    modules.update(
+        resolve_module_reference(module, aliases)
+        for module in re.findall(
+            rf"\bimport\s*\(\s*({GENERIC_MODULE_NAME})",
+            code,
+        )
+    )
+    return modules
 
 
+@lru_cache(maxsize=4096)
 def qualified_function_calls(text: str) -> set[tuple[str, str, int]]:
     """Return statically visible qualified calls with their effective arity."""
 
@@ -708,7 +866,7 @@ def qualified_function_calls(text: str) -> set[tuple[str, str, int]]:
     aliases = module_aliases(text)
     for call in QUALIFIED_CALL_RE.finditer(text):
         receiver, function = call.groups()
-        module = aliases.get(receiver, receiver)
+        module = resolve_module_reference(receiver, aliases)
         parsed = balanced_call_arguments(text, call.end() - 1)
         if not parsed:
             continue
@@ -726,19 +884,275 @@ def core_function_calls(text: str) -> set[tuple[str, str]]:
 
     return {
         (module, function)
-        for module, function, _arity in qualified_function_calls(text)
+        for module, function, _arity in resolved_function_calls(text)
         if module.startswith("CommsCore.")
     }
 
 
+@lru_cache(maxsize=4096)
+def static_module_bindings(text: str) -> dict[str, str]:
+    """Resolve simple variable and module-attribute assignments to modules."""
+
+    code = elixir_code_only(text)
+    aliases = module_aliases(code)
+    bindings: dict[str, str] = {}
+    patterns = (
+        re.compile(
+            rf"(?m)^\s*(?P<binding>[a-z_][A-Za-z0-9_]*)\s*=\s*"
+            rf"(?P<module>{GENERIC_MODULE_NAME})\s*$"
+        ),
+        re.compile(
+            rf"(?m)^\s*(?P<binding>@[a-z_][A-Za-z0-9_]*)\s+"
+            rf"(?P<module>{GENERIC_MODULE_NAME})\s*$"
+        ),
+    )
+    for pattern in patterns:
+        for assignment in pattern.finditer(code):
+            bindings[assignment.group("binding")] = resolve_module_reference(
+                assignment.group("module"),
+                aliases,
+            )
+    return bindings
+
+
+@lru_cache(maxsize=4096)
+def statically_bound_function_calls(text: str) -> set[tuple[str, str, int]]:
+    """Return calls through variables or attributes bound to static modules."""
+
+    code = elixir_code_only(text)
+    bindings = static_module_bindings(code)
+    calls: set[tuple[str, str, int]] = set()
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])(?P<receiver>@?[a-z_][A-Za-z0-9_]*)\."
+        r"(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\s*\("
+    )
+    for call in pattern.finditer(code):
+        module = bindings.get(call.group("receiver"))
+        if module is None:
+            continue
+        parsed = balanced_call_arguments(code, call.end() - 1)
+        if not parsed:
+            continue
+        arguments_text, _ = parsed
+        arity = len(split_top_level_args(arguments_text))
+        if pipeline_input_before(code, call.start()) is not None:
+            arity += 1
+        calls.add((module, call.group("function"), arity))
+    return calls
+
+
+@lru_cache(maxsize=4096)
+def delegated_function_calls(text: str) -> set[tuple[str, str, int]]:
+    """Return statically resolvable defdelegate target operations."""
+
+    code = elixir_code_only(text)
+    aliases = module_aliases(code)
+    bindings = static_module_bindings(code)
+    calls: set[tuple[str, str, int]] = set()
+    for declaration in re.finditer(
+        r"(?m)^\s*defdelegate\s+"
+        r"(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\s*\(",
+        code,
+    ):
+        parsed = balanced_call_arguments(code, declaration.end() - 1)
+        if not parsed:
+            continue
+        arguments_text, end_index = parsed
+        tail = code[end_index:]
+        boundary = re.search(
+            r"(?m)^\s*(?:def(?:p|delegate)?\b|@[a-z_]|end\b)",
+            tail,
+        )
+        options = tail[: boundary.start()] if boundary else tail
+        target_match = re.search(
+            rf"\bto:\s*(?P<target>{GENERIC_MODULE_NAME}|"
+            r"@[a-z_][A-Za-z0-9_]*|[a-z_][A-Za-z0-9_]*)",
+            options,
+        )
+        if target_match is None:
+            continue
+        target_expression = target_match.group("target")
+        target = bindings.get(target_expression)
+        if target is None and re.fullmatch(GENERIC_MODULE_NAME, target_expression):
+            target = resolve_module_reference(target_expression, aliases)
+        if target is None:
+            continue
+        delegated_function = declaration.group("function")
+        as_match = re.search(
+            r"\bas:\s*:(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)",
+            options,
+        )
+        target_function = as_match.group("function") if as_match else delegated_function
+        arguments = split_top_level_args(arguments_text)
+        defaults = sum("\\\\" in argument for argument in arguments)
+        for arity in range(len(arguments) - defaults, len(arguments) + 1):
+            calls.add((target, target_function, arity))
+    return calls
+
+
+@lru_cache(maxsize=4096)
+def resolved_function_calls(text: str) -> set[tuple[str, str, int]]:
+    """Return all statically attributable direct and delegated calls."""
+
+    return (
+        qualified_function_calls(text)
+        | statically_bound_function_calls(text)
+        | delegated_function_calls(text)
+    )
+
+
+def parenless_call_arguments(text: str, start: int) -> str:
+    """Read a same-line or comma-continued parenless call argument list."""
+
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    argument_start = index
+    depths = {"(": 0, "[": 0, "{": 0}
+    closing = {")": "(", "]": "[", "}": "{"}
+    while index < len(text):
+        character = text[index]
+        if character in depths:
+            depths[character] += 1
+        elif character in closing:
+            opener = closing[character]
+            depths[opener] = max(0, depths[opener] - 1)
+        elif character == ";" and not any(depths.values()):
+            return text[argument_start:index]
+        elif character == "\n" and not any(depths.values()):
+            captured = text[argument_start:index].rstrip()
+            if not captured.endswith(","):
+                return captured
+        index += 1
+    return text[argument_start:index].rstrip()
+
+
+@lru_cache(maxsize=4096)
+def application_binding_references(
+    text: str,
+) -> tuple[set[tuple[str, str]], set[str]]:
+    """Return literal Application env bindings and unsupported dynamic forms."""
+
+    code = elixir_code_only(text)
+    bindings: set[tuple[str, str]] = set()
+    unresolved: set[str] = set()
+    literal_attributes: dict[str, set[str]] = {}
+    for assignment in re.finditer(
+        r"(?m)^\s*(?P<attribute>@[a-z_][A-Za-z0-9_]*)\s+"
+        r":(?P<value>[a-z][a-z0-9_]*)\s*$",
+        code,
+    ):
+        literal_attributes.setdefault(assignment.group("attribute"), set()).add(
+            assignment.group("value")
+        )
+
+    def literal_binding_value(expression: str) -> str | None:
+        expression = expression.strip()
+        atom = re.fullmatch(r":(?P<value>[a-z][a-z0-9_]*)", expression)
+        if atom:
+            return atom.group("value")
+        attribute_values = literal_attributes.get(expression, set())
+        if len(attribute_values) == 1:
+            return next(iter(attribute_values))
+        if re.fullmatch(GENERIC_MODULE_NAME, expression):
+            return normalize_module_name(expression)
+        return None
+
+    def record(function: str, arguments_text: str, call_start: int) -> None:
+        arguments = split_top_level_args(arguments_text)
+        pipeline_input = pipeline_input_before(code, call_start)
+        if pipeline_input is not None:
+            arguments.insert(0, pipeline_input)
+        if len(arguments) < 2:
+            unresolved.add(f"Application.{function} has fewer than two arguments")
+            return
+        application = literal_binding_value(arguments[0])
+        key = literal_binding_value(arguments[1])
+        if application is None or key is None:
+            unresolved.add(
+                f"Application.{function} uses a non-literal application or key"
+            )
+            return
+        bindings.add((application, key))
+
+    parenthesized = re.compile(
+        r"\bApplication\."
+        r"(?P<function>(?:fetch|get|compile)_env!?)\s*\("
+    )
+    for call in parenthesized.finditer(code):
+        parsed = balanced_call_arguments(code, call.end() - 1)
+        if parsed:
+            record(call.group("function"), parsed[0], call.start())
+
+    parenless = re.compile(
+        r"\bApplication\."
+        r"(?P<function>(?:fetch|get|compile)_env!?)"
+        r"(?!\s*\()(?=\s)"
+    )
+    for call in parenless.finditer(code):
+        record(
+            call.group("function"),
+            parenless_call_arguments(code, call.end()),
+            call.start(),
+        )
+
+    return bindings, unresolved
+
+
 def module_function_evasions(
-    text: str, protected_modules: dict[str, set[str] | None]
+    text: str,
+    protected_modules: dict[str, set[str] | None],
+    *,
+    reject_unknown_dynamic_target: bool = False,
 ) -> set[str]:
     """Find invocation forms intentionally excluded from stable facade contracts."""
 
     text = elixir_code_only(text)
     evidence: set[str] = set()
     aliases = module_aliases(text)
+    protected_bindings = {
+        binding: module
+        for binding, module in static_module_bindings(text).items()
+        if module in protected_modules
+    }
+    static_targets: dict[str, set[str]] = {}
+    assignment_patterns = (
+        re.compile(
+            rf"(?m)^\s*(?P<binding>[a-z_][A-Za-z0-9_]*)\s*=\s*"
+            rf"(?P<module>{GENERIC_MODULE_NAME})\s*$"
+        ),
+        re.compile(
+            rf"(?m)^\s*(?P<binding>@[a-z_][A-Za-z0-9_]*)\s+"
+            rf"(?P<module>{GENERIC_MODULE_NAME})\s*$"
+        ),
+    )
+    for assignment_pattern in assignment_patterns:
+        for assignment in assignment_pattern.finditer(text):
+            static_targets.setdefault(assignment.group("binding"), set()).add(
+                resolve_module_reference(assignment.group("module"), aliases)
+            )
+    for binding, targets in static_targets.items():
+        if len(targets) > 1 and targets.intersection(protected_modules):
+            evidence.add(
+                f"ambiguously binds {binding} to " + ", ".join(sorted(targets))
+            )
+    alias_targets: dict[str, set[str]] = {}
+    for alias_name, module in simple_module_alias_declarations(text):
+        alias_targets.setdefault(alias_name, set()).add(
+            resolve_module_reference(module, aliases)
+        )
+    for alias_name, targets in alias_targets.items():
+        if len(targets) > 1 and targets.intersection(protected_modules):
+            evidence.add(
+                f"ambiguously aliases {alias_name} to " + ", ".join(sorted(targets))
+            )
+    referenced_protected_modules = {
+        module
+        for module in (
+            set(module_aliases(text).values()) | core_module_references(text)
+        )
+        if module in protected_modules
+    }
 
     for module in imported_modules(text):
         if module in protected_modules:
@@ -746,7 +1160,7 @@ def module_function_evasions(
 
     for reference in QUALIFIED_FUNCTION_REFERENCE_RE.finditer(text):
         receiver, function = reference.groups()
-        module = aliases.get(receiver, receiver)
+        module = resolve_module_reference(receiver, aliases)
         protected_functions = protected_modules.get(module)
         if module not in protected_modules or (
             protected_functions is not None and function not in protected_functions
@@ -761,30 +1175,82 @@ def module_function_evasions(
         else:
             evidence.add(f"uses parenless {module}.{function}")
 
-    module_token = rf"(?P<module>{GENERIC_MODULE_NAME})"
-    dynamic_patterns = (
-        re.compile(
-            rf"\b(?:Kernel\.)?apply\s*\(\s*{module_token}\s*,\s*"
-            r":(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\b"
-        ),
-        re.compile(
-            rf":erlang\.apply\s*\(\s*{module_token}\s*,\s*"
-            r":(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\b"
-        ),
-        re.compile(
-            rf"\bFunction\.capture\s*\(\s*{module_token}\s*,\s*"
-            r":(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\b"
-        ),
+    bound_reference_pattern = re.compile(
+        r"(?<![A-Za-z0-9_])(?P<receiver>@?[a-z_][A-Za-z0-9_]*)\."
+        r"(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)"
     )
-    for pattern in dynamic_patterns:
+    for reference in bound_reference_pattern.finditer(text):
+        module = protected_bindings.get(reference.group("receiver"))
+        function = reference.group("function")
+        protected_functions = protected_modules.get(module) if module else None
+        if module is None or (
+            protected_functions is not None and function not in protected_functions
+        ):
+            continue
+        suffix = text[reference.end() :]
+        if suffix.lstrip().startswith("("):
+            continue
+        prefix = text[max(0, reference.start() - 2) : reference.start()]
+        if "&" in prefix or suffix.lstrip().startswith("/"):
+            evidence.add(f"captures {module}.{function}")
+        else:
+            evidence.add(f"uses parenless {module}.{function}")
+
+    def record_dynamic_invocation(arguments: list[str]) -> None:
+        if len(arguments) < 2:
+            return
+        module_expression = arguments[0].strip()
+        if re.fullmatch(GENERIC_MODULE_NAME, module_expression):
+            module = resolve_module_reference(module_expression, aliases)
+        else:
+            module = protected_bindings.get(module_expression)
+        if module is None:
+            if reject_unknown_dynamic_target:
+                for protected_module in sorted(referenced_protected_modules):
+                    evidence.add(
+                        f"uses dynamic {protected_module}.<unknown module target>"
+                    )
+            return
+        if module not in protected_modules:
+            return
+
+        operation_expression = arguments[1].strip()
+        literal_operation = re.fullmatch(
+            r":(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)",
+            operation_expression,
+        )
+        if literal_operation is None:
+            evidence.add(f"uses dynamic {module}.<non-literal operation>")
+            return
+
+        function = literal_operation.group("function")
+        protected_functions = protected_modules.get(module)
+        if protected_functions is None or function in protected_functions:
+            evidence.add(f"uses dynamic {module}.{function}")
+
+    parenthesized_dynamic_invocations = (
+        re.compile(r"\b(?:Kernel\.)?apply\s*\("),
+        re.compile(r":erlang\.apply\s*\("),
+        re.compile(r"\bFunction\.capture\s*\("),
+    )
+    for pattern in parenthesized_dynamic_invocations:
         for dynamic in pattern.finditer(text):
-            module = aliases.get(dynamic.group("module"), dynamic.group("module"))
-            function = dynamic.group("function")
-            protected_functions = protected_modules.get(module)
-            if module in protected_modules and (
-                protected_functions is None or function in protected_functions
-            ):
-                evidence.add(f"uses dynamic {module}.{function}")
+            parsed = balanced_call_arguments(text, dynamic.end() - 1)
+            if not parsed:
+                continue
+            arguments_text, _ = parsed
+            record_dynamic_invocation(split_top_level_args(arguments_text))
+
+    parenless_dynamic_invocations = (
+        re.compile(r"(?m)(?<![A-Za-z0-9_.])(?:Kernel\.)?apply(?!\s*\()(?=\s)"),
+        re.compile(r"(?m)(?<![A-Za-z0-9_.]):erlang\.apply(?!\s*\()(?=\s)"),
+        re.compile(r"(?m)(?<![A-Za-z0-9_.])Function\.capture(?!\s*\()(?=\s)"),
+    )
+    for pattern in parenless_dynamic_invocations:
+        for dynamic in pattern.finditer(text):
+            record_dynamic_invocation(
+                split_top_level_args(parenless_call_arguments(text, dynamic.end()))
+            )
 
     return evidence
 
@@ -853,7 +1319,9 @@ def _masked_elixir_code(text: str) -> str:
 ELIXIR_BLOCK_TOKEN_RE = re.compile(r"\b(do|fn|end)\b(?![ \t]*:)")
 
 
-def _matching_elixir_block_end(masked_text: str, opening_do: re.Match[str]) -> int | None:
+def _matching_elixir_block_end(
+    masked_text: str, opening_do: re.Match[str]
+) -> int | None:
     """Return the start offset of the end matching a block-opening ``do``."""
 
     depth = 1
@@ -873,9 +1341,7 @@ def _public_operation_clauses(
     """Return block/inline bodies for public clauses matching ``function/arity``."""
 
     masked = _masked_elixir_code(text)
-    definitions = list(
-        re.finditer(r"(?m)^\s*def\s+[a-z_][A-Za-z0-9_!?]*\s*\(", masked)
-    )
+    definitions = list(re.finditer(r"(?m)^\s*def\s+[a-z_][A-Za-z0-9_!?]*\s*\(", masked))
     clauses: list[tuple[str, str]] = []
     expected = re.compile(rf"(?m)^\s*def\s+{re.escape(function)}\s*\(")
 
@@ -906,32 +1372,36 @@ def _public_operation_clauses(
             clauses.append(("inline", text[body_start:body_end]))
             continue
         if not block_do:
-            clauses.append(("unparsed", text[definition.start():next_definition]))
+            clauses.append(("unparsed", text[definition.start() : next_definition]))
             continue
 
         absolute_do_start = close_index + block_do.start()
         opening_do = ELIXIR_BLOCK_TOKEN_RE.search(masked, absolute_do_start)
         if opening_do is None:
-            clauses.append(("unparsed", text[definition.start():next_definition]))
+            clauses.append(("unparsed", text[definition.start() : next_definition]))
             continue
         matching_end = _matching_elixir_block_end(masked, opening_do)
         if matching_end is None:
-            clauses.append(("unparsed", text[definition.start():next_definition]))
+            clauses.append(("unparsed", text[definition.start() : next_definition]))
             continue
-        clauses.append(("block", text[opening_do.end():matching_end]))
+        clauses.append(("block", text[opening_do.end() : matching_end]))
 
     return clauses
 
 
-def _transaction_guarded_block(body: str) -> bool:
+def _transaction_guarded_block(body: str, aliases: dict[str, str]) -> bool:
     """Recognize the transaction guard shape used by runtime collaboration ports."""
 
     masked = _masked_elixir_code(body)
     guard = re.match(
-        r"\s*if\s+Repo\.in_transaction\?\(\)\s+do\b",
+        rf"\s*if\s+(?P<repo>{GENERIC_MODULE_NAME})"
+        r"\.in_transaction\?\(\)\s+do\b",
         masked,
     )
-    if guard is None:
+    if (
+        guard is None
+        or resolve_module_reference(guard.group("repo"), aliases) != "CommsCore.Repo"
+    ):
         return False
 
     opening_do = ELIXIR_BLOCK_TOKEN_RE.search(masked, guard.start())
@@ -985,13 +1455,17 @@ def transaction_guard_errors(
     """Require every declared operation clause to use a non-spoofable guard."""
 
     errors: list[str] = []
+    aliases = module_aliases(port_text)
     for name, arity in sorted(operations):
         clauses = _public_operation_clauses(port_text, name, arity)
         if not clauses:
             errors.append(f"{name}/{arity} has no statically inspectable public clause")
             continue
         for clause_index, (style, body) in enumerate(clauses, start=1):
-            guarded = style == "block" and _transaction_guarded_block(body)
+            guarded = style == "block" and _transaction_guarded_block(
+                body,
+                aliases,
+            )
             terminal_error = style == "inline" and _literal_error_clause(body)
             if not guarded and not terminal_error:
                 errors.append(
@@ -1014,7 +1488,10 @@ def declared_callbacks(text: str) -> set[tuple[str, int]]:
 
 def declared_behaviours(text: str) -> set[str]:
     aliases = module_aliases(text)
-    return {aliases.get(module, module) for module in BEHAVIOUR_RE.findall(text)}
+    return {
+        resolve_module_reference(module, aliases)
+        for module in BEHAVIOUR_RE.findall(text)
+    }
 
 
 def configured_module_bindings(
@@ -1038,14 +1515,29 @@ def configured_module_bindings(
         rf"(?m)^\s*config\s+:([a-z][a-z0-9_]*)\s*,\s*"
         rf":([a-z][a-z0-9_]*)\s*,\s*({GENERIC_MODULE_NAME})\s*$"
     )
+    parenthesized_three_argument_binding = re.compile(
+        rf"\bconfig\s*\(\s*:([a-z][a-z0-9_]*)\s*,\s*"
+        rf":([a-z][a-z0-9_]*)\s*,\s*({GENERIC_MODULE_NAME})\s*\)"
+    )
     for path in sorted((*config_root.rglob("*.ex"), *config_root.rglob("*.exs"))):
         text = path.read_text(encoding="utf-8")
+        aliases = module_aliases(text)
         for block in config_block.finditer(text):
             application, body = block.groups()
             for key, module in key_module.findall(body):
-                bindings.setdefault((application, key), set()).add(module)
+                bindings.setdefault((application, key), set()).add(
+                    resolve_module_reference(module, aliases)
+                )
         for application, key, module in three_argument_binding.findall(text):
-            bindings.setdefault((application, key), set()).add(module)
+            bindings.setdefault((application, key), set()).add(
+                resolve_module_reference(module, aliases)
+            )
+        for application, key, module in parenthesized_three_argument_binding.findall(
+            text
+        ):
+            bindings.setdefault((application, key), set()).add(
+                resolve_module_reference(module, aliases)
+            )
     return bindings
 
 
@@ -1309,7 +1801,7 @@ def _runtime_collaboration_violations(
                     )
                 calls = {
                     (function, arity)
-                    for module, function, arity in qualified_function_calls(source_text)
+                    for module, function, arity in resolved_function_calls(source_text)
                     if module == port
                 }
                 if calls.intersection(parsed_operations):
@@ -1358,11 +1850,13 @@ def _runtime_collaboration_violations(
                         f"{binding_module}",
                     )
                 if port_source:
-                    port_bindings = set(
-                        APPLICATION_BINDING_RE.findall(
+                    port_bindings, unresolved_port_bindings = (
+                        application_binding_references(
                             port_source.read_text(encoding="utf-8")
                         )
                     )
+                    for unresolved in sorted(unresolved_port_bindings):
+                        invalid(label, f"port {port} {unresolved}")
                     if binding_key not in port_bindings:
                         invalid(
                             label,
@@ -1391,8 +1885,7 @@ def _runtime_collaboration_violations(
         if graph_semantics != expected_graph_semantics:
             invalid(
                 label,
-                "graph_semantics must exactly equal "
-                f"{expected_graph_semantics!r}",
+                f"graph_semantics must exactly equal {expected_graph_semantics!r}",
             )
         if (
             not isinstance(declaration.get("condition"), str)
@@ -1421,7 +1914,18 @@ def _runtime_collaboration_violations(
         port_owner = declared_module_owner(port, contexts, schema_owners)
         if not port_owner:
             continue
-        for application, key in APPLICATION_BINDING_RE.findall(port_text):
+        port_bindings, unresolved_port_bindings = application_binding_references(
+            port_text
+        )
+        for unresolved in sorted(unresolved_port_bindings):
+            violations.add(
+                Violation(
+                    "undeclared_runtime_binding",
+                    relative(port_source, root),
+                    f"{port} has an unenforceable configured binding ({unresolved})",
+                )
+            )
+        for application, key in port_bindings:
             configured = bindings.get((application, key), set())
             provider_owners = {
                 declared_module_owner(module, contexts, schema_owners)
@@ -1441,6 +1945,532 @@ def _runtime_collaboration_violations(
     return violations, runtime_graph
 
 
+def released_module_sources(root: Path) -> dict[str, Path]:
+    """Index released umbrella modules from production sources only."""
+
+    sources: dict[str, Path] = {}
+    apps_root = root / "apps"
+    if not apps_root.is_dir():
+        return sources
+    for app in sorted(ALLOWED_UMBRELLA_DEPENDENCIES):
+        for path in production_sources(apps_root / app):
+            text = path.read_text(encoding="utf-8")
+            for module in released_module_declarations(text):
+                sources[module] = path
+    return sources
+
+
+def _technical_interface_violations(
+    root: Path,
+    manifest: dict,
+    contexts: dict,
+    schema_owners: dict[str, str],
+    schema_modules: set[str],
+    all_module_sources: dict[str, Path],
+) -> tuple[set[Violation], set[str]]:
+    """Validate exact released adapter-facing technical interfaces."""
+
+    violations: set[Violation] = set()
+    if "technical_interfaces" not in manifest:
+        return {
+            Violation(
+                "invalid_technical_interface",
+                MANIFEST_PATH.as_posix(),
+                "technical_interfaces is required",
+            )
+        }, set()
+    declarations = manifest.get("technical_interfaces")
+    approved_interfaces: set[str] = set()
+    if not isinstance(declarations, list):
+        return {
+            Violation(
+                "invalid_technical_interface",
+                MANIFEST_PATH.as_posix(),
+                "technical_interfaces must be a list",
+            )
+        }, approved_interfaces
+
+    bindings = configured_module_bindings(root)
+    public_contracts = {
+        contract
+        for context in contexts.values()
+        if isinstance(context, dict)
+        for contract in context.get("public_contracts", [])
+    }
+    published_public_interfaces = public_contracts | {
+        facade
+        for context in contexts.values()
+        if isinstance(context, dict)
+        for facade in context.get("public_facades", [])
+    }
+    source_texts = {
+        module: path.read_text(encoding="utf-8")
+        for module, path in all_module_sources.items()
+    }
+    source_references = {
+        module: core_module_references(text) for module, text in source_texts.items()
+    }
+    source_calls = {
+        module: resolved_function_calls(text) for module, text in source_texts.items()
+    }
+    seen_ids: set[str] = set()
+    seen_bindings: set[tuple[str, str]] = set()
+    allowed_fields = {
+        "id",
+        "owner",
+        "interface",
+        "callers",
+        "operations",
+        "dispatch",
+        "contracts",
+        "behaviour",
+        "implementation",
+        "binding",
+        "transaction",
+        "condition",
+    }
+
+    def invalid(label: str, detail: str) -> None:
+        violations.add(
+            Violation(
+                "invalid_technical_interface",
+                MANIFEST_PATH.as_posix(),
+                f"{label} {detail}",
+            )
+        )
+
+    for index, declaration in enumerate(declarations):
+        label = f"technical_interfaces[{index}]"
+        if not isinstance(declaration, dict):
+            invalid(label, "must be a mapping")
+            continue
+        unsupported = sorted(set(declaration) - allowed_fields)
+        if unsupported:
+            invalid(label, f"has unsupported fields {', '.join(unsupported)}")
+
+        interface_id = declaration.get("id")
+        if not isinstance(interface_id, str) or not interface_id.strip():
+            invalid(label, "must declare a non-empty id")
+        elif interface_id in seen_ids:
+            invalid(label, f"duplicates id {interface_id}")
+        else:
+            seen_ids.add(interface_id)
+            label = interface_id
+
+        owner = declaration.get("owner")
+        if owner not in contexts:
+            invalid(label, f"declares unknown owner {owner}")
+
+        interface = declaration.get("interface")
+        interface_source = (
+            all_module_sources.get(interface) if isinstance(interface, str) else None
+        )
+        if not isinstance(interface, str) or not interface.startswith("CommsCore."):
+            invalid(label, f"has invalid interface {interface!r}")
+        elif interface_source is None:
+            invalid(label, f"declares missing interface module {interface}")
+        else:
+            approved_interfaces.add(interface)
+            interface_owner = declared_module_owner(
+                interface,
+                contexts,
+                schema_owners,
+            )
+            if interface_owner != owner:
+                invalid(
+                    label,
+                    f"interface {interface} belongs to {interface_owner}, not {owner}",
+                )
+            if interface in schema_modules:
+                invalid(label, f"interface {interface} is an Ecto schema")
+
+        operations = declaration.get("operations")
+        parsed_operations: set[tuple[str, int]] = set()
+        if not isinstance(operations, list) or not operations:
+            invalid(label, "operations must be a non-empty list")
+        else:
+            for operation_index, operation in enumerate(operations):
+                operation_label = f"{label}.operations[{operation_index}]"
+                if not isinstance(operation, dict) or set(operation) != {
+                    "name",
+                    "arity",
+                }:
+                    invalid(
+                        operation_label,
+                        "must contain exactly name and arity",
+                    )
+                    continue
+                name = operation.get("name")
+                arity = operation.get("arity")
+                if (
+                    not isinstance(name, str)
+                    or not re.fullmatch(r"[a-z_][A-Za-z0-9_]*[!?]?", name)
+                    or not isinstance(arity, int)
+                    or isinstance(arity, bool)
+                    or arity < 0
+                ):
+                    invalid(operation_label, "must declare a valid name and arity")
+                    continue
+                operation_key = (name, arity)
+                if operation_key in parsed_operations:
+                    invalid(operation_label, f"duplicates {name}/{arity}")
+                parsed_operations.add(operation_key)
+
+        dispatch = declaration.get("dispatch")
+        if dispatch not in {"direct", "configured"}:
+            invalid(label, "dispatch must be direct or configured")
+        if interface_source:
+            for operation_name, operation_arity in sorted(parsed_operations):
+                if not module_defines_function(
+                    interface_source,
+                    operation_name,
+                    operation_arity,
+                ):
+                    invalid(
+                        label,
+                        f"interface {interface} does not define "
+                        f"{operation_name}/{operation_arity}",
+                    )
+            callbacks = declared_callbacks(interface_source.read_text(encoding="utf-8"))
+            if dispatch == "configured" and callbacks:
+                invalid(
+                    label,
+                    f"configured dispatcher {interface} must not also own "
+                    "behaviour callbacks",
+                )
+
+        callers = declaration.get("callers")
+        declared_callers: set[str] = set()
+        if (
+            not isinstance(callers, list)
+            or not callers
+            or not all(isinstance(caller, str) and caller for caller in callers)
+        ):
+            invalid(label, "callers must be a non-empty list of module names")
+        else:
+            declared_callers = set(callers)
+            if len(declared_callers) != len(callers):
+                invalid(label, "callers must be unique")
+            missing_callers = sorted(declared_callers - set(all_module_sources))
+            if missing_callers:
+                invalid(
+                    label,
+                    f"declares missing callers {', '.join(missing_callers)}",
+                )
+
+        behaviour = declaration.get("behaviour")
+        behaviour_source = (
+            all_module_sources.get(behaviour) if isinstance(behaviour, str) else None
+        )
+        implementation = declaration.get("implementation")
+        implementation_source = (
+            all_module_sources.get(implementation)
+            if isinstance(implementation, str)
+            else None
+        )
+        binding = declaration.get("binding")
+        if dispatch == "direct":
+            if behaviour is not None:
+                invalid(label, "direct dispatch may not declare a behaviour")
+            if implementation is not None:
+                invalid(label, "direct dispatch may not declare an implementation")
+            if binding is not None:
+                invalid(label, "direct dispatch may not declare a binding")
+        elif dispatch == "configured":
+            if (
+                not isinstance(behaviour, str)
+                or not behaviour.startswith("CommsCore.")
+                or behaviour_source is None
+            ):
+                invalid(label, f"declares missing behaviour module {behaviour}")
+            else:
+                approved_interfaces.add(behaviour)
+                behaviour_owner = declared_module_owner(
+                    behaviour,
+                    contexts,
+                    schema_owners,
+                )
+                if behaviour_owner != owner:
+                    invalid(
+                        label,
+                        f"behaviour {behaviour} belongs to {behaviour_owner}, "
+                        f"not {owner}",
+                    )
+                callbacks = declared_callbacks(
+                    behaviour_source.read_text(encoding="utf-8")
+                )
+                if callbacks != parsed_operations:
+                    invalid(
+                        label,
+                        "behaviour callbacks differ from operations; "
+                        f"declared {sorted(parsed_operations)!r}, "
+                        f"observed {sorted(callbacks)!r}",
+                    )
+            if not isinstance(implementation, str) or implementation_source is None:
+                invalid(
+                    label,
+                    f"declares missing implementation module {implementation}",
+                )
+            elif isinstance(behaviour, str):
+                implementation_text = implementation_source.read_text(encoding="utf-8")
+                if behaviour not in declared_behaviours(implementation_text):
+                    invalid(
+                        label,
+                        f"implementation {implementation} does not declare "
+                        f"@behaviour {behaviour}",
+                    )
+                for operation_name, operation_arity in sorted(parsed_operations):
+                    if not module_defines_function(
+                        implementation_source,
+                        operation_name,
+                        operation_arity,
+                    ):
+                        invalid(
+                            label,
+                            f"implementation {implementation} does not define "
+                            f"{operation_name}/{operation_arity}",
+                        )
+            if not isinstance(binding, dict) or set(binding) != {
+                "application",
+                "key",
+                "module",
+            }:
+                invalid(
+                    label,
+                    "configured binding must contain exactly application, key, and module",
+                )
+            else:
+                application = binding.get("application")
+                key = binding.get("key")
+                binding_module = binding.get("module")
+                if (
+                    not isinstance(application, str)
+                    or not application
+                    or not isinstance(key, str)
+                    or not key
+                ):
+                    invalid(
+                        label,
+                        "binding application and key must be non-empty strings",
+                    )
+                elif binding_module != implementation:
+                    invalid(
+                        label,
+                        f"binding module {binding_module} must equal "
+                        f"implementation {implementation}",
+                    )
+                else:
+                    binding_key = (application, key)
+                    if binding_key in seen_bindings:
+                        invalid(
+                            label,
+                            f"binding {application}.{key} is declared more than once",
+                        )
+                    seen_bindings.add(binding_key)
+                    configured = bindings.get(binding_key, set())
+                    if configured != {binding_module}:
+                        invalid(
+                            label,
+                            f"binding {application}.{key} resolves to "
+                            f"{', '.join(sorted(configured)) or '(missing)'}, "
+                            f"expected {binding_module}",
+                        )
+                    if interface_source:
+                        observed_bindings, unresolved_bindings = (
+                            application_binding_references(
+                                interface_source.read_text(encoding="utf-8")
+                            )
+                        )
+                        for unresolved in sorted(unresolved_bindings):
+                            invalid(label, f"interface {interface} {unresolved}")
+                        if binding_key not in observed_bindings:
+                            invalid(
+                                label,
+                                f"interface {interface} does not dispatch through "
+                                f"{application}.{key}",
+                            )
+
+        actual_callers: set[str] = set()
+        observed_operations: set[tuple[str, int]] = set()
+        if isinstance(interface, str):
+            for source_module, _source_path in all_module_sources.items():
+                if source_module in {interface, implementation}:
+                    continue
+                is_released_adapter = source_module.startswith(
+                    (
+                        "CommsWeb.",
+                        "CommsWorkers.",
+                        "CommsIntegrations.",
+                        "CommsObservability.",
+                    )
+                )
+                source_text = source_texts[source_module]
+                calls = {
+                    (function, arity)
+                    for module, function, arity in source_calls[source_module]
+                    if module == interface
+                }
+                evasions = (
+                    module_function_evasions(
+                        source_text,
+                        {interface: None},
+                        reject_unknown_dynamic_target=(
+                            source_module in declared_callers
+                        ),
+                    )
+                    if interface in source_references[source_module]
+                    else set()
+                )
+                if evasions:
+                    actual_callers.add(source_module)
+                    invalid(
+                        label,
+                        f"caller {source_module} uses an unenforceable interface "
+                        f"invocation ({', '.join(sorted(evasions))})",
+                    )
+                declared_calls = calls.intersection(parsed_operations)
+                undeclared_calls = calls - parsed_operations
+                if declared_calls:
+                    actual_callers.add(source_module)
+                if source_module in declared_callers:
+                    observed_operations.update(declared_calls)
+                prohibited_undeclared_calls = (
+                    undeclared_calls
+                    if (
+                        source_module in declared_callers
+                        or is_released_adapter
+                        or interface not in published_public_interfaces
+                    )
+                    else set()
+                )
+                if prohibited_undeclared_calls:
+                    actual_callers.add(source_module)
+                    rendered_calls = ", ".join(
+                        f"{function}/{arity}"
+                        for function, arity in sorted(prohibited_undeclared_calls)
+                    )
+                    invalid(
+                        label,
+                        f"caller {source_module} invokes undeclared operations "
+                        f"on {interface}: {rendered_calls}",
+                    )
+            if actual_callers != declared_callers:
+                invalid(
+                    label,
+                    "caller set differs from source; declared "
+                    f"{', '.join(sorted(declared_callers)) or '(none)'}, observed "
+                    f"{', '.join(sorted(actual_callers)) or '(none)'}",
+                )
+            unobserved_operations = parsed_operations - observed_operations
+            if unobserved_operations:
+                invalid(
+                    label,
+                    "declared operations are not used by a declared caller: "
+                    + ", ".join(
+                        f"{function}/{arity}"
+                        for function, arity in sorted(unobserved_operations)
+                    ),
+                )
+
+        contracts = declaration.get("contracts", [])
+        if (
+            not isinstance(contracts, list)
+            or not contracts
+            or not all(isinstance(contract, str) and contract for contract in contracts)
+            or len(set(contracts)) != len(contracts)
+        ):
+            invalid(
+                label,
+                "contracts must be a non-empty list of unique module names",
+            )
+            contracts = []
+        referenced_text = "\n".join(
+            source.read_text(encoding="utf-8")
+            for module, source in all_module_sources.items()
+            if module in declared_callers | {interface, behaviour, implementation}
+            and source is not None
+        )
+        referenced_contracts = core_module_references(referenced_text)
+        for contract in contracts:
+            if contract not in public_contracts:
+                invalid(label, f"contract {contract} is not a published contract")
+            if contract in schema_modules:
+                invalid(label, f"contract {contract} is an Ecto schema")
+            if contract not in all_module_sources:
+                invalid(label, f"declares missing contract module {contract}")
+            if contract != interface and contract not in referenced_contracts:
+                invalid(
+                    label,
+                    f"contract {contract} is not referenced by the interface boundary",
+                )
+
+        transaction = declaration.get("transaction")
+        if transaction not in {"required", "independent"}:
+            invalid(label, "transaction must be required or independent")
+        elif transaction == "required" and interface_source:
+            for guard_error in transaction_guard_errors(
+                interface_source.read_text(encoding="utf-8"),
+                parsed_operations,
+            ):
+                invalid(
+                    label,
+                    f"transaction-required interface {interface}: {guard_error}",
+                )
+        condition = declaration.get("condition")
+        if not isinstance(condition, str) or not condition.strip():
+            invalid(label, "must declare a non-empty condition")
+
+    adapter_prefixes = (
+        "CommsWeb.",
+        "CommsWorkers.",
+        "CommsIntegrations.",
+        "CommsObservability.",
+    )
+    for source_module, _source_path in all_module_sources.items():
+        source_text = source_texts[source_module]
+        if source_module.startswith(adapter_prefixes):
+            for target_module in sorted(core_module_references(source_text)):
+                if target_module in schema_modules:
+                    continue
+                target_owner = declared_module_owner(
+                    target_module,
+                    contexts,
+                    schema_owners,
+                )
+                target_kind = (
+                    contexts.get(target_owner, {}).get("kind") if target_owner else None
+                )
+                if (
+                    target_kind == "technical"
+                    and target_module not in approved_interfaces
+                ):
+                    invalid(
+                        source_module,
+                        f"uses undeclared technical interface {target_module}",
+                    )
+        elif source_module.startswith("CommsCore."):
+            source_bindings, unresolved_bindings = application_binding_references(
+                source_text
+            )
+            for unresolved in sorted(unresolved_bindings):
+                invalid(
+                    source_module,
+                    f"uses an unenforceable configured binding ({unresolved})",
+                )
+            for application, key in source_bindings:
+                configured = bindings.get((application, key), set())
+                if (
+                    any(module.startswith(adapter_prefixes) for module in configured)
+                    and (application, key) not in seen_bindings
+                ):
+                    invalid(
+                        source_module,
+                        f"dispatches undeclared adapter binding {application}.{key}",
+                    )
+
+    return violations, approved_interfaces
+
+
 def schema_owner_map(tables: dict) -> dict[str, str]:
     return {
         declaration["canonical_schema"]: declaration["owner"]
@@ -1450,7 +2480,13 @@ def schema_owner_map(tables: dict) -> dict[str, str]:
 
 
 WRITE_CALL_RE = re.compile(
-    r"\b(?P<receiver>Repo|Ecto\.Multi|Multi)\."
+    rf"\b(?P<receiver>{GENERIC_MODULE_NAME})\."
+    r"(?P<operation>insert!?|insert_or_update!?|insert_all|"
+    r"update!?|update_all|delete!?|delete_all)\s*\("
+)
+BOUND_WRITE_CALL_RE = re.compile(
+    r"(?<![A-Za-z0-9_])"
+    r"(?P<receiver>@?[a-z_][A-Za-z0-9_]*)\."
     r"(?P<operation>insert!?|insert_or_update!?|insert_all|"
     r"update!?|update_all|delete!?|delete_all)\s*\("
 )
@@ -1566,6 +2602,15 @@ def _static_sql_expression(text: str, expression: str) -> str | None:
 def raw_sql_write_or_unresolved(text: str) -> bool:
     """Reject mutating SQL and SQL whose statement cannot be statically reviewed."""
 
+    indirect_calls = statically_bound_function_calls(text) | delegated_function_calls(
+        text
+    )
+    if any(
+        module == "Ecto.Adapters.SQL" and function in {"query", "query!"}
+        for module, function, _arity in indirect_calls
+    ):
+        return True
+
     if module_function_evasions(
         text,
         {"Ecto.Adapters.SQL": {"query", "query!"}},
@@ -1576,7 +2621,7 @@ def raw_sql_write_or_unresolved(text: str) -> bool:
     query_calls: list[re.Match[str]] = []
     for call in QUALIFIED_CALL_RE.finditer(text):
         receiver, function = call.groups()
-        module = aliases.get(receiver, receiver)
+        module = resolve_module_reference(receiver, aliases)
         if module == "Ecto.Adapters.SQL" and function in {"query", "query!"}:
             query_calls.append(call)
 
@@ -1605,11 +2650,16 @@ def read_model_mutation_references(text: str) -> set[str]:
     }
     evidence = {
         f"calls {module}.{function}/{arity}"
-        for module, function, arity in qualified_function_calls(text)
+        for module, function, arity in resolved_function_calls(text)
         if module in protected_modules
         and function in (protected_modules[module] or set())
     }
-    evidence.update(module_function_evasions(text, protected_modules))
+    evidence.update(
+        module_function_evasions(
+            text,
+            protected_modules,
+        )
+    )
     return evidence
 
 
@@ -1676,9 +2726,13 @@ def _schema_token_map(
     aliases: dict[str, str], schema_modules: set[str]
 ) -> dict[str, str]:
     tokens = {module: module for module in schema_modules}
-    tokens.update(
-        {alias: module for alias, module in aliases.items() if module in schema_modules}
-    )
+    tokens.update({f"Elixir.{module}": module for module in schema_modules})
+    for alias, module in aliases.items():
+        for schema_module in schema_modules:
+            if schema_module == module:
+                tokens[alias] = schema_module
+            elif schema_module.startswith(f"{module}."):
+                tokens[f"{alias}{schema_module[len(module) :]}"] = schema_module
     return tokens
 
 
@@ -1781,6 +2835,7 @@ def _local_write_wrappers(text: str) -> dict[str, int]:
         )
     )
     wrappers: dict[str, int] = {}
+    aliases = module_aliases(text)
     for index, definition in enumerate(definitions):
         block_end = (
             definitions[index + 1].start()
@@ -1792,27 +2847,114 @@ def _local_write_wrappers(text: str) -> dict[str, int]:
             re.sub(r"\s*\\\\.*$", "", item).strip()
             for item in split_top_level_args(definition.group(2))
         ]
+        bindings = {
+            binding: resolve_module_reference(module, aliases)
+            for binding, module in static_module_bindings(block).items()
+        }
+        write_calls = [
+            *(
+                (
+                    call,
+                    resolve_module_reference(call.group("receiver"), aliases),
+                )
+                for call in WRITE_CALL_RE.finditer(block)
+            ),
+            *(
+                (call, bindings.get(call.group("receiver")))
+                for call in BOUND_WRITE_CALL_RE.finditer(block)
+            ),
+        ]
         for parameter_index, parameter in enumerate(parameters):
             if not re.fullmatch(r"[a-z_][A-Za-z0-9_]*", parameter):
                 continue
-            if re.search(
-                rf"(?:\bRepo\.(?:insert!?|insert_or_update!?|update!?|delete!?)"
-                rf"\s*\(\s*{re.escape(parameter)}\b|"
-                rf"\b{re.escape(parameter)}\s*\|>\s*"
-                rf"Repo\.(?:insert!?|insert_or_update!?|update!?|delete!?)\s*\()",
-                block,
-            ):
-                wrappers[definition.group(1)] = parameter_index
+            for call, receiver in write_calls:
+                if receiver not in {"CommsCore.Repo", "Ecto.Multi"}:
+                    continue
+                parsed = balanced_call_arguments(block, call.end() - 1)
+                if not parsed:
+                    continue
+                arguments_text, _ = parsed
+                target = _write_target_expression(
+                    "Repo" if receiver == "CommsCore.Repo" else "Ecto.Multi",
+                    call.group("operation"),
+                    split_top_level_args(arguments_text),
+                    pipeline_input_before(block, call.start()),
+                )
+                if target and re.fullmatch(
+                    rf"\s*{re.escape(parameter)}\s*",
+                    target,
+                ):
+                    wrappers[definition.group(1)] = parameter_index
+
+    aliases = module_aliases(text)
+    for declaration in re.finditer(
+        r"(?m)^\s*defdelegate\s+"
+        r"(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\s*\(",
+        elixir_code_only(text),
+    ):
+        parsed = balanced_call_arguments(text, declaration.end() - 1)
+        if not parsed:
+            continue
+        arguments_text, end_index = parsed
+        tail = text[end_index:]
+        boundary = re.search(
+            r"(?m)^\s*(?:def(?:p|delegate)?\b|@[a-z_]|end\b)",
+            tail,
+        )
+        options = tail[: boundary.start()] if boundary else tail
+        target = re.search(
+            rf"\bto:\s*(?P<module>{GENERIC_MODULE_NAME})",
+            options,
+        )
+        operation = re.search(
+            r"\bas:\s*:(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)",
+            options,
+        )
+        if target is None:
+            continue
+        target_module = resolve_module_reference(target.group("module"), aliases)
+        target_function = (
+            operation.group("function") if operation else declaration.group("function")
+        )
+        arguments = split_top_level_args(arguments_text)
+        if (
+            target_module == "CommsCore.Repo"
+            and target_function in REPO_MUTATION_FUNCTIONS
+            and arguments
+        ):
+            wrappers[declaration.group("function")] = 0
+        elif (
+            target_module == "Ecto.Multi"
+            and target_function in ECTO_MULTI_MUTATION_FUNCTIONS
+            and arguments
+        ):
+            wrappers[declaration.group("function")] = min(2, len(arguments) - 1)
     return wrappers
 
 
 def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
     """Return canonical schemas that production code demonstrably persists."""
 
-    aliases = core_aliases(text)
+    aliases = module_aliases(text)
+    bindings = static_module_bindings(text)
     write_targets: set[str] = set()
 
-    for call in WRITE_CALL_RE.finditer(text):
+    calls = [
+        *(
+            (
+                call,
+                resolve_module_reference(call.group("receiver"), aliases),
+            )
+            for call in WRITE_CALL_RE.finditer(text)
+        ),
+        *(
+            (call, bindings.get(call.group("receiver")))
+            for call in BOUND_WRITE_CALL_RE.finditer(text)
+        ),
+    ]
+    for call, resolved_receiver in calls:
+        if resolved_receiver not in {"CommsCore.Repo", "Ecto.Multi"}:
+            continue
         parsed = balanced_call_arguments(text, call.end() - 1)
         if not parsed:
             continue
@@ -1820,7 +2962,7 @@ def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
         arguments = split_top_level_args(arguments_text)
         pipeline_input = pipeline_input_before(text, call.start())
         target_expression = _write_target_expression(
-            call.group("receiver"),
+            "Repo" if resolved_receiver == "CommsCore.Repo" else "Ecto.Multi",
             call.group("operation"),
             arguments,
             pipeline_input,
@@ -1840,7 +2982,11 @@ def schema_write_references(text: str, schema_modules: set[str]) -> set[str]:
     for wrapper, parameter_index in _local_write_wrappers(text).items():
         for call in re.finditer(rf"\b{re.escape(wrapper)}\s*\(", text):
             line_start = text.rfind("\n", 0, call.start()) + 1
-            if re.match(r"\s*defp?\s+", text[line_start : call.start()]):
+            declaration_prefix = text[line_start : call.start()]
+            if re.match(
+                rf"\s*(?:defp?|defdelegate)\s+{re.escape(wrapper)}\s*$",
+                declaration_prefix,
+            ):
                 continue
             parsed = balanced_call_arguments(text, call.end() - 1)
             if not parsed:
@@ -1924,8 +3070,7 @@ def context_cycle_violations(
             Violation(
                 rule,
                 MANIFEST_PATH.as_posix(),
-                f"members: {', '.join(component)}; "
-                f"edges: {', '.join(internal_edges)}",
+                f"members: {', '.join(component)}; edges: {', '.join(internal_edges)}",
             )
         )
     return violations
@@ -2065,8 +3210,18 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     for path in production_sources(root / "apps/comms_core"):
         text = path.read_text(encoding="utf-8")
         declared_modules = core_module_declarations(text)
+        schema_source, unresolved_schema_source = ecto_schema_source(text)
+        if unresolved_schema_source:
+            violations.add(
+                Violation(
+                    "invalid_table_declaration",
+                    relative(path, root),
+                    "Ecto schema source must resolve to a literal table or "
+                    "a literal module attribute",
+                )
+            )
         if len(declared_modules) > 1:
-            declared_tables = SCHEMA_RE.findall(text)
+            declared_tables = [schema_source] if schema_source else []
             schema_detail = (
                 f"; schema tables: {', '.join(declared_tables)}"
                 if declared_tables
@@ -2232,6 +3387,18 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
         module_sources,
     )
     violations.update(runtime_violations)
+    all_module_sources = released_module_sources(root)
+    technical_violations, approved_technical_interfaces = (
+        _technical_interface_violations(
+            root,
+            manifest,
+            contexts,
+            schema_owners,
+            schema_modules,
+            all_module_sources,
+        )
+    )
+    violations.update(technical_violations)
 
     read_model_policies: dict[str, dict[str, set[str] | str]] = {}
     read_model_contexts: set[str] = {
@@ -2608,11 +3775,26 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
             "namespaces": namespaces,
             "modules": {canonical_schema},
         }
+    public_core_modules = {
+        module
+        for context in contexts.values()
+        if isinstance(context, dict)
+        for field in ("public_facades", "public_contracts")
+        for module in context.get(field, [])
+    }
+    approved_adapter_modules = public_core_modules | approved_technical_interfaces
     for app in ("comms_web", "comms_workers", "comms_integrations"):
         for path in production_sources(root / f"apps/{app}"):
             text = path.read_text(encoding="utf-8")
             references = core_module_references(text)
-            if re.search(r"\bEcto\.Changeset\b", text):
+            resolved_references = {
+                resolve_module_reference(token, module_aliases(text))
+                for token in re.findall(
+                    rf"(?<![A-Za-z0-9_])({GENERIC_MODULE_NAME})",
+                    elixir_code_only(text),
+                )
+            }
+            if "Ecto.Changeset" in resolved_references:
                 violations.add(
                     Violation(
                         "adapter_changeset_import",
@@ -2626,6 +3808,18 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         "adapter_schema_import",
                         relative(path, root),
                         f"adapter references internal Ecto schema {schema_module}",
+                    )
+                )
+            for internal_module in sorted(
+                references.intersection(module_sources)
+                - schema_modules
+                - approved_adapter_modules
+            ):
+                violations.add(
+                    Violation(
+                        "adapter_internal_module_import",
+                        relative(path, root),
+                        f"adapter references owner-internal module {internal_module}",
                     )
                 )
 
@@ -2737,7 +3931,7 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
                         )
                     )
             for query_module, query_function, query_arity in sorted(
-                qualified_function_calls(text)
+                resolved_function_calls(text)
             ):
                 if not query_module.startswith("CommsCore."):
                     continue
@@ -2883,9 +4077,17 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
 
         if source_module in contexts[source_owner].get("public_facades", []):
             spec_blocks = re.findall(r"@spec[\s\S]*?(?=\n\s*(?:@|def|defp)\b)", text)
-            for schema_module in sorted(schema_modules):
+            schema_tokens = _schema_token_map(
+                module_aliases(text),
+                schema_modules,
+            )
+            for schema_token, schema_module in sorted(schema_tokens.items()):
                 if any(
-                    exact_module_reference(block, schema_module)
+                    re.search(
+                        rf"(?<![A-Za-z0-9_.]){re.escape(schema_token)}"
+                        r"\.t\s*\(",
+                        elixir_code_only(block),
+                    )
                     for block in spec_blocks
                 ):
                     violations.add(
@@ -3045,9 +4247,7 @@ def _baseline_entries_from_document(
     if document.get("version") != 1:
         errors.append(f"{source}: baseline version must be 1")
     if document.get("policy") != BASELINE_POLICY:
-        errors.append(
-            f"{source}: baseline policy must be exactly {BASELINE_POLICY!r}"
-        )
+        errors.append(f"{source}: baseline policy must be exactly {BASELINE_POLICY!r}")
     raw_entries = document.get("violations")
     if not isinstance(raw_entries, list):
         return [], [*errors, f"{source}: violations must be a list"]
@@ -3332,6 +4532,96 @@ def _expanded_temporary_declarations(
     return expanded, errors
 
 
+def violation_contexts(
+    root: Path,
+    manifest: dict,
+    violation: Violation,
+) -> set[str]:
+    """Resolve the declared contexts materially involved in one finding."""
+
+    contexts = manifest.get("contexts", {})
+    if not isinstance(contexts, dict):
+        return set()
+    schema_owners = schema_owner_map(manifest.get("tables", {}))
+    involved = {
+        context_name
+        for context_name in contexts
+        if re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(context_name)}(?![A-Za-z0-9_])",
+            violation.detail,
+        )
+    }
+    source = root / violation.path
+    if source.is_file() and source.suffix in {".ex", ".exs"}:
+        text = source.read_text(encoding="utf-8")
+        modules = set(core_module_declarations(text)) | set(
+            CORE_MODULE_REFERENCE_RE.findall(violation.detail)
+        )
+        involved.update(
+            owner
+            for module in modules
+            if (owner := declared_module_owner(module, contexts, schema_owners))
+        )
+    return involved
+
+
+def strict_deferral_rejection_reason(
+    root: Path,
+    manifest: dict,
+    violation: Violation,
+    allowed_deferral_contexts: set[str],
+) -> str | None:
+    """Explain why a retained finding is outside the strict deferral scope."""
+
+    involved = violation_contexts(root, manifest, violation)
+    if not involved.intersection(allowed_deferral_contexts):
+        return (
+            f"involves {', '.join(sorted(involved)) or '(no declared context)'}; "
+            "it is outside allowed_deferral_contexts"
+        )
+
+    if violation.rule not in {
+        "business_context_cycle",
+        "runtime_context_cycle",
+    }:
+        return None
+
+    contexts = manifest.get("contexts", {})
+    known_contexts = set(contexts) if isinstance(contexts, dict) else set()
+    edge_pattern = re.compile(
+        r"(?<![A-Za-z0-9_-])"
+        r"(?P<source>[A-Za-z][A-Za-z0-9_-]*)"
+        r"->"
+        r"(?P<target>[A-Za-z][A-Za-z0-9_-]*)"
+        r"(?![A-Za-z0-9_-])"
+    )
+    residual_graph: dict[str, set[str]] = {}
+    for match in edge_pattern.finditer(violation.detail):
+        source = match.group("source")
+        target = match.group("target")
+        if source not in known_contexts or target not in known_contexts:
+            continue
+        if source in allowed_deferral_contexts or target in allowed_deferral_contexts:
+            continue
+        residual_graph.setdefault(source, set()).add(target)
+        residual_graph.setdefault(target, set())
+
+    self_cycles = sorted(
+        source for source, targets in residual_graph.items() if source in targets
+    )
+    residual_components = strongly_connected_components(residual_graph)
+    if self_cycles or residual_components:
+        rendered_cycles = [
+            *(f"{context}->{context}" for context in self_cycles),
+            *(" <-> ".join(component) for component in residual_components),
+        ]
+        return (
+            "contains an independent residual cycle outside "
+            f"allowed_deferral_contexts: {', '.join(rendered_cycles)}"
+        )
+    return None
+
+
 def _temporary_violation_errors(
     root: Path,
     manifest: dict,
@@ -3351,6 +4641,19 @@ def _temporary_violation_errors(
     )
     baseline_by_fingerprint = {entry.fingerprint: entry for entry in baseline_entries}
     absolute_rules, _conditional_rules = _configured_rule_policy(manifest)
+    enforcement = manifest.get("enforcement", {})
+    mode = enforcement.get("mode") if isinstance(enforcement, dict) else None
+    strict_policy = (
+        enforcement.get("strict_with_explicit_deferrals", {})
+        if isinstance(enforcement, dict)
+        else {}
+    )
+    allowed_deferral_contexts = (
+        set(strict_policy.get("allowed_deferral_contexts", []))
+        if isinstance(strict_policy, dict)
+        and isinstance(strict_policy.get("allowed_deferral_contexts", []), list)
+        else set()
+    )
 
     for fingerprint, entry in sorted(baseline_by_fingerprint.items()):
         matches = declarations.get(fingerprint, [])
@@ -3376,6 +4679,18 @@ def _temporary_violation_errors(
                 f"{MANIFEST_PATH.as_posix()}: non-baselinable rule "
                 f"{entry.rule} may not be retained as {fingerprint}"
             )
+        if mode == "strict_with_explicit_deferrals":
+            rejection_reason = strict_deferral_rejection_reason(
+                root,
+                manifest,
+                entry,
+                allowed_deferral_contexts,
+            )
+            if rejection_reason:
+                errors.append(
+                    f"{MANIFEST_PATH.as_posix()}: strict temporary violation "
+                    f"{fingerprint} {rejection_reason}"
+                )
 
     for fingerprint, matches in sorted(declarations.items()):
         if fingerprint not in baseline_by_fingerprint:
@@ -3431,9 +4746,7 @@ def _reviewed_baseline_transition_errors(root: Path, enforcement: dict) -> list[
     seen_hashes: set[str] = set()
     adoption = enforcement.get("baseline_adoption")
     adoption_hash = (
-        adoption.get("previous_baseline_sha256")
-        if isinstance(adoption, dict)
-        else None
+        adoption.get("previous_baseline_sha256") if isinstance(adoption, dict) else None
     )
 
     for index, transition in enumerate(transitions):
@@ -3445,20 +4758,12 @@ def _reviewed_baseline_transition_errors(root: Path, enforcement: dict) -> list[
             errors.append(f"{label} must be a mapping")
             continue
 
-        unsupported = sorted(
-            set(transition) - REVIEWED_BASELINE_TRANSITION_FIELDS
-        )
-        missing = sorted(
-            REVIEWED_BASELINE_TRANSITION_FIELDS - set(transition)
-        )
+        unsupported = sorted(set(transition) - REVIEWED_BASELINE_TRANSITION_FIELDS)
+        missing = sorted(REVIEWED_BASELINE_TRANSITION_FIELDS - set(transition))
         if unsupported:
-            errors.append(
-                f"{label} has unsupported fields {', '.join(unsupported)}"
-            )
+            errors.append(f"{label} has unsupported fields {', '.join(unsupported)}")
         if missing:
-            errors.append(
-                f"{label} is missing required fields {', '.join(missing)}"
-            )
+            errors.append(f"{label} is missing required fields {', '.join(missing)}")
 
         transition_id = transition.get("id")
         if not isinstance(transition_id, str) or not transition_id.strip():
@@ -3501,9 +4806,7 @@ def _reviewed_baseline_transition_errors(root: Path, enforcement: dict) -> list[
                 )
                 continue
             if fingerprints != sorted(set(fingerprints)):
-                errors.append(
-                    f"{label}.{field_name} must be unique and sorted"
-                )
+                errors.append(f"{label}.{field_name} must be unique and sorted")
             parsed_fingerprints[field_name] = set(fingerprints)
 
         added = parsed_fingerprints.get("added_fingerprints", set())
@@ -3544,14 +4847,50 @@ def _reviewed_baseline_transition_errors(root: Path, enforcement: dict) -> list[
                 errors.append(f"{label}.adr references missing ADR {adr}")
 
         removal_condition = transition.get("removal_condition")
-        if (
-            not isinstance(removal_condition, str)
-            or not removal_condition.strip()
-        ):
-            errors.append(
-                f"{label}.removal_condition must be a non-empty string"
-            )
+        if not isinstance(removal_condition, str) or not removal_condition.strip():
+            errors.append(f"{label}.removal_condition must be a non-empty string")
 
+    return errors
+
+
+def _activation_lock_errors(manifest: dict) -> list[str]:
+    """Prevent an activated strict gate from being downgraded in-manifest."""
+
+    enforcement = manifest.get("enforcement", {})
+    if not isinstance(enforcement, dict):
+        return [f"{MANIFEST_PATH.as_posix()}: enforcement must be a mapping"]
+
+    mode = enforcement.get("mode", "baseline")
+    target_mode = enforcement.get("target_mode")
+    strict_policy = enforcement.get("strict_with_explicit_deferrals")
+    strict_active = (
+        isinstance(strict_policy, dict) and strict_policy.get("active") is True
+    )
+    activation_declared = (
+        manifest.get("status") == "enforced"
+        or target_mode is not None
+        or mode in {"strict", "strict_with_explicit_deferrals"}
+        or strict_active
+    )
+
+    errors: list[str] = []
+    if target_mode is not None and target_mode not in SUPPORTED_ENFORCEMENT_MODES:
+        errors.append(
+            f"{MANIFEST_PATH.as_posix()}: unsupported enforcement target_mode "
+            f"{target_mode!r}"
+        )
+    if not activation_declared:
+        return errors
+    if target_mode != REQUIRED_ENFORCED_TARGET_MODE:
+        errors.append(
+            f"{MANIFEST_PATH.as_posix()}: activated enforcement target_mode is "
+            f"locked to {REQUIRED_ENFORCED_TARGET_MODE!r}"
+        )
+    if mode != target_mode:
+        errors.append(
+            f"{MANIFEST_PATH.as_posix()}: activated enforcement mode {mode!r} "
+            f"must equal target_mode {target_mode!r}"
+        )
     return errors
 
 
@@ -3566,7 +4905,7 @@ def _enforcement_mode_errors(
     mode = enforcement.get("mode", "baseline")
     if mode not in SUPPORTED_ENFORCEMENT_MODES:
         return [f"{MANIFEST_PATH.as_posix()}: unsupported enforcement mode {mode!r}"]
-    errors: list[str] = []
+    errors = _activation_lock_errors(manifest)
     if enforcement.get("reject_new_violations", True) is not True:
         errors.append(
             f"{MANIFEST_PATH.as_posix()}: reject_new_violations must remain true"
@@ -3590,6 +4929,42 @@ def _enforcement_mode_errors(
             f"{MANIFEST_PATH.as_posix()}: strict_with_explicit_deferrals mode "
             "requires its policy to be active"
         )
+    if mode == "strict_with_explicit_deferrals" and isinstance(strict_policy, dict):
+        for field_name in (
+            "exact_mapping",
+            "reject_missing_declarations",
+            "reject_stale_declarations",
+            "reject_duplicate_fingerprints",
+            "require_base_branch_no_growth",
+            "require_deterministic_report",
+        ):
+            if strict_policy.get(field_name) is not True:
+                errors.append(
+                    f"{MANIFEST_PATH.as_posix()}: strict_with_explicit_deferrals."
+                    f"{field_name} must be true"
+                )
+        allowed_contexts = strict_policy.get("allowed_deferral_contexts")
+        contexts = manifest.get("contexts", {})
+        if (
+            not isinstance(allowed_contexts, list)
+            or not allowed_contexts
+            or not all(
+                isinstance(context, str) and context for context in allowed_contexts
+            )
+            or allowed_contexts != sorted(set(allowed_contexts))
+        ):
+            errors.append(
+                f"{MANIFEST_PATH.as_posix()}: strict_with_explicit_deferrals."
+                "allowed_deferral_contexts must be a non-empty sorted unique list"
+            )
+        elif isinstance(contexts, dict):
+            unknown = sorted(set(allowed_contexts) - set(contexts))
+            if unknown:
+                errors.append(
+                    f"{MANIFEST_PATH.as_posix()}: strict_with_explicit_deferrals."
+                    "allowed_deferral_contexts references unknown contexts "
+                    f"{', '.join(unknown)}"
+                )
     adoption = enforcement.get("baseline_adoption")
     if adoption is not None:
         if not isinstance(adoption, dict):
@@ -3627,10 +5002,7 @@ def _enforcement_mode_errors(
                     f"{MANIFEST_PATH.as_posix()}: baseline adoption fingerprints "
                     "must be unique and sorted"
                 )
-            if (
-                not isinstance(removal_condition, str)
-                or not removal_condition.strip()
-            ):
+            if not isinstance(removal_condition, str) or not removal_condition.strip():
                 errors.append(
                     f"{MANIFEST_PATH.as_posix()}: baseline adoption must declare "
                     "a non-empty removal_condition"
@@ -3822,6 +5194,99 @@ def generated_report_errors(root: Path) -> list[str]:
     return []
 
 
+def compare_boundary_manifests(
+    root: Path,
+    base_path: Path,
+) -> list[str]:
+    """Reject weakening an enforcement state already present on the PR base."""
+
+    current_path = root / MANIFEST_PATH
+    errors: list[str] = []
+    if not current_path.is_file():
+        errors.append(f"current boundary manifest does not exist: {current_path}")
+    if not base_path.is_file():
+        errors.append(f"base boundary manifest does not exist: {base_path}")
+    if errors:
+        return errors
+
+    try:
+        current = read_yaml(current_path)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        errors.append(f"current boundary manifest is invalid: {error}")
+        current = {}
+    try:
+        base = read_yaml(base_path)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        errors.append(f"base boundary manifest is invalid: {error}")
+        base = {}
+    if errors:
+        return errors
+
+    current_enforcement = current.get("enforcement", {})
+    base_enforcement = base.get("enforcement", {})
+    if not isinstance(current_enforcement, dict):
+        errors.append("current boundary manifest enforcement must be a mapping")
+        return errors
+    if not isinstance(base_enforcement, dict):
+        errors.append("base boundary manifest enforcement must be a mapping")
+        return errors
+
+    if base.get("status") == "enforced" and current.get("status") != "enforced":
+        errors.append(
+            "boundary manifest weakened immutable base status: "
+            "enforced may not be removed or changed"
+        )
+
+    base_target = base_enforcement.get("target_mode")
+    current_target = current_enforcement.get("target_mode")
+    if base_target == REQUIRED_ENFORCED_TARGET_MODE and current_target != base_target:
+        errors.append(
+            "boundary manifest weakened immutable base target_mode: "
+            f"{base_target!r} may not be removed or changed"
+        )
+
+    base_mode = base_enforcement.get("mode", "baseline")
+    current_mode = current_enforcement.get("mode", "baseline")
+    if base_mode == "strict" and current_mode != "strict":
+        errors.append(
+            "boundary manifest downgraded immutable base mode from strict "
+            f"to {current_mode!r}"
+        )
+    elif base_mode == "strict_with_explicit_deferrals" and current_mode not in {
+        "strict",
+        "strict_with_explicit_deferrals",
+    }:
+        errors.append(
+            "boundary manifest downgraded immutable base mode from "
+            f"strict_with_explicit_deferrals to {current_mode!r}"
+        )
+
+    base_strict_policy = base_enforcement.get(
+        "strict_with_explicit_deferrals",
+        {},
+    )
+    current_strict_policy = current_enforcement.get(
+        "strict_with_explicit_deferrals",
+        {},
+    )
+    base_active = (
+        isinstance(base_strict_policy, dict)
+        and base_strict_policy.get("active") is True
+    )
+    current_active = (
+        isinstance(current_strict_policy, dict)
+        and current_strict_policy.get("active") is True
+    )
+    if base_active and not current_active:
+        errors.append(
+            "boundary manifest weakened immutable base strict activation: "
+            "strict_with_explicit_deferrals.active=true may not be removed "
+            "or disabled"
+        )
+
+    return errors
+
+
 def compare_boundary_baselines(
     root: Path,
     base_path: Path,
@@ -3848,18 +5313,55 @@ def compare_boundary_baselines(
         return errors
     base_fingerprints = {entry.fingerprint for entry in base_entries}
     current_fingerprints = {entry.fingerprint for entry in current_entries}
+    actual_added = current_fingerprints - base_fingerprints
     adopted_fingerprints: set[str] = set()
     manifest_path = root / MANIFEST_PATH
     manifest = read_yaml(manifest_path) if manifest_path.is_file() else {}
     enforcement = manifest.get("enforcement", {})
     if not isinstance(enforcement, dict):
-        return [
-            f"{MANIFEST_PATH.as_posix()}: enforcement must be a mapping"
-        ]
+        return [f"{MANIFEST_PATH.as_posix()}: enforcement must be a mapping"]
+
+    activation_errors = _activation_lock_errors(manifest)
+    if activation_errors:
+        return activation_errors
 
     transition_errors = _reviewed_baseline_transition_errors(root, enforcement)
     if transition_errors:
         return transition_errors
+
+    _absolute_rules, no_new_rules = _configured_rule_policy(manifest)
+    current_by_fingerprint = {entry.fingerprint: entry for entry in current_entries}
+    protected_growth = sorted(
+        (
+            current_by_fingerprint[fingerprint]
+            for fingerprint in actual_added
+            if current_by_fingerprint[fingerprint].rule in no_new_rules
+        ),
+        key=lambda entry: entry.fingerprint,
+    )
+    errors.extend(
+        "boundary baseline added a protected no-new-deferral fingerprint: "
+        + entry.render()
+        for entry in protected_growth
+    )
+
+    if enforcement.get("mode") in {"strict", "strict_with_explicit_deferrals"}:
+        strict_growth = sorted(
+            (
+                current_by_fingerprint[fingerprint]
+                for fingerprint in actual_added
+                if current_by_fingerprint[fingerprint] not in protected_growth
+            ),
+            key=lambda entry: entry.fingerprint,
+        )
+        errors.extend(
+            "strict boundary baseline may only shrink; added fingerprint: "
+            + entry.render()
+            for entry in strict_growth
+        )
+
+    if errors:
+        return errors
 
     actual_hash = canonical_text_sha256(base_path)
     transitions = enforcement.get("reviewed_baseline_transitions", [])
@@ -3874,7 +5376,6 @@ def compare_boundary_baselines(
         transition_id = transition["id"]
         declared_added = set(transition["added_fingerprints"])
         declared_removed = set(transition["removed_fingerprints"])
-        actual_added = current_fingerprints - base_fingerprints
         actual_removed = base_fingerprints - current_fingerprints
 
         def append_delta_errors(
@@ -3916,7 +5417,6 @@ def compare_boundary_baselines(
                         for fingerprint in configured
                         if isinstance(fingerprint, str)
                     }
-                    actual_added = current_fingerprints - base_fingerprints
                     stale = sorted(adopted_fingerprints - actual_added)
                     if stale:
                         errors.append(
@@ -3967,8 +5467,7 @@ def write_baseline(root: Path, violations: list[Violation]) -> None:
     if integrity_violations:
         rendered = "\n".join(item.render() for item in integrity_violations)
         raise ValueError(
-            "refusing to baseline non-baselinable architecture violations:\n"
-            f"{rendered}"
+            f"refusing to baseline non-baselinable architecture violations:\n{rendered}"
         )
 
     previous_entries, previous_errors = load_baseline(
@@ -4052,6 +5551,12 @@ def main(
         metavar="PATH",
         help="reject fingerprints not present in the supplied base-branch baseline",
     )
+    parser.add_argument(
+        "--compare-boundary-manifest",
+        type=Path,
+        metavar="PATH",
+        help="reject enforcement weaker than the supplied base-branch manifest",
+    )
     parser.add_argument("--show-context-graphs", action="store_true")
     args = parser.parse_args(argv)
     root = root.resolve()
@@ -4059,6 +5564,7 @@ def main(
         if (
             args.check_generated_report
             or args.compare_boundary_baseline
+            or args.compare_boundary_manifest
             or args.show_context_graphs
         ):
             raise SystemExit(
@@ -4085,11 +5591,21 @@ def main(
     )
     if args.check_generated_report:
         errors.extend(generated_report_errors(root))
+    if bool(args.compare_boundary_baseline) != bool(args.compare_boundary_manifest):
+        errors.append(
+            "--compare-boundary-baseline and --compare-boundary-manifest "
+            "must be supplied together"
+        )
     if args.compare_boundary_baseline:
         base_path = args.compare_boundary_baseline
         if not base_path.is_absolute():
             base_path = (Path.cwd() / base_path).resolve()
         errors.extend(compare_boundary_baselines(root, base_path))
+    if args.compare_boundary_manifest:
+        base_manifest_path = args.compare_boundary_manifest
+        if not base_manifest_path.is_absolute():
+            base_manifest_path = (Path.cwd() / base_manifest_path).resolve()
+        errors.extend(compare_boundary_manifests(root, base_manifest_path))
     errors = sorted(errors)
     if errors:
         raise SystemExit("Architecture validation failed:\n" + "\n".join(errors))

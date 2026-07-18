@@ -45,5 +45,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0039 | Contain TrustGovernance persistence | Accepted |
 | 0040 | Contain ConversationContent persistence | Accepted |
 | 0041 | Assign tenants to TenantAdministration | Accepted |
+| 0042 | Complete non-audio modularization and activate the strict gate | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

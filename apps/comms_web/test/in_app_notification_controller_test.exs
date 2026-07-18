@@ -10,7 +10,12 @@ defmodule CommsWeb.InAppNotificationControllerTest do
 
   test "users list, read, dismiss, and bulk-read their in-app notifications" do
     account = Fixtures.account_fixture()
-    token = CommsWeb.Token.issue(account).access_token
+
+    token =
+      account
+      |> Fixtures.authentication_result()
+      |> CommsWeb.Token.issue()
+      |> Map.fetch!(:access_token)
 
     first = insert_intent(account, "mention.created.v1", "https://evil.example/leave")
     second = insert_intent(account, "message.created.v1", "/app?conversation=safe")

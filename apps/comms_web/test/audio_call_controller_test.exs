@@ -47,7 +47,13 @@ defmodule CommsWeb.AudioCallControllerTest do
     end)
 
     account = Fixtures.account_fixture()
-    token = CommsWeb.Token.issue(account).access_token
+
+    token =
+      account
+      |> Fixtures.authentication_result()
+      |> CommsWeb.Token.issue()
+      |> Map.fetch!(:access_token)
+
     {:ok, account: account, authorization: {"authorization", "Bearer #{token}"}}
   end
 

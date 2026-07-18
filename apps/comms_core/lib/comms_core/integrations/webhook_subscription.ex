@@ -3,7 +3,7 @@ defmodule CommsCore.Integrations.WebhookSubscription do
 
   schema "webhook_subscriptions" do
     field(:tenant_id, :binary_id)
-    belongs_to(:endpoint, CommsCore.Integrations.WebhookEndpoint)
+    field(:endpoint_id, :binary_id)
     field(:event_type, :string)
     timestamps(updated_at: false)
   end

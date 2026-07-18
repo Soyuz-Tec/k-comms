@@ -32,6 +32,10 @@ defmodule CommsTestSupport.Fixtures do
     }
   end
 
+  def authentication_result(account) when is_map(account) do
+    CommsCore.Accounts.Projector.authentication(account)
+  end
+
   def user_fixture(account, overrides \\ %{}) do
     suffix = System.unique_integer([:positive, :monotonic]) |> Integer.to_string()
 

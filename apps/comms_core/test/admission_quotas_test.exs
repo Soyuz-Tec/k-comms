@@ -249,6 +249,40 @@ defmodule CommsCore.AdmissionQuotasTest do
            } = admission_usage!(subject)
   end
 
+  test "admission policy reads owner defaults and persisted limits through the public boundary" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    assert %AdmissionPolicy{
+             max_active_users: 500,
+             max_active_conversations: 2_000,
+             max_conversation_members: 250
+           } = AdmissionQuotas.admission_policy(account.tenant.id)
+
+    set_limits!(subject, %{
+      max_active_users: 12,
+      max_active_conversations: 34,
+      max_conversation_members: 56
+    })
+
+    expected = %AdmissionPolicy{
+      max_active_users: 12,
+      max_active_conversations: 34,
+      max_conversation_members: 56
+    }
+
+    assert expected == AdmissionQuotas.admission_policy(account.tenant.id)
+
+    assert {:error, :quota_transaction_required} =
+             AdmissionQuotas.locked_policy(account.tenant.id)
+
+    assert {:ok, ^expected} =
+             Repo.transaction(fn ->
+               assert {:ok, policy} = AdmissionQuotas.locked_policy(account.tenant.id)
+               policy
+             end)
+  end
+
   test "resource owners pass scalar observations to the tenant admission policy" do
     policy = %AdmissionPolicy{
       max_active_users: 10,

@@ -4,7 +4,7 @@ Generated from `scripts/validate_architecture.py --write-boundary-baseline`.
 Existing fingerprints are migration debt. Relative to the checked-in baseline,
 new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
 
-Total tracked violations: **32**.
+Total tracked violations: **29**.
 
 ## adapter_schema_import (1)
 
@@ -18,7 +18,7 @@ Total tracked violations: **32**.
 |---|---|---|
 | `a26844eb317ed35d` | `docs/02-architecture/context-boundaries.yaml` | members: authorization_kernel, calls, conversations, identity_access, tenant_administration; edges: authorization_kernel->conversations, authorization_kernel->identity_access, authorization_kernel->tenant_administration, calls->authorization_kernel, calls->conversations, calls->identity_access, calls->tenant_administration, conversations->calls, conversations->identity_access, conversations->tenant_administration, identity_access->calls, identity_access->tenant_administration, tenant_administration->calls |
 
-## foreign_schema_import (20)
+## foreign_schema_import (19)
 
 | Fingerprint | Location | Evidence |
 |---|---|---|
@@ -41,14 +41,6 @@ Total tracked violations: **32**.
 | `99cd7470375bce8f` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Administration.TenantSettings |
 | `e3c6574035e85b56` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Conversation |
 | `c94c7774541553d1` | `apps/comms_core/lib/comms_core/authorization/database.ex` | CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership |
-| `c06055a43f05a1f7` | `apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex` | CommsCore.Integrations.WebhookDelivery references owner-internal schema CommsCore.Events.OutboxEvent |
-
-## internal_schema_access (2)
-
-| Fingerprint | Location | Evidence |
-|---|---|---|
-| `4791022b743e09fb` | `apps/comms_core/lib/comms_core/admission_quotas.ex` | CommsCore.AdmissionQuotas references owner-internal schema CommsCore.Administration.TenantSettings |
-| `8ab1b96f6b510f3d` | `apps/comms_core/lib/comms_core/outbox.ex` | CommsCore.Outbox references owner-internal schema CommsCore.Events.OutboxEvent |
 
 ## undeclared_context_edge (8)
 

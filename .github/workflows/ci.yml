@@ -66,42 +66,14 @@ jobs:
           output="$(mix xref graph --format cycles --label compile-connected)"
           printf '%s\n' "$output"
           test "$output" = "No cycles found"
-      - name: Enforce exact comms_core xref cycle baseline
+      - name: Reject all comms_core xref cycles
         working-directory: apps/comms_core
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/comms-core-xref-cycles.expected.txt"
-          actual="$RUNNER_TEMP/comms-core-xref-cycles.actual.txt"
-
-          cat > "$expected" <<'EOF'
-          4 cycles found. Showing them in decreasing size:
-
-          Cycle of length 3:
-
-              lib/comms_core/integrations/webhook_delivery.ex
-              lib/comms_core/integrations/webhook_endpoint.ex
-              lib/comms_core/integrations/webhook_subscription.ex
-
-          Cycle of length 2:
-
-              lib/comms_core/authorization.ex
-              lib/comms_core/authorization/deny_all.ex
-
-          Cycle of length 2:
-
-              lib/comms_core/administration.ex
-              lib/comms_core/administration/invitations.ex
-
-          Cycle of length 2:
-
-              lib/comms_core/accounts/platform_role_grant.ex
-              lib/comms_core/accounts/user.ex
-
-          EOF
-
-          mix xref graph --format cycles > "$actual"
-          diff --unified "$expected" "$actual"
+          output="$(mix xref graph --format cycles)"
+          printf '%s\n' "$output"
+          test "$output" = "No cycles found"
       - run: mix ecto.create
       - run: mix ecto.migrate
       - name: Start versioned S3 integration fixture
@@ -200,7 +172,7 @@ jobs:
       - run: python scripts/validate_architecture.py
       - name: Verify deterministic architecture report
         run: python scripts/validate_architecture.py --check-generated-report
-      - name: Reject architecture baseline growth from the PR base
+      - name: Reject architecture control-plane weakening from the PR base
         if: github.event_name == 'pull_request'
         shell: bash
         env:
@@ -208,14 +180,19 @@ jobs:
         run: |
           set -euo pipefail
           baseline_path="docs/02-architecture/context-boundary-baseline.yaml"
+          manifest_path="docs/02-architecture/context-boundaries.yaml"
           base_baseline="$RUNNER_TEMP/context-boundary-baseline.base.yaml"
+          base_manifest="$RUNNER_TEMP/context-boundaries.base.yaml"
 
-          if git cat-file -e "${BASE_SHA}:${baseline_path}" 2>/dev/null; then
+          if git cat-file -e "${BASE_SHA}:${baseline_path}" 2>/dev/null \
+            && git cat-file -e "${BASE_SHA}:${manifest_path}" 2>/dev/null; then
             git show "${BASE_SHA}:${baseline_path}" > "$base_baseline"
+            git show "${BASE_SHA}:${manifest_path}" > "$base_manifest"
             python scripts/validate_architecture.py \
-              --compare-boundary-baseline "$base_baseline"
+              --compare-boundary-baseline "$base_baseline" \
+              --compare-boundary-manifest "$base_manifest"
           else
-            echo "::notice title=Architecture baseline bootstrap::The immutable PR base does not contain ${baseline_path}. The preceding validator and deterministic-report checks are the one-time bootstrap gate; base comparison becomes mandatory after this baseline lands."
+            echo "::notice title=Architecture control-plane bootstrap::The immutable PR base does not contain both ${baseline_path} and ${manifest_path}. The preceding validator and deterministic-report checks are the one-time bootstrap gate; paired base comparison becomes mandatory after both files land."
           fi
       - run: python scripts/test_validate_staging_secrets.py
       - run: python scripts/test_validate_staging_manifests.py

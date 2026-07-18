@@ -16,15 +16,18 @@ The architecture gate runs `scripts/test_validate_architecture.py` followed by
 tracked violation report is not the deterministic rendering of the analyzed
 repository and checked-in baseline.
 
-For pull requests, checkout retains full history and CI extracts
-`docs/02-architecture/context-boundary-baseline.yaml` from the immutable
-`pull_request.base.sha`. The validator receives that file through
-`--compare-boundary-baseline` and rejects every baseline fingerprint that is
-new relative to the PR base. Removing resolved debt is permitted; changing a
-finding creates a new fingerprint and therefore fails the no-growth gate.
-Comparing to the event's base commit, rather than a mutable branch name, keeps
-the result reproducible and prevents a same-branch baseline edit from
-grandfathering new debt.
+For pull requests, checkout retains full history and CI extracts both
+`docs/02-architecture/context-boundary-baseline.yaml` and
+`docs/02-architecture/context-boundaries.yaml` from the immutable
+`pull_request.base.sha`. The validator receives those files through the paired
+`--compare-boundary-baseline` and `--compare-boundary-manifest` options. It
+rejects every baseline fingerprint that is new relative to the PR base while
+permitting resolved debt to be removed. It also rejects removal or weakening
+of an already-enforced status, strict target, strict mode, or active strict
+policy. Changing a finding creates a new fingerprint and therefore fails the
+no-growth gate. Comparing to the event's base commit, rather than a mutable
+branch name, keeps the result reproducible and prevents a same-branch baseline
+or manifest edit from grandfathering new debt or downgrading enforcement.
 
 An architecture-reviewed transition may replace that ordinary no-growth rule
 only for one exact preceding baseline hash and exact sorted sets of added and
@@ -41,13 +44,14 @@ other growth still fails. The adoption declaration is removed once the
 truthful baseline is present on the protected branch.
 
 There is one narrow bootstrap case for the first control-plane merge: if the
-immutable PR base does not contain the boundary-baseline path, the base
-comparison emits a visible notice and is skipped only after the normal
-validator and deterministic-report checks have passed. The bootstrap does not
-accept an invalid manifest, unattributed module, malformed deferral, or stale
-report. Once the baseline exists on the target branch, the file-presence branch
-can no longer skip comparison and every later pull request is subject to the
-base-SHA no-growth rule.
+immutable PR base does not contain both the boundary baseline and boundary
+manifest, the paired comparison emits a visible notice and is skipped only
+after the normal validator and deterministic-report checks have passed. The
+bootstrap does not accept an invalid manifest, unattributed module, malformed
+deferral, or stale report. Once both files exist on the target branch, the
+file-presence branch can no longer skip comparison and every later pull request
+is subject to both base-SHA fingerprint no-growth and enforcement-state
+non-downgrade.
 
 The validator fails on unclassified umbrella apps, forbidden direct dependency
 edges, core references to adapter applications, and direct Repo access outside
@@ -56,6 +60,16 @@ new, changed, or resolved baseline fingerprints, undeclared or changed SCC
 edges, unapproved lifecycle-command call sites, and read-only exceptions that
 issue owner commands, persistence writes, or raw SQL DML/DDL. Health and
 metrics use narrowly named core read APIs rather than persistence exceptions.
+It also rejects adapter access to owner-internal core modules and validates
+each declared technical interface's exact caller, every declared operation,
+any undeclared operation, non-empty public contracts, behavior, implementation,
+configuration binding, and transaction policy.
+Strict mode requires every retained fingerprint to map exactly once and to
+belong to the exact Calls tranche. Removing the allowed Calls nodes from a
+mixed SCC must not leave a cycle. Paired immutable-base comparison rejects all
+strict-mode additions before any reviewed transition can adopt them and
+prevents the active strict gate from being disabled or downgraded. A generic
+non-audio deferral therefore fails even when its fingerprint is listed.
 Architecture policy or baseline changes must update the accepted architecture
 documentation, validator, and regression tests together and receive
 architecture review. The manifest, baseline, generated report, validator,
@@ -67,14 +81,11 @@ After warnings-as-errors compilation, the backend job runs two xref gates in
 
 - `mix xref graph --format cycles --label compile-connected` must report no
   compile-connected cycles.
-- `mix xref graph --format cycles` must match the exact four-cycle checkpoint:
-  the three Webhook schemas, Authorization/DenyAll,
-  Administration/Invitations, and PlatformRoleGrant/User.
+- `mix xref graph --format cycles` must report no all-file cycles.
 
-The exact cycle check is deliberately stricter than a count check: adding,
-changing, or resolving a cycle requires an architecture-reviewed update to the
-CI expectation. It prevents cycle substitution and ensures each reduction is
-recorded rather than silently changing the accepted graph.
+Calls remains an explicit business-graph SCC in the generated architecture
+report, but it does not justify file-level xref cycles. Any new compile or
+all-file cycle fails CI rather than becoming a count-based checkpoint.
 
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested

@@ -1,15 +1,10 @@
 defmodule CommsWeb.Token do
   alias CommsCore.Accounts
+  alias CommsCore.Accounts.AuthenticationResult
 
   @salt "k-comms-access-v1"
 
-  # Test/support callers may still hold the owner-internal bootstrap result.
-  # Production controllers use `Accounts.AuthenticationResult` directly.
-  def issue(%{session: _session} = result) do
-    result |> CommsCore.Accounts.Projector.authentication() |> issue()
-  end
-
-  def issue(result) do
+  def issue(%AuthenticationResult{} = result) do
     ttl = Application.get_env(:comms_web, :access_token_ttl_seconds, 900)
     token = Phoenix.Token.sign(CommsWeb.Endpoint, @salt, %{"session_id" => result.session_id})
 

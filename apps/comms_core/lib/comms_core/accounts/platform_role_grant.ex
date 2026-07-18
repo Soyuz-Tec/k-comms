@@ -5,7 +5,7 @@ defmodule CommsCore.Accounts.PlatformRoleGrant do
 
   schema "platform_role_grants" do
     field(:tenant_id, Ecto.UUID)
-    belongs_to(:user, CommsCore.Accounts.User)
+    field(:user_id, :binary_id)
     field(:role, Ecto.Enum, values: @roles)
     field(:expires_at, :utc_datetime_usec)
     timestamps()

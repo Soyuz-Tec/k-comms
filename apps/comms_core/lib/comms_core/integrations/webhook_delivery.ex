@@ -4,7 +4,7 @@ defmodule CommsCore.Integrations.WebhookDelivery do
   schema "webhook_deliveries" do
     field(:tenant_id, :binary_id)
     belongs_to(:endpoint, CommsCore.Integrations.WebhookEndpoint)
-    belongs_to(:outbox_event, CommsCore.Events.OutboxEvent)
+    field(:outbox_event_id, :binary_id)
     field(:event_type, :string)
     field(:payload, :map, default: %{})
     field(:idempotency_key, :string)

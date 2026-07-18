@@ -18,6 +18,7 @@ defmodule CommsCore.Notifications do
 
   alias CommsCore.Notifications.{
     Attempt,
+    AvailabilityNotifier,
     Delivery,
     InApp,
     Intent,
@@ -403,10 +404,16 @@ defmodule CommsCore.Notifications do
       attrs = base_intent_attrs(event, recipient, :in_app, recipient.user_id)
       attrs = Map.merge(attrs, %{status: :delivered, delivered_at: now, next_attempt_at: now})
 
+      # A prior availability signal can fail after the durable intent is inserted.
+      # Re-signaling the idempotent intent lets the outbox retry reconcile safely.
       case create_intent_without_job(attrs) do
-        {:ok, intent, :created} -> notify_availability(intent)
-        {:ok, _intent, :duplicate} -> :ok
-        {:error, _} = error -> error
+        {:ok, intent, status} when status in [:created, :duplicate] ->
+          intent
+          |> Projector.availability()
+          |> AvailabilityNotifier.notify()
+
+        {:error, _} = error ->
+          error
       end
     else
       :ok
@@ -494,15 +501,6 @@ defmodule CommsCore.Notifications do
       {:ok, intent} ->
         {:ok, intent, :created}
     end
-  end
-
-  defp notify_availability(intent) do
-    :comms_core
-    |> Application.get_env(
-      :notification_availability_notifier,
-      CommsCore.Notifications.AvailabilityNotifier.Noop
-    )
-    |> apply(:notify, [Projector.availability(intent)])
   end
 
   defp enqueue_job(%Intent{channel: :in_app}), do: :ok

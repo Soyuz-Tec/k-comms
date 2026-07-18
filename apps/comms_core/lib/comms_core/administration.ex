@@ -2,11 +2,8 @@ defmodule CommsCore.Administration do
   import Ecto.Query
 
   alias CommsCore.Administration.{
-    AuthorizationActor,
-    AuthorizationActorPort,
+    AuthorizationPolicy,
     ConversationContentPolicy,
-    IdentityAccessPort,
-    IdentityGrant,
     Invitations,
     Projector,
     RetentionDefaults,
@@ -31,10 +28,7 @@ defmodule CommsCore.Administration do
   """
   @spec authorize_read_capabilities(map()) :: :ok | {:error, :forbidden}
   def authorize_read_capabilities(subject) when is_map(subject) do
-    case IdentityAccessPort.resolve_access(subject) do
-      {:ok, %IdentityGrant{}} -> :ok
-      {:error, :forbidden} -> {:error, :forbidden}
-    end
+    AuthorizationPolicy.authorize(:read_capabilities, subject)
   end
 
   @doc """
@@ -42,7 +36,7 @@ defmodule CommsCore.Administration do
   """
   @spec authorize_administer_tenant(map()) :: :ok | {:error, :forbidden}
   def authorize_administer_tenant(subject) when is_map(subject) do
-    authorize_roles(:administer_tenant, subject, [:owner, :admin], false)
+    AuthorizationPolicy.authorize(:administer_tenant, subject)
   end
 
   @doc """
@@ -51,7 +45,7 @@ defmodule CommsCore.Administration do
   @spec authorize_manage_invitations(map()) ::
           :ok | {:error, :forbidden | :step_up_required}
   def authorize_manage_invitations(subject) when is_map(subject) do
-    authorize_roles(:manage_invitations, subject, [:owner, :admin], true)
+    AuthorizationPolicy.authorize(:manage_invitations, subject)
   end
 
   @doc """
@@ -60,7 +54,7 @@ defmodule CommsCore.Administration do
   @spec authorize_manage_settings(map()) ::
           :ok | {:error, :forbidden | :step_up_required}
   def authorize_manage_settings(subject) when is_map(subject) do
-    authorize_roles(:manage_tenant_settings, subject, [:owner, :admin], true)
+    AuthorizationPolicy.authorize(:manage_tenant_settings, subject)
   end
 
   @doc """
@@ -69,12 +63,7 @@ defmodule CommsCore.Administration do
   @spec authorize_audit_tenant(map()) ::
           :ok | {:error, :forbidden | :step_up_required}
   def authorize_audit_tenant(subject) when is_map(subject) do
-    authorize_roles(
-      :audit_tenant,
-      subject,
-      [:owner, :compliance_admin, :security_admin],
-      true
-    )
+    AuthorizationPolicy.authorize(:audit_tenant, subject)
   end
 
   @doc """
@@ -470,43 +459,6 @@ defmodule CommsCore.Administration do
 
   defp audit_or_rollback({:ok, event}), do: event
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp authorize_roles(action, subject, roles, step_up_required?) do
-    case IdentityAccessPort.resolve_access(subject) do
-      {:ok, %IdentityGrant{} = grant} ->
-        cond do
-          not Enum.member?(roles, grant.role) ->
-            deny_authorization(action, subject, :forbidden)
-
-          step_up_required? and not grant.step_up_recent? ->
-            deny_authorization(action, subject, :step_up_required)
-
-          true ->
-            :ok
-        end
-
-      {:error, :forbidden} ->
-        deny_authorization(action, subject, :forbidden)
-    end
-  end
-
-  defp deny_authorization(action, subject, reason) do
-    case AuthorizationActorPort.resolve_authorization_actor(subject) do
-      {:ok, %AuthorizationActor{} = actor} ->
-        Audit.authorization_denied(
-          action,
-          %CommsCore.Audit.Actor{
-            tenant_id: actor.tenant_id,
-            user_id: actor.user_id,
-            request_id: actor.request_id
-          },
-          reason
-        )
-
-      {:error, :unknown_authorization_actor} ->
-        {:error, reason}
-    end
-  end
 
   defp enqueue_retention!(tenant_id) do
     %{"tenant_id" => tenant_id}

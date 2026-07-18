@@ -3,9 +3,8 @@ defmodule CommsCore.Administration.Invitations do
 
   import Ecto.Query
 
-  alias CommsCore.Administration
-
   alias CommsCore.Administration.{
+    AuthorizationPolicy,
     Invitation,
     InvitationIdentityAuthorization,
     InvitationIdentityPort,
@@ -26,7 +25,7 @@ defmodule CommsCore.Administration.Invitations do
     idempotency_key = value(attrs, :idempotency_key)
 
     with {:ok, role} <- requested_role(attrs),
-         :ok <- Administration.authorize_manage_invitations(subject) do
+         :ok <- AuthorizationPolicy.authorize(:manage_invitations, subject) do
       Repo.transaction(fn ->
         with :ok <- AdmissionQuotas.lock_tenant(tenant_id),
              :ok <-
@@ -59,7 +58,7 @@ defmodule CommsCore.Administration.Invitations do
   def list(subject, status) when is_map(subject) do
     tenant_id = value(subject, :tenant_id)
 
-    with :ok <- Administration.authorize_administer_tenant(subject),
+    with :ok <- AuthorizationPolicy.authorize(:administer_tenant, subject),
          :ok <- expire_pending(tenant_id) do
       invitations =
         Invitation
@@ -75,7 +74,7 @@ defmodule CommsCore.Administration.Invitations do
 
   def revoke(id, attrs, subject)
       when is_binary(id) and is_map(attrs) and is_map(subject) do
-    with :ok <- Administration.authorize_manage_invitations(subject),
+    with :ok <- AuthorizationPolicy.authorize(:manage_invitations, subject),
          {:ok, reason} <- required_reason(attrs),
          {:ok, expected_version} <- expected_version(attrs) do
       Repo.transaction(fn ->

@@ -15,6 +15,7 @@ from validate_architecture import (
     analyze_context_boundaries,
     canonical_text_sha256,
     compare_boundary_baselines,
+    compare_boundary_manifests,
     context_cycle_violations,
     context_graphs,
     core_module_declarations,
@@ -24,7 +25,9 @@ from validate_architecture import (
     main,
     qualified_function_calls,
     read_yaml,
+    strict_deferral_rejection_reason,
     validate,
+    violation_contexts,
     write_baseline,
     write_current_baseline,
 )
@@ -58,7 +61,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             baseline.unlink()
             errors = validate(root)
             self.assertTrue(
-                any("required boundary baseline is missing" in error for error in errors),
+                any(
+                    "required boundary baseline is missing" in error for error in errors
+                ),
                 errors,
             )
             write_current_baseline(root)
@@ -164,7 +169,11 @@ class ValidateArchitectureTest(unittest.TestCase):
             "alias CommsCore.Repo\n",
             "alias CommsCore.{Accounts, Repo}\n",
             "alias CommsCore.{\n  Accounts,\n  Repo\n}\n",
+            "alias(CommsCore.{Accounts, Repo})\n",
             "CommsCore.Repo.all(Query)\n",
+            "alias CommsCore, as: Core\nalias Core.Repo\n",
+            "alias(CommsCore, as: Core)\nalias(Core.Repo)\n",
+            "Elixir.CommsCore.Repo.all(Query)\n",
         )
 
         for source in forbidden_sources:
@@ -183,6 +192,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         references = core_module_references(
             "alias CommsCore.{Accounts, Messaging}\n"
             "alias CommsCore.Administration.{InvitationView}\n"
+            "alias(CommsCore.{Outbox, Repo})\n"
         )
 
         self.assertEqual(
@@ -192,6 +202,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Messaging",
                 "CommsCore.Administration",
                 "CommsCore.Administration.InvitationView",
+                "CommsCore.Outbox",
+                "CommsCore.Repo",
             },
         )
 
@@ -215,20 +227,20 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_module_reference_lexer_ignores_elixir_prose_and_literals(self) -> None:
         source = (
             "# CommsCore.CommentOnly\n"
-            "@moduledoc \"\"\"\n"
+            '@moduledoc """\n'
             "CommsCore.ModuleDocOnly\n"
             "alias CommsCore.FakeDocAlias\n"
             "defmodule CommsCore.FakeDocModule do\nend\n"
-            "\"\"\"\n"
-            "@doc \"CommsCore.DocOnly\"\n"
-            "@string \"escaped \\\"CommsCore.EscapedStringOnly\\\"\"\n"
+            '"""\n'
+            '@doc "CommsCore.DocOnly"\n'
+            '@string "escaped \\"CommsCore.EscapedStringOnly\\""\n'
             "@charlist 'CommsCore.CharlistOnly'\n"
             "@charlist_heredoc '''\nCommsCore.CharlistHeredocOnly\n'''\n"
             "@regex ~r/CommsCore.RegexOnly\\/[A-Z]+/iu\n"
             "@literal_sigil ~S|CommsCore.UpperSigilOnly #{CommsCore.NotInterpolated}|\n"
-            "@sigil_heredoc ~S\"\"\"\nCommsCore.SigilHeredocOnly\n\"\"\"\n"
+            '@sigil_heredoc ~S"""\nCommsCore.SigilHeredocOnly\n"""\n'
             "@word_sigil ~w(CommsCore.WordSigilOnly)a\n"
-            "@interpolated \"label #{CommsCore.InterpolatedCall.run()}\"\n"
+            '@interpolated "label #{CommsCore.InterpolatedCall.run()}"\n'
             "alias CommsCore.{ActualAlias, Actual.Nested}\n"
             "@type t :: CommsCore.ActualType.t()\n"
             "@spec run(CommsCore.ActualSpec.t()) :: CommsCore.ActualResult.t()\n"
@@ -256,7 +268,7 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     def test_module_lexer_preserves_calls_and_arity_outside_literals(self) -> None:
         source = (
-            "@doc \"CommsCore.Fake.call(:one, :two)\"\n"
+            '@doc "CommsCore.Fake.call(:one, :two)"\n'
             "alias CommsCore.Real, as: Boundary\n"
             "def run do\n"
             "  Boundary.execute(\"closing ) and comma ,\", ~r/(one,two)/, 'a,b')\n"
@@ -271,11 +283,11 @@ class ValidateArchitectureTest(unittest.TestCase):
     def test_module_declarations_ignore_examples_inside_module_docs(self) -> None:
         source = (
             "defmodule CommsCore.Real do\n"
-            "  @moduledoc \"\"\"\n"
+            '  @moduledoc """\n'
             "  defmodule CommsCore.Example do\n"
             "    alias CommsCore.Fake\n"
             "  end\n"
-            "  \"\"\"\n"
+            '  """\n'
             "end\n"
         )
 
@@ -298,19 +310,17 @@ class ValidateArchitectureTest(unittest.TestCase):
             source = root / "apps/comms_core/lib/comms_core/alpha.ex"
             source.write_text(
                 "defmodule CommsCore.Alpha do\n"
-                "  @moduledoc \"\"\"\n"
+                '  @moduledoc """\n'
                 "  Example: `CommsCore.Beta.read()`\n"
                 "  alias CommsCore.Beta.Record\n"
-                "  \"\"\"\n"
+                '  """\n'
                 "  # CommsCore.Beta.write()\n"
-                "  @example \"CommsCore.Beta.Record\"\n"
+                '  @example "CommsCore.Beta.Record"\n'
                 "  @pattern ~r/CommsCore.Beta/\n"
                 "end\n",
                 encoding="utf-8",
             )
-            manifest = read_yaml(
-                root / "docs/02-architecture/context-boundaries.yaml"
-            )
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
 
             self.assertEqual(
                 context_graphs(root, manifest).compiled["alpha"],
@@ -394,6 +404,17 @@ class ValidateArchitectureTest(unittest.TestCase):
             "  def run(id, attrs, subject), do: "
             "apply(Accounts, :preflight_user_lifecycle_change, "
             "[id, attrs, subject])\n"
+            "end\n",
+            "defmodule CommsCore.Backdoor do\n"
+            "  alias CommsCore.Accounts\n"
+            "  @accounts Accounts\n"
+            "  def run(id, attrs, subject), do: "
+            "@accounts.preflight_user_lifecycle_change(id, attrs, subject)\n"
+            "end\n",
+            "defmodule CommsCore.Backdoor do\n"
+            "  alias CommsCore.Accounts\n"
+            "  defdelegate run(id, attrs, subject), to: Accounts, "
+            "as: :preflight_user_lifecycle_change\n"
             "end\n",
         )
 
@@ -579,13 +600,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             root / "apps/comms_core/lib/comms_core/accounts.ex",
             root / "apps/comms_core/lib/comms_core/password_recovery.ex",
             root / "apps/comms_core/lib/comms_core/service_accounts.ex",
+            *sorted((root / "apps/comms_core/lib/comms_core/accounts").rglob("*.ex")),
             *sorted(
-                (root / "apps/comms_core/lib/comms_core/accounts").rglob("*.ex")
-            ),
-            *sorted(
-                (root / "apps/comms_core/lib/comms_core/service_accounts").rglob(
-                    "*.ex"
-                )
+                (root / "apps/comms_core/lib/comms_core/service_accounts").rglob("*.ex")
             ),
         ]
         forbidden_tenant_schemas = {
@@ -595,14 +612,12 @@ class ValidateArchitectureTest(unittest.TestCase):
         tenant_schema_leaks = []
         for path in identity_sources:
             leaked = sorted(
-                core_module_references(
-                    path.read_text(encoding="utf-8")
-                ).intersection(forbidden_tenant_schemas)
+                core_module_references(path.read_text(encoding="utf-8")).intersection(
+                    forbidden_tenant_schemas
+                )
             )
             if leaked:
-                tenant_schema_leaks.append(
-                    (path.relative_to(root).as_posix(), leaked)
-                )
+                tenant_schema_leaks.append((path.relative_to(root).as_posix(), leaked))
         self.assertEqual(tenant_schema_leaks, [])
 
         scalar_tenant_schemas = (
@@ -635,12 +650,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("TenantView.t()", administration)
 
         owner_api_consumers = {
-            "apps/comms_core/lib/comms_core/accounts.ex":
-                "Administration.active_tenant",
-            "apps/comms_core/lib/comms_core/service_accounts.ex":
-                "Administration.active_tenant",
-            "apps/comms_core/lib/comms_core/accounts/password_recovery.ex":
-                "Administration.active_tenant_by_slug",
+            "apps/comms_core/lib/comms_core/accounts.ex": "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/service_accounts.ex": "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/accounts/password_recovery.ex": "Administration.active_tenant_by_slug",
         }
         for relative_path, owner_call in owner_api_consumers.items():
             with self.subTest(consumer=relative_path):
@@ -684,8 +696,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("Repo.transaction", internal_recovery)
 
         recovery_result_contract = (
-            root
-            / "apps/comms_core/lib/comms_core/accounts/password_recovery_result.ex"
+            root / "apps/comms_core/lib/comms_core/accounts/password_recovery_result.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("defstruct [:revoked_session_ids]", recovery_result_contract)
         self.assertNotIn("use CommsCore.Schema", recovery_result_contract)
@@ -698,9 +709,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         internal_recovery_adapter_leaks = []
         for app in ("comms_web", "comms_workers", "comms_integrations"):
             for path in sorted((root / f"apps/{app}/lib").rglob("*.ex")):
-                references = core_module_references(
-                    path.read_text(encoding="utf-8")
-                )
+                references = core_module_references(path.read_text(encoding="utf-8"))
                 if "CommsCore.Accounts.PasswordRecovery" in references:
                     internal_recovery_adapter_leaks.append(
                         path.relative_to(root).as_posix()
@@ -839,9 +848,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             references = core_module_references(path.read_text(encoding="utf-8"))
             leaked = sorted(references.intersection(forbidden_identity_internals))
             if leaked:
-                foreign_references.append(
-                    (path.relative_to(root).as_posix(), leaked)
-                )
+                foreign_references.append((path.relative_to(root).as_posix(), leaked))
 
         self.assertEqual(foreign_references, [])
 
@@ -873,7 +880,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         accounts_source = (
             root / "apps/comms_core/lib/comms_core/accounts.ex"
         ).read_text(encoding="utf-8")
-        self.assertIn("def resolve_active_user_ids(tenant_id, user_ids)", accounts_source)
+        self.assertIn(
+            "def resolve_active_user_ids(tenant_id, user_ids)", accounts_source
+        )
         self.assertIn("def resolve_user_views(tenant_id, user_ids)", accounts_source)
         self.assertIn(
             "CommsCore.Accounts.UserView",
@@ -1152,8 +1161,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
 
         policy_source = (
-            root
-            / "apps/comms_core/lib/comms_core/administration/"
+            root / "apps/comms_core/lib/comms_core/administration/"
             "conversation_content_policy.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("defstruct", policy_source)
@@ -1171,15 +1179,11 @@ class ValidateArchitectureTest(unittest.TestCase):
                 self.assertNotIn("Administration.member_capabilities", source)
 
         restore_contracts = {
-            "CommsCore.Attachments.RestoreCandidate":
-                "apps/comms_core/lib/comms_core/attachments/restore_candidate.ex",
-            "CommsCore.Attachments.RestoreContext":
-                "apps/comms_core/lib/comms_core/attachments/restore_context.ex",
-            "CommsCore.Attachments.RestoreReport":
-                "apps/comms_core/lib/comms_core/attachments/restore_report.ex",
-            "CommsCore.Attachments.RestoredObjectIdentity":
-                "apps/comms_core/lib/comms_core/attachments/"
-                "restored_object_identity.ex",
+            "CommsCore.Attachments.RestoreCandidate": "apps/comms_core/lib/comms_core/attachments/restore_candidate.ex",
+            "CommsCore.Attachments.RestoreContext": "apps/comms_core/lib/comms_core/attachments/restore_context.ex",
+            "CommsCore.Attachments.RestoreReport": "apps/comms_core/lib/comms_core/attachments/restore_report.ex",
+            "CommsCore.Attachments.RestoredObjectIdentity": "apps/comms_core/lib/comms_core/attachments/"
+            "restored_object_identity.ex",
         }
         declared_content_contracts = set(
             manifest["contexts"]["conversation_content"]["public_contracts"]
@@ -1199,9 +1203,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         restore_remap = (
             root / "apps/comms_core/lib/comms_core/attachments/restore_remap.ex"
         ).read_text(encoding="utf-8")
-        release = (
-            root / "apps/comms_core/lib/comms_core/release.ex"
-        ).read_text(encoding="utf-8")
+        release = (root / "apps/comms_core/lib/comms_core/release.ex").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn(
             "def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)",
@@ -1217,7 +1221,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertNotIn("RestoreRemap", release)
 
-        attach_ready = attachments[attachments.index("def attach_ready("):]
+        attach_ready = attachments[attachments.index("def attach_ready(") :]
         attach_ready = attach_ready[: attach_ready.index("defp owned_for_update(")]
         self.assertIn("Repo.in_transaction?()", attach_ready)
         self.assertIn("{:error, :transaction_required}", attach_ready)
@@ -1358,11 +1362,90 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
 
         push_source = (
-            root
-            / "apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex"
+            root / "apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex"
         ).read_text(encoding="utf-8")
         self.assertIn("Accounts.notification_eligible_device_ids(", push_source)
         self.assertIn("Accounts.lock_push_registration_identity(", push_source)
+
+    def test_repository_strict_gate_retains_only_exact_calls_debt(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        enforcement = manifest["enforcement"]
+        strict = enforcement["strict_with_explicit_deferrals"]
+
+        self.assertEqual(enforcement["mode"], "strict_with_explicit_deferrals")
+        self.assertIs(strict["active"], True)
+        self.assertEqual(
+            strict["allowed_deferral_contexts"],
+            ["authorization_kernel", "calls"],
+        )
+
+        violations = analyze_context_boundaries(root, manifest)
+        counts = {
+            rule: sum(item.rule == rule for item in violations)
+            for rule in {item.rule for item in violations}
+        }
+        self.assertEqual(
+            counts,
+            {
+                "adapter_schema_import": 1,
+                "business_context_cycle": 1,
+                "foreign_schema_import": 19,
+                "undeclared_context_edge": 8,
+            },
+        )
+        self.assertEqual(len(violations), 29)
+        for violation in violations:
+            self.assertTrue(
+                violation_contexts(root, manifest, violation).intersection(
+                    {"authorization_kernel", "calls"}
+                ),
+                violation.render(),
+            )
+
+        interfaces = {item["id"]: item for item in manifest["technical_interfaces"]}
+        self.assertEqual(
+            set(interfaces),
+            {
+                "notification-availability-adapter",
+                "web-validation-error-rendering",
+                "worker-attachment-restore-release",
+                "worker-outbox-publication",
+            },
+        )
+        self.assertEqual(
+            interfaces["web-validation-error-rendering"]["operations"],
+            [{"name": "from", "arity": 1}],
+        )
+        self.assertEqual(
+            interfaces["worker-attachment-restore-release"]["callers"],
+            ["CommsWorkers.Release"],
+        )
+        self.assertEqual(
+            interfaces["worker-outbox-publication"]["operations"],
+            [
+                {"name": "fetch_for_publication", "arity": 2},
+                {"name": "mark_published", "arity": 2},
+                {"name": "record_attempt", "arity": 2},
+            ],
+        )
+        availability = interfaces["notification-availability-adapter"]
+        self.assertEqual(
+            availability["behaviour"],
+            "CommsCore.Notifications.AvailabilityNotifier.Contract",
+        )
+        self.assertEqual(
+            availability["implementation"],
+            "CommsWeb.NotificationAvailabilityNotifier",
+        )
+        self.assertEqual(
+            availability["binding"],
+            {
+                "application": "comms_core",
+                "key": "notification_availability_notifier",
+                "module": "CommsWeb.NotificationAvailabilityNotifier",
+            },
+        )
 
     def test_repository_inverts_identity_notification_lifecycle_dependency(
         self,
@@ -1793,8 +1876,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
 
         database = (
-            root
-            / "apps/comms_core/lib/comms_core/authorization/database.ex"
+            root / "apps/comms_core/lib/comms_core/authorization/database.ex"
         ).read_text(encoding="utf-8")
         for forbidden in (
             "PlatformRoleGrant",
@@ -2111,6 +2193,49 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assert_rule(root, "adapter_schema_import")
 
+    def test_resolves_prefix_aliases_for_core_and_adapter_schema_leaks(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            core = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            core.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta, as: B\n"
+                "  def read, do: %B.Record{}\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            adapter = root / "apps/comms_web/lib/comms_web/presenter.ex"
+            adapter.parent.mkdir(parents=True, exist_ok=True)
+            adapter.write_text(
+                "defmodule CommsWeb.Presenter do\n"
+                "  alias CommsCore, as: Core\n"
+                "  def render, do: %Core.Alpha.Record{}\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            observed = {
+                item.rule
+                for item in analyze_context_boundaries(
+                    root,
+                    read_yaml(root / "docs/02-architecture/context-boundaries.yaml"),
+                )
+            }
+            self.assertIn("foreign_schema_import", observed)
+            self.assertIn("undeclared_context_edge", observed)
+            self.assertIn("adapter_schema_import", observed)
+
     def test_rejects_adapter_changeset_dependencies(self) -> None:
         with self.boundary_fixture() as root:
             adapter = root / "apps/comms_web/lib/comms_web/fallback_controller.ex"
@@ -2118,6 +2243,20 @@ class ValidateArchitectureTest(unittest.TestCase):
             adapter.write_text(
                 "def call(conn, {:error, %Ecto.Changeset{} = changeset}), "
                 "do: Ecto.Changeset.traverse_errors(changeset, & &1)\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "adapter_changeset_import")
+
+    def test_rejects_adapter_changeset_through_prefix_alias(self) -> None:
+        with self.boundary_fixture() as root:
+            adapter = root / "apps/comms_web/lib/comms_web/fallback_controller.ex"
+            adapter.parent.mkdir(parents=True, exist_ok=True)
+            adapter.write_text(
+                "defmodule CommsWeb.FallbackController do\n"
+                "  alias Ecto, as: ORM\n"
+                "  def call(%ORM.Changeset{} = changeset), do: changeset\n"
+                "end\n",
                 encoding="utf-8",
             )
 
@@ -2138,6 +2277,56 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
 
             self.assert_rule(root, "public_contract_is_schema")
+
+    def test_discovers_parenthesized_and_attribute_schema_sources(self) -> None:
+        variants = (
+            'schema("alpha_records") do',
+            '@source "alpha_records"\n  schema @source do',
+        )
+        for schema_declaration in variants:
+            with (
+                self.subTest(schema_declaration=schema_declaration),
+                self.boundary_fixture() as root,
+            ):
+                schema = root / "apps/comms_core/lib/comms_core/alpha/record.ex"
+                schema.parent.mkdir(parents=True, exist_ok=True)
+                schema.write_text(
+                    "  defmodule(Elixir.CommsCore.Alpha.Record) do\n"
+                    f"  {schema_declaration}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                manifest = read_yaml(
+                    root / "docs/02-architecture/context-boundaries.yaml"
+                )
+                violations = analyze_context_boundaries(root, manifest)
+                self.assertNotIn(
+                    "canonical_schema_missing",
+                    {item.rule for item in violations},
+                    violations,
+                )
+                self.assertNotIn(
+                    "invalid_table_declaration",
+                    {item.rule for item in violations},
+                    violations,
+                )
+
+    def test_rejects_unresolved_schema_macro_source(self) -> None:
+        with self.boundary_fixture() as root:
+            schema = root / "apps/comms_core/lib/comms_core/alpha/record.ex"
+            schema.parent.mkdir(parents=True, exist_ok=True)
+            schema.write_text(
+                "defmodule CommsCore.Alpha.Record do\n"
+                "  @source source_from_runtime()\n"
+                "  schema @source do\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "invalid_table_declaration")
 
     def test_rejects_missing_declared_public_contracts(self) -> None:
         with self.boundary_fixture() as root:
@@ -2172,6 +2361,75 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assert_rule(root, "undeclared_context_edge")
             self.assert_rule(root, "direct_foreign_write")
+
+    def test_resolves_prefix_schema_alias_in_direct_foreign_write(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            source = root / "apps/comms_core/lib/comms_core/alpha/writer.ex"
+            source.write_text(
+                "defmodule CommsCore.Alpha.Writer do\n"
+                "  alias CommsCore.Beta, as: B\n"
+                "  alias CommsCore.Repo, as: R\n"
+                "  def write, do: R.insert(%B.Record{})\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "direct_foreign_write")
+
+    def test_resolves_tracked_repo_bindings_in_direct_foreign_write(self) -> None:
+        writes = (
+            (
+                "  alias CommsCore.Repo\n"
+                "  def write do\n"
+                "    repo = Repo\n"
+                "    repo.insert(%B.Record{})\n"
+                "  end\n"
+            ),
+            (
+                "  alias CommsCore.Repo\n"
+                "  @repo Repo\n"
+                "  def write, do: @repo.insert(%B.Record{})\n"
+            ),
+        )
+        for write_body in writes:
+            with (
+                self.subTest(write_body=write_body),
+                self.boundary_fixture() as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                self.write_schema(
+                    root,
+                    "CommsCore.Beta.Record",
+                    "beta_records",
+                    "beta/record.ex",
+                )
+                source = root / "apps/comms_core/lib/comms_core/alpha/writer.ex"
+                source.write_text(
+                    "defmodule CommsCore.Alpha.Writer do\n"
+                    "  alias CommsCore.Beta, as: B\n"
+                    f"{write_body}"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "direct_foreign_write")
 
     def test_does_not_treat_foreign_reads_plus_owner_writes_as_foreign_writes(
         self,
@@ -2381,6 +2639,47 @@ class ValidateArchitectureTest(unittest.TestCase):
 
             self.assert_rule(root, "direct_foreign_write")
 
+    def test_rejects_normalized_and_delegated_local_repo_wrappers(self) -> None:
+        wrappers = (
+            (
+                "  alias CommsCore.Repo, as: R\n"
+                "  defp persist(changeset), do: R.insert(changeset)\n"
+            ),
+            (
+                "  alias CommsCore.Repo\n"
+                "  defp persist(changeset) do\n"
+                "    repo = Repo\n"
+                "    repo.insert(changeset)\n"
+                "  end\n"
+            ),
+            (
+                "  alias CommsCore.Repo\n"
+                "  defdelegate persist(changeset), to: Repo, as: :insert\n"
+            ),
+        )
+        for wrapper in wrappers:
+            with (
+                self.subTest(wrapper=wrapper),
+                self.boundary_fixture(allow_alpha=("beta",)) as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Beta.Record",
+                    "beta_records",
+                    "beta/record.ex",
+                )
+                source = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                source.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Beta.Record\n"
+                    "  def change, do: persist(%Record{})\n"
+                    f"{wrapper}"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "direct_foreign_write")
+
     def test_repository_routes_governance_erasure_writes_through_owner_facades(
         self,
     ) -> None:
@@ -2462,8 +2761,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     self.assertIn(f"field(:{field}, Ecto.UUID)", source)
 
         moderation_action = (
-            root
-            / "apps/comms_core/lib/comms_core/moderation/moderation_action.ex"
+            root / "apps/comms_core/lib/comms_core/moderation/moderation_action.ex"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "belongs_to(:moderation_case, CommsCore.Moderation.ModerationCase)",
@@ -2485,9 +2783,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "def governance_impact(",
                 "def retention_candidates(",
             ),
-            "apps/comms_core/lib/comms_core/attachments.ex": (
-                "def erasure_objects(",
-            ),
+            "apps/comms_core/lib/comms_core/attachments.ex": ("def erasure_objects(",),
         }
         for relative_path, functions in owner_apis.items():
             with self.subTest(owner=relative_path):
@@ -2521,14 +2817,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             self.assertIn(owner_call, moderation_source)
 
         dto_paths = {
-            "CommsCore.Messaging.GovernanceImpact":
-                "apps/comms_core/lib/comms_core/messaging/governance_impact.ex",
-            "CommsCore.Messaging.RetentionScope":
-                "apps/comms_core/lib/comms_core/messaging/retention_scope.ex",
-            "CommsCore.Messaging.RetentionCandidate":
-                "apps/comms_core/lib/comms_core/messaging/retention_candidate.ex",
-            "CommsCore.Attachments.AttachmentDeletionObject":
-                "apps/comms_core/lib/comms_core/attachments/attachment_deletion_object.ex",
+            "CommsCore.Messaging.GovernanceImpact": "apps/comms_core/lib/comms_core/messaging/governance_impact.ex",
+            "CommsCore.Messaging.RetentionScope": "apps/comms_core/lib/comms_core/messaging/retention_scope.ex",
+            "CommsCore.Messaging.RetentionCandidate": "apps/comms_core/lib/comms_core/messaging/retention_candidate.ex",
+            "CommsCore.Attachments.AttachmentDeletionObject": "apps/comms_core/lib/comms_core/attachments/attachment_deletion_object.ex",
         }
         declared_contracts = set(
             manifest["contexts"]["conversation_content"]["public_contracts"]
@@ -2743,6 +3035,46 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
 
             self.assert_rule(root, "public_ecto_contract")
+
+    def test_rejects_alias_exposed_ecto_schema_in_public_spec(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            facade.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Record\n"
+                "  @spec get(String.t()) :: Record.t()\n"
+                "  def get(id), do: id\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "public_ecto_contract")
+
+    def test_alias_spec_does_not_confuse_record_view_with_schema(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            facade.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Record\n"
+                "  @spec get(String.t()) :: RecordView.t()\n"
+                "  def get(id), do: id\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_not_rule(root, "public_ecto_contract")
 
     def test_public_contract_prefix_does_not_match_an_internal_schema(self) -> None:
         with self.boundary_fixture() as root:
@@ -3246,6 +3578,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             "  alias CommsCore.Beta\n"
             "  def run, do: Function.capture(Beta, :delete, 1)\n",
             "  alias CommsCore.Beta\n  def run(a, b), do: Beta.lookup(a, b)\n",
+            "  alias CommsCore.Beta\n"
+            "  @directory Beta\n"
+            "  def run(id), do: @directory.delete(id)\n",
+            "  alias CommsCore.Beta\n  defdelegate run(id), to: Beta, as: :delete\n",
         )
 
         for index, unsafe_source in enumerate(unsafe_sources):
@@ -3504,6 +3840,12 @@ class ValidateArchitectureTest(unittest.TestCase):
             "  alias Ecto.Adapters.SQL, as: Database\n  import Database\n",
             "  alias Ecto.Adapters.SQL, as: Database\n"
             "  def mutate, do: &Database.query/4\n",
+            "  alias Ecto.Adapters.SQL\n"
+            "  def mutate(statement) do\n"
+            "    db = SQL\n"
+            "    db.query(Repo, statement, [])\n"
+            "  end\n",
+            "  defdelegate query(repo, statement, args), to: Ecto.Adapters.SQL\n",
         )
 
         for index, body in enumerate(unsafe_bodies):
@@ -3800,6 +4142,958 @@ class ValidateArchitectureTest(unittest.TestCase):
                 errors,
             )
 
+    def test_validates_exact_configured_technical_interface(self) -> None:
+        with self.technical_interface_fixture() as root:
+            self.assertEqual(validate(root), [])
+
+    def test_rejects_technical_interface_contract_drift(self) -> None:
+        mutations = (
+            (
+                "caller",
+                lambda item: item.update(callers=["CommsCore.Alpha.Missing"]),
+            ),
+            (
+                "operation",
+                lambda item: item.update(operations=[{"name": "execute", "arity": 2}]),
+            ),
+            (
+                "behaviour",
+                lambda item: item.update(behaviour="CommsCore.Alpha.MissingContract"),
+            ),
+            (
+                "implementation",
+                lambda item: item.update(implementation="CommsWeb.MissingAdapter"),
+            ),
+            (
+                "binding",
+                lambda item: item["binding"].update(key="wrong_adapter"),
+            ),
+            (
+                "contract",
+                lambda item: item.update(contracts=["CommsCore.Alpha.MissingPayload"]),
+            ),
+            ("empty contracts", lambda item: item.update(contracts=[])),
+            ("transaction", lambda item: item.update(transaction="eventual")),
+        )
+        for label, mutate in mutations:
+            with (
+                self.subTest(label=label),
+                self.technical_interface_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                mutate(manifest["technical_interfaces"][0])
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any("[invalid_technical_interface]" in error for error in errors),
+                    errors,
+                )
+
+    def test_rejects_undeclared_technical_interface_operation(self) -> None:
+        with self.technical_interface_fixture() as root:
+            dispatcher = root / "apps/comms_core/lib/comms_core/alpha/dispatcher.ex"
+            dispatcher_text = dispatcher.read_text(encoding="utf-8")
+            dispatcher_body, module_end = dispatcher_text.rsplit("\nend\n", 1)
+            dispatcher.write_text(
+                dispatcher_body
+                + "\n  def unsafe(payload), do: payload\nend\n"
+                + module_end,
+                encoding="utf-8",
+            )
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                "  def run do\n"
+                '    payload = %Payload{id: "fixture"}\n'
+                "    Dispatcher.execute(payload)\n"
+                "    Dispatcher.unsafe(payload)\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "invokes undeclared operations" in error and "unsafe/1" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_undeclared_operation_from_another_released_adapter(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            rogue = root / "apps/comms_web/lib/comms_web/rogue_adapter.ex"
+            rogue.write_text(
+                "defmodule CommsWeb.RogueAdapter do\n"
+                "  alias CommsCore.Alpha.Dispatcher\n"
+                "  def run(payload), do: Dispatcher.unsafe(payload)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "caller CommsWeb.RogueAdapter invokes undeclared operations"
+                    in error
+                    and "unsafe/1" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_same_owner_rogue_technical_interface_callers(self) -> None:
+        mutations = (
+            (
+                "declared operation",
+                "Dispatcher.execute(payload)",
+                "caller set differs from source",
+            ),
+            (
+                "undeclared operation",
+                "Dispatcher.unsafe(payload)",
+                "invokes undeclared operations",
+            ),
+        )
+        for label, invocation, expected in mutations:
+            with self.subTest(label=label), self.technical_interface_fixture() as root:
+                rogue = root / "apps/comms_core/lib/comms_core/alpha/rogue.ex"
+                rogue.write_text(
+                    "defmodule CommsCore.Alpha.Rogue do\n"
+                    "  alias CommsCore.Alpha.Dispatcher\n"
+                    f"  def run(payload), do: {invocation}\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        expected in error and "CommsCore.Alpha.Rogue" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_dynamic_undeclared_technical_interface_operation(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                "  def run do\n"
+                '    payload = %Payload{id: "fixture"}\n'
+                "    Dispatcher.execute(payload)\n"
+                "    apply(Dispatcher, :unsafe, [payload])\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "uses an unenforceable interface invocation" in error
+                    and "uses dynamic CommsCore.Alpha.Dispatcher.unsafe" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_dynamic_variable_technical_interface_operation(
+        self,
+    ) -> None:
+        invocations = (
+            "apply(Dispatcher, operation, [payload])",
+            "Function.capture(Dispatcher, operation, 1)",
+        )
+        for invocation in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                    "  def run(operation) do\n"
+                    '    payload = %Payload{id: "fixture"}\n'
+                    "    Dispatcher.execute(payload)\n"
+                    f"    {invocation}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "uses dynamic "
+                        "CommsCore.Alpha.Dispatcher.<non-literal operation>" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_dynamic_variable_technical_interface_module(
+        self,
+    ) -> None:
+        invocations = (
+            "apply(target, :unsafe, [payload])",
+            "Function.capture(target, :unsafe, 1)",
+        )
+        for invocation in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                    "  def run do\n"
+                    '    payload = %Payload{id: "fixture"}\n'
+                    "    Dispatcher.execute(payload)\n"
+                    "    target = Dispatcher\n"
+                    f"    {invocation}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "uses dynamic CommsCore.Alpha.Dispatcher.unsafe" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_parenless_dynamic_technical_interface_invocations(
+        self,
+    ) -> None:
+        invocations = (
+            (
+                "apply target, :unsafe, [payload]",
+                "uses dynamic CommsCore.Alpha.Dispatcher.unsafe",
+            ),
+            (
+                "Kernel.apply target, operation, [payload]",
+                "uses dynamic CommsCore.Alpha.Dispatcher.<non-literal operation>",
+            ),
+            (
+                ":erlang.apply target, :unsafe, [payload]",
+                "uses dynamic CommsCore.Alpha.Dispatcher.unsafe",
+            ),
+            (
+                "Function.capture target, operation, 1",
+                "uses dynamic CommsCore.Alpha.Dispatcher.<non-literal operation>",
+            ),
+            (
+                "apply target,\n      :unsafe,\n      [payload]",
+                "uses dynamic CommsCore.Alpha.Dispatcher.unsafe",
+            ),
+            (
+                "Function.capture target,\n      operation,\n      1",
+                "uses dynamic CommsCore.Alpha.Dispatcher.<non-literal operation>",
+            ),
+        )
+        for invocation, expected in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                    "  def run(operation) do\n"
+                    '    payload = %Payload{id: "fixture"}\n'
+                    "    Dispatcher.execute(payload)\n"
+                    "    target = Dispatcher\n"
+                    f"    {invocation}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(expected in error for error in errors),
+                    errors,
+                )
+
+    def test_rejects_module_attribute_dynamic_technical_invocations(
+        self,
+    ) -> None:
+        invocations = (
+            (
+                "apply(@target, :unsafe, [payload])",
+                "uses dynamic CommsCore.Alpha.Dispatcher.unsafe",
+            ),
+            (
+                "apply @target, operation, [payload]",
+                "uses dynamic CommsCore.Alpha.Dispatcher.<non-literal operation>",
+            ),
+            (
+                "Function.capture(@target, :unsafe, 1)",
+                "uses dynamic CommsCore.Alpha.Dispatcher.unsafe",
+            ),
+            (
+                "Function.capture @target, operation, 1",
+                "uses dynamic CommsCore.Alpha.Dispatcher.<non-literal operation>",
+            ),
+        )
+        for invocation, expected in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                    "  @target Dispatcher\n"
+                    "  def run(operation) do\n"
+                    '    payload = %Payload{id: "fixture"}\n'
+                    "    Dispatcher.execute(payload)\n"
+                    f"    {invocation}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(expected in error for error in errors),
+                    errors,
+                )
+
+    def test_rejects_tracked_static_remote_technical_calls(self) -> None:
+        invocations = (
+            "target.unsafe(payload)",
+            "target.unsafe payload",
+            "&target.unsafe/1",
+            "@target.unsafe(payload)",
+            "@target.unsafe payload",
+            "&@target.unsafe/1",
+        )
+        for invocation in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+                    "  @target Dispatcher\n"
+                    "  def run do\n"
+                    '    payload = %Payload{id: "fixture"}\n'
+                    "    Dispatcher.execute(payload)\n"
+                    "    target = Dispatcher\n"
+                    f"    {invocation}\n"
+                    "  end\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "CommsCore.Alpha.Dispatcher.unsafe" in error
+                        or (
+                            "invokes undeclared operations" in error
+                            and "unsafe/1" in error
+                        )
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_defdelegate_participates_in_exact_technical_contracts(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Dispatcher\n"
+                "  defdelegate execute(payload), to: Dispatcher\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(validate(root), [])
+
+        mutations = (
+            "defdelegate run(payload), to: Dispatcher, as: :unsafe",
+            (
+                "target = Dispatcher\n"
+                "  defdelegate run(payload), to: target, as: :unsafe"
+            ),
+        )
+        for declaration in mutations:
+            with (
+                self.subTest(declaration=declaration),
+                self.technical_interface_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    "  alias CommsCore.Alpha.Dispatcher\n"
+                    f"  {declaration}\n"
+                    "  def execute(payload), do: Dispatcher.execute(payload)\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "invokes undeclared operations" in error and "unsafe/1" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_rejects_unknown_dynamic_target_in_technical_caller(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Dispatcher\n"
+                "  def run(payload) do\n"
+                "    Dispatcher.execute(payload)\n"
+                "    target = target_from_helper()\n"
+                "    apply(target, :unsafe, [payload])\n"
+                "  end\n"
+                "  defp target_from_helper, do: Dispatcher\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "CommsCore.Alpha.Dispatcher.<unknown module target>" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_ambiguous_static_technical_binding(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Dispatcher\n"
+                "  def run(payload) do\n"
+                "    Dispatcher.execute(payload)\n"
+                "    target = Dispatcher\n"
+                "    target = CommsCore.Alpha.Other\n"
+                "    apply(target, :unsafe, [payload])\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any("ambiguously binds target" in error for error in errors),
+                errors,
+            )
+
+    def test_rejects_ambiguous_technical_alias_rebinding(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias(CommsCore.Alpha.Dispatcher, as: Target)\n"
+                "  alias CommsCore.Alpha.Other, as: Target, warn: false\n"
+                "  def run(payload) do\n"
+                "    CommsCore.Alpha.Dispatcher.execute(payload)\n"
+                "    Target.unsafe(payload)\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any("ambiguously aliases Target" in error for error in errors),
+                errors,
+            )
+
+    def test_normalizes_elixir_and_prefix_alias_technical_calls(self) -> None:
+        invocations = (
+            "Elixir.CommsCore.Alpha.Dispatcher.unsafe(payload)",
+            "Core.Alpha.Dispatcher.unsafe(payload)",
+        )
+        for invocation in invocations:
+            with (
+                self.subTest(invocation=invocation),
+                self.technical_interface_fixture() as root,
+            ):
+                rogue = root / "apps/comms_core/lib/comms_core/alpha/rogue.ex"
+                rogue.write_text(
+                    "defmodule CommsCore.Alpha.Rogue do\n"
+                    "  alias CommsCore, as: Core\n"
+                    f"  def run(payload), do: {invocation}\n"
+                    "end\n",
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        "invokes undeclared operations" in error and "unsafe/1" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_normalizes_elixir_module_declarations_and_config_binding(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                caller.read_text(encoding="utf-8").replace(
+                    "defmodule CommsCore.Alpha",
+                    "defmodule Elixir.CommsCore.Alpha",
+                ),
+                encoding="utf-8",
+            )
+            implementation = root / "apps/comms_web/lib/comms_web/alpha_adapter.ex"
+            implementation.write_text(
+                implementation.read_text(encoding="utf-8").replace(
+                    "defmodule CommsWeb.AlphaAdapter",
+                    "defmodule Elixir.CommsWeb.AlphaAdapter",
+                ),
+                encoding="utf-8",
+            )
+            config = root / "config/config.exs"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "CommsWeb.AlphaAdapter",
+                    "Elixir.CommsWeb.AlphaAdapter",
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate(root), [])
+
+    def test_alias_options_preserve_exact_technical_call_resolution(self) -> None:
+        aliases = (
+            "alias CommsCore.Alpha.Dispatcher, warn: false",
+            "alias CommsCore.Alpha.Dispatcher, as: D, warn: false",
+            ("alias CommsCore.Alpha.Dispatcher,\n    as: D,\n    warn: false"),
+        )
+        for alias_declaration in aliases:
+            with (
+                self.subTest(alias_declaration=alias_declaration),
+                self.technical_interface_fixture() as root,
+            ):
+                receiver = "Dispatcher" if "as:" not in alias_declaration else "D"
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    "defmodule CommsCore.Alpha do\n"
+                    f"  {alias_declaration}\n"
+                    "  alias CommsCore.Alpha.Payload\n"
+                    f'  def run, do: {receiver}.execute(%Payload{{id: "fixture"}})\n'
+                    "end\n",
+                    encoding="utf-8",
+                )
+
+                self.assertEqual(validate(root), [])
+
+    def test_parenthesized_alias_and_import_directives_are_enforced(self) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias(CommsCore, as: Core)\n"
+                "  alias CommsCore.Alpha.Payload\n"
+                "  def run(payload), do: "
+                "Core.Alpha.Dispatcher.execute(payload)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(validate(root), [])
+
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  alias CommsCore.Alpha.Dispatcher\n"
+                "  import(CommsCore.Alpha.Dispatcher, only: [unsafe: 1])\n"
+                "  def run(payload) do\n"
+                "    Dispatcher.execute(payload)\n"
+                "    unsafe(payload)\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any("imports CommsCore.Alpha.Dispatcher" in error for error in errors),
+                errors,
+            )
+
+    def test_configured_interface_parses_all_literal_application_bindings(
+        self,
+    ) -> None:
+        bindings = (
+            "Application.get_env :comms_core, :alpha_technical_adapter",
+            "Application.fetch_env! :comms_core, :alpha_technical_adapter",
+            "Application.compile_env(:comms_core, :alpha_technical_adapter)",
+            "Application.compile_env! :comms_core, :alpha_technical_adapter",
+        )
+        for binding in bindings:
+            with (
+                self.subTest(binding=binding),
+                self.technical_interface_fixture() as root,
+            ):
+                dispatcher = root / "apps/comms_core/lib/comms_core/alpha/dispatcher.ex"
+                dispatcher.write_text(
+                    dispatcher.read_text(encoding="utf-8").replace(
+                        "Application.get_env(:comms_core, :alpha_technical_adapter)",
+                        binding,
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertEqual(validate(root), [])
+
+        with self.technical_interface_fixture() as root:
+            dispatcher = root / "apps/comms_core/lib/comms_core/alpha/dispatcher.ex"
+            dispatcher.write_text(
+                dispatcher.read_text(encoding="utf-8").replace(
+                    "Application.get_env(:comms_core, :alpha_technical_adapter)",
+                    "Application.get_env(application, key)",
+                ),
+                encoding="utf-8",
+            )
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "uses a non-literal application or key" in error for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_unresolved_application_binding_outside_interface_module(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            source = root / "apps/comms_core/lib/comms_core/beta/dynamic_binding.ex"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "defmodule CommsCore.Beta.DynamicBinding do\n"
+                "  def resolve(application, key), "
+                "do: Application.get_env(application, key)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "uses an unenforceable configured binding" in error
+                    and "uses a non-literal application or key" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_configured_interface_accepts_parenthesized_config_binding(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            config = root / "config/config.exs"
+            config.write_text(
+                "import Config\n"
+                "config(:comms_core, :alpha_technical_adapter, "
+                "CommsWeb.AlphaAdapter)\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(validate(root), [])
+
+    def test_rejects_declared_technical_operation_without_a_declared_caller_use(
+        self,
+    ) -> None:
+        with self.technical_interface_fixture() as root:
+            caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            caller.write_text(
+                "defmodule CommsCore.Alpha do\n  def run(payload), do: payload\nend\n",
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "declared operations are not used by a declared caller" in error
+                    and "execute/1" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_missing_or_removed_technical_interface_declarations(
+        self,
+    ) -> None:
+        for mutation in ("missing", "empty"):
+            with (
+                self.subTest(mutation=mutation),
+                self.technical_interface_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                if mutation == "missing":
+                    manifest.pop("technical_interfaces")
+                else:
+                    manifest["technical_interfaces"] = []
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+                errors = validate(root)
+                self.assertTrue(
+                    any("[invalid_technical_interface]" in error for error in errors),
+                    errors,
+                )
+
+    def test_rejects_adapter_internal_modules_including_hidden_projectors(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            alpha.parent.mkdir(parents=True, exist_ok=True)
+            alpha.write_text(
+                "defmodule CommsCore.Alpha do\nend\n",
+                encoding="utf-8",
+            )
+            projector = root / "apps/comms_core/lib/comms_core/alpha/projector.ex"
+            projector.parent.mkdir(parents=True, exist_ok=True)
+            projector.write_text(
+                "defmodule CommsCore.Alpha.Projector do\n"
+                "  @moduledoc false\n"
+                "  def project(value), do: value\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            leak = root / "apps/comms_web/lib/comms_web/leak.ex"
+            leak.parent.mkdir(parents=True, exist_ok=True)
+            leak.write_text(
+                "defmodule CommsWeb.Leak do\n"
+                "  alias CommsCore.Alpha.Projector\n"
+                "  def run(value), do: Projector.project(value)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "adapter_internal_module_import")
+
+    def test_adapter_schema_import_is_not_duplicated_as_internal_import(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            leak = root / "apps/comms_web/lib/comms_web/schema_leak.ex"
+            leak.parent.mkdir(parents=True, exist_ok=True)
+            leak.write_text(
+                "defmodule CommsWeb.SchemaLeak do\n"
+                "  alias CommsCore.Alpha.Record\n"
+                "  def run(%Record{} = record), do: record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            rules = {
+                item.rule
+                for item in analyze_context_boundaries(root, manifest)
+                if item.path == "apps/comms_web/lib/comms_web/schema_leak.ex"
+            }
+            self.assertEqual(rules, {"adapter_schema_import"})
+
+    def test_strict_deferrals_reject_debt_outside_allowed_contexts(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["contexts"]["calls"] = {
+                "public_facades": [],
+                "public_contracts": [],
+                "internal_namespaces": ["CommsCore.Calls"],
+                "allowed_dependencies": [],
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            write_current_baseline(root)
+            self.declare_current_baseline_deferrals(root)
+
+            manifest = read_yaml(manifest_path)
+            manifest["enforcement"]["mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["target_mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["strict_with_explicit_deferrals"] = {
+                "active": True,
+                "exact_mapping": True,
+                "reject_missing_declarations": True,
+                "reject_stale_declarations": True,
+                "reject_duplicate_fingerprints": True,
+                "require_base_branch_no_growth": True,
+                "require_deterministic_report": True,
+                "allowed_deferral_contexts": ["calls"],
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any("outside allowed_deferral_contexts" in error for error in errors),
+                errors,
+            )
+
+    def test_strict_deferrals_reject_independent_cycle_hidden_by_allowed_context(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["contexts"]["alpha"]["allowed_dependencies"] = [
+                "beta",
+                "calls",
+            ]
+            manifest["contexts"]["beta"]["allowed_dependencies"] = ["alpha"]
+            manifest["contexts"]["calls"] = {
+                "public_facades": ["CommsCore.Calls"],
+                "public_contracts": [],
+                "internal_namespaces": ["CommsCore.Calls"],
+                "allowed_dependencies": ["alpha"],
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            (root / "apps/comms_core/lib/comms_core/alpha.ex").write_text(
+                "defmodule CommsCore.Alpha do\n"
+                "  def run(value) do\n"
+                "    {CommsCore.Beta.run(value), CommsCore.Calls.run(value)}\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            (root / "apps/comms_core/lib/comms_core/beta.ex").write_text(
+                "defmodule CommsCore.Beta do\n"
+                "  def run(value), do: CommsCore.Alpha.run(value)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            (root / "apps/comms_core/lib/comms_core/calls.ex").write_text(
+                "defmodule CommsCore.Calls do\n"
+                "  def run(value), do: CommsCore.Alpha.run(value)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            violations = write_current_baseline(root)
+            self.assertEqual(
+                [item.rule for item in violations],
+                ["business_context_cycle"],
+            )
+            self.declare_current_baseline_deferrals(root)
+
+            manifest = read_yaml(manifest_path)
+            manifest["enforcement"]["mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["target_mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["strict_with_explicit_deferrals"] = {
+                "active": True,
+                "exact_mapping": True,
+                "reject_missing_declarations": True,
+                "reject_stale_declarations": True,
+                "reject_duplicate_fingerprints": True,
+                "require_base_branch_no_growth": True,
+                "require_deterministic_report": True,
+                "allowed_deferral_contexts": ["calls"],
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "contains an independent residual cycle outside "
+                    "allowed_deferral_contexts"
+                    in error
+                    and "alpha <-> beta" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+            retained = violations[0]
+            calls_driven = type(retained)(
+                retained.rule,
+                retained.path,
+                "members: alpha, beta, calls; "
+                "edges: alpha->calls, beta->alpha, calls->beta",
+            )
+            manifest = read_yaml(manifest_path)
+            self.assertIsNone(
+                strict_deferral_rejection_reason(
+                    root,
+                    manifest,
+                    calls_driven,
+                    {"calls"},
+                )
+            )
+
     def test_validates_runtime_collaboration_and_reports_all_graphs(self) -> None:
         with self.runtime_collaboration_fixture() as root:
             self.assertEqual(validate(root), [])
@@ -3825,6 +5119,30 @@ class ValidateArchitectureTest(unittest.TestCase):
             self.assertEqual(violations[0].rule, "runtime_context_cycle")
             self.assertIn("alpha->beta", violations[0].detail)
             self.assertIn("beta->alpha", violations[0].detail)
+
+    def test_runtime_collaboration_observes_static_and_delegated_callers(
+        self,
+    ) -> None:
+        callers = (
+            ("  alias CommsCore.Alpha.Port\n  defdelegate execute(result), to: Port\n"),
+            (
+                "  alias CommsCore.Alpha.Port\n"
+                "  @port Port\n"
+                "  def run(result), do: @port.execute(result)\n"
+            ),
+        )
+        for caller_body in callers:
+            with (
+                self.subTest(caller_body=caller_body),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                caller = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                caller.write_text(
+                    f"defmodule CommsCore.Alpha do\n{caller_body}end\n",
+                    encoding="utf-8",
+                )
+
+                self.assertEqual(validate(root), [])
 
     def test_rejects_runtime_operation_caller_binding_and_transaction_drift(
         self,
@@ -3889,10 +5207,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         with self.runtime_collaboration_fixture() as root:
-            port_path = (
-                root
-                / "apps/comms_core/lib/comms_core/alpha/port.ex"
-            )
+            port_path = root / "apps/comms_core/lib/comms_core/alpha/port.ex"
             port_text = port_path.read_text(encoding="utf-8")
             port_text = port_text.replace(
                 "  @callback execute(Result.t()) :: {:ok, Result.t()}\n",
@@ -3901,8 +5216,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
             port_head, port_end = port_text.rsplit("end\n", 1)
             port_text = (
-                port_head
-                + "  def fetch(%Result{} = result) do\n"
+                port_head + "  def fetch(%Result{} = result) do\n"
                 "    if Repo.in_transaction?() do\n"
                 "      {:ok, adapter} = "
                 "Application.fetch_env(:comms_core, :alpha_beta_adapter)\n"
@@ -3913,8 +5227,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "  end\n"
                 "\n"
                 "  def fetch(_invalid), do: {:error, :invalid_result}\n"
-                "end\n"
-                + port_end
+                "end\n" + port_end
             )
             port_path.write_text(port_text, encoding="utf-8")
 
@@ -3925,10 +5238,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 1,
             )
             implementation.write_text(
-                implementation_head
-                + "  def fetch(result), do: {:ok, result}\n"
-                "end\n"
-                + implementation_end,
+                implementation_head + "  def fetch(result), do: {:ok, result}\n"
+                "end\n" + implementation_end,
                 encoding="utf-8",
             )
 
@@ -3968,6 +5279,34 @@ class ValidateArchitectureTest(unittest.TestCase):
             self.assertIn(guarded, port_text)
             port_path.write_text(
                 port_text.replace(guarded, spoofed),
+                encoding="utf-8",
+            )
+
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "[invalid_runtime_collaboration]" in error
+                    and "execute/1 clause 1 is not wrapped" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_rejects_fake_repo_transaction_guard_alias(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            port_path = root / "apps/comms_core/lib/comms_core/alpha/port.ex"
+            port_path.write_text(
+                port_path.read_text(encoding="utf-8").replace(
+                    "alias CommsCore.Repo",
+                    "alias CommsCore.Alpha.FakeRepo, as: Repo",
+                ),
+                encoding="utf-8",
+            )
+            fake_repo = root / "apps/comms_core/lib/comms_core/alpha/fake_repo.ex"
+            fake_repo.write_text(
+                "defmodule CommsCore.Alpha.FakeRepo do\n"
+                "  def in_transaction?, do: true\n"
+                "end\n",
                 encoding="utf-8",
             )
 
@@ -4052,10 +5391,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         bodies = (
             "  alias CommsCore.Alpha.Port\n"
             "  def run(result), do: apply(Port, :execute, [result])\n",
-            "  alias CommsCore.Alpha.Port\n"
-            "  def callback, do: &Port.execute/1\n",
-            "  import CommsCore.Alpha.Port\n"
-            "  def run(result), do: execute(result)\n",
+            "  alias CommsCore.Alpha.Port\n  def callback, do: &Port.execute/1\n",
+            "  import CommsCore.Alpha.Port\n  def run(result), do: execute(result)\n",
             "  alias CommsCore.Alpha.Port\n"
             "  def run(result), do: Port.execute result\n",
         )
@@ -4215,8 +5552,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 errors = validate(root)
                 self.assertTrue(
                     any(
-                        "exact_mapping must exactly match" in error
-                        for error in errors
+                        "exact_mapping must exactly match" in error for error in errors
                     ),
                     errors,
                 )
@@ -4423,9 +5759,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 encoding="utf-8",
             )
             first_violations = write_current_baseline(root)
-            first_fingerprints = sorted(
-                item.fingerprint for item in first_violations
-            )
+            first_fingerprints = sorted(item.fingerprint for item in first_violations)
             manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
             manifest = read_yaml(manifest_path)
             manifest.setdefault("enforcement", {})["baseline_adoption"] = {
@@ -4450,8 +5784,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             errors = compare_boundary_baselines(root, base)
             self.assertTrue(
                 any(
-                    "stale allowed discovery fingerprints" in error
-                    for error in errors
+                    "stale allowed discovery fingerprints" in error for error in errors
                 ),
                 errors,
             )
@@ -4509,8 +5842,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ).read_bytes()
             )
             base_fingerprints = {
-                entry["fingerprint"]
-                for entry in read_yaml(base).get("violations", [])
+                entry["fingerprint"] for entry in read_yaml(base).get("violations", [])
             }
 
             first.unlink()
@@ -4584,6 +5916,332 @@ class ValidateArchitectureTest(unittest.TestCase):
                 errors,
             )
 
+    def test_reviewed_transition_cannot_adopt_protected_rule_growth(self) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+            adapter = root / "apps/comms_web/lib/comms_web/schema_leak.ex"
+            adapter.parent.mkdir(parents=True, exist_ok=True)
+            adapter.write_text(
+                "defmodule CommsWeb.SchemaLeak do\n"
+                "  alias CommsCore.Alpha.Record\n"
+                "  def render(%Record{} = record), do: record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            violations = analyze_context_boundaries(root, manifest)
+            self.assertEqual(
+                {item.rule for item in violations},
+                {"adapter_schema_import"},
+            )
+            base_document = read_yaml(base)
+            current_baseline = (
+                root / "docs/02-architecture/context-boundary-baseline.yaml"
+            )
+            current_baseline.write_text(
+                yaml.safe_dump(
+                    {
+                        "version": 1,
+                        "policy": base_document["policy"],
+                        "violations": [
+                            {
+                                "fingerprint": item.fingerprint,
+                                "rule": item.rule,
+                                "path": item.path,
+                                "detail": item.detail,
+                            }
+                            for item in violations
+                        ],
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            added = sorted(item.fingerprint for item in violations)
+            adr = "docs/02-architecture/adr/9999-protected-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text("# Protected transition\n", encoding="utf-8")
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [
+                {
+                    "id": "attempt-protected-adoption",
+                    "previous_baseline_sha256": canonical_text_sha256(base),
+                    "added_fingerprints": added,
+                    "removed_fingerprints": [],
+                    "adr": adr,
+                    "removal_condition": "This must not be adoptable.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any(
+                    "added a protected no-new-deferral fingerprint" in error
+                    and "[adapter_schema_import]" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_strict_reviewed_transition_cannot_adopt_any_growth(self) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            violations = write_current_baseline(root)
+            self.assertEqual(
+                {item.rule for item in violations},
+                {"foreign_schema_import"},
+            )
+            added = sorted(item.fingerprint for item in violations)
+            adr = "docs/02-architecture/adr/9999-strict-transition.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text("# Strict transition\n", encoding="utf-8")
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["enforcement"]["mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["target_mode"] = "strict_with_explicit_deferrals"
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [
+                {
+                    "id": "attempt-strict-adoption",
+                    "previous_baseline_sha256": canonical_text_sha256(base),
+                    "added_fingerprints": added,
+                    "removed_fingerprints": [],
+                    "adr": adr,
+                    "removal_condition": "Strict debt may only shrink.",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = compare_boundary_baselines(root, base)
+            self.assertTrue(
+                any(
+                    "strict boundary baseline may only shrink" in error
+                    and "[foreign_schema_import]" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_activated_strict_gate_cannot_downgrade_mode_and_target(
+        self,
+    ) -> None:
+        with self.boundary_fixture(allow_alpha=("beta",)) as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            base = root / "base-boundary-baseline.yaml"
+            base.write_bytes(
+                (
+                    root / "docs/02-architecture/context-boundary-baseline.yaml"
+                ).read_bytes()
+            )
+            reader = root / "apps/comms_core/lib/comms_core/alpha/reader.ex"
+            reader.write_text(
+                "defmodule CommsCore.Alpha.Reader do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            violations = write_current_baseline(root)
+            self.assertEqual(
+                {item.rule for item in violations},
+                {"foreign_schema_import"},
+            )
+            self.declare_current_baseline_deferrals(root)
+            added = sorted(item.fingerprint for item in violations)
+            adr = "docs/02-architecture/adr/9999-downgrade-attempt.md"
+            adr_path = root / adr
+            adr_path.parent.mkdir(parents=True, exist_ok=True)
+            adr_path.write_text("# Downgrade attempt\n", encoding="utf-8")
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["status"] = "enforced"
+            manifest["enforcement"].update(
+                {
+                    "mode": "baseline",
+                    "target_mode": "baseline",
+                    "strict_with_explicit_deferrals": {
+                        "active": True,
+                        "exact_mapping": True,
+                        "reject_missing_declarations": True,
+                        "reject_stale_declarations": True,
+                        "reject_duplicate_fingerprints": True,
+                        "require_base_branch_no_growth": True,
+                        "require_deterministic_report": True,
+                        "allowed_deferral_contexts": ["alpha"],
+                    },
+                    "reviewed_baseline_transitions": [
+                        {
+                            "id": "attempt-gate-downgrade",
+                            "previous_baseline_sha256": canonical_text_sha256(base),
+                            "added_fingerprints": added,
+                            "removed_fingerprints": [],
+                            "adr": adr,
+                            "removal_condition": (
+                                "The activated strict gate must reject this."
+                            ),
+                        }
+                    ],
+                }
+            )
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            validation_errors = validate(root)
+            comparison_errors = compare_boundary_baselines(root, base)
+            for errors in (validation_errors, comparison_errors):
+                self.assertTrue(
+                    any(
+                        "activated enforcement target_mode is locked to "
+                        "'strict_with_explicit_deferrals'" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_base_manifest_strict_activation_cannot_be_erased(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_manifest_path = root / "base-context-boundaries.yaml"
+            base_manifest = read_yaml(manifest_path)
+            base_manifest["status"] = "enforced"
+            base_manifest["enforcement"].update(
+                {
+                    "mode": "strict_with_explicit_deferrals",
+                    "target_mode": "strict_with_explicit_deferrals",
+                    "strict_with_explicit_deferrals": {
+                        "active": True,
+                    },
+                }
+            )
+            base_manifest_path.write_text(
+                yaml.safe_dump(base_manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            weakened = copy.deepcopy(base_manifest)
+            weakened.pop("status")
+            weakened["enforcement"]["mode"] = "baseline"
+            weakened["enforcement"].pop("target_mode")
+            weakened["enforcement"].pop("strict_with_explicit_deferrals")
+            manifest_path.write_text(
+                yaml.safe_dump(weakened, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            errors = compare_boundary_manifests(root, base_manifest_path)
+            self.assertTrue(
+                any("immutable base status" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("immutable base target_mode" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("downgraded immutable base mode" in error for error in errors),
+                errors,
+            )
+            self.assertTrue(
+                any("immutable base strict activation" in error for error in errors),
+                errors,
+            )
+
+    def test_base_manifest_allows_planned_strict_activation(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_manifest_path = root / "base-context-boundaries.yaml"
+            base_manifest = read_yaml(manifest_path)
+            base_manifest["status"] = "enforced"
+            base_manifest["enforcement"].update(
+                {
+                    "mode": "baseline",
+                    "target_mode": "strict_with_explicit_deferrals",
+                    "strict_with_explicit_deferrals": {
+                        "active": False,
+                    },
+                }
+            )
+            base_manifest_path.write_text(
+                yaml.safe_dump(base_manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            activated = copy.deepcopy(base_manifest)
+            activated["enforcement"]["mode"] = "strict_with_explicit_deferrals"
+            activated["enforcement"]["strict_with_explicit_deferrals"] = {
+                "active": True,
+            }
+            manifest_path.write_text(
+                yaml.safe_dump(activated, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                compare_boundary_manifests(root, base_manifest_path),
+                [],
+            )
+
     def test_baseline_transition_hash_is_line_ending_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -4649,9 +6307,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "adr": adr,
                 "removal_condition": "Remove after the new baseline lands.",
             }
-            manifest["enforcement"]["reviewed_baseline_transitions"] = [
-                transition
-            ]
+            manifest["enforcement"]["reviewed_baseline_transitions"] = [transition]
             manifest_path.write_text(
                 yaml.safe_dump(manifest, sort_keys=False),
                 encoding="utf-8",
@@ -4683,19 +6339,22 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
             errors = compare_boundary_baselines(root, base)
             self.assertTrue(
-                any(
-                    "previous_baseline_sha256 duplicates" in error
-                    for error in errors
-                ),
+                any("previous_baseline_sha256 duplicates" in error for error in errors),
                 errors,
             )
 
     def test_ci_cli_report_and_baseline_comparison_modes(self) -> None:
         with self.runtime_collaboration_fixture() as root:
             baseline = root / "docs/02-architecture/context-boundary-baseline.yaml"
+            manifest = root / "docs/02-architecture/context-boundaries.yaml"
             main(["--check-generated-report"], root=root)
             main(
-                ["--compare-boundary-baseline", str(baseline)],
+                [
+                    "--compare-boundary-baseline",
+                    str(baseline),
+                    "--compare-boundary-manifest",
+                    str(manifest),
+                ],
                 root=root,
             )
 
@@ -4860,6 +6519,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "version": 1,
                     "contexts": {},
                     "tables": {},
+                    "technical_interfaces": [],
                     "migration_exceptions": [],
                     "enforcement": {
                         "mode": "baseline",
@@ -4919,6 +6579,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "access_namespaces": ["CommsCore.Beta"],
                 },
             },
+            "technical_interfaces": [],
             "migration_exceptions": [],
             "enforcement": {
                 "mode": "baseline",
@@ -4928,6 +6589,117 @@ class ValidateArchitectureTest(unittest.TestCase):
         path = root / "docs/02-architecture/context-boundaries.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+
+        class FixtureContext:
+            def __enter__(self):
+                return root
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                parent.__exit__(exc_type, exc_value, traceback)
+
+        return FixtureContext()
+
+    def technical_interface_fixture(self):
+        parent = self.boundary_fixture()
+        root = parent.__enter__()
+        self.write_schema(
+            root,
+            "CommsCore.Alpha.Record",
+            "alpha_records",
+            "alpha/record.ex",
+        )
+        self.write_schema(
+            root,
+            "CommsCore.Beta.Record",
+            "beta_records",
+            "beta/record.ex",
+        )
+
+        alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
+        alpha.write_text(
+            "defmodule CommsCore.Alpha do\n"
+            "  alias CommsCore.Alpha.{Dispatcher, Payload}\n"
+            '  def run, do: Dispatcher.execute(%Payload{id: "fixture"})\n'
+            "end\n",
+            encoding="utf-8",
+        )
+        dispatcher = root / "apps/comms_core/lib/comms_core/alpha/dispatcher.ex"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            "defmodule CommsCore.Alpha.Dispatcher do\n"
+            "  alias CommsCore.Alpha.Payload\n"
+            "  def execute(%Payload{} = payload) do\n"
+            "    implementation = "
+            "Application.get_env(:comms_core, :alpha_technical_adapter)\n"
+            "    implementation.execute(payload)\n"
+            "  end\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        contract = root / "apps/comms_core/lib/comms_core/alpha/contract.ex"
+        contract.write_text(
+            "defmodule CommsCore.Alpha.Contract do\n"
+            "  alias CommsCore.Alpha.Payload\n"
+            "  @callback execute(Payload.t()) :: :ok\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        payload = root / "apps/comms_core/lib/comms_core/alpha/payload.ex"
+        payload.write_text(
+            "defmodule CommsCore.Alpha.Payload do\n"
+            "  @type t :: %__MODULE__{id: binary()}\n"
+            "  defstruct [:id]\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        implementation = root / "apps/comms_web/lib/comms_web/alpha_adapter.ex"
+        implementation.parent.mkdir(parents=True, exist_ok=True)
+        implementation.write_text(
+            "defmodule CommsWeb.AlphaAdapter do\n"
+            "  @behaviour CommsCore.Alpha.Contract\n"
+            "  def execute(_payload), do: :ok\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        config = root / "config/config.exs"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(
+            "import Config\n"
+            "config :comms_core,\n"
+            "  alpha_technical_adapter: CommsWeb.AlphaAdapter\n",
+            encoding="utf-8",
+        )
+
+        manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+        manifest = read_yaml(manifest_path)
+        manifest["contexts"]["alpha"]["public_contracts"] = [
+            "CommsCore.Alpha.Payload",
+        ]
+        manifest["technical_interfaces"] = [
+            {
+                "id": "alpha-adapter-notification",
+                "owner": "alpha",
+                "interface": "CommsCore.Alpha.Dispatcher",
+                "callers": ["CommsCore.Alpha"],
+                "operations": [{"name": "execute", "arity": 1}],
+                "dispatch": "configured",
+                "contracts": ["CommsCore.Alpha.Payload"],
+                "behaviour": "CommsCore.Alpha.Contract",
+                "implementation": "CommsWeb.AlphaAdapter",
+                "binding": {
+                    "application": "comms_core",
+                    "key": "alpha_technical_adapter",
+                    "module": "CommsWeb.AlphaAdapter",
+                },
+                "transaction": "independent",
+                "condition": "Alpha emits one stable payload through an exact adapter.",
+            }
+        ]
+        manifest_path.write_text(
+            yaml.safe_dump(manifest, sort_keys=False),
+            encoding="utf-8",
+        )
+        write_current_baseline(root)
 
         class FixtureContext:
             def __enter__(self):
@@ -5052,9 +6824,7 @@ class ValidateArchitectureTest(unittest.TestCase):
 
     @staticmethod
     def declare_current_baseline_deferrals(root: Path) -> None:
-        baseline_path = (
-            root / "docs/02-architecture/context-boundary-baseline.yaml"
-        )
+        baseline_path = root / "docs/02-architecture/context-boundary-baseline.yaml"
         baseline = read_yaml(baseline_path)
         entries = baseline.get("violations", [])
         manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
@@ -5075,8 +6845,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "source": "docs/02-architecture/context-boundary-baseline.yaml",
             "exact_mapping": copy.deepcopy(TEMPORARY_EXACT_MAPPING_POLICY),
             "removal_conditions": {
-                entry["rule"]: "Remove the fixture violation."
-                for entry in entries
+                entry["rule"]: "Remove the fixture violation." for entry in entries
             },
             "explicit": [
                 {

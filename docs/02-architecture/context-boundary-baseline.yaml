@@ -89,18 +89,6 @@ violations:
   rule: foreign_schema_import
   path: apps/comms_core/lib/comms_core/authorization/database.ex
   detail: CommsCore.Authorization.Database references owner-internal schema CommsCore.Conversations.Membership
-- fingerprint: c06055a43f05a1f7
-  rule: foreign_schema_import
-  path: apps/comms_core/lib/comms_core/integrations/webhook_delivery.ex
-  detail: CommsCore.Integrations.WebhookDelivery references owner-internal schema CommsCore.Events.OutboxEvent
-- fingerprint: 4791022b743e09fb
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/admission_quotas.ex
-  detail: CommsCore.AdmissionQuotas references owner-internal schema CommsCore.Administration.TenantSettings
-- fingerprint: 8ab1b96f6b510f3d
-  rule: internal_schema_access
-  path: apps/comms_core/lib/comms_core/outbox.ex
-  detail: CommsCore.Outbox references owner-internal schema CommsCore.Events.OutboxEvent
 - fingerprint: 889ca078f04b8132
   rule: undeclared_context_edge
   path: apps/comms_core/lib/comms_core/accounts.ex

@@ -1,5 +1,5 @@
 defmodule CommsWeb.NotificationAvailabilityNotifier do
-  @behaviour CommsCore.Notifications.AvailabilityNotifier
+  @behaviour CommsCore.Notifications.AvailabilityNotifier.Contract
 
   alias CommsCore.Notifications
   alias CommsCore.Notifications.Availability

@@ -8,7 +8,7 @@ defmodule CommsCore.AdmissionQuotas do
   ownership to TenantAdministration.
   """
 
-  alias CommsCore.Administration.{AdmissionPolicy, TenantSettings}
+  alias CommsCore.Administration.{AdmissionPolicy, AdmissionPolicyReader}
   alias CommsCore.Repo
 
   @lock_prefix "k-comms:tenant-admission:v1:"
@@ -33,22 +33,15 @@ defmodule CommsCore.AdmissionQuotas do
           {:ok, AdmissionPolicy.t()} | {:error, :quota_transaction_required}
   def locked_policy(tenant_id) when is_binary(tenant_id) do
     with :ok <- lock_tenant(tenant_id) do
-      {:ok, admission_policy(tenant_id)}
+      {:ok, AdmissionPolicyReader.read(tenant_id)}
     end
   end
 
   def locked_policy(_), do: {:error, :quota_transaction_required}
 
   @spec admission_policy(Ecto.UUID.t()) :: AdmissionPolicy.t()
-  def admission_policy(tenant_id) when is_binary(tenant_id) do
-    settings = settings(tenant_id)
-
-    %AdmissionPolicy{
-      max_active_users: settings.max_active_users,
-      max_active_conversations: settings.max_active_conversations,
-      max_conversation_members: settings.max_conversation_members
-    }
-  end
+  def admission_policy(tenant_id) when is_binary(tenant_id),
+    do: AdmissionPolicyReader.read(tenant_id)
 
   @spec check_active_user_capacity(
           AdmissionPolicy.t(),
@@ -118,10 +111,6 @@ defmodule CommsCore.AdmissionQuotas do
       policy.max_conversation_members,
       :conversation_member_quota_exceeded
     )
-  end
-
-  defp settings(tenant_id) do
-    Repo.get_by(TenantSettings, tenant_id: tenant_id) || %TenantSettings{tenant_id: tenant_id}
   end
 
   defp ensure_capacity(current, increment, limit, reason) do

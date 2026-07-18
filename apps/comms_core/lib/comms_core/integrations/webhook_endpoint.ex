@@ -14,7 +14,6 @@ defmodule CommsCore.Integrations.WebhookEndpoint do
       foreign_key: :endpoint_id
     )
 
-    has_many(:deliveries, CommsCore.Integrations.WebhookDelivery, foreign_key: :endpoint_id)
     timestamps()
   end
 

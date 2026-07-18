@@ -1,7 +1,7 @@
 defmodule CommsWorkers.Release do
   @moduledoc false
 
-  alias CommsCore.Attachments.RestoredObjectIdentity
+  alias CommsCore.Attachments.{RestoreCandidate, RestoredObjectIdentity}
   alias CommsCore.Release, as: CoreRelease
   alias CommsIntegrations.ObjectStorage
 
@@ -11,7 +11,7 @@ defmodule CommsWorkers.Release do
     CoreRelease.remap_restored_attachment_versions(&verify_restored_object/1)
   end
 
-  defp verify_restored_object(candidate) do
+  defp verify_restored_object(%RestoreCandidate{} = candidate) do
     with {:ok, identity} <- ObjectStorage.verify_restored_object(candidate) do
       {:ok,
        %RestoredObjectIdentity{

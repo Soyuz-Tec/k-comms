@@ -1,11 +1,9 @@
 defmodule CommsCore.IntegrationsSafetyOperationsTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Attachments, Audit}
+  alias CommsCore.{Accounts, Attachments, Audit, Outbox}
   alias CommsCore.Attachments.{Attachment, AttachmentView, ScanAttempt}
-  alias CommsCore.Events.OutboxEvent
   alias CommsCore.Integrations
-  alias CommsCore.Outbox.Event
 
   alias CommsCore.Integrations.{
     WebhookDelivery,
@@ -317,8 +315,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
     refute rotated_secret == secret
 
     event =
-      %OutboxEvent{}
-      |> OutboxEvent.changeset(%{
+      insert_outbox_event!(%{
         tenant_id: account.tenant.id,
         event_type: "message.created.v1",
         aggregate_type: "message",
@@ -326,10 +323,9 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
         payload: %{"body" => "hello", "secret" => "must-be-redacted"},
         available_at: DateTime.utc_now()
       })
-      |> Repo.insert!()
 
-    assert :ok = Integrations.enqueue_for_event(Event.new(event))
-    assert :ok = Integrations.enqueue_for_event(Event.new(event))
+    assert :ok = Integrations.enqueue_for_event(event)
+    assert :ok = Integrations.enqueue_for_event(event)
     assert Repo.aggregate(WebhookDelivery, :count) == 1
 
     delivery = Repo.one!(WebhookDelivery)
@@ -597,8 +593,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
       )
 
     event =
-      %OutboxEvent{}
-      |> OutboxEvent.changeset(%{
+      insert_outbox_event!(%{
         tenant_id: account.tenant.id,
         event_type: "message.created.v1",
         aggregate_type: "message",
@@ -606,7 +601,6 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
         payload: %{"sensitive" => "bound-to-original-destination"},
         available_at: DateTime.utc_now()
       })
-      |> Repo.insert!()
 
     parent = self()
     handler_id = {__MODULE__, :fanout_destination_race, make_ref()}
@@ -635,7 +629,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
 
     on_exit(fn -> :telemetry.detach(handler_id) end)
 
-    enqueue_task = Task.async(fn -> Integrations.enqueue_for_event(Event.new(event)) end)
+    enqueue_task = Task.async(fn -> Integrations.enqueue_for_event(event) end)
     assert_receive {:fanout_destination_discovered, enqueue_pid}, 5_000
 
     assert {:ok, changed} =
@@ -663,7 +657,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
            )
 
     assert :ok = :telemetry.detach(handler_id)
-    assert :ok = Integrations.enqueue_for_event(Event.new(event))
+    assert :ok = Integrations.enqueue_for_event(event)
     assert Repo.aggregate(WebhookDelivery, :count) == 1
     assert Repo.get!(WebhookDelivery, terminal.id).status == :failed
 
@@ -837,8 +831,7 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
       )
 
     outbox =
-      %OutboxEvent{}
-      |> OutboxEvent.changeset(%{
+      insert_outbox_event!(%{
         tenant_id: first.tenant.id,
         event_type: "message.created.v1",
         aggregate_type: "message",
@@ -846,7 +839,6 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
         payload: %{},
         available_at: now
       })
-      |> Repo.insert!()
 
     assert_tenant_fk(
       ScanAttempt.changeset(%ScanAttempt{}, %{
@@ -966,6 +958,11 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
       object_etag: "\"etag-#{suffix}\"",
       verified_checksum_sha256: checksum
     }
+  end
+
+  defp insert_outbox_event!(attrs) do
+    {:ok, event} = Repo.transaction(fn -> Outbox.insert_and_enqueue!(attrs) end)
+    event
   end
 
   defp assert_tenant_fk(changeset, field) do
