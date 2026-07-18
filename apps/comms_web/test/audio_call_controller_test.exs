@@ -1,8 +1,8 @@
 defmodule CommsWeb.AudioCallControllerTest.RoomService do
-  def delete_room(call) do
+  def delete_room(provider_room) when is_binary(provider_room) do
     send(Application.fetch_env!(:comms_integrations, :audio_room_service_test_pid), {
       :delete_audio_room,
-      call.provider_room
+      provider_room
     })
 
     Application.get_env(:comms_integrations, :audio_room_service_test_result, :ok)

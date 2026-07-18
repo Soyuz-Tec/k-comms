@@ -5,10 +5,11 @@ defmodule CommsIntegrations.Audio.LiveKitRoomService do
   @delete_room_path "/twirp/livekit.RoomService/DeleteRoom"
   @remove_participant_path "/twirp/livekit.RoomService/RemoveParticipant"
 
-  def delete_room(call), do: delete_room(call, &request/1)
+  def delete_room(provider_room), do: delete_room(provider_room, &request/1)
 
-  def delete_room(call, requester) when is_map(call) and is_function(requester, 1) do
-    with {:ok, credential} <- LiveKitToken.issue_room_control(call),
+  def delete_room(provider_room, requester)
+      when is_binary(provider_room) and is_function(requester, 1) do
+    with {:ok, credential} <- LiveKitToken.issue_room_control(provider_room),
          {:ok, body} <- Jason.encode(%{room: credential.room}),
          request <-
            Finch.build(
@@ -29,12 +30,13 @@ defmodule CommsIntegrations.Audio.LiveKitRoomService do
 
   def delete_room(_, _), do: {:error, :audio_provider_unavailable}
 
-  def remove_participant(call, identity), do: remove_participant(call, identity, &request/1)
+  def remove_participant(provider_room, identity),
+    do: remove_participant(provider_room, identity, &request/1)
 
-  def remove_participant(call, identity, requester)
-      when is_map(call) and is_binary(identity) and is_function(requester, 1) do
+  def remove_participant(provider_room, identity, requester)
+      when is_binary(provider_room) and is_binary(identity) and is_function(requester, 1) do
     with true <- String.trim(identity) != "",
-         {:ok, credential} <- LiveKitToken.issue_room_admin(call),
+         {:ok, credential} <- LiveKitToken.issue_room_admin(provider_room),
          {:ok, body} <- Jason.encode(%{room: credential.room, identity: identity}),
          request <-
            Finch.build(

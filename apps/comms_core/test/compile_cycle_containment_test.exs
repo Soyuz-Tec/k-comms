@@ -2,6 +2,9 @@ defmodule CommsCore.CompileCycleContainmentTest do
   use ExUnit.Case, async: true
 
   alias CommsCore.Accounts.{PlatformRoleGrant, User}
+  alias CommsCore.Administration.CallPolicy
+  alias CommsCore.AudioCalls.{Access, AuthorizationPolicy}
+  alias CommsCore.Conversations.{CallConversation, CallMembership}
 
   alias CommsCore.Integrations.{
     WebhookDelivery,
@@ -9,18 +12,16 @@ defmodule CommsCore.CompileCycleContainmentTest do
     WebhookSubscription
   }
 
-  test "authorization adapters implement the independent policy contract" do
-    assert CommsCore.Authorization.Policy in CommsCore.Authorization.DenyAll.module_info(
-             :attributes
-           )[:behaviour]
+  test "Calls authorization composes Ecto-free owner projections without a generic adapter" do
+    assert Code.ensure_loaded?(AuthorizationPolicy)
+    assert function_exported?(AuthorizationPolicy, :authorize, 3)
+    assert function_exported?(AuthorizationPolicy, :lock_access, 3)
+    assert function_exported?(AuthorizationPolicy, :authorize_access, 3)
 
-    assert CommsCore.Authorization.Policy in CommsCore.Authorization.Database.module_info(
-             :attributes
-           )[:behaviour]
-
-    refute CommsCore.Authorization in CommsCore.Authorization.DenyAll.module_info(:attributes)[
-             :behaviour
-           ]
+    for projection <- [Access, CallPolicy, CallConversation, CallMembership] do
+      assert Code.ensure_loaded?(projection)
+      refute function_exported?(projection, :__schema__, 1)
+    end
   end
 
   test "webhook associations retain only the query directions used by the owner" do

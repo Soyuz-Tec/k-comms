@@ -6,7 +6,7 @@ defmodule CommsCore.OwnerAuthorizationTest do
   alias CommsCore.Administration.Tenant
   alias CommsCore.Administration
   alias CommsCore.Administration.TenantSettings
-  alias CommsCore.Authorization
+  alias CommsCore.AudioCalls.AuthorizationPolicy
   alias CommsCore.Conversations
   alias CommsCore.Conversations.Membership
   alias CommsCore.Messaging
@@ -120,7 +120,7 @@ defmodule CommsCore.OwnerAuthorizationTest do
              Conversations.authorize_send_message(fresh.conversation.id, fresh_subject)
   end
 
-  test "Calls deferral preserves resource and active-subject error precedence" do
+  test "Calls owner policy preserves resource and active-subject error precedence" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
 
@@ -134,14 +134,14 @@ defmodule CommsCore.OwnerAuthorizationTest do
 
     for action <- [:start_audio_call, :start_video_call] do
       assert {:error, :missing_conversation} =
-               Authorization.authorize(action, subject, %{})
+               AuthorizationPolicy.authorize(action, subject, %{})
     end
 
     account.session |> Session.changeset(%{revoked_at: now()}) |> Repo.update!()
 
     for action <- [:start_audio_call, :start_video_call] do
       assert {:error, :forbidden} =
-               Authorization.authorize(action, subject, %{id: account.conversation.id})
+               AuthorizationPolicy.authorize(action, subject, %{id: account.conversation.id})
     end
   end
 

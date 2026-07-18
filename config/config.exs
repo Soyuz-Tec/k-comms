@@ -2,9 +2,11 @@ import Config
 
 config :comms_core,
   ecto_repos: [CommsCore.Repo],
-  authorization_adapter: CommsCore.Authorization.Database,
+  conversation_call_lifecycle_adapter: CommsCore.AudioCalls,
   identity_conversation_bootstrap_adapter: CommsCore.Conversations,
+  identity_call_lifecycle_adapter: CommsCore.AudioCalls,
   identity_notification_adapter: CommsCore.Notifications,
+  tenant_call_lifecycle_adapter: CommsCore.AudioCalls,
   tenant_authorization_actor_adapter: CommsCore.Accounts,
   tenant_identity_access_adapter: CommsCore.Accounts,
   tenant_invitation_identity_adapter: CommsCore.Accounts,

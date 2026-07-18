@@ -34,12 +34,13 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
   end
 
   test "signs an opaque, call-bound, microphone-only LiveKit grant" do
-    call = %{id: "call-1", provider_room: "kc_audio_exact_room", media_kind: :audio}
-
-    participant = %{provider_identity: "kc_exact_stored_provider_identity"}
-
     assert {:ok, credential} =
-             LiveKitToken.issue(call, participant, %{display_name: "Audio Member"})
+             LiveKitToken.issue(
+               "kc_audio_exact_room",
+               :audio,
+               "kc_exact_stored_provider_identity",
+               "Audio Member"
+             )
 
     assert credential.server_url == "wss://audio.example.test"
     assert credential.expires_in == 300
@@ -81,11 +82,13 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
   end
 
   test "video calls grant only microphone, camera, and screen publishing" do
-    call = %{id: "call-2", provider_room: "kc_video_exact_room", media_kind: :video}
-    participant = %{provider_identity: "kc_video_provider_identity"}
-
     assert {:ok, credential} =
-             LiveKitToken.issue(call, participant, %{display_name: "Video Member"})
+             LiveKitToken.issue(
+               "kc_video_exact_room",
+               :video,
+               "kc_video_provider_identity",
+               "Video Member"
+             )
 
     [_header, encoded_claims, _signature] = String.split(credential.participant_token, ".")
     claims = decode(encoded_claims)
@@ -109,19 +112,17 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
   end
 
   test "fails closed for disabled, overlong TTL, or non-origin provider URLs" do
-    input =
-      {%{id: "call-1", provider_room: "kc_audio_room"},
-       %{provider_identity: "kc_test_provider_identity"}, %{display_name: "A"}}
+    input = ["kc_audio_room", :audio, "kc_test_provider_identity", "A"]
 
     Application.put_env(:comms_integrations, :audio_provider_mode, "disabled")
 
-    assert apply(LiveKitToken, :issue, Tuple.to_list(input)) ==
+    assert apply(LiveKitToken, :issue, input) ==
              {:error, :audio_provider_unavailable}
 
     Application.put_env(:comms_integrations, :audio_provider_mode, "livekit")
     Application.put_env(:comms_integrations, :audio_token_ttl_seconds, 301)
 
-    assert apply(LiveKitToken, :issue, Tuple.to_list(input)) ==
+    assert apply(LiveKitToken, :issue, input) ==
              {:error, :audio_provider_unavailable}
 
     Application.put_env(:comms_integrations, :audio_token_ttl_seconds, 300)

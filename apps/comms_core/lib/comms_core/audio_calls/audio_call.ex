@@ -2,10 +2,10 @@ defmodule CommsCore.AudioCalls.AudioCall do
   use CommsCore.Schema
 
   schema "audio_calls" do
-    belongs_to(:tenant, CommsCore.Administration.Tenant)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:started_by_user, CommsCore.Accounts.User)
-    belongs_to(:ended_by_user, CommsCore.Accounts.User)
+    field(:tenant_id, :binary_id)
+    field(:conversation_id, :binary_id)
+    field(:started_by_user_id, :binary_id)
+    field(:ended_by_user_id, :binary_id)
     field(:provider_room, :string)
     field(:media_kind, Ecto.Enum, values: [:audio, :video], default: :audio)
     field(:status, Ecto.Enum, values: [:active, :ending, :ended], default: :active)

@@ -7,6 +7,9 @@ defmodule CommsCore.Accounts do
 
   alias CommsCore.Accounts.{
     AccessGrant,
+    CallLifecycleCommand,
+    CallLifecyclePort,
+    CallLifecycleReceipt,
     ConversationBootstrapPort,
     Device,
     InitialConversationCommand,
@@ -35,7 +38,6 @@ defmodule CommsCore.Accounts do
   alias CommsCore.{
     Administration,
     AdmissionQuotas,
-    AudioCalls,
     Repo
   }
 
@@ -110,6 +112,51 @@ defmodule CommsCore.Accounts do
   end
 
   def access_grant(_subject), do: {:error, :forbidden}
+
+  @doc """
+  Locks the active session before resolving the Ecto-free Calls access grant.
+
+  The caller must already own a transaction and must acquire the tenant and
+  conversation locks first. The shared session lock serializes credential
+  issuance with session revocation while the normal access-grant query
+  revalidates the active human user and unrevoked device.
+  """
+  @spec lock_access_grant(map()) ::
+          {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
+  def lock_access_grant(subject) when is_map(subject) do
+    if Repo.in_transaction?() do
+      case subject_identity(subject) do
+        {tenant_id, user_id, device_id, session_id}
+        when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
+               is_binary(session_id) ->
+          timestamp = now()
+
+          with %Session{} <-
+                 Repo.one(
+                   from(session in Session,
+                     where:
+                       session.id == ^session_id and session.tenant_id == ^tenant_id and
+                         session.user_id == ^user_id and session.device_id == ^device_id and
+                         is_nil(session.revoked_at) and session.expires_at > ^timestamp and
+                         session.absolute_expires_at > ^timestamp,
+                     lock: "FOR SHARE"
+                   )
+                 ),
+               {:ok, %AccessGrant{} = grant} <- access_grant(subject) do
+            {:ok, grant}
+          else
+            _ -> {:error, :forbidden}
+          end
+
+        _ ->
+          {:error, :forbidden}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_access_grant(_subject), do: {:error, :forbidden}
 
   @impl CommsCore.Administration.IdentityAccessPort
   def resolve_access(subject) when is_map(subject) do
@@ -1090,9 +1137,13 @@ defmodule CommsCore.Accounts do
 
       session |> Session.changeset(%{revoked_at: now()}) |> update_or_rollback()
 
-      audio_revocation_ok!(
-        AudioCalls.revoke_for_sessions(session.tenant_id, [session.id], "session_logout")
+      CallLifecycleCommand.sessions_revoked(
+        session.tenant_id,
+        [session.id],
+        "session_logout"
       )
+      |> CallLifecyclePort.revoke_identity_access()
+      |> call_lifecycle_ok!()
 
       :ok
     end)
@@ -1293,9 +1344,9 @@ defmodule CommsCore.Accounts do
       |> NotificationPort.execute()
       |> notification_ok!()
 
-      audio_revocation_ok!(
-        AudioCalls.revoke_for_device(device.tenant_id, device.id, "device_revoked")
-      )
+      CallLifecycleCommand.device_revoked(device.tenant_id, device.id, "device_revoked")
+      |> CallLifecyclePort.revoke_identity_access()
+      |> call_lifecycle_ok!()
 
       insert_audit!(subject, "device.revoke", "device", device.id, %{})
       %{device: device, revoked_session_ids: session_ids}
@@ -1365,9 +1416,13 @@ defmodule CommsCore.Accounts do
           |> Session.changeset(%{revoked_at: now()})
           |> update_or_rollback()
 
-        audio_revocation_ok!(
-          AudioCalls.revoke_for_sessions(target.tenant_id, [revoked.id], "session_admin_revoked")
+        CallLifecycleCommand.sessions_revoked(
+          target.tenant_id,
+          [revoked.id],
+          "session_admin_revoked"
         )
+        |> CallLifecyclePort.revoke_identity_access()
+        |> call_lifecycle_ok!()
 
         insert_audit!(subject, "session.admin_revoke", "session", session.id, %{
           user_id: target.id,
@@ -1950,9 +2005,13 @@ defmodule CommsCore.Accounts do
       now = now()
       session |> Session.changeset(%{revoked_at: now}) |> update_or_rollback()
 
-      audio_revocation_ok!(
-        AudioCalls.revoke_for_sessions(session.tenant_id, [session.id], "session_revoked")
+      CallLifecycleCommand.sessions_revoked(
+        session.tenant_id,
+        [session.id],
+        "session_revoked"
       )
+      |> CallLifecyclePort.revoke_identity_access()
+      |> call_lifecycle_ok!()
 
       insert_audit!(subject, action, "session", session.id, %{user_id: user_id})
       session
@@ -1972,9 +2031,13 @@ defmodule CommsCore.Accounts do
     ids = query |> select([s], s.id) |> Repo.all()
     Repo.update_all(query, set: [revoked_at: now(), updated_at: now()])
 
-    audio_revocation_ok!(
-      AudioCalls.revoke_for_sessions(value(subject, :tenant_id), ids, "password_changed")
+    CallLifecycleCommand.sessions_revoked(
+      value(subject, :tenant_id),
+      ids,
+      "password_changed"
     )
+    |> CallLifecyclePort.revoke_identity_access()
+    |> call_lifecycle_ok!()
 
     ids
   end
@@ -2008,15 +2071,19 @@ defmodule CommsCore.Accounts do
     |> NotificationPort.execute()
     |> notification_ok!()
 
-    audio_revocation_ok!(
-      AudioCalls.revoke_for_user(user.tenant_id, user.id, "user_lifecycle_revoked")
+    CallLifecycleCommand.user_access_revoked(
+      user.tenant_id,
+      user.id,
+      "user_lifecycle_revoked"
     )
+    |> CallLifecyclePort.revoke_identity_access()
+    |> call_lifecycle_ok!()
 
     session_ids
   end
 
-  defp audio_revocation_ok!({:ok, _count}), do: :ok
-  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
+  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp notification_ok!(:ok), do: :ok
   defp notification_ok!({:error, reason}), do: Repo.rollback(reason)

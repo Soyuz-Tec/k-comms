@@ -6,6 +6,9 @@ defmodule CommsCore.Accounts.PasswordRecovery do
   require Logger
 
   alias CommsCore.Accounts.{
+    CallLifecycleCommand,
+    CallLifecyclePort,
+    CallLifecycleReceipt,
     Device,
     NotificationCommand,
     NotificationPort,
@@ -91,7 +94,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
     :ok
   end
 
-  def reset(attrs, revoke_audio) when is_map(attrs) and is_function(revoke_audio, 3) do
+  def reset(attrs) when is_map(attrs) do
     token = value(attrs, :token)
     new_password = value(attrs, :new_password)
 
@@ -146,7 +149,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
           |> Ecto.Changeset.optimistic_lock(:lock_version)
           |> update_or_rollback()
 
-        revoked_session_ids = revoke_access!(updated_user, timestamp, revoke_audio)
+        revoked_session_ids = revoke_access!(updated_user, timestamp)
 
         Audit.record(%{
           tenant_id: user.tenant_id,
@@ -171,7 +174,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
     end
   end
 
-  def reset(_attrs, _revoke_audio), do: {:error, :invalid_password_recovery_token}
+  def reset(_attrs), do: {:error, :invalid_password_recovery_token}
 
   @doc """
   Materializes the recovery destination and action URL immediately before
@@ -363,7 +366,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
     :ok
   end
 
-  defp revoke_access!(user, timestamp, revoke_audio) do
+  defp revoke_access!(user, timestamp) do
     sessions =
       from(session in Session,
         where:
@@ -385,13 +388,19 @@ defmodule CommsCore.Accounts.PasswordRecovery do
     |> NotificationPort.execute()
     |> notification_ok!()
 
-    audio_revocation_ok!(revoke_audio.(user.tenant_id, user.id, "password_recovery"))
+    CallLifecycleCommand.user_access_revoked(
+      user.tenant_id,
+      user.id,
+      "password_recovery"
+    )
+    |> CallLifecyclePort.revoke_identity_access()
+    |> call_lifecycle_ok!()
 
     session_ids
   end
 
-  defp audio_revocation_ok!({:ok, _count}), do: :ok
-  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
+  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp active_tenant?(tenant_id),
     do: match?({:ok, %TenantView{}}, Administration.active_tenant(tenant_id))

@@ -1,27 +1,11 @@
 version: 1
 status: enforced
-decision: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
+decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 enforcement:
-  mode: strict_with_explicit_deferrals
-  target_mode: strict_with_explicit_deferrals
+  mode: strict
+  target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  baseline_adoption:
-    previous_baseline_sha256: 12ad7c5959dbcd0ceacf6797ded33ad83aebcde080af45ce8c64ff878d3d8639
-    allowed_discovery_fingerprints:
-      - 0189e4bac08f3c6e
-      - 22d29c8a33ec3581
-      - 47659f71148ad7cd
-      - 4f52bd7c42b47a5d
-      - 8dd4f3b5e1378ffb
-      - 99cd7470375bce8f
-      - a26844eb317ed35d
-      - c94c7774541553d1
-      - d312276f5a39310f
-      - db68fcb3dac3ef04
-      - de83107f64cbc690
-      - e3c6574035e85b56
-    removal_condition: Remove this content-bound one-time analyzer adoption after the truthful baseline is present on the protected branch; it never permits fingerprints outside this exact set or against another base baseline.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -201,29 +185,41 @@ enforcement:
         - c06055a43f05a1f7
       adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
       removal_condition: Remove this exact 32-to-29 transition after the internal platform and adapter cleanup is present and strict_with_explicit_deferrals is active; it may not authorize any later fingerprint delta.
-  strict_with_explicit_deferrals:
-    active: true
-    activation_condition: The truthful non-audio graph is complete and every retained baseline fingerprint maps exactly once to the separately authorized Calls boundary.
-    exact_mapping: true
-    reject_missing_declarations: true
-    reject_stale_declarations: true
-    reject_duplicate_fingerprints: true
-    require_base_branch_no_growth: true
-    require_deterministic_report: true
-    allowed_deferral_contexts: [authorization_kernel, calls]
-    non_baselinable_rules:
-      - ambiguous_context_owner
-      - direct_foreign_write
-      - duplicate_table_mapping
-      - invalid_runtime_collaboration
-      - invalid_technical_interface
-      - invalid_temporary_violation
-      - public_ecto_contract
-      - unclassified_core_module
-      - undeclared_runtime_binding
-    no_new_deferrals_for_rules:
-      - adapter_internal_module_import
-      - adapter_schema_import
+    - id: complete-calls-modularization
+      previous_baseline_sha256: 90a52be007eecd64627b35212ec3da314e742f232373a6e954523116f4fa1da6
+      added_fingerprints: []
+      removed_fingerprints:
+        - 0189e4bac08f3c6e
+        - 0e985916a4de06ec
+        - 245ad9a0716b68dd
+        - 47659f71148ad7cd
+        - 4f52bd7c42b47a5d
+        - 605ae97a5fa655cc
+        - 64ebb8611dae56b3
+        - 66c2fbf2a79936f4
+        - 6af6e9564cd1b152
+        - 6b641d47b77c08c7
+        - 7a1ffc82ac877370
+        - 7c47ce0ca3e555a9
+        - 7c601f7c21a5fe6c
+        - 7fbfb2c4017910ce
+        - 889ca078f04b8132
+        - 8dd4f3b5e1378ffb
+        - 96d281b6465f8b8b
+        - 99cd7470375bce8f
+        - 9fa2f7bb1abcc6b0
+        - a26844eb317ed35d
+        - a99d73667cfe396f
+        - bec8b11dfcf061c7
+        - c94c7774541553d1
+        - d4743d3326027747
+        - db68fcb3dac3ef04
+        - de83107f64cbc690
+        - e3c6574035e85b56
+        - eb0650068879158b
+        - fc1a11f2a5f8452a
+      adr: docs/02-architecture/adr/0043-complete-calls-boundary.md
+      removal_condition: Remove this exact 29-to-0 transition after the Calls boundary, retired authorization namespace, empty baseline, and strict enforcement mode are present on the protected branch; it may not authorize any later fingerprint delta.
 
 contexts:
   identity_access:
@@ -236,6 +232,9 @@ contexts:
       - CommsCore.Accounts.AccessContext
       - CommsCore.Accounts.AccessGrant
       - CommsCore.Accounts.AuthenticationResult
+      - CommsCore.Accounts.CallLifecycleCommand
+      - CommsCore.Accounts.CallLifecyclePort
+      - CommsCore.Accounts.CallLifecycleReceipt
       - CommsCore.Accounts.ConversationBootstrapPort
       - CommsCore.Accounts.DeviceView
       - CommsCore.Accounts.InitialConversationCommand
@@ -263,6 +262,10 @@ contexts:
       - CommsCore.Administration.AdmissionPolicy
       - CommsCore.Administration.AuthorizationActor
       - CommsCore.Administration.AuthorizationActorPort
+      - CommsCore.Administration.CallLifecycleCommand
+      - CommsCore.Administration.CallLifecyclePort
+      - CommsCore.Administration.CallLifecycleReceipt
+      - CommsCore.Administration.CallPolicy
       - CommsCore.Administration.ConversationContentPolicy
       - CommsCore.Administration.IdentityAccessPort
       - CommsCore.Administration.IdentityGrant
@@ -287,6 +290,11 @@ contexts:
     public_facades: [CommsCore.Conversations]
     public_contracts:
       - CommsCore.Conversations.AdmissionUsage
+      - CommsCore.Conversations.CallConversation
+      - CommsCore.Conversations.CallLifecycleCommand
+      - CommsCore.Conversations.CallLifecyclePort
+      - CommsCore.Conversations.CallLifecycleReceipt
+      - CommsCore.Conversations.CallMembership
       - CommsCore.Conversations.ConversationView
       - CommsCore.Conversations.MessageWriteSlot
       - CommsCore.Conversations.MembershipView
@@ -324,11 +332,16 @@ contexts:
     current_contexts: [AudioCalls]
     fold_in: []
     public_facades: [CommsCore.AudioCalls]
-    public_contracts: []
+    public_contracts:
+      - CommsCore.AudioCalls.CallView
+      - CommsCore.AudioCalls.CredentialRequest
+      - CommsCore.AudioCalls.EvictionClaim
+      - CommsCore.AudioCalls.EvictionProgress
+      - CommsCore.AudioCalls.ProviderCall
     internal_namespaces: [CommsCore.AudioCalls]
     allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
-    publishes: [calls.call_started.v1, calls.call_ended.v1, calls.participant_changed.v1]
-    consumes: [conversation.membership_changed.v1, identity.session_revoked.v1]
+    publishes: [audio_call.started.v1, audio_call.ended.v1, call.started.v1, call.ended.v1]
+    consumes: []
   notification_delivery:
     kind: business
     responsibility: Notification preferences, intent, attempts, in-app state, push subscriptions, and delivery coordination.
@@ -402,23 +415,6 @@ contexts:
     allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, notification_delivery, webhook_management, platform_eventing, platform_persistence]
     publishes: []
     consumes: [content.attachment_ready.v1, notification.delivery_completed.v1, webhook.delivery_completed.v1]
-  authorization_kernel:
-    kind: transitional_business_policy
-    graph_scope: included
-    responsibility: Temporary Calls-only authorization dispatcher and database policy retained solely for the explicitly deferred media boundary.
-    current_contexts: [Authorization]
-    fold_in: []
-    public_facades: [CommsCore.Authorization]
-    public_contracts: []
-    owned_modules:
-      - CommsCore.Authorization
-      - CommsCore.Authorization.Database
-      - CommsCore.Authorization.DenyAll
-    internal_namespaces: [CommsCore.Authorization]
-    allowed_dependencies: []
-    publishes: []
-    consumes: []
-    removal_condition: In the separately authorized Calls tranche, move the remaining media decisions behind the Calls facade using Ecto-free contracts, delete CommsCore.Authorization.Database, remove the authorization_adapter binding, and retire this context.
   platform_runtime:
     kind: technical
     graph_scope: excluded
@@ -504,8 +500,47 @@ namespace_dependency_rules:
     from: CommsCore.Administration.Invitations
     forbidden: [CommsCore.Accounts]
     condition: TenantAdministration invokes IdentityAccess only through its exact configured ports; Invitations must not import the Accounts facade, contracts, schemas, or implementation modules.
+  - id: accounts-do-not-depend-on-calls
+    from: CommsCore.Accounts
+    forbidden: [CommsCore.AudioCalls]
+    condition: IdentityAccess contributes session, device, and user-access revocation through its transaction-required CallLifecyclePort; Accounts must not import the Calls facade, contracts, schemas, or implementation modules.
+  - id: password-recovery-does-not-depend-on-calls
+    from: CommsCore.PasswordRecovery
+    forbidden: [CommsCore.AudioCalls]
+    condition: The public recovery facade delegates to IdentityAccess, whose internal recovery workflow invokes the consumer-owned CallLifecyclePort on the existing transaction.
+  - id: tenant-administration-does-not-depend-on-calls
+    from: CommsCore.Administration
+    forbidden: [CommsCore.AudioCalls]
+    condition: TenantAdministration contributes media-disable revocation through its transaction-required CallLifecyclePort; it must not invoke the Calls facade directly.
+  - id: conversations-do-not-depend-on-calls
+    from: CommsCore.Conversations
+    forbidden: [CommsCore.AudioCalls]
+    condition: Conversations contributes membership and archive revocation through its transaction-required CallLifecyclePort; it must not invoke the Calls facade directly.
+  - id: authorization-namespace-remains-retired
+    from: CommsCore
+    forbidden: [CommsCore.Authorization]
+    condition: Authorization policy belongs to the owner of protected state; the deleted centralized authorization namespace must not be declared or referenced again.
 
 runtime_collaborations:
+  - id: identity-call-lifecycle
+    consumer: identity_access
+    provider: calls
+    port: CommsCore.Accounts.CallLifecyclePort
+    result_contract: CommsCore.Accounts.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    operations:
+      - {name: revoke_identity_access, arity: 1}
+    binding:
+      application: comms_core
+      key: identity_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: identity_access_to_calls
+      compile_dependency: calls_to_identity_access
+      static_cycle_policy: dependency_inversion
+    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while Calls revokes matching admissions and schedules durable participant eviction on the caller transaction; callers, operation, command variants, receipt, and binding may not grow without architecture review.
   - id: identity-initial-conversation-bootstrap
     consumer: identity_access
     provider: conversations
@@ -583,6 +618,25 @@ runtime_collaborations:
       compile_dependency: identity_access_to_tenant_administration
       static_cycle_policy: dependency_inversion
     condition: TenantAdministration owns the exact authorization-attribution DTO while IdentityAccess verifies the claimed tenant and user; the request correlation id must match the caller subject exactly.
+  - id: tenant-call-lifecycle
+    consumer: tenant_administration
+    provider: calls
+    port: CommsCore.Administration.CallLifecyclePort
+    result_contract: CommsCore.Administration.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Administration]
+    operations:
+      - {name: revoke_tenant_media, arity: 1}
+    binding:
+      application: comms_core
+      key: tenant_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: tenant_administration_to_calls
+      compile_dependency: calls_to_tenant_administration
+      static_cycle_policy: dependency_inversion
+    condition: TenantAdministration owns the exact media-disable command and receipt while Calls revokes only the requested tenant media kind on the settings-update transaction; caller, operation, command variant, receipt, and binding may not grow without architecture review.
   - id: tenant-invitation-identity
     consumer: tenant_administration
     provider: identity_access
@@ -605,6 +659,25 @@ runtime_collaborations:
       compile_dependency: identity_access_to_tenant_administration
       static_cycle_policy: dependency_inversion
     condition: TenantAdministration owns the invitation workflow command and receipt contracts while IdentityAccess verifies role assignment, identity uniqueness, active-user capacity, and enrollment on the caller transaction.
+  - id: conversation-call-lifecycle
+    consumer: conversations
+    provider: calls
+    port: CommsCore.Conversations.CallLifecyclePort
+    result_contract: CommsCore.Conversations.CallLifecycleReceipt
+    implementation: CommsCore.AudioCalls
+    callers: [CommsCore.Conversations]
+    operations:
+      - {name: revoke_conversation_access, arity: 1}
+    binding:
+      application: comms_core
+      key: conversation_call_lifecycle_adapter
+      module: CommsCore.AudioCalls
+    transaction: required
+    graph_semantics:
+      control_flow: conversations_to_calls
+      compile_dependency: calls_to_conversations
+      static_cycle_policy: dependency_inversion
+    condition: Conversations owns the exact membership/archive revocation command and receipt while Calls revokes matching admissions on the membership or archive transaction; caller, operation, command variants, receipt, and binding may not grow without architecture review.
 
 technical_interfaces:
   - id: web-validation-error-rendering
@@ -659,8 +732,12 @@ technical_interfaces:
     condition: NotificationDelivery emits only the content-free availability projection through the exact configured web adapter; an outbox retry may re-signal the same idempotent intent after a delivery error, and no persistence struct crosses the boundary.
 
 retired_modules:
+  - CommsCore.Authorization
   - CommsCore.InAppNotifications
   - CommsCore.PushSubscriptions
+
+retired_runtime_bindings:
+  - {application: comms_core, key: authorization_adapter}
 
 tables:
   tenants: {owner: tenant_administration, canonical_schema: CommsCore.Administration.Tenant, role: source}
@@ -744,82 +821,3 @@ migration_exceptions:
       - apps/comms_core/priv/repo/migrations/20260715000100_add_audio_calls.exs
       - apps/comms_core/priv/repo/migrations/20260715000400_add_video_calls.exs
     condition: Historical only; every new migration must touch tables owned by one context or add a specific ADR-backed exception.
-
-temporary_violations:
-  source: docs/02-architecture/context-boundary-baseline.yaml
-  policy: Relative to the checked-in baseline, new, changed, or resolved fingerprints fail CI; baseline edits require architecture review.
-  exact_mapping:
-    activation_mode: strict_with_explicit_deferrals
-    cardinality: one_baseline_fingerprint_to_one_declaration
-    required_fields: [id, fingerprint, rule, path, detail, adr, removal_condition]
-    group_required_fields: [id, fingerprints, rule, adr, removal_condition]
-    reject_unmapped_baseline_fingerprints: true
-    reject_stale_declarations: true
-    reject_duplicate_fingerprints: true
-    group_policy: A group is valid only when it contains an exact fingerprints list and expands to declarations that satisfy the same one-to-one rule, path, detail, ADR, and removal-condition checks.
-  removal_conditions:
-    adapter_internal_module_import: Replace adapter access to owner-internal implementation modules with a declared facade or Ecto-free public contract.
-    duplicate_table_mapping: No baseline exception is permitted after a table reaches one canonical schema; reject every second mapping.
-    adapter_schema_import: Replace adapter-facing Ecto structs with DTOs or projections.
-    foreign_schema_import: Replace owner-only Ecto schemas with an owner facade, DTO, or projection.
-    internal_schema_access: Keep owner-internal schemas behind the declared implementation namespace.
-    forbidden_namespace_dependency: Preserve documented one-way dependencies between internal capability namespaces.
-    retired_context_module: Keep folded satellite facades retired; callers must use the owning context facade.
-    undeclared_context_edge: Route access through an allowed facade, projection, command, or event.
-    direct_foreign_write: Move the write behind the owning context API.
-    public_ecto_contract: Return a public DTO/projection instead of an Ecto schema.
-    business_context_cycle: Remove the bidirectional edge or document a narrowly reviewed exception.
-    runtime_context_cycle: Remove the bidirectional runtime collaboration or document one exact invariant and removal condition.
-  groups:
-    - id: deferred-calls-business-context-cycle
-      rule: business_context_cycle
-      fingerprints: [a26844eb317ed35d]
-      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
-      removal_condition: In the separately authorized Calls tranche, replace the exact Calls-driven SCC with one-way facade, DTO, command, and event contracts; no other cycle may join this deferral.
-    - id: deferred-calls-foreign-schema-imports
-      rule: foreign_schema_import
-      fingerprints:
-        - 245ad9a0716b68dd
-        - 605ae97a5fa655cc
-        - 64ebb8611dae56b3
-        - 66c2fbf2a79936f4
-        - 6af6e9564cd1b152
-        - 6b641d47b77c08c7
-        - 7c601f7c21a5fe6c
-        - 7fbfb2c4017910ce
-        - 8dd4f3b5e1378ffb
-        - 96d281b6465f8b8b
-        - 99cd7470375bce8f
-        - 9fa2f7bb1abcc6b0
-        - a99d73667cfe396f
-        - c94c7774541553d1
-        - d4743d3326027747
-        - db68fcb3dac3ef04
-        - de83107f64cbc690
-        - e3c6574035e85b56
-        - fc1a11f2a5f8452a
-      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
-      removal_condition: In the separately authorized Calls tranche, replace these exact AudioCalls and Calls-only Authorization.Database schema references with Calls-owned persistence and Ecto-free owner contracts; no other fingerprint may join this deferral.
-    - id: deferred-calls-undeclared-context-edges
-      rule: undeclared_context_edge
-      fingerprints:
-        - 0189e4bac08f3c6e
-        - 0e985916a4de06ec
-        - 47659f71148ad7cd
-        - 4f52bd7c42b47a5d
-        - 7c47ce0ca3e555a9
-        - 889ca078f04b8132
-        - bec8b11dfcf061c7
-        - eb0650068879158b
-      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
-      removal_condition: In the separately authorized Calls tranche, remove these exact incoming, outgoing, and Calls-only authorization edges through stable one-way APIs; no other edge may join this deferral.
-  explicit:
-    - id: deferred-audio-call-presenter-projection
-      fingerprint: 7a1ffc82ac877370
-      rule: adapter_schema_import
-      path: apps/comms_web/lib/comms_web/presenter.ex
-      detail: adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall
-      adr: docs/02-architecture/adr/0042-complete-non-audio-modularization.md
-      removal_condition: Replace the presenter input with a Calls-owned Ecto-free call view when the separately authorized Calls boundary tranche begins.
-      mode: read_only
-      condition: The non-audio endgame explicitly excludes Calls behavior; replace this exact presenter input when the separately authorized Calls tranche begins.

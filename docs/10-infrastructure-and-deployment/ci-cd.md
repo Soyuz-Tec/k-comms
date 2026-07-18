@@ -23,8 +23,10 @@ For pull requests, checkout retains full history and CI extracts both
 `--compare-boundary-baseline` and `--compare-boundary-manifest` options. It
 rejects every baseline fingerprint that is new relative to the PR base while
 permitting resolved debt to be removed. It also rejects removal or weakening
-of an already-enforced status, strict target, strict mode, or active strict
-policy. Changing a finding creates a new fingerprint and therefore fails the
+of an already-enforced status, target, mode, retired module namespace, or
+retired runtime binding. The one-way promotion from
+`strict_with_explicit_deferrals` to `strict` is permitted; every downgrade is
+rejected. Changing a finding creates a new fingerprint and therefore fails the
 no-growth gate. Comparing to the event's base commit, rather than a mutable
 branch name, keeps the result reproducible and prevents a same-branch baseline
 or manifest edit from grandfathering new debt or downgrading enforcement.
@@ -35,13 +37,10 @@ removed fingerprints. Undeclared additions, undeclared removals, or stale
 declared deltas fail. The transition is removed after its resulting baseline
 reaches the protected branch.
 
-The truthful-analyzer transition also has one content-bound adoption rule for
-the pre-endgame 95-finding checkpoint. The manifest records the exact SHA-256
-of that baseline and the exact sorted fingerprints exposed only because the
-analyzer began attributing previously skipped production modules. Comparison
-accepts only those fingerprints and only against that baseline content; all
-other growth still fails. The adoption declaration is removed once the
-truthful baseline is present on the protected branch.
+Historical truthful-analyzer adoption and explicit-deferral declarations are
+preserved in ADRs and reviewed transition history, not as active permission.
+Strict mode rejects `baseline_adoption`, `temporary_violations`, and the
+`strict_with_explicit_deferrals` policy.
 
 There is one narrow bootstrap case for the first control-plane merge: if the
 immutable PR base does not contain both the boundary baseline and boundary
@@ -63,13 +62,19 @@ metrics use narrowly named core read APIs rather than persistence exceptions.
 It also rejects adapter access to owner-internal core modules and validates
 each declared technical interface's exact caller, every declared operation,
 any undeclared operation, non-empty public contracts, behavior, implementation,
-configuration binding, and transaction policy.
-Strict mode requires every retained fingerprint to map exactly once and to
-belong to the exact Calls tranche. Removing the allowed Calls nodes from a
-mixed SCC must not leave a cycle. Paired immutable-base comparison rejects all
-strict-mode additions before any reviewed transition can adopt them and
-prevents the active strict gate from being disabled or downgraded. A generic
-non-audio deferral therefore fails even when its fingerprint is listed.
+configuration binding, and transaction policy. Public facades and contracts
+must exist and cannot be Ecto schemas; their specs, callbacks, macrocallbacks,
+and type declarations cannot expose persistence schemas. Retired namespaces
+are rejected in production and configuration, and retired runtime keys are
+rejected both at configuration and `Application` lookup sites.
+
+Strict mode permits no retained fingerprint and requires an empty baseline.
+Paired immutable-base comparison prevents the active gate from being disabled
+or downgraded and prevents authorization namespace or binding tombstones from
+being removed. The ADR-0043 transition removes the exact 29 Calls fingerprints
+from canonical baseline SHA-256
+`90a52be007eecd64627b35212ec3da314e742f232373a6e954523116f4fa1da6`;
+it cannot authorize later growth.
 Architecture policy or baseline changes must update the accepted architecture
 documentation, validator, and regression tests together and receive
 architecture review. The manifest, baseline, generated report, validator,
@@ -83,9 +88,11 @@ After warnings-as-errors compilation, the backend job runs two xref gates in
   compile-connected cycles.
 - `mix xref graph --format cycles` must report no all-file cycles.
 
-Calls remains an explicit business-graph SCC in the generated architecture
-report, but it does not justify file-level xref cycles. Any new compile or
-all-file cycle fails CI rather than becoming a count-based checkpoint.
+Calls no longer forms a compiled or runtime business-graph cycle. The combined
+diagnostic graph may show an SCC formed solely by the opposing directions of
+an exact consumer-owned dependency inversion; it does not justify a compiled,
+runtime, or file-level cycle. Any new compile or all-file cycle fails CI rather
+than becoming a count-based checkpoint.
 
 Pull requests run the container smoke gate with read-only repository access and
 never authenticate to a registry. A push to `main`, or an explicitly requested

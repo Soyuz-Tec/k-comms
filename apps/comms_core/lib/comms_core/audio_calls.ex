@@ -1,13 +1,28 @@
 defmodule CommsCore.AudioCalls do
   import Ecto.Query
 
-  alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}
-  alias CommsCore.Accounts.Session
-  alias CommsCore.Administration.Tenant
+  @behaviour CommsCore.Accounts.CallLifecyclePort
+  @behaviour CommsCore.Administration.CallLifecyclePort
+  @behaviour CommsCore.Conversations.CallLifecyclePort
+
+  alias CommsCore.Accounts.CallLifecycleReceipt, as: IdentityCallLifecycleReceipt
+  alias CommsCore.Administration.CallLifecycleReceipt, as: TenantCallLifecycleReceipt
+
+  alias CommsCore.AudioCalls.{
+    Access,
+    AudioCall,
+    AudioCallParticipant,
+    AuthorizationPolicy,
+    CallView,
+    Projector
+  }
+
   alias CommsCore.Audit
-  alias CommsCore.Conversations.Conversation
-  alias CommsCore.Conversations.Membership
-  alias CommsCore.{Authorization, Outbox, Repo, RuntimePorts}
+
+  alias CommsCore.Conversations.CallLifecycleReceipt,
+    as: ConversationCallLifecycleReceipt
+
+  alias CommsCore.{Outbox, Repo, RuntimePorts}
 
   @maximum_call_seconds 8 * 60 * 60
   @media_kinds [:audio, :video]
@@ -33,13 +48,13 @@ defmodule CommsCore.AudioCalls do
              is_function(provider_cleanup, 1) do
     action = start_action(media_kind)
 
-    with :ok <- Authorization.authorize(action, subject, %{id: conversation_id}) do
+    with :ok <- AuthorizationPolicy.authorize(action, subject, %{id: conversation_id}) do
       Repo.transaction(fn ->
-        conversation = lock_conversation!(conversation_id, subject)
-        authorize!(action, subject, conversation)
-        start_locked!(conversation, subject, media_kind, provider_cleanup)
+        access = lock_access!(subject, conversation_id, :update)
+        authorize_access!(action, access, %{id: conversation_id})
+        start_locked!(access, subject, media_kind, provider_cleanup)
       end)
-      |> unwrap_start()
+      |> unwrap_start(subject)
     end
   end
 
@@ -67,23 +82,23 @@ defmodule CommsCore.AudioCalls do
         issuer
       )
       when is_binary(conversation_id) and is_map(subject) and media_kind in @media_kinds and
-             is_function(provider_cleanup, 1) and is_function(issuer, 2) do
+             is_function(provider_cleanup, 1) and is_function(issuer, 1) do
     action = start_action(media_kind)
 
-    with :ok <- Authorization.authorize(action, subject, %{id: conversation_id}) do
+    with :ok <- AuthorizationPolicy.authorize(action, subject, %{id: conversation_id}) do
       Repo.transaction(fn ->
-        conversation = lock_start_join_authority!(conversation_id, subject)
-        authorize!(action, subject, conversation)
-        authorize!(join_action(media_kind), subject, conversation)
+        access = lock_access!(subject, conversation_id, :update)
+        authorize_access!(action, access, %{id: conversation_id})
+        authorize_access!(join_action(media_kind), access, %{id: conversation_id})
 
-        {call, status} = start_locked!(conversation, subject, media_kind, provider_cleanup)
+        {call, status} = start_locked!(access, subject, media_kind, provider_cleanup)
         ensure_active!(call)
         participant = active_admission!(call, subject)
         credential = issue_credential!(call, participant, issuer)
 
         {call, status, credential}
       end)
-      |> unwrap_start_join()
+      |> unwrap_start_join(subject)
     end
   end
 
@@ -91,7 +106,7 @@ defmodule CommsCore.AudioCalls do
 
   def get_active(conversation_id, subject)
       when is_binary(conversation_id) and is_map(subject) do
-    with :ok <- Authorization.authorize(:read_call, subject, %{id: conversation_id}) do
+    with :ok <- AuthorizationPolicy.authorize(:read_call, subject, %{id: conversation_id}) do
       call =
         Repo.one(
           from(call in AudioCall,
@@ -104,7 +119,7 @@ defmodule CommsCore.AudioCalls do
         )
 
       with :ok <- authorize_active_call(call, subject) do
-        {:ok, call}
+        {:ok, project_call(call, subject)}
       end
     end
   end
@@ -122,7 +137,7 @@ defmodule CommsCore.AudioCalls do
 
   def authorize_join(conversation_id, call_id, subject)
       when is_binary(conversation_id) and is_binary(call_id) and is_map(subject) do
-    case with_join_authorized(conversation_id, call_id, subject, fn _call, _participant ->
+    case with_join_authorized(conversation_id, call_id, subject, fn _request ->
            {:ok, :authorized}
          end) do
       {:ok, call, :authorized} -> {:ok, call}
@@ -143,7 +158,7 @@ defmodule CommsCore.AudioCalls do
   """
   def with_join_authorized(conversation_id, call_id, subject, issuer)
       when is_binary(conversation_id) and is_binary(call_id) and is_map(subject) and
-             is_function(issuer, 2) do
+             is_function(issuer, 1) do
     with_join_authorized(conversation_id, call_id, subject, nil, issuer)
   end
 
@@ -151,18 +166,18 @@ defmodule CommsCore.AudioCalls do
 
   def with_join_authorized(conversation_id, call_id, subject, expected_kind, issuer)
       when is_binary(conversation_id) and is_binary(call_id) and is_map(subject) and
-             (is_nil(expected_kind) or expected_kind in @media_kinds) and is_function(issuer, 2) do
+             (is_nil(expected_kind) or expected_kind in @media_kinds) and is_function(issuer, 1) do
     Repo.transaction(fn ->
-      lock_join_authority!(conversation_id, subject)
+      access = lock_access!(subject, conversation_id, :share)
       call = lock_call!(conversation_id, call_id, subject)
       ensure_media_kind!(call, expected_kind)
-      authorize!(join_action(call.media_kind), subject, call)
+      authorize_access!(join_action(call.media_kind), access, call)
       ensure_active!(call)
       participant = active_admission!(call, subject)
       credential = issue_credential!(call, participant, issuer)
       {call, credential}
     end)
-    |> unwrap_join()
+    |> unwrap_join(subject)
   end
 
   def with_join_authorized(_, _, _, _, _), do: {:error, :not_found}
@@ -282,6 +297,70 @@ defmodule CommsCore.AudioCalls do
 
   def revoke_for_call(_, _, _), do: {:error, :invalid_audio_revocation_scope}
 
+  @impl CommsCore.Accounts.CallLifecyclePort
+  def revoke_identity_access(%CommsCore.Accounts.CallLifecycleCommand{
+        operation: :sessions_revoked,
+        tenant_id: tenant_id,
+        session_ids: session_ids,
+        reason: reason
+      }) do
+    revoke_for_sessions(tenant_id, session_ids, reason)
+    |> identity_lifecycle_receipt()
+  end
+
+  def revoke_identity_access(%CommsCore.Accounts.CallLifecycleCommand{
+        operation: :device_revoked,
+        tenant_id: tenant_id,
+        device_id: device_id,
+        reason: reason
+      }) do
+    revoke_for_device(tenant_id, device_id, reason)
+    |> identity_lifecycle_receipt()
+  end
+
+  def revoke_identity_access(%CommsCore.Accounts.CallLifecycleCommand{
+        operation: :user_access_revoked,
+        tenant_id: tenant_id,
+        user_id: user_id,
+        reason: reason
+      }) do
+    revoke_for_user(tenant_id, user_id, reason)
+    |> identity_lifecycle_receipt()
+  end
+
+  @impl CommsCore.Administration.CallLifecyclePort
+  def revoke_tenant_media(%CommsCore.Administration.CallLifecycleCommand{
+        operation: :tenant_media_disabled,
+        tenant_id: tenant_id,
+        media_kind: media_kind,
+        reason: reason
+      }) do
+    revoke_for_tenant_kind(tenant_id, media_kind, reason)
+    |> tenant_lifecycle_receipt()
+  end
+
+  @impl CommsCore.Conversations.CallLifecyclePort
+  def revoke_conversation_access(%CommsCore.Conversations.CallLifecycleCommand{
+        operation: :membership_revoked,
+        tenant_id: tenant_id,
+        conversation_id: conversation_id,
+        user_id: user_id,
+        reason: reason
+      }) do
+    revoke_for_membership(tenant_id, conversation_id, user_id, reason)
+    |> conversation_lifecycle_receipt()
+  end
+
+  def revoke_conversation_access(%CommsCore.Conversations.CallLifecycleCommand{
+        operation: :conversation_archived,
+        tenant_id: tenant_id,
+        conversation_id: conversation_id,
+        reason: reason
+      }) do
+    revoke_for_conversation(tenant_id, conversation_id, reason)
+    |> conversation_lifecycle_receipt()
+  end
+
   @doc false
   def claim_participant_eviction(participant_id, caller) when is_binary(participant_id) do
     if RuntimePorts.authorized_job_worker?(:audio_participant_eviction, caller) do
@@ -291,12 +370,7 @@ defmodule CommsCore.AudioCalls do
         if participant.eviction_status in [:pending, :enforcing] do
           call = Repo.get(AudioCall, participant.audio_call_id) || Repo.rollback(:not_found)
 
-          %{
-            participant_id: participant.id,
-            provider_identity: participant.provider_identity,
-            call: call,
-            enforce_until: participant.eviction_enforce_until
-          }
+          Projector.eviction_claim(participant, call)
         else
           Repo.rollback(:not_claimable)
         end
@@ -351,6 +425,7 @@ defmodule CommsCore.AudioCalls do
         |> AudioCallParticipant.admission_changeset(attrs)
         |> Ecto.Changeset.optimistic_lock(:lock_version)
         |> update_or_rollback()
+        |> Projector.eviction_progress()
       end)
       |> unwrap()
     else
@@ -388,7 +463,7 @@ defmodule CommsCore.AudioCalls do
             end
         end
       end)
-      |> unwrap()
+      |> unwrap_expiry()
     else
       {:error, :forbidden}
     end
@@ -400,9 +475,9 @@ defmodule CommsCore.AudioCalls do
       when is_binary(conversation_id) and is_binary(call_id) and is_map(attrs) and
              is_map(subject) do
     with %AudioCall{} = call <- scoped_call(conversation_id, call_id, subject),
-         :ok <- Authorization.authorize(end_action(call.media_kind), subject, call),
+         :ok <- AuthorizationPolicy.authorize(end_action(call.media_kind), subject, call),
          {:ok, reason} <- end_reason(attrs) do
-      {:ok, call, reason}
+      {:ok, project_call(call, subject), reason}
     else
       nil -> {:error, :not_found}
       {:error, _} = error -> error
@@ -411,8 +486,8 @@ defmodule CommsCore.AudioCalls do
 
   def authorize_end(_, _, _, _), do: {:error, :not_found}
 
-  def can_end?(%AudioCall{} = call, subject) when is_map(subject) do
-    Authorization.authorize(end_action(call.media_kind), subject, call) == :ok
+  def can_end?(%CallView{} = call, subject) when is_map(subject) do
+    can_end_resource?(call, subject)
   end
 
   def can_end?(_, _), do: false
@@ -442,9 +517,10 @@ defmodule CommsCore.AudioCalls do
              (is_nil(expected_kind) or expected_kind in @media_kinds) do
     with {:ok, reason} <- end_reason(attrs) do
       Repo.transaction(fn ->
+        access = lock_access!(subject, conversation_id, :share)
         call = lock_call!(conversation_id, call_id, subject)
         ensure_media_kind!(call, expected_kind)
-        authorize!(end_action(call.media_kind), subject, call)
+        authorize_access!(end_action(call.media_kind), access, call)
 
         case call.status do
           :ended ->
@@ -460,34 +536,34 @@ defmodule CommsCore.AudioCalls do
             |> end_call!(subject, value(subject, :user_id), reason)
         end
       end)
-      |> unwrap()
+      |> unwrap_call(subject)
     end
   end
 
   def end_call(_, _, _, _, _, _), do: {:error, :not_found}
 
-  defp replace_if_expired!(call, conversation, subject, media_kind, provider_cleanup) do
+  defp replace_if_expired!(call, access, subject, media_kind, provider_cleanup) do
     if expired?(call) do
       call
       |> transition_to_ending!()
       |> cleanup_provider!(provider_cleanup)
       |> end_call!(subject, nil, "expired")
 
-      {create_call!(conversation, subject, media_kind), :created}
+      {create_call!(access, subject, media_kind), :created}
     else
       {call, :existing}
     end
   end
 
-  defp start_locked!(conversation, subject, media_kind, provider_cleanup) do
-    case active_call_for_update(conversation.tenant_id, conversation.id) do
+  defp start_locked!(%Access{} = access, subject, media_kind, provider_cleanup) do
+    case active_call_for_update(access.tenant_id, access.conversation_id) do
       %AudioCall{status: :ending} ->
         Repo.rollback(:audio_call_ending)
 
       %AudioCall{} = call ->
         cond do
           expired?(call) ->
-            replace_if_expired!(call, conversation, subject, media_kind, provider_cleanup)
+            replace_if_expired!(call, access, subject, media_kind, provider_cleanup)
 
           call.media_kind != media_kind ->
             Repo.rollback(:call_media_kind_conflict)
@@ -497,11 +573,11 @@ defmodule CommsCore.AudioCalls do
         end
 
       nil ->
-        {create_call!(conversation, subject, media_kind), :created}
+        {create_call!(access, subject, media_kind), :created}
     end
   end
 
-  defp create_call!(conversation, subject, media_kind) do
+  defp create_call!(%Access{} = access, subject, media_kind) do
     timestamp = now()
     call_id = Ecto.UUID.generate()
 
@@ -509,8 +585,8 @@ defmodule CommsCore.AudioCalls do
       %AudioCall{id: call_id}
       |> AudioCall.changeset(%{
         id: call_id,
-        tenant_id: conversation.tenant_id,
-        conversation_id: conversation.id,
+        tenant_id: access.tenant_id,
+        conversation_id: access.conversation_id,
         started_by_user_id: value(subject, :user_id),
         provider_room: provider_room(call_id),
         media_kind: media_kind,
@@ -594,7 +670,7 @@ defmodule CommsCore.AudioCalls do
   end
 
   defp cleanup_provider!(call, provider_cleanup) do
-    case provider_cleanup.(call) do
+    case provider_cleanup.(Projector.provider_call(call)) do
       :ok -> call
       {:error, reason} -> Repo.rollback(reason)
       _ -> Repo.rollback(:audio_provider_unavailable)
@@ -624,70 +700,6 @@ defmodule CommsCore.AudioCalls do
       %AudioCallParticipant{} = participant -> participant
       nil -> create_admission!(call, subject)
     end
-  end
-
-  defp lock_join_authority!(conversation_id, subject) do
-    lock_authority!(conversation_id, subject, "FOR SHARE")
-    :ok
-  end
-
-  defp lock_start_join_authority!(conversation_id, subject) do
-    lock_authority!(conversation_id, subject, "FOR UPDATE")
-  end
-
-  defp lock_authority!(conversation_id, subject, conversation_lock) do
-    timestamp = now()
-
-    Repo.one(
-      from(tenant in Tenant,
-        where: tenant.id == ^value(subject, :tenant_id) and tenant.status == :active,
-        lock: "FOR SHARE"
-      )
-    ) || Repo.rollback(:forbidden)
-
-    conversation =
-      Conversation
-      |> where(
-        [conversation],
-        conversation.id == ^conversation_id and
-          conversation.tenant_id == ^value(subject, :tenant_id) and
-          is_nil(conversation.archived_at)
-      )
-      |> lock_authority_conversation(conversation_lock)
-
-    conversation || Repo.rollback(:forbidden)
-
-    Repo.one(
-      from(session in Session,
-        where:
-          session.id == ^value(subject, :session_id) and
-            session.tenant_id == ^value(subject, :tenant_id) and
-            session.user_id == ^value(subject, :user_id) and
-            session.device_id == ^value(subject, :device_id) and is_nil(session.revoked_at) and
-            session.expires_at > ^timestamp and session.absolute_expires_at > ^timestamp,
-        lock: "FOR SHARE"
-      )
-    ) || Repo.rollback(:forbidden)
-
-    Repo.one(
-      from(membership in Membership,
-        where:
-          membership.tenant_id == ^value(subject, :tenant_id) and
-            membership.conversation_id == ^conversation_id and
-            membership.user_id == ^value(subject, :user_id) and is_nil(membership.left_at),
-        lock: "FOR SHARE"
-      )
-    ) || Repo.rollback(:forbidden)
-
-    conversation
-  end
-
-  defp lock_authority_conversation(query, "FOR SHARE") do
-    query |> lock("FOR SHARE") |> Repo.one()
-  end
-
-  defp lock_authority_conversation(query, "FOR UPDATE") do
-    query |> lock("FOR UPDATE") |> Repo.one()
   end
 
   defp create_admission!(call, subject) do
@@ -722,7 +734,7 @@ defmodule CommsCore.AudioCalls do
   end
 
   defp issue_credential!(call, participant, issuer) do
-    case issuer.(call, participant) do
+    case issuer.(Projector.credential_request(call, participant)) do
       {:ok, credential} ->
         record_credential_issuance!(participant)
         credential
@@ -851,18 +863,6 @@ defmodule CommsCore.AudioCalls do
     )
   end
 
-  defp lock_conversation!(conversation_id, subject) do
-    Repo.one(
-      from(conversation in Conversation,
-        where:
-          conversation.id == ^conversation_id and
-            conversation.tenant_id == ^value(subject, :tenant_id) and
-            is_nil(conversation.archived_at),
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:not_found)
-  end
-
   defp lock_call!(conversation_id, call_id, subject) do
     Repo.one(
       from(call in AudioCall,
@@ -896,13 +896,15 @@ defmodule CommsCore.AudioCalls do
   defp authorize_active_call(nil, _subject), do: :ok
 
   defp authorize_active_call(%AudioCall{} = call, subject) do
-    Authorization.authorize(read_action(call.media_kind), subject, call)
+    AuthorizationPolicy.authorize(read_action(call.media_kind), subject, call)
   end
 
   defp ensure_media_kind(nil, _expected_kind), do: :ok
   defp ensure_media_kind(_call, nil), do: :ok
   defp ensure_media_kind(%AudioCall{media_kind: media_kind}, media_kind), do: :ok
+  defp ensure_media_kind(%CallView{media_kind: media_kind}, media_kind), do: :ok
   defp ensure_media_kind(%AudioCall{}, _expected_kind), do: {:error, :call_media_kind_conflict}
+  defp ensure_media_kind(%CallView{}, _expected_kind), do: {:error, :call_media_kind_conflict}
 
   defp ensure_media_kind!(call, expected_kind) do
     case ensure_media_kind(call, expected_kind) do
@@ -953,8 +955,15 @@ defmodule CommsCore.AudioCalls do
     })
   end
 
-  defp authorize!(action, subject, resource) do
-    case Authorization.authorize(action, subject, resource) do
+  defp lock_access!(subject, conversation_id, lock_mode) do
+    case AuthorizationPolicy.lock_access(subject, conversation_id, lock_mode) do
+      {:ok, %Access{} = access} -> access
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp authorize_access!(action, %Access{} = access, resource) do
+    case AuthorizationPolicy.authorize_access(action, access, resource) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -974,17 +983,58 @@ defmodule CommsCore.AudioCalls do
     end
   end
 
-  defp unwrap_start({:ok, {call, status}}), do: {:ok, call, status}
-  defp unwrap_start({:error, reason}), do: {:error, reason}
+  defp unwrap_start({:ok, {call, status}}, subject),
+    do: {:ok, project_call(call, subject), status}
 
-  defp unwrap_start_join({:ok, {call, status, credential}}),
-    do: {:ok, call, status, credential}
+  defp unwrap_start({:error, reason}, _subject), do: {:error, reason}
 
-  defp unwrap_start_join({:error, reason}), do: {:error, reason}
-  defp unwrap_join({:ok, {call, credential}}), do: {:ok, call, credential}
-  defp unwrap_join({:error, reason}), do: {:error, reason}
+  defp unwrap_start_join({:ok, {call, status, credential}}, subject),
+    do: {:ok, project_call(call, subject), status, credential}
+
+  defp unwrap_start_join({:error, reason}, _subject), do: {:error, reason}
+
+  defp unwrap_join({:ok, {call, credential}}, subject),
+    do: {:ok, project_call(call, subject), credential}
+
+  defp unwrap_join({:error, reason}, _subject), do: {:error, reason}
+
+  defp unwrap_call({:ok, %AudioCall{} = call}, subject),
+    do: {:ok, project_call(call, subject)}
+
+  defp unwrap_call({:error, reason}, _subject), do: {:error, reason}
+
+  defp unwrap_expiry({:ok, {:expired, %AudioCall{}}}), do: {:ok, :expired}
+  defp unwrap_expiry({:ok, {:already_ended, %AudioCall{}}}), do: {:ok, :already_ended}
+  defp unwrap_expiry({:ok, {:not_due, seconds}}), do: {:ok, {:not_due, seconds}}
+  defp unwrap_expiry({:error, reason}), do: {:error, reason}
+
   defp unwrap({:ok, result}), do: {:ok, result}
   defp unwrap({:error, reason}), do: {:error, reason}
+
+  defp project_call(nil, _subject), do: nil
+
+  defp project_call(%AudioCall{} = call, subject) do
+    Projector.call(call, can_end_resource?(call, subject))
+  end
+
+  defp can_end_resource?(call, subject) do
+    AuthorizationPolicy.authorize(end_action(call.media_kind), subject, call) == :ok
+  end
+
+  defp identity_lifecycle_receipt({:ok, count}),
+    do: {:ok, %IdentityCallLifecycleReceipt{revoked_participant_count: count}}
+
+  defp identity_lifecycle_receipt({:error, _reason} = error), do: error
+
+  defp tenant_lifecycle_receipt({:ok, count}),
+    do: {:ok, %TenantCallLifecycleReceipt{revoked_participant_count: count}}
+
+  defp tenant_lifecycle_receipt({:error, _reason} = error), do: error
+
+  defp conversation_lifecycle_receipt({:ok, count}),
+    do: {:ok, %ConversationCallLifecycleReceipt{revoked_participant_count: count}}
+
+  defp conversation_lifecycle_receipt({:error, _reason} = error), do: error
 
   defp provider_cleanup_required(_call), do: {:error, :audio_provider_unavailable}
 

@@ -2,6 +2,7 @@ defmodule CommsWorkers.AudioParticipantEvictionWorker do
   use Oban.Worker, queue: :media, max_attempts: 20
 
   alias CommsCore.AudioCalls
+  alias CommsCore.AudioCalls.{EvictionClaim, EvictionProgress, ProviderCall}
   alias CommsIntegrations.Audio.RoomService
 
   @successful_enforcement_interval_seconds 30
@@ -14,7 +15,7 @@ defmodule CommsWorkers.AudioParticipantEvictionWorker do
       {:ok, :enforcement_complete} ->
         :ok
 
-      {:ok, claim} ->
+      {:ok, %EvictionClaim{} = claim} ->
         enforce(claim)
 
       {:error, :not_claimable} ->
@@ -30,10 +31,10 @@ defmodule CommsWorkers.AudioParticipantEvictionWorker do
 
   def perform(_job), do: {:discard, :participant_id_required}
 
-  defp enforce(claim) do
+  defp enforce(%EvictionClaim{} = claim) do
     attempt_started_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
-    case RoomService.remove_participant(claim.call, claim.provider_identity) do
+    case RoomService.remove_participant(provider_room(claim), claim.provider_identity) do
       :ok ->
         record_and_schedule(
           claim.participant_id,
@@ -67,12 +68,15 @@ defmodule CommsWorkers.AudioParticipantEvictionWorker do
            attempt_started_at,
            __MODULE__
          ) do
-      {:ok, %{eviction_status: :completed}} -> :ok
-      {:ok, _participant} -> {:snooze, interval_seconds}
+      {:ok, %EvictionProgress{eviction_status: :completed}} -> :ok
+      {:ok, %EvictionProgress{}} -> {:snooze, interval_seconds}
       {:error, :not_found} -> {:discard, :participant_not_found}
       {:error, reason} -> {:error, safe_reason(reason)}
     end
   end
+
+  defp provider_room(%EvictionClaim{provider_call: %ProviderCall{provider_room: provider_room}}),
+    do: provider_room
 
   defp safe_reason(reason) when is_atom(reason), do: reason
   defp safe_reason(_reason), do: :audio_participant_eviction_failed

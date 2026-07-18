@@ -38,7 +38,7 @@ defmodule CommsIntegrations.Audio.LiveKitRoomServiceTest do
     end
 
     assert :ok =
-             LiveKitRoomService.delete_room(%{provider_room: "kc_audio_exact_room"}, requester)
+             LiveKitRoomService.delete_room("kc_audio_exact_room", requester)
 
     assert_receive {:request, request}
     assert request.method == "POST"
@@ -59,20 +59,20 @@ defmodule CommsIntegrations.Audio.LiveKitRoomServiceTest do
   end
 
   test "not-found deletion is idempotent and provider failures fail closed" do
-    call = %{provider_room: "kc_audio_missing_room"}
+    provider_room = "kc_audio_missing_room"
 
     assert :ok =
-             LiveKitRoomService.delete_room(call, fn _request ->
+             LiveKitRoomService.delete_room(provider_room, fn _request ->
                {:ok, %Finch.Response{status: 404, body: ""}}
              end)
 
     assert :ok =
-             LiveKitRoomService.delete_room(call, fn _request ->
+             LiveKitRoomService.delete_room(provider_room, fn _request ->
                {:ok, %Finch.Response{status: 400, body: Jason.encode!(%{code: "not_found"})}}
              end)
 
     assert {:error, :audio_provider_unavailable} =
-             LiveKitRoomService.delete_room(call, fn _request -> {:error, :timeout} end)
+             LiveKitRoomService.delete_room(provider_room, fn _request -> {:error, :timeout} end)
   end
 
   test "removes one exact participant with a short exact-room admin credential" do
@@ -85,7 +85,7 @@ defmodule CommsIntegrations.Audio.LiveKitRoomServiceTest do
 
     assert :ok =
              LiveKitRoomService.remove_participant(
-               %{provider_room: "kc_audio_exact_room"},
+               "kc_audio_exact_room",
                "kc_exact_participant_identity",
                requester
              )
@@ -115,7 +115,7 @@ defmodule CommsIntegrations.Audio.LiveKitRoomServiceTest do
 
     assert :ok =
              LiveKitRoomService.remove_participant(
-               %{provider_room: "kc_audio_exact_room"},
+               "kc_audio_exact_room",
                "kc_exact_participant_identity",
                fn _request -> {:ok, %Finch.Response{status: 404, body: ""}} end
              )

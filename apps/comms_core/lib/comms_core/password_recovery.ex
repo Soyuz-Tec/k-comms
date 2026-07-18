@@ -3,13 +3,12 @@ defmodule CommsCore.PasswordRecovery do
   Public password-recovery facade.
 
   IdentityAccess owns recovery persistence and notification/audit orchestration.
-  Calls contributes access revocation to the existing reset transaction through
-  the callback supplied here.
+  Calls contributes access revocation through the transaction-required,
+  IdentityAccess-owned lifecycle port.
   """
 
   alias CommsCore.Accounts.PasswordRecovery, as: IdentityPasswordRecovery
   alias CommsCore.Accounts.PasswordRecoveryResult
-  alias CommsCore.AudioCalls
 
   defdelegate event_type(), to: IdentityPasswordRecovery
   defdelegate request(attrs), to: IdentityPasswordRecovery
@@ -22,9 +21,7 @@ defmodule CommsCore.PasswordRecovery do
              | :password_recovery_unavailable
              | :weak_password
              | term()}
-  def reset(attrs) do
-    IdentityPasswordRecovery.reset(attrs, &AudioCalls.revoke_for_user/3)
-  end
+  def reset(attrs), do: IdentityPasswordRecovery.reset(attrs)
 
   def reset_command(attrs) do
     reset(attrs)

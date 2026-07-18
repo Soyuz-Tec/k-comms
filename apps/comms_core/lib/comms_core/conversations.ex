@@ -8,7 +8,6 @@ defmodule CommsCore.Conversations do
     Accounts,
     Administration,
     AdmissionQuotas,
-    AudioCalls,
     Outbox,
     Repo,
     ServiceAccounts
@@ -24,6 +23,11 @@ defmodule CommsCore.Conversations do
 
   alias CommsCore.Conversations.{
     AdmissionUsage,
+    CallConversation,
+    CallLifecycleCommand,
+    CallLifecyclePort,
+    CallLifecycleReceipt,
+    CallMembership,
     Conversation,
     ConversationView,
     Membership,
@@ -173,6 +177,114 @@ defmodule CommsCore.Conversations do
   @spec authorize_read(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
   def authorize_read(conversation_id, subject),
     do: authorize_active_membership(conversation_id, subject)
+
+  @doc """
+  Returns the active membership facts consumed by Calls authorization.
+
+  The projection contains no conversation or membership persistence struct.
+  Missing, cross-tenant, departed, and archived membership scopes fail closed.
+  """
+  @spec call_membership(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, CallMembership.t()} | {:error, :forbidden}
+  def call_membership(tenant_id, conversation_id, user_id)
+      when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) do
+    case Repo.one(
+           from(membership in Membership,
+             join: conversation in Conversation,
+             on:
+               conversation.id == membership.conversation_id and
+                 conversation.tenant_id == membership.tenant_id,
+             where:
+               membership.tenant_id == ^tenant_id and
+                 membership.conversation_id == ^conversation_id and
+                 membership.user_id == ^user_id and is_nil(membership.left_at) and
+                 conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at),
+             select: %{
+               tenant_id: membership.tenant_id,
+               conversation_id: membership.conversation_id,
+               user_id: membership.user_id,
+               role: membership.role
+             }
+           )
+         ) do
+      nil -> {:error, :forbidden}
+      membership -> {:ok, struct!(CallMembership, membership)}
+    end
+  end
+
+  def call_membership(_tenant_id, _conversation_id, _user_id),
+    do: {:error, :forbidden}
+
+  @doc """
+  Locks an active conversation for Calls transaction coordination.
+
+  The caller must acquire TenantAdministration's tenant lock first. `:share`
+  protects a join; `:update` serializes start-and-join creation.
+  """
+  @spec lock_call_conversation(Ecto.UUID.t(), Ecto.UUID.t(), :share | :update) ::
+          {:ok, CallConversation.t()} | {:error, :forbidden | :transaction_required}
+  def lock_call_conversation(tenant_id, conversation_id, lock_mode)
+      when is_binary(tenant_id) and is_binary(conversation_id) and lock_mode in [:share, :update] do
+    if Repo.in_transaction?() do
+      query =
+        from(conversation in Conversation,
+          where:
+            conversation.id == ^conversation_id and conversation.tenant_id == ^tenant_id and
+              is_nil(conversation.archived_at),
+          select: %{id: conversation.id, tenant_id: conversation.tenant_id}
+        )
+
+      conversation =
+        case lock_mode do
+          :share -> query |> lock("FOR SHARE") |> Repo.one()
+          :update -> query |> lock("FOR UPDATE") |> Repo.one()
+        end
+
+      case conversation do
+        nil -> {:error, :forbidden}
+        projection -> {:ok, struct!(CallConversation, projection)}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_call_conversation(_tenant_id, _conversation_id, _lock_mode),
+    do: {:error, :forbidden}
+
+  @doc """
+  Locks and returns an active Calls membership after the conversation lock.
+  """
+  @spec lock_call_membership(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, CallMembership.t()} | {:error, :forbidden | :transaction_required}
+  def lock_call_membership(tenant_id, conversation_id, user_id)
+      when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) do
+    if Repo.in_transaction?() do
+      case Repo.one(
+             from(membership in Membership,
+               where:
+                 membership.tenant_id == ^tenant_id and
+                   membership.conversation_id == ^conversation_id and
+                   membership.user_id == ^user_id and is_nil(membership.left_at),
+               select: %{
+                 tenant_id: membership.tenant_id,
+                 conversation_id: membership.conversation_id,
+                 user_id: membership.user_id,
+                 role: membership.role
+               },
+               lock: "FOR SHARE"
+             )
+           ) do
+        nil -> {:error, :forbidden}
+        membership -> {:ok, struct!(CallMembership, membership)}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_call_membership(_tenant_id, _conversation_id, _user_id),
+    do: {:error, :forbidden}
 
   @doc "Authorizes sending message content to a conversation."
   @spec authorize_send_message(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
@@ -756,14 +868,14 @@ defmodule CommsCore.Conversations do
             source: "self_service"
           })
 
-          audio_revocation_ok!(
-            AudioCalls.revoke_for_membership(
-              conversation.tenant_id,
-              conversation.id,
-              left_membership.user_id,
-              "membership_left"
-            )
+          CallLifecycleCommand.membership_revoked(
+            conversation.tenant_id,
+            conversation.id,
+            left_membership.user_id,
+            "membership_left"
           )
+          |> CallLifecyclePort.revoke_conversation_access()
+          |> call_lifecycle_ok!()
 
           %{conversation: conversation, membership: left_membership, replayed: false}
         end
@@ -870,13 +982,13 @@ defmodule CommsCore.Conversations do
           version: archived.lock_version
         })
 
-        audio_revocation_ok!(
-          AudioCalls.revoke_for_conversation(
-            archived.tenant_id,
-            archived.id,
-            "conversation_archived"
-          )
+        CallLifecycleCommand.conversation_archived(
+          archived.tenant_id,
+          archived.id,
+          "conversation_archived"
         )
+        |> CallLifecyclePort.revoke_conversation_access()
+        |> call_lifecycle_ok!()
 
         archived
       end)
@@ -1049,14 +1161,14 @@ defmodule CommsCore.Conversations do
           role: membership.role
         })
 
-        audio_revocation_ok!(
-          AudioCalls.revoke_for_membership(
-            conversation.tenant_id,
-            conversation.id,
-            updated.user_id,
-            "membership_removed"
-          )
+        CallLifecycleCommand.membership_revoked(
+          conversation.tenant_id,
+          conversation.id,
+          updated.user_id,
+          "membership_removed"
         )
+        |> CallLifecyclePort.revoke_conversation_access()
+        |> call_lifecycle_ok!()
 
         updated
       end)
@@ -1534,8 +1646,8 @@ defmodule CommsCore.Conversations do
     }
   end
 
-  defp audio_revocation_ok!({:ok, _count}), do: :ok
-  defp audio_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
+  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do

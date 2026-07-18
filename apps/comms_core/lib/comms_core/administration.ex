@@ -3,6 +3,10 @@ defmodule CommsCore.Administration do
 
   alias CommsCore.Administration.{
     AuthorizationPolicy,
+    CallLifecycleCommand,
+    CallLifecyclePort,
+    CallLifecycleReceipt,
+    CallPolicy,
     ConversationContentPolicy,
     Invitations,
     Projector,
@@ -13,7 +17,7 @@ defmodule CommsCore.Administration do
   }
 
   alias CommsCore.Audit
-  alias CommsCore.{AdmissionQuotas, AudioCalls, Repo, RuntimePorts}
+  alias CommsCore.{AdmissionQuotas, Repo, RuntimePorts}
 
   @default_limit 50
   @max_limit 100
@@ -117,6 +121,54 @@ defmodule CommsCore.Administration do
   end
 
   def active_tenant(_tenant_id), do: {:error, :tenant_unavailable}
+
+  @doc """
+  Returns the Ecto-free media capability policy consumed by Calls.
+
+  Calls resolves the active identity first. A missing settings row therefore
+  retains TenantAdministration's enabled-by-default media behavior without
+  exposing `TenantSettings`.
+  """
+  @spec call_policy(Ecto.UUID.t()) :: {:ok, CallPolicy.t()} | {:error, :forbidden}
+  def call_policy(tenant_id) when is_binary(tenant_id) do
+    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id) do
+      {:ok, project_call_policy(tenant_id)}
+    else
+      :error -> {:error, :forbidden}
+    end
+  end
+
+  def call_policy(_tenant_id), do: {:error, :forbidden}
+
+  @doc """
+  Locks the active tenant before returning its Calls capability policy.
+
+  The caller must own the transaction. The shared tenant lock serializes with
+  tenant-settings updates, which acquire the tenant row for update before
+  changing media capability flags.
+  """
+  @spec lock_call_policy(Ecto.UUID.t()) ::
+          {:ok, CallPolicy.t()} | {:error, :forbidden | :transaction_required}
+  def lock_call_policy(tenant_id) when is_binary(tenant_id) do
+    if Repo.in_transaction?() do
+      with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+           %Tenant{} <-
+             Repo.one(
+               from(tenant in Tenant,
+                 where: tenant.id == ^tenant_id and tenant.status == :active,
+                 lock: "FOR SHARE"
+               )
+             ) do
+        {:ok, project_call_policy(tenant_id)}
+      else
+        _ -> {:error, :forbidden}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def lock_call_policy(_tenant_id), do: {:error, :forbidden}
 
   @doc """
   Returns an active tenant by slug as a stable owner projection.
@@ -299,15 +351,23 @@ defmodule CommsCore.Administration do
           end
 
         if current.allow_audio_calls and not updated_settings.allow_audio_calls do
-          media_revocation_ok!(
-            AudioCalls.revoke_for_tenant_kind(tenant.id, :audio, "tenant_audio_disabled")
+          CallLifecycleCommand.tenant_media_disabled(
+            tenant.id,
+            :audio,
+            "tenant_audio_disabled"
           )
+          |> CallLifecyclePort.revoke_tenant_media()
+          |> call_lifecycle_ok!()
         end
 
         if current.allow_video_calls and not updated_settings.allow_video_calls do
-          media_revocation_ok!(
-            AudioCalls.revoke_for_tenant_kind(tenant.id, :video, "tenant_video_disabled")
+          CallLifecycleCommand.tenant_media_disabled(
+            tenant.id,
+            :video,
+            "tenant_video_disabled"
           )
+          |> CallLifecyclePort.revoke_tenant_media()
+          |> call_lifecycle_ok!()
         end
 
         audit!(subject, "tenant.settings_update", "tenant", tenant.id, %{
@@ -495,8 +555,8 @@ defmodule CommsCore.Administration do
   defp quota_ok!(:ok), do: :ok
   defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
 
-  defp media_revocation_ok!({:ok, _count}), do: :ok
-  defp media_revocation_ok!({:error, reason}), do: Repo.rollback(reason)
+  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
+  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
@@ -505,6 +565,18 @@ defmodule CommsCore.Administration do
     %{
       tenant: CommsCore.Administration.Projector.tenant(result.tenant),
       settings: CommsCore.Administration.Projector.settings(result.settings)
+    }
+  end
+
+  defp project_call_policy(tenant_id) do
+    settings =
+      Repo.get_by(TenantSettings, tenant_id: tenant_id) ||
+        %TenantSettings{tenant_id: tenant_id}
+
+    %CallPolicy{
+      tenant_id: tenant_id,
+      allow_audio_calls: settings.allow_audio_calls,
+      allow_video_calls: settings.allow_video_calls
     }
   end
 

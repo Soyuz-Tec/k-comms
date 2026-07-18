@@ -7,7 +7,7 @@ defmodule CommsCore.AudioCallsTest do
   alias CommsCore.Administration
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.AudioCalls
-  alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}
+  alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant, CallView, CredentialRequest}
   alias CommsCore.Audit
   alias CommsCore.Conversations
   alias CommsCore.Conversations.Membership
@@ -146,13 +146,16 @@ defmodule CommsCore.AudioCallsTest do
     assert group_call.media_kind == :video
     assert direct_call.media_kind == :video
 
-    assert {:ok, ^direct_call, :joined} =
+    assert {:ok, joined_call, :joined} =
              AudioCalls.with_join_authorized(
                direct.id,
                direct_call.id,
                Fixtures.subject(member),
-               fn _call, _participant -> {:ok, :joined} end
+               fn _request -> {:ok, :joined} end
              )
+
+    assert joined_call.id == direct_call.id
+    refute joined_call.can_end
   end
 
   test "video authorization is independently tenant controlled" do
@@ -171,6 +174,22 @@ defmodule CommsCore.AudioCallsTest do
     assert audio_call.media_kind == :audio
   end
 
+  test "active-call media checks operate on the public call projection" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, call, :created} =
+             AudioCalls.start(account.conversation.id, subject, :video)
+
+    assert {:ok, %CallView{id: call_id, media_kind: :video}} =
+             AudioCalls.get_active(account.conversation.id, subject, :video)
+
+    assert call_id == call.id
+
+    assert {:error, :call_media_kind_conflict} =
+             AudioCalls.get_active(account.conversation.id, subject, :audio)
+  end
+
   test "tenant video disable revokes only video admissions and denies future joins" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
@@ -184,7 +203,7 @@ defmodule CommsCore.AudioCallsTest do
 
     assert {:ok, audio_call, :created} = AudioCalls.start(direct.id, subject)
 
-    issuer = fn _call, participant -> {:ok, participant.id} end
+    issuer = fn request -> {:ok, request.participant_id} end
 
     assert {:ok, ^video_call, video_participant_id} =
              AudioCalls.with_join_authorized(
@@ -227,7 +246,7 @@ defmodule CommsCore.AudioCallsTest do
                call.id,
                subject,
                :audio,
-               fn _call, _participant -> flunk("legacy audio issuer must not run") end
+               fn _request -> flunk("legacy audio issuer must not run") end
              )
 
     assert {:ok, ^call, :video_credential} =
@@ -235,8 +254,8 @@ defmodule CommsCore.AudioCallsTest do
                account.conversation.id,
                call.id,
                subject,
-               fn locked_call, _participant ->
-                 assert locked_call.media_kind == :video
+               fn request ->
+                 assert request.media_kind == :video
                  {:ok, :video_credential}
                end
              )
@@ -252,7 +271,7 @@ defmodule CommsCore.AudioCallsTest do
                subject,
                :video,
                fn _call -> :ok end,
-               fn _call, _participant -> {:error, :credential_issuer_failed} end
+               fn _request -> {:error, :credential_issuer_failed} end
              )
 
     assert_no_call_start_artifacts(account.tenant.id)
@@ -298,7 +317,7 @@ defmodule CommsCore.AudioCallsTest do
           subject,
           :video,
           fn _call -> :ok end,
-          fn _call, _participant ->
+          fn _request ->
             send(parent, :capability_race_issuer_ran)
             {:ok, :credential}
           end
@@ -350,7 +369,7 @@ defmodule CommsCore.AudioCallsTest do
           subject,
           :video,
           fn _call -> :ok end,
-          fn _call, _participant ->
+          fn _request ->
             send(parent, :session_race_issuer_ran)
             {:ok, :credential}
           end
@@ -398,6 +417,7 @@ defmodule CommsCore.AudioCallsTest do
              AudioCalls.authorize_join(account.conversation.id, call.id, subject)
 
     test_pid = self()
+    persisted_call = Repo.get!(AudioCall, call.id)
 
     assert {:ok, replacement, :created} =
              AudioCalls.start(account.conversation.id, subject, fn expired_call ->
@@ -407,7 +427,7 @@ defmodule CommsCore.AudioCallsTest do
 
     assert_receive {:deleted_expired_provider_room, deleted_call}
     assert deleted_call.id == call.id
-    assert deleted_call.provider_room == call.provider_room
+    assert deleted_call.provider_room == persisted_call.provider_room
     assert deleted_call.status == :ending
     refute replacement.id == call.id
     assert Repo.get!(AudioCall, call.id).status == :ended
@@ -617,7 +637,7 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, _participant ->
+          fn _request ->
             send(test_pid, :join_token_issuer_ran)
             {:ok, :credential}
           end
@@ -627,7 +647,7 @@ defmodule CommsCore.AudioCallsTest do
     refute_receive :join_token_issuer_ran, 100
     send(end_task.pid, :finish_provider_delete)
 
-    assert {:ok, %AudioCall{status: :ended}} = Task.await(end_task, 5_000)
+    assert {:ok, %CallView{status: :ended}} = Task.await(end_task, 5_000)
     assert {:error, :audio_call_ended} = Task.await(join_task, 5_000)
     refute_received :join_token_issuer_ran
   end
@@ -644,7 +664,7 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, _participant ->
+          fn _request ->
             send(test_pid, :join_issuer_started)
 
             receive do
@@ -673,10 +693,10 @@ defmodule CommsCore.AudioCallsTest do
     refute_receive {:later_provider_delete_started, _status}, 100
     send(join_task.pid, :finish_join_issuer)
 
-    assert {:ok, %AudioCall{id: call_id}, :credential} = Task.await(join_task, 5_000)
+    assert {:ok, %CallView{id: call_id}, :credential} = Task.await(join_task, 5_000)
     assert call_id == call.id
     assert_receive {:later_provider_delete_started, :ending}
-    assert {:ok, %AudioCall{status: :ended}} = Task.await(end_task, 5_000)
+    assert {:ok, %CallView{status: :ended}} = Task.await(end_task, 5_000)
   end
 
   test "admission creation, reuse, and credential issuance are atomic without token persistence" do
@@ -684,9 +704,10 @@ defmodule CommsCore.AudioCallsTest do
     subject = Fixtures.subject(account)
     assert {:ok, call, :created} = AudioCalls.start(account.conversation.id, subject)
 
-    issuer = fn locked_call, participant ->
-      assert locked_call.id == call.id
-      assert participant.provider_identity =~ "kc_"
+    issuer = fn %CredentialRequest{} = request ->
+      assert request.call_id == call.id
+      assert request.participant_id
+      assert request.provider_identity =~ "kc_"
       {:ok, %{participant_token: "must-never-be-persisted", server_url: "wss://audio.test"}}
     end
 
@@ -719,7 +740,7 @@ defmodule CommsCore.AudioCallsTest do
                other.conversation.id,
                other_call.id,
                other_subject,
-               fn _locked_call, _participant -> {:error, :forced_issuer_failure} end
+               fn _request -> {:error, :forced_issuer_failure} end
              )
 
     refute Repo.get_by(AudioCallParticipant, audio_call_id: other_call.id)
@@ -764,7 +785,7 @@ defmodule CommsCore.AudioCallsTest do
                    account.conversation.id,
                    call.id,
                    subject,
-                   fn _locked_call, participant -> {:ok, participant.provider_identity} end
+                   fn request -> {:ok, request.provider_identity} end
                  )
 
         assert {:ok, 1} = revoke.()
@@ -813,8 +834,8 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, participant ->
-            send(parent, {:issuer_locked_authority, participant.id})
+          fn request ->
+            send(parent, {:issuer_locked_authority, request.participant_id})
 
             receive do
               :finish_credential -> {:ok, :credential}
@@ -835,7 +856,7 @@ defmodule CommsCore.AudioCallsTest do
     refute_receive {:session_revoke_finished, _result}, 100
     send(join_task.pid, :finish_credential)
 
-    assert {:ok, %AudioCall{id: call_id}, :credential} = Task.await(join_task, 5_000)
+    assert {:ok, %CallView{id: call_id}, :credential} = Task.await(join_task, 5_000)
     assert call_id == call.id
     assert :ok = Task.await(revoke_task, 5_000)
     assert_receive {:session_revoke_finished, :ok}
@@ -890,7 +911,7 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, _participant ->
+          fn _request ->
             send(parent, :credential_callback_ran)
             {:ok, :credential}
           end
@@ -917,8 +938,8 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, participant ->
-            send(parent, {:tenant_race_issuer_started, participant.id})
+          fn request ->
+            send(parent, {:tenant_race_issuer_started, request.participant_id})
 
             receive do
               :finish_tenant_race_issuer -> {:ok, :credential}
@@ -943,7 +964,7 @@ defmodule CommsCore.AudioCallsTest do
 
     refute_receive {:tenant_audio_disable_finished, _result}, 100
     send(join_task.pid, :finish_tenant_race_issuer)
-    assert {:ok, %AudioCall{}, :credential} = Task.await(join_task, 5_000)
+    assert {:ok, %CallView{}, :credential} = Task.await(join_task, 5_000)
     assert {:ok, %{settings: %{allow_audio_calls: false}}} = Task.await(disable_task, 5_000)
 
     participant = Repo.get!(AudioCallParticipant, participant_id)
@@ -963,8 +984,8 @@ defmodule CommsCore.AudioCallsTest do
           account.conversation.id,
           call.id,
           subject,
-          fn _locked_call, participant ->
-            send(parent, {:archive_race_issuer_started, participant.id})
+          fn request ->
+            send(parent, {:archive_race_issuer_started, request.participant_id})
 
             receive do
               :finish_archive_race_issuer -> {:ok, :credential}
@@ -990,7 +1011,7 @@ defmodule CommsCore.AudioCallsTest do
 
     refute_receive {:conversation_archive_finished, _result}, 100
     send(join_task.pid, :finish_archive_race_issuer)
-    assert {:ok, %AudioCall{}, :credential} = Task.await(join_task, 5_000)
+    assert {:ok, %CallView{}, :credential} = Task.await(join_task, 5_000)
     assert {:ok, %{archived_at: %DateTime{}}} = Task.await(archive_task, 5_000)
 
     participant = Repo.get!(AudioCallParticipant, participant_id)
@@ -1008,10 +1029,10 @@ defmodule CommsCore.AudioCallsTest do
                account.conversation.id,
                call.id,
                subject,
-               fn _locked_call, _participant -> {:ok, :credential} end
+               fn _request -> {:ok, :credential} end
              )
 
-    assert {:ok, %AudioCall{status: :ended}} =
+    assert {:ok, %CallView{status: :ended}} =
              AudioCalls.end_call(
                account.conversation.id,
                call.id,

@@ -1,7 +1,8 @@
 defmodule CommsWorkers.AudioParticipantEvictionWorkerTest.ScriptedRoomService do
-  def delete_room(_call), do: :ok
+  def delete_room(provider_room) when is_binary(provider_room), do: :ok
 
-  def remove_participant(call, identity) do
+  def remove_participant(provider_room, identity)
+      when is_binary(provider_room) and is_binary(identity) do
     agent = Application.fetch_env!(:comms_workers, :audio_eviction_test_agent)
 
     scripted_result =
@@ -16,7 +17,7 @@ defmodule CommsWorkers.AudioParticipantEvictionWorkerTest.ScriptedRoomService do
           send(Application.fetch_env!(:comms_workers, :audio_eviction_test_pid), {
             :provider_removal_started,
             self(),
-            call.provider_room,
+            provider_room,
             identity
           })
 
@@ -30,7 +31,7 @@ defmodule CommsWorkers.AudioParticipantEvictionWorkerTest.ScriptedRoomService do
 
     send(Application.fetch_env!(:comms_workers, :audio_eviction_test_pid), {
       :provider_removal,
-      call.provider_room,
+      provider_room,
       identity,
       result
     })
@@ -43,7 +44,7 @@ defmodule CommsWorkers.AudioParticipantEvictionWorkerTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.AudioCalls
-  alias CommsCore.AudioCalls.AudioCallParticipant
+  alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant, CredentialRequest}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
   alias CommsWorkers.AudioParticipantEvictionWorker
@@ -177,17 +178,20 @@ defmodule CommsWorkers.AudioParticipantEvictionWorkerTest do
   defp admitted_and_revoked do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
-    {:ok, call, :created} = AudioCalls.start(account.conversation.id, subject)
+    {:ok, call_view, :created} = AudioCalls.start(account.conversation.id, subject)
 
-    {:ok, ^call, _credential} =
+    {:ok, ^call_view, _credential} =
       AudioCalls.with_join_authorized(
         account.conversation.id,
-        call.id,
+        call_view.id,
         subject,
-        fn _locked_call, participant -> {:ok, participant.provider_identity} end
+        fn %CredentialRequest{provider_identity: provider_identity} ->
+          {:ok, provider_identity}
+        end
       )
 
-    participant = Repo.get_by!(AudioCallParticipant, audio_call_id: call.id)
+    call = Repo.get!(AudioCall, call_view.id)
+    participant = Repo.get_by!(AudioCallParticipant, audio_call_id: call_view.id)
 
     {:ok, 1} =
       AudioCalls.revoke_for_sessions(account.tenant.id, [account.session.id], "session_revoked")

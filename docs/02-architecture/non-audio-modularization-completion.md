@@ -7,8 +7,9 @@ Calls/audio boundary.
 
 ## Result
 
-The non-audio endgame is complete. The architecture analyzer reports 29
-findings, all of which are exact Calls/audio deferrals:
+At the ADR-0042 checkpoint, the non-audio endgame was complete and the
+architecture analyzer reported 29 findings, all of which were exact Calls/audio
+deferrals:
 
 | Rule | Retained | Non-audio retained |
 |---|---:|---:|
@@ -18,14 +19,14 @@ findings, all of which are exact Calls/audio deferrals:
 | `undeclared_context_edge` | 8 | 0 |
 | **Total** | **29** | **0** |
 
-The combined diagnostic graph can still report SCCs created by declared
-dependency inversions: consumer-to-provider runtime control flow is paired
-with provider-to-consumer compile-time implementation of a consumer-owned
+At that checkpoint, the combined diagnostic graph could report SCCs created by
+declared dependency inversions: consumer-to-provider runtime control flow is
+paired with provider-to-consumer compile-time implementation of a consumer-owned
 port. Those exact validated inversions are accepted topology, not retained
-violation fingerprints. The only retained violation SCC is the Calls-driven
+violation fingerprints. The only retained violation SCC was the Calls-driven
 compiled SCC.
 
-The completed scope has zero `internal_schema_access`,
+The completed non-audio scope had zero `internal_schema_access`,
 `adapter_internal_module_import`, duplicate table mappings, public Ecto
 contracts, direct foreign writes, unclassified modules, invalid runtime
 collaborations, and invalid technical interfaces.
@@ -47,7 +48,7 @@ collaborations, and invalid technical interfaces.
   baseline/manifest enforcement, protected-rule pre-adoption rejection, and
   zero-cycle `comms_core` xref gates.
 
-## Verification evidence
+## ADR-0042 verification evidence
 
 The delivery gate completed against a newly created and migrated test database:
 
@@ -65,18 +66,27 @@ The delivery gate completed against a newly created and migrated test database:
 | Compile-connected xref | No cycles found |
 | All-file xref | No cycles found |
 
-The checked-in generated evidence is:
+The evidence checked in for the ADR-0042 checkpoint was:
 
 - `context-boundary-baseline.yaml`: 29 exact findings.
 - `context-boundary-violations.md`: deterministic report and compiled,
   runtime, and combined graphs.
-- `context-boundaries.yaml`: active strict mode and one-to-one Calls
-  declarations.
+- `context-boundaries.yaml`: active `strict_with_explicit_deferrals` mode and
+  one-to-one Calls deferral declarations.
 
-## Remaining authorized work
+## Work remaining at the ADR-0042 checkpoint
 
-The next structural tranche is Calls only. It must introduce Calls-owned
+The next structural tranche was Calls only. It had to introduce Calls-owned
 Ecto-free views and policy inputs, replace foreign schema associations with
 scalar IDs, move media authorization behind the Calls facade, remove the
 temporary authorization kernel, and delete every one of the 29 deferrals. It
-must not be combined with unrelated domain restructuring.
+was not to be combined with unrelated domain restructuring.
+
+## Forward completion note
+
+ADR-0043 subsequently completed that separately authorized Calls tranche. The
+historical 29-finding evidence above remains the ADR-0042 checkpoint; it is not
+the current architecture state. See
+`calls-modularization-completion.md` for the 29-to-zero transition, strict
+zero-baseline gate, consumer-owned lifecycle ports, and authorization-kernel
+retirement.

@@ -1,6 +1,20 @@
 defmodule CommsCore.PasswordRecoveryTest do
   use CommsCore.DataCase, async: false
 
+  defmodule FailingCallLifecycleAdapter do
+    @behaviour CommsCore.Accounts.CallLifecyclePort
+
+    @impl true
+    def revoke_identity_access(%CommsCore.Accounts.CallLifecycleCommand{} = command) do
+      send(
+        self(),
+        {:call_lifecycle_contribution, CommsCore.Repo.in_transaction?(), command}
+      )
+
+      {:error, :forced_call_lifecycle_failure}
+    end
+  end
+
   alias CommsCore.Accounts.{Device, PasswordRecoveryRequest, Session, User}
   alias CommsCore.Accounts.PasswordRecovery, as: IdentityPasswordRecovery
   alias CommsCore.Administration.Tenant
@@ -214,7 +228,7 @@ defmodule CommsCore.PasswordRecoveryTest do
     refute Jason.encode!(consume_audit.metadata) =~ account.user.email
   end
 
-  test "audio revocation is contributed inside reset transaction and failure rolls everything back" do
+  test "call revocation is contributed inside reset transaction and failure rolls everything back" do
     account = Fixtures.account_fixture()
     old_user = Repo.get!(User, account.user.id)
 
@@ -226,27 +240,41 @@ defmodule CommsCore.PasswordRecoveryTest do
 
     recovery = latest_recovery()
     token = token_for_recovery(recovery)
-    parent = self()
     tenant_id = account.tenant.id
     user_id = account.user.id
 
-    revoke_audio = fn tenant_id, user_id, reason ->
-      send(
-        parent,
-        {:audio_revocation_contribution, Repo.in_transaction?(), tenant_id, user_id, reason}
-      )
+    previous_adapter =
+      Application.fetch_env(:comms_core, :identity_call_lifecycle_adapter)
 
-      {:error, :forced_audio_revocation_failure}
-    end
+    Application.put_env(
+      :comms_core,
+      :identity_call_lifecycle_adapter,
+      FailingCallLifecycleAdapter
+    )
 
-    assert {:error, :forced_audio_revocation_failure} =
-             IdentityPasswordRecovery.reset(
-               %{token: token, new_password: "correct-horse-audio-rollback"},
-               revoke_audio
-             )
+    on_exit(fn ->
+      case previous_adapter do
+        {:ok, adapter} ->
+          Application.put_env(:comms_core, :identity_call_lifecycle_adapter, adapter)
 
-    assert_receive {:audio_revocation_contribution, true, ^tenant_id, ^user_id,
-                    "password_recovery"}
+        :error ->
+          Application.delete_env(:comms_core, :identity_call_lifecycle_adapter)
+      end
+    end)
+
+    assert {:error, :forced_call_lifecycle_failure} =
+             IdentityPasswordRecovery.reset(%{
+               token: token,
+               new_password: "correct-horse-call-rollback"
+             })
+
+    assert_receive {:call_lifecycle_contribution, true,
+                    %CommsCore.Accounts.CallLifecycleCommand{
+                      operation: :user_access_revoked,
+                      tenant_id: ^tenant_id,
+                      user_id: ^user_id,
+                      reason: "password_recovery"
+                    }}
 
     assert is_nil(Repo.get!(PasswordRecoveryRequest, recovery.id).consumed_at)
     assert Repo.get!(User, account.user.id).password_hash == old_user.password_hash

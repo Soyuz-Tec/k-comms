@@ -2,12 +2,12 @@ defmodule CommsCore.AudioCalls.AudioCallParticipant do
   use CommsCore.Schema
 
   schema "audio_call_participants" do
-    belongs_to(:tenant, CommsCore.Administration.Tenant)
+    field(:tenant_id, :binary_id)
     belongs_to(:audio_call, CommsCore.AudioCalls.AudioCall)
-    belongs_to(:conversation, CommsCore.Conversations.Conversation)
-    belongs_to(:user, CommsCore.Accounts.User)
-    belongs_to(:device, CommsCore.Accounts.Device)
-    belongs_to(:session, CommsCore.Accounts.Session)
+    field(:conversation_id, :binary_id)
+    field(:user_id, :binary_id)
+    field(:device_id, :binary_id)
+    field(:session_id, :binary_id)
     field(:provider_identity, :string)
     field(:status, Ecto.Enum, values: [:admitted, :revoked, :evicted], default: :admitted)
     field(:admitted_at, :utc_datetime_usec)

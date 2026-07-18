@@ -9,7 +9,7 @@ defmodule CommsWeb.Presenter do
   }
 
   alias CommsCore.Attachments.AttachmentView
-  alias CommsCore.AudioCalls.AudioCall
+  alias CommsCore.AudioCalls.CallView
   alias CommsCore.Audit.Event
   alias CommsCore.Conversations.{ConversationView, MembershipView}
   alias CommsCore.Governance.{DeletionRequestView, LegalHoldView, RetentionPolicyView}
@@ -124,7 +124,7 @@ defmodule CommsWeb.Presenter do
     }
   end
 
-  def audio_call(%AudioCall{} = call) do
+  def audio_call(%CallView{} = call) do
     %{
       id: call.id,
       tenant_id: call.tenant_id,
@@ -137,7 +137,8 @@ defmodule CommsWeb.Presenter do
       expires_at: call.expires_at,
       ended_at: call.ended_at,
       end_reason: call.end_reason,
-      version: call.lock_version
+      version: call.version,
+      can_end: call.can_end
     }
   end
 

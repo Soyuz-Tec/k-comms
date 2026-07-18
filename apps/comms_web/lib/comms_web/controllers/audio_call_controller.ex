@@ -2,6 +2,7 @@ defmodule CommsWeb.AudioCallController do
   use CommsWeb, :controller
 
   alias CommsCore.AudioCalls
+  alias CommsCore.AudioCalls.{CallView, CredentialRequest, ProviderCall}
   alias CommsIntegrations.Audio.LiveKitToken
   alias CommsIntegrations.Audio.RoomService
   alias CommsWeb.{Broadcast, Presenter}
@@ -9,7 +10,7 @@ defmodule CommsWeb.AudioCallController do
   def show(conn, %{"conversation_id" => conversation_id}) do
     with {:ok, call} <- AudioCalls.get_active(conversation_id, conn.assigns.current_subject) do
       json(conn, %{
-        data: if(call, do: present_call(call, conn.assigns.current_subject), else: nil)
+        data: if(call, do: present_call(call), else: nil)
       })
     end
   end
@@ -18,7 +19,7 @@ defmodule CommsWeb.AudioCallController do
     with {:ok, call} <-
            AudioCalls.get_active(conversation_id, conn.assigns.current_subject, :audio) do
       json(conn, %{
-        data: if(call, do: present_call(call, conn.assigns.current_subject), else: nil)
+        data: if(call, do: present_call(call), else: nil)
       })
     end
   end
@@ -44,10 +45,8 @@ defmodule CommsWeb.AudioCallController do
              conversation_id,
              subject,
              media_kind,
-             &RoomService.delete_room/1,
-             fn locked_call, participant ->
-               LiveKitToken.issue(locked_call, participant, conn.assigns.current_user)
-             end
+             &delete_provider_room/1,
+             &issue_credential(&1, conn.assigns.current_user.display_name)
            ) do
       if status == :created do
         broadcast_event(conversation_id, "started", call)
@@ -55,7 +54,7 @@ defmodule CommsWeb.AudioCallController do
 
       conn
       |> put_status(if(status == :created, do: :created, else: :ok))
-      |> json(%{data: present_call(call, subject), credential: credential})
+      |> json(%{data: present_call(call), credential: credential})
     end
   end
 
@@ -77,11 +76,9 @@ defmodule CommsWeb.AudioCallController do
              call_id,
              subject,
              expected_kind,
-             fn call, participant ->
-               LiveKitToken.issue(call, participant, conn.assigns.current_user)
-             end
+             &issue_credential(&1, conn.assigns.current_user.display_name)
            ) do
-      json(conn, %{data: present_call(call, subject), credential: credential})
+      json(conn, %{data: present_call(call), credential: credential})
     end
   end
 
@@ -108,15 +105,15 @@ defmodule CommsWeb.AudioCallController do
              call_id,
              params,
              subject,
-             &RoomService.delete_room/1,
+             &delete_provider_room/1,
              expected_kind
            ) do
       broadcast_event(conversation_id, "ended", call)
-      json(conn, %{data: present_call(call, subject)})
+      json(conn, %{data: present_call(call)})
     end
   end
 
-  defp broadcast_event(conversation_id, lifecycle, call) do
+  defp broadcast_event(conversation_id, lifecycle, %CallView{} = call) do
     payload = broadcast_payload(call)
     Broadcast.event(conversation_id, "call.#{lifecycle}.v1", payload)
 
@@ -142,10 +139,20 @@ defmodule CommsWeb.AudioCallController do
     ])
   end
 
-  defp present_call(call, subject) do
-    call
-    |> Presenter.audio_call()
-    |> Map.put(:can_end, AudioCalls.can_end?(call, subject))
+  defp present_call(%CallView{} = call), do: Presenter.audio_call(call)
+
+  defp delete_provider_room(%ProviderCall{provider_room: provider_room}),
+    do: RoomService.delete_room(provider_room)
+
+  defp issue_credential(
+         %CredentialRequest{
+           provider_room: provider_room,
+           media_kind: media_kind,
+           provider_identity: provider_identity
+         },
+         display_name
+       ) do
+    LiveKitToken.issue(provider_room, media_kind, provider_identity, display_name)
   end
 
   defp media_kind(params) do

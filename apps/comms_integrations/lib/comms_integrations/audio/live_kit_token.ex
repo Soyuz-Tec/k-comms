@@ -4,25 +4,27 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
   @minimum_ttl_seconds 60
   @maximum_ttl_seconds 300
 
-  def issue(call, participant, user) when is_map(call) and is_map(participant) and is_map(user) do
+  def issue(provider_room, media_kind, provider_identity, display_name)
+      when is_binary(provider_room) and media_kind in [:audio, :video, "audio", "video"] and
+             is_binary(provider_identity) and is_binary(display_name) do
     with {:ok, config} <- configuration(),
-         {:ok, room} <- required_binary(call, :provider_room),
-         {:ok, media_kind} <- media_kind(call),
-         {:ok, identity} <- required_binary(participant, :provider_identity),
-         {:ok, display_name} <- required_binary(user, :display_name) do
+         {:ok, room} <- required_binary(provider_room),
+         {:ok, normalized_media_kind} <- media_kind(media_kind),
+         {:ok, identity} <- required_binary(provider_identity),
+         {:ok, name} <- required_binary(display_name) do
       now = System.system_time(:second)
 
       claims = %{
         "exp" => now + config.ttl_seconds,
         "iss" => config.api_key,
         "jti" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
-        "name" => display_name,
+        "name" => name,
         "nbf" => now - 5,
         "sub" => identity,
         "video" => %{
           "canPublish" => true,
           "canPublishData" => false,
-          "canPublishSources" => publish_sources(media_kind),
+          "canPublishSources" => publish_sources(normalized_media_kind),
           "canSubscribe" => true,
           "canUpdateOwnMetadata" => false,
           "room" => room,
@@ -44,11 +46,11 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
     end
   end
 
-  def issue(_, _, _), do: {:error, :audio_identity_invalid}
+  def issue(_, _, _, _), do: {:error, :audio_identity_invalid}
 
-  def issue_room_control(call) when is_map(call) do
+  def issue_room_control(provider_room) when is_binary(provider_room) do
     with {:ok, config} <- configuration(),
-         {:ok, room} <- required_binary(call, :provider_room) do
+         {:ok, room} <- required_binary(provider_room) do
       now = System.system_time(:second)
 
       claims = %{
@@ -72,9 +74,9 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
 
   def issue_room_control(_), do: {:error, :audio_provider_unavailable}
 
-  def issue_room_admin(call) when is_map(call) do
+  def issue_room_admin(provider_room) when is_binary(provider_room) do
     with {:ok, config} <- configuration(),
-         {:ok, room} <- required_binary(call, :provider_room) do
+         {:ok, room} <- required_binary(provider_room) do
       now = System.system_time(:second)
 
       claims = %{
@@ -154,18 +156,12 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
 
   defp encode_segment(value), do: value |> Jason.encode!() |> Base.url_encode64(padding: false)
 
-  defp required_binary(map, key) do
-    case value(map, key) do
-      text when is_binary(text) ->
-        if configured?(text), do: {:ok, text}, else: {:error, :audio_identity_invalid}
-
-      _ ->
-        {:error, :audio_identity_invalid}
-    end
+  defp required_binary(text) when is_binary(text) do
+    if configured?(text), do: {:ok, text}, else: {:error, :audio_identity_invalid}
   end
 
-  defp media_kind(call) do
-    case value(call, :media_kind) || :audio do
+  defp media_kind(media_kind) do
+    case media_kind do
       media_kind when media_kind in [:audio, "audio"] -> {:ok, :audio}
       media_kind when media_kind in [:video, "video"] -> {:ok, :video}
       _ -> {:error, :audio_identity_invalid}
@@ -195,5 +191,4 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
 
   defp valid_api_url?(_), do: false
   defp configured?(value), do: is_binary(value) and String.trim(value) != ""
-  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

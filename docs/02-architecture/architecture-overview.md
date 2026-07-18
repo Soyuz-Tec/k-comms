@@ -1,8 +1,7 @@
 # Architecture Overview
 
 **Status:** Accepted implementation baseline for K-Comms 0.3.0
-**Style:** Modular monolith with independently scalable runtime roles and one
-explicitly deferred Calls boundary
+**Style:** Strict modular monolith with independently scalable runtime roles
 
 ## Architectural principles
 
@@ -62,21 +61,20 @@ interfaces. Production web, worker, and integration code may reference only
 published facades/contracts or a declared technical interface; owner-internal
 schemas and projectors are rejected.
 
-The gate runs in `strict_with_explicit_deferrals` mode. Every retained
-fingerprint must map one-to-one to an ADR-backed declaration and must involve
-the Calls context or its temporary Calls-only authorization kernel. The current
-29 retained findings are therefore an explicit Calls tranche, not a generic
-migration baseline. Residual-cycle analysis rejects independent non-audio
-cycles hidden inside a Calls SCC. Paired immutable-base baseline/manifest
-comparison permits the baseline only to shrink and prevents strict enforcement
-from being removed or downgraded. No non-audio deferral is permitted.
+The gate runs in `strict` mode. Architecture analysis and the checked-in
+baseline must both be empty; temporary violations, baseline adoption, and the
+former deferral policy are forbidden. Paired immutable-base manifest
+comparison prevents strict enforcement from being removed or downgraded and
+protects retired namespace and runtime-binding tombstones. A reviewed
+transition can document the exact removal of old fingerprints, but strict mode
+cannot adopt a new finding.
 
 The combined diagnostic graph can still report SCCs created by declared
 dependency inversions: consumer-to-provider runtime control flow is paired
 with provider-to-consumer compile-time implementation of a consumer-owned
 port. Those exact validated inversions are accepted topology, not retained
-violation fingerprints. The only retained violation SCC is the Calls-driven
-compiled SCC.
+violation fingerprints. Compiled and runtime business graphs are each
+acyclic, and no combined SCC authorizes an undeclared edge.
 
 ### Persistence access policy
 
@@ -153,9 +151,16 @@ provider failure retries without transferring lifecycle authority to LiveKit.
 - OperationsReadModel
 
 PlatformRuntime, PlatformPersistence, and PlatformEventing are narrow technical
-owners rather than business contexts. The authorization kernel is temporary
-and may contain only the exact Calls-specific policy clauses declared in
-ADR-0042.
+owners rather than business contexts. Authorization policy belongs to the
+owner of the protected state. Calls authorization is internal to Calls;
+`CommsCore.Authorization` and its former runtime binding are retired
+control-plane tombstones.
+
+IdentityAccess, TenantAdministration, and Conversations contribute synchronous
+Calls revocation through exact consumer-owned, transaction-required lifecycle
+ports. Calls implements those ports without giving the consumers a compiled
+dependency on Calls. Released web, worker, and integration adapters receive
+only Calls-owned Ecto-free views and provider-work contracts.
 
 Tenant identity, conversation, and membership growth passes through one
 `AdmissionQuotas` domain boundary. Admission checks and tenant-limit updates

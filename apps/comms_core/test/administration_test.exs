@@ -709,21 +709,6 @@ defmodule CommsCore.AdministrationTest do
            end)
 
     stepped_up_subject = Fixtures.step_up(account, subject)
-    previous_adapter = Application.get_env(:comms_core, :authorization_adapter)
-
-    on_exit(fn ->
-      if previous_adapter do
-        Application.put_env(:comms_core, :authorization_adapter, previous_adapter)
-      else
-        Application.delete_env(:comms_core, :authorization_adapter)
-      end
-    end)
-
-    Application.put_env(
-      :comms_core,
-      :authorization_adapter,
-      CommsCore.Authorization.DenyAll
-    )
 
     assert :ok = Administration.authorize_read_capabilities(stepped_up_subject)
     assert :ok = Administration.authorize_administer_tenant(stepped_up_subject)

@@ -1,5 +1,5 @@
 defmodule CommsWorkers.AudioCallExpiryWorkerTest.ScriptedRoomService do
-  def delete_room(call) do
+  def delete_room(provider_room) when is_binary(provider_room) do
     agent = Application.fetch_env!(:comms_workers, :audio_expiry_test_agent)
 
     result =
@@ -10,21 +10,30 @@ defmodule CommsWorkers.AudioCallExpiryWorkerTest.ScriptedRoomService do
 
     send(Application.fetch_env!(:comms_workers, :audio_expiry_test_pid), {
       :delete_expired_audio_room,
-      call.provider_room,
+      provider_room,
       result
     })
 
     result
   end
 
-  def remove_participant(_call, _identity), do: :ok
+  def remove_participant(provider_room, identity)
+      when is_binary(provider_room) and is_binary(identity),
+      do: :ok
 end
 
 defmodule CommsWorkers.AudioCallExpiryWorkerTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.AudioCalls
-  alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}
+
+  alias CommsCore.AudioCalls.{
+    AudioCall,
+    AudioCallParticipant,
+    CredentialRequest,
+    ProviderCall
+  }
+
   alias CommsCore.Audit
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Repo
@@ -143,7 +152,7 @@ defmodule CommsWorkers.AudioCallExpiryWorkerTest do
         call.id,
         %{reason: "owner_ended"},
         subject,
-        fn _ending_call -> :ok end
+        fn %ProviderCall{} -> :ok end
       )
 
     assert ended.status == :ended
@@ -157,17 +166,20 @@ defmodule CommsWorkers.AudioCallExpiryWorkerTest do
   defp expired_occupied_call do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
-    {:ok, call, :created} = AudioCalls.start(account.conversation.id, subject)
+    {:ok, call_view, :created} = AudioCalls.start(account.conversation.id, subject)
 
-    {:ok, ^call, _credential} =
+    {:ok, ^call_view, _credential} =
       AudioCalls.with_join_authorized(
         account.conversation.id,
-        call.id,
+        call_view.id,
         subject,
-        fn _locked_call, participant -> {:ok, participant.provider_identity} end
+        fn %CredentialRequest{provider_identity: provider_identity} ->
+          {:ok, provider_identity}
+        end
       )
 
     timestamp = now()
+    call = Repo.get!(AudioCall, call_view.id)
 
     expired =
       call

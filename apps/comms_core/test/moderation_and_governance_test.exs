@@ -110,21 +110,6 @@ defmodule CommsCore.ModerationAndGovernanceTest do
            )
 
     stepped_up_owner = Fixtures.step_up(account, owner_subject)
-    previous_adapter = Application.get_env(:comms_core, :authorization_adapter)
-
-    on_exit(fn ->
-      if previous_adapter do
-        Application.put_env(:comms_core, :authorization_adapter, previous_adapter)
-      else
-        Application.delete_env(:comms_core, :authorization_adapter)
-      end
-    end)
-
-    Application.put_env(
-      :comms_core,
-      :authorization_adapter,
-      CommsCore.Authorization.DenyAll
-    )
 
     assert :ok = Governance.authorize_governance(stepped_up_owner)
     assert :ok = Moderation.authorize_report(stepped_up_owner)

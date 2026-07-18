@@ -27,7 +27,6 @@ from validate_architecture import (
     read_yaml,
     strict_deferral_rejection_reason,
     validate,
-    violation_contexts,
     write_baseline,
     write_current_baseline,
 )
@@ -670,7 +669,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             public_recovery,
         )
         self.assertIn(
-            "IdentityPasswordRecovery.reset(attrs, &AudioCalls.revoke_for_user/3)",
+            "def reset(attrs), do: IdentityPasswordRecovery.reset(attrs)",
             public_recovery,
         )
         self.assertIn(
@@ -1290,7 +1289,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(
             manifest["retired_modules"],
-            ["CommsCore.InAppNotifications", "CommsCore.PushSubscriptions"],
+            [
+                "CommsCore.Authorization",
+                "CommsCore.InAppNotifications",
+                "CommsCore.PushSubscriptions",
+            ],
         )
 
         for table in (
@@ -1367,41 +1370,69 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("Accounts.notification_eligible_device_ids(", push_source)
         self.assertIn("Accounts.lock_push_registration_identity(", push_source)
 
-    def test_repository_strict_gate_retains_only_exact_calls_debt(self) -> None:
+    def test_repository_strict_gate_has_zero_boundary_debt(self) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         enforcement = manifest["enforcement"]
-        strict = enforcement["strict_with_explicit_deferrals"]
 
-        self.assertEqual(enforcement["mode"], "strict_with_explicit_deferrals")
-        self.assertIs(strict["active"], True)
-        self.assertEqual(
-            strict["allowed_deferral_contexts"],
-            ["authorization_kernel", "calls"],
-        )
+        self.assertEqual(enforcement["mode"], "strict")
+        self.assertEqual(enforcement["target_mode"], "strict")
+        self.assertIs(enforcement["reject_new_violations"], True)
+        self.assertNotIn("strict_with_explicit_deferrals", enforcement)
+        self.assertNotIn("baseline_adoption", enforcement)
+        self.assertNotIn("temporary_violations", manifest)
 
-        violations = analyze_context_boundaries(root, manifest)
-        counts = {
-            rule: sum(item.rule == rule for item in violations)
-            for rule in {item.rule for item in violations}
-        }
-        self.assertEqual(
-            counts,
-            {
-                "adapter_schema_import": 1,
-                "business_context_cycle": 1,
-                "foreign_schema_import": 19,
-                "undeclared_context_edge": 8,
-            },
+        baseline = read_yaml(
+            root / "docs/02-architecture/context-boundary-baseline.yaml"
         )
-        self.assertEqual(len(violations), 29)
-        for violation in violations:
-            self.assertTrue(
-                violation_contexts(root, manifest, violation).intersection(
-                    {"authorization_kernel", "calls"}
-                ),
-                violation.render(),
-            )
+        self.assertEqual(baseline["violations"], [])
+        self.assertEqual(analyze_context_boundaries(root, manifest), [])
+
+        transition = next(
+            item
+            for item in enforcement["reviewed_baseline_transitions"]
+            if item["id"] == "complete-calls-modularization"
+        )
+        self.assertEqual(
+            transition["previous_baseline_sha256"],
+            "90a52be007eecd64627b35212ec3da314e742f232373a6e954523116f4fa1da6",
+        )
+        self.assertEqual(transition["added_fingerprints"], [])
+        self.assertEqual(
+            transition["removed_fingerprints"],
+            [
+                "0189e4bac08f3c6e",
+                "0e985916a4de06ec",
+                "245ad9a0716b68dd",
+                "47659f71148ad7cd",
+                "4f52bd7c42b47a5d",
+                "605ae97a5fa655cc",
+                "64ebb8611dae56b3",
+                "66c2fbf2a79936f4",
+                "6af6e9564cd1b152",
+                "6b641d47b77c08c7",
+                "7a1ffc82ac877370",
+                "7c47ce0ca3e555a9",
+                "7c601f7c21a5fe6c",
+                "7fbfb2c4017910ce",
+                "889ca078f04b8132",
+                "8dd4f3b5e1378ffb",
+                "96d281b6465f8b8b",
+                "99cd7470375bce8f",
+                "9fa2f7bb1abcc6b0",
+                "a26844eb317ed35d",
+                "a99d73667cfe396f",
+                "bec8b11dfcf061c7",
+                "c94c7774541553d1",
+                "d4743d3326027747",
+                "db68fcb3dac3ef04",
+                "de83107f64cbc690",
+                "e3c6574035e85b56",
+                "eb0650068879158b",
+                "fc1a11f2a5f8452a",
+            ],
+        )
+        self.assertEqual(validate(root), [])
 
         interfaces = {item["id"]: item for item in manifest["technical_interfaces"]}
         self.assertEqual(
@@ -1446,6 +1477,162 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "module": "CommsWeb.NotificationAvailabilityNotifier",
             },
         )
+
+    def test_repository_publishes_an_exact_calls_boundary_and_collaborations(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        calls = manifest["contexts"]["calls"]
+        public_contracts = {
+            "CommsCore.AudioCalls.CallView",
+            "CommsCore.AudioCalls.CredentialRequest",
+            "CommsCore.AudioCalls.EvictionClaim",
+            "CommsCore.AudioCalls.EvictionProgress",
+            "CommsCore.AudioCalls.ProviderCall",
+        }
+        internal_modules = {
+            "CommsCore.AudioCalls.Access",
+            "CommsCore.AudioCalls.AudioCall",
+            "CommsCore.AudioCalls.AudioCallParticipant",
+            "CommsCore.AudioCalls.AuthorizationPolicy",
+            "CommsCore.AudioCalls.Projector",
+        }
+
+        self.assertEqual(calls["public_facades"], ["CommsCore.AudioCalls"])
+        self.assertEqual(set(calls["public_contracts"]), public_contracts)
+        self.assertEqual(calls["internal_namespaces"], ["CommsCore.AudioCalls"])
+        self.assertEqual(
+            calls["publishes"],
+            [
+                "audio_call.started.v1",
+                "audio_call.ended.v1",
+                "call.started.v1",
+                "call.ended.v1",
+            ],
+        )
+        self.assertEqual(calls["consumes"], [])
+        self.assertEqual(
+            {
+                table: declaration["canonical_schema"]
+                for table, declaration in manifest["tables"].items()
+                if declaration["owner"] == "calls"
+            },
+            {
+                "audio_call_participants": (
+                    "CommsCore.AudioCalls.AudioCallParticipant"
+                ),
+                "audio_calls": "CommsCore.AudioCalls.AudioCall",
+            },
+        )
+
+        declared_children = set()
+        for path in sorted(
+            (root / "apps/comms_core/lib/comms_core/audio_calls").rglob("*.ex")
+        ):
+            declared_children.update(
+                core_module_declarations(path.read_text(encoding="utf-8"))
+            )
+        self.assertEqual(declared_children, public_contracts | internal_modules)
+        self.assertTrue(
+            (root / "apps/comms_core/lib/comms_core/audio_calls.ex").is_file()
+        )
+
+        collaborations = {
+            declaration["id"]: declaration
+            for declaration in manifest["runtime_collaborations"]
+        }
+        self.assertEqual(
+            set(collaborations),
+            {
+                "conversation-call-lifecycle",
+                "identity-call-lifecycle",
+                "identity-initial-conversation-bootstrap",
+                "identity-notification-lifecycle",
+                "tenant-authorization-actor",
+                "tenant-call-lifecycle",
+                "tenant-identity-access",
+                "tenant-invitation-identity",
+            },
+        )
+        expected_call_collaborations = {
+            "identity-call-lifecycle": {
+                "consumer": "identity_access",
+                "port": "CommsCore.Accounts.CallLifecyclePort",
+                "result_contract": "CommsCore.Accounts.CallLifecycleReceipt",
+                "callers": [
+                    "CommsCore.Accounts",
+                    "CommsCore.Accounts.PasswordRecovery",
+                ],
+                "operations": [{"name": "revoke_identity_access", "arity": 1}],
+                "binding_key": "identity_call_lifecycle_adapter",
+            },
+            "tenant-call-lifecycle": {
+                "consumer": "tenant_administration",
+                "port": "CommsCore.Administration.CallLifecyclePort",
+                "result_contract": ("CommsCore.Administration.CallLifecycleReceipt"),
+                "callers": ["CommsCore.Administration"],
+                "operations": [{"name": "revoke_tenant_media", "arity": 1}],
+                "binding_key": "tenant_call_lifecycle_adapter",
+            },
+            "conversation-call-lifecycle": {
+                "consumer": "conversations",
+                "port": "CommsCore.Conversations.CallLifecyclePort",
+                "result_contract": ("CommsCore.Conversations.CallLifecycleReceipt"),
+                "callers": ["CommsCore.Conversations"],
+                "operations": [{"name": "revoke_conversation_access", "arity": 1}],
+                "binding_key": "conversation_call_lifecycle_adapter",
+            },
+        }
+        for collaboration_id, expected in expected_call_collaborations.items():
+            with self.subTest(collaboration=collaboration_id):
+                declaration = collaborations[collaboration_id]
+                self.assertEqual(
+                    set(declaration),
+                    {
+                        "id",
+                        "consumer",
+                        "provider",
+                        "port",
+                        "result_contract",
+                        "implementation",
+                        "callers",
+                        "operations",
+                        "binding",
+                        "transaction",
+                        "graph_semantics",
+                        "condition",
+                    },
+                )
+                self.assertEqual(declaration["consumer"], expected["consumer"])
+                self.assertEqual(declaration["provider"], "calls")
+                self.assertEqual(declaration["port"], expected["port"])
+                self.assertEqual(
+                    declaration["result_contract"],
+                    expected["result_contract"],
+                )
+                self.assertEqual(declaration["implementation"], "CommsCore.AudioCalls")
+                self.assertEqual(declaration["callers"], expected["callers"])
+                self.assertEqual(declaration["operations"], expected["operations"])
+                self.assertEqual(
+                    declaration["binding"],
+                    {
+                        "application": "comms_core",
+                        "key": expected["binding_key"],
+                        "module": "CommsCore.AudioCalls",
+                    },
+                )
+                self.assertEqual(declaration["transaction"], "required")
+                self.assertEqual(
+                    declaration["graph_semantics"],
+                    {
+                        "control_flow": f"{expected['consumer']}_to_calls",
+                        "compile_dependency": f"calls_to_{expected['consumer']}",
+                        "static_cycle_policy": "dependency_inversion",
+                    },
+                )
+                self.assertIsInstance(declaration["condition"], str)
+                self.assertTrue(declaration["condition"].strip())
 
     def test_repository_inverts_identity_notification_lifecycle_dependency(
         self,
@@ -1583,9 +1770,12 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             set(collaborations),
             {
+                "conversation-call-lifecycle",
+                "identity-call-lifecycle",
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",
                 "tenant-authorization-actor",
+                "tenant-call-lifecycle",
                 "tenant-identity-access",
                 "tenant-invitation-identity",
             },
@@ -1858,63 +2048,78 @@ class ValidateArchitectureTest(unittest.TestCase):
         }
         self.assertTrue(removed_fingerprints.isdisjoint(current_fingerprints))
 
-        cycle = [item for item in violations if item.rule == "business_context_cycle"]
-        self.assertEqual(len(cycle), 1)
-        self.assertIn("authorization_kernel", cycle[0].detail)
-        self.assertNotIn("identity_access->conversations", cycle[0].detail)
-
-    def test_repository_keeps_legacy_authorization_adapter_calls_only(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        released_callers = []
-        for path in sorted((root / "apps").glob("*/lib/**/*.ex")):
-            source = path.read_text(encoding="utf-8")
-            if "Authorization.authorize(" in source:
-                released_callers.append(path.relative_to(root).as_posix())
         self.assertEqual(
-            released_callers,
-            ["apps/comms_core/lib/comms_core/audio_calls.ex"],
+            [
+                item.render()
+                for item in violations
+                if item.rule
+                in {
+                    "business_context_cycle",
+                    "runtime_context_cycle",
+                }
+            ],
+            [],
         )
 
-        database = (
-            root / "apps/comms_core/lib/comms_core/authorization/database.ex"
-        ).read_text(encoding="utf-8")
-        for forbidden in (
-            "PlatformRoleGrant",
-            "CommsCore.Audit",
-            "CommsCore.Messaging",
-            ":administer_tenant",
-            ":audit_tenant",
-            ":create_conversation",
-            ":edit_message",
-            ":manage_integrations",
-            ":manage_moderation",
-            ":manage_notification_delivery",
-            ":manage_sessions",
-            ":manage_tenant_settings",
-            ":manage_user_lifecycle",
-            ":operate_platform",
-            ":receive_user_events",
-            ":send_message",
-            ":view_platform_operations",
-        ):
-            self.assertNotIn(forbidden, database)
-        for media_action in (
-            ":read_call",
-            ":read_audio_call",
-            ":start_audio_call",
-            ":join_audio_call",
-            ":end_audio_call",
-            ":read_video_call",
-            ":start_video_call",
-            ":join_video_call",
-            ":end_video_call",
-        ):
-            self.assertIn(media_action, database)
-
+    def test_repository_retires_authorization_namespace_and_binding(self) -> None:
+        root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
-        kernel = manifest["contexts"]["authorization_kernel"]
-        self.assertIn("Calls-only", kernel["responsibility"])
-        self.assertEqual(kernel["allowed_dependencies"], [])
+        self.assertNotIn("authorization_kernel", manifest["contexts"])
+        self.assertIn("CommsCore.Authorization", manifest["retired_modules"])
+        self.assertIn(
+            {
+                "application": "comms_core",
+                "key": "authorization_adapter",
+            },
+            manifest["retired_runtime_bindings"],
+        )
+
+        for relative_path in (
+            "apps/comms_core/lib/comms_core/authorization.ex",
+            "apps/comms_core/lib/comms_core/authorization/database.ex",
+            "apps/comms_core/lib/comms_core/authorization/deny_all.ex",
+            "apps/comms_core/lib/comms_core/authorization/policy.ex",
+        ):
+            with self.subTest(path=relative_path):
+                self.assertFalse((root / relative_path).exists())
+
+        leaked_modules = []
+        leaked_bindings = []
+        for path in sorted((root / "apps").glob("*/lib/**/*.ex")):
+            source = path.read_text(encoding="utf-8")
+            modules = set(core_module_declarations(source)) | set(
+                core_module_references(source)
+            )
+            if any(
+                module == "CommsCore.Authorization"
+                or module.startswith("CommsCore.Authorization.")
+                for module in modules
+            ):
+                leaked_modules.append(path.relative_to(root).as_posix())
+            if "authorization_adapter" in source:
+                leaked_bindings.append(path.relative_to(root).as_posix())
+        for path in sorted((root / "config").rglob("*.exs")):
+            source = path.read_text(encoding="utf-8")
+            if any(
+                module == "CommsCore.Authorization"
+                or module.startswith("CommsCore.Authorization.")
+                for module in core_module_references(source)
+            ):
+                leaked_modules.append(path.relative_to(root).as_posix())
+            if "authorization_adapter" in source:
+                leaked_bindings.append(path.relative_to(root).as_posix())
+        self.assertEqual(leaked_modules, [])
+        self.assertEqual(leaked_bindings, [])
+
+        graphs = context_graphs(root, manifest)
+        self.assertEqual(
+            context_cycle_violations(graphs.compiled, "business_context_cycle"),
+            [],
+        )
+        self.assertEqual(
+            context_cycle_violations(graphs.runtime, "runtime_context_cycle"),
+            [],
+        )
 
     def test_repository_owns_conversation_admission_queries_and_composes_usage_as_read_model(
         self,
@@ -2136,6 +2341,13 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Conversations.ConversationView",
                 "CommsCore.Conversations.MembershipView",
             },
+            "calls": {
+                "CommsCore.AudioCalls.CallView",
+                "CommsCore.AudioCalls.CredentialRequest",
+                "CommsCore.AudioCalls.EvictionClaim",
+                "CommsCore.AudioCalls.EvictionProgress",
+                "CommsCore.AudioCalls.ProviderCall",
+            },
             "webhook_management": {
                 "CommsCore.Integrations.WebhookDeliveryClaim",
                 "CommsCore.Integrations.WebhookDeliveryView",
@@ -2175,7 +2387,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 for item in violations
                 if item.rule == "adapter_schema_import"
             ],
-            ["adapter references internal Ecto schema CommsCore.AudioCalls.AudioCall"],
+            [],
         )
         self.assertEqual(
             [item for item in violations if item.rule == "adapter_changeset_import"],
@@ -2340,6 +2552,78 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
 
             self.assert_rule(root, "public_contract_missing")
+
+    def test_rejects_missing_or_schema_backed_public_facades(self) -> None:
+        variants = (
+            ("CommsCore.Alpha.Missing", "public_facade_missing"),
+            ("CommsCore.Alpha.Record", "public_facade_is_schema"),
+        )
+        for facade, expected_rule in variants:
+            with (
+                self.subTest(facade=facade),
+                self.boundary_fixture() as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                manifest["contexts"]["alpha"]["public_facades"] = [facade]
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, expected_rule)
+
+    def test_rejects_schema_exposure_from_every_public_contract_type_surface(
+        self,
+    ) -> None:
+        variants = (
+            (
+                "callback",
+                "  @callback load() :: CommsCore.Alpha.Record.t()\n",
+            ),
+            (
+                "aliased_type_struct",
+                "  alias CommsCore.Alpha.Record\n  @type t :: %Record{}\n",
+            ),
+            (
+                "macrocallback_struct",
+                "  @macrocallback build() :: %CommsCore.Alpha.Record{}\n",
+            ),
+        )
+        for label, declaration in variants:
+            with (
+                self.subTest(surface=label),
+                self.boundary_fixture() as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                contract = root / "apps/comms_core/lib/comms_core/alpha/port.ex"
+                contract.parent.mkdir(parents=True, exist_ok=True)
+                contract.write_text(
+                    f"defmodule CommsCore.Alpha.Port do\n{declaration}end\n",
+                    encoding="utf-8",
+                )
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                manifest["contexts"]["alpha"]["public_contracts"] = [
+                    "CommsCore.Alpha.Port"
+                ]
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "public_ecto_contract")
 
     def test_rejects_undeclared_context_edges_and_foreign_writes(self) -> None:
         with self.boundary_fixture() as root:
@@ -3006,6 +3290,153 @@ class ValidateArchitectureTest(unittest.TestCase):
             source.write_text("alias CommsCore.LegacyAlpha\n", encoding="utf-8")
 
             self.assert_rule(root, "retired_context_module")
+
+    def test_rejects_retired_namespace_descendants_in_code_and_config(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["retired_modules"] = ["CommsCore.Legacy"]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            source = root / "apps/comms_web/lib/comms_web/legacy.ex"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "defmodule CommsWeb.Legacy do\n"
+                "  alias CommsCore.Legacy.Internal\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            config = root / "config/config.exs"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(
+                "import Config\n"
+                "config :comms_core, legacy_adapter: "
+                "CommsCore.Legacy.Adapter\n",
+                encoding="utf-8",
+            )
+
+            violations = [
+                item
+                for item in analyze_context_boundaries(root, manifest)
+                if item.rule == "retired_context_module"
+            ]
+            self.assertEqual(
+                {item.path for item in violations},
+                {
+                    "apps/comms_web/lib/comms_web/legacy.ex",
+                    "config/config.exs",
+                },
+            )
+
+    def test_rejects_malformed_retired_module_tombstones(self) -> None:
+        variants = (
+            "CommsCore.Legacy",
+            ["CommsCore.Legacy", "CommsCore.Legacy"],
+            ["CommsCore.Zed", "CommsCore.AlphaLegacy"],
+            ["Legacy"],
+        )
+        for retired_modules in variants:
+            with (
+                self.subTest(retired_modules=retired_modules),
+                self.boundary_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                manifest["retired_modules"] = retired_modules
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "invalid_context_declaration")
+
+    def test_rejects_retired_runtime_binding_references(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            manifest = read_yaml(manifest_path)
+            manifest["retired_runtime_bindings"] = [
+                {
+                    "application": "comms_core",
+                    "key": "authorization_adapter",
+                }
+            ]
+            manifest_path.write_text(
+                yaml.safe_dump(manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+            source = root / "apps/comms_web/lib/comms_web/legacy.ex"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(
+                "defmodule CommsWeb.Legacy do\n"
+                "  def adapter do\n"
+                "    Application.fetch_env(:comms_core, :authorization_adapter)\n"
+                "  end\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            config = root / "config/config.exs"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            config.write_text(
+                "import Config\n"
+                "config :comms_core,\n"
+                "  authorization_adapter: CommsCore.Alpha\n",
+                encoding="utf-8",
+            )
+
+            violations = [
+                item
+                for item in analyze_context_boundaries(root, manifest)
+                if item.rule == "retired_runtime_binding"
+            ]
+            self.assertEqual(
+                {item.path for item in violations},
+                {
+                    "apps/comms_web/lib/comms_web/legacy.ex",
+                    "config/config.exs",
+                },
+            )
+
+    def test_rejects_malformed_retired_runtime_binding_tombstones(self) -> None:
+        variants = (
+            "comms_core.authorization_adapter",
+            [
+                {
+                    "application": "comms_core",
+                    "key": "authorization_adapter",
+                    "module": "CommsCore.Legacy",
+                }
+            ],
+            [
+                {
+                    "application": "comms_core",
+                    "key": "authorization_adapter",
+                },
+                {
+                    "application": "comms_core",
+                    "key": "authorization_adapter",
+                },
+            ],
+            [
+                {"application": "zeta", "key": "adapter"},
+                {"application": "alpha", "key": "adapter"},
+            ],
+        )
+        for retired_bindings in variants:
+            with (
+                self.subTest(retired_bindings=retired_bindings),
+                self.boundary_fixture() as root,
+            ):
+                manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+                manifest = read_yaml(manifest_path)
+                manifest["retired_runtime_bindings"] = retired_bindings
+                manifest_path.write_text(
+                    yaml.safe_dump(manifest, sort_keys=False),
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "invalid_context_declaration")
 
     def test_rejects_mixed_owner_migrations_without_exception(self) -> None:
         with self.boundary_fixture() as root:
@@ -5144,6 +5575,82 @@ class ValidateArchitectureTest(unittest.TestCase):
 
                 self.assertEqual(validate(root), [])
 
+    def test_runtime_collaboration_rejects_released_adapter_callers(self) -> None:
+        with self.runtime_collaboration_fixture() as root:
+            caller = root / "apps/comms_web/lib/comms_web/illegal_runtime_caller.ex"
+            caller.parent.mkdir(parents=True, exist_ok=True)
+            caller.write_text(
+                "defmodule CommsWeb.IllegalRuntimeCaller do\n"
+                "  alias CommsCore.Alpha.Port\n"
+                "  def execute(result), do: Port.execute(result)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+            violations = [
+                item
+                for item in analyze_context_boundaries(root, manifest)
+                if item.rule == "invalid_runtime_collaboration"
+            ]
+            self.assertTrue(
+                any(
+                    "caller set differs from source" in item.detail
+                    and "CommsWeb.IllegalRuntimeCaller" in item.detail
+                    for item in violations
+                ),
+                [item.render() for item in violations],
+            )
+
+    def test_runtime_collaboration_rejects_implementation_callback_bypasses(
+        self,
+    ) -> None:
+        bypasses = (
+            "  alias CommsCore.Beta\n  def run(result), do: Beta.execute(result)\n",
+            "  alias CommsCore.Beta\n"
+            "  def run(result), do: apply(Beta, :execute, [result])\n",
+            "  alias CommsCore.Beta\n"
+            "  @implementation Beta\n"
+            "  def run(result), "
+            "do: apply(@implementation, :execute, [result])\n",
+            "  alias CommsCore.Beta\n"
+            "  def run(result) do\n"
+            "    target = Beta\n"
+            "    apply(target, :execute, [result])\n"
+            "  end\n",
+            "  alias CommsCore.Beta\n  def callback, do: &Beta.execute/1\n",
+            "  alias CommsCore.Beta\n"
+            "  defdelegate run(result), to: Beta, as: :execute\n",
+            "  alias CommsCore.Beta\n  def run(result), do: Beta.execute result\n",
+        )
+        for bypass in bypasses:
+            with (
+                self.subTest(bypass=bypass),
+                self.runtime_collaboration_fixture() as root,
+            ):
+                caller = root / "apps/comms_web/lib/comms_web/illegal_impl_caller.ex"
+                caller.parent.mkdir(parents=True, exist_ok=True)
+                caller.write_text(
+                    f"defmodule CommsWeb.IllegalImplCaller do\n{bypass}end\n",
+                    encoding="utf-8",
+                )
+
+                manifest = read_yaml(
+                    root / "docs/02-architecture/context-boundaries.yaml"
+                )
+                violations = analyze_context_boundaries(root, manifest)
+                self.assertTrue(
+                    any(
+                        item.rule == "invalid_runtime_collaboration"
+                        and "CommsWeb.IllegalImplCaller bypasses port "
+                        "CommsCore.Alpha.Port"
+                        in item.detail
+                        and "invoking implementation callbacks" in item.detail
+                        for item in violations
+                    ),
+                    [item.render() for item in violations],
+                )
+
     def test_rejects_runtime_operation_caller_binding_and_transaction_drift(
         self,
     ) -> None:
@@ -6242,6 +6749,185 @@ class ValidateArchitectureTest(unittest.TestCase):
                 [],
             )
 
+    def test_base_manifest_allows_strict_promotion_only_after_cleanup(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            self.write_schema(
+                root,
+                "CommsCore.Alpha.Record",
+                "alpha_records",
+                "alpha/record.ex",
+            )
+            self.write_schema(
+                root,
+                "CommsCore.Beta.Record",
+                "beta_records",
+                "beta/record.ex",
+            )
+            for context in ("alpha", "beta"):
+                facade = root / f"apps/comms_core/lib/comms_core/{context}.ex"
+                facade.write_text(
+                    f"defmodule CommsCore.{context.title()} do\nend\n",
+                    encoding="utf-8",
+                )
+
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_manifest_path = root / "base-context-boundaries.yaml"
+            base_manifest = read_yaml(manifest_path)
+            base_manifest["status"] = "enforced"
+            base_manifest["enforcement"].update(
+                {
+                    "mode": "strict_with_explicit_deferrals",
+                    "target_mode": "strict_with_explicit_deferrals",
+                    "strict_with_explicit_deferrals": {
+                        "active": True,
+                        "exact_mapping": True,
+                        "reject_missing_declarations": True,
+                        "reject_stale_declarations": True,
+                        "reject_duplicate_fingerprints": True,
+                        "require_base_branch_no_growth": True,
+                        "require_deterministic_report": True,
+                        "allowed_deferral_contexts": ["alpha"],
+                    },
+                }
+            )
+            base_manifest_path.write_text(
+                yaml.safe_dump(base_manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            promoted = copy.deepcopy(base_manifest)
+            promoted["enforcement"]["mode"] = "strict"
+            promoted["enforcement"]["target_mode"] = "strict"
+            promoted["enforcement"].pop("strict_with_explicit_deferrals")
+            manifest_path.write_text(
+                yaml.safe_dump(promoted, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                compare_boundary_manifests(root, base_manifest_path),
+                [],
+            )
+            self.assertEqual(validate(root), [])
+
+            stale_variants = (
+                (
+                    "temporary_violations",
+                    lambda document: document.update(temporary_violations={}),
+                    "temporary_violations to be removed",
+                ),
+                (
+                    "baseline_adoption",
+                    lambda document: document["enforcement"].update(
+                        baseline_adoption={}
+                    ),
+                    "baseline_adoption declaration to be removed",
+                ),
+                (
+                    "strict_policy",
+                    lambda document: document["enforcement"].update(
+                        strict_with_explicit_deferrals={}
+                    ),
+                    "strict_with_explicit_deferrals policy to be removed",
+                ),
+            )
+            for label, mutate, expected_error in stale_variants:
+                with self.subTest(stale_artifact=label):
+                    stale = copy.deepcopy(promoted)
+                    mutate(stale)
+                    manifest_path.write_text(
+                        yaml.safe_dump(stale, sort_keys=False),
+                        encoding="utf-8",
+                    )
+                    errors = validate(root)
+                    self.assertTrue(
+                        any(expected_error in error for error in errors),
+                        errors,
+                    )
+
+            manifest_path.write_text(
+                yaml.safe_dump(promoted, sort_keys=False),
+                encoding="utf-8",
+            )
+            leak = root / "apps/comms_core/lib/comms_core/alpha/leak.ex"
+            leak.write_text(
+                "defmodule CommsCore.Alpha.Leak do\n"
+                "  alias CommsCore.Beta.Record\n"
+                "end\n",
+                encoding="utf-8",
+            )
+            violations = analyze_context_boundaries(root, promoted)
+            self.assertTrue(violations)
+            write_baseline(root, violations)
+            leak.unlink()
+            errors = validate(root)
+            self.assertTrue(
+                any(
+                    "strict mode requires an empty boundary baseline" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_retired_module_and_binding_tombstones_are_immutable(self) -> None:
+        with self.boundary_fixture() as root:
+            manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+            base_manifest_path = root / "base-context-boundaries.yaml"
+            base_manifest = read_yaml(manifest_path)
+            base_manifest["retired_modules"] = ["CommsCore.Legacy"]
+            base_manifest["retired_runtime_bindings"] = [
+                {
+                    "application": "comms_core",
+                    "key": "authorization_adapter",
+                }
+            ]
+            base_manifest_path.write_text(
+                yaml.safe_dump(base_manifest, sort_keys=False),
+                encoding="utf-8",
+            )
+
+            weakened = copy.deepcopy(base_manifest)
+            weakened["retired_modules"] = []
+            weakened["retired_runtime_bindings"] = []
+            manifest_path.write_text(
+                yaml.safe_dump(weakened, sort_keys=False),
+                encoding="utf-8",
+            )
+            errors = compare_boundary_manifests(root, base_manifest_path)
+            self.assertTrue(
+                any(
+                    "removed immutable retired module namespace tombstones" in error
+                    for error in errors
+                ),
+                errors,
+            )
+            self.assertTrue(
+                any(
+                    "removed immutable retired runtime binding tombstones" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+            strengthened = copy.deepcopy(base_manifest)
+            strengthened["retired_modules"].append("CommsCore.Obsolete")
+            strengthened["retired_runtime_bindings"].append(
+                {
+                    "application": "comms_core",
+                    "key": "legacy_adapter",
+                }
+            )
+            manifest_path.write_text(
+                yaml.safe_dump(strengthened, sort_keys=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                compare_boundary_manifests(root, base_manifest_path),
+                [],
+            )
+
     def test_baseline_transition_hash_is_line_ending_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -6589,6 +7275,13 @@ class ValidateArchitectureTest(unittest.TestCase):
         path = root / "docs/02-architecture/context-boundaries.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+        for context in ("alpha", "beta"):
+            facade = root / f"apps/comms_core/lib/comms_core/{context}.ex"
+            facade.parent.mkdir(parents=True, exist_ok=True)
+            facade.write_text(
+                f"defmodule CommsCore.{context.title()} do\nend\n",
+                encoding="utf-8",
+            )
 
         class FixtureContext:
             def __enter__(self):
