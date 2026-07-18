@@ -115,7 +115,6 @@ common_env=(
   --env "K_COMMS_ROLE=all"
   --env "ALLOW_BOOTSTRAP=true"
   --env "HSTS_ENABLED=false"
-  --env "CSP_CONNECT_SOURCES='self' http://127.0.0.1:4000 ws://127.0.0.1:4000"
   --env "S3_PUBLIC_ENDPOINT=http://minio.invalid:9000"
   --env "S3_INTERNAL_SCHEME=http"
   --env "S3_INTERNAL_HOST=minio.invalid"
@@ -127,11 +126,24 @@ common_env=(
   --env "S3_SECRET_ACCESS_KEY=smoke-only-secret"
 )
 
-"${engine}" run --rm --network "${network}" "${common_env[@]}" \
+application_env=(
+  --env "K_COMMS_RUNTIME_PURPOSE=application"
+  --env "AUDIO_PROVIDER_MODE=livekit"
+  --env "LIVEKIT_SERVER_URL=wss://media.container-smoke.test"
+  --env "LIVEKIT_API_URL=https://media-api.container-smoke.test"
+  --env "LIVEKIT_API_KEY=container-smoke-key"
+  --env "LIVEKIT_API_SECRET=container-smoke-livekit-api-secret-at-least-32-bytes"
+  --env "AUDIO_TOKEN_TTL_SECONDS=300"
+  --env "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS=660"
+  --env "CSP_CONNECT_SOURCES='self' http://127.0.0.1:4000 ws://127.0.0.1:4000 wss://media.container-smoke.test"
+)
+
+"${engine}" run --rm --network "${network}" \
+  --env "K_COMMS_RUNTIME_PURPOSE=one_shot" "${common_env[@]}" \
   "${image}" eval 'CommsCore.Release.migrate()'
 
 "${engine}" run --detach --name "${app}" --network "${network}" \
-  "${common_env[@]}" "${image}" >/dev/null
+  "${common_env[@]}" "${application_env[@]}" "${image}" >/dev/null
 
 healthy=false
 for _ in $(seq 1 45); do
