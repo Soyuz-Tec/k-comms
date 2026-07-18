@@ -3,6 +3,7 @@ set -euo pipefail
 
 engine="${CONTAINER_ENGINE:-podman}"
 image="${IMAGE:-localhost/k-comms:smoke}"
+postgres_image="${POSTGRES_IMAGE:-docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193}"
 oci_source="${OCI_SOURCE:-https://github.com/Soyuz-Tec/k-comms}"
 oci_revision="${OCI_REVISION:-unknown}"
 oci_version="${OCI_VERSION:-dev}"
@@ -48,12 +49,46 @@ assert_image_label "org.opencontainers.image.source" "${oci_source}"
 assert_image_label "org.opencontainers.image.revision" "${oci_revision}"
 assert_image_label "org.opencontainers.image.version" "${oci_version}"
 
+pull_postgres_image() {
+  local attempt
+
+  for attempt in 1 2 3; do
+    if "${engine}" pull "${postgres_image}"; then
+      return 0
+    fi
+
+    echo "PostgreSQL image pull attempt ${attempt} failed" >&2
+    sleep "${attempt}"
+  done
+
+  echo "Unable to pull immutable PostgreSQL image ${postgres_image}" >&2
+  return 1
+}
+
+launch_postgres() {
+  local output
+
+  if output="$("${engine}" run --detach --pull=never \
+    --name "${postgres}" \
+    --network "${network}" \
+    --env POSTGRES_USER=postgres \
+    --env POSTGRES_PASSWORD=postgres \
+    --env POSTGRES_DB=k_comms_smoke \
+    "${postgres_image}" 2>&1)"; then
+    return 0
+  fi
+
+  echo "Unable to launch PostgreSQL smoke container:" >&2
+  printf '%s\n' "${output}" >&2
+  "${engine}" version >&2 || true
+  "${engine}" info >&2 || true
+  "${engine}" network inspect "${network}" >&2 || true
+  return 1
+}
+
 "${engine}" network create "${network}" >/dev/null
-"${engine}" run --detach --name "${postgres}" --network "${network}" \
-  --env POSTGRES_USER=postgres \
-  --env POSTGRES_PASSWORD=postgres \
-  --env POSTGRES_DB=k_comms_smoke \
-  docker.io/library/postgres:17.10-alpine >/dev/null
+pull_postgres_image
+launch_postgres
 
 for _ in $(seq 1 30); do
   if "${engine}" exec "${postgres}" pg_isready -U postgres -d k_comms_smoke >/dev/null 2>&1; then
@@ -61,7 +96,12 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-"${engine}" exec "${postgres}" pg_isready -U postgres -d k_comms_smoke >/dev/null
+if ! "${engine}" exec "${postgres}" pg_isready -U postgres -d k_comms_smoke >/dev/null; then
+  "${engine}" logs "${postgres}" >&2 || true
+  "${engine}" inspect --format '{{json .State}}' "${postgres}" >&2 || true
+  echo "PostgreSQL smoke container did not become ready" >&2
+  exit 1
+fi
 
 common_env=(
   --env "DATABASE_URL=ecto://postgres:postgres@${postgres}:5432/k_comms_smoke"
