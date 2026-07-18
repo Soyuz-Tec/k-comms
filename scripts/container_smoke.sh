@@ -90,16 +90,21 @@ launch_postgres() {
 pull_postgres_image
 launch_postgres
 
-for _ in $(seq 1 30); do
-  if "${engine}" exec "${postgres}" pg_isready -U postgres -d k_comms_smoke >/dev/null 2>&1; then
+postgres_ready=false
+for _ in $(seq 1 60); do
+  if "${engine}" exec "${postgres}" sh -ec '
+    test "$(cat /proc/1/comm)" = postgres &&
+    psql -v ON_ERROR_STOP=1 -U postgres -d k_comms_smoke -tAc "SELECT 1" >/dev/null
+  ' >/dev/null 2>&1; then
+    postgres_ready=true
     break
   fi
   sleep 1
 done
-if ! "${engine}" exec "${postgres}" pg_isready -U postgres -d k_comms_smoke >/dev/null; then
+if [[ "${postgres_ready}" != "true" ]]; then
   "${engine}" logs "${postgres}" >&2 || true
   "${engine}" inspect --format '{{json .State}}' "${postgres}" >&2 || true
-  echo "PostgreSQL smoke container did not become ready" >&2
+  echo "PostgreSQL smoke container did not become stably ready" >&2
   exit 1
 fi
 
