@@ -116,6 +116,7 @@ describe("PeoplePanel", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
 
     await user.click(trigger);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
     await user.type(screen.getByLabelText("Audit reason"), "Recipient no longer needs access");
     await user.click(screen.getByRole("button", { name: "Revoke invitation" }));
 
