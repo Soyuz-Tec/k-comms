@@ -404,7 +404,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:ok, managed_login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                managed_member.email,
                "correct-horse-managed-member",
@@ -422,8 +422,8 @@ defmodule CommsCore.AdministrationTest do
                subject
              )
 
-    assert managed_login.session.id in effects.revoked_session_ids
-    assert {:error, :session_expired} = Accounts.get_active_session(managed_login.session.id)
+    assert managed_login.session_id in effects.revoked_session_ids
+    assert {:error, :session_expired} = Accounts.get_active_session(managed_login.session_id)
   end
 
   test "profile, password, device, and session self-service are audited" do
@@ -431,7 +431,7 @@ defmodule CommsCore.AdministrationTest do
     subject = Fixtures.subject(account)
 
     assert {:ok, second_login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                account.user.email,
                fixture_password(account),
@@ -474,7 +474,7 @@ defmodule CommsCore.AdministrationTest do
                subject
              )
 
-    assert {:error, :session_expired} = Accounts.get_active_session(second_login.session.id)
+    assert {:error, :session_expired} = Accounts.get_active_session(second_login.session_id)
     assert {:ok, device_result} = Accounts.revoke_device(account.device.id, subject)
     assert account.session.id in device_result.revoked_session_ids
 
@@ -500,7 +500,7 @@ defmodule CommsCore.AdministrationTest do
              )
 
     assert {:ok, managed_login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                managed_user.email,
                "correct-horse-reasoned-member",
@@ -534,7 +534,7 @@ defmodule CommsCore.AdministrationTest do
     assert {:error, :step_up_required} =
              Accounts.admin_revoke_session(
                managed_user.id,
-               managed_login.session.id,
+               managed_login.session_id,
                %{reason: "security response"},
                subject
              )
@@ -554,7 +554,7 @@ defmodule CommsCore.AdministrationTest do
     assert {:error, :reason_required} =
              Accounts.admin_revoke_session(
                managed_user.id,
-               managed_login.session.id,
+               managed_login.session_id,
                %{},
                subject
              )
@@ -565,7 +565,7 @@ defmodule CommsCore.AdministrationTest do
     assert {:ok, _session} =
              Accounts.admin_revoke_session(
                managed_user.id,
-               managed_login.session.id,
+               managed_login.session_id,
                %{reason: "  revoke compromised browser  "},
                subject
              )
@@ -838,11 +838,12 @@ defmodule CommsCore.AdministrationTest do
 
   defp login_subject(account, user, password) do
     {:ok, login} =
-      Accounts.authenticate(account.tenant.slug, user.email, password, %{
+      Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
         name: "Role test browser",
         platform: "test"
       })
 
-    Accounts.subject_for_session(login.session)
+    {:ok, access_context} = Accounts.access_context(login.session_id)
+    access_context.subject
   end
 end

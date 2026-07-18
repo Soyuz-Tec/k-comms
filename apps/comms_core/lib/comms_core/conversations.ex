@@ -406,7 +406,8 @@ defmodule CommsCore.Conversations do
   """
   @spec reserve_message_slot(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, MessageWriteSlot.t()}
-          | {:error, :conversation_not_found | :transaction_required | Ecto.Changeset.t()}
+          | {:error,
+             :conversation_not_found | :message_slot_update_failed | :transaction_required}
   def reserve_message_slot(tenant_id, conversation_id)
       when is_binary(tenant_id) and is_binary(conversation_id) do
     if Repo.in_transaction?() do
@@ -434,8 +435,8 @@ defmodule CommsCore.Conversations do
                  sequence: sequence
                }}
 
-            {:error, changeset} ->
-              {:error, changeset}
+            {:error, _changeset} ->
+              {:error, :message_slot_update_failed}
           end
       end
     else

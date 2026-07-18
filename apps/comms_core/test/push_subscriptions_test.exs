@@ -156,7 +156,7 @@ defmodule CommsCore.Notifications.PushSubscriptionsTest do
         suffix = user_account.tenant.slug |> String.split("-") |> List.last()
 
         {:ok, login} =
-          Accounts.authenticate(
+          Accounts.authenticate_view(
             user_account.tenant.slug,
             user_account.user.email,
             "correct-horse-battery-#{suffix}",
@@ -168,7 +168,10 @@ defmodule CommsCore.Notifications.PushSubscriptionsTest do
 
     subjects = [
       Fixtures.subject(user_account)
-      | Enum.map(additional_logins, &Accounts.subject_for_session(&1.session))
+      | Enum.map(additional_logins, fn login ->
+          {:ok, access_context} = Accounts.access_context(login.session_id)
+          access_context.subject
+        end)
     ]
 
     user_results =
@@ -441,14 +444,14 @@ defmodule CommsCore.Notifications.PushSubscriptionsTest do
              )
 
     assert {:ok, login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                member.email,
                password,
                %{name: "Lifecycle member browser", platform: "test"}
              )
 
-    member_subject = Accounts.subject_for_session(login.session)
+    assert {:ok, %{subject: member_subject}} = Accounts.access_context(login.session_id)
 
     assert {:ok, %{subscription: subscription}} =
              PushSubscriptions.register(

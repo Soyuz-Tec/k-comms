@@ -46,7 +46,7 @@ defmodule CommsCore.ServiceAccountsTest do
     assert device.platform == "service_account"
 
     assert {:error, :invalid_credentials} =
-             Accounts.authenticate(owner.tenant.slug, service_user.email, "any-password")
+             Accounts.authenticate_view(owner.tenant.slug, service_user.email, "any-password")
 
     assert {:error, :not_found} =
              Accounts.change_user(

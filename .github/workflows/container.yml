@@ -2,22 +2,10 @@ name: Container
 
 on:
   pull_request:
-    paths:
-      - Dockerfile
-      - compose.yaml
-      - mix.exs
-      - mix.lock
-      - "apps/**"
-      - "clients/web/**"
-      - "config/**"
-      - "deploy/k8s/**"
-      - "scripts/container_smoke.sh"
-      - "scripts/validate_compose_exposure.py"
-      - "scripts/test_validate_compose_exposure.py"
-      - ".github/workflows/container.yml"
   push:
     branches: [main]
     paths:
+      - .dockerignore
       - Dockerfile
       - compose.yaml
       - mix.exs
@@ -43,14 +31,49 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Classify runtime impact
+        id: runtime_impact
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          runtime_required=false
+
+          while IFS= read -r path; do
+            case "$path" in
+              .dockerignore|Dockerfile|compose.yaml|mix.exs|mix.lock|\
+              apps/*|clients/web/*|config/*|deploy/k8s/*|\
+              scripts/container_smoke.sh|\
+              scripts/validate_compose_exposure.py|\
+              scripts/test_validate_compose_exposure.py|\
+              .github/workflows/container.yml)
+                runtime_required=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only --no-renames "$BASE_SHA" "$GITHUB_SHA")
+
+          echo "required=$runtime_required" >> "$GITHUB_OUTPUT"
+          if [[ "$runtime_required" == "true" ]]; then
+            echo "Runtime-impacting paths changed; full container smoke is required." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No runtime-impacting paths changed; the required smoke sentinel passes." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Validate local Compose exposure policy
+        if: steps.runtime_impact.outputs.required == 'true'
         shell: bash
         run: |
           set -euo pipefail
           python scripts/test_validate_compose_exposure.py
           python scripts/validate_compose_exposure.py
       - name: Build, migrate, boot, and smoke the runtime image
+        if: steps.runtime_impact.outputs.required == 'true'
         shell: bash
         env:
           CONTAINER_ENGINE: docker
@@ -74,7 +97,7 @@ jobs:
     env:
       TRIVY_IMAGE: docker.io/aquasec/trivy:0.72.0@sha256:c6e969c5662a546ad5de4a73c2a6b7a7c627f86d916903e175aa623af5b97ada
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Validate local Compose exposure policy
         shell: bash
         run: |
@@ -161,7 +184,7 @@ jobs:
           echo "path=${sbom_path}" >> "${GITHUB_OUTPUT}"
           echo "CycloneDX SBOM: $(sha256sum "${sbom_path}" | cut -d' ' -f1)" >> "${GITHUB_STEP_SUMMARY}"
       - name: Retain CycloneDX SBOM with the workflow run
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: k-comms-sbom-${{ github.sha }}
           path: ${{ steps.sbom.outputs.path }}

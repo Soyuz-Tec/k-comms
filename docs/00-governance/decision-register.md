@@ -16,3 +16,5 @@
 | Unified audio/video calls on the LiveKit media plane | ADR-0025 | Accepted for implementation and internal pilot | 2026-07-15 | Recording, SIP, stricter revocation, group scale, residency, or provider constraint |
 | Complete non-audio modularization and activate the strict gate | ADR-0042 | Accepted | 2026-07-17 | Separately authorize and complete the Calls boundary tranche |
 | Complete Calls boundary and retire the authorization kernel | ADR-0043 | Accepted | 2026-07-17 | A new Calls contract, context edge, runtime caller, or independently deployable media requirement |
+| Retrospectively accept the full PR #16 endgame scope | ADR-0044 | Accepted | 2026-07-18 | Production promotion of the integrated migration set or a similarly broad merge proposal |
+| Harden zero-baseline architecture assurance | ADR-0045 | Accepted | 2026-07-18 | A new persistence write shape, migration exception, manifest permission, or adapter-facing operation category |

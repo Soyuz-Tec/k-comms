@@ -220,6 +220,23 @@ enforcement:
         - fc1a11f2a5f8452a
       adr: docs/02-architecture/adr/0043-complete-calls-boundary.md
       removal_condition: Remove this exact 29-to-0 transition after the Calls boundary, retired authorization namespace, empty baseline, and strict enforcement mode are present on the protected branch; it may not authorize any later fingerprint delta.
+  reviewed_manifest_transitions:
+    - id: expose-stable-validation-error-to-identity-access
+      previous_manifest_sha256: 2de8e88b50f0f4c060135220b6a7444bb8088175ae1d4fcee81f70045ea076f0
+      approved_changes:
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260711000100_create_core_tables.exs:add:{"rules":["mixed_owner_migration"],"sha256":"43d117ed74759f4e839a1048475b39b3ec2157b6abeaf7c651dcfcf548005b52"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000100_complete_mvp_schema.exs:add:{"rules":["mixed_owner_migration"],"sha256":"1178cb8acc835cf8566fd1f46c3a8175fb90c798ffe2bea77fde5e7e2531ad35"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000200_enforce_tenant_relationships.exs:add:{"rules":["unresolved_migration_target"],"sha256":"b4e0026dc6dde9c8f887276b9e12c80775888682b18e42a172d0365c5c3f2754"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000300_add_administration_and_governance.exs:add:{"rules":["mixed_owner_migration","unresolved_migration_target"],"sha256":"fe9f580233ec9d2b0dab93fe31f3cfc6ae608480be2f194406f081156a2ea25d"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000310_add_integrations_safety_operations.exs:add:{"rules":["mixed_owner_migration","unresolved_migration_target"],"sha256":"bca0398417551c73a7da63b93db91b43bd7bbdd7bd9537bdc0e9a10209f5c41a"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000320_harden_administration_and_governance.exs:add:{"rules":["mixed_owner_migration"],"sha256":"a59ccd550fe48394e286cbb18225ec7d7b9c31d7927e35b667dfceabff381e4a"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000330_harden_integrations_and_attachment_identity.exs:add:{"rules":["mixed_owner_migration"],"sha256":"6c387b072144b026cb069a210e2b277f473a659e5953fe635ef8db778bb7a0ca"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260712000390_add_mentions_threads_and_notification_state.exs:add:{"rules":["mixed_owner_migration"],"sha256":"55da1a6ac1c82be7572009bb837ef3d600570057277a04a74ebcfb34dac03cdb"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260715000100_add_audio_calls.exs:add:{"rules":["mixed_owner_migration"],"sha256":"fc5f122fafe4c14635927e963d162f14f1db29a4c9092eb160fe6e118a98f759"}'
+        - 'migration_exception:apps/comms_core/priv/repo/migrations/20260715000400_add_video_calls.exs:add:{"rules":["mixed_owner_migration"],"sha256":"5b5f387e4334dc1cc8926560fd87ed9877f1bfc7ef65993afe346f0bc29a3b76"}'
+        - 'technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Accounts"'
+      adr: docs/02-architecture/adr/0045-harden-zero-baseline-architecture-assurance.md
+      removal_condition: Remove this exact transition after it has landed on the protected branch; later callers or operations require a separate accepted ADR and content-bound transition.
 
 contexts:
   identity_access:
@@ -683,13 +700,13 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsWeb.FallbackController]
+    callers: [CommsCore.Accounts, CommsWeb.FallbackController]
     operations:
       - {name: from, arity: 1}
     dispatch: direct
     contracts: [CommsCore.ValidationError]
     transaction: independent
-    condition: The web fallback adapter renders only the stable validation-error DTO and cannot depend on Ecto.Changeset.
+    condition: IdentityAccess converts owner-internal validation failures to the stable DTO and the web fallback renders it; neither boundary may expose Ecto.Changeset.
   - id: worker-attachment-restore-release
     owner: platform_runtime
     interface: CommsCore.Release
@@ -808,16 +825,36 @@ read_model_exceptions:
 
 migration_exceptions:
   - id: historical-mixed-migrations
+    adr: docs/02-architecture/adr/0026-enforce-business-context-boundaries.md
+    condition: Historical immutable migrations; remove an entry when its exact declared finding no longer exists.
     paths:
-      - apps/comms_core/priv/repo/migrations/20260711000100_create_core_tables.exs
-      - apps/comms_core/priv/repo/migrations/20260712000100_complete_mvp_schema.exs
-      - apps/comms_core/priv/repo/migrations/20260712000200_enforce_tenant_relationships.exs
-      - apps/comms_core/priv/repo/migrations/20260712000300_add_administration_and_governance.exs
-      - apps/comms_core/priv/repo/migrations/20260712000310_add_integrations_safety_operations.exs
-      - apps/comms_core/priv/repo/migrations/20260712000320_harden_administration_and_governance.exs
-      - apps/comms_core/priv/repo/migrations/20260712000330_harden_integrations_and_attachment_identity.exs
-      - apps/comms_core/priv/repo/migrations/20260712000380_add_push_subscriptions.exs
-      - apps/comms_core/priv/repo/migrations/20260712000390_add_mentions_threads_and_notification_state.exs
-      - apps/comms_core/priv/repo/migrations/20260715000100_add_audio_calls.exs
-      - apps/comms_core/priv/repo/migrations/20260715000400_add_video_calls.exs
-    condition: Historical only; every new migration must touch tables owned by one context or add a specific ADR-backed exception.
+      - path: apps/comms_core/priv/repo/migrations/20260711000100_create_core_tables.exs
+        sha256: 43d117ed74759f4e839a1048475b39b3ec2157b6abeaf7c651dcfcf548005b52
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260712000100_complete_mvp_schema.exs
+        sha256: 1178cb8acc835cf8566fd1f46c3a8175fb90c798ffe2bea77fde5e7e2531ad35
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260712000200_enforce_tenant_relationships.exs
+        sha256: b4e0026dc6dde9c8f887276b9e12c80775888682b18e42a172d0365c5c3f2754
+        rules: [unresolved_migration_target]
+      - path: apps/comms_core/priv/repo/migrations/20260712000300_add_administration_and_governance.exs
+        sha256: fe9f580233ec9d2b0dab93fe31f3cfc6ae608480be2f194406f081156a2ea25d
+        rules: [mixed_owner_migration, unresolved_migration_target]
+      - path: apps/comms_core/priv/repo/migrations/20260712000310_add_integrations_safety_operations.exs
+        sha256: bca0398417551c73a7da63b93db91b43bd7bbdd7bd9537bdc0e9a10209f5c41a
+        rules: [mixed_owner_migration, unresolved_migration_target]
+      - path: apps/comms_core/priv/repo/migrations/20260712000320_harden_administration_and_governance.exs
+        sha256: a59ccd550fe48394e286cbb18225ec7d7b9c31d7927e35b667dfceabff381e4a
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260712000330_harden_integrations_and_attachment_identity.exs
+        sha256: 6c387b072144b026cb069a210e2b277f473a659e5953fe635ef8db778bb7a0ca
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260712000390_add_mentions_threads_and_notification_state.exs
+        sha256: 55da1a6ac1c82be7572009bb837ef3d600570057277a04a74ebcfb34dac03cdb
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260715000100_add_audio_calls.exs
+        sha256: fc5f122fafe4c14635927e963d162f14f1db29a4c9092eb160fe6e118a98f759
+        rules: [mixed_owner_migration]
+      - path: apps/comms_core/priv/repo/migrations/20260715000400_add_video_calls.exs
+        sha256: 5b5f387e4334dc1cc8926560fd87ed9877f1bfc7ef65993afe346f0bc29a3b76
+        rules: [mixed_owner_migration]

@@ -47,5 +47,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0041 | Assign tenants to TenantAdministration | Accepted |
 | 0042 | Complete non-audio modularization and activate the strict gate | Accepted |
 | 0043 | Complete the Calls boundary and retire the authorization kernel | Accepted |
+| 0044 | Retrospectively accept the full PR #16 endgame scope | Accepted |
+| 0045 | Harden zero-baseline architecture assurance | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

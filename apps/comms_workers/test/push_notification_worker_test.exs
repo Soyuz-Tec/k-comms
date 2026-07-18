@@ -175,7 +175,7 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
       tenant_id: owner.tenant.id,
       user_id: recipient.id,
       device_id: recipient_login.device.id,
-      session_id: recipient_login.session.id,
+      session_id: recipient_login.session_id,
       role: recipient.role,
       request_id: "push-worker-test"
     }
@@ -260,7 +260,7 @@ defmodule CommsWorkers.PushNotificationWorkerTest do
     suffix = user.email |> String.split(["member-", "@"], trim: true) |> hd()
 
     {:ok, login} =
-      Accounts.authenticate(
+      Accounts.authenticate_view(
         owner.tenant.slug,
         user.email,
         "correct-horse-battery-#{suffix}",

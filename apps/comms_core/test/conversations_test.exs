@@ -544,14 +544,14 @@ defmodule CommsCore.ConversationsTest do
              )
 
     assert {:ok, login} =
-             Accounts.authenticate(
+             Accounts.authenticate_view(
                account.tenant.slug,
                admin.email,
                "correct-horse-private-boundary",
                %{name: "Admin browser", platform: "test"}
              )
 
-    admin_subject = Accounts.subject_for_session(login.session)
+    assert {:ok, %{subject: admin_subject}} = Accounts.access_context(login.session_id)
 
     assert {:ok, private_group} =
              Conversations.create(
@@ -1103,12 +1103,13 @@ defmodule CommsCore.ConversationsTest do
              )
 
     assert {:ok, login} =
-             Accounts.authenticate(account.tenant.slug, email, password, %{
+             Accounts.authenticate_view(account.tenant.slug, email, password, %{
                name: "Channel browser",
                platform: "test"
              })
 
-    {member, Accounts.subject_for_session(login.session, "channel-test")}
+    {:ok, access_context} = Accounts.access_context(login.session_id, "channel-test")
+    {member, access_context.subject}
   end
 
   defp role_subject_fixture(account, role) do
@@ -1128,11 +1129,12 @@ defmodule CommsCore.ConversationsTest do
              )
 
     assert {:ok, login} =
-             Accounts.authenticate(account.tenant.slug, email, password, %{
+             Accounts.authenticate_view(account.tenant.slug, email, password, %{
                name: "#{role} browser",
                platform: "test"
              })
 
-    {user, Accounts.subject_for_session(login.session, "role-test")}
+    {:ok, access_context} = Accounts.access_context(login.session_id, "role-test")
+    {user, access_context.subject}
   end
 end

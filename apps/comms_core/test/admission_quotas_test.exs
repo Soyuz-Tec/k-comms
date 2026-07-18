@@ -389,11 +389,12 @@ defmodule CommsCore.AdmissionQuotasTest do
 
   defp login_subject(account, user, password, device_name) do
     assert {:ok, login} =
-             Accounts.authenticate(account.tenant.slug, user.email, password, %{
+             Accounts.authenticate_view(account.tenant.slug, user.email, password, %{
                name: device_name,
                platform: "test"
              })
 
-    Accounts.subject_for_session(login.session)
+    {:ok, access_context} = Accounts.access_context(login.session_id)
+    access_context.subject
   end
 end
