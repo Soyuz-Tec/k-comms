@@ -6,7 +6,7 @@ import {
   useState
 } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router";
 import type { CreateConversationInput, SendMessageInput } from "../../api";
 import {
   downloadUrl,

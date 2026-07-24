@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import { useSession } from "../../app/session";
 import type { OperationsSnapshot } from "../../types";
 import { errorText, formatDateTime } from "../../lib/format";

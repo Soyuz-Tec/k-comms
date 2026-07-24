@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import type { FormEvent, InputHTMLAttributes } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 import type { BootstrapInput, LoginInput } from "../../api";
 import { Brand } from "../../components/Brand";
 import { Field } from "../../components/Field";

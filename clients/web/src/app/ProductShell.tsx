@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router";
 import { Brand } from "../components/Brand";
 import { MemberAreaLinks, MobileBottomNav } from "../components/MobileBottomNav";
 import { initials } from "../lib/format";
