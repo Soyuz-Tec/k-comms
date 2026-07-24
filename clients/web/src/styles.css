@@ -185,7 +185,15 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 
 .auth-form { display: grid; gap: 1rem; }
 .auth-form-help { display: flex; justify-content: flex-end; margin-top: -.45rem; font-size: .72rem; }
-.auth-form-help a, .recovery-back-link { color: var(--forest); font-weight: 750; }
+.auth-form-help a,
+.recovery-back-link {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 .25rem;
+  color: var(--forest);
+  font-weight: 750;
+}
 .auth-entry-options { display: grid; justify-items: start; gap: .1rem; margin-top: 1.35rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .auth-entry-options p { margin: 0 0 .35rem; color: var(--ink-soft); font-size: .76rem; line-height: 1.5; }
 .auth-entry-options button,

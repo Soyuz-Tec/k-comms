@@ -82,6 +82,9 @@ test("accessibility matrix names every representative release state", () => {
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
   await page.goto("/app/");
   await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  const recoveryLink = page.getByRole("link", { name: "Forgot password?" });
+  await expect(recoveryLink).toBeVisible();
+  expect((await recoveryLink.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expectNoWcagFailures(page);
 });
 
