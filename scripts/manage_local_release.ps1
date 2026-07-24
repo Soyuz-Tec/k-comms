@@ -128,7 +128,7 @@ function Assert-LiveKitImageFlags {
         -FilePath "podman" `
         -Arguments @("run", "--rm", $image, "help-verbose")
 
-    foreach ($flag in @("--rtc.enable_loopback_candidate", "--rtc.tcp_port", "--udp-port")) {
+    foreach ($flag in @("--rtc.tcp_port", "--udp-port")) {
         if ($help.Output -notmatch [Regex]::Escape($flag)) {
             throw "Pinned LiveKit image does not support required local-release flag $flag"
         }

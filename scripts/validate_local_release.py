@@ -112,7 +112,6 @@ def validate_local_release(
     for required in (
         "--node-ip",
         "127.0.0.1",
-        "--rtc.enable_loopback_candidate",
         "--rtc.tcp_port",
         "${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}",
         "--udp-port",
@@ -120,9 +119,14 @@ def validate_local_release(
     ):
         if required not in livekit_command:
             errors.append(
-                "service 'livekit' command must include loopback media setting "
+                "service 'livekit' command must include local media setting "
                 f"{required!r}"
             )
+    if "--rtc.enable_loopback_candidate" in livekit_command:
+        errors.append(
+            "service 'livekit' must not enable the explicit loopback candidate "
+            "flag because it prevents Podman Desktop TCP media negotiation"
+        )
 
     migrate = _mapping(services.get("migrate"))
     migrate_environment = _mapping(migrate.get("environment"))

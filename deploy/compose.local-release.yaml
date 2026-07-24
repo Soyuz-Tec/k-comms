@@ -108,7 +108,6 @@ services:
       - 0.0.0.0
       - --node-ip
       - 127.0.0.1
-      - --rtc.enable_loopback_candidate
       - --rtc.tcp_port
       - "${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}"
       - --udp-port

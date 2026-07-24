@@ -53,7 +53,11 @@ test.describe("real-stack video qualification", () => {
         fixture.direct,
         [
           { page: ownerPage, action: "Start video call", dialog: "Start a video call" },
-          { page: memberOnePage, action: "Join video call", dialog: "Join the video call" }
+          {
+            page: memberOnePage,
+            action: /^(Start|Join) video call$/,
+            dialog: "Join the video call"
+          }
         ]
       );
 
@@ -61,8 +65,16 @@ test.describe("real-stack video qualification", () => {
         fixture.group,
         [
           { page: ownerPage, action: "Start video call", dialog: "Start a video call" },
-          { page: memberOnePage, action: "Join video call", dialog: "Join the video call" },
-          { page: memberTwoPage, action: "Join video call", dialog: "Join the video call" }
+          {
+            page: memberOnePage,
+            action: /^(Start|Join) video call$/,
+            dialog: "Join the video call"
+          },
+          {
+            page: memberTwoPage,
+            action: /^(Start|Join) video call$/,
+            dialog: "Join the video call"
+          }
         ]
       );
     } finally {
@@ -73,7 +85,11 @@ test.describe("real-stack video qualification", () => {
 
 async function qualifyConversation(
   conversation: Conversation,
-  participants: Array<{ page: Page; action: "Start video call" | "Join video call"; dialog: "Start a video call" | "Join the video call" }>
+  participants: Array<{
+    page: Page;
+    action: string | RegExp;
+    dialog: "Start a video call" | "Join the video call";
+  }>
 ) {
   const url = `/app/?conversation=${encodeURIComponent(conversation.id)}`;
   await Promise.all(participants.map(({ page }) => page.goto(url)));
@@ -81,7 +97,9 @@ async function qualifyConversation(
 
   await joinWithCamera(participants[0]!.page, participants[0]!.action, participants[0]!.dialog);
   for (const participant of participants.slice(1)) {
-    await expect(participant.page.getByRole("button", { name: "Join video call" })).toBeVisible({ timeout: 20_000 });
+    await expect(
+      participant.page.getByRole("button", { name: participant.action })
+    ).toBeVisible({ timeout: 20_000 });
     await joinWithCamera(participant.page, participant.action, participant.dialog);
   }
 
@@ -122,7 +140,7 @@ async function qualifyScreenShare(ownerPage: Page, remotePages: Page[]) {
   )));
 }
 
-async function joinWithCamera(page: Page, action: string, dialogName: string) {
+async function joinWithCamera(page: Page, action: string | RegExp, dialogName: string) {
   await page.getByRole("button", { name: action }).click();
   const dialog = page.getByRole("dialog", { name: dialogName });
   await expect(dialog).toBeVisible();

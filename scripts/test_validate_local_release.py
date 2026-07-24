@@ -71,7 +71,7 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "service 'app' must use only the internal livekit:7880 API origin", errors
         )
 
-    def test_rejects_unreachable_livekit_loopback_media_configuration(self) -> None:
+    def test_rejects_incomplete_livekit_media_port_configuration(self) -> None:
         document = copy.deepcopy(self.compose)
         document["services"]["livekit"]["command"] = [
             "--node-ip",
@@ -80,7 +80,19 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "7882",
         ]
         errors = validate_local_release(document, self.runner)
-        self.assertTrue(any("loopback media setting" in error for error in errors))
+        self.assertTrue(any("local media setting" in error for error in errors))
+
+    def test_rejects_podman_incompatible_loopback_candidate_flag(self) -> None:
+        document = copy.deepcopy(self.compose)
+        document["services"]["livekit"]["command"].append(
+            "--rtc.enable_loopback_candidate"
+        )
+        errors = validate_local_release(document, self.runner)
+        self.assertIn(
+            "service 'livekit' must not enable the explicit loopback candidate "
+            "flag because it prevents Podman Desktop TCP media negotiation",
+            errors,
+        )
 
     def test_requires_runtime_validation_of_the_pinned_livekit_flags(self) -> None:
         runner = self.runner.replace("help-verbose", "removed-livekit-help")

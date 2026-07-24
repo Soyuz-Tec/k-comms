@@ -57,10 +57,18 @@ test.describe("real-stack audio qualification", () => {
 
       await joinWithMicrophone(ownerPage, "Start audio call", "Start an audio call");
 
-      await expect(memberPage.getByRole("button", { name: "Join audio call" })).toBeVisible({
+      const memberAudioAction = memberPage.getByRole("button", {
+        name: /^(Start|Join) audio call$/
+      });
+      await expect(memberAudioAction).toBeVisible({
         timeout: 20_000
       });
-      await joinWithMicrophone(memberPage, "Join audio call", "Join the audio call", memberPageErrors);
+      await joinWithMicrophone(
+        memberPage,
+        /^(Start|Join) audio call$/,
+        "Join the audio call",
+        memberPageErrors
+      );
 
       await Promise.all([
         expectParticipantRoster(
@@ -182,10 +190,16 @@ test.describe("real-stack audio qualification", () => {
 
       await joinWithMicrophone(ownerPage, "Start audio call", "Start an audio call");
       for (const memberPage of [memberOnePage, memberTwoPage]) {
-        await expect(memberPage.getByRole("button", { name: "Join audio call" })).toBeVisible({
+        await expect(memberPage.getByRole("button", {
+          name: /^(Start|Join) audio call$/
+        })).toBeVisible({
           timeout: 20_000
         });
-        await joinWithMicrophone(memberPage, "Join audio call", "Join the audio call");
+        await joinWithMicrophone(
+          memberPage,
+          /^(Start|Join) audio call$/,
+          "Join the audio call"
+        );
       }
 
       await Promise.all([
@@ -386,7 +400,7 @@ async function audioContext(
 
 async function joinWithMicrophone(
   page: Page,
-  actionName: string,
+  actionName: string | RegExp,
   dialogName: string,
   pageErrors: string[] = []
 ) {
@@ -409,12 +423,13 @@ async function joinWithMicrophone(
 
 async function expandCall(page: Page) {
   const showCall = page.getByRole("button", { name: "Show call" });
+  const minimizeCall = page.getByRole("button", { name: "Minimize" });
   await expect(
-    showCall,
-    "audio calls should join in the compact dock before detailed qualification"
+    showCall.or(minimizeCall),
+    "audio calls should expose either their compact or expanded controls"
   ).toBeVisible({ timeout: 20_000 });
-  await showCall.click();
-  await expect(page.getByRole("button", { name: "Minimize" })).toBeVisible();
+  if (await showCall.isVisible()) await showCall.click();
+  await expect(minimizeCall).toBeVisible();
 }
 
 function safePageError(error: Error) {

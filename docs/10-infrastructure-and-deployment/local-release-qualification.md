@@ -149,6 +149,15 @@ startup.
 This proves local packaging, migration, dependency startup, application
 readiness, immutable restart, and application rollback. The HTTP checks prove
 LiveKit signaling availability, not successful WebRTC media packets. External
-HTTPS/WSS, TURN/TLS, managed state, multi-zone resilience, provider approval,
+browser media tests are therefore required before calling the release
+media-capable.
+
+On Podman Desktop, LiveKit binds the explicit mapped TCP and UDP ports while
+advertising `127.0.0.1`. Do not enable LiveKit's separate
+`rtc.enable_loopback_candidate` option: real-browser qualification showed that
+it prevents the mapped TCP candidate from being selected. The release policy
+validator rejects that flag.
+
+External HTTPS/WSS, TURN/TLS, managed state, multi-zone resilience, provider approval,
 signed publication attestations, security approval, accessibility studies,
 and on-call readiness remain outside this qualification.
