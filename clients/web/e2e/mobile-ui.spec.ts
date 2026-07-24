@@ -112,7 +112,7 @@ test.describe("authenticated mobile web acceptance", () => {
 
       await page.goto("/app/");
       const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
-      const workspace = page.getByRole("textbox", { name: "Workspace" });
+      const workspace = page.getByRole("textbox", { name: "Workspace address" });
       const submit = page.getByRole("button", { name: "Sign in" });
       await expect(heading).toBeVisible();
       await expect(workspace).toBeVisible();
@@ -128,6 +128,32 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectNoDocumentOverflow(page);
     });
   }
+
+  test("all onboarding paths remain visible in the first 320px phone view", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.route("**/api/v1/status", (route) => json(route, {
+      service: "k-comms",
+      version: "0.3.0",
+      status: "operational",
+      node: "mobile-test@node",
+      capabilities: { bootstrap: true }
+    }));
+
+    await page.goto("/app/");
+    const actions = page.getByRole("group", { name: "Other ways to continue" });
+    const invitation = actions.getByRole("button", { name: "Use invitation code" });
+    const setup = actions.getByRole("button", { name: "Create workspace" });
+
+    await expect(actions).toBeVisible();
+    await expectMinimumTarget(invitation, "invitation entry");
+    await expectMinimumTarget(setup, "workspace setup entry");
+    await expect(setup).toBeInViewport({ ratio: 0.99 });
+    await expectNoDocumentOverflow(page);
+
+    await setup.click();
+    await expect(page.getByRole("heading", { name: "Create your workspace" })).toBeVisible();
+    await expect(page.getByLabel("Workspace name")).toBeVisible();
+  });
 
   test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 640 });

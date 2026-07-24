@@ -194,9 +194,21 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
   color: var(--forest);
   font-weight: 750;
 }
-.auth-entry-options { display: grid; justify-items: start; gap: .1rem; margin-top: 1.35rem; padding-top: 1rem; border-top: 1px solid var(--line); }
-.auth-entry-options p { margin: 0 0 .35rem; color: var(--ink-soft); font-size: .76rem; line-height: 1.5; }
-.auth-entry-options button,
+.auth-entry-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin-top: .75rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+.auth-entry-options button {
+  min-height: 44px;
+  padding: .55rem .65rem;
+  border: 1px solid #b8ccc3;
+  border-radius: 9px;
+  color: var(--forest);
+  background: #f3f7f2;
+  font-size: .76rem;
+  font-weight: 760;
+  line-height: 1.2;
+  text-align: center;
+}
+.auth-entry-options button:hover { background: #e9f0e8; }
+.auth-entry-options button:only-child { grid-column: 1 / -1; }
 .auth-back-button { min-height: 44px; padding: .45rem 0; border: 0; color: var(--forest); background: transparent; font-size: .76rem; font-weight: 760; text-align: left; text-decoration: underline; text-underline-offset: .18em; }
 .auth-back-button { width: 100%; margin-top: .65rem; text-align: center; }
 .auth-workspace-summary { min-height: 48px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; margin-bottom: 1rem; padding: .55rem .7rem; border: 1px solid #b8ccc3; border-radius: 10px; color: var(--ink-soft); background: #f3f7f2; font-size: .74rem; }
@@ -218,6 +230,10 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .recovery-shell .brand { margin-bottom: 1.75rem; }
 .recovery-shell h1 { margin: .3rem 0 .5rem; font-family: Georgia, serif; font-size: clamp(1.8rem, 6vw, 2.5rem); }
 .recovery-shell > .muted { margin: 0 0 1.5rem; line-height: 1.55; }
+
+@media (forced-colors: none) {
+  .auth-card [data-route-focus][tabindex="-1"]:focus { outline: none; }
+}
 .recovery-back-link { justify-self: center; padding: .35rem; font-size: .72rem; }
 .recovery-result h2 { margin: 0 0 .6rem; font-family: Georgia, serif; }
 .recovery-result p { margin: 0 0 1.25rem; color: var(--ink-soft); font-size: .82rem; line-height: 1.6; }
@@ -1185,7 +1201,6 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   .field textarea { min-height: 48px; }
   .password-visibility { min-height: 48px; }
   .button.full { min-height: 48px; }
-  .auth-entry-options { margin-top: 1rem; }
 }
 
 @media (max-width: 380px) {

@@ -177,7 +177,7 @@ export function AuthScreen() {
           ) {
             trustedTenantSlug = "";
             fallbackNotice =
-              "Invitation accepted, but the workspace link did not match the accepted account. Enter the workspace name supplied by your administrator.";
+              "Invitation accepted, but the workspace link did not match the accepted account. Enter the workspace address supplied by your administrator.";
             throw new Error("Invitation workspace mismatch");
           }
           setSession(session);
@@ -240,7 +240,7 @@ export function AuthScreen() {
       ? "Enter your email and password to continue."
       : mode === "invite"
         ? manualInvitation
-          ? "Enter the code and workspace name supplied by your administrator."
+          ? "Enter the code and workspace address supplied by your administrator."
           : "Create your profile and go straight to K-Comms."
         : "Set up your team and sign in as the workspace owner.";
 
@@ -281,19 +281,21 @@ export function AuthScreen() {
                 {editingWorkspace || !loginWorkspaceSlug ? (
                   <Field
                     id="login-workspace"
-                    label="Workspace"
+                    label="Workspace address"
                     name="tenant_slug"
                     value={loginWorkspaceSlug}
                     onChange={(event) =>
                       setLoginWorkspaceSlug(event.target.value.toLowerCase())
                     }
                     autoComplete="organization"
-                    hint="The short workspace name from your invitation or administrator."
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    hint="The short address from your invitation, such as acme."
                     required
                   />
                 ) : (
                   <div className="auth-workspace-summary">
-                    <span>Workspace</span>
+                    <span>Workspace address</span>
                     <strong>{loginWorkspaceSlug}</strong>
                     <button type="button" onClick={editRememberedWorkspace}>Change</button>
                     <input type="hidden" name="tenant_slug" value={loginWorkspaceSlug} />
@@ -321,14 +323,17 @@ export function AuthScreen() {
                   {busy ? "Signing in…" : "Sign in"}
                 </button>
               </form>
-              <div className="auth-entry-options">
-                <p>Joining a team? Open the invitation link your workspace owner sent you.</p>
+              <div
+                className="auth-entry-options"
+                role="group"
+                aria-label="Other ways to continue"
+              >
                 <button type="button" onClick={() => selectMode("invite")}>
-                  Enter an invitation code
+                  Use invitation code
                 </button>
                 {bootstrapEnabled && (
                   <button type="button" onClick={() => selectMode("bootstrap")}>
-                    Create a new workspace
+                    Create workspace
                   </button>
                 )}
               </div>
@@ -337,7 +342,7 @@ export function AuthScreen() {
             <>
               {invitationContext.tenantSlug && (
                 <div className="auth-workspace-summary static">
-                  <span>Workspace</span>
+                  <span>Workspace address</span>
                   <strong>{invitationContext.tenantSlug}</strong>
                 </div>
               )}
@@ -351,10 +356,12 @@ export function AuthScreen() {
                       required
                     />
                     <Field
-                      label="Workspace"
+                      label="Workspace address"
                       name="tenant_slug"
                       defaultValue={loginWorkspaceSlug}
                       autoComplete="organization"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       required
                     />
                   </>

@@ -214,7 +214,10 @@ test("platform operations satisfies automated WCAG A and AA checks", async ({ pa
 test("keyboard focus remains visible in forced-colors and reduced-motion modes", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   await page.goto("/app/");
-  await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
+  await expect(heading).not.toHaveCSS("outline-style", "none");
 
   await page.keyboard.press("Tab");
   const focused = page.locator(":focus");

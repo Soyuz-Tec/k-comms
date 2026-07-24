@@ -74,7 +74,7 @@ describe("AuthScreen", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
 
-    await user.type(screen.getByLabelText("Workspace"), "acme");
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
     await user.type(screen.getByLabelText("Email address"), "taylor@example.test");
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
@@ -94,11 +94,11 @@ describe("AuthScreen", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><AuthScreen /></MemoryRouter>);
 
-    expect(screen.queryByLabelText("Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace address")).not.toBeInTheDocument();
     expect(screen.getByText("acme")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Change" }));
-    expect(screen.getByLabelText("Workspace")).toHaveValue("acme");
-    await waitFor(() => expect(screen.getByLabelText("Workspace")).toHaveFocus());
+    expect(screen.getByLabelText("Workspace address")).toHaveValue("acme");
+    await waitFor(() => expect(screen.getByLabelText("Workspace address")).toHaveFocus());
   });
 
   it("opens an authorized setup link directly and creates the workspace in one form", async () => {
@@ -207,7 +207,7 @@ describe("AuthScreen", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "the workspace link did not match the accepted account"
     );
-    expect(screen.getByLabelText("Workspace")).toHaveValue("");
+    expect(screen.getByLabelText("Workspace address")).toHaveValue("");
   });
 
   it("preserves a one-form manual-code fallback and prefills sign-in after a network failure", async () => {
@@ -216,21 +216,22 @@ describe("AuthScreen", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><AuthScreen /></MemoryRouter>);
 
-    await user.click(screen.getByRole("button", { name: "Enter an invitation code" }));
+    expect(screen.getByRole("group", { name: "Other ways to continue" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Use invitation code" }));
     await user.type(screen.getByLabelText("Invitation code"), "one-time-secret");
-    await user.type(screen.getByLabelText("Workspace"), "acme");
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
     await user.type(screen.getByLabelText("Your name"), "Taylor Member");
     await user.type(screen.getByLabelText("Create password"), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Join workspace" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Invitation accepted");
-    expect(screen.queryByLabelText("Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace address")).not.toBeInTheDocument();
     expect(screen.getByText("acme")).toBeVisible();
     expect(screen.getByLabelText("Email address")).toHaveValue("taylor@example.test");
     expect(screen.getByLabelText("Password")).toHaveValue("");
     expect(document.body).not.toHaveTextContent("one-time-secret");
 
-    await user.click(screen.getByRole("button", { name: "Enter an invitation code" }));
+    await user.click(screen.getByRole("button", { name: "Use invitation code" }));
     expect(screen.getByLabelText("Invitation code")).toHaveValue("");
   });
 });

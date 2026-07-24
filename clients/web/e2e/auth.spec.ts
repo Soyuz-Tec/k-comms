@@ -7,9 +7,24 @@ test("production capability keeps the default page focused on sign-in", async ({
   }));
   await page.goto("/app/");
 
-  await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
+  await expect.poll(() => heading.evaluate((element) =>
+    window.getComputedStyle(element).outlineStyle
+  )).toBe("none");
   await expect(page.getByRole("tablist")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Create a new workspace" })).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Other ways to continue" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use invitation code" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create workspace" })).toHaveCount(0);
+
+  await page.keyboard.press("Tab");
+  const workspace = page.getByLabel("Workspace address");
+  await expect(workspace).toBeFocused();
+  await expect.poll(() => workspace.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0;
+  })).toBe(true);
 
   await page.goto("/app/?setup=workspace");
   await expect(
