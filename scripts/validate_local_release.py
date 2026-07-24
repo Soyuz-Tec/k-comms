@@ -349,6 +349,12 @@ def validate_local_release(
             "first-candidate deployment failure must invoke complete runtime cleanup"
         )
 
+    if '$env:podman_compose_warning_logs = "false"' not in lowered_runner:
+        errors.append(
+            "Podman Compose provider warnings must be suppressed before parsing "
+            "machine-readable command output"
+        )
+
     environment_reader = _compact(
         _function_body(runner_document, "Read-EnvironmentFile")
     )

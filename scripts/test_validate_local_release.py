@@ -243,6 +243,18 @@ class LocalReleasePolicyTest(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_unsuppressed_podman_compose_provider_banner(self) -> None:
+        runner = self.runner.replace(
+            '$env:PODMAN_COMPOSE_WARNING_LOGS = "false"',
+            '$env:PODMAN_COMPOSE_WARNING_LOGS = "true"',
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "Podman Compose provider warnings must be suppressed before parsing "
+            "machine-readable command output",
+            errors,
+        )
+
     def test_rejects_late_or_incomplete_candidate_port_preflight(self) -> None:
         runner = self.runner.replace(
             "    Assert-CandidatePorts `\n"

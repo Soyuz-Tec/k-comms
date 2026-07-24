@@ -25,6 +25,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+# Podman delegates Compose to an external provider on Windows. Its provider
+# banner is written to stderr and otherwise contaminates captured machine output
+# such as `compose ps --quiet`.
+$env:PODMAN_COMPOSE_WARNING_LOGS = "false"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repositoryRoot "deploy\compose.local-release.yaml"
