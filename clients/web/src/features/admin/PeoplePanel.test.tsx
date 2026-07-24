@@ -78,6 +78,7 @@ describe("PeoplePanel", () => {
     await user.click(screen.getByRole("button", { name: "Create invitation" }));
 
     expect(createInvitation).toHaveBeenCalledWith({ email: "new.member@example.test", role: "member" });
+    expect(screen.getByRole("region", { name: "Invitations" })).toHaveAttribute("id", "admin-invitations");
     const link = await screen.findByText(/#invitation_token=one-time-secret/);
     expect(link).toHaveTextContent(`${window.location.origin}/app/#invitation_token=one-time-secret&tenant_slug=acme`);
     expect(link).not.toHaveTextContent("?invitation_token=");

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type { CreateConversationInput } from "../../api";
 import { Field } from "../../components/Field";
 import { stringValue } from "../../lib/format";
@@ -8,12 +8,14 @@ import type { User } from "../../types";
 export function CreateConversationForm({
   users,
   allowPublicChannels = true,
+  emptyDirectAction,
   onCancel,
   onCreate,
   onStartDirect
 }: {
   users: User[];
   allowPublicChannels?: boolean;
+  emptyDirectAction?: ReactNode;
   onCancel: () => void;
   onCreate: (input: CreateConversationInput) => Promise<void>;
   onStartDirect: (userId: string) => Promise<void>;
@@ -69,7 +71,7 @@ export function CreateConversationForm({
       {kind !== "direct" && <label className="field">Visibility<select name="visibility" defaultValue="private"><option value="private">Private</option>{allowPublicChannels && <option value="tenant">Workspace</option>}</select>{!allowPublicChannels && <small>Workspace-visible channels are disabled by policy.</small>}</label>}
       <fieldset className="member-picker">
         <legend>{kind === "direct" ? "Choose a teammate" : "Add people"}</legend>
-        {selectableUsers.length === 0 ? <p className="empty-copy">Create another account before starting a conversation.</p> : selectableUsers.map((user) => (
+        {selectableUsers.length === 0 ? <div className="empty-copy"><p>Create another account before starting a conversation.</p>{kind === "direct" && emptyDirectAction}</div> : selectableUsers.map((user) => (
           <label key={user.id}>
             <input type={kind === "direct" ? "radio" : "checkbox"} name={kind === "direct" ? "direct-member" : undefined} checked={selectedUsers.includes(user.id)} onChange={(event) => toggleUser(user.id, event.target.checked)} />
             <span>{user.display_name}{user.account_type === "service" && <span className="role-chip">Bot</span>}</span>

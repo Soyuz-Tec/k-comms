@@ -33,6 +33,46 @@ function isRendered(element: HTMLElement): boolean {
   );
 }
 
+function routeDestination(): HTMLElement | null {
+  const main = document.querySelector<HTMLElement>("main#main-content, main");
+  if (!main) return null;
+  const candidates = [
+    ...document.querySelectorAll<HTMLElement>(
+      "main#main-content [data-route-focus], main#main-content h1, main [data-route-focus], main h1"
+    )
+  ];
+  return candidates.find(isRendered) ?? main;
+}
+
+function focusRouteDestination(destination: HTMLElement, scroll = false) {
+  if (scroll) destination.scrollIntoView({ block: "start" });
+  const hadTabIndex = destination.hasAttribute("tabindex");
+  if (!hadTabIndex) destination.setAttribute("tabindex", "-1");
+  destination.focus({ preventScroll: true });
+  if (!hadTabIndex) {
+    destination.addEventListener("blur", () => destination.removeAttribute("tabindex"), { once: true });
+  }
+}
+
+function fragmentId(hash: string): string | null {
+  if (!hash.startsWith("#")) return null;
+  try {
+    const value = decodeURIComponent(hash.slice(1));
+    return /^[A-Za-z][A-Za-z0-9_.:-]*$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function fragmentDestination(id: string): HTMLElement | null {
+  const target = document.getElementById(id);
+  if (!target || !isRendered(target)) return null;
+  const focusTarget = [
+    ...target.querySelectorAll<HTMLElement>("[data-route-focus], h1, h2, h3")
+  ].find(isRendered);
+  return focusTarget ?? target;
+}
+
 export function routeLabel(pathname: string, search: string): string {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const base = routeLabels[normalizedPath] ?? "K-Comms";
@@ -54,9 +94,36 @@ export function RouteOrientation() {
   }, [label]);
 
   useEffect(() => {
+    let observer: MutationObserver | null = null;
+    let fallbackTimer: number | null = null;
     const frame = window.requestAnimationFrame(() => {
       const main = document.querySelector<HTMLElement>("main#main-content, main");
       const activeElement = document.activeElement;
+      const id = fragmentId(location.hash);
+
+      if (id) {
+        const orientToFragment = () => {
+          const destination = fragmentDestination(id);
+          if (!destination) return false;
+          if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+          observer?.disconnect();
+          focusRouteDestination(destination, true);
+          return true;
+        };
+
+        if (orientToFragment()) return;
+        observer = new MutationObserver(() => {
+          orientToFragment();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        fallbackTimer = window.setTimeout(() => {
+          observer?.disconnect();
+          const destination = routeDestination();
+          if (destination) focusRouteDestination(destination);
+        }, 1_500);
+        return;
+      }
+
       if (
         main &&
         activeElement instanceof HTMLElement &&
@@ -64,23 +131,16 @@ export function RouteOrientation() {
         activeElement.matches("input, select, textarea, button, a[href], [autofocus]") &&
         isRendered(activeElement)
       ) return;
-      const candidates = [
-        ...document.querySelectorAll<HTMLElement>(
-          "main#main-content [data-route-focus], main#main-content h1, main [data-route-focus], main h1"
-        )
-      ];
-      const destination = candidates.find(isRendered)
-        ?? main;
+      const destination = routeDestination();
       if (!destination) return;
-      const hadTabIndex = destination.hasAttribute("tabindex");
-      if (!hadTabIndex) destination.setAttribute("tabindex", "-1");
-      destination.focus({ preventScroll: true });
-      if (!hadTabIndex) {
-        destination.addEventListener("blur", () => destination.removeAttribute("tabindex"), { once: true });
-      }
+      focusRouteDestination(destination);
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [location.pathname, location.search]);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      if (fallbackTimer !== null) window.clearTimeout(fallbackTimer);
+    };
+  }, [location.hash, location.pathname, location.search]);
 
   return <span className="sr-only" aria-live="polite" aria-atomic="true">{label} view</span>;
 }

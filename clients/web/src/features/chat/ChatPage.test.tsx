@@ -30,6 +30,7 @@ const harness = vi.hoisted(() => ({
   publishRealtimeEvent: vi.fn(),
   audioCallsAvailable: true,
   videoCallsAvailable: true,
+  userRole: "member" as "member" | "owner",
   conversations: [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }] as Conversation[],
   users: [
     { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" },
@@ -94,7 +95,7 @@ vi.mock("../../app/session", () => ({
       token_type: "Bearer",
       expires_in: 900,
       tenant: { id: "tenant-1", name: "Acme", slug: "acme", status: "active" },
-      user: { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" },
+      user: { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: harness.userRole, status: "active" },
       device: { id: "device-1", user_id: "user-1", name: "Browser", platform: "web" }
     }
   })
@@ -136,7 +137,7 @@ function message(sequence: number): Message {
 
 function LocationProbe() {
   const location = useLocation();
-  return <output aria-label="location-search">{location.search}</output>;
+  return <output aria-label="location-search">{`${location.search}${location.hash}`}</output>;
 }
 
 function HistoryBack() {
@@ -168,6 +169,7 @@ describe("ChatPage durable sequence recovery", () => {
     harness.callbacks = null;
     harness.audioCallsAvailable = true;
     harness.videoCallsAvailable = true;
+    harness.userRole = "member";
     harness.launchCall.mockReset().mockReturnValue(true);
     harness.publishRealtimeEvent.mockReset();
     harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
@@ -599,6 +601,39 @@ describe("ChatPage durable sequence recovery", () => {
     await user.click(screen.getByRole("button", { name: "Dismiss getting-started checklist" }));
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
     expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
+  });
+
+  it("routes an empty-workspace owner directly to the anchored invitation form", async () => {
+    const user = userEvent.setup();
+    harness.userRole = "owner";
+    harness.conversations = [];
+    harness.users = [harness.users[0]!];
+    render(
+      <MemoryRouter initialEntries={["/app"]}>
+        <ChatPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    const firstTeammate = screen.getByRole("link", { name: "Invite your first teammate" });
+    expect(firstTeammate).toHaveAttribute("href", "/admin?section=people#admin-invitations");
+    expect(screen.getByRole("link", { name: "Invite a teammate to send your first message" })).toHaveAttribute(
+      "href",
+      "/admin?section=people#admin-invitations"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Start a conversation" }));
+    const form = screen.getByRole("heading", { name: "New conversation" }).closest("form");
+    expect(form).not.toBeNull();
+    expect(within(form!).getByRole("link", { name: "Invite your first teammate" })).toHaveAttribute(
+      "href",
+      "/admin?section=people#admin-invitations"
+    );
+
+    await user.click(firstTeammate);
+    expect(screen.getByLabelText("location-search")).toHaveTextContent(
+      "?section=people#admin-invitations"
+    );
   });
 
   it("filters the Inbox by title and the accessible All, Unread, Direct, and Rooms segments", async () => {

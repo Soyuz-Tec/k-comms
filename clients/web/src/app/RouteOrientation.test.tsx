@@ -1,19 +1,38 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RouteOrientation } from "./RouteOrientation";
 
 function Harness() {
   return (
     <>
       <RouteOrientation />
-      <nav><Link to="/app/settings">Settings</Link></nav>
+      <nav>
+        <Link to="/app/settings">Settings</Link>
+        <Link to="/app/you#notification-settings">Notification preferences</Link>
+      </nav>
       <Routes>
         <Route path="/app" element={<main id="main-content"><h1>Conversations</h1></main>} />
         <Route path="/app/settings" element={<main id="main-content"><h1>Profile and settings</h1></main>} />
+        <Route path="/app/you" element={<DelayedNotificationSettings />} />
       </Routes>
     </>
+  );
+}
+
+function DelayedNotificationSettings() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setReady(true), 10);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return (
+    <main id="main-content">
+      <h1>Profile and settings</h1>
+      {ready && <section id="notification-settings"><h2>Notification preferences</h2></section>}
+    </main>
   );
 }
 
@@ -31,5 +50,18 @@ describe("RouteOrientation", () => {
     await waitFor(() => expect(settings).toHaveFocus());
     expect(document.title).toBe("Profile and settings | K-Comms");
     expect(screen.getByText("Profile and settings view")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("waits for a fragment target, scrolls it into view, and focuses its heading", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<MemoryRouter initialEntries={["/app/"]}><Harness /></MemoryRouter>);
+
+    await user.click(screen.getByRole("link", { name: "Notification preferences" }));
+
+    const destination = await screen.findByRole("heading", { name: "Notification preferences" });
+    await waitFor(() => expect(destination).toHaveFocus());
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    scrollIntoView.mockRestore();
   });
 });

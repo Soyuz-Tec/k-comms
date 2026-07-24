@@ -595,6 +595,10 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
   .connection-summary { display: flex; flex: 0 0 auto; }
   .connection-summary small { display: none; }
   .conversation-header-actions { gap: .4rem; }
+  .message-tools { flex-wrap: wrap; }
+  .message-tools > .reaction-row, .message-actions { min-width: 0; max-width: 100%; flex: 1 1 100%; }
+  .message-actions { flex-wrap: wrap; }
+  .message.mine .message-actions { justify-content: flex-end; }
   .message-actions, .quick-reactions { opacity: 1; }
   .search-panel, .details-panel { position: fixed; z-index: 20; top: 58px; right: 0; bottom: 58px; width: 100%; max-width: none; border-radius: 0; }
   .drawer-backdrop { position: fixed; z-index: 19; top: 58px; bottom: 58px; }

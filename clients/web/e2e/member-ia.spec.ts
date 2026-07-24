@@ -162,9 +162,52 @@ test.describe("low-click member information architecture", () => {
     expect(actions).toBeLessThanOrEqual(2);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
+
+  test("a first-run owner reaches the invitation form in one action", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installWorkspace(page, { firstRun: true });
+    await page.goto("/app/");
+
+    let actions = 0;
+    const invitationLink = page.getByRole("link", { name: "Invite your first teammate" });
+    await expect(invitationLink).toBeVisible();
+    await countedClick(invitationLink, () => actions += 1);
+
+    await expect(page).toHaveURL(/\/admin\?section=people#admin-invitations$/);
+    const invitationHeading = page.getByRole("heading", { name: "Invitations" });
+    await expect(invitationHeading).toBeVisible();
+    await expect(invitationHeading).toBeFocused();
+    await expectInViewport(invitationHeading);
+    expect(actions).toBe(1);
+    expect(fixture.unexpectedRequests).toEqual([]);
+  });
+
+  test("onboarding opens notification preferences in one action without manual scrolling", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installWorkspace(page, { showOnboarding: true });
+    await page.goto("/app/");
+
+    let actions = 0;
+    const preferencesLink = page.getByRole("link", { name: "Choose notification preferences" });
+    await expect(preferencesLink).toBeVisible();
+    await countedClick(preferencesLink, () => actions += 1);
+
+    await expect(page).toHaveURL(/\/app\/you#notification-settings$/);
+    const preferencesHeading = page.getByRole("heading", { name: "Notification preferences" });
+    await expect(preferencesHeading).toBeVisible();
+    await expect(preferencesHeading).toBeFocused();
+    await expectInViewport(preferencesHeading);
+    expect(actions).toBe(1);
+    expect(fixture.unexpectedRequests).toEqual([]);
+  });
 });
 
-async function installWorkspace(page: Page) {
+async function installWorkspace(
+  page: Page,
+  options: { firstRun?: boolean; showOnboarding?: boolean } = {}
+) {
+  const firstRun = options.firstRun === true;
+  const dismissOnboarding = !firstRun && options.showOnboarding !== true;
   const state = {
     directConversationRequests: 0,
     joinRoomRequests: 0,
@@ -240,12 +283,14 @@ async function installWorkspace(page: Page) {
     max_attachment_bytes: 25_000_000
   };
 
-  await page.addInitScript(({ storedSession, onboardingKey }) => {
+  await page.addInitScript(({ storedSession, onboardingKey, shouldDismissOnboarding }) => {
     sessionStorage.setItem("k-comms.session.v1", JSON.stringify(storedSession));
-    localStorage.setItem(onboardingKey, "dismissed");
+    if (shouldDismissOnboarding) localStorage.setItem(onboardingKey, "dismissed");
+    else localStorage.removeItem(onboardingKey);
   }, {
     storedSession: session,
-    onboardingKey: `k-comms:onboarding:${tenantId}:${userId}`
+    onboardingKey: `k-comms:onboarding:${tenantId}:${userId}`,
+    shouldDismissOnboarding: dismissOnboarding
   });
 
   await page.route("**/api/v1/**", async (route) => {
@@ -282,7 +327,7 @@ async function installWorkspace(page: Page) {
     }
     if (method === "GET" && path === "/api/v1/users") {
       return json(route, {
-        data: [
+        data: firstRun ? [session.user] : [
           session.user,
           {
             id: directoryPersonId,
@@ -297,7 +342,7 @@ async function installWorkspace(page: Page) {
     }
     if (method === "GET" && path === "/api/v1/directory/users") {
       return json(route, {
-        data: [{ id: directoryPersonId, display_name: "Grace Hopper" }],
+        data: firstRun ? [] : [{ id: directoryPersonId, display_name: "Grace Hopper" }],
         page: { next_cursor: null }
       });
     }
@@ -322,7 +367,7 @@ async function installWorkspace(page: Page) {
       });
     }
     if (method === "GET" && path === "/api/v1/conversations") {
-      return json(route, { data: [general] });
+      return json(route, { data: firstRun ? [] : [general] });
     }
     if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/members$/.test(path)) {
       return json(route, { data: [] });
@@ -497,6 +542,14 @@ async function expectMinimumTargets(locator: Locator, label: string) {
     expect(box.width, `${label} ${box.text} width`).toBeGreaterThanOrEqual(44);
     expect(box.height, `${label} ${box.text} height`).toBeGreaterThanOrEqual(44);
   }
+}
+
+async function expectInViewport(locator: Locator) {
+  await expect.poll(async () => {
+    const box = await locator.boundingBox();
+    if (!box) return false;
+    return box.y >= -1 && box.y + box.height <= 845;
+  }).toBe(true);
 }
 
 function conversation(

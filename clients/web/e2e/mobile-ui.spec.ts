@@ -46,6 +46,14 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.goto(`/app/?conversation=${conversationId}`);
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
+      const messageActions = page.locator(".message-actions");
+      await expect(messageActions.getByRole("button", { name: "Start thread" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Reply" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Report" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Edit" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Delete" })).toBeVisible();
+      await expectMinimumTargets(messageActions.locator("button"), "own-message actions");
+      await expectNoHorizontalOverflow(page.locator(".message-scroll"), "message scroller");
 
       const back = page.getByRole("button", { name: "Back to conversations" });
       const startAudio = page.getByRole("button", { name: "Start audio call" });
@@ -311,6 +319,12 @@ async function expectNoDocumentOverflow(page: Page) {
     document.documentElement.scrollWidth,
     document.body.scrollWidth
   ) - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+}
+
+async function expectNoHorizontalOverflow(locator: Locator, label: string) {
+  await expect(locator, `${label} should be visible`).toBeVisible();
+  const overflow = await locator.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow, `${label} should not scroll horizontally`).toBeLessThanOrEqual(1);
 }
 
 async function expectMinimumTarget(locator: Locator, label: string) {

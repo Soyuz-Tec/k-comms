@@ -31,4 +31,22 @@ describe("CreateConversationForm", () => {
     expect(create).not.toHaveBeenCalled();
     expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
   });
+
+  it("exposes a supplied first-teammate action when direct messaging has no candidates", () => {
+    render(
+      <CreateConversationForm
+        users={[]}
+        emptyDirectAction={<a href="/admin?section=people#admin-invitations">Invite your first teammate</a>}
+        onCancel={vi.fn()}
+        onCreate={vi.fn()}
+        onStartDirect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Create another account before starting a conversation.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Invite your first teammate" })).toHaveAttribute(
+      "href",
+      "/admin?section=people#admin-invitations"
+    );
+  });
 });

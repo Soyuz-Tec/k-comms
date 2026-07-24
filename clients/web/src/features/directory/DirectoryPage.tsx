@@ -315,7 +315,7 @@ function DirectoryPeople({
           ? "Invite the first teammate now, then return here to message or call them."
           : "Try a different name or clear the search."}
         action={showInvite
-          ? <Link className="button primary directory-empty-action" to="/admin?section=people">Invite your first teammate</Link>
+          ? <Link className="button primary directory-empty-action" to="/admin?section=people#admin-invitations">Invite your first teammate</Link>
           : undefined}
       />
     );

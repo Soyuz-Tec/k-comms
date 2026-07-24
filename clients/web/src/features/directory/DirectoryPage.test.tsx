@@ -252,6 +252,6 @@ describe("DirectoryPage", () => {
 
     expect(
       await screen.findByRole("link", { name: "Invite your first teammate" })
-    ).toHaveAttribute("href", "/admin?section=people");
+    ).toHaveAttribute("href", "/admin?section=people#admin-invitations");
   });
 });
