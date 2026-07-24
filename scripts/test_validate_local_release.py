@@ -231,6 +231,18 @@ class LocalReleasePolicyTest(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_environment_parser_incompatible_with_powershell_51(self) -> None:
+        runner = self.runner.replace(
+            '$separatorIndex = $line.IndexOf("=")',
+            '$parts = $line.Split(@("="), 2)',
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "environment-file parsing must use PowerShell 5.1-compatible index and "
+            "substring operations",
+            errors,
+        )
+
     def test_rejects_late_or_incomplete_candidate_port_preflight(self) -> None:
         runner = self.runner.replace(
             "    Assert-CandidatePorts `\n"

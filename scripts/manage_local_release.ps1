@@ -379,11 +379,12 @@ function Read-EnvironmentFile {
         if (-not $line -or $line.StartsWith("#")) {
             continue
         }
-        $parts = $line.Split(@("="), 2)
-        if ($parts.Count -ne 2) {
+        $separatorIndex = $line.IndexOf("=")
+        if ($separatorIndex -le 0) {
             throw "Invalid environment line in $Path"
         }
-        $value = $parts[1]
+        $key = $line.Substring(0, $separatorIndex)
+        $value = $line.Substring($separatorIndex + 1)
         if (
             $value.Length -ge 2 -and
             (($value.StartsWith('"') -and $value.EndsWith('"')) -or
@@ -391,7 +392,7 @@ function Read-EnvironmentFile {
         ) {
             $value = $value.Substring(1, $value.Length - 2)
         }
-        $values[$parts[0]] = $value.Replace('\"', '"')
+        $values[$key] = $value.Replace('\"', '"')
     }
     $values
 }

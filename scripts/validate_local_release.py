@@ -349,6 +349,19 @@ def validate_local_release(
             "first-candidate deployment failure must invoke complete runtime cleanup"
         )
 
+    environment_reader = _compact(
+        _function_body(runner_document, "Read-EnvironmentFile")
+    )
+    if (
+        '$line.indexof("=")' not in environment_reader
+        or "$line.substring(0, $separatorindex)" not in environment_reader
+        or "$line.substring($separatorindex + 1)" not in environment_reader
+    ):
+        errors.append(
+            "environment-file parsing must use PowerShell 5.1-compatible index and "
+            "substring operations"
+        )
+
     safe_state_body = _compact(
         _function_body(runner_document, "Assert-SafeStateRootPath")
     )
