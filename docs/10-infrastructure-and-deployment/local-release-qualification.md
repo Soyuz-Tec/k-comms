@@ -59,6 +59,49 @@ powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
   -LiveKitSignalPort 8980 -LiveKitTcpPort 8981 -LiveKitUdpPort 8982
 ```
 
+## One-command packaged browser and media qualification
+
+After a default-port `Deploy` or `Start` succeeds, qualify the sealed release
+and its real media plane with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/qualify_local_release.ps1
+```
+
+The qualifier is intentionally fixed to `http://127.0.0.1:4188`. It first
+proves that the running application image matches the retained immutable
+release receipt. It then checks:
+
+1. `/health/live` reports `ok`;
+2. `/health/ready` reports ready database/runtime checks and configured object
+   storage;
+3. `/api/v1/status` reports an operational service with administration,
+   realtime, audio-call, and video-call capabilities available;
+4. `/app/` is packaged HTML that references built `/app/assets/` files rather
+   than Vite/source assets; and
+5. `/app/` returns the exact strict local-release Content Security Policy,
+   including the sealed LiveKit and object-storage origins and no
+   `unsafe-inline`, `unsafe-eval`, or wildcard source.
+
+Finally it runs only `e2e/live-audio.spec.ts` and
+`e2e/live-video.spec.ts`, in that order, through Chromium with one Playwright
+worker against the external packaged server. Those tests provision disposable
+workspaces and prove real microphone RTP, camera RTP, group calls, screen
+sharing, access revocation, and clean call teardown. Install the committed web
+dependencies and Playwright Chromium before running the qualifier:
+
+```powershell
+Set-Location clients/web
+npm ci
+npx playwright install chromium
+Set-Location ../..
+```
+
+The packaged qualifier does not run the mocked navigation, UI, or Axe suites.
+Those remain source-client gates (`npm run test:e2e`) because their API route
+mocks and style injection are deliberately incompatible with validating a
+real packaged server and its enforced CSP.
+
 ## Evidence and secret handling
 
 The default state directory is:
@@ -150,7 +193,7 @@ This proves local packaging, migration, dependency startup, application
 readiness, immutable restart, and application rollback. The HTTP checks prove
 LiveKit signaling availability, not successful WebRTC media packets. External
 browser media tests are therefore required before calling the release
-media-capable.
+media-capable; use the one-command packaged qualifier above.
 
 On Podman Desktop, LiveKit binds the explicit mapped TCP and UDP ports while
 advertising `127.0.0.1`. Do not enable LiveKit's separate
