@@ -645,6 +645,7 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
 
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
     expect(screen.getByRole("heading", { name: "Reconnect your teammate" })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Invite your first teammate" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Manage teammate access" })).toHaveAttribute(
@@ -974,9 +975,14 @@ describe("ChatPage durable sequence recovery", () => {
     await waitFor(() => expect(harness.callbacks).not.toBeNull());
 
     await user.click(await screen.findByRole("button", { name: "Report" }));
-    expect(screen.getByRole("alertdialog", { name: "Report this message?" })).toBeVisible();
-    await user.type(screen.getByLabelText("Reason for reporting this message"), "Contains a sensitive customer identifier");
-    await user.click(screen.getByRole("button", { name: "Submit report" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Report this message?" });
+    const reason = within(dialog).getByLabelText("Reason for reporting this message");
+    const submit = within(dialog).getByRole("button", { name: "Submit report" });
+    expect(dialog).toBeVisible();
+    fireEvent.change(reason, { target: { value: "Contains a sensitive customer identifier" } });
+    expect(reason).toHaveValue("Contains a sensitive customer identifier");
+    expect(submit).toBeEnabled();
+    fireEvent.submit(submit.closest("form")!);
 
     await waitFor(() => expect(harness.api.createModerationCase).toHaveBeenCalledWith({
       message_id: "message-1",
