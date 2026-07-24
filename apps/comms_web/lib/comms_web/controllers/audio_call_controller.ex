@@ -3,7 +3,7 @@ defmodule CommsWeb.AudioCallController do
 
   alias CommsCore.AudioCalls
   alias CommsCore.AudioCalls.{CallView, CredentialRequest, ProviderCall}
-  alias CommsIntegrations.Audio.LiveKitToken
+  alias CommsIntegrations.Audio.{LiveKitReadiness, LiveKitToken}
   alias CommsIntegrations.Audio.RoomService
   alias CommsWeb.{Broadcast, Presenter}
 
@@ -52,7 +52,7 @@ defmodule CommsWeb.AudioCallController do
   defp create_call(conn, conversation_id, media_kind) do
     subject = conn.assigns.current_subject
 
-    with :ok <- LiveKitToken.ensure_available(),
+    with :ok <- LiveKitReadiness.ensure_available(),
          {:ok, call, status, credential} <-
            AudioCalls.start_with_join_authorized(
              conversation_id,
@@ -82,7 +82,7 @@ defmodule CommsWeb.AudioCallController do
   defp join_call(conn, conversation_id, call_id, expected_kind) do
     subject = conn.assigns.current_subject
 
-    with :ok <- LiveKitToken.ensure_available(),
+    with :ok <- LiveKitReadiness.ensure_available(),
          {:ok, call, credential} <-
            AudioCalls.with_join_authorized(
              conversation_id,

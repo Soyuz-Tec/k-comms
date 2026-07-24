@@ -30,6 +30,13 @@ defmodule CommsIntegrations.Audio.LiveKitReadiness do
     :exit, _reason -> unavailable(:readiness_process_unavailable)
   end
 
+  def ensure_available(server \\ __MODULE__) do
+    case status(server) do
+      %{status: :available} -> :ok
+      _status -> {:error, :audio_provider_unavailable}
+    end
+  end
+
   @doc false
   def refresh(server \\ __MODULE__) do
     GenServer.call(server, :refresh, @status_timeout_ms)

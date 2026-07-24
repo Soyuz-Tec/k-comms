@@ -82,6 +82,19 @@ defmodule CommsIntegrations.Audio.LiveKitReadinessTest do
     refute_receive :provider_probe, 50
   end
 
+  test "admits calls only while the cached provider probe is fresh and successful" do
+    name = unique_name()
+
+    start_supervised!(
+      {LiveKitReadiness,
+       name: name, interval_ms: 60_000, stale_after_ms: 60_000, probe: fn -> :ok end}
+    )
+
+    assert eventually(fn -> LiveKitReadiness.ensure_available(name) == :ok end)
+    assert :ok = LiveKitReadiness.refresh(name)
+    assert LiveKitReadiness.ensure_available(name) == {:error, :audio_provider_unavailable}
+  end
+
   test "fails closed quickly while a bounded provider probe times out" do
     parent = self()
     name = unique_name()

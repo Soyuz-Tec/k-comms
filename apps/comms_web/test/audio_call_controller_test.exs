@@ -18,13 +18,16 @@ defmodule CommsWeb.AudioCallControllerTest do
   alias CommsCore.Audit
   alias CommsCore.Events.OutboxEvent
   alias CommsCore.Repo
+  alias CommsIntegrations.Audio.LiveKitReadiness
   alias CommsTestSupport.Fixtures
 
   setup do
+    {provider_socket, provider_port} = start_readiness_endpoint()
+
     values = %{
       audio_provider_mode: "livekit",
       livekit_server_url: "wss://audio.example.test",
-      livekit_api_url: "https://audio-api.example.test",
+      livekit_api_url: "http://127.0.0.1:#{provider_port}",
       livekit_api_key: "test-api-key",
       livekit_api_secret: "test-api-secret",
       audio_token_ttl_seconds: 300,
@@ -37,13 +40,19 @@ defmodule CommsWeb.AudioCallControllerTest do
       Map.new(values, fn {key, _value} -> {key, Application.get_env(:comms_integrations, key)} end)
 
     Enum.each(values, fn {key, value} -> Application.put_env(:comms_integrations, key, value) end)
+    assert :ok = LiveKitReadiness.refresh()
+    assert eventually(fn -> LiveKitReadiness.ensure_available() == :ok end)
 
     on_exit(fn ->
+      :ok = :gen_tcp.close(provider_socket)
+
       Enum.each(previous, fn {key, value} ->
         if is_nil(value),
           do: Application.delete_env(:comms_integrations, key),
           else: Application.put_env(:comms_integrations, key, value)
       end)
+
+      LiveKitReadiness.refresh()
     end)
 
     account = Fixtures.account_fixture()
@@ -55,6 +64,44 @@ defmodule CommsWeb.AudioCallControllerTest do
       |> Map.fetch!(:access_token)
 
     {:ok, account: account, authorization: {"authorization", "Bearer #{token}"}}
+  end
+
+  test "provider outage rejects call admission before any durable lifecycle state is written", %{
+    account: account,
+    authorization: authorization
+  } do
+    Application.put_env(
+      :comms_integrations,
+      :livekit_api_url,
+      "http://127.0.0.1:1"
+    )
+
+    assert :ok = LiveKitReadiness.refresh()
+
+    assert eventually(fn ->
+             LiveKitReadiness.ensure_available() == {:error, :audio_provider_unavailable}
+           end)
+
+    response =
+      build_conn()
+      |> put_req_header(elem(authorization, 0), elem(authorization, 1))
+      |> post("/api/v1/conversations/#{account.conversation.id}/calls", %{
+        media_kind: "video"
+      })
+      |> json_response(503)
+
+    assert response["error"]["code"] == "provider_unavailable"
+    assert Repo.aggregate(AudioCall, :count) == 0
+    assert Repo.aggregate(AudioCallParticipant, :count) == 0
+
+    assert Repo.aggregate(
+             from(event in OutboxEvent,
+               where: event.event_type in ["call.started.v1", "audio_call.started.v1"]
+             ),
+             :count
+           ) == 0
+
+    assert Audit.count(%{tenant_id: account.tenant.id, action: "video_call.start"}) == 0
   end
 
   test "exact REST lifecycle returns memory-only credentials and broadcasts lifecycle metadata",
@@ -416,4 +463,51 @@ defmodule CommsWeb.AudioCallControllerTest do
              :count
            ) == 0
   end
+
+  defp start_readiness_endpoint do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [
+        :binary,
+        packet: :raw,
+        active: false,
+        reuseaddr: true,
+        ip: {127, 0, 0, 1}
+      ])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+    spawn_link(fn -> serve_readiness(listener) end)
+    {listener, port}
+  end
+
+  defp serve_readiness(listener) do
+    case :gen_tcp.accept(listener) do
+      {:ok, socket} ->
+        _request = :gen_tcp.recv(socket, 0, 1_000)
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 12\r\nconnection: close\r\n\r\n{\"rooms\":[]}"
+          )
+
+        :gen_tcp.close(socket)
+        serve_readiness(listener)
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp eventually(fun, attempts \\ 80)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 end
