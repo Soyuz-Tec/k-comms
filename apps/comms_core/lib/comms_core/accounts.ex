@@ -49,6 +49,8 @@ defmodule CommsCore.Accounts do
   @platform_roles PlatformRoleGrant.roles()
   @platform_role_min_ttl_seconds 300
   @platform_role_max_ttl_seconds 28_800
+  @default_directory_limit 25
+  @max_directory_limit 100
 
   @doc """
   Resolves an active human session into persistence-free authorization facts.
@@ -237,6 +239,99 @@ defmodule CommsCore.Accounts do
   end
 
   def resolve_user_views(_tenant_id, _user_ids), do: []
+
+  @doc """
+  Lists active human identities visible to the authenticated caller.
+
+  The result is tenant-scoped, excludes the caller, carries no email or role
+  data, and uses an opaque keyset cursor ordered by normalized display name and
+  user id.
+  """
+  @spec list_directory_views(map(), map()) ::
+          {:ok,
+           %{
+             people: [CommsCore.Accounts.DirectoryPersonView.t()],
+             next_cursor: String.t() | nil
+           }}
+          | {:error, :forbidden | :invalid_cursor | :invalid_search_query}
+  def list_directory_views(params, subject) when is_map(params) and is_map(subject) do
+    with {:ok, %AccessGrant{} = grant} <- access_grant(subject),
+         {:ok, cursor} <- optional_directory_cursor(value(params, :cursor)),
+         {:ok, search} <- normalize_directory_search(value(params, :q)) do
+      limit = parse_directory_limit(value(params, :limit))
+
+      rows =
+        User
+        |> where(
+          [user],
+          user.tenant_id == ^grant.tenant_id and user.status == :active and
+            user.account_type == :human and user.id != ^grant.user_id
+        )
+        |> maybe_search_directory(search)
+        |> maybe_after_directory_cursor(cursor)
+        |> order_by([user], asc: fragment("lower(?)", user.display_name), asc: user.id)
+        |> select([user], %{
+          user: user,
+          sort_name: fragment("lower(?)", user.display_name)
+        })
+        |> limit(^(limit + 1))
+        |> Repo.all()
+
+      {page, remainder} = Enum.split(rows, limit)
+
+      {:ok,
+       %{
+         people:
+           Enum.map(page, fn row ->
+             CommsCore.Accounts.Projector.directory_person(row.user)
+           end),
+         next_cursor: if(remainder == [], do: nil, else: directory_cursor_for(List.last(page)))
+       }}
+    else
+      {:error, :forbidden} -> {:error, :forbidden}
+      {:error, reason} when reason in [:invalid_cursor, :invalid_search_query] -> {:error, reason}
+    end
+  end
+
+  def list_directory_views(_params, _subject), do: {:error, :forbidden}
+
+  @doc false
+  @spec lock_active_human_directory_users(Ecto.UUID.t(), [Ecto.UUID.t()]) ::
+          {:ok, [CommsCore.Accounts.DirectoryPersonView.t()]}
+          | {:error, :not_found | :transaction_required}
+  def lock_active_human_directory_users(tenant_id, user_ids)
+      when is_binary(tenant_id) and is_list(user_ids) do
+    normalized_ids = user_ids |> Enum.uniq() |> Enum.sort()
+
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(tenant_id) or normalized_ids == [] or
+          not Enum.all?(normalized_ids, &valid_uuid?/1) ->
+        {:error, :not_found}
+
+      true ->
+        users =
+          Repo.all(
+            from(user in User,
+              where:
+                user.tenant_id == ^tenant_id and user.id in ^normalized_ids and
+                  user.status == :active and user.account_type == :human,
+              order_by: [asc: user.id],
+              lock: "FOR SHARE"
+            )
+          )
+
+        if Enum.map(users, & &1.id) == normalized_ids do
+          {:ok, Enum.map(users, &CommsCore.Accounts.Projector.directory_person/1)}
+        else
+          {:error, :not_found}
+        end
+    end
+  end
+
+  def lock_active_human_directory_users(_tenant_id, _user_ids), do: {:error, :not_found}
 
   @doc """
   Verifies that a governance target exists in the exact tenant.
@@ -2734,6 +2829,86 @@ defmodule CommsCore.Accounts do
     do: DateTime.compare(claimed, persisted) == :eq
 
   defp platform_deadline_matches?(_, _), do: false
+
+  defp normalize_directory_search(nil), do: {:ok, nil}
+
+  defp normalize_directory_search(value) when is_binary(value) do
+    search = String.trim(value)
+
+    cond do
+      search == "" -> {:ok, nil}
+      String.length(search) <= 120 -> {:ok, search}
+      true -> {:error, :invalid_search_query}
+    end
+  end
+
+  defp normalize_directory_search(_value), do: {:error, :invalid_search_query}
+
+  defp maybe_search_directory(query, nil), do: query
+
+  defp maybe_search_directory(query, search) do
+    pattern = "%#{escape_directory_like(search)}%"
+
+    where(
+      query,
+      [user],
+      ilike(user.display_name, ^pattern)
+    )
+  end
+
+  defp escape_directory_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
+
+  defp optional_directory_cursor(nil), do: {:ok, nil}
+  defp optional_directory_cursor(""), do: {:ok, nil}
+
+  defp optional_directory_cursor(value) when is_binary(value) do
+    with {:ok, decoded} <- Base.url_decode64(value, padding: false),
+         {:ok, %{"display_name" => display_name, "id" => id}} <- Jason.decode(decoded),
+         true <- is_binary(display_name) and String.length(display_name) <= 120,
+         {:ok, id} <- Ecto.UUID.cast(id) do
+      {:ok, {display_name, id}}
+    else
+      _ -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp optional_directory_cursor(_value), do: {:error, :invalid_cursor}
+
+  defp maybe_after_directory_cursor(query, nil), do: query
+
+  defp maybe_after_directory_cursor(query, {display_name, id}) do
+    where(
+      query,
+      [user],
+      fragment("lower(?)", user.display_name) > ^display_name or
+        (fragment("lower(?)", user.display_name) == ^display_name and user.id > ^id)
+    )
+  end
+
+  defp directory_cursor_for(nil), do: nil
+
+  defp directory_cursor_for(%{sort_name: sort_name, user: %User{id: id}}) do
+    %{display_name: sort_name, id: id}
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp parse_directory_limit(value) when is_integer(value),
+    do: value |> max(1) |> min(@max_directory_limit)
+
+  defp parse_directory_limit(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} -> parse_directory_limit(number)
+      _ -> @default_directory_limit
+    end
+  end
+
+  defp parse_directory_limit(_value), do: @default_directory_limit
 
   defp authorize_tenant_role_with_step_up(action, subject, allowed_roles) do
     case access_grant(subject) do

@@ -531,28 +531,90 @@ defmodule CommsCore.Conversations do
   end
 
   @doc """
-  Returns the active conversation IDs visible to a subject.
+  Returns the composable active-membership authorization projection for a
+  verified identity grant.
 
-  This is a read projection for content queries; callers do not receive
-  conversation or membership persistence structs.
+  The projection remains owned by Conversations and exposes only the
+  conversation identifier and the caller's current membership role. Dependent
+  contexts join it as a database subquery so authorization remains bounded even
+  when a user belongs to many conversations; no persistence struct or
+  materialized identifier list crosses the boundary.
   """
-  @spec active_conversation_ids(map()) :: [Ecto.UUID.t()]
-  def active_conversation_ids(subject) when is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    user_id = value(subject, :user_id)
+  @spec active_membership_authorization_query(CommsCore.Accounts.AccessGrant.t()) ::
+          Ecto.Query.t()
+  def active_membership_authorization_query(%CommsCore.Accounts.AccessGrant{
+        tenant_id: tenant_id,
+        user_id: user_id
+      }) do
+    active_membership_authorization_query(tenant_id, user_id)
+  end
 
-    Repo.all(
-      from(conversation in Conversation,
-        join: membership in Membership,
-        on:
-          membership.conversation_id == conversation.id and
-            membership.tenant_id == conversation.tenant_id,
-        where:
-          conversation.tenant_id == ^tenant_id and membership.user_id == ^user_id and
-            is_nil(membership.left_at) and is_nil(conversation.archived_at),
-        select: conversation.id
-      )
+  @doc """
+  Returns the same composable authorization projection for a verified service
+  identity.
+
+  IdentityAccess revalidates the durable service credential and requested
+  capability before Conversations exposes its owner-local membership query.
+  Invalid identity facts fail closed before any dependent context can execute
+  the projection.
+  """
+  @spec active_service_membership_authorization_query(map(), String.t()) ::
+          {:ok, Ecto.Query.t()} | {:error, :forbidden}
+  def active_service_membership_authorization_query(subject, required_scope)
+      when is_map(subject) and is_binary(required_scope) do
+    with :ok <- ServiceAccounts.authorize_service(subject, required_scope),
+         {:ok, tenant_id} <- Ecto.UUID.cast(value(subject, :tenant_id)),
+         {:ok, user_id} <- Ecto.UUID.cast(value(subject, :user_id)) do
+      {:ok, active_membership_authorization_query(tenant_id, user_id)}
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def active_service_membership_authorization_query(_subject, _required_scope),
+    do: {:error, :forbidden}
+
+  defp active_membership_authorization_query(tenant_id, user_id) do
+    from(conversation in Conversation,
+      join: membership in Membership,
+      on:
+        membership.conversation_id == conversation.id and
+          membership.tenant_id == conversation.tenant_id,
+      where:
+        conversation.tenant_id == ^tenant_id and membership.user_id == ^user_id and
+          is_nil(membership.left_at) and is_nil(conversation.archived_at),
+      select: %{
+        conversation_id: conversation.id,
+        membership_role: membership.role
+      }
     )
+  end
+
+  @doc """
+  Checks one conversation against the same active-membership projection.
+
+  This preserves a fail-closed response for explicitly scoped reads without
+  loading every authorized conversation identifier into application memory.
+  """
+  @spec active_conversation_member?(
+          CommsCore.Accounts.AccessGrant.t(),
+          Ecto.UUID.t()
+        ) :: boolean()
+  def active_conversation_member?(
+        %CommsCore.Accounts.AccessGrant{} = grant,
+        conversation_id
+      ) do
+    case Ecto.UUID.cast(conversation_id) do
+      {:ok, conversation_id} ->
+        grant
+        |> active_membership_authorization_query()
+        |> subquery()
+        |> where([authorization], authorization.conversation_id == ^conversation_id)
+        |> Repo.exists?()
+
+      :error ->
+        false
+    end
   end
 
   @doc false
@@ -561,15 +623,22 @@ defmodule CommsCore.Conversations do
 
   def project(%ConversationView{} = conversation), do: conversation
 
-  def create_view(attrs, subject),
-    do:
-      create(attrs, subject) |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def create_view(attrs, subject) do
+    create(attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
-  def list_for_user_views(subject),
-    do:
-      subject
-      |> list_for_user()
-      |> Enum.map(&CommsCore.Conversations.Projector.user_conversation/1)
+  def list_for_user_views(subject) do
+    results = list_for_user(subject)
+    counterpart_names = direct_counterpart_display_names(results, subject)
+
+    Enum.map(results, fn result ->
+      CommsCore.Conversations.Projector.user_conversation(
+        result,
+        Map.get(counterpart_names, result.conversation.id)
+      )
+    end)
+  end
 
   def discover_public_channel_views(params, subject) do
     with {:ok, result} <- discover_public_channels(params, subject) do
@@ -588,20 +657,20 @@ defmodule CommsCore.Conversations do
   def leave_public_channel_view(id, attrs, subject),
     do: leave_public_channel(id, attrs, subject) |> project_result(&project_membership_change/1)
 
-  def get_for_user_view(id, subject),
-    do:
-      get_for_user(id, subject)
-      |> project_result(&CommsCore.Conversations.Projector.user_conversation/1)
+  def get_for_user_view(id, subject) do
+    get_for_user(id, subject)
+    |> project_result(&project_authorized_user_conversation(&1, subject))
+  end
 
-  def update_view(id, attrs, subject),
-    do:
-      __MODULE__.update(id, attrs, subject)
-      |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def update_view(id, attrs, subject) do
+    __MODULE__.update(id, attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
-  def archive_view(id, attrs, subject),
-    do:
-      archive(id, attrs, subject)
-      |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def archive_view(id, attrs, subject) do
+    archive(id, attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
   def list_member_views(id, subject) do
     with {:ok, members} <- list_members(id, subject) do
@@ -624,6 +693,78 @@ defmodule CommsCore.Conversations do
       change_member_role(conversation_id, user_id, attrs, subject)
       |> project_result(&CommsCore.Conversations.Projector.membership/1)
 
+  @doc """
+  Returns the caller's active direct conversation with another active human or
+  creates it atomically.
+
+  The tenant admission lock serializes this operation with all other
+  conversation creation and user lifecycle admission. Existing conversations
+  are resolved before quota checks, so reaching capacity never prevents
+  members from resuming an already-authorized direct conversation.
+  """
+  @spec get_or_create_direct_view(Ecto.UUID.t(), map()) ::
+          {:ok, %{conversation: ConversationView.t(), created: boolean()}}
+          | {:error,
+             :active_conversation_quota_exceeded
+             | :conversation_member_quota_exceeded
+             | :direct_conversation_unavailable
+             | :forbidden
+             | :not_found}
+  def get_or_create_direct_view(other_user_id, subject)
+      when is_binary(other_user_id) and is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject),
+         {:ok, other_user_id} <- Ecto.UUID.cast(other_user_id),
+         false <- grant.user_id == other_user_id do
+      Repo.transaction(fn ->
+        policy = admission_policy!(grant.tenant_id)
+        locked_grant = lock_direct_access!(subject, grant)
+        member_ids = Enum.sort([locked_grant.user_id, other_user_id])
+
+        lock_directory_members!(locked_grant.tenant_id, member_ids)
+
+        {:ok, direct_key} = direct_key(:direct, member_ids)
+
+        case lock_direct_conversation(locked_grant.tenant_id, direct_key) do
+          %Conversation{archived_at: nil} = conversation ->
+            ensure_active_direct_memberships!(conversation, member_ids)
+
+            %{conversation: conversation, created: false}
+
+          %Conversation{} ->
+            Repo.rollback(:direct_conversation_unavailable)
+
+          nil ->
+            quota_ok!(
+              AdmissionQuotas.check_conversation_creation(
+                policy,
+                active_conversation_count(locked_grant.tenant_id),
+                2
+              )
+            )
+
+            conversation =
+              create_direct_conversation!(
+                locked_grant.tenant_id,
+                locked_grant.user_id,
+                member_ids,
+                direct_key,
+                subject
+              )
+
+            %{conversation: conversation, created: true}
+        end
+      end)
+      |> transaction_result()
+      |> project_direct_conversation_result(subject)
+    else
+      {:error, _reason} -> {:error, :forbidden}
+      true -> {:error, :not_found}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  def get_or_create_direct_view(_other_user_id, _subject), do: {:error, :not_found}
+
   def create(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
@@ -632,6 +773,7 @@ defmodule CommsCore.Conversations do
 
     visibility = enum_value(value(attrs, :visibility), [:private, :tenant], :private)
     visibility = if kind == :direct, do: :private, else: visibility
+    title = if kind == :direct, do: nil, else: value(attrs, :title)
 
     with :ok <- authorize_create(subject),
          :ok <- validate_members(tenant_id, member_ids),
@@ -657,7 +799,7 @@ defmodule CommsCore.Conversations do
             tenant_id: tenant_id,
             created_by_user_id: user_id,
             kind: kind,
-            title: value(attrs, :title),
+            title: title,
             visibility: visibility,
             direct_key: direct_key,
             next_sequence: 1
@@ -931,7 +1073,7 @@ defmodule CommsCore.Conversations do
           %{}
           |> maybe_put(:title, value(attrs, :title))
           |> maybe_put(:visibility, normalized_visibility(value(attrs, :visibility)))
-          |> enforce_direct_visibility(conversation)
+          |> enforce_direct_fields(conversation)
 
         requested_visibility = Map.get(changes, :visibility, conversation.visibility)
 
@@ -1309,6 +1451,98 @@ defmodule CommsCore.Conversations do
     [owner_id | ids] |> Enum.filter(&is_binary/1) |> Enum.uniq()
   end
 
+  defp lock_direct_access!(subject, expected_grant) do
+    case Accounts.lock_access_grant(subject) do
+      {:ok, locked_grant}
+      when locked_grant.tenant_id == expected_grant.tenant_id and
+             locked_grant.user_id == expected_grant.user_id ->
+        locked_grant
+
+      _ ->
+        Repo.rollback(:forbidden)
+    end
+  end
+
+  defp lock_directory_members!(tenant_id, member_ids) do
+    case Accounts.lock_active_human_directory_users(tenant_id, member_ids) do
+      {:ok, people} when length(people) == 2 -> :ok
+      _ -> Repo.rollback(:not_found)
+    end
+  end
+
+  defp lock_direct_conversation(tenant_id, direct_key) do
+    Repo.one(
+      from(conversation in Conversation,
+        where:
+          conversation.tenant_id == ^tenant_id and conversation.kind == :direct and
+            conversation.direct_key == ^direct_key,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp ensure_active_direct_memberships!(conversation, member_ids) do
+    active_member_ids =
+      Repo.all(
+        from(membership in Membership,
+          where:
+            membership.tenant_id == ^conversation.tenant_id and
+              membership.conversation_id == ^conversation.id and
+              membership.user_id in ^member_ids and is_nil(membership.left_at),
+          order_by: [asc: membership.user_id],
+          select: membership.user_id,
+          lock: "FOR SHARE"
+        )
+      )
+
+    if active_member_ids != member_ids, do: Repo.rollback(:direct_conversation_unavailable)
+  end
+
+  defp create_direct_conversation!(
+         tenant_id,
+         actor_user_id,
+         member_ids,
+         direct_key,
+         subject
+       ) do
+    timestamp = now()
+
+    conversation =
+      %Conversation{}
+      |> Conversation.changeset(%{
+        tenant_id: tenant_id,
+        created_by_user_id: actor_user_id,
+        kind: :direct,
+        visibility: :private,
+        direct_key: direct_key,
+        next_sequence: 1
+      })
+      |> insert_or_rollback()
+
+    Enum.each(member_ids, fn member_id ->
+      role = if member_id == actor_user_id, do: :owner, else: :member
+
+      %Membership{}
+      |> Membership.changeset(%{
+        tenant_id: tenant_id,
+        conversation_id: conversation.id,
+        user_id: member_id,
+        role: role,
+        joined_at: timestamp,
+        last_read_sequence: 0
+      })
+      |> insert_or_rollback()
+    end)
+
+    insert_event(conversation, "conversation.created.v1", subject, %{
+      kind: :direct,
+      title: nil,
+      member_ids: member_ids
+    })
+
+    conversation
+  end
+
   defp normalize_channel_search(nil), do: {:ok, nil}
 
   defp normalize_channel_search(value) when is_binary(value) do
@@ -1625,11 +1859,13 @@ defmodule CommsCore.Conversations do
   defp normalized_visibility(value),
     do: enum_value(value, [:private, :tenant], :invalid_visibility)
 
-  defp enforce_direct_visibility(attrs, %Conversation{kind: :direct}) do
-    Map.put(attrs, :visibility, :private)
+  defp enforce_direct_fields(attrs, %Conversation{kind: :direct}) do
+    attrs
+    |> Map.put(:title, nil)
+    |> Map.put(:visibility, :private)
   end
 
-  defp enforce_direct_visibility(attrs, _), do: attrs
+  defp enforce_direct_fields(attrs, _), do: attrs
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -1638,6 +1874,83 @@ defmodule CommsCore.Conversations do
   defp transaction_result({:error, reason}), do: {:error, reason}
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp project_direct_conversation_result({:ok, result}, subject) do
+    {:ok,
+     %{
+       result
+       | conversation: project_authorized_conversation(result.conversation, subject)
+     }}
+  end
+
+  defp project_direct_conversation_result({:error, _reason} = error, _subject), do: error
+
+  defp project_authorized_user_conversation(result, subject) do
+    counterpart_names = direct_counterpart_display_names([result], subject)
+
+    CommsCore.Conversations.Projector.user_conversation(
+      result,
+      Map.get(counterpart_names, result.conversation.id)
+    )
+  end
+
+  defp project_authorized_conversation(%Conversation{} = conversation, subject) do
+    counterpart_names =
+      direct_counterpart_display_names([%{conversation: conversation}], subject)
+
+    CommsCore.Conversations.Projector.conversation(
+      conversation,
+      Map.get(counterpart_names, conversation.id)
+    )
+  end
+
+  defp direct_counterpart_display_names(results, subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, grant} -> direct_counterpart_display_names_for_grant(results, grant)
+      _ -> %{}
+    end
+  end
+
+  defp direct_counterpart_display_names_for_grant(results, grant) do
+    tenant_id = grant.tenant_id
+    user_id = grant.user_id
+
+    direct_ids =
+      results
+      |> Enum.flat_map(fn
+        %{conversation: %Conversation{tenant_id: ^tenant_id, kind: :direct, id: id}} -> [id]
+        _ -> []
+      end)
+      |> Enum.uniq()
+
+    counterpart_memberships =
+      if direct_ids == [] do
+        []
+      else
+        Repo.all(
+          from(membership in Membership,
+            where:
+              membership.tenant_id == ^tenant_id and
+                membership.conversation_id in ^direct_ids and membership.user_id != ^user_id and
+                is_nil(membership.left_at),
+            order_by: [asc: membership.conversation_id, asc: membership.user_id],
+            select: %{
+              conversation_id: membership.conversation_id,
+              user_id: membership.user_id
+            }
+          )
+        )
+      end
+
+    display_names =
+      tenant_id
+      |> Accounts.resolve_user_views(Enum.map(counterpart_memberships, & &1.user_id))
+      |> Map.new(&{&1.id, &1.display_name})
+
+    Map.new(counterpart_memberships, fn membership ->
+      {membership.conversation_id, Map.get(display_names, membership.user_id)}
+    end)
+  end
 
   defp project_membership_change(result) do
     %{

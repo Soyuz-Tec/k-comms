@@ -16,6 +16,9 @@ defmodule CommsIntegrations.ObjectStorage.DenyAll do
   def delete_object(_request), do: {:error, :object_storage_adapter_not_configured}
 
   @impl true
+  def purge_object_versions(_request), do: {:error, :object_storage_adapter_not_configured}
+
+  @impl true
   def status,
     do: %{
       status: :unavailable,

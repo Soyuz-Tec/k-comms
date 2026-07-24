@@ -6,6 +6,15 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
+  reviewed_manifest_transitions:
+    - id: add-mobile-member-read-projections
+      previous_manifest_sha256: 3a85243b735584c066d79891947ac0a5b8f8780bc71463b0e97bd8177faef1c2
+      approved_changes:
+        - context:calls:public_contracts:add:CommsCore.AudioCalls.CallSessionView
+        - context:conversation_content:public_contracts:add:CommsCore.Attachments.FileView
+        - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
+      adr: docs/02-architecture/adr/0046-mobile-member-read-contracts.md
+      removal_condition: Remove after ADR-0046 projections and released adapters are present on the protected branch; this declaration may not authorize later manifest changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -236,6 +245,7 @@ contexts:
       - CommsCore.Accounts.CallLifecycleReceipt
       - CommsCore.Accounts.ConversationBootstrapPort
       - CommsCore.Accounts.DeviceView
+      - CommsCore.Accounts.DirectoryPersonView
       - CommsCore.Accounts.InitialConversationCommand
       - CommsCore.Accounts.InitialConversationReceipt
       - CommsCore.Accounts.NotificationCommand
@@ -316,6 +326,7 @@ contexts:
       - CommsCore.Messaging.ReactionView
       - CommsCore.Attachments.AttachmentDeletionObject
       - CommsCore.Attachments.AttachmentView
+      - CommsCore.Attachments.FileView
       - CommsCore.Attachments.RestoreCandidate
       - CommsCore.Attachments.RestoreContext
       - CommsCore.Attachments.RestoreReport
@@ -332,6 +343,7 @@ contexts:
     fold_in: []
     public_facades: [CommsCore.AudioCalls]
     public_contracts:
+      - CommsCore.AudioCalls.CallSessionView
       - CommsCore.AudioCalls.CallView
       - CommsCore.AudioCalls.CredentialRequest
       - CommsCore.AudioCalls.EvictionClaim

@@ -58,6 +58,16 @@ describe("PeoplePanel", () => {
     sessionApi.stepUp.mockReset().mockResolvedValue({ step_up_at: "2026-07-14T12:00:00Z" });
   });
 
+  it("gives invitation-load errors a descriptive dismiss control", async () => {
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockRejectedValue(new Error("Invitations unavailable")) });
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss people error" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Invitations unavailable");
+    await user.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("turns a one-time invitation token into a copy-ready fragment URL", async () => {
     const invitations = vi.fn().mockResolvedValue([]);
     const createInvitation = vi.fn().mockResolvedValue({ invitation, invitationToken: "one-time-secret" });

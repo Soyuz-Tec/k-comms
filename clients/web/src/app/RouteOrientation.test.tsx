@@ -24,7 +24,7 @@ describe("RouteOrientation", () => {
 
     const conversations = screen.getByRole("heading", { name: "Conversations" });
     await waitFor(() => expect(conversations).toHaveFocus());
-    expect(document.title).toBe("Messages | K-Comms");
+    expect(document.title).toBe("Inbox | K-Comms");
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
     const settings = screen.getByRole("heading", { name: "Profile and settings" });

@@ -64,5 +64,6 @@ make bootstrap
 make dev
 ```
 
-Open `http://localhost:5173`, choose **Create development workspace**, and use a
-password of at least twelve characters.
+Open `http://localhost:5173/app/?setup=workspace` to land directly on the
+authorized workspace-creation form. The slug is suggested from the workspace
+name and remains editable. Use a password of at least twelve characters.

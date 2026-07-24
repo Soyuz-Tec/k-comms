@@ -2,6 +2,8 @@ import type {
   AccountSession,
   Call,
   CallMediaKind,
+  CallsPageResponse,
+  CallsQueryOptions,
   CallSessionResponse,
   Attachment,
   AttachmentSafety,
@@ -12,6 +14,8 @@ import type {
   DeletionRequest,
   DataResponse,
   Device,
+  DirectoryPeoplePage,
+  DirectConversationResponse,
   HealthStatus,
   Invitation,
   InAppNotification,
@@ -29,6 +33,8 @@ import type {
   NotificationIntent,
   NotificationPreference,
   OperationsSnapshot,
+  FilesPageResponse,
+  FilesQueryOptions,
   PublicChannelDiscoveryPage,
   PublicChannelMembershipResponse,
   PushSubscriptionConfig,
@@ -280,6 +286,23 @@ export class ApiClient {
 
   users(): Promise<User[]> {
     return this.request<ListResponse<User>>("/api/v1/users").then((response) => response.data);
+  }
+
+  directoryUsers(
+    query = "",
+    limit = 25,
+    cursor?: string | null
+  ): Promise<DirectoryPeoplePage> {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return this.request(`/api/v1/directory/users?${params.toString()}`);
+  }
+
+  directConversation(userId: string): Promise<DirectConversationResponse> {
+    return this.request("/api/v1/direct-conversations", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId })
+    });
   }
 
   adminUsers(): Promise<User[]> {
@@ -642,6 +665,26 @@ export class ApiClient {
     );
   }
 
+  calls(options: CallsQueryOptions = {}): Promise<CallsPageResponse> {
+    const query = new URLSearchParams({
+      scope: options.scope ?? "recent",
+      limit: String(Math.max(1, Math.min(options.limit ?? 25, 100)))
+    });
+    if (options.media_kind) query.set("media_kind", options.media_kind);
+    if (options.cursor) query.set("cursor", options.cursor);
+    return this.request(`/api/v1/calls?${query.toString()}`);
+  }
+
+  files(options: FilesQueryOptions = {}): Promise<FilesPageResponse> {
+    const query = new URLSearchParams({
+      scope: options.scope ?? "recent",
+      limit: String(Math.max(1, Math.min(options.limit ?? 25, 100)))
+    });
+    if (options.conversation_id) query.set("conversation_id", options.conversation_id);
+    if (options.cursor) query.set("cursor", options.cursor);
+    return this.request(`/api/v1/files?${query.toString()}`);
+  }
+
   call(conversationId: string): Promise<Call | null> {
     return this.request<DataResponse<Call | null>>(
       `/api/v1/conversations/${encodeURIComponent(conversationId)}/call`
@@ -864,9 +907,14 @@ export class ApiClient {
     });
   }
 
-  createAttachment(file: File, checksum: string): Promise<AttachmentIntentResponse> {
+  createAttachment(
+    file: File,
+    checksum: string,
+    signal?: AbortSignal
+  ): Promise<AttachmentIntentResponse> {
     return this.request("/api/v1/attachments", {
       method: "POST",
+      signal,
       body: JSON.stringify({
         file_name: file.name,
         content_type: attachmentContentType(file),
@@ -876,19 +924,28 @@ export class ApiClient {
     });
   }
 
-  completeAttachment(id: string): Promise<Attachment> {
+  completeAttachment(id: string, signal?: AbortSignal): Promise<Attachment> {
     return this.request<DataResponse<Attachment>>(
       `/api/v1/attachments/${encodeURIComponent(id)}/complete`,
-      { method: "POST" }
+      { method: "POST", signal }
     ).then((response) => response.data);
+  }
+
+  abandonAttachment(id: string): Promise<void> {
+    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
   }
 
   attachmentDownload(id: string): Promise<AttachmentDownloadResponse> {
     return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`);
   }
 
-  attachmentStatus(id: string): Promise<AttachmentDownloadResponse> {
-    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`);
+  attachmentStatus(
+    id: string,
+    signal?: AbortSignal
+  ): Promise<AttachmentDownloadResponse> {
+    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`, { signal });
   }
 
   async logout(): Promise<void> {
@@ -1079,7 +1136,8 @@ export async function sha256(file: File): Promise<string> {
 
 export async function uploadToPresignedTarget(
   descriptor: UploadDescriptor,
-  file: File
+  file: File,
+  signal?: AbortSignal
 ): Promise<void> {
   const url = validatedPresignedUrl(descriptor);
 
@@ -1097,7 +1155,8 @@ export async function uploadToPresignedTarget(
   const response = await fetch(url, {
     method: descriptor.method || (descriptor.fields ? "POST" : "PUT"),
     headers,
-    body
+    body,
+    signal
   });
   if (!response.ok) throw new Error(`Object upload failed with status ${response.status}`);
 }

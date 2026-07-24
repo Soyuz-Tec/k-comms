@@ -827,12 +827,39 @@ class ValidateArchitectureTest(unittest.TestCase):
         source = (root / "apps/comms_core/lib/comms_core/messaging.ex").read_text(
             encoding="utf-8"
         )
+        attachments_source = (
+            root / "apps/comms_core/lib/comms_core/attachments.ex"
+        ).read_text(encoding="utf-8")
+        calls_source = (
+            root / "apps/comms_core/lib/comms_core/audio_calls.ex"
+        ).read_text(encoding="utf-8")
+        conversations_source = (
+            root / "apps/comms_core/lib/comms_core/conversations.ex"
+        ).read_text(encoding="utf-8")
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         references = core_module_references(source)
 
         self.assertIn("Conversations.reserve_message_slot", source)
         self.assertIn("Conversations.validate_active_members", source)
-        self.assertIn("Conversations.active_conversation_ids", source)
+        self.assertIn("def active_membership_authorization_query(", conversations_source)
+        self.assertIn(
+            "def active_service_membership_authorization_query(",
+            conversations_source,
+        )
+
+        for owner_name, owner_source in {
+            "messaging": source,
+            "attachments": attachments_source,
+            "calls": calls_source,
+        }.items():
+            with self.subTest(owner=owner_name):
+                self.assertIn(
+                    "Conversations.active_membership_authorization_query",
+                    owner_source,
+                )
+                self.assertIn("subquery(authorization_query)", owner_source)
+                self.assertNotIn("active_conversation_ids", owner_source)
+
         self.assertTrue(
             {
                 "CommsCore.Accounts.User",
@@ -980,6 +1007,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Messaging.ReactionView",
                 "CommsCore.Attachments.AttachmentDeletionObject",
                 "CommsCore.Attachments.AttachmentView",
+                "CommsCore.Attachments.FileView",
                 "CommsCore.Attachments.RestoreCandidate",
                 "CommsCore.Attachments.RestoreContext",
                 "CommsCore.Attachments.RestoreReport",
@@ -1507,6 +1535,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         calls = manifest["contexts"]["calls"]
         public_contracts = {
             "CommsCore.AudioCalls.CallView",
+            "CommsCore.AudioCalls.CallSessionView",
             "CommsCore.AudioCalls.CredentialRequest",
             "CommsCore.AudioCalls.EvictionClaim",
             "CommsCore.AudioCalls.EvictionProgress",
@@ -3654,6 +3683,56 @@ class ValidateArchitectureTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assert_rule(root, "unresolved_migration_target")
+
+    def test_migration_parser_attributes_restart_safe_concurrent_index_helper(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            migration_root = root / "apps/comms_core/priv/repo/migrations"
+            migration_root.mkdir(parents=True, exist_ok=True)
+            migration = migration_root / "1_concurrent_index.exs"
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS alpha_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS alpha_records_id_index\n"
+                "  ON alpha_records (id)\n"
+                '  """, []) end)\n',
+                encoding="utf-8",
+            )
+            self.assert_not_rule(root, "unresolved_migration_target")
+            self.assert_not_rule(root, "mixed_owner_migration")
+
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, drop_statement, []) end,\n"
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, create_statement, []) end)\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "unresolved_migration_target")
+
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS alpha_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS alpha_records_id_index\n"
+                "  ON alpha_records (id)\n"
+                '  """, []) end)\n'
+                'Repo.ensure_valid_concurrent_index!("beta_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS beta_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS beta_records_id_index\n"
+                "  ON beta_records (id)\n"
+                '  """, []) end)\n',
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "mixed_owner_migration")
 
     def test_migration_parser_rejects_parenless_execute_one_and_two(self) -> None:
         variants = (

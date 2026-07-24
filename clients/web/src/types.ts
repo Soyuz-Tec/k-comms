@@ -28,6 +28,23 @@ export interface User {
   version?: number;
 }
 
+export interface DirectoryPerson {
+  id: string;
+  display_name: string;
+}
+
+export interface DirectoryPeoplePage {
+  data: DirectoryPerson[];
+  page: {
+    next_cursor: string | null;
+  };
+}
+
+export interface DirectConversationResponse {
+  data: Conversation;
+  created: boolean;
+}
+
 export interface Device {
   id: string;
   user_id: string;
@@ -53,6 +70,7 @@ export interface Conversation {
   tenant_id: string;
   kind: "direct" | "group" | "channel";
   title: string | null;
+  counterpart_display_name: string | null;
   visibility: "private" | "tenant";
   latest_sequence: number;
   membership_role?: string;
@@ -127,6 +145,50 @@ export interface Attachment {
   scanned_at?: string | null;
   quarantined_at?: string | null;
   uploaded_at?: string | null;
+}
+
+export type FileSafetyState =
+  | "available"
+  | "processing"
+  | "blocked"
+  | "failed"
+  | "unavailable";
+
+export type FilesScope = "recent" | "shared_by_me";
+
+export interface FileSummary {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  conversation_sequence: number;
+  owner_user_id: string;
+  file_name: string;
+  content_type: string;
+  byte_size: number;
+  status: Exclude<Attachment["status"], "deleted">;
+  scan_status: NonNullable<Attachment["scan_status"]>;
+  safety_state: FileSafetyState;
+  downloadable: boolean;
+  uploaded_at: string | null;
+  shared_at: string;
+  inserted_at: string;
+  updated_at: string;
+}
+
+export interface FilesPageResponse {
+  data: FileSummary[];
+  page: {
+    limit: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
+export interface FilesQueryOptions {
+  scope?: FilesScope;
+  conversation_id?: string;
+  limit?: number;
+  cursor?: string | null;
 }
 
 export interface Message {
@@ -218,6 +280,39 @@ export interface CallSessionResponse {
   credential: CallCredential;
 }
 
+export type CallsScope = "active" | "recent";
+
+export interface CallSummary {
+  id: string;
+  conversation_id: string;
+  started_by_user_id: string;
+  ended_by_user_id: string | null;
+  media_kind: CallMediaKind;
+  status: "active" | "ending" | "ended";
+  started_at: string;
+  expires_at: string;
+  ended_at: string | null;
+  end_reason: string | null;
+  duration_seconds: number;
+  can_end: boolean;
+}
+
+export interface CallsPageResponse {
+  data: CallSummary[];
+  page: {
+    limit: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
+export interface CallsQueryOptions {
+  scope?: CallsScope;
+  media_kind?: CallMediaKind;
+  limit?: number;
+  cursor?: string | null;
+}
+
 /** Compatibility aliases for consumers migrating from the audio-only surface. */
 export type AudioCall = Call;
 export type AudioCallRealtimeEvent = CallRealtimeEvent;
@@ -240,6 +335,7 @@ export interface UploadDescriptor {
   headers?: Record<string, string>;
   fields?: Record<string, string>;
   expires_in?: number;
+  expires_at?: string;
   approved_origin?: string;
 }
 

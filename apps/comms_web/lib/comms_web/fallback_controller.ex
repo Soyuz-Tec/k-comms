@@ -79,10 +79,12 @@ defmodule CommsWeb.FallbackController do
               :push_subscription_conflict,
               :push_subscription_limit_reached,
               :push_subscription_terminal,
+              :attachment_claimed,
               :audio_call_ended,
               :audio_call_ending,
               :audio_call_expired,
-              :call_media_kind_conflict
+              :call_media_kind_conflict,
+              :direct_conversation_unavailable
             ],
        do:
          {409, Atom.to_string(reason), "The operation conflicts with the current resource state"}
@@ -112,6 +114,7 @@ defmodule CommsWeb.FallbackController do
        when reason in [
               :secret_encryption_key_not_configured,
               :object_storage_adapter_not_configured,
+              :invalid_upload_expiry,
               :notification_adapter_not_configured,
               :webhook_adapter_not_configured,
               :scanner_adapter_not_configured,
@@ -177,6 +180,9 @@ defmodule CommsWeb.FallbackController do
               :invalid_sequence,
               :invalid_search_query,
               :search_query_required,
+              :invalid_file_scope,
+              :invalid_call_scope,
+              :invalid_conversation_id,
               :unsupported_content_type,
               :invalid_attachment_size,
               :invalid_attachment_checksum,

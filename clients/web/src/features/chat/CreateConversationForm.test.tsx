@@ -14,16 +14,21 @@ const teammate: User = {
 };
 
 describe("CreateConversationForm", () => {
-  it("creates a private direct conversation with exactly one teammate", async () => {
+  it("starts a direct conversation atomically using only the selected teammate id", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
-    render(<CreateConversationForm users={[teammate]} onCancel={vi.fn()} onCreate={create} />);
+    const startDirect = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CreateConversationForm
+        users={[teammate]}
+        onCancel={vi.fn()}
+        onCreate={create}
+        onStartDirect={startDirect}
+      />
+    );
     await userEvent.click(screen.getByRole("radio", { name: /Grace Hopper/ }));
     await userEvent.click(screen.getByRole("button", { name: "Start message" }));
-    expect(create).toHaveBeenCalledWith({
-      title: "Grace Hopper",
-      kind: "direct",
-      visibility: "private",
-      member_ids: ["user-2"]
-    });
+    expect(startDirect).toHaveBeenCalledWith("user-2");
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
   });
 });

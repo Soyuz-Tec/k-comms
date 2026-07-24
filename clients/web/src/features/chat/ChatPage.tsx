@@ -16,16 +16,19 @@ import {
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
-import { CallPanel } from "../calls/CallPanel";
+import {
+  CallLaunchActions,
+  useCallSession
+} from "../calls/CallSessionProvider";
 import {
   clientMessageId,
   conversationTitle,
   errorText
 } from "../../lib/format";
 import { loadDraft, storeDraft } from "../../lib/drafts";
+import { canManageUsers } from "../../lib/roles";
 import { RealtimeConversation, socketEndpoint } from "../../realtime";
 import type {
-  CallRealtimeEvent,
   Attachment,
   ConnectionStatus,
   ConversationMembership,
@@ -40,11 +43,15 @@ import { MessageItem } from "./MessageItem";
 import { MentionPicker } from "./MentionPicker";
 import { SearchPanel } from "./SearchPanel";
 import { ThreadDrawer } from "./ThreadDrawer";
-
-interface PendingAttachment {
-  attachment: Attachment;
-  localName: string;
-}
+import {
+  AttachmentUploadList,
+  attachmentUploadBusy,
+  attachmentUploadReady
+} from "./AttachmentUploadList";
+import type {
+  PendingAttachmentUpload
+} from "./AttachmentUploadList";
+import "./ChatPage.css";
 
 interface FailedSend {
   input: SendMessageInput;
@@ -58,8 +65,11 @@ interface FocusTarget {
   sequence: number;
 }
 
+type InboxFilter = "all" | "unread" | "direct" | "rooms";
+
 export function ChatPage() {
   const { api, session } = useSession();
+  const { launchCall, publishRealtimeEvent } = useCallSession();
   const {
     conversations,
     users,
@@ -70,6 +80,7 @@ export function ChatPage() {
     setError,
     setConversations,
     createConversation,
+    startDirectConversation,
     refreshConversations
   } = useWorkspaceData();
   const onboardingStorageKey = session ? `k-comms:onboarding:${session.tenant.id}:${session.user.id}` : "k-comms:onboarding:anonymous";
@@ -78,6 +89,7 @@ export function ChatPage() {
   const linkedMessageId = safeUuid(searchParams.get("message"));
   const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
   const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
+  const linkedCallKind = safeCallKind(searchParams.get("call"));
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
@@ -88,8 +100,7 @@ export function ChatPage() {
   const [readCursors, setReadCursors] = useState<Record<string, number>>({});
   const [composer, setComposer] = useState("");
   const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachmentUpload[]>([]);
   const [failedSend, setFailedSend] = useState<FailedSend | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [threadTargetId, setThreadTargetId] = useState<string | null>(null);
@@ -107,14 +118,11 @@ export function ChatPage() {
   const [reportError, setReportError] = useState<string | null>(null);
   const [contiguousSequence, setContiguousSequence] = useState(0);
   const [conversationQuery, setConversationQuery] = useState("");
-  const [conversationKind, setConversationKind] = useState<"all" | "direct" | "group" | "channel">("all");
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia?.("(max-width: 760px)").matches ?? false);
-  const [callRealtimeEvent, setCallRealtimeEvent] = useState<CallRealtimeEvent | null>(null);
-
   const realtimeRef = useRef<RealtimeConversation | null>(null);
   const contiguousSequenceRef = useRef(0);
   const futureSequencesRef = useRef<Set<number>>(new Set());
@@ -130,6 +138,67 @@ export function ChatPage() {
   const conversationButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const mobileListFocusConversationRef = useRef<string | null>(null);
   const previousMobileConversationRef = useRef<string | null>(null);
+  const cancelledAttachmentUploadsRef = useRef(new Set<string>());
+  const attachmentUploadControllersRef = useRef(new Map<string, AbortController>());
+  const attachmentIntentIdsRef = useRef(new Map<string, string>());
+  const attachmentAbandonRequestsRef = useRef(new Map<string, Promise<void>>());
+  const chatMountedRef = useRef(true);
+  const abandonAttachmentId = useCallback((id: string): Promise<void> => {
+    const existing = attachmentAbandonRequestsRef.current.get(id);
+    if (existing) return existing;
+
+    const request = (async () => {
+      let lastReason: unknown = new Error("The attachment could not be removed");
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await api.abandonAttachment(id);
+          return;
+        } catch (reason: unknown) {
+          lastReason = reason;
+          if (attempt < 2) await delay(250 * (attempt + 1));
+        }
+      }
+      throw lastReason;
+    })().finally(() => {
+      attachmentAbandonRequestsRef.current.delete(id);
+    });
+
+    attachmentAbandonRequestsRef.current.set(id, request);
+    return request;
+  }, [api]);
+  const abandonClientAttachment = useCallback(async (clientId: string): Promise<void> => {
+    const id = attachmentIntentIdsRef.current.get(clientId);
+    if (!id) return;
+    await abandonAttachmentId(id);
+    if (attachmentIntentIdsRef.current.get(clientId) === id) {
+      attachmentIntentIdsRef.current.delete(clientId);
+    }
+  }, [abandonAttachmentId]);
+  const abandonClientAttachmentInBackground = useCallback((clientId: string) => {
+    void abandonClientAttachment(clientId).catch(() => {
+      if (chatMountedRef.current) {
+        setError("A cancelled file is still awaiting secure cleanup. The server will keep retrying automatically.");
+      }
+    });
+  }, [abandonClientAttachment]);
+  const cancelAllAttachmentUploads = useCallback(() => {
+    for (const [clientId, controller] of attachmentUploadControllersRef.current) {
+      cancelledAttachmentUploadsRef.current.add(clientId);
+      controller.abort();
+    }
+    attachmentUploadControllersRef.current.clear();
+    for (const clientId of attachmentIntentIdsRef.current.keys()) {
+      cancelledAttachmentUploadsRef.current.add(clientId);
+      abandonClientAttachmentInBackground(clientId);
+    }
+  }, [abandonClientAttachmentInBackground]);
+
+  useEffect(() => {
+    chatMountedRef.current = true;
+    return () => {
+      chatMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -148,14 +217,23 @@ export function ChatPage() {
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
     return conversations.filter((conversation) => {
-      if (conversationKind !== "all" && conversation.kind !== conversationKind) return false;
-      if (unreadOnly && (conversation.unread_count || 0) === 0) return false;
+      if (inboxFilter === "unread" && (conversation.unread_count || 0) === 0) return false;
+      if (inboxFilter === "direct" && conversation.kind !== "direct") return false;
+      if (inboxFilter === "rooms" && !["group", "channel"].includes(conversation.kind)) return false;
       if (query && !conversationTitle(conversation).toLocaleLowerCase().includes(query)) return false;
       return true;
     });
-  }, [conversationKind, conversationQuery, conversations, unreadOnly]);
+  }, [conversationQuery, conversations, inboxFilter]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const messagesById = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
+
+  useEffect(() => {
+    if (!linkedCallKind || !activeConversation) return;
+    launchCall(activeConversation, linkedCallKind);
+    const next = new URLSearchParams(searchParams);
+    next.delete("call");
+    setSearchParams(next, { replace: true });
+  }, [activeConversation, launchCall, linkedCallKind, searchParams, setSearchParams]);
 
   const updateNearBottom = useCallback((nearBottom: boolean) => {
     nearBottomRef.current = nearBottom;
@@ -222,8 +300,11 @@ export function ChatPage() {
     setThreadTargetId(null);
     setMentionedUserIds([]);
     setFailedSend(null);
+    cancelAllAttachmentUploads();
     setPendingAttachments([]);
-  }, [activeConversationId, session?.tenant.id, session?.user.id]);
+  }, [activeConversationId, cancelAllAttachmentUploads, session?.tenant.id, session?.user.id]);
+
+  useEffect(() => () => cancelAllAttachmentUploads(), [cancelAllAttachmentUploads]);
 
   useEffect(() => {
     if (activeConversationId && linkedMessageId) setThreadTargetId(linkedMessageId);
@@ -340,7 +421,6 @@ export function ChatPage() {
     setReadCursors({});
     setMessagesLoading(true);
     setConnectionStatus("connecting");
-    setCallRealtimeEvent(null);
     setError(null);
     futureSequencesRef.current.clear();
 
@@ -417,10 +497,10 @@ export function ChatPage() {
             onPresence: setOnlineUsers,
             onMembershipChanged: () => setMembershipVersion((value) => value + 1),
             onConversationChanged: () => void refreshConversations().catch(() => undefined),
-            onCallStarted: setCallRealtimeEvent,
-            onCallEnded: setCallRealtimeEvent,
-            onAudioCallStarted: setCallRealtimeEvent,
-            onAudioCallEnded: setCallRealtimeEvent,
+            onCallStarted: publishRealtimeEvent,
+            onCallEnded: publishRealtimeEvent,
+            onAudioCallStarted: publishRealtimeEvent,
+            onAudioCallEnded: publishRealtimeEvent,
             onCatchUpRequired: requestCatchUp,
             onError: setError,
             onReconnectRequired: scheduleReconnect
@@ -438,7 +518,7 @@ export function ChatPage() {
 
     async function loadAndConnect() {
       try {
-        const targeted = focusTarget?.conversationId === conversationId ? focusTarget.sequence : null;
+        const targeted = linkedSearchSequence;
         const start = Math.max(0, targeted ? targeted - 60 : activeLatestSequence - 100);
         contiguousSequenceRef.current = start;
         setContiguousSequence(start);
@@ -467,7 +547,7 @@ export function ChatPage() {
       realtime?.disconnect();
       if (realtimeRef.current === realtime) realtimeRef.current = null;
     };
-  }, [activeConversation?.id, activeConversationId, focusTarget?.id, session?.user.id]);
+  }, [activeConversation?.id, activeConversationId, linkedSearchSequence, session?.user.id]);
 
   const latestSequence = messages.at(-1)?.conversation_sequence || 0;
   const readableSequence = Math.min(latestSequence, contiguousSequence);
@@ -550,6 +630,17 @@ export function ChatPage() {
     }
   }
 
+  async function startDirect(userId: string) {
+    setError(null);
+    try {
+      const conversation = await startDirectConversation(userId);
+      setShowCreateConversation(false);
+      selectConversation(conversation.id);
+    } catch (reason: unknown) {
+      setError(errorText(reason));
+    }
+  }
+
   async function sendInput(input: SendMessageInput, body: string) {
     if (!activeConversationId) return;
     const message = connectionStatus === "live" && realtimeRef.current
@@ -559,6 +650,7 @@ export function ChatPage() {
     receiveMessages([message]);
     setComposer("");
     if (session) storeDraft(session.tenant.id, session.user.id, activeConversationId, "");
+    attachmentIntentIdsRef.current.clear();
     setPendingAttachments([]);
     setReplyTo(null);
     setMentionedUserIds([]);
@@ -571,8 +663,14 @@ export function ChatPage() {
     if (!activeConversationId || sending) return;
     const body = composer.trim();
     if (!body) return setError("Write a message before sending.");
-    if (pendingAttachments.some(({ attachment }) => attachment.status !== "ready")) return setError("Wait for every attachment safety scan to finish or remove the file.");
-    const input: SendMessageInput = { client_message_id: clientMessageId(), body, attachment_ids: pendingAttachments.map(({ attachment }) => attachment.id), reply_to_message_id: replyTo?.id || null, mentioned_user_ids: mentionedUserIds };
+    if (!pendingAttachments.every(attachmentUploadReady)) return setError("Wait for every attachment safety scan to finish or remove the file.");
+    const input: SendMessageInput = {
+      client_message_id: clientMessageId(),
+      body,
+      attachment_ids: pendingAttachments.flatMap(({ attachment }) => attachment ? [attachment.id] : []),
+      reply_to_message_id: replyTo?.id || null,
+      mentioned_user_ids: mentionedUserIds
+    };
     setSending(true);
     setError(null);
     realtimeRef.current?.setTyping(false);
@@ -619,47 +717,206 @@ export function ChatPage() {
     typingTimerRef.current = window.setTimeout(() => realtimeRef.current?.setTyping(false), 1_500);
   }
 
-  async function monitorAttachment(id: string) {
-    for (let attempt = 0; attempt < 45; attempt += 1) {
-      await delay(1_000);
-      try {
-        const response = await api.attachmentStatus(id);
-        const attachment = response.data;
-        setPendingAttachments((current) => current.map((item) => item.attachment.id === id ? { ...item, attachment } : item));
-        if (attachment.status === "ready") return;
-        if (["quarantined", "scan_failed", "deleted"].includes(attachment.status)) {
-          setError(`${attachment.file_name} could not be attached: ${attachment.status.replace("_", " ")}.`);
-          return;
+  async function monitorAttachment(
+    clientId: string,
+    id: string,
+    controller: AbortController
+  ) {
+    try {
+      for (let attempt = 0; attempt < 45; attempt += 1) {
+        await abortableDelay(1_000, controller.signal);
+        if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+        try {
+          const response = await api.attachmentStatus(id, controller.signal);
+          const attachment = response.data;
+          if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+          if (attachment.status === "ready") {
+            updatePendingAttachment(clientId, { attachment, phase: "ready", error: undefined });
+            return;
+          }
+          if (["quarantined", "scan_failed", "deleted"].includes(attachment.status)) {
+            const message = `${attachment.file_name} could not be attached: ${attachment.status.replace("_", " ")}.`;
+            updatePendingAttachment(clientId, { attachment, phase: "blocked", error: message });
+            setError(message);
+            return;
+          }
+        } catch (reason: unknown) {
+          if (controller.signal.aborted) return;
+          if (attempt === 44) {
+            const message = errorText(reason);
+            updatePendingAttachment(clientId, { phase: "scan_delayed", error: message });
+            setError(message);
+            return;
+          }
         }
-      } catch (reason: unknown) {
-        if (attempt === 44) setError(errorText(reason));
+      }
+      const message = "Attachment scanning is taking longer than expected. You can remove the file and retry later.";
+      updatePendingAttachment(clientId, { phase: "scan_delayed", error: message });
+      setError(message);
+    } finally {
+      if (attachmentUploadControllersRef.current.get(clientId) === controller) {
+        attachmentUploadControllersRef.current.delete(clientId);
       }
     }
-    setError("Attachment scanning is taking longer than expected. You can remove the file and retry later.");
   }
 
   async function filesSelected(event: ChangeEvent<HTMLInputElement>) {
     const selected = [...(event.target.files || [])];
     event.target.value = "";
     if (selected.length === 0) return;
-    setUploading(true);
     setError(null);
+    const queued = selected.map((file) => ({
+      clientId: clientMessageId(),
+      file,
+      localName: file.name,
+      phase: "hashing" as const
+    }));
+    setPendingAttachments((current) => [...current, ...queued]);
+    await Promise.all(queued.map((item) => processAttachment(item)));
+  }
+
+  async function processAttachment(item: PendingAttachmentUpload) {
+    const { clientId, file } = item;
+    attachmentUploadControllersRef.current.get(clientId)?.abort();
+    const controller = new AbortController();
+    attachmentUploadControllersRef.current.set(clientId, controller);
+    cancelledAttachmentUploadsRef.current.delete(clientId);
+    let monitoring = false;
     try {
-      for (const file of selected) {
-        const maxBytes = capabilities?.max_attachment_bytes;
-        if (!maxBytes) throw new Error("The server did not provide an attachment size limit");
-        if (file.size > maxBytes) throw new Error(`${file.name} exceeds the ${formatAttachmentLimit(maxBytes)} limit`);
-        const intent = await api.createAttachment(file, await sha256(file));
-        await uploadToPresignedTarget(intent.upload, file);
-        const attachment = await api.completeAttachment(intent.data.id);
-        setPendingAttachments((current) => [...current, { attachment, localName: file.name }]);
-        if (attachment.status !== "ready") void monitorAttachment(attachment.id);
+      const maxBytes = capabilities?.max_attachment_bytes;
+      if (!maxBytes) throw new Error("The server did not provide an attachment size limit");
+      if (file.size > maxBytes) throw new Error(`${file.name} exceeds the ${formatAttachmentLimit(maxBytes)} limit`);
+
+      updatePendingAttachment(clientId, { phase: "hashing", error: undefined });
+      const checksum = await sha256(file);
+      if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+
+      updatePendingAttachment(clientId, { phase: "requesting" });
+      // Keep intent creation alive long enough to receive its server ID. If the
+      // user cancels while this request is in flight, the resolved ID is
+      // immediately abandoned instead of becoming an unreachable pending row.
+      const intent = await api.createAttachment(file, checksum);
+      attachmentIntentIdsRef.current.set(clientId, intent.data.id);
+      if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
+        abandonClientAttachmentInBackground(clientId);
+        return;
       }
+
+      updatePendingAttachment(clientId, { attachment: intent.data, phase: "uploading" });
+      await uploadToPresignedTarget(intent.upload, file, controller.signal);
+      if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
+        abandonClientAttachmentInBackground(clientId);
+        return;
+      }
+
+      updatePendingAttachment(clientId, { phase: "finalizing" });
+      const attachment = await api.completeAttachment(intent.data.id, controller.signal);
+      if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
+        abandonClientAttachmentInBackground(clientId);
+        return;
+      }
+
+      if (attachment.status === "ready") {
+        updatePendingAttachment(clientId, { attachment, phase: "ready" });
+        return;
+      }
+      if (["quarantined", "scan_failed", "deleted"].includes(attachment.status)) {
+        const message = `${attachment.file_name} could not be attached: ${attachment.status.replace("_", " ")}.`;
+        updatePendingAttachment(clientId, { attachment, phase: "blocked", error: message });
+        setError(message);
+        return;
+      }
+      updatePendingAttachment(clientId, { attachment, phase: "scanning" });
+      monitoring = true;
+      void monitorAttachment(clientId, attachment.id, controller);
     } catch (reason: unknown) {
-      setError(errorText(reason));
+      if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
+        abandonClientAttachmentInBackground(clientId);
+        return;
+      }
+      const message = errorText(reason);
+      updatePendingAttachment(clientId, { phase: "retryable_error", error: message });
+      setError(message);
     } finally {
-      setUploading(false);
+      if (
+        !monitoring &&
+        attachmentUploadControllersRef.current.get(clientId) === controller
+      ) {
+        attachmentUploadControllersRef.current.delete(clientId);
+      }
     }
+  }
+
+  function updatePendingAttachment(
+    clientId: string,
+    update: Partial<Pick<PendingAttachmentUpload, "attachment" | "phase" | "error" | "cancelRequested">>
+  ) {
+    setPendingAttachments((current) =>
+      current.map((item) => item.clientId === clientId ? { ...item, ...update } : item)
+    );
+  }
+
+  async function cancelAttachment(clientId: string) {
+    cancelledAttachmentUploadsRef.current.add(clientId);
+    attachmentUploadControllersRef.current.get(clientId)?.abort();
+    attachmentUploadControllersRef.current.delete(clientId);
+    if (!attachmentIntentIdsRef.current.has(clientId)) {
+      setPendingAttachments((current) => current.filter((item) => item.clientId !== clientId));
+      return;
+    }
+
+    updatePendingAttachment(clientId, {
+      phase: "cancelling",
+      error: undefined,
+      cancelRequested: true
+    });
+
+    try {
+      await abandonClientAttachment(clientId);
+      setPendingAttachments((current) => current.filter((item) => item.clientId !== clientId));
+    } catch {
+      const message = "The file could not be removed yet. Retry, or leave it for automatic server cleanup.";
+      updatePendingAttachment(clientId, {
+        phase: "retryable_error",
+        error: message,
+        cancelRequested: true
+      });
+      setError(message);
+    }
+  }
+
+  async function retryAttachment(clientId: string) {
+    const item = pendingAttachments.find((candidate) => candidate.clientId === clientId);
+    if (!item || item.phase !== "retryable_error") return;
+    if (item.cancelRequested) {
+      await cancelAttachment(clientId);
+      return;
+    }
+
+    attachmentUploadControllersRef.current.get(clientId)?.abort();
+    updatePendingAttachment(clientId, { phase: "cancelling", error: undefined });
+
+    try {
+      await abandonClientAttachment(clientId);
+    } catch {
+      const message = "The previous secure upload could not be removed. Retry before creating a replacement.";
+      updatePendingAttachment(clientId, {
+        phase: "retryable_error",
+        error: message,
+        cancelRequested: false
+      });
+      setError(message);
+      return;
+    }
+
+    if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+    void processAttachment({
+      ...item,
+      attachment: undefined,
+      phase: "hashing",
+      error: undefined,
+      cancelRequested: false
+    });
   }
 
   async function loadOlder() {
@@ -761,7 +1018,8 @@ export function ChatPage() {
   if (workspaceLoading) return <main className="centered-page" id="main-content" aria-busy="true"><div className="loading-card"><span className="spinner" aria-hidden="true" /><p>Opening your workspace…</p></div></main>;
 
   const activeTyping = [...typingUsers].filter((id) => id !== session.user.id).map((id) => usersById.get(id)?.display_name || "Someone");
-  const attachmentsReady = pendingAttachments.every(({ attachment }) => attachment.status === "ready");
+  const uploading = pendingAttachments.some(attachmentUploadBusy);
+  const attachmentsReady = pendingAttachments.every(attachmentUploadReady);
   const hasSentMessage = messages.some(({ sender_user_id: senderUserId }) => senderUserId === session.user.id);
 
   function dismissOnboarding() {
@@ -773,36 +1031,67 @@ export function ChatPage() {
     <main className={`workspace-grid mobile-${mobilePane}`} id="main-content">
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
       <aside className="conversation-sidebar" aria-label="Conversations">
-        <div className="sidebar-heading"><div><span className="eyebrow">Direct, group & channel</span><h1>Conversations</h1></div><div className="sidebar-tools"><button className="icon-button" type="button" aria-label="Browse channels" aria-expanded={showBrowseChannels} onClick={() => { setShowBrowseChannels((visible) => !visible); setShowSearch(false); setShowDetails(false); }}>#</button><button className="icon-button" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><button className="icon-button" type="button" aria-label="Create conversation" aria-expanded={showCreateConversation} onClick={() => setShowCreateConversation((visible) => !visible)}>+</button></div></div>
+        <div className="sidebar-heading"><div><span className="eyebrow">Messages and rooms</span><h1>Inbox</h1></div><div className="sidebar-tools"><button className="icon-button" type="button" aria-label="Browse channels" aria-expanded={showBrowseChannels} onClick={() => { setShowBrowseChannels((visible) => !visible); setShowSearch(false); setShowDetails(false); }}>#</button><button className="icon-button" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><button className="icon-button" type="button" aria-label="Create conversation" aria-expanded={showCreateConversation} onClick={() => setShowCreateConversation((visible) => !visible)}>+</button></div></div>
         {showOnboarding && <section className="onboarding-checklist" aria-labelledby="onboarding-checklist-title">
           <div><h2 id="onboarding-checklist-title">Get started</h2><button type="button" aria-label="Dismiss getting-started checklist" onClick={dismissOnboarding}>×</button></div>
           <ol>
-            <li className={activeConversation ? "complete" : undefined}><span aria-hidden="true">{activeConversation ? "✓" : "1"}</span>Choose or start a conversation</li>
-            <li className={hasSentMessage ? "complete" : undefined}><span aria-hidden="true">{hasSentMessage ? "✓" : "2"}</span>Send your first message</li>
-            <li><span aria-hidden="true">3</span><Link to="/app/settings">Choose notification preferences</Link></li>
+            <li className={activeConversation ? "complete" : undefined}>
+              <span aria-hidden="true">{activeConversation ? "✓" : "1"}</span>
+              {activeConversation
+                ? "Conversation ready"
+                : <button type="button" onClick={() => {
+                    setShowCreateConversation(true);
+                    setShowBrowseChannels(false);
+                    setShowSearch(false);
+                  }}>Choose or start a conversation</button>}
+            </li>
+            <li className={hasSentMessage ? "complete" : undefined}>
+              <span aria-hidden="true">{hasSentMessage ? "✓" : "2"}</span>
+              {hasSentMessage
+                ? "First message sent"
+                : <button type="button" onClick={() => {
+                    if (activeConversation) document.getElementById("message-composer")?.focus();
+                    else {
+                      setShowCreateConversation(true);
+                      setShowBrowseChannels(false);
+                      setShowSearch(false);
+                    }
+                  }}>Send your first message</button>}
+            </li>
+            <li><span aria-hidden="true">3</span><Link to="/app/you#notification-settings">Choose notification preferences</Link></li>
           </ol>
         </section>}
-        {showCreateConversation && <CreateConversationForm users={users.filter((user) => user.id !== session.user.id && user.status === "active")} allowPublicChannels={capabilities?.allow_public_channels === true} onCancel={() => setShowCreateConversation(false)} onCreate={create} />}
+        {showCreateConversation && <CreateConversationForm users={users.filter((user) => user.id !== session.user.id && user.status === "active")} allowPublicChannels={capabilities?.allow_public_channels === true} onCancel={() => setShowCreateConversation(false)} onCreate={create} onStartDirect={startDirect} />}
         {conversations.length > 0 && <div className="conversation-filters" role="search" aria-label="Filter conversations">
           <label className="sr-only" htmlFor="conversation-filter-query">Filter conversations by title</label>
           <input id="conversation-filter-query" type="search" value={conversationQuery} onChange={(event) => setConversationQuery(event.target.value)} placeholder="Filter conversations" />
-          <label className="sr-only" htmlFor="conversation-filter-kind">Conversation type</label>
-          <select id="conversation-filter-kind" value={conversationKind} onChange={(event) => setConversationKind(event.target.value as typeof conversationKind)}>
-            <option value="all">All types</option>
-            <option value="direct">Direct messages</option>
-            <option value="group">Groups</option>
-            <option value="channel">Channels</option>
-          </select>
-          <label className="conversation-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} />Unread only</label>
+          <div className="inbox-segments" role="group" aria-label="Inbox view">
+            {([
+              ["all", "All"],
+              ["unread", "Unread"],
+              ["direct", "Direct"],
+              ["rooms", "Rooms"]
+            ] as const).map(([value, label]) => (
+              <button
+                className="inbox-segment"
+                type="button"
+                key={value}
+                aria-pressed={inboxFilter === value}
+                onClick={() => setInboxFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>}
         <nav className="conversation-list" aria-label="Conversation list">
-          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button></div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
+          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button>{canManageUsers(session.user.role) && <Link className="button ghost compact" to="/admin?section=people">Invite a teammate</Link>}</div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
         </nav>
       </aside>
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationTitle(activeConversation) : "Messages"}>
         {activeConversation ? <>
-          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><CallPanel key={activeConversation.id} api={api} conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} currentUserDisplayName={session.user.display_name} realtimeEvent={callRealtimeEvent} /><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
+          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} /><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
             {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} sender={usersById.get(message.sender_user_id)} replyPreview={replyPreview} replySender={replyPreview ? usersById.get(replyPreview.sender_user_id) : undefined} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
@@ -814,10 +1103,10 @@ export function ChatPage() {
           <form className="composer" onSubmit={(event) => void sendMessage(event)}>
             {failedSend && <div className="failed-send" role="alert"><span>Message not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
             {replyTo && <div className="composer-reply"><span>Replying to <strong>{replyTo.sender_user_id === session.user.id ? "yourself" : usersById.get(replyTo.sender_user_id)?.display_name || "a message"}</strong><small>{replyTo.body}</small></span><button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}>×</button></div>}
-            {pendingAttachments.length > 0 && <div className="pending-files" aria-label="Files being attached">{pendingAttachments.map(({ attachment, localName }) => <span className={`file-chip attachment-${attachment.status}`} key={attachment.id}><span aria-hidden="true">{attachment.status === "ready" ? "✓" : ["quarantined", "scan_failed"].includes(attachment.status) ? "!" : "…"}</span><span>{localName}<small>{attachmentLabel(attachment)}</small></span><button type="button" aria-label={`Remove ${localName}`} onClick={() => setPendingAttachments((current) => current.filter((item) => item.attachment.id !== attachment.id))}>×</button></span>)}</div>}
+            {pendingAttachments.length > 0 && <AttachmentUploadList items={pendingAttachments} onCancel={cancelAttachment} onRetry={retryAttachment} />}
             <MentionPicker members={conversationMembers} currentUserId={session.user.id} selectedUserIds={mentionedUserIds} disabled={sending} onChange={setMentionedUserIds} />
             <label className="sr-only" htmlFor="message-composer">Message</label><textarea id="message-composer" value={composer} onChange={composerChanged} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={2} maxLength={65_535} placeholder={`Message ${conversationTitle(activeConversation)}`} disabled={sending} />
-            <div className="composer-actions"><label className={`attachment-button ${uploading ? "disabled" : ""}`}><input type="file" multiple disabled={uploading || sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" /><span aria-hidden="true">＋</span>{uploading ? "Uploading…" : "Attach"}</label><span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span><button className="button primary send-button" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Send"}<span aria-hidden="true">↗</span></button></div>
+            <div className="composer-actions"><label className={`attachment-button ${sending ? "disabled" : ""}`}><input type="file" multiple disabled={sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" aria-label="Attach files" /><span aria-hidden="true">＋</span>Attach</label><span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span><button className="button primary send-button" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Send"}<span aria-hidden="true">↗</span></button></div>
           </form>
         </> : <div className="empty-state full-height"><span className="empty-mark" aria-hidden="true">◇</span><h2>Select a conversation</h2><p>Choose a direct message, group or channel.</p></div>}
       </section>
@@ -838,19 +1127,34 @@ function connectionLabel(status: ConnectionStatus): string {
   return "Offline";
 }
 
-function attachmentLabel(attachment: Attachment): string {
-  if (attachment.status === "ready") return "Safety scan passed";
-  if (attachment.status === "quarantined") return "Quarantined";
-  if (attachment.status === "scan_failed") return "Scan failed";
-  return "Safety scan pending";
-}
-
 function formatAttachmentLimit(value: number): string {
   return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)} MB` : `${Math.ceil(value / 1_000)} KB`;
 }
 
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("The upload was cancelled", "AbortError"));
+      return;
+    }
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("The upload was cancelled", "AbortError"));
+    }, { once: true });
+  });
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function attachmentCancelled(
+  clientId: string,
+  controller: AbortController,
+  cancelled: { current: Set<string> }
+): boolean {
+  return controller.signal.aborted || cancelled.current.has(clientId);
 }
 
 function safeUuid(value: string | null): string | null {
@@ -863,6 +1167,10 @@ function safePositiveInteger(value: string | null): number | null {
   if (!value || !/^\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function safeCallKind(value: string | null): "audio" | "video" | null {
+  return value === "audio" || value === "video" ? value : null;
 }
 
 function readOnboardingPreference(storageKey: string): boolean {

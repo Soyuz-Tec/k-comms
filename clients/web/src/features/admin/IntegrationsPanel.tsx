@@ -65,7 +65,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
   }
 
   return <>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss integrations error" onClick={() => setError(null)}>×</button></div>}
     {pendingAction && <ActionDialog
       title={pendingAction.kind === "rotate" ? "Rotate signing secret?" : "Disable webhook endpoint?"}
       description={pendingAction.endpoint.name}

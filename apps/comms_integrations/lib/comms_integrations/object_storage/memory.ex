@@ -10,7 +10,8 @@ defmodule CommsIntegrations.ObjectStorage.Memory do
        approved_origin: approved_origin(),
        development_http: false,
        headers: %{"content-type" => attachment.content_type},
-       expires_in: 900
+       expires_in: 900,
+       expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
      }}
   end
 
@@ -24,7 +25,8 @@ defmodule CommsIntegrations.ObjectStorage.Memory do
          approved_origin: approved_origin(),
          development_http: false,
          headers: %{},
-         expires_in: 900
+         expires_in: 900,
+         expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
        }}
     end
   end
@@ -52,6 +54,13 @@ defmodule CommsIntegrations.ObjectStorage.Memory do
   @impl true
   def delete_object(request) do
     with :ok <- CommsIntegrations.ObjectStorage.validate_object_request(request), do: :ok
+  end
+
+  @impl true
+  def purge_object_versions(request) do
+    with :ok <- CommsIntegrations.ObjectStorage.validate_object_request(request) do
+      {:ok, %{deleted_versions: 0, deleted_markers: 0, verified_empty?: true}}
+    end
   end
 
   @impl true

@@ -101,6 +101,15 @@ The portable staging proof may keep calls disabled only while its existing
 false, so a long-lived application workload fails startup unless LiveKit is
 fully configured.
 
+`GET /api/v1/status` reports `audio_calls` and `video_calls` as available only
+after an authenticated, room-list-only LiveKit control-plane probe succeeds.
+The integrations-owned probe runs outside the request path, refreshes at most
+once every 10 seconds, becomes stale after 30 seconds, and bounds provider work
+with a 500 ms request timeout plus a 750 ms worker deadline. Missing,
+stale, timed-out, unreachable, or rejected probes fail closed. Status responses
+contain only capability booleans; they never expose the LiveKit API URL,
+credential, room list, participant identity, or provider response body.
+
 Participant admissions are durable, non-secret control-plane state. K-Comms
 stores the opaque provider identity and the tenant, call, conversation, user,
 device, and session bindings plus issuance, revocation, and eviction progress.

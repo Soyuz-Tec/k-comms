@@ -149,7 +149,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run build
 
@@ -201,6 +201,8 @@ jobs:
       - run: python scripts/test_collect_release_evidence.py
       - run: python scripts/test_validate_compose_exposure.py
       - run: python scripts/validate_compose_exposure.py
+      - run: python scripts/test_validate_local_release.py
+      - run: python scripts/validate_local_release.py
       - run: python scripts/test_validate_ops_assets.py
       - run: python scripts/validate_ops_assets.py
       - run: python scripts/test_validate_readiness_ledger.py

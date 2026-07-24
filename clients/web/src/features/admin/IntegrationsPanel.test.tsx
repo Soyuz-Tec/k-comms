@@ -10,6 +10,22 @@ vi.mock("../../app/step-up", () => ({
 }));
 
 describe("IntegrationsPanel one-time secret handling", () => {
+  it("gives integration-load errors a descriptive dismiss control", async () => {
+    const user = userEvent.setup();
+    const api = {
+      webhooks: vi.fn().mockRejectedValue(new Error("Integrations unavailable")),
+      webhookDeliveries: vi.fn().mockResolvedValue([]),
+      serviceAccounts: vi.fn().mockResolvedValue([])
+    } as unknown as ApiClient;
+
+    render(<IntegrationsPanel api={api} />);
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss integrations error" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Integrations unavailable");
+    await user.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("blocks another secret-generating operation until the current secret is acknowledged", async () => {
     const endpoint = { id: "endpoint-1", name: "Primary", url: "https://hooks.example.test/k-comms", status: "active", secret_version: 1, event_types: ["message.created.v1"], inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" };
     const api = {

@@ -23,8 +23,9 @@ import type {
   CallSessionResponse,
   Conversation
 } from "../../types";
+import { CALL_SESSION_TEARDOWN_EVENT } from "./callSessionEvents";
 
-type CallPhase =
+export type CallPhase =
   | "loading"
   | "idle"
   | "prejoin"
@@ -54,6 +55,19 @@ interface ParticipantView {
   videoTracks: VideoTrackView[];
 }
 
+export interface CallPanelSessionState {
+  conversationId: string;
+  callId: string | null;
+  phase: CallPhase;
+  mediaKind: CallMediaKind;
+  joined: boolean;
+  microphoneEnabled: boolean;
+  cameraEnabled: boolean;
+  screenShareEnabled: boolean;
+  canEnd: boolean;
+  accessRevoked: boolean;
+}
+
 interface CallPanelProps {
   api: ApiClient;
   conversation: Conversation;
@@ -63,6 +77,14 @@ interface CallPanelProps {
   realtimeEvent?: CallRealtimeEvent | null;
   /** Keeps the audio-only compatibility wrapper to one visible action. */
   showVideoAction?: boolean;
+  /** Opens the default-off prejoin once for a validated cross-page request. */
+  launchRequest?: CallMediaKind | null;
+  launchRequestId?: number;
+  onLaunchRequestConsumed?: () => void;
+  /** Allows the app shell to own media while feature routes render launchers. */
+  renderActions?: boolean;
+  onNavigate?: (path: string) => void;
+  onSessionStateChange?: (state: CallPanelSessionState) => void;
 }
 
 export function CallPanel({
@@ -72,7 +94,13 @@ export function CallPanel({
   videoEnabled,
   currentUserDisplayName,
   realtimeEvent,
-  showVideoAction = true
+  showVideoAction = true,
+  launchRequest,
+  launchRequestId,
+  onLaunchRequestConsumed,
+  renderActions = true,
+  onNavigate,
+  onSessionStateChange
 }: CallPanelProps) {
   const available = audioEnabled || videoEnabled;
   const [call, setCall] = useState<Call | null>(null);
@@ -94,6 +122,11 @@ export function CallPanel({
   const [videoBlocked, setVideoBlocked] = useState(false);
   const [participants, setParticipants] = useState<ParticipantView[]>([]);
   const [accessRevoked, setAccessRevoked] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  const [mobileCallLayout, setMobileCallLayout] = useState(
+    () => window.matchMedia?.("(max-width: 760px)").matches ?? false
+  );
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const roomRef = useRef<Room | null>(null);
   const roomMediaKindRef = useRef<CallMediaKind | null>(null);
   const pendingMediaKindRef = useRef<CallMediaKind | null>(null);
@@ -108,8 +141,23 @@ export function CallPanel({
   const previewGenerationRef = useRef(0);
   const accessRevokedRef = useRef(false);
   const latestRealtimeEventRef = useRef<CallRealtimeEvent | null>(null);
+  const handledLaunchRequestRef = useRef<number | CallMediaKind | null>(null);
+  const wasJoinedRef = useRef(false);
   const currentCallId = call?.id;
   const currentMediaKind = call ? callMediaKind(call) : prejoinKind;
+  const joined = Boolean(roomRef.current) && ["connected", "reconnecting", "leaving"].includes(phase);
+  const joinedKind = roomMediaKindRef.current || currentMediaKind;
+  const mobileCallModal = mobileCallLayout && joined && !minimized;
+  const callDockRef = useModalDialog(() => setMinimized(true), mobileCallModal);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const query = window.matchMedia("(max-width: 760px)");
+    const update = () => setMobileCallLayout(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
 
   const invalidateOperations = useCallback(() => {
     refreshSequenceRef.current += 1;
@@ -131,6 +179,13 @@ export function CallPanel({
       setPreviewStream(null);
       setPreviewBusy(false);
     }
+  }, []);
+
+  const disconnectRoom = useCallback(async (room: Room) => {
+    manualDisconnectRoomsRef.current.add(room);
+    if (roomRef.current === room) roomRef.current = null;
+    stopRoomLocalTracks(room);
+    await room.disconnect(true).catch(() => undefined);
   }, []);
 
   const refreshCall = useCallback(async (preservePrejoin = false) => {
@@ -173,7 +228,34 @@ export function CallPanel({
       if (room) void disconnectRoom(room);
       clearAllRemoteAudio();
     };
-  }, [invalidateOperations, stopPreview]);
+  }, [disconnectRoom, invalidateOperations, stopPreview]);
+
+  useEffect(() => {
+    const teardownForPageExit = (event: Event) => {
+      invalidateOperations();
+      stopPreview();
+      const room = roomRef.current;
+      roomRef.current = null;
+      roomMediaKindRef.current = null;
+      pendingMediaKindRef.current = null;
+      if (room) void disconnectRoom(room);
+      clearAllRemoteAudio();
+      if (event.type === CALL_SESSION_TEARDOWN_EVENT && mountedRef.current) {
+        resetConnectedState();
+        setCall(null);
+        setError(null);
+        setPhase("idle");
+      }
+    };
+    window.addEventListener("pagehide", teardownForPageExit);
+    window.addEventListener("beforeunload", teardownForPageExit);
+    window.addEventListener(CALL_SESSION_TEARDOWN_EVENT, teardownForPageExit);
+    return () => {
+      window.removeEventListener("pagehide", teardownForPageExit);
+      window.removeEventListener("beforeunload", teardownForPageExit);
+      window.removeEventListener(CALL_SESSION_TEARDOWN_EVENT, teardownForPageExit);
+    };
+  }, [disconnectRoom, invalidateOperations, stopPreview]);
 
   useEffect(() => {
     if (previewVideoRef.current) previewVideoRef.current.srcObject = previewStream;
@@ -288,7 +370,7 @@ export function CallPanel({
     return () => window.cancelAnimationFrame(animationFrame);
   }, [phase]);
 
-  async function openPrejoin(requestedKind: CallMediaKind) {
+  const openPrejoin = useCallback(async (requestedKind: CallMediaKind) => {
     if (accessRevokedRef.current || roomRef.current) return;
     if (phase === "error") {
       setPhase("loading");
@@ -318,7 +400,25 @@ export function CallPanel({
     } catch {
       // Labels can remain unavailable until the user explicitly enables a device.
     }
-  }
+  }, [audioEnabled, call, operationIsCurrent, phase, refreshCall, stopPreview, videoEnabled]);
+
+  useEffect(() => {
+    if (!launchRequest) {
+      handledLaunchRequestRef.current = null;
+      return;
+    }
+    const requestKey = launchRequestId ?? launchRequest;
+    if (handledLaunchRequestRef.current === requestKey) return;
+    if (phase !== "idle" && phase !== "ended") return;
+
+    handledLaunchRequestRef.current = requestKey;
+    onLaunchRequestConsumed?.();
+    if (!mediaEnabled(launchRequest, audioEnabled, videoEnabled)) {
+      setError(`${mediaLabel(launchRequest)} calls are disabled for this workspace.`);
+      return;
+    }
+    void openPrejoin(launchRequest);
+  }, [audioEnabled, launchRequest, launchRequestId, onLaunchRequestConsumed, openPrejoin, phase, videoEnabled]);
 
   async function startCameraPreview(deviceId: string) {
     const boundaryError = mediaBoundaryError("camera");
@@ -518,7 +618,10 @@ export function CallPanel({
     room.on(RoomEvent.TrackPublished, update);
     room.on(RoomEvent.TrackUnpublished, update);
     room.on(RoomEvent.LocalTrackPublished, update);
-    room.on(RoomEvent.LocalTrackUnpublished, update);
+    room.on(RoomEvent.LocalTrackUnpublished, (publication) => {
+      publication.track?.stop();
+      update();
+    });
     room.on(RoomEvent.TrackMuted, update);
     room.on(RoomEvent.TrackUnmuted, update);
     room.on(RoomEvent.ActiveSpeakersChanged, update);
@@ -590,12 +693,6 @@ export function CallPanel({
       setPhase("ended");
       void refreshCall();
     });
-  }
-
-  async function disconnectRoom(room: Room) {
-    manualDisconnectRoomsRef.current.add(room);
-    if (roomRef.current === room) roomRef.current = null;
-    await room.disconnect(true).catch(() => undefined);
   }
 
   function resetConnectedState() {
@@ -814,13 +911,129 @@ export function CallPanel({
     }
   }
 
-  const joined = Boolean(roomRef.current) && ["connected", "reconnecting", "leaving"].includes(phase);
-  const joinedKind = roomMediaKindRef.current || currentMediaKind;
+  useEffect(() => {
+    if (
+      (phase !== "connected" && phase !== "reconnecting") ||
+      !currentCallId
+    ) return;
+    let current = true;
+    let checking = false;
+
+    const verifyActiveCall = async () => {
+      const room = roomRef.current;
+      if (!current || checking || !room) return;
+      checking = true;
+      try {
+        const activeCall = await getCall(api, conversation.id);
+        if (!current || roomRef.current !== room) return;
+        if (activeCall?.id === currentCallId && activeCall.status === "active") {
+          setCall(activeCall);
+          return;
+        }
+
+        const kind = roomMediaKindRef.current || currentMediaKind;
+        const generation = invalidateOperations();
+        stopPreview();
+        roomRef.current = null;
+        roomMediaKindRef.current = null;
+        pendingMediaKindRef.current = null;
+        await disconnectRoom(room);
+        if (!operationIsCurrent(generation)) return;
+        clearAllRemoteAudio();
+        resetConnectedState();
+        setCall(null);
+        setError(`The ${kind} call was ended for everyone.`);
+        setPhase("ended");
+      } catch {
+        // The media provider remains authoritative during a transient API
+        // failure. Its disconnect/revocation events still tear down capture.
+      } finally {
+        checking = false;
+      }
+    };
+
+    const verifyWhenVisible = () => {
+      if (document.visibilityState === "visible") void verifyActiveCall();
+    };
+    const timer = window.setInterval(verifyWhenVisible, 15_000);
+    window.addEventListener("focus", verifyWhenVisible);
+    document.addEventListener("visibilitychange", verifyWhenVisible);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", verifyWhenVisible);
+      document.removeEventListener("visibilitychange", verifyWhenVisible);
+    };
+  }, [
+    api,
+    conversation.id,
+    currentCallId,
+    currentMediaKind,
+    disconnectRoom,
+    invalidateOperations,
+    operationIsCurrent,
+    phase,
+    stopPreview
+  ]);
+
+  useEffect(() => {
+    if (!joined) {
+      wasJoinedRef.current = false;
+      setMinimized(false);
+      setElapsedSeconds(0);
+      return;
+    }
+    if (wasJoinedRef.current) return;
+    wasJoinedRef.current = true;
+    setMinimized(joinedKind === "audio");
+    const frame = window.requestAnimationFrame(() => {
+      callDockRef.current?.querySelector<HTMLElement>("[data-call-focus]")?.focus({
+        preventScroll: true
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [joined, joinedKind]);
+
+  useEffect(() => {
+    if (!joined) return;
+    const startedAt = call?.started_at ? Date.parse(call.started_at) : Date.now();
+    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1_000)));
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [call?.started_at, joined]);
   const activeKind = call?.status === "active" ? callMediaKind(call) : null;
+
+  useEffect(() => {
+    onSessionStateChange?.({
+      conversationId: conversation.id,
+      callId: currentCallId || null,
+      phase,
+      mediaKind: joinedKind,
+      joined,
+      microphoneEnabled,
+      cameraEnabled,
+      screenShareEnabled,
+      canEnd: call?.can_end === true,
+      accessRevoked
+    });
+  }, [
+    accessRevoked,
+    call?.can_end,
+    cameraEnabled,
+    conversation.id,
+    currentCallId,
+    joined,
+    joinedKind,
+    microphoneEnabled,
+    onSessionStateChange,
+    phase,
+    screenShareEnabled
+  ]);
 
   return (
     <div className="call-control audio-call-control">
-      <CallActions
+      {renderActions && <CallActions
         phase={phase}
         call={call}
         activeKind={activeKind}
@@ -831,7 +1044,7 @@ export function CallPanel({
         videoEnabled={videoEnabled}
         showVideoAction={showVideoAction}
         onOpen={(kind) => void openPrejoin(kind)}
-      />
+      />}
 
       {(phase === "prejoin" || phase === "joining") && createPortal(
         <CallPrejoinDialog
@@ -858,44 +1071,89 @@ export function CallPanel({
       )}
 
       {joined && createPortal(
-        <section className={`call-dock audio-call-dock ${joinedKind === "video" ? "video-call-dock" : ""}`} role="region" aria-labelledby="call-title">
+        <section
+          ref={callDockRef}
+          className={`call-dock audio-call-dock ${joinedKind === "video" ? "video-call-dock" : ""} ${minimized ? "minimized" : ""}`}
+          role={mobileCallModal ? "dialog" : "region"}
+          aria-modal={mobileCallModal || undefined}
+          aria-labelledby="call-title"
+          tabIndex={mobileCallModal ? -1 : undefined}
+        >
           <div className="audio-call-dock-heading">
             <div>
               <span className="eyebrow">{mediaLabel(joinedKind)} call</span>
               <h2 id="call-title">{conversation.title || "Conversation call"}</h2>
+              <small>{formatCallDuration(elapsedSeconds)}</small>
             </div>
-            <span className={`status-pill ${phase === "reconnecting" ? "neutral" : "success"}`} aria-live="polite">
-              {phase === "reconnecting" ? "Reconnecting" : phase === "leaving" ? "Leaving" : "Connected"}
-            </span>
-          </div>
-          {error && <div className="form-error" role="alert">{error}</div>}
-          {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
-          {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
-          <ul className="audio-participant-list" aria-label="Call participants">
-            {participants.map((participant) => <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{participant.name}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}{joinedKind === "video" ? ` · ${participant.cameraEnabled ? "Camera on" : "Camera off"}${participant.screenShareEnabled ? " · Sharing screen" : ""}` : ""}</small></span></li>)}
-          </ul>
-          <div className="call-device-grid">
-            <div className="audio-device-row">
-              <label htmlFor="active-audio-input">Microphone</label>
-              <select id="active-audio-input" value={selectedMicrophone} disabled={phase !== "connected" || microphones.length === 0} onChange={(event) => void selectMicrophone(event.target.value)}>
-                {microphones.length === 0 && <option value="">Default microphone</option>}
-                {microphones.map((device, index) => <option key={device.deviceId || `microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
-              </select>
+            <div className="call-dock-heading-actions">
+              <span className={`status-pill ${phase === "reconnecting" ? "neutral" : "success"}`} aria-live="polite">
+                {phase === "reconnecting" ? "Reconnecting" : phase === "leaving" ? "Leaving" : "Connected"}
+              </span>
+              <button
+                className="button ghost compact"
+                type="button"
+                data-call-focus
+                aria-expanded={!minimized}
+                aria-controls="active-call-details"
+                onClick={() => setMinimized((current) => !current)}
+              >
+                {minimized ? "Show call" : "Minimize"}
+              </button>
             </div>
-            {joinedKind === "video" && <div className="audio-device-row">
-              <label htmlFor="active-video-input">Camera</label>
-              <select id="active-video-input" value={selectedCamera} disabled={phase !== "connected" || cameras.length === 0} onChange={(event) => void selectCamera(event.target.value)}>
-                {cameras.length === 0 && <option value="">Default camera</option>}
-                {cameras.map((device, index) => <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
-              </select>
-            </div>}
           </div>
-          <div className="audio-call-actions">
-            <button className={`button compact ${microphoneEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={microphoneEnabled} disabled={phase !== "connected"} onClick={() => void toggleMicrophone()}>{microphoneEnabled ? "Mute microphone" : "Unmute microphone"}</button>
-            {joinedKind === "video" && <button className={`button compact ${cameraEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={cameraEnabled} disabled={phase !== "connected"} onClick={() => void toggleCamera()}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>}
-            {joinedKind === "video" && <button className={`button compact ${screenShareEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={screenShareEnabled} disabled={phase !== "connected"} onClick={() => void toggleScreenShare()}>{screenShareEnabled ? "Stop sharing screen" : "Share screen"}</button>}
-            <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void leave()}>Leave call</button>
-            {call?.can_end && <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void endForEveryone()}>End for everyone</button>}
+          <div id="active-call-details" className="active-call-details">
+            <div className="call-capture-indicator" role="status" aria-label="Local capture status">
+              <strong>Capture</strong>
+              <span className={microphoneEnabled ? "active" : undefined}>
+                Microphone {microphoneEnabled ? "on" : "off"}
+              </span>
+              {joinedKind === "video" && (
+                <span className={cameraEnabled ? "active" : undefined}>
+                  Camera {cameraEnabled ? "on" : "off"}
+                </span>
+              )}
+              {joinedKind === "video" && (
+                <span className={screenShareEnabled ? "active" : undefined}>
+                  Screen {screenShareEnabled ? "shared" : "not shared"}
+                </span>
+              )}
+            </div>
+            {onNavigate && (
+              <nav className="call-collaboration-links" aria-label="Call workspace">
+                <button type="button" onClick={() => { setMinimized(true); onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`); }}>Chat</button>
+                <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/directory"); }}>Directory</button>
+                <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/files"); }}>Files</button>
+              </nav>
+            )}
+            {error && <div className="form-error" role="alert">{error}</div>}
+            {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
+            {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
+            {joinedKind === "audio" && <ul className="audio-participant-list" aria-label="Call participants">
+              {participants.map((participant) => <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{participant.name}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small></span></li>)}
+            </ul>}
+            <div className="call-device-grid">
+              <div className="audio-device-row">
+                <label htmlFor="active-audio-input">Microphone</label>
+                <select id="active-audio-input" value={selectedMicrophone} disabled={phase !== "connected" || microphones.length === 0} onChange={(event) => void selectMicrophone(event.target.value)}>
+                  {microphones.length === 0 && <option value="">Default microphone</option>}
+                  {microphones.map((device, index) => <option key={device.deviceId || `microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+                </select>
+              </div>
+              {joinedKind === "video" && <div className="audio-device-row">
+                <label htmlFor="active-video-input">Camera</label>
+                <select id="active-video-input" value={selectedCamera} disabled={phase !== "connected" || cameras.length === 0} onChange={(event) => void selectCamera(event.target.value)}>
+                  {cameras.length === 0 && <option value="">Default camera</option>}
+                  {cameras.map((device, index) => <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+                </select>
+              </div>}
+            </div>
+            <div className="audio-call-actions">
+              <button className={`button compact ${microphoneEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={microphoneEnabled} disabled={phase !== "connected"} onClick={() => void toggleMicrophone()}>{microphoneEnabled ? "Mute microphone" : "Unmute microphone"}</button>
+              {joinedKind === "video" && <button className={`button compact ${cameraEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={cameraEnabled} disabled={phase !== "connected"} onClick={() => void toggleCamera()}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>}
+              {joinedKind === "video" && <button className={`button compact ${screenShareEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={screenShareEnabled} disabled={phase !== "connected"} onClick={() => void toggleScreenShare()}>{screenShareEnabled ? "Stop sharing screen" : "Share screen"}</button>}
+              <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void leave()}>Leave call</button>
+              {call?.can_end && <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void endForEveryone()}>End for everyone</button>}
+            </div>
           </div>
           <div ref={remoteAudioRef} className="remote-audio-tracks" aria-hidden="true" />
         </section>,
@@ -1036,6 +1294,15 @@ function CallPrejoinDialog({
         {cameraEnabled ? <video ref={previewVideoRef} data-k-comms-camera-preview autoPlay muted playsInline aria-label="Camera preview" /> : <div className="camera-preview-placeholder" aria-hidden="true">Camera off</div>}
         {previewBusy && <span className="camera-preview-status" role="status">Starting camera preview…</span>}
       </div>}
+      <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">
+        <strong>Before joining</strong>
+        <span>Microphone is not capturing</span>
+        {kind === "video" && (
+          <span className={cameraEnabled ? "active" : undefined}>
+            Camera preview {cameraEnabled ? "on locally" : "off"}
+          </span>
+        )}
+      </div>
       <div className="prejoin-consent-grid">
         <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
         {kind === "video" && <label className="checkbox-field"><input type="checkbox" checked={cameraEnabled} disabled={joining || previewBusy} onChange={(event) => onCameraEnabled(event.target.checked)} />Use camera when I join</label>}
@@ -1100,7 +1367,10 @@ function VideoTrackElement({ video, participant }: { video: VideoTrackView; part
       element.remove();
     };
   }, [participant.id, participant.local, video.source, video.track]);
-  return <div ref={containerRef} className={`video-track-frame ${video.source === "screen_share" ? "screen-share" : "camera"}`}><span className="visually-hidden">{participant.name} {video.source === "screen_share" ? "screen share" : "camera"}</span></div>;
+  return <div className={`video-track-frame ${video.source === "screen_share" ? "screen-share" : "camera"}`}>
+    <div ref={containerRef} className="video-track-mount" aria-hidden="true" />
+    <span className="visually-hidden">{participant.name} {video.source === "screen_share" ? "screen share" : "camera"}</span>
+  </div>;
 }
 
 function participantVideoTracks(participant: Participant): VideoTrackView[] {
@@ -1129,6 +1399,15 @@ function cameraCaptureOptions(deviceId: string) {
 
 function cameraConstraints(deviceId: string): MediaTrackConstraints {
   return { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
+}
+
+function formatCallDuration(seconds: number): string {
+  const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const hours = Math.floor(safe / 3_600);
+  const minutes = Math.floor((safe % 3_600) / 60);
+  const remainder = safe % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
 function mediaBoundaryError(kind: "microphone" | "camera"): string | null {
@@ -1173,6 +1452,12 @@ function capitalize(value: string) {
 
 function clearRemoteAudio(container: HTMLDivElement | null) {
   container?.querySelectorAll("[data-k-comms-call-audio]").forEach((element) => element.remove());
+}
+
+function stopRoomLocalTracks(room: Room) {
+  for (const publication of room.localParticipant.trackPublications?.values() || []) {
+    publication.track?.stop();
+  }
 }
 
 type CompatibilityApi = ApiClient & Partial<{

@@ -118,6 +118,26 @@ describe("conversation membership concurrency", () => {
   });
 });
 
+describe("attachment abandonment", () => {
+  it("uses the authenticated idempotent DELETE endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, { status: 204 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await api.abandonAttachment("attachment/with spaces");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/attachments/attachment%2Fwith%20spaces"
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("DELETE");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe(
+      "Bearer access-token"
+    );
+  });
+});
+
 describe("conversation call API", () => {
   it("uses the canonical media-neutral endpoints and sends the selected media kind", async () => {
     const call = { id: "call-1", conversation_id: "conversation-1", started_by_user_id: "user-1", status: "active", started_at: "2026-07-15T10:00:00Z", expires_at: "2026-07-15T11:00:00Z", can_end: true };
@@ -144,6 +164,43 @@ describe("conversation call API", () => {
     ]);
     expect(fetchMock.mock.calls.slice(1).every(([, options]) => options?.method === "POST")).toBe(true);
     expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ media_kind: "video" }));
+  });
+});
+
+describe("member calls and files indexes", () => {
+  it("encodes bounded scopes, filters, and opaque cursors", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [],
+        page: { limit: 100, has_more: false, next_cursor: null }
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [],
+        page: { limit: 25, has_more: false, next_cursor: null }
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await api.calls({
+      scope: "active",
+      media_kind: "video",
+      limit: 400,
+      cursor: "calls+/="
+    });
+    await api.files({
+      scope: "shared_by_me",
+      conversation_id: "conversation-1",
+      limit: 25,
+      cursor: "files+/="
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/calls?scope=active&limit=100&media_kind=video&cursor=calls%2B%2F%3D"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://comms.test/api/v1/files?scope=shared_by_me&limit=25&conversation_id=conversation-1&cursor=files%2B%2F%3D"
+    );
   });
 });
 
@@ -179,6 +236,47 @@ describe("public channel API", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[2]?.[1]?.method).toBe("DELETE");
     expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(JSON.stringify({ version: 4 }));
+  });
+});
+
+describe("member directory API", () => {
+  it("uses the bounded directory and atomic direct-conversation contracts", async () => {
+    const directoryPage = {
+      data: [{ id: "user-2", display_name: "Grace Hopper" }],
+      page: { next_cursor: "opaque+/=" }
+    };
+    const direct = {
+      data: { id: "direct-1" },
+      created: false
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(directoryPage), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(direct), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.directoryUsers("grace hopper", 25, "opaque+/=")).resolves.toEqual(
+      directoryPage
+    );
+    await expect(api.directConversation("user-2")).resolves.toEqual(direct);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/directory/users?q=grace+hopper&limit=25&cursor=opaque%2B%2F%3D"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://comms.test/api/v1/direct-conversations"
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(
+      JSON.stringify({ user_id: "user-2" })
+    );
   });
 });
 

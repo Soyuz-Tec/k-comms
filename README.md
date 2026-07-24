@@ -92,6 +92,24 @@ manually:
 powershell -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1
 ```
 
+### Immutable packaged local release
+
+The release-qualified local path builds the exact clean Git revision into the
+Dockerfile `runtime` target, serves the packaged client from Phoenix, runs
+forward migrations, records image/configuration evidence, and retains the
+previous application image for rollback. It uses a separate Compose project,
+ports, and data volumes, so it does not disrupt the development stack:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Validate
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Deploy
+```
+
+Open `http://127.0.0.1:4188/app/`. Use `-Action Status`, `-Action Stop`, or
+`-Action Rollback` for the remaining lifecycle operations. Rollback restores
+the prior application/configuration and never runs a down migration. See the
+[immutable local release runbook](docs/10-infrastructure-and-deployment/local-release-qualification.md).
+
 ## Quality gates
 
 ```bash
@@ -101,6 +119,7 @@ make contracts
 make docs-check
 make qualification-script-tests
 make compose-validate
+make local-release-validate
 make build
 make kube-validate
 ```

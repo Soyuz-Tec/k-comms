@@ -1,0 +1,145 @@
+.inbox-segments {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  grid-column: 1 / -1;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f1f3ee;
+}
+
+.inbox-segment {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0.45rem 0.35rem;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 750;
+}
+
+.inbox-segment:hover {
+  color: var(--ink);
+  background: #e7ebe4;
+}
+
+.inbox-segment[aria-pressed="true"] {
+  color: white;
+  background: var(--forest);
+  box-shadow: 0 1px 2px rgb(21 54 50 / 24%);
+}
+
+.inbox-segment:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.attachment-queue {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.6rem;
+}
+
+.attachment-queue-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid #bfd2bf;
+  border-radius: 10px;
+  color: #355148;
+  background: #f2f8ef;
+}
+
+.attachment-queue-item.phase-blocked,
+.attachment-queue-item.phase-retryable_error,
+.attachment-queue-item.phase-scan_delayed {
+  border-color: #dfaaa4;
+  color: #782f2a;
+  background: #ffebe8;
+}
+
+.attachment-queue-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(45 96 73 / 10%);
+  font-weight: 850;
+}
+
+.attachment-queue-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.attachment-queue-copy strong,
+.attachment-queue-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-queue-copy small {
+  color: currentColor;
+  opacity: 0.78;
+}
+
+.attachment-queue-copy progress {
+  width: 100%;
+  height: 5px;
+  accent-color: var(--forest);
+}
+
+.attachment-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.attachment-queue-remove {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: currentColor;
+  background: transparent;
+  font-size: 1.15rem;
+}
+
+.attachment-queue-remove:hover {
+  background: rgb(21 54 50 / 8%);
+}
+
+.attachment-queue-remove:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+@media (max-width: 760px) {
+  .inbox-segment {
+    min-height: 44px;
+  }
+
+  .attachment-queue-remove {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 390px) {
+  .inbox-segments {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

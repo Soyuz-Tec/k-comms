@@ -78,6 +78,29 @@ describe("AuthScreen", () => {
     expect(signIn).toHaveAttribute("aria-selected", "true");
   });
 
+  it("opens an authorized setup link directly and suggests an editable workspace slug", async () => {
+    mocks.status.mockResolvedValue({ capabilities: { bootstrap: true } });
+    window.history.replaceState({}, "", "/app/?setup=workspace");
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+
+    expect(
+      await screen.findByRole("heading", { name: "Create a development workspace" })
+    ).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Create workspace" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+
+    await user.type(screen.getByLabelText("Workspace name"), "North Star Team");
+    expect(screen.getByLabelText("Workspace slug")).toHaveValue("north-star-team");
+
+    await user.clear(screen.getByLabelText("Workspace slug"));
+    await user.type(screen.getByLabelText("Workspace slug"), "northstar");
+    await user.type(screen.getByLabelText("Workspace name"), " Two");
+    expect(screen.getByLabelText("Workspace slug")).toHaveValue("northstar");
+  });
+
   it("accepts a fragment invitation, scrubs its secret, and signs in with safe context", async () => {
     mocks.acceptInvitation.mockResolvedValue(acceptedUser);
     mocks.login.mockResolvedValue(session);

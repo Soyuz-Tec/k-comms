@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://k-comms.example/schemas/usability-study-v2.json",
+  "$id": "https://k-comms.example/schemas/usability-study-v3.json",
   "title": "K-Comms formal usability study evidence",
-  "description": "Privacy-preserving structural contract for the 12-session usability study. The score_usability_study.mjs validator is authoritative for cross-field task, date, and release-gate semantics.",
+  "description": "Privacy-preserving structural contract for the 12-session usability study and exact low-click journey receipts for the Inbox, Calls, Directory, Files, and You experience. The score_usability_study.mjs validator is authoritative for cross-field task, action-count, participant, date, and release-gate semantics.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,10 +19,11 @@
     "manual_accessibility",
     "accessibility_findings",
     "approver_receipt",
+    "action_count_receipts",
     "sessions"
   ],
   "properties": {
-    "schema_version": { "const": 2 },
+    "schema_version": { "const": 3 },
     "release_revision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
     "environment": { "type": "string", "minLength": 1, "maxLength": 120 },
     "study_started_on": { "type": "string", "format": "date" },
@@ -38,6 +39,30 @@
       "items": { "$ref": "#/$defs/accessibilityFinding" }
     },
     "approver_receipt": { "$ref": "#/$defs/approverReceipt" },
+    "action_count_receipts": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/actionCountReceipt" },
+      "allOf": [
+        { "contains": { "properties": { "id": { "const": "sign-in-inbox" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "invite-inbox" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "open-unread" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "directory-direct" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "directory-room" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "file-source-return" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "call-lobby-join" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "active-call-rejoin" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "you-profile" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "you-devices" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "you-notifications" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "you-settings" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "admin-entry" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "ops-entry" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "ordinary-recovery" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
     "sessions": {
       "type": "array",
       "minItems": 12,
@@ -90,6 +115,150 @@
         "approver_role": { "const": "release_approver" },
         "approved_on": { "type": ["string", "null"], "format": "date" },
         "evidence_reference": { "type": ["string", "null"], "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "actionCountReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "participant_id",
+        "baseline",
+        "performed_on",
+        "task_completed",
+        "unassisted",
+        "action_count",
+        "maximum_actions",
+        "justified_exception_actions"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "sign-in-inbox",
+            "invite-inbox",
+            "open-unread",
+            "directory-direct",
+            "directory-room",
+            "file-source-return",
+            "call-lobby-join",
+            "active-call-rejoin",
+            "you-profile",
+            "you-devices",
+            "you-notifications",
+            "you-settings",
+            "admin-entry",
+            "ops-entry",
+            "ordinary-recovery"
+          ]
+        },
+        "participant_id": { "type": "string", "pattern": "^P[0-9A-Za-z_-]+$" },
+        "baseline": { "enum": ["daily_use", "end_to_end"] },
+        "performed_on": { "type": "string", "format": "date" },
+        "task_completed": { "type": "boolean" },
+        "unassisted": { "type": "boolean" },
+        "action_count": { "type": "integer", "minimum": 0 },
+        "maximum_actions": { "type": "integer", "minimum": 1 },
+        "justified_exception_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/justifiedActionException" }
+        },
+        "call_safety": { "$ref": "#/$defs/callSafety" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "id": { "enum": ["sign-in-inbox", "invite-inbox"] } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "end_to_end" } } },
+          "else": { "properties": { "baseline": { "const": "daily_use" } } }
+        },
+        {
+          "if": { "properties": { "id": { "enum": ["directory-room", "call-lobby-join"] } }, "required": ["id"] },
+          "then": { "properties": { "maximum_actions": { "const": 3 } } },
+          "else": {
+            "if": {
+              "properties": {
+                "id": {
+                  "enum": [
+                    "directory-direct",
+                    "file-source-return",
+                    "active-call-rejoin",
+                    "admin-entry",
+                    "ops-entry"
+                  ]
+                }
+              },
+              "required": ["id"]
+            },
+            "then": { "properties": { "maximum_actions": { "const": 2 } } },
+            "else": { "properties": { "maximum_actions": { "const": 1 } } }
+          }
+        },
+        {
+          "if": { "properties": { "id": { "enum": ["call-lobby-join", "active-call-rejoin"] } }, "required": ["id"] },
+          "then": { "required": ["call_safety"] },
+          "else": { "not": { "required": ["call_safety"] } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "call-lobby-join" } }, "required": ["id"] },
+          "then": {
+            "properties": {
+              "call_safety": {
+                "properties": {
+                  "lobby_action_count": { "const": 2 },
+                  "join_or_start_action_count": { "const": 1 }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "id": { "const": "active-call-rejoin" } }, "required": ["id"] },
+          "then": {
+            "properties": {
+              "call_safety": {
+                "properties": {
+                  "lobby_action_count": { "const": 2 },
+                  "join_or_start_action_count": { "const": 0 }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "justifiedActionException": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "count"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "identity_provider_step",
+            "step_up_authentication",
+            "reason_entry",
+            "destructive_confirmation",
+            "media_consent"
+          ]
+        },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "callSafety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "microphone_initially_off",
+        "camera_initially_off",
+        "lobby_observed_before_join",
+        "lobby_action_count",
+        "join_or_start_action_count"
+      ],
+      "properties": {
+        "microphone_initially_off": { "type": "boolean" },
+        "camera_initially_off": { "type": "boolean" },
+        "lobby_observed_before_join": { "type": "boolean" },
+        "lobby_action_count": { "type": "integer", "minimum": 0 },
+        "join_or_start_action_count": { "type": "integer", "minimum": 0 }
       }
     },
     "session": {

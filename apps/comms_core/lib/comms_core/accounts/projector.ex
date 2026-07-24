@@ -6,6 +6,7 @@ defmodule CommsCore.Accounts.Projector do
     AuthenticationResult,
     Device,
     DeviceView,
+    DirectoryPersonView,
     PlatformAccess,
     Session,
     SessionView,
@@ -35,6 +36,13 @@ defmodule CommsCore.Accounts.Projector do
       version: user.lock_version,
       platform_role: platform_access.platform_role,
       platform_role_expires_at: platform_access.platform_role_expires_at
+    })
+  end
+
+  def directory_person(%User{} = user) do
+    struct!(DirectoryPersonView, %{
+      id: user.id,
+      display_name: user.display_name
     })
   end
 

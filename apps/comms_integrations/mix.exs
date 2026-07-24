@@ -16,7 +16,7 @@ defmodule CommsIntegrations.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger, :crypto], mod: {CommsIntegrations.Application, []}]
+    [extra_applications: [:logger, :crypto, :xmerl], mod: {CommsIntegrations.Application, []}]
   end
 
   defp deps do

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { Call, Conversation } from "../../types";
 import { CallPanel } from "./CallPanel";
+import { requestCallSessionTeardown } from "./callSessionEvents";
 
 const livekit = vi.hoisted(() => ({
   events: {
@@ -38,6 +39,7 @@ const livekit = vi.hoisted(() => ({
     isCameraEnabled: false,
     isScreenShareEnabled: false,
     isSpeaking: false,
+    trackPublications: new Map<string, { track?: { stop: () => void } }>(),
     videoTrackPublications: new Map(),
     setMicrophoneEnabled: vi.fn(),
     setCameraEnabled: vi.fn(),
@@ -88,6 +90,7 @@ const conversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "group",
   title: "Design group",
+  counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,
   inserted_at: "2026-07-15T10:00:00Z",
@@ -175,6 +178,7 @@ describe("CallPanel video calls", () => {
     livekit.localParticipant.isMicrophoneEnabled = false;
     livekit.localParticipant.isCameraEnabled = false;
     livekit.localParticipant.isScreenShareEnabled = false;
+    livekit.localParticipant.trackPublications.clear();
     livekit.localParticipant.videoTrackPublications.clear();
     livekit.getLocalDevices.mockReset().mockImplementation(async (kind: MediaDeviceKind) => (
       kind === "videoinput"
@@ -196,6 +200,14 @@ describe("CallPanel video calls", () => {
       livekit.localParticipant.isScreenShareEnabled = enabled;
     });
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
   });
 
   it("offers distinct actions and stops every preview track on camera switch and cancel", async () => {
@@ -241,6 +253,12 @@ describe("CallPanel video calls", () => {
     await user.click(within(dialog).getByRole("button", { name: "Join video call" }));
 
     expect(await screen.findByText("Connected")).toBeVisible();
+    expect(screen.getByRole("status", { name: "Local capture status" })).toHaveTextContent(
+      "Microphone on"
+    );
+    expect(screen.getByRole("status", { name: "Local capture status" })).toHaveTextContent(
+      "Camera on"
+    );
     expect(api.startCall).toHaveBeenCalledWith(conversation.id, "video");
     expect(livekit.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true, expect.objectContaining({ deviceId: "mic-2" }));
     expect(livekit.localParticipant.setCameraEnabled).toHaveBeenCalledWith(true, expect.objectContaining({ deviceId: "camera-2" }));
@@ -276,5 +294,138 @@ describe("CallPanel video calls", () => {
     expect(livekit.disconnect).toHaveBeenCalledWith(true);
     expect(grace.track.detach).toHaveBeenCalled();
     expect(linus.track.detach).toHaveBeenCalled();
+  });
+
+  it("focuses the connected dock and keeps collaboration routes one action away", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeVideoCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        onNavigate={onNavigate}
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    const dialog = screen.getByRole("dialog", { name: "Join the video call" });
+    await user.click(within(dialog).getByRole("button", { name: "Join video call" }));
+
+    const minimize = await screen.findByRole("button", { name: "Minimize" });
+    await waitFor(() => expect(minimize).toHaveFocus());
+    expect(screen.getByRole("navigation", { name: "Call workspace" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Directory" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/app/directory");
+    expect(screen.getByRole("button", { name: "Show call" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
+  it("isolates the covered mobile workspace until an expanded call is minimized", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Background action</button>
+        <CallPanel
+          api={apiWith(activeVideoCall)}
+          conversation={conversation}
+          audioEnabled
+          videoEnabled
+          currentUserDisplayName="Ada"
+        />
+      </>
+    );
+
+    const backgroundAction = screen.getByRole("button", { name: "Background action" });
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the video call" }))
+        .getByRole("button", { name: "Join video call" })
+    );
+
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    expect(activeCall).toHaveAttribute("aria-modal", "true");
+    expect(backgroundAction.closest('[aria-hidden="true"]')).not.toBeNull();
+    await waitFor(() =>
+      expect(activeCall).toContainElement(document.activeElement as HTMLElement)
+    );
+
+    backgroundAction.focus();
+    expect(activeCall).toContainElement(document.activeElement as HTMLElement);
+    await user.tab();
+    expect(activeCall).toContainElement(document.activeElement as HTMLElement);
+
+    await user.click(within(activeCall).getByRole("button", { name: "Minimize" }));
+    expect(await screen.findByRole("region", { name: "Design group" })).toBeVisible();
+    expect(backgroundAction.closest('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("stops every local track before logout and keeps later page-exit cleanup idempotent", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const api = apiWith(activeVideoCall);
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={api}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    const dialog = screen.getByRole("dialog", { name: "Join the video call" });
+    await user.click(within(dialog).getByRole("button", { name: "Join video call" }));
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    const microphoneStop = vi.fn();
+    const cameraStop = vi.fn();
+    livekit.localParticipant.trackPublications.set("microphone", {
+      track: { stop: microphoneStop }
+    });
+    livekit.localParticipant.trackPublications.set("camera", {
+      track: { stop: cameraStop }
+    });
+
+    act(() => requestCallSessionTeardown());
+    expect(microphoneStop).toHaveBeenCalledTimes(1);
+    expect(cameraStop).toHaveBeenCalledTimes(1);
+    expect(livekit.disconnect).toHaveBeenCalledTimes(1);
+    expect(livekit.disconnect).toHaveBeenCalledWith(true);
+    expect(api.endCall).not.toHaveBeenCalled();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event("beforeunload"));
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(microphoneStop).toHaveBeenCalledTimes(1);
+    expect(cameraStop).toHaveBeenCalledTimes(1);
+    expect(livekit.disconnect).toHaveBeenCalledTimes(1);
   });
 });

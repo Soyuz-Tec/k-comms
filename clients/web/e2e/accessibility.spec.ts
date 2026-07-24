@@ -66,13 +66,16 @@ const representativeStateIds = [
   "search",
   "thread",
   "notifications",
-  "settings",
+  "calls",
+  "directory",
+  "files",
+  "you",
   "admin",
   "operations"
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(14);
+  expect(new Set(representativeStateIds).size).toBe(17);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
@@ -146,9 +149,32 @@ test("notification drawer satisfies automated WCAG A and AA checks", async ({ pa
   await expectNoWcagFailures(page);
 });
 
-test("settings satisfies automated WCAG A and AA checks", async ({ page }) => {
+test("calls satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/calls");
+  await expect(page.getByRole("heading", { name: "Calls" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("directory satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/directory");
+  await expect(page.getByRole("heading", { name: "Find people and rooms" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "People" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("files satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/files");
+  await expect(page.getByRole("heading", { name: "Files", exact: true })).toBeVisible();
+  await expect(page.getByText("Project-brief.pdf", { exact: true })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
-  await page.goto("/app/settings");
+  await page.goto("/app/you");
   await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
@@ -223,14 +249,74 @@ async function installAuthenticatedMocks(
       tenant: session.tenant,
       user: session.user,
       device: session.device,
-      capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 }
+      capabilities: {
+        allow_audio_calls: true,
+        allow_video_calls: true,
+        allow_public_channels: true,
+        message_edit_window_seconds: 900,
+        max_attachment_bytes: 25_000_000
+      }
+    }
+  }));
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: {
+      service: "k-comms",
+      version: "0.3.0",
+      status: "operational",
+      node: "accessibility-test@node",
+      capabilities: {
+        administration: true,
+        audio_calls: true,
+        video_calls: true,
+        attachment_scanning: true,
+        bootstrap: false,
+        notifications: true,
+        push_notifications: false,
+        realtime: false,
+        webhooks: true
+      }
     }
   }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
+  await page.route("**/api/v1/directory/users**", (route) => route.fulfill({
+    json: {
+      data: [{ id: "user-2", display_name: "Grace Hopper" }],
+      page: { next_cursor: null }
+    }
+  }));
+  await page.route("**/api/v1/channels/discover**", (route) => route.fulfill({
+    json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
+  }));
   await page.route("**/api/v1/conversations", (route) => {
     if (options.workspaceError) return route.fulfill({ status: 503, json: { error: { code: "unavailable", detail: "Synthetic workspace refresh failure" } } });
     return route.fulfill({ json: { data: options.populated ? [conversation] : [] } });
   });
+  await page.route("**/api/v1/calls**", (route) => route.fulfill({
+    json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
+  }));
+  await page.route("**/api/v1/files**", (route) => route.fulfill({
+    json: {
+      data: [{
+        id: "file-1",
+        conversation_id: conversation.id,
+        message_id: message.id,
+        conversation_sequence: message.conversation_sequence,
+        owner_user_id: session.user.id,
+        file_name: "Project-brief.pdf",
+        content_type: "application/pdf",
+        byte_size: 2_048,
+        status: "ready",
+        scan_status: "clean",
+        safety_state: "available",
+        downloadable: true,
+        uploaded_at: "2026-07-14T10:00:00Z",
+        shared_at: "2026-07-14T10:00:00Z",
+        inserted_at: "2026-07-14T10:00:00Z",
+        updated_at: "2026-07-14T10:00:00Z"
+      }],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    }
+  }));
   await page.route("**/api/v1/conversations/conversation-1/messages/message-1/thread**", (route) => route.fulfill({
     json: { data: { root: message, replies: [], reply_count: 0 }, page: { has_more: false, next_before_sequence: null } }
   }));

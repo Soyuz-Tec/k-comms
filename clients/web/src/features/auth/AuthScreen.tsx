@@ -10,9 +10,13 @@ import { useSession } from "../../app/session";
 export function AuthScreen() {
   const { api, setSession } = useSession();
   const [invitationContext] = useState(readInvitationContext);
+  const [bootstrapRequested] = useState(readBootstrapRequest);
   const invitationToken = invitationContext.token;
   const [mode, setMode] = useState<"login" | "invite" | "bootstrap">(invitationToken ? "invite" : "login");
   const [loginDefaults, setLoginDefaults] = useState({ tenantSlug: invitationContext.tenantSlug, email: "" });
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [workspaceSlug, setWorkspaceSlug] = useState("");
+  const [workspaceSlugEdited, setWorkspaceSlugEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -32,10 +36,13 @@ export function AuthScreen() {
   useEffect(() => {
     let current = true;
     api.status().then((status) => {
-      if (current) setBootstrapEnabled(status.capabilities?.bootstrap === true);
+      if (!current) return;
+      const enabled = status.capabilities?.bootstrap === true;
+      setBootstrapEnabled(enabled);
+      if (enabled && bootstrapRequested && !invitationToken) setMode("bootstrap");
     }).catch(() => undefined);
     return () => { current = false; };
-  }, [api]);
+  }, [api, bootstrapRequested, invitationToken]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -210,8 +217,35 @@ export function AuthScreen() {
             <div id="auth-bootstrap-panel" role="tabpanel" aria-labelledby="auth-bootstrap-tab">
               <form className="auth-form" onSubmit={(event) => void submitBootstrap(event)}>
                 <div className="field-pair">
-                  <Field label="Workspace name" name="tenant_name" minLength={2} maxLength={120} autoComplete="organization" required />
-                  <Field label="Workspace slug" name="tenant_slug" minLength={2} maxLength={80} pattern="[a-z0-9-]+" title="Lowercase letters, numbers, and hyphens" required />
+                  <Field
+                    label="Workspace name"
+                    name="tenant_name"
+                    value={workspaceName}
+                    onChange={(event) => {
+                      const nextName = event.target.value;
+                      setWorkspaceName(nextName);
+                      if (!workspaceSlugEdited) setWorkspaceSlug(workspaceSlugFromName(nextName));
+                    }}
+                    minLength={2}
+                    maxLength={120}
+                    autoComplete="organization"
+                    required
+                  />
+                  <Field
+                    label="Workspace slug"
+                    name="tenant_slug"
+                    value={workspaceSlug}
+                    onChange={(event) => {
+                      setWorkspaceSlugEdited(true);
+                      setWorkspaceSlug(event.target.value.toLocaleLowerCase());
+                    }}
+                    minLength={2}
+                    maxLength={80}
+                    pattern="[a-z0-9-]+"
+                    title="Lowercase letters, numbers, and hyphens"
+                    hint="Suggested from the workspace name; you can change it."
+                    required
+                  />
                 </div>
                 <Field label="Your name" name="display_name" maxLength={120} autoComplete="name" required />
                 <Field label="Email address" name="email" type="email" autoComplete="username" required />
@@ -233,4 +267,19 @@ function readInvitationContext(): { token: string; tenantSlug: string } {
     token: hash.get("invitation_token") || search.get("invitation_token") || "",
     tenantSlug: hash.get("tenant_slug") || search.get("tenant_slug") || ""
   };
+}
+
+function readBootstrapRequest(): boolean {
+  const search = new URLSearchParams(window.location.search);
+  return search.get("setup") === "workspace";
+}
+
+function workspaceSlugFromName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 }

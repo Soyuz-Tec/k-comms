@@ -3,6 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 const liveAudioE2E = process.env.K_COMMS_LIVE_AUDIO_E2E === "true";
 const liveVideoE2E = process.env.K_COMMS_LIVE_VIDEO_E2E === "true";
 const liveMediaE2E = liveAudioE2E || liveVideoE2E;
+const externalServer = process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
+const mockedBaseURL =
+  process.env.K_COMMS_E2E_BASE_URL || "http://127.0.0.1:4178";
 const liveMediaBaseURL = liveVideoE2E
   ? process.env.K_COMMS_LIVE_VIDEO_BASE_URL || "http://127.0.0.1:4178"
   : liveAudioE2E
@@ -18,7 +21,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {
-    baseURL: liveMediaE2E ? liveMediaBaseURL : "http://127.0.0.1:4178",
+    baseURL: liveMediaE2E ? liveMediaBaseURL : mockedBaseURL,
     trace: "on-first-retry"
   },
   projects: [
@@ -43,9 +46,14 @@ export default defineConfig({
       name: "mobile-chromium",
       testIgnore: /live-(audio|video)\.spec\.ts/,
       use: { ...devices["Pixel 7"] }
+    },
+    {
+      name: "webkit",
+      testIgnore: /live-(audio|video)\.spec\.ts/,
+      use: { ...devices["Desktop Safari"] }
     }
   ],
-  webServer: {
+  webServer: externalServer ? undefined : {
     command: liveMediaE2E
       ? `npm run dev -- --host ${liveMediaURL.hostname} --port ${liveMediaPort}`
       : "npm run dev -- --host 127.0.0.1 --port 4178",

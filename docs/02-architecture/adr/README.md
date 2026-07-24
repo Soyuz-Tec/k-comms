@@ -49,5 +49,8 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0043 | Complete the Calls boundary and retire the authorization kernel | Accepted |
 | 0044 | Retrospectively accept the full PR #16 endgame scope | Accepted |
 | 0045 | Harden zero-baseline architecture assurance | Accepted |
+| 0046 | Add owner-projected mobile member read contracts | Accepted |
+| 0047 | Qualify an immutable loopback-only local release | Accepted |
+| 0048 | Make abandoned upload cleanup durable and convergent | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -18,7 +18,7 @@ RELEASE_EVIDENCE_ARGS ?=
 
 .PHONY: bootstrap dev stop logs shell check test format web-check contracts docs-check \
 	validation-deps qualification-script-tests build container-smoke compose-validate \
-	kube-validate production-preflight release-evidence release clean
+	local-release-validate kube-validate production-preflight release-evidence release clean
 
 bootstrap:
 	$(COMPOSE) up -d postgres minio minio-init
@@ -60,6 +60,8 @@ docs-check:
 	$(PYTHON) scripts/validate_docs.py
 
 qualification-script-tests:
+	$(PYTHON) scripts/test_validate_local_release.py
+	$(PYTHON) scripts/validate_local_release.py
 	$(PYTHON) scripts/test_validate_staging_secrets.py
 	$(PYTHON) scripts/test_validate_production_bundle.py
 	$(PYTHON) scripts/test_collect_release_evidence.py
@@ -86,6 +88,9 @@ container-smoke:
 
 compose-validate:
 	$(COMPOSE) config --quiet
+
+local-release-validate:
+	$(PYTHON) scripts/validate_local_release.py
 
 kube-validate:
 	@set -eu; \

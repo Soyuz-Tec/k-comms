@@ -4,12 +4,14 @@ defmodule CommsCore.Conversations.Projector do
   alias CommsCore.Accounts.UserView
   alias CommsCore.Conversations.{Conversation, ConversationView, Membership, MembershipView}
 
-  def conversation(%Conversation{} = conversation) do
+  def conversation(%Conversation{} = conversation, counterpart_display_name \\ nil) do
     struct!(ConversationView, %{
       id: conversation.id,
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
-      title: conversation.title,
+      title: if(conversation.kind == :direct, do: nil, else: conversation.title),
+      counterpart_display_name:
+        if(conversation.kind == :direct, do: counterpart_display_name, else: nil),
       visibility: conversation.visibility,
       latest_sequence: max(conversation.next_sequence - 1, 0),
       archived_at: conversation.archived_at,
@@ -19,9 +21,12 @@ defmodule CommsCore.Conversations.Projector do
     })
   end
 
-  def user_conversation(%{conversation: %Conversation{} = conversation} = result) do
+  def user_conversation(
+        %{conversation: %Conversation{} = conversation} = result,
+        counterpart_display_name \\ nil
+      ) do
     conversation
-    |> conversation()
+    |> conversation(counterpart_display_name)
     |> Map.merge(%{
       membership_role: result.membership_role,
       last_read_sequence: result.last_read_sequence,

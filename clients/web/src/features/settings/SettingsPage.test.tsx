@@ -175,6 +175,57 @@ describe("profile settings", () => {
     }));
   });
 
+  it("keeps successful settings sections usable when another resource fails", async () => {
+    harness.api.devices.mockRejectedValue(new Error("Device service is unavailable"));
+    harness.api.sessions.mockResolvedValue([{
+      id: "session-12345678",
+      user_id: "user-1",
+      device_id: "device-2",
+      expires_at: "2026-07-21T12:00:00Z",
+      last_used_at: "2026-07-14T12:00:00Z",
+      inserted_at: "2026-07-14T11:00:00Z",
+      revoked_at: null
+    }]);
+    harness.api.notificationPreference.mockResolvedValue({
+      email_enabled: true,
+      push_enabled: false,
+      in_app_enabled: true,
+      muted_event_types: [],
+      updated_at: "2026-07-14T11:00:00Z"
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("Session session-")).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "New messages" })).toBeVisible();
+    const warning = screen.getByRole("status");
+    expect(warning).toHaveTextContent("Some settings could not be loaded");
+    expect(warning).toHaveTextContent("Devices:");
+    expect(warning).toHaveTextContent("Device service is unavailable");
+    expect(screen.queryByText("Sessions:")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "New messages" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Dismiss settings load warning" })
+    ).toBeEnabled();
+  });
+
+  it("renders the in-page destinations used by the You shortcuts", async () => {
+    harness.api.notificationPreference.mockResolvedValue({
+      email_enabled: true,
+      push_enabled: false,
+      in_app_enabled: true,
+      muted_event_types: [],
+      updated_at: "2026-07-14T11:00:00Z"
+    });
+    const { container } = render(<SettingsPage />);
+
+    await screen.findByText("0 known");
+    expect(container.querySelector("#profile-settings")).toBeVisible();
+    expect(container.querySelector("#password-settings")).toBeVisible();
+    expect(container.querySelector("#notification-settings")).toBeVisible();
+  });
+
   it("reviews device revocation in an accessible dialog before calling the API", async () => {
     harness.api.devices.mockResolvedValue([{
       id: "device-2",

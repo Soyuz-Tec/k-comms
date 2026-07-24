@@ -1,6 +1,8 @@
 defmodule CommsWeb.StatusControllerTest do
   use CommsWeb.ConnCase, async: false
 
+  alias CommsIntegrations.Audio.LiveKitReadiness
+
   test "GET /health/live", %{conn: conn} do
     conn = get(conn, "/health/live")
     assert json_response(conn, 200) == %{"status" => "ok"}
@@ -41,6 +43,54 @@ defmodule CommsWeb.StatusControllerTest do
            ]
   end
 
+  test "configured but unreachable LiveKit fails call capabilities closed", %{conn: conn} do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false])
+    {:ok, {_address, port}} = :inet.sockname(socket)
+    :ok = :gen_tcp.close(socket)
+
+    values = %{
+      audio_provider_mode: "livekit",
+      livekit_server_url: "ws://127.0.0.1:#{port}",
+      livekit_api_url: "http://127.0.0.1:#{port}",
+      livekit_api_key: "configured-test-key",
+      livekit_api_secret: "configured-test-secret",
+      audio_token_ttl_seconds: 300
+    }
+
+    previous =
+      Map.new(values, fn {key, _value} -> {key, Application.get_env(:comms_integrations, key)} end)
+
+    Enum.each(values, fn {key, value} -> Application.put_env(:comms_integrations, key, value) end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} ->
+        if is_nil(value),
+          do: Application.delete_env(:comms_integrations, key),
+          else: Application.put_env(:comms_integrations, key, value)
+      end)
+
+      LiveKitReadiness.refresh()
+    end)
+
+    assert :ok = LiveKitReadiness.refresh()
+
+    assert eventually(fn ->
+             LiveKitReadiness.status() == %{
+               status: :unavailable,
+               adapter: :livekit,
+               reason: :provider_unreachable
+             }
+           end)
+
+    response =
+      conn
+      |> get("/api/v1/status")
+      |> json_response(200)
+
+    assert response["capabilities"]["audio_calls"] == false
+    assert response["capabilities"]["video_calls"] == false
+  end
+
   test "GET /metrics", %{conn: conn} do
     conn = get(conn, "/metrics")
     assert response(conn, 200) =~ "k_comms_auth_success_total"
@@ -73,4 +123,17 @@ defmodule CommsWeb.StatusControllerTest do
     assert [content_type] = get_resp_header(response, "content-type")
     assert content_type =~ "text/html"
   end
+
+  defp eventually(fun, attempts \\ 80)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 end

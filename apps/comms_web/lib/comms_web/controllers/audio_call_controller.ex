@@ -7,6 +7,19 @@ defmodule CommsWeb.AudioCallController do
   alias CommsIntegrations.Audio.RoomService
   alias CommsWeb.{Broadcast, Presenter}
 
+  def index(conn, params) do
+    with {:ok, result} <- AudioCalls.list_sessions(conn.assigns.current_subject, params) do
+      json(conn, %{
+        data: Enum.map(result.calls, &Presenter.call_session/1),
+        page: %{
+          limit: result.limit,
+          has_more: result.has_more,
+          next_cursor: result.next_cursor
+        }
+      })
+    end
+  end
+
   def show(conn, %{"conversation_id" => conversation_id}) do
     with {:ok, call} <- AudioCalls.get_active(conversation_id, conn.assigns.current_subject) do
       json(conn, %{

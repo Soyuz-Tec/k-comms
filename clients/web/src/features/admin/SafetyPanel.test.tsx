@@ -24,6 +24,20 @@ const moderationCase: ModerationCase = {
 };
 
 describe("SafetyPanel role scoping", () => {
+  it("gives moderation-load errors a descriptive dismiss control", async () => {
+    const user = userEvent.setup();
+    const api = {
+      moderationCases: vi.fn().mockRejectedValue(new Error("Moderation unavailable"))
+    } as unknown as ApiClient;
+
+    render(<SafetyPanel api={api} canManageAttachments={false} />);
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss safety error" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Moderation unavailable");
+    await user.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("loads moderation for a moderator without requesting owner-only attachment administration", async () => {
     const attachmentSafety = vi.fn();
     const api = {

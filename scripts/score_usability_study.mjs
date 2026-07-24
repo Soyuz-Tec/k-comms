@@ -10,6 +10,13 @@ const findingStandards = new Set(["WCAG 2.2 A", "WCAG 2.2 AA", "advisory"]);
 const findingSeverities = new Set(["critical", "serious", "moderate", "minor"]);
 const findingStatuses = new Set(["open", "resolved"]);
 const completionStatuses = new Set(["not_completed", "passed", "failed"]);
+const justifiedActionReasons = new Set([
+  "identity_provider_step",
+  "step_up_authentication",
+  "reason_entry",
+  "destructive_confirmation",
+  "media_consent"
+]);
 const forbiddenEvidenceKeys = new Set([
   "message_body",
   "message_content",
@@ -54,6 +61,24 @@ const taskCatalog = new Map(
   )
 );
 
+const actionJourneyCatalog = new Map([
+  ["sign-in-inbox", actionJourney("end_to_end", 1, ["member", "admin", "moderator", "compliance", "operator"])],
+  ["invite-inbox", actionJourney("end_to_end", 1, ["member"])],
+  ["open-unread", actionJourney("daily_use", 1, ["member"])],
+  ["directory-direct", actionJourney("daily_use", 2, ["member"])],
+  ["directory-room", actionJourney("daily_use", 3, ["member"])],
+  ["file-source-return", actionJourney("daily_use", 2, ["member"])],
+  ["call-lobby-join", actionJourney("daily_use", 3, ["member"], { lobbyActions: 2, joinActions: 1 })],
+  ["active-call-rejoin", actionJourney("daily_use", 2, ["member"], { lobbyActions: 2, joinActions: 0 })],
+  ["you-profile", actionJourney("daily_use", 1, ["member"])],
+  ["you-devices", actionJourney("daily_use", 1, ["member"])],
+  ["you-notifications", actionJourney("daily_use", 1, ["member"])],
+  ["you-settings", actionJourney("daily_use", 1, ["member"])],
+  ["admin-entry", actionJourney("daily_use", 2, ["admin"])],
+  ["ops-entry", actionJourney("daily_use", 2, ["operator"])],
+  ["ordinary-recovery", actionJourney("daily_use", 1, ["member"])]
+]);
+
 const topLevelKeys = new Set([
   "schema_version",
   "release_revision",
@@ -68,6 +93,7 @@ const topLevelKeys = new Set([
   "manual_accessibility",
   "accessibility_findings",
   "approver_receipt",
+  "action_count_receipts",
   "sessions"
 ]);
 const sessionKeys = new Set([
@@ -103,6 +129,26 @@ const manualAccessibilityKeys = new Set([
   "completed_on"
 ]);
 const approverReceiptKeys = new Set(["status", "approver_role", "approved_on", "evidence_reference"]);
+const actionCountReceiptKeys = new Set([
+  "id",
+  "participant_id",
+  "baseline",
+  "performed_on",
+  "task_completed",
+  "unassisted",
+  "action_count",
+  "maximum_actions",
+  "justified_exception_actions",
+  "call_safety"
+]);
+const actionExceptionKeys = new Set(["reason", "count"]);
+const callSafetyKeys = new Set([
+  "microphone_initially_off",
+  "camera_initially_off",
+  "lobby_observed_before_join",
+  "lobby_action_count",
+  "join_or_start_action_count"
+]);
 
 export function scoreStudy(study) {
   validateStudy(study);
@@ -130,6 +176,29 @@ export function scoreStudy(study) {
     ["WCAG 2.2 A", "WCAG 2.2 AA"].includes(finding.standard) && finding.status !== "resolved"
   );
   const unintendedDestructiveActions = adminSafety.filter(({ unintended_destructive_action: value }) => value).length;
+  const actionCountGates = study.action_count_receipts.map((receipt) => {
+    const definition = actionJourneyCatalog.get(receipt.id);
+    const callSafetyPass = !definition.callSafety ||
+      (receipt.call_safety.microphone_initially_off === true &&
+        receipt.call_safety.camera_initially_off === true &&
+        receipt.call_safety.lobby_observed_before_join === true);
+    return gate(
+      `Low-click journey: ${receipt.id}`,
+      receipt.task_completed === true && receipt.unassisted === true &&
+        receipt.action_count <= definition.maximumActions && callSafetyPass,
+      {
+        task_completed: receipt.task_completed,
+        unassisted: receipt.unassisted,
+        action_count: receipt.action_count,
+        media_defaults_safe: callSafetyPass
+      },
+      `completed unassisted in <= ${definition.maximumActions} measured action${definition.maximumActions === 1 ? "" : "s"}${definition.callSafety ? " with microphone and camera initially off" : ""}`
+    );
+  });
+  const justifiedExceptionActionCount = study.action_count_receipts.reduce(
+    (total, receipt) => total + receipt.justified_exception_actions.reduce((sum, exception) => sum + exception.count, 0),
+    0
+  );
 
   const metrics = {
     participant_count: sessions.length,
@@ -146,7 +215,10 @@ export function scoreStudy(study) {
     cohort_mean_sus: cohortSus,
     keyboard_critical_completion_percent: percent(completionRate(keyboardCritical)),
     open_critical_or_serious_accessibility_findings: openSevereAccessibility.length,
-    unresolved_wcag_2_2_a_aa_findings: unresolvedWcag.length
+    unresolved_wcag_2_2_a_aa_findings: unresolvedWcag.length,
+    action_count_targets_passed: actionCountGates.filter(({ pass }) => pass).length,
+    action_count_targets_total: actionCountGates.length,
+    justified_exception_action_count: justifiedExceptionActionCount
   };
 
   const quantitativeGates = [
@@ -159,7 +231,8 @@ export function scoreStudy(study) {
     gate("Median Single Ease Question", metrics.median_seq >= 5.5, metrics.median_seq, ">= 5.5/7"),
     gate("Mean System Usability Scale", metrics.mean_sus >= 80, metrics.mean_sus, ">= 80"),
     gate("Every role cohort System Usability Scale", Object.values(cohortSus).every((value) => value >= 75), cohortSus, ">= 75 each"),
-    gate("Keyboard and screen-reader critical-task completion", metrics.keyboard_critical_completion_percent === 100, metrics.keyboard_critical_completion_percent, "100%")
+    gate("Keyboard and screen-reader critical-task completion", metrics.keyboard_critical_completion_percent === 100, metrics.keyboard_critical_completion_percent, "100%"),
+    ...actionCountGates
   ];
   const evidenceGates = [
     gate("No open critical/serious accessibility finding", openSevereAccessibility.length === 0, openSevereAccessibility.length, "0"),
@@ -176,11 +249,12 @@ export function scoreStudy(study) {
   const gates = [...quantitativeGates, ...evidenceGates];
 
   return {
-    schema_version: 2,
+    schema_version: 3,
     release_revision: study.release_revision,
     environment: study.environment,
     study_started_on: study.study_started_on,
     study_completed_on: study.study_completed_on,
+    action_count_pass: actionCountGates.every(({ pass }) => pass),
     quantitative_pass: quantitativeGates.every(({ pass }) => pass),
     pass: gates.every(({ pass }) => pass),
     metrics,
@@ -192,7 +266,7 @@ function validateStudy(study) {
   assertRecord(study, "Study evidence");
   rejectSensitiveEvidence(study);
   assertAllowedKeys(study, topLevelKeys, "study");
-  if (study.schema_version !== 2) throw new Error("schema_version must be 2.");
+  if (study.schema_version !== 3) throw new Error("schema_version must be 3.");
   if (!/^[0-9a-f]{40}$/i.test(study.release_revision || "")) throw new Error("release_revision must be a full 40-character Git SHA.");
   requireNonEmptyString(study.environment, "environment");
   const startedOn = parseIsoDate(study.study_started_on, "study_started_on");
@@ -237,9 +311,88 @@ function validateStudy(study) {
   if (mix.assistive < 4) throw new Error("Participant mix requires at least 4 assistive-technology users.");
   if (mix.mobile_first < 2) throw new Error("Participant mix requires at least 2 mobile-first users.");
 
+  validateActionCountReceipts(study.action_count_receipts, study.sessions, startedOn, completedOn);
+
   const observedTaskIds = new Set(study.sessions.flatMap(({ tasks }) => tasks.map(({ id }) => id)));
   for (const taskId of taskCatalog.keys()) {
     if (!observedTaskIds.has(taskId)) throw new Error(`Study evidence has no ${taskId} task receipts.`);
+  }
+}
+
+function validateActionCountReceipts(receipts, sessions, studyStartedOn, studyCompletedOn) {
+  if (!Array.isArray(receipts) || receipts.length !== actionJourneyCatalog.size) {
+    throw new Error(`action_count_receipts must contain exactly ${actionJourneyCatalog.size} low-click journey receipts.`);
+  }
+  const sessionsByParticipant = new Map(sessions.map((session) => [session.participant_id, session]));
+  const observedIds = new Set();
+  receipts.forEach((receipt, receiptIndex) => {
+    const path = `action_count_receipts[${receiptIndex}]`;
+    assertRecord(receipt, path);
+    assertAllowedKeys(receipt, actionCountReceiptKeys, path);
+    if (observedIds.has(receipt.id)) throw new Error(`${path}.id must be unique.`);
+    observedIds.add(receipt.id);
+
+    const definition = actionJourneyCatalog.get(receipt.id);
+    if (!definition) throw new Error(`${path}.id is not a recognized v3 low-click journey.`);
+    const participant = sessionsByParticipant.get(receipt.participant_id);
+    if (!participant) throw new Error(`${path}.participant_id must reference a study session.`);
+    if (!definition.cohorts.has(participant.cohort)) {
+      throw new Error(`${path}.participant_id must reference one of the allowed cohorts for ${receipt.id}: ${[...definition.cohorts].join(", ")}.`);
+    }
+    if (receipt.baseline !== definition.baseline) throw new Error(`${path}.baseline must be ${definition.baseline} for ${receipt.id}.`);
+    if (receipt.maximum_actions !== definition.maximumActions) {
+      throw new Error(`${path}.maximum_actions must be ${definition.maximumActions} for ${receipt.id}.`);
+    }
+    const performedOn = parseIsoDate(receipt.performed_on, `${path}.performed_on`);
+    if (performedOn < studyStartedOn || performedOn > studyCompletedOn) {
+      throw new Error(`${path}.performed_on must fall within the study dates.`);
+    }
+    if (typeof receipt.task_completed !== "boolean") throw new Error(`${path}.task_completed must be boolean.`);
+    if (typeof receipt.unassisted !== "boolean") throw new Error(`${path}.unassisted must be boolean.`);
+    boundedInteger(receipt.action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.action_count`);
+    validateJustifiedActionExceptions(receipt.justified_exception_actions, path);
+    validateCallSafety(receipt, definition, path);
+  });
+  for (const journeyId of actionJourneyCatalog.keys()) {
+    if (!observedIds.has(journeyId)) throw new Error(`action_count_receipts is missing required journey ${journeyId}.`);
+  }
+}
+
+function validateJustifiedActionExceptions(exceptions, receiptPath) {
+  const path = `${receiptPath}.justified_exception_actions`;
+  if (!Array.isArray(exceptions)) throw new Error(`${path} must be an array.`);
+  const observedReasons = new Set();
+  exceptions.forEach((exception, exceptionIndex) => {
+    const exceptionPath = `${path}[${exceptionIndex}]`;
+    assertRecord(exception, exceptionPath);
+    assertAllowedKeys(exception, actionExceptionKeys, exceptionPath);
+    if (!justifiedActionReasons.has(exception.reason)) throw new Error(`${exceptionPath}.reason is not an allowed justified exception.`);
+    if (observedReasons.has(exception.reason)) throw new Error(`${exceptionPath}.reason must be unique within the receipt.`);
+    observedReasons.add(exception.reason);
+    boundedInteger(exception.count, 1, Number.MAX_SAFE_INTEGER, `${exceptionPath}.count`);
+  });
+}
+
+function validateCallSafety(receipt, definition, path) {
+  if (!definition.callSafety) {
+    if (Object.hasOwn(receipt, "call_safety")) throw new Error(`${path}.call_safety is only allowed for call journeys.`);
+    return;
+  }
+  assertRecord(receipt.call_safety, `${path}.call_safety`);
+  assertAllowedKeys(receipt.call_safety, callSafetyKeys, `${path}.call_safety`);
+  for (const key of ["microphone_initially_off", "camera_initially_off", "lobby_observed_before_join"]) {
+    if (typeof receipt.call_safety[key] !== "boolean") throw new Error(`${path}.call_safety.${key} must be boolean.`);
+  }
+  boundedInteger(receipt.call_safety.lobby_action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.call_safety.lobby_action_count`);
+  boundedInteger(receipt.call_safety.join_or_start_action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.call_safety.join_or_start_action_count`);
+  if (receipt.call_safety.lobby_action_count !== definition.callSafety.lobbyActions) {
+    throw new Error(`${path}.call_safety.lobby_action_count must be ${definition.callSafety.lobbyActions} for ${receipt.id}.`);
+  }
+  if (receipt.call_safety.join_or_start_action_count !== definition.callSafety.joinActions) {
+    throw new Error(`${path}.call_safety.join_or_start_action_count must be ${definition.callSafety.joinActions} for ${receipt.id}.`);
+  }
+  if (receipt.action_count !== receipt.call_safety.lobby_action_count + receipt.call_safety.join_or_start_action_count) {
+    throw new Error(`${path}.action_count must equal the recorded lobby and join/start actions.`);
   }
 }
 
@@ -351,13 +504,22 @@ function taskDefinition(id, category, critical) {
   return Object.freeze({ id, category, critical });
 }
 
+function actionJourney(baseline, maximumActions, cohorts, callSafety = null) {
+  return Object.freeze({
+    baseline,
+    maximumActions,
+    cohorts: new Set(cohorts),
+    callSafety: callSafety ? Object.freeze(callSafety) : null
+  });
+}
+
 function assertRecord(value, path) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be a JSON object.`);
 }
 
 function assertAllowedKeys(value, allowed, path) {
   for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new Error(`${path}.${key} is not allowed by usability evidence schema v2.`);
+    if (!allowed.has(key)) throw new Error(`${path}.${key} is not allowed by usability evidence schema v3.`);
   }
 }
 

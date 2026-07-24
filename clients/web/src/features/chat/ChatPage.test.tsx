@@ -2,9 +2,20 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Conversation, Message } from "../../types";
+import type { Attachment, Conversation, Message, User } from "../../types";
 import type { RealtimeCallbacks } from "../../realtime";
 import { ChatPage } from "./ChatPage";
+
+const uploadHarness = vi.hoisted(() => ({
+  sha256: vi.fn().mockResolvedValue("checksum"),
+  upload: vi.fn().mockResolvedValue(undefined)
+}));
+
+vi.mock("../../api", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sha256: uploadHarness.sha256,
+  uploadToPresignedTarget: uploadHarness.upload
+}));
 
 const harness = vi.hoisted(() => ({
   callbacks: null as RealtimeCallbacks | null,
@@ -13,11 +24,51 @@ const harness = vi.hoisted(() => ({
   setError: vi.fn(),
   setConversations: vi.fn(),
   createConversation: vi.fn(),
+  startDirectConversation: vi.fn(),
   refreshConversations: vi.fn().mockResolvedValue(undefined),
+  launchCall: vi.fn(),
+  publishRealtimeEvent: vi.fn(),
   audioCallsAvailable: true,
   videoCallsAvailable: true,
-  conversations: [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }] as Conversation[],
+  conversations: [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }] as Conversation[],
+  users: [
+    { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" },
+    { id: "user-2", tenant_id: "tenant-1", display_name: "Grace", email: "grace@example.test", role: "member", status: "active" }
+  ] as User[],
   api: {} as Record<string, ReturnType<typeof vi.fn>>
+}));
+
+vi.mock("../calls/CallSessionProvider", () => ({
+  useCallSession: () => ({
+    launchCall: harness.launchCall,
+    publishRealtimeEvent: harness.publishRealtimeEvent
+  }),
+  CallLaunchActions: ({
+    conversation,
+    audioEnabled,
+    videoEnabled
+  }: {
+    conversation: Conversation;
+    audioEnabled: boolean;
+    videoEnabled: boolean;
+  }) => (
+    <div>
+      <button
+        type="button"
+        disabled={!audioEnabled}
+        onClick={() => harness.launchCall(conversation, "audio")}
+      >
+        {audioEnabled ? "Start audio call" : "Audio calls disabled"}
+      </button>
+      <button
+        type="button"
+        disabled={!videoEnabled}
+        onClick={() => harness.launchCall(conversation, "video")}
+      >
+        {videoEnabled ? "Start video call" : "Video calls disabled"}
+      </button>
+    </div>
+  )
 }));
 
 vi.mock("../../realtime", () => ({
@@ -52,7 +103,7 @@ vi.mock("../../app/session", () => ({
 vi.mock("../../app/workspace-data", () => ({
   useWorkspaceData: () => ({
     conversations: harness.conversations,
-    users: [{ id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" }],
+    users: harness.users,
     capabilities: { allow_audio_calls: true, allow_video_calls: true, allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 },
     audioCallsAvailable: harness.audioCallsAvailable,
     videoCallsAvailable: harness.videoCallsAvailable,
@@ -60,6 +111,7 @@ vi.mock("../../app/workspace-data", () => ({
     setError: harness.setError,
     setConversations: harness.setConversations,
     createConversation: harness.createConversation,
+    startDirectConversation: harness.startDirectConversation,
     refreshConversations: harness.refreshConversations
   })
 }));
@@ -116,9 +168,19 @@ describe("ChatPage durable sequence recovery", () => {
     harness.callbacks = null;
     harness.audioCallsAvailable = true;
     harness.videoCallsAvailable = true;
-    harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
+    harness.launchCall.mockReset().mockReturnValue(true);
+    harness.publishRealtimeEvent.mockReset();
+    harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
+    harness.users = [
+      { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" },
+      { id: "user-2", tenant_id: "tenant-1", display_name: "Grace", email: "grace@example.test", role: "member", status: "active" }
+    ];
+    harness.createConversation.mockReset();
+    harness.startDirectConversation.mockReset();
     harness.markRead.mockReset().mockResolvedValue({});
     harness.sendMessage.mockReset().mockResolvedValue(message(2));
+    uploadHarness.sha256.mockReset().mockResolvedValue("checksum");
+    uploadHarness.upload.mockReset().mockResolvedValue(undefined);
     Object.assign(harness.api, {
       socketTicket: vi.fn().mockResolvedValue({ ticket: "one-time-ticket", expires_in: 60 }),
       audioCall: vi.fn().mockResolvedValue(null),
@@ -134,7 +196,8 @@ describe("ChatPage durable sequence recovery", () => {
       discoverPublicChannels: vi.fn().mockResolvedValue({ data: [], page: { limit: 25, has_more: false, next_cursor: null } }),
       searchMessagePage: vi.fn().mockResolvedValue({ data: [], page: { limit: 25, has_more: false, next_cursor: null } }),
       createModerationCase: vi.fn().mockResolvedValue({ id: "case-1" }),
-      messageThread: vi.fn().mockResolvedValue({ data: { root: message(1), replies: [], reply_count: 0 }, page: { has_more: false, next_before_sequence: null } })
+      messageThread: vi.fn().mockResolvedValue({ data: { root: message(1), replies: [], reply_count: 0 }, page: { has_more: false, next_before_sequence: null } }),
+      abandonAttachment: vi.fn().mockResolvedValue(undefined)
     });
   });
 
@@ -232,7 +295,7 @@ describe("ChatPage durable sequence recovery", () => {
     );
 
     expect(harness.callbacks).toBeNull();
-    harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
+    harness.conversations = [{ id: "conversation-1", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 1, unread_count: 1, last_read_sequence: 0, version: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }];
     view.rerender(
       <MemoryRouter initialEntries={["/app?conversation=conversation-1"]}>
         <ChatPage />
@@ -248,7 +311,25 @@ describe("ChatPage durable sequence recovery", () => {
 
     expect(await screen.findByRole("button", { name: "Start audio call" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Start video call" })).toBeVisible();
-    expect(harness.api.audioCall).toHaveBeenCalledWith("conversation-1");
+    expect(harness.api.audioCall).not.toHaveBeenCalled();
+  });
+
+  it("consumes a one-shot call deep link and opens the default-off prejoin lobby", async () => {
+    render(
+      <MemoryRouter initialEntries={["/app?conversation=conversation-1&call=audio&source=directory"]}>
+        <ChatPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(harness.launchCall).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "conversation-1" }),
+      "audio"
+    ));
+    const location = screen.getByLabelText("location-search");
+    await waitFor(() => expect(location).not.toHaveTextContent("call="));
+    expect(location).toHaveTextContent("conversation=conversation-1");
+    expect(location).toHaveTextContent("source=directory");
   });
 
   it("disables the audio action without probing calls when the media provider is unavailable", async () => {
@@ -261,7 +342,7 @@ describe("ChatPage durable sequence recovery", () => {
     expect(harness.api.audioCall).not.toHaveBeenCalled();
   });
 
-  it("updates the audio call action immediately from conversation realtime events", async () => {
+  it("forwards conversation realtime call events to the persistent owner", async () => {
     const realtimeCall = {
       id: "call-1",
       conversation_id: "conversation-1",
@@ -274,19 +355,17 @@ describe("ChatPage durable sequence recovery", () => {
     render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
     await waitFor(() => expect(harness.callbacks).not.toBeNull());
     expect(await screen.findByRole("button", { name: "Start audio call" })).toBeVisible();
-
-    harness.api.audioCall!.mockResolvedValue(realtimeCall);
     act(() => harness.callbacks?.onAudioCallStarted(realtimeCall));
-    expect(await screen.findByRole("button", { name: "Join audio call" })).toBeVisible();
+    expect(harness.publishRealtimeEvent).toHaveBeenCalledWith(realtimeCall);
 
-    act(() => harness.callbacks?.onAudioCallEnded({
+    const endedCall = {
       ...realtimeCall,
       status: "ended",
       ended_at: "2026-07-15T10:30:00Z",
       end_reason: "ended_by_user"
-    }));
-    expect(await screen.findByRole("button", { name: "Start audio call" })).toBeVisible();
-    expect(screen.getByText("The audio call was ended for everyone.")).toBeInTheDocument();
+    } as const;
+    act(() => harness.callbacks?.onAudioCallEnded(endedCall));
+    expect(harness.publishRealtimeEvent).toHaveBeenCalledWith(endedCall);
   });
 
   it("fetches a missing durable sequence and never marks past the contiguous cursor", async () => {
@@ -369,6 +448,38 @@ describe("ChatPage durable sequence recovery", () => {
     ));
   });
 
+  it("keeps an exact-source history window loaded after its highlight expires", async () => {
+    const sourceId = "55555555-5555-4555-8555-555555555555";
+    const sourceSequence = 142;
+    const historyWindow = Array.from({ length: 60 }, (_, index) => {
+      const sequence = 83 + index;
+      return sequence === sourceSequence
+        ? { ...message(sequence), id: sourceId, body: "Archived source message" }
+        : message(sequence);
+    });
+    harness.api.messages = vi.fn().mockResolvedValue({
+      data: historyWindow,
+      page: { has_more: false, next_after_sequence: null, reset_required: false }
+    });
+
+    render(
+      <MemoryRouter initialEntries={[
+        `/app?conversation=conversation-1&search_message=${sourceId}&search_sequence=${sourceSequence}`
+      ]}>
+        <ChatPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Archived source message")).toBeVisible();
+    expect(harness.api.messages).toHaveBeenCalledWith("conversation-1", 82, 100);
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 3_100));
+    });
+
+    expect(screen.getByText("Archived source message")).toBeVisible();
+    expect(harness.api.messages).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps explicit mention IDs across a failed-send retry and hides service identities", async () => {
     const user = userEvent.setup();
     harness.sendMessage
@@ -431,26 +542,71 @@ describe("ChatPage durable sequence recovery", () => {
     expect(await screen.findByRole("dialog", { name: "Browse channels" })).toBeVisible();
   });
 
+  it("starts or resumes a direct conversation atomically without exposing email", async () => {
+    const user = userEvent.setup();
+    const direct: Conversation = {
+      id: "direct-1",
+      tenant_id: "tenant-1",
+      kind: "direct",
+      title: null,
+      counterpart_display_name: "Grace",
+      visibility: "private",
+      latest_sequence: 0,
+      version: 1,
+      inserted_at: "2026-07-24T00:00:00Z",
+      updated_at: "2026-07-24T00:00:00Z"
+    };
+    harness.conversations = [];
+    harness.startDirectConversation.mockResolvedValue(direct);
+
+    render(
+      <MemoryRouter initialEntries={["/app"]}>
+        <ChatPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Start a conversation" }));
+    expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Grace" }));
+    await user.click(screen.getByRole("button", { name: "Start message" }));
+
+    await waitFor(() =>
+      expect(harness.startDirectConversation).toHaveBeenCalledWith("user-2")
+    );
+    expect(harness.createConversation).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("location-search")).toHaveTextContent(
+      "?conversation=direct-1"
+    );
+  });
+
   it("shows a tenant-scoped first-run checklist that can be dismissed without telemetry", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
     expect(screen.getByRole("heading", { name: "Get started" })).toBeVisible();
-    expect(screen.getByText("Choose or start a conversation")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Choose notification preferences" })).toHaveAttribute("href", "/app/settings");
+    expect(screen.getByRole("button", { name: "Choose or start a conversation" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send your first message" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Choose notification preferences" })).toHaveAttribute(
+      "href",
+      "/app/you#notification-settings"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Choose or start a conversation" }));
+    expect(screen.getByRole("heading", { name: "New conversation" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Dismiss getting-started checklist" }));
     expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
     expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
   });
 
-  it("filters the conversation list by title, kind, and unread state without server requests", async () => {
+  it("filters the Inbox by title and the accessible All, Unread, Direct, and Rooms segments", async () => {
     const user = userEvent.setup();
     harness.conversations = [
       { ...harness.conversations[0]!, id: "conversation-1", title: "General", kind: "channel", unread_count: 1 },
       { ...harness.conversations[0]!, id: "conversation-2", title: "Project Alpha", kind: "group", unread_count: 0 },
-      { ...harness.conversations[0]!, id: "conversation-3", title: "Grace", kind: "direct", unread_count: 0 }
+      { ...harness.conversations[0]!, id: "conversation-3", title: null, counterpart_display_name: "Grace", kind: "direct", unread_count: 0 }
     ];
     render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
     const list = screen.getByRole("navigation", { name: "Conversation list" });
@@ -460,14 +616,304 @@ describe("ChatPage durable sequence recovery", () => {
     expect(within(list).queryByRole("button", { name: /General/ })).not.toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Filter conversations by title"));
-    await user.selectOptions(screen.getByLabelText("Conversation type"), "direct");
+    const inboxView = screen.getByRole("group", { name: "Inbox view" });
+    await user.click(within(inboxView).getByRole("button", { name: "Direct" }));
     expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /Project Alpha/ })).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Conversation type"), "all");
-    await user.click(screen.getByRole("checkbox", { name: "Unread only" }));
+    await user.click(within(inboxView).getByRole("button", { name: "Rooms" }));
+    expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
+    expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
+    expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+
+    await user.click(within(inboxView).getByRole("button", { name: "Unread" }));
     expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+
+    await user.click(within(inboxView).getByRole("button", { name: "All" }));
+    expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
+  });
+
+  it("shows per-file upload status and retries a transient failure without losing the selected file", async () => {
+    const user = userEvent.setup();
+    const ready = attachment("ready");
+    harness.api.createAttachment = vi.fn()
+      .mockRejectedValueOnce(new Error("Object store is temporarily unavailable"))
+      .mockResolvedValueOnce({
+        data: { ...ready, status: "pending" },
+        upload: { url: "https://objects.example.test/file", approved_origin: "https://objects.example.test" }
+      });
+    harness.api.completeAttachment = vi.fn().mockResolvedValue(ready);
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await user.upload(screen.getByLabelText("Attach files"), new File(["report"], "report.pdf", { type: "application/pdf" }));
+
+    expect(await screen.findByText("Object store is temporarily unavailable")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Ready to send · Safety scan passed")).toBeVisible();
+    expect(harness.api.createAttachment).toHaveBeenCalledTimes(2);
+    expect(uploadHarness.upload).toHaveBeenCalledTimes(1);
+    expect(harness.api.completeAttachment).toHaveBeenCalledWith(
+      "attachment-1",
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("lets a user cancel a queued file before its secure upload is created", async () => {
+    const user = userEvent.setup();
+    let resolveHash: ((value: string) => void) | undefined;
+    uploadHarness.sha256.mockReturnValueOnce(new Promise((resolve) => { resolveHash = resolve; }));
+    harness.api.createAttachment = vi.fn();
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByRole("button", { name: "Start audio call" });
+    fireEvent.change(screen.getByLabelText("Attach files"), {
+      target: { files: [new File(["draft"], "draft.txt", { type: "text/plain" })] }
+    });
+    expect(uploadHarness.sha256).toHaveBeenCalledTimes(1);
+
+    await user.click(await screen.findByRole("button", { name: "Cancel attaching draft.txt" }));
+    resolveHash?.("checksum");
+    await act(async () => Promise.resolve());
+
+    expect(screen.queryByText("draft.txt")).not.toBeInTheDocument();
+    expect(harness.api.createAttachment).not.toHaveBeenCalled();
+  });
+
+  it("abandons an intent that resolves after cancellation without mutating the queue", async () => {
+    const user = userEvent.setup();
+    let resolveIntent:
+      | ((value: {
+        data: Attachment;
+        upload: { url: string; approved_origin: string };
+      }) => void)
+      | undefined;
+    harness.api.createAttachment = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveIntent = resolve;
+      })
+    );
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["late"], "late.txt", { type: "application/pdf" })
+    );
+    await waitFor(() => expect(harness.api.createAttachment).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Cancel attaching late.txt" }));
+    expect(screen.queryByText("late.txt")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveIntent?.({
+        data: { ...attachment("pending"), id: "late-intent", file_name: "late.txt" },
+        upload: {
+          url: "https://objects.example.test/late",
+          approved_origin: "https://objects.example.test"
+        }
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(harness.api.abandonAttachment).toHaveBeenCalledWith("late-intent")
+    );
+    expect(uploadHarness.upload).not.toHaveBeenCalled();
+    expect(screen.queryByText("late.txt")).not.toBeInTheDocument();
+  });
+
+  it("aborts and abandons an active upload when the conversation changes", async () => {
+    const user = userEvent.setup();
+    harness.conversations = [
+      ...harness.conversations,
+      {
+        ...harness.conversations[0]!,
+        id: "conversation-2",
+        title: "Operations"
+      }
+    ];
+    harness.api.createAttachment = vi.fn().mockResolvedValue({
+      data: { ...attachment("pending"), id: "switch-intent" },
+      upload: {
+        url: "https://objects.example.test/switch",
+        approved_origin: "https://objects.example.test"
+      }
+    });
+    let uploadSignal: AbortSignal | undefined;
+    uploadHarness.upload.mockImplementationOnce(
+      (_descriptor: unknown, _file: File, signal?: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          uploadSignal = signal;
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            { once: true }
+          );
+        })
+    );
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["switch"], "switch.txt", { type: "application/pdf" })
+    );
+    await waitFor(() => expect(uploadHarness.upload).toHaveBeenCalledTimes(1));
+
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Conversation list" }))
+        .getByRole("button", { name: /Operations/ })
+    );
+
+    await waitFor(() => expect(uploadSignal?.aborted).toBe(true));
+    await waitFor(() =>
+      expect(harness.api.abandonAttachment).toHaveBeenCalledWith("switch-intent")
+    );
+    expect(screen.queryByText("switch.txt")).not.toBeInTheDocument();
+  });
+
+  it("abandons an active upload when the chat unmounts", async () => {
+    const user = userEvent.setup();
+    harness.api.createAttachment = vi.fn().mockResolvedValue({
+      data: { ...attachment("pending"), id: "unmount-intent" },
+      upload: {
+        url: "https://objects.example.test/unmount",
+        approved_origin: "https://objects.example.test"
+      }
+    });
+    uploadHarness.upload.mockImplementationOnce(
+      (_descriptor: unknown, _file: File, signal?: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            { once: true }
+          );
+        })
+    );
+
+    const view = render(
+      <MemoryRouter initialEntries={["/app?conversation=conversation-1"]}>
+        <ChatPage />
+      </MemoryRouter>
+    );
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["unmount"], "unmount.txt", { type: "application/pdf" })
+    );
+    await waitFor(() => expect(uploadHarness.upload).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+
+    await waitFor(() =>
+      expect(harness.api.abandonAttachment).toHaveBeenCalledWith("unmount-intent")
+    );
+  });
+
+  it("abandons a failed intent before a one-click retry creates its replacement", async () => {
+    const user = userEvent.setup();
+    const replacement = {
+      ...attachment("ready"),
+      id: "replacement-intent"
+    };
+    harness.api.createAttachment = vi.fn()
+      .mockResolvedValueOnce({
+        data: { ...attachment("pending"), id: "failed-intent" },
+        upload: {
+          url: "https://objects.example.test/failed",
+          approved_origin: "https://objects.example.test"
+        }
+      })
+      .mockResolvedValueOnce({
+        data: { ...replacement, status: "pending" },
+        upload: {
+          url: "https://objects.example.test/replacement",
+          approved_origin: "https://objects.example.test"
+        }
+      });
+    uploadHarness.upload
+      .mockRejectedValueOnce(new Error("temporary upload failure"))
+      .mockResolvedValueOnce(undefined);
+    harness.api.completeAttachment = vi.fn().mockResolvedValue(replacement);
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["retry"], "retry.txt", { type: "application/pdf" })
+    );
+    expect(await screen.findByText("temporary upload failure")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect(harness.api.abandonAttachment).toHaveBeenCalledWith("failed-intent")
+    );
+    expect(await screen.findByText("Ready to send · Safety scan passed")).toBeVisible();
+    expect(harness.api.createAttachment).toHaveBeenCalledTimes(2);
+    expect(
+      harness.api.abandonAttachment!.mock.invocationCallOrder[0]
+    ).toBeLessThan(harness.api.createAttachment.mock.invocationCallOrder[1]!);
+  });
+
+  it("retains a failed intent and blocks replacement until DELETE is accepted", async () => {
+    const user = userEvent.setup();
+    const replacement = {
+      ...attachment("ready"),
+      id: "replacement-after-cleanup"
+    };
+    harness.api.createAttachment = vi.fn()
+      .mockResolvedValueOnce({
+        data: { ...attachment("pending"), id: "cleanup-pending-intent" },
+        upload: {
+          url: "https://objects.example.test/cleanup-pending",
+          approved_origin: "https://objects.example.test"
+        }
+      })
+      .mockResolvedValueOnce({
+        data: { ...replacement, status: "pending" },
+        upload: {
+          url: "https://objects.example.test/replacement-after-cleanup",
+          approved_origin: "https://objects.example.test"
+        }
+      });
+    uploadHarness.upload
+      .mockRejectedValueOnce(new Error("temporary upload failure"))
+      .mockResolvedValueOnce(undefined);
+    harness.api.completeAttachment = vi.fn().mockResolvedValue(replacement);
+    harness.api.abandonAttachment = vi.fn()
+      .mockRejectedValueOnce(new Error("cleanup offline"))
+      .mockRejectedValueOnce(new Error("cleanup offline"))
+      .mockRejectedValueOnce(new Error("cleanup offline"))
+      .mockResolvedValue(undefined);
+
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await user.upload(
+      screen.getByLabelText("Attach files"),
+      new File(["retry"], "cleanup-retry.txt", { type: "application/pdf" })
+    );
+    expect(await screen.findByText("temporary upload failure")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText(
+      "The previous secure upload could not be removed. Retry before creating a replacement.",
+      {},
+      { timeout: 3_000 }
+    )).toBeVisible();
+    expect(harness.api.abandonAttachment).toHaveBeenCalledTimes(3);
+    expect(harness.api.createAttachment).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("Ready to send · Safety scan passed")).toBeVisible();
+    expect(harness.api.abandonAttachment).toHaveBeenCalledTimes(4);
+    expect(harness.api.createAttachment).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("button", { name: "Remove cleanup-retry.txt" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Ready to send · Safety scan passed")).not.toBeInTheDocument()
+    );
+    expect(harness.api.abandonAttachment).toHaveBeenCalledTimes(5);
   });
 
   it("submits a message report with the same moderated payload through an accessible dialog", async () => {
@@ -492,3 +938,13 @@ describe("ChatPage durable sequence recovery", () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
+
+function attachment(status: Attachment["status"]): Attachment {
+  return {
+    id: "attachment-1",
+    file_name: "report.pdf",
+    content_type: "application/pdf",
+    byte_size: 6,
+    status
+  };
+}

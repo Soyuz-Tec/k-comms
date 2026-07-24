@@ -108,7 +108,7 @@ notes separate from the scorecard if they could contain identifying data.
 
 Start from
 [`usability-study-template.json`](usability-study-template.json) and validate
-the resulting version 2 record against
+the resulting version 3 record against
 [`usability-study.schema.json`](usability-study.schema.json). The template is
 an intentionally incomplete, non-passing example; copying it is not evidence
 that a study or human gate occurred.
@@ -123,6 +123,61 @@ interventions; an `assisted` outcome requires at least one. This invariant is
 enforced by both the schema and scorer so coached work cannot satisfy an
 unassisted release threshold.
 
+### Action-count receipts for the five-destination experience
+
+Version 3 adds an exact `action_count_receipts` set for the
+**Inbox / Calls / Directory / Files / You** information architecture. These
+receipts supplement the broader task receipts above; they do not replace the
+collaboration, attachment-safety, search, recovery, administration, moderation,
+compliance, or operations study tasks.
+
+An action is a pointer click, tap, keyboard or switch activation, voice-access
+activation, or submitted form. `daily_use` starts at the default signed-in
+Inbox. `end_to_end` starts at a signed-out browser or invitation link.
+`action_count` records the actions on the shortest discoverable product path,
+and the scorer compares it with the fixed `maximum_actions` for that journey.
+The maximum is authoritative in the v3 schema and scorer; evidence authors
+cannot relax it.
+
+Every receipt references a synthetic participant code in the 12-session study
+and a date inside the study interval. `task_completed` and `unassisted` must
+both be true; a coached or incomplete path cannot prove that the low-click
+route is discoverable. The fixed receipt matrix is:
+
+| Receipt ID | Baseline | Allowed study cohort | Maximum measured actions | Required observation |
+|---|---|---|---:|---|
+| `sign-in-inbox` | `end_to_end` | any | 1 | Submit credentials once and reach Inbox |
+| `invite-inbox` | `end_to_end` | member | 1 | Submit the invitation account form once and reach Inbox |
+| `open-unread` | `daily_use` | member | 1 | Open an unread conversation |
+| `directory-direct` | `daily_use` | member | 2 | Open Directory, then start or resume a direct conversation |
+| `directory-room` | `daily_use` | member | 3 | Open Directory, select Rooms, then open or join-and-open a room |
+| `file-source-return` | `daily_use` | member | 2 | Open Files, then open the exact source conversation/message |
+| `call-lobby-join` | `daily_use` | member | 3 | Open Calls, choose media to reach the lobby, then explicitly join/start; microphone and camera are initially off |
+| `active-call-rejoin` | `daily_use` | member | 2 | Open Calls, then open the active-call lobby; microphone and camera are initially off |
+| `you-profile` | `daily_use` | member | 1 | Reach profile through You |
+| `you-devices` | `daily_use` | member | 1 | Reach devices through You |
+| `you-notifications` | `daily_use` | member | 1 | Reach notification controls through You |
+| `you-settings` | `daily_use` | member | 1 | Reach settings through You |
+| `admin-entry` | `daily_use` | admin | 2 | Reach Workspace administration when authorized |
+| `ops-entry` | `daily_use` | operator | 2 | Reach Service operations when authorized |
+| `ordinary-recovery` | `daily_use` | member | 1 | Recover with one Retry action or zero actions for an automatic safe retry |
+
+Required identity-provider screens, step-up authentication, reason entry,
+destructive confirmation, and explicit media consent may be recorded in
+`justified_exception_actions`. They are reported separately and do not dilute
+the journey ceiling. Use only the fixed reason codes; never put credentials,
+identity-provider data, user details, or free-form notes in the receipt.
+The initial sign-in or invitation form and the explicit call join/start action
+remain part of `action_count` and must not be reclassified as exceptions.
+
+For both call receipts, `call_safety` records the microphone and camera
+default-off state, observation of the lobby before joining, and the separate
+lobby and join/start action counts. `lobby_action_count` includes every action
+from the Inbox baseline through the visible lobby, including primary
+navigation. The scorer requires the subcounts to sum to `action_count`; an
+unsafe media default fails the low-click gate even when the numeric count is
+within budget.
+
 The release-level record also identifies the full Git revision, environment,
 study dates, security, authorization, tenant-isolation, durability, and staging
 regression status, coded accessibility findings, the manual WCAG and
@@ -136,9 +191,10 @@ are rejected.
 ## Accessibility matrix
 
 Automated checks run against representative login, invitation, recovery, empty,
-populated, error, offline/reconnecting, search, thread, notification, settings,
-admin, and operations states. A passing automated scanner is necessary but is
-not a conformance claim.
+populated, error, offline/reconnecting, Inbox filters, conversation, search,
+thread, Calls/lobby, Directory people and rooms, Files/source return, You,
+notification, settings, admin, and operations states. A passing automated
+scanner is necessary but is not a conformance claim.
 
 Manually exercise:
 
@@ -176,6 +232,9 @@ All of the following must pass:
 - at least 95% unassisted success for routine messaging and search tasks;
 - at least 90% unassisted success for admin safety tasks, with zero unintended
   destructive actions;
+- every v3 action-count receipt is complete and unassisted, within its fixed
+  maximum, and,
+  for calls, proves the default-off lobby and explicit join/start behavior;
 - median Single Ease Question at least 5.5/7;
 - mean System Usability Scale at least 80, with no role cohort below 75;
 - 100% completion of critical tasks in keyboard and screen-reader sessions;

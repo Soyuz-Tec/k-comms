@@ -29,6 +29,7 @@ const activeConversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "Release planning",
+  counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 7,
   inserted_at: "2026-07-12T09:00:00Z",
@@ -73,6 +74,20 @@ function apiFixture(overrides: Partial<ApiClient> = {}): ApiClient {
 }
 
 describe("GovernancePanel target selection", () => {
+  it("gives governance-load errors a descriptive dismiss control", async () => {
+    const user = userEvent.setup();
+    const api = apiFixture({
+      retentionPolicies: vi.fn().mockRejectedValue(new Error("Governance unavailable"))
+    });
+
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss governance error" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Governance unavailable");
+    await user.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("reviews a retention-policy transition and submits its audited reason", async () => {
     const policy: RetentionPolicy = {
       id: "policy-1",

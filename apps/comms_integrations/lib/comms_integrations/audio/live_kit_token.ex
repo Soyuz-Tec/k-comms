@@ -100,20 +100,33 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
 
   def issue_room_admin(_), do: {:error, :audio_provider_unavailable}
 
+  @doc false
+  def issue_readiness do
+    with {:ok, config} <- configuration() do
+      now = System.system_time(:second)
+
+      claims = %{
+        "exp" => now + 30,
+        "iss" => config.api_key,
+        "jti" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
+        "nbf" => now - 5,
+        "video" => %{"roomList" => true}
+      }
+
+      {:ok,
+       %{
+         api_url: config.api_url,
+         token: sign(claims, config.api_secret)
+       }}
+    else
+      _ -> {:error, :audio_provider_unavailable}
+    end
+  end
+
   def ensure_available do
     case configuration() do
       {:ok, _config} -> :ok
       {:error, _reason} -> {:error, :audio_provider_unavailable}
-    end
-  end
-
-  def status do
-    case configuration() do
-      {:ok, config} ->
-        %{status: :available, adapter: :livekit, server_url: config.server_url}
-
-      {:error, reason} ->
-        %{status: :unavailable, adapter: :disabled, reason: reason}
     end
   end
 

@@ -281,10 +281,17 @@ def validate_call_contract(openapi: dict[str, Any]) -> None:
         .get("properties", {})
         .get("capabilities", {})
     )
-    if "video_calls" not in set(capabilities.get("required", [])) or capabilities.get(
-        "properties", {}
-    ).get("video_calls") != {"type": "boolean"}:
-        raise ValueError("StatusResponse must require the public video_calls capability")
+    required_capabilities = set(capabilities.get("required", []))
+    status_properties = capabilities.get("properties", {})
+
+    if any(
+        capability not in required_capabilities
+        or status_properties.get(capability, {}).get("type") != "boolean"
+        for capability in ("audio_calls", "video_calls")
+    ):
+        raise ValueError(
+            "StatusResponse must require public boolean audio_calls and video_calls capabilities"
+        )
 
 
 def main() -> None:

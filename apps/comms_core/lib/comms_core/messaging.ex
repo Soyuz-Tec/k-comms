@@ -2,6 +2,7 @@ defmodule CommsCore.Messaging do
   import Ecto.Query
 
   alias CommsCore.{
+    Accounts,
     Administration,
     Attachments,
     Conversations,
@@ -498,14 +499,14 @@ defmodule CommsCore.Messaging do
            {:ok, after_at} <- optional_search_datetime(Keyword.get(opts, :after)),
            {:ok, before_at} <- optional_search_datetime(Keyword.get(opts, :before)),
            :ok <- validate_search_range(after_at, before_at),
-           {:ok, cursor} <- optional_search_cursor(Keyword.get(opts, :cursor)) do
-        active_conversation_ids = Conversations.active_conversation_ids(subject)
-
+           {:ok, cursor} <- optional_search_cursor(Keyword.get(opts, :cursor)),
+           {:ok, authorization_query} <- search_authorization_query(subject) do
         results =
           from(m in Message,
+            join: authorization in subquery(authorization_query),
+            on: authorization.conversation_id == m.conversation_id,
             where:
               m.tenant_id == ^value(subject, :tenant_id) and
-                m.conversation_id in ^active_conversation_ids and
                 m.status == :active and
                 fragment(
                   "to_tsvector('simple', coalesce(?, '')) @@ plainto_tsquery('simple', ?)",
@@ -533,6 +534,16 @@ defmodule CommsCore.Messaging do
            has_more: has_more,
            next_cursor: if(has_more, do: search_cursor_for(List.last(messages)), else: nil)
          }}
+      end
+    end
+  end
+
+  defp search_authorization_query(subject) do
+    if value(subject, :auth_type) == :service do
+      Conversations.active_service_membership_authorization_query(subject, "search:read")
+    else
+      with {:ok, grant} <- Accounts.access_grant(subject) do
+        {:ok, Conversations.active_membership_authorization_query(grant)}
       end
     end
   end

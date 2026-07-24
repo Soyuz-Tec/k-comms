@@ -24,7 +24,7 @@ test.describe("authenticated mobile web acceptance", () => {
       const fixture = await installWorkspace(page);
 
       await page.goto("/app/");
-      await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
       await expect(page.locator("nav.mobile-product-nav")).toBeVisible();
       await expect(page.locator("nav.product-nav")).toBeHidden();
@@ -69,17 +69,18 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeFocused();
 
       const mobileNavigation = page.getByRole("navigation", { name: "Mobile product areas" });
-      await mobileNavigation.getByRole("link", { name: "Settings" }).click();
+      await mobileNavigation.getByRole("link", { name: "You" }).click();
       await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await mobileNavigation.getByRole("link", { name: "Admin" }).click();
+      await page.getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await mobileNavigation.getByRole("link", { name: "Ops" }).click();
+      await mobileNavigation.getByRole("link", { name: "You" }).click();
+      await page.getByRole("link", { name: "Service operations" }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);

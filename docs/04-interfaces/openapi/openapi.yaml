@@ -180,6 +180,32 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '200': {description: Tenant users}
+  /api/v1/directory/users:
+    get:
+      tags: [Users]
+      operationId: listDirectoryUsers
+      summary: List active human users visible to the current member
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 120}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Bounded tenant-scoped active-human directory with no email, role, or lifecycle data
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectoryPersonPage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations:
     get:
       tags: [Conversations]
@@ -200,6 +226,33 @@ paths:
       responses:
         '201': {description: Conversation created}
         '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/direct-conversations:
+    post:
+      tags: [Conversations]
+      operationId: getOrCreateDirectConversation
+      summary: Resume or atomically create a direct conversation with one active human
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DirectConversationRequest'}
+      responses:
+        '200':
+          description: Existing authorized direct conversation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectConversationResponse'}
+        '201':
+          description: Direct conversation created atomically
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectConversationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/channels/discover:
@@ -332,6 +385,35 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/calls:
+    get:
+      tags: [Calls]
+      operationId: listCallSessions
+      summary: List truthful active or recent room-session lifecycle facts
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: scope
+          in: query
+          schema: {enum: [active, recent], default: recent}
+        - name: media_kind
+          in: query
+          schema: {enum: [audio, video]}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Membership-filtered room sessions; no ringing, answer, missed, declined, scheduled, provider, or credential claims
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallSessionPage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/call:
     parameters:
@@ -730,6 +812,36 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/MessageSearchPage'}
         '422': {$ref: '#/components/responses/Error'}
+  /api/v1/files:
+    get:
+      tags: [Attachments]
+      operationId: listFiles
+      summary: List message-owned files visible through active conversation membership
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: scope
+          in: query
+          schema: {enum: [recent, shared_by_me], default: recent}
+        - name: conversation_id
+          in: query
+          description: Restrict results to one actively joined conversation
+          schema: {type: string, format: uuid}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Bounded authorized file page without storage identity, checksum, or download URL
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilePage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/attachments:
     post:
       tags: [Attachments]
@@ -781,6 +893,16 @@ paths:
                   data: {type: object}
                   download: {$ref: '#/components/schemas/PresignDescriptor'}
         '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Attachments]
+      operationId: abandonAttachmentIntent
+      security: [{bearerAuth: []}]
+      responses:
+        '204':
+          description: Unclaimed attachment abandoned; exact-version cleanup durably scheduled
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /api/v1/invitations/accept:
     post:
       tags: [Sessions]
@@ -1794,8 +1916,12 @@ components:
           required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, notifications, push_notifications, realtime, webhooks]
           properties:
             administration: {type: boolean}
-            audio_calls: {type: boolean}
-            video_calls: {type: boolean}
+            audio_calls:
+              type: boolean
+              description: True only while the cached, bounded LiveKit control-plane readiness probe is fresh and successful.
+            video_calls:
+              type: boolean
+              description: True only while the cached, bounded LiveKit control-plane readiness probe is fresh and successful.
             attachment_scanning: {type: boolean}
             bootstrap: {type: boolean}
             notifications: {type: boolean}
@@ -2343,14 +2469,52 @@ components:
           type: array
           uniqueItems: true
           items: {type: string, format: uuid}
+    DirectoryPerson:
+      type: object
+      additionalProperties: false
+      required: [id, display_name]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+    DirectoryPersonPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/DirectoryPerson'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [next_cursor]
+          properties:
+            next_cursor: {type: [string, 'null']}
+    DirectConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id]
+      properties:
+        user_id: {type: string, format: uuid}
+    DirectConversationResponse:
+      type: object
+      additionalProperties: false
+      required: [data, created]
+      properties:
+        data: {$ref: '#/components/schemas/Conversation'}
+        created: {type: boolean}
     Conversation:
       type: object
-      required: [id, tenant_id, kind, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
+      required: [id, tenant_id, kind, title, counterpart_display_name, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         kind: {enum: [direct, group, channel]}
         title: {type: [string, 'null'], maxLength: 160}
+        counterpart_display_name:
+          type: [string, 'null']
+          maxLength: 120
+          description: Server-derived current counterpart label for an authorized direct conversation; null for non-direct conversations.
         visibility: {enum: [private, tenant]}
         latest_sequence: {type: integer, minimum: 0}
         archived_at: {type: [string, 'null'], format: date-time}
@@ -2411,6 +2575,32 @@ components:
       properties:
         data: {$ref: '#/components/schemas/AudioCall'}
         credential: {$ref: '#/components/schemas/AudioCallCredential'}
+    CallSession:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, started_by_user_id, ended_by_user_id, media_kind, status, started_at, expires_at, ended_at, end_reason, duration_seconds, can_end]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        started_by_user_id: {type: string, format: uuid}
+        ended_by_user_id: {type: [string, 'null'], format: uuid}
+        media_kind: {enum: [audio, video]}
+        status: {enum: [active, ending, ended]}
+        started_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        ended_at: {type: [string, 'null'], format: date-time}
+        end_reason: {type: [string, 'null'], maxLength: 120}
+        duration_seconds: {type: integer, minimum: 0}
+        can_end: {type: boolean}
+    CallSessionPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CallSession'}
+        page: {$ref: '#/components/schemas/CursorPage'}
     MembershipSummary:
       type: object
       additionalProperties: false
@@ -2627,10 +2817,48 @@ components:
         content_type: {type: string, minLength: 1, maxLength: 120}
         byte_size: {type: integer, minimum: 1, maximum: 1073741824}
         checksum_sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+    FileSummary:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, message_id, conversation_sequence, owner_user_id, file_name, content_type, byte_size, status, scan_status, safety_state, downloadable, uploaded_at, shared_at, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        conversation_sequence: {type: integer, minimum: 1}
+        owner_user_id: {type: string, format: uuid}
+        file_name: {type: string, minLength: 1, maxLength: 255}
+        content_type: {type: string, minLength: 1, maxLength: 120}
+        byte_size: {type: integer, minimum: 1, maximum: 1073741824}
+        status: {enum: [pending, uploaded, ready, quarantined, scan_failed]}
+        scan_status: {enum: [pending, scanning, clean, blocked, failed]}
+        safety_state: {enum: [available, processing, blocked, failed, unavailable]}
+        downloadable: {type: boolean}
+        uploaded_at: {type: [string, 'null'], format: date-time}
+        shared_at: {type: string, format: date-time}
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CursorPage:
+      type: object
+      additionalProperties: false
+      required: [limit, has_more, next_cursor]
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 100}
+        has_more: {type: boolean}
+        next_cursor: {type: [string, 'null']}
+    FilePage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/FileSummary'}
+        page: {$ref: '#/components/schemas/CursorPage'}
     PresignDescriptor:
       type: object
       additionalProperties: false
-      required: [method, url, approved_origin, development_http, headers, expires_in]
+      required: [method, url, approved_origin, development_http, headers, expires_in, expires_at]
       properties:
         method: {type: string, enum: [GET, PUT, DELETE]}
         url: {type: string, format: uri}
@@ -2640,6 +2868,7 @@ components:
           type: object
           additionalProperties: {type: string}
         expires_in: {type: integer, minimum: 1, maximum: 3600}
+        expires_at: {type: string, format: date-time}
     NotificationPreferences:
       type: object
       additionalProperties: false

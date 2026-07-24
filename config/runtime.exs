@@ -34,6 +34,7 @@ if config_env() == :prod do
   role = System.get_env("K_COMMS_ROLE", "all")
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
+  local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
 
   audio_provider_mode =
     System.get_env("AUDIO_PROVIDER_MODE", "disabled") |> String.trim() |> String.downcase()
@@ -83,6 +84,27 @@ if config_env() == :prod do
     System.get_env("CSP_CONNECT_SOURCES", "'self' wss://#{host} https://#{host}")
     |> String.split(" ", trim: true)
 
+  cors_origins =
+    System.get_env("CORS_ORIGINS", "https://#{host}")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+
+  s3_public_endpoint = System.get_env("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
+
+  CommsIntegrations.LocalReleaseGuard.validate!(
+    enabled?: local_release?,
+    development_adapters?: development_adapters?,
+    runtime_purpose: runtime_purpose,
+    audio_provider_mode: audio_provider_mode,
+    phx_host: host,
+    public_app_url: public_app_url,
+    livekit_server_url: livekit_server_url,
+    livekit_api_url: livekit_api_url,
+    s3_public_endpoint: s3_public_endpoint,
+    cors_origins: cors_origins,
+    csp_connect_sources: csp_connect_sources
+  )
+
   if runtime_purpose == "application" and audio_provider_mode == "disabled" and
        not development_adapters? do
     raise "AUDIO_PROVIDER_MODE must be livekit for production application workloads"
@@ -92,20 +114,23 @@ if config_env() == :prod do
     livekit_uri = URI.parse(livekit_server_url || "")
     livekit_api_uri = URI.parse(livekit_api_url || "")
 
-    unless livekit_uri.scheme == "wss" and is_binary(livekit_uri.host) and
-             livekit_uri.port in [nil, 443] and livekit_uri.path in [nil, "", "/"] and
-             is_nil(livekit_uri.userinfo) and is_nil(livekit_uri.query) and
-             is_nil(livekit_uri.fragment) and
-             not String.ends_with?(String.downcase(livekit_uri.host), ".invalid") do
-      raise "LIVEKIT_SERVER_URL must be an exact WSS origin on port 443 in production"
-    end
+    unless local_release? do
+      unless livekit_uri.scheme == "wss" and is_binary(livekit_uri.host) and
+               livekit_uri.port in [nil, 443] and livekit_uri.path in [nil, "", "/"] and
+               is_nil(livekit_uri.userinfo) and is_nil(livekit_uri.query) and
+               is_nil(livekit_uri.fragment) and
+               not String.ends_with?(String.downcase(livekit_uri.host), ".invalid") do
+        raise "LIVEKIT_SERVER_URL must be an exact WSS origin on port 443 in production"
+      end
 
-    unless livekit_api_uri.scheme == "https" and is_binary(livekit_api_uri.host) and
-             livekit_api_uri.port in [nil, 443] and livekit_api_uri.path in [nil, "", "/"] and
-             is_nil(livekit_api_uri.userinfo) and is_nil(livekit_api_uri.query) and
-             is_nil(livekit_api_uri.fragment) and
-             not String.ends_with?(String.downcase(livekit_api_uri.host), ".invalid") do
-      raise "LIVEKIT_API_URL must be an exact HTTPS origin on port 443 in production"
+      unless livekit_api_uri.scheme == "https" and is_binary(livekit_api_uri.host) and
+               livekit_api_uri.port in [nil, 443] and
+               livekit_api_uri.path in [nil, "", "/"] and
+               is_nil(livekit_api_uri.userinfo) and is_nil(livekit_api_uri.query) and
+               is_nil(livekit_api_uri.fragment) and
+               not String.ends_with?(String.downcase(livekit_api_uri.host), ".invalid") do
+        raise "LIVEKIT_API_URL must be an exact HTTPS origin on port 443 in production"
+      end
     end
 
     for {name, value, minimum_bytes} <- [
@@ -135,9 +160,10 @@ if config_env() == :prod do
     end
   end
 
-  unless public_app_uri.scheme == "https" and is_binary(public_app_uri.host) and
-           public_app_uri.path in [nil, "", "/"] and is_nil(public_app_uri.userinfo) and
-           is_nil(public_app_uri.query) and is_nil(public_app_uri.fragment) do
+  unless local_release? or
+           (public_app_uri.scheme == "https" and is_binary(public_app_uri.host) and
+              public_app_uri.path in [nil, "", "/"] and is_nil(public_app_uri.userinfo) and
+              is_nil(public_app_uri.query) and is_nil(public_app_uri.fragment)) do
     raise "PUBLIC_APP_URL must be an absolute HTTPS origin in production"
   end
 
@@ -224,11 +250,6 @@ if config_env() == :prod do
         else: [default: 20, notifications: 20, webhooks: 20, media: 10, outbox: 20]
       )
 
-  cors_origins =
-    System.get_env("CORS_ORIGINS", "https://#{host}")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-
   trusted_proxy_cidrs =
     System.get_env("TRUSTED_PROXY_CIDRS", "")
     |> String.split(",", trim: true)
@@ -253,7 +274,7 @@ if config_env() == :prod do
     server: role in ["all", "edge"]
 
   {s3_scheme, s3_host, s3_port} =
-    parse_endpoint.(System.get_env("S3_PUBLIC_ENDPOINT", "http://localhost:9000"))
+    parse_endpoint.(s3_public_endpoint)
 
   {s3_internal_scheme, s3_internal_host, s3_internal_port} =
     parse_endpoint.(

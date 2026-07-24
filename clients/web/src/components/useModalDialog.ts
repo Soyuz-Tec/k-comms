@@ -104,7 +104,7 @@ function isolateBackground(dialog: HTMLElement): HTMLElement[] {
   return isolated;
 }
 
-export function useModalDialog(onClose: () => void) {
+export function useModalDialog(onClose: () => void, enabled = true) {
   const dialogRef = useRef<HTMLElement | null>(null);
   const restoreTargetRef = useRef<HTMLElement | null>(
     document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -113,9 +113,13 @@ export function useModalDialog(onClose: () => void) {
   closeRef.current = onClose;
 
   useEffect(() => {
+    if (!enabled) return;
     const currentDialog = dialogRef.current;
     if (!currentDialog) return;
     const dialog: HTMLElement = currentDialog;
+    if (document.activeElement instanceof HTMLElement && !dialog.contains(document.activeElement)) {
+      restoreTargetRef.current = document.activeElement;
+    }
 
     activeDialogs.push(dialog);
     lockBodyScroll();
@@ -174,7 +178,7 @@ export function useModalDialog(onClose: () => void) {
         if (target?.isConnected && !target.inert) target.focus();
       });
     };
-  }, []);
+  }, [enabled]);
 
   return dialogRef;
 }

@@ -2,11 +2,11 @@ defmodule CommsWeb.StatusController do
   use CommsWeb, :controller
 
   alias CommsCore.Notifications, as: NotificationDelivery
-  alias CommsIntegrations.Audio.LiveKitToken
+  alias CommsIntegrations.Audio.LiveKitReadiness
   alias CommsIntegrations.{Notifications, Scanner, Webhooks}
 
   def show(conn, _params) do
-    calls_available = available?(LiveKitToken.status())
+    calls_available = available?(LiveKitReadiness.status())
 
     json(conn, %{
       service: "k-comms",

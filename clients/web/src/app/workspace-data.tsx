@@ -28,6 +28,7 @@ interface WorkspaceDataValue {
   refreshAll: () => Promise<void>;
   refreshConversations: () => Promise<void>;
   createConversation: (input: CreateConversationInput) => Promise<Conversation>;
+  startDirectConversation: (userId: string) => Promise<Conversation>;
 }
 
 const WorkspaceDataContext = createContext<WorkspaceDataValue | null>(null);
@@ -173,6 +174,19 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
     [api]
   );
 
+  const startDirectConversation = useCallback(
+    async (userId: string) => {
+      const response = await api.directConversation(userId);
+      const conversation = response.data;
+      setConversations((current) => [
+        conversation,
+        ...current.filter(({ id }) => id !== conversation.id)
+      ]);
+      return conversation;
+    },
+    [api]
+  );
+
   const value = useMemo(
     () => ({
       conversations,
@@ -188,7 +202,8 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       setCapabilities,
       refreshAll,
       refreshConversations,
-      createConversation
+      createConversation,
+      startDirectConversation
     }),
     [
       conversations,
@@ -200,6 +215,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       loading,
       refreshAll,
       refreshConversations,
+      startDirectConversation,
       users
     ]
   );

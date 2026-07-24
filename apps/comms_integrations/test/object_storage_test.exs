@@ -39,6 +39,12 @@ defmodule CommsIntegrations.ObjectStorageTest do
                object_key: "tenant/file name.txt",
                object_version_id: "memory-v1"
              })
+
+    assert {:ok, %{deleted_versions: 0, deleted_markers: 0, verified_empty?: true}} =
+             CommsIntegrations.ObjectStorage.Memory.purge_object_versions(%{
+               tenant_id: "tenant",
+               object_key: "tenant/file name.txt"
+             })
   end
 
   test "S3 adapter emits a SigV4 URL without exposing its secret" do
@@ -178,7 +184,19 @@ defmodule CommsIntegrations.ObjectStorageTest do
                  tenant_id: "tenant-a",
                  object_key: key
                })
+
+      assert {:error, :invalid_object_key} =
+               CommsIntegrations.ObjectStorage.purge_object_versions(%{
+                 tenant_id: "tenant-a",
+                 object_key: key
+               })
     end
+
+    assert {:error, :object_tenant_mismatch} =
+             CommsIntegrations.ObjectStorage.purge_object_versions(%{
+               tenant_id: "tenant-a",
+               object_key: "tenant-b/file.txt"
+             })
   end
 
   test "S3 deletion fails closed on missing configuration and provider failure" do
@@ -261,6 +279,65 @@ defmodule CommsIntegrations.ObjectStorageTest do
                tenant_id: tenant_id,
                object_key: object_key,
                object_version_id: identity.object_version_id
+             })
+  end
+
+  test "S3 abandonment purge deletes and verifies every version under the exact key" do
+    previous = Application.get_env(:comms_integrations, :s3)
+    tenant_id = "purge-tenant-#{System.unique_integer([:positive, :monotonic])}"
+    object_key = "#{tenant_id}/purge-#{System.unique_integer([:positive])}/evidence.txt"
+
+    Application.put_env(:comms_integrations, :s3, s3_integration_config())
+
+    on_exit(fn -> restore_env(:s3, previous) end)
+
+    versions =
+      for body <- ["first-version", "second-version", "third-version"] do
+        candidate =
+          attachment(%{
+            tenant_id: tenant_id,
+            object_key: object_key,
+            content_type: "text/plain",
+            byte_size: byte_size(body),
+            checksum_sha256: sha256(body)
+          })
+
+        assert :ok = upload(candidate, body)
+        assert {:ok, identity} = CommsIntegrations.ObjectStorage.S3.verify_upload(candidate)
+        identity
+      end
+
+    assert {:ok,
+            %{
+              deleted_versions: deleted_versions,
+              verified_empty?: true
+            }} =
+             CommsIntegrations.ObjectStorage.S3.purge_object_versions(%{
+               tenant_id: tenant_id,
+               object_key: object_key
+             })
+
+    assert deleted_versions >= 3
+
+    for identity <- versions do
+      versioned =
+        attachment(%{
+          tenant_id: tenant_id,
+          object_key: object_key,
+          object_version_id: identity.object_version_id
+        })
+
+      assert {:ok, descriptor} =
+               CommsIntegrations.ObjectStorage.S3.presign_download(versioned)
+
+      request = Finch.build(:get, descriptor.url, Map.to_list(descriptor.headers))
+      assert {:ok, %Finch.Response{status: 404}} = Finch.request(request, CommsIntegrations.Finch)
+    end
+
+    assert {:ok, %{deleted_versions: 0, deleted_markers: 0, verified_empty?: true}} =
+             CommsIntegrations.ObjectStorage.S3.purge_object_versions(%{
+               tenant_id: tenant_id,
+               object_key: object_key
              })
   end
 

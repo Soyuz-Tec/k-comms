@@ -9,12 +9,14 @@ export function CreateConversationForm({
   users,
   allowPublicChannels = true,
   onCancel,
-  onCreate
+  onCreate,
+  onStartDirect
 }: {
   users: User[];
   allowPublicChannels?: boolean;
   onCancel: () => void;
   onCreate: (input: CreateConversationInput) => Promise<void>;
+  onStartDirect: (userId: string) => Promise<void>;
 }) {
   const [kind, setKind] = useState<CreateConversationInput["kind"]>("direct");
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -28,16 +30,19 @@ export function CreateConversationForm({
       setError("Choose exactly one teammate for a direct message.");
       return;
     }
-    const selected = users.find(({ id }) => id === selectedUsers[0]);
     setBusy(true);
     setError(null);
     try {
-      await onCreate({
-        title: kind === "direct" ? selected?.display_name : stringValue(values, "title"),
-        kind,
-        visibility: kind === "direct" ? "private" : (stringValue(values, "visibility") as "private" | "tenant"),
-        member_ids: selectedUsers
-      });
+      if (kind === "direct") {
+        await onStartDirect(selectedUsers[0]!);
+      } else {
+        await onCreate({
+          title: stringValue(values, "title"),
+          kind,
+          visibility: stringValue(values, "visibility") as "private" | "tenant",
+          member_ids: selectedUsers
+        });
+      }
     } finally {
       setBusy(false);
     }
@@ -50,6 +55,11 @@ export function CreateConversationForm({
     });
   }
 
+  const selectableUsers =
+    kind === "direct"
+      ? users.filter(({ account_type: accountType }) => accountType !== "service")
+      : users;
+
   return (
     <form className="create-conversation" onSubmit={(event) => void submit(event)}>
       <h2>New conversation</h2>
@@ -59,10 +69,10 @@ export function CreateConversationForm({
       {kind !== "direct" && <label className="field">Visibility<select name="visibility" defaultValue="private"><option value="private">Private</option>{allowPublicChannels && <option value="tenant">Workspace</option>}</select>{!allowPublicChannels && <small>Workspace-visible channels are disabled by policy.</small>}</label>}
       <fieldset className="member-picker">
         <legend>{kind === "direct" ? "Choose a teammate" : "Add people"}</legend>
-        {users.length === 0 ? <p className="empty-copy">Create another account before starting a conversation.</p> : users.map((user) => (
+        {selectableUsers.length === 0 ? <p className="empty-copy">Create another account before starting a conversation.</p> : selectableUsers.map((user) => (
           <label key={user.id}>
             <input type={kind === "direct" ? "radio" : "checkbox"} name={kind === "direct" ? "direct-member" : undefined} checked={selectedUsers.includes(user.id)} onChange={(event) => toggleUser(user.id, event.target.checked)} />
-            <span>{user.display_name}{user.account_type === "service" ? <><span className="role-chip">Bot</span><small>Non-login service identity</small></> : <small>{user.email}</small>}</span>
+            <span>{user.display_name}{user.account_type === "service" && <span className="role-chip">Bot</span>}</span>
           </label>
         ))}
       </fieldset>

@@ -21,6 +21,23 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/health/ready", (route) => route.fulfill({ json: { status: "ready" } }));
   await page.route("**/api/v1/admin/tenant", (route) => route.fulfill({ json: { data: tenantAdministration() } }));
   await page.route("**/api/v1/admin/invitations", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/me/devices", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/me/sessions", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/notification-preferences", (route) => route.fulfill({ json: {
+    data: {
+      email_enabled: true,
+      push_enabled: false,
+      in_app_enabled: true,
+      muted_event_types: [],
+      updated_at: "2026-07-24T00:00:00Z"
+    }
+  } }));
+  await page.route("**/api/v1/notifications", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/notification-attempts", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/me/push-subscriptions/config", (route) => route.fulfill({ json: {
+    data: { available: false, vapid_public_key: null }
+  } }));
+  await page.route("**/api/v1/me/push-subscriptions", (route) => route.fulfill({ json: { data: [] } }));
 });
 
 function tenantAdministration() {
@@ -35,8 +52,10 @@ function tenantAdministration() {
 
 test("user and tenant-admin routes are independently navigable", async ({ page }) => {
   await page.goto("/app/");
-  await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
-  await page.getByRole("link", { name: "Admin" }).first().click();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await page.getByRole("link", { name: "You" }).click();
+  await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+  await page.getByRole("link", { name: "Workspace administration" }).click();
   await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
   await page.getByRole("button", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People, roles and sessions" })).toBeVisible();

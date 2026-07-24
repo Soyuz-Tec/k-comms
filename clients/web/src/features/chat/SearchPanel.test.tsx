@@ -7,8 +7,8 @@ import type { Conversation, Message, User } from "../../types";
 import { SearchPanel } from "./SearchPanel";
 
 const conversations: Conversation[] = [
-  { id: "general", tenant_id: "tenant-1", kind: "channel", title: "General", visibility: "tenant", latest_sequence: 2, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" },
-  { id: "projects", tenant_id: "tenant-1", kind: "group", title: "Projects", visibility: "private", latest_sequence: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }
+  { id: "general", tenant_id: "tenant-1", kind: "channel", title: "General", counterpart_display_name: null, visibility: "tenant", latest_sequence: 2, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" },
+  { id: "projects", tenant_id: "tenant-1", kind: "group", title: "Projects", counterpart_display_name: null, visibility: "private", latest_sequence: 1, inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" }
 ];
 
 const users: User[] = [

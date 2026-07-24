@@ -2,7 +2,11 @@ import { useEffect, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 
 const routeLabels: Record<string, string> = {
-  "/app": "Messages",
+  "/app": "Inbox",
+  "/app/calls": "Calls",
+  "/app/directory": "Directory",
+  "/app/files": "Files",
+  "/app/you": "You",
   "/app/settings": "Profile and settings",
   "/admin": "Workspace administration",
   "/ops": "Service operations",
@@ -18,6 +22,16 @@ const adminSectionLabels: Record<string, string> = {
   audit: "Audit",
   governance: "Governance"
 };
+
+function isRendered(element: HTMLElement): boolean {
+  if (element.closest("[hidden], [aria-hidden='true']")) return false;
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  return (
+    element.getClientRects().length > 0 ||
+    /\bjsdom\b/i.test(window.navigator.userAgent)
+  );
+}
 
 export function routeLabel(pathname: string, search: string): string {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -43,8 +57,19 @@ export function RouteOrientation() {
     const frame = window.requestAnimationFrame(() => {
       const main = document.querySelector<HTMLElement>("main#main-content, main");
       const activeElement = document.activeElement;
-      if (main && activeElement instanceof HTMLElement && main.contains(activeElement) && activeElement.matches("input, select, textarea, button, a[href], [autofocus]")) return;
-      const destination = document.querySelector<HTMLElement>("main#main-content h1, main h1")
+      if (
+        main &&
+        activeElement instanceof HTMLElement &&
+        main.contains(activeElement) &&
+        activeElement.matches("input, select, textarea, button, a[href], [autofocus]") &&
+        isRendered(activeElement)
+      ) return;
+      const candidates = [
+        ...document.querySelectorAll<HTMLElement>(
+          "main#main-content [data-route-focus], main#main-content h1, main [data-route-focus], main h1"
+        )
+      ];
+      const destination = candidates.find(isRendered)
         ?? main;
       if (!destination) return;
       const hadTabIndex = destination.hasAttribute("tabindex");
@@ -55,7 +80,7 @@ export function RouteOrientation() {
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   return <span className="sr-only" aria-live="polite" aria-atomic="true">{label} view</span>;
 }

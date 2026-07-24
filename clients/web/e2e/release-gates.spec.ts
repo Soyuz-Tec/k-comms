@@ -46,7 +46,7 @@ test("protected product routes enforce the client role matrix", async ({ page })
   await mockWorkspace(page, "member");
   await openClientRoute(page, "/admin");
   await expect(page).toHaveURL(/\/app/);
-  await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
 });
 
 test("moderators can load moderation without owner-only attachment administration", async ({ page }) => {

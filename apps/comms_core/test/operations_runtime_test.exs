@@ -18,7 +18,8 @@ defmodule CommsCore.OperationsRuntimeTest do
              attachments_quarantined: attachments_quarantined,
              notification_failures: notification_failures,
              webhook_failures: webhook_failures,
-             attachment_scan_failures: attachment_scan_failures
+             attachment_scan_failures: attachment_scan_failures,
+             attachment_cleanup_failures: attachment_cleanup_failures
            } = Operations.runtime_gauges()
 
     assert is_number(queue_age_seconds)
@@ -30,7 +31,8 @@ defmodule CommsCore.OperationsRuntimeTest do
           attachments_quarantined,
           notification_failures,
           webhook_failures,
-          attachment_scan_failures
+          attachment_scan_failures,
+          attachment_cleanup_failures
         ] do
       assert is_integer(count)
       assert count >= 0

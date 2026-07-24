@@ -15,6 +15,8 @@ config :comms_core,
   job_workers: [
     audio_call_expiry: CommsWorkers.AudioCallExpiryWorker,
     audio_participant_eviction: CommsWorkers.AudioParticipantEvictionWorker,
+    attachment_abandon: CommsWorkers.AttachmentAbandonWorker,
+    attachment_abandon_reconciler: CommsWorkers.AttachmentCleanupReconcilerWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     deletion: CommsWorkers.DeletionWorker,
     notification_delivery: CommsWorkers.NotificationWorker,
@@ -22,6 +24,9 @@ config :comms_core,
     retention: CommsWorkers.RetentionWorker,
     webhook_delivery: CommsWorkers.WebhookWorker
   ],
+  attachment_cleanup_grace_seconds: 300,
+  attachment_cleanup_claim_timeout_seconds: 900,
+  attachment_cleanup_reconcile_limit: 100,
   push_delivery_status: :unavailable,
   session_ttl_seconds: 2_592_000,
   session_absolute_ttl_seconds: 2_592_000
@@ -33,7 +38,13 @@ config :comms_core, CommsCore.Repo,
 config :comms_core, Oban,
   repo: CommsCore.Repo,
   queues: [default: 10, notifications: 10, webhooks: 10, media: 5, outbox: 10],
-  plugins: [{Oban.Plugins.Pruner, max_age: 86_400}]
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 86_400},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker}
+     ]}
+  ]
 
 config :comms_integrations,
   allow_insecure_local_object_storage: false,

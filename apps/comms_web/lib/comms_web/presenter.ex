@@ -1,5 +1,11 @@
 defmodule CommsWeb.Presenter do
-  alias CommsCore.Accounts.{DeviceView, InitialConversationReceipt, SessionView, UserView}
+  alias CommsCore.Accounts.{
+    DeviceView,
+    DirectoryPersonView,
+    InitialConversationReceipt,
+    SessionView,
+    UserView
+  }
 
   alias CommsCore.Administration.{
     InvitationView,
@@ -8,8 +14,8 @@ defmodule CommsWeb.Presenter do
     TenantView
   }
 
-  alias CommsCore.Attachments.AttachmentView
-  alias CommsCore.AudioCalls.CallView
+  alias CommsCore.Attachments.{AttachmentView, FileView}
+  alias CommsCore.AudioCalls.{CallSessionView, CallView}
   alias CommsCore.Audit.Event
   alias CommsCore.Conversations.{ConversationView, MembershipView}
   alias CommsCore.Governance.{DeletionRequestView, LegalHoldView, RetentionPolicyView}
@@ -55,6 +61,10 @@ defmodule CommsWeb.Presenter do
 
   def admin_user(%UserView{} = user), do: identity_user(user)
 
+  def directory_person(%DirectoryPersonView{} = person) do
+    %{id: person.id, display_name: person.display_name}
+  end
+
   def device(%DeviceView{} = device) do
     %{
       id: device.id,
@@ -90,6 +100,7 @@ defmodule CommsWeb.Presenter do
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: conversation.title,
+      counterpart_display_name: conversation.counterpart_display_name,
       visibility: conversation.visibility,
       latest_sequence: conversation.latest_sequence,
       archived_at: conversation.archived_at,
@@ -115,6 +126,7 @@ defmodule CommsWeb.Presenter do
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: conversation.title,
+      counterpart_display_name: nil,
       visibility: conversation.visibility,
       latest_sequence: conversation.latest_sequence,
       archived_at: conversation.archived_at,
@@ -138,6 +150,23 @@ defmodule CommsWeb.Presenter do
       ended_at: call.ended_at,
       end_reason: call.end_reason,
       version: call.version,
+      can_end: call.can_end
+    }
+  end
+
+  def call_session(%CallSessionView{} = call) do
+    %{
+      id: call.id,
+      conversation_id: call.conversation_id,
+      started_by_user_id: call.started_by_user_id,
+      ended_by_user_id: call.ended_by_user_id,
+      media_kind: call.media_kind,
+      status: call.status,
+      started_at: call.started_at,
+      expires_at: call.expires_at,
+      ended_at: call.ended_at,
+      end_reason: call.end_reason,
+      duration_seconds: call.duration_seconds,
       can_end: call.can_end
     }
   end
@@ -348,6 +377,27 @@ defmodule CommsWeb.Presenter do
       scan_error_code: attachment.scan_error_code,
       scanned_at: attachment.scanned_at,
       quarantined_at: attachment.quarantined_at
+    }
+  end
+
+  def file(%FileView{} = file) do
+    %{
+      id: file.id,
+      conversation_id: file.conversation_id,
+      message_id: file.message_id,
+      conversation_sequence: file.conversation_sequence,
+      owner_user_id: file.owner_user_id,
+      file_name: file.file_name,
+      content_type: file.content_type,
+      byte_size: file.byte_size,
+      status: file.status,
+      scan_status: file.scan_status,
+      safety_state: file.safety_state,
+      downloadable: file.downloadable,
+      uploaded_at: file.uploaded_at,
+      shared_at: file.shared_at,
+      inserted_at: file.inserted_at,
+      updated_at: file.updated_at
     }
   end
 

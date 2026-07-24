@@ -93,11 +93,13 @@ defmodule CommsWeb.Router do
     patch("/in-app-notifications/:id/read", InAppNotificationController, :mark_read)
     delete("/in-app-notifications/:id", InAppNotificationController, :dismiss)
     get("/users", MeController, :users)
+    get("/directory/users", DirectoryController, :index)
     delete("/sessions/current", SessionController, :delete)
 
     get("/channels/discover", ConversationController, :discover_public)
     post("/channels/:id/join", ConversationController, :join_public)
     delete("/channels/:id/membership", ConversationController, :leave_public)
+    post("/direct-conversations", ConversationController, :create_direct)
 
     resources "/conversations", ConversationController, only: [:index, :create, :show, :update] do
       post("/archive", ConversationController, :archive)
@@ -126,8 +128,11 @@ defmodule CommsWeb.Router do
     get("/search", SearchController, :index)
 
     post("/attachments", AttachmentController, :create)
+    get("/files", AttachmentController, :index)
     post("/attachments/:id/complete", AttachmentController, :complete)
     get("/attachments/:id", AttachmentController, :show)
+    delete("/attachments/:id", AttachmentController, :delete)
+    get("/calls", AudioCallController, :index)
 
     get("/moderation/cases", ModerationController, :index)
     post("/moderation/cases", ModerationController, :create)
