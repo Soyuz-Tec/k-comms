@@ -96,30 +96,38 @@ test.describe("authenticated mobile web acceptance", () => {
     });
   }
 
-  test("phone sign-in keeps the form above the fold", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.route("**/api/v1/status", (route) => json(route, {
-      service: "k-comms",
-      version: "0.3.0",
-      status: "operational",
-      node: "mobile-test@node",
-      capabilities: { bootstrap: false }
-    }));
+  for (const viewport of [
+    { width: 320, height: 640 },
+    { width: 390, height: 844 }
+  ]) {
+    test(`phone sign-in exposes one complete task at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/api/v1/status", (route) => json(route, {
+        service: "k-comms",
+        version: "0.3.0",
+        status: "operational",
+        node: "mobile-test@node",
+        capabilities: { bootstrap: false }
+      }));
 
-    await page.goto("/app/");
-    const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
-    const workspace = page.getByRole("textbox", { name: "Workspace slug" });
-    await expect(heading).toBeVisible();
-    await expect(workspace).toBeVisible();
+      await page.goto("/app/");
+      const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+      const workspace = page.getByRole("textbox", { name: "Workspace" });
+      const submit = page.getByRole("button", { name: "Sign in" });
+      await expect(heading).toBeVisible();
+      await expect(workspace).toBeVisible();
+      await expect(submit).toBeVisible();
 
-    const headingBox = await heading.boundingBox();
-    const workspaceBox = await workspace.boundingBox();
-    expect(headingBox).not.toBeNull();
-    expect(workspaceBox).not.toBeNull();
-    expect(headingBox!.y).toBeLessThan(320);
-    expect(workspaceBox!.y + workspaceBox!.height).toBeLessThanOrEqual(844);
-    await expectNoDocumentOverflow(page);
-  });
+      const headingBox = await heading.boundingBox();
+      const submitBox = await submit.boundingBox();
+      expect(headingBox).not.toBeNull();
+      expect(submitBox).not.toBeNull();
+      expect(headingBox!.y).toBeLessThan(220);
+      expect(submitBox!.y + submitBox!.height).toBeLessThanOrEqual(viewport.height);
+      expect(submitBox!.height).toBeGreaterThanOrEqual(44);
+      await expectNoDocumentOverflow(page);
+    });
+  }
 
   test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 640 });

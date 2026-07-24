@@ -63,6 +63,29 @@ removed merely to improve an action count.
 Explicit media consent is not removed to reduce clicks. Microphone and camera
 remain off until the user chooses settings and joins.
 
+## Front-page onboarding implementation
+
+The signed-out front page is now task-driven instead of presenting three
+competing modes:
+
+- returning members see only sign-in, with the last non-secret workspace slug
+  remembered locally and editable through one `Change` action;
+- invitation links open a two-field account form directly, keep the one-time
+  token out of rendered content and browser storage, and sign the accepted user
+  in with the same submission;
+- authorized `?setup=workspace` links open one owner/workspace form directly,
+  derive the workspace address from its name, and keep manual slug editing
+  behind an optional disclosure;
+- server bootstrap capability remains authoritative, so a URL cannot expose or
+  bypass disabled workspace creation;
+- after entry, first-run users receive one contextual next action rather than a
+  numbered checklist: invite the first teammate, message a known teammate, or
+  browse rooms.
+
+The browser acceptance suite measures these as one submitted form for sign-in,
+invitation acceptance, and workspace setup; first-teammate invitation and a
+known-teammate direct message are each one action from Inbox.
+
 ## Delivery slices
 
 ### Slice 0 — Baseline and compatibility

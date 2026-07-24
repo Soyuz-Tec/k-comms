@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { ApiClient, loadStoredSession, storeSession } from "../api";
 import { clearDrafts } from "../lib/drafts";
+import { rememberWorkspaceSlug } from "../lib/workspacePreference";
 import type { Session } from "../types";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "";
@@ -37,6 +38,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const next = typeof update === "function" ? update(previous) : update;
     if (!next && previous) clearDrafts(previous.tenant.id, previous.user.id);
     sessionRef.current = next;
+    if (next) rememberWorkspaceSlug(next.tenant.slug);
     storeSession(next);
     updateSession(next);
   }, []);

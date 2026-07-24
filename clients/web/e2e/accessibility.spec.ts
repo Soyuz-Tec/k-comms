@@ -57,6 +57,7 @@ const message = {
 const representativeStateIds = [
   "sign-in",
   "invitation",
+  "workspace-setup",
   "recovery-request",
   "recovery-invalid-link",
   "empty-workspace",
@@ -75,7 +76,7 @@ const representativeStateIds = [
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(17);
+  expect(new Set(representativeStateIds).size).toBe(18);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
@@ -86,7 +87,21 @@ test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
 
 test("invitation acceptance satisfies automated WCAG A and AA checks", async ({ page }) => {
   await page.goto("/app/#invitation_token=synthetic-token&tenant_slug=acme");
-  await expect(page.getByRole("heading", { name: "Accept your invitation" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Join your workspace" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("workspace setup satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: {
+      service: "k-comms",
+      version: "0.3.0",
+      status: "operational",
+      capabilities: { bootstrap: true }
+    }
+  }));
+  await page.goto("/app/?setup=workspace");
+  await expect(page.getByRole("button", { name: "Create workspace" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -105,7 +120,7 @@ test("invalid reset-link state satisfies automated WCAG A and AA checks", async 
 test("empty authenticated workspace satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await page.goto("/app/");
-  await expect(page.getByText("No conversations yet.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bring in your teammate" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 

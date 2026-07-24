@@ -35,9 +35,10 @@
   product acceptance, bounded load, edge and worker replacement, old-image
   rollback, current-image roll-forward, and browser journeys without data loss.
 - Shared dialogs, route orientation, invitation onboarding, history-safe
-  scrolling, conversation/search filters, and the first-run checklist pass
-  component and browser accessibility regressions without weakening step-up,
-  audit reasons, optimistic versions, or tenant authorization.
+  scrolling, conversation/search filters, and the first-run contextual
+  invite/message/browse spotlight pass component and browser accessibility
+  regressions without weakening step-up, audit reasons, optimistic versions,
+  or tenant authorization.
 - A usability score above the provisional 89/100 cap requires the complete
   participant, accessibility, scoring, and pilot evidence defined in
   [usability-validation.md](usability-validation.md).

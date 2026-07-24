@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Attachment, Conversation, Message, User } from "../../types";
 import type { RealtimeCallbacks } from "../../realtime";
@@ -534,6 +534,7 @@ describe("ChatPage durable sequence recovery", () => {
   it("provides usable first actions when the workspace has no conversations", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
+    window.localStorage.setItem("k-comms:onboarding:tenant-1:user-1", "dismissed");
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
     await user.click(screen.getByRole("button", { name: "Start a conversation" }));
@@ -544,7 +545,7 @@ describe("ChatPage durable sequence recovery", () => {
     expect(await screen.findByRole("dialog", { name: "Browse channels" })).toBeVisible();
   });
 
-  it("starts or resumes a direct conversation atomically without exposing email", async () => {
+  it("starts or resumes a direct conversation from onboarding in one action without exposing email", async () => {
     const user = userEvent.setup();
     const direct: Conversation = {
       id: "direct-1",
@@ -558,8 +559,12 @@ describe("ChatPage durable sequence recovery", () => {
       inserted_at: "2026-07-24T00:00:00Z",
       updated_at: "2026-07-24T00:00:00Z"
     };
+    let resolveDirect!: (conversation: Conversation) => void;
+    const pendingDirect = new Promise<Conversation>((resolve) => {
+      resolveDirect = resolve;
+    });
     harness.conversations = [];
-    harness.startDirectConversation.mockResolvedValue(direct);
+    harness.startDirectConversation.mockReturnValue(pendingDirect);
 
     render(
       <MemoryRouter initialEntries={["/app"]}>
@@ -568,71 +573,83 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
 
-    await user.click(screen.getByRole("button", { name: "Start a conversation" }));
     expect(screen.queryByText("grace@example.test")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "Grace" }));
-    await user.click(screen.getByRole("button", { name: "Start message" }));
+    await user.click(screen.getByRole("button", { name: "Message Grace" }));
+    const opening = await screen.findByRole("button", { name: "Opening Grace…" });
+    expect(opening).toBeDisabled();
+    expect(opening).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(opening);
+    expect(harness.startDirectConversation).toHaveBeenCalledTimes(1);
 
-    await waitFor(() =>
-      expect(harness.startDirectConversation).toHaveBeenCalledWith("user-2")
-    );
+    harness.conversations = [direct];
+    resolveDirect(direct);
+    await waitFor(() => expect(harness.startDirectConversation).toHaveBeenCalledWith("user-2"));
     expect(harness.createConversation).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("location-search")).toHaveTextContent(
-      "?conversation=direct-1"
-    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("location-search")).toHaveTextContent(
+        "?conversation=direct-1"
+      );
+      expect(screen.getByLabelText("Message")).toHaveFocus();
+    });
   });
 
-  it("shows a tenant-scoped first-run checklist that can be dismissed without telemetry", async () => {
+  it("shows only the next useful onboarding action and persists dismissal locally", async () => {
     const user = userEvent.setup();
     harness.conversations = [];
     render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
 
-    expect(screen.getByRole("heading", { name: "Get started" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Choose or start a conversation" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Send your first message" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "Choose notification preferences" })).toHaveAttribute(
-      "href",
-      "/app/you#notification-settings"
-    );
+    expect(screen.getByRole("heading", { name: "Start your first conversation" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Message Grace" })).toBeVisible();
+    expect(screen.queryByText("Choose notification preferences")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start a conversation" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Choose or start a conversation" }));
-    expect(screen.getByRole("heading", { name: "New conversation" })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Dismiss getting-started checklist" }));
-    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dismiss welcome guide" }));
+    expect(screen.queryByRole("heading", { name: "Start your first conversation" })).not.toBeInTheDocument();
     expect(window.localStorage.getItem("k-comms:onboarding:tenant-1:user-1")).toBe("dismissed");
   });
 
-  it("routes an empty-workspace owner directly to the anchored invitation form", async () => {
+  it("routes an owner with only the bootstrap room directly to one invitation action", async () => {
     const user = userEvent.setup();
     harness.userRole = "owner";
-    harness.conversations = [];
     harness.users = [harness.users[0]!];
     render(
       <MemoryRouter initialEntries={["/app"]}>
-        <ChatPage />
-        <LocationProbe />
+        <Routes>
+          <Route path="/app" element={<><ChatPage /><LocationProbe /></>} />
+          <Route path="/admin" element={<LocationProbe />} />
+        </Routes>
       </MemoryRouter>
     );
 
     const firstTeammate = screen.getByRole("link", { name: "Invite your first teammate" });
     expect(firstTeammate).toHaveAttribute("href", "/admin?section=people#admin-invitations");
-    expect(screen.getByRole("link", { name: "Invite a teammate to send your first message" })).toHaveAttribute(
-      "href",
-      "/admin?section=people#admin-invitations"
-    );
-
-    await user.click(screen.getByRole("button", { name: "Start a conversation" }));
-    const form = screen.getByRole("heading", { name: "New conversation" }).closest("form");
-    expect(form).not.toBeNull();
-    expect(within(form!).getByRole("link", { name: "Invite your first teammate" })).toHaveAttribute(
-      "href",
-      "/admin?section=people#admin-invitations"
-    );
+    expect(screen.getAllByRole("link", { name: "Invite your first teammate" })).toHaveLength(1);
 
     await user.click(firstTeammate);
-    expect(screen.getByLabelText("location-search")).toHaveTextContent(
-      "?section=people#admin-invitations"
+    await waitFor(() => {
+      expect(screen.getByLabelText("location-search")).toHaveTextContent(
+        "?section=people#admin-invitations"
+      );
+    });
+  });
+
+  it("routes an owner with an inactive teammate to access management instead of a duplicate invitation", async () => {
+    harness.userRole = "owner";
+    harness.users = [
+      harness.users[0]!,
+      { ...harness.users[1]!, status: "suspended" }
+    ];
+    render(
+      <MemoryRouter initialEntries={["/app"]}>
+        <ChatPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("heading", { name: "Reconnect your teammate" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Invite your first teammate" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Manage teammate access" })).toHaveAttribute(
+      "href",
+      "/admin?section=people#people-title"
     );
   });
 

@@ -122,6 +122,7 @@ export function ChatPage() {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
+  const [directStartingUserId, setDirectStartingUserId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia?.("(max-width: 760px)").matches ?? false);
   const realtimeRef = useRef<RealtimeConversation | null>(null);
   const contiguousSequenceRef = useRef(0);
@@ -138,6 +139,8 @@ export function ChatPage() {
   const conversationButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const mobileListFocusConversationRef = useRef<string | null>(null);
   const previousMobileConversationRef = useRef<string | null>(null);
+  const directStartUserRef = useRef<string | null>(null);
+  const focusComposerAfterDirectRef = useRef(false);
   const cancelledAttachmentUploadsRef = useRef(new Set<string>());
   const attachmentUploadControllersRef = useRef(new Map<string, AbortController>());
   const attachmentIntentIdsRef = useRef(new Map<string, string>());
@@ -285,6 +288,17 @@ export function ChatPage() {
     const frame = window.requestAnimationFrame(() => mobileBackRef.current?.focus({ preventScroll: true }));
     return () => window.cancelAnimationFrame(frame);
   }, [activeConversation?.id, isMobile, mobilePane]);
+
+  useEffect(() => {
+    if (!focusComposerAfterDirectRef.current || !activeConversationId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const composer = document.getElementById("message-composer");
+      if (!(composer instanceof HTMLTextAreaElement)) return;
+      composer.focus({ preventScroll: true });
+      focusComposerAfterDirectRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeConversationId, mobilePane]);
 
   useEffect(() => {
     const previous = draftConversationRef.current;
@@ -631,13 +645,20 @@ export function ChatPage() {
   }
 
   async function startDirect(userId: string) {
+    if (directStartUserRef.current) return;
+    directStartUserRef.current = userId;
+    setDirectStartingUserId(userId);
     setError(null);
     try {
       const conversation = await startDirectConversation(userId);
       setShowCreateConversation(false);
+      focusComposerAfterDirectRef.current = true;
       selectConversation(conversation.id);
     } catch (reason: unknown) {
       setError(errorText(reason));
+    } finally {
+      directStartUserRef.current = null;
+      setDirectStartingUserId(null);
     }
   }
 
@@ -1020,14 +1041,27 @@ export function ChatPage() {
   const activeTyping = [...typingUsers].filter((id) => id !== session.user.id).map((id) => usersById.get(id)?.display_name || "Someone");
   const uploading = pendingAttachments.some(attachmentUploadBusy);
   const attachmentsReady = pendingAttachments.every(attachmentUploadReady);
-  const hasSentMessage = messages.some(({ sender_user_id: senderUserId }) => senderUserId === session.user.id);
+  const otherHumanAccounts = users.filter(
+    (user) => user.id !== session.user.id && user.account_type !== "service"
+  );
   const conversationUsers = users.filter((user) => user.id !== session.user.id && user.status === "active");
+  const humanTeammates = conversationUsers.filter(
+    ({ account_type: accountType }) => accountType !== "service"
+  );
+  const inactiveHumanTeammates = otherHumanAccounts.filter(({ status }) => status !== "active");
   const canInviteTeammates = canManageUsers(session.user.role);
   const needsFirstTeammate =
     canInviteTeammates &&
-    conversations.length === 0 &&
-    conversationUsers.every(({ account_type: accountType }) => accountType === "service");
+    otherHumanAccounts.length === 0;
+  const needsTeammateAccessReview =
+    canInviteTeammates &&
+    humanTeammates.length === 0 &&
+    inactiveHumanTeammates.length > 0;
   const invitationPath = "/admin?section=people#admin-invitations";
+  const peoplePath = "/admin?section=people#people-title";
+  const showOnboardingSpotlight =
+    showOnboarding &&
+    (needsFirstTeammate || needsTeammateAccessReview || conversations.length === 0);
 
   function dismissOnboarding() {
     try { window.localStorage.setItem(onboardingStorageKey, "dismissed"); } catch { /* Private or constrained storage must not block dismissal. */ }
@@ -1039,39 +1073,81 @@ export function ChatPage() {
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
       <aside className="conversation-sidebar" aria-label="Conversations">
         <div className="sidebar-heading"><div><span className="eyebrow">Messages and rooms</span><h1>Inbox</h1></div><div className="sidebar-tools"><button className="icon-button" type="button" aria-label="Browse channels" aria-expanded={showBrowseChannels} onClick={() => { setShowBrowseChannels((visible) => !visible); setShowSearch(false); setShowDetails(false); }}>#</button><button className="icon-button" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><button className="icon-button" type="button" aria-label="Create conversation" aria-expanded={showCreateConversation} onClick={() => setShowCreateConversation((visible) => !visible)}>+</button></div></div>
-        {showOnboarding && <section className="onboarding-checklist" aria-labelledby="onboarding-checklist-title">
-          <div><h2 id="onboarding-checklist-title">Get started</h2><button type="button" aria-label="Dismiss getting-started checklist" onClick={dismissOnboarding}>×</button></div>
-          <ol>
-            <li className={activeConversation ? "complete" : undefined}>
-              <span aria-hidden="true">{activeConversation ? "✓" : "1"}</span>
-              {activeConversation
-                ? "Conversation ready"
-                : needsFirstTeammate
-                  ? <Link to={invitationPath}>Invite your first teammate</Link>
-                : <button type="button" onClick={() => {
-                    setShowCreateConversation(true);
-                    setShowBrowseChannels(false);
+        {showOnboardingSpotlight && (
+          <section className="onboarding-spotlight" aria-labelledby="onboarding-spotlight-title">
+            <div className="onboarding-spotlight-heading">
+              <div>
+                <span className="eyebrow">Quick start</span>
+                <h2 id="onboarding-spotlight-title">
+                  {needsFirstTeammate
+                    ? "Bring in your teammate"
+                    : needsTeammateAccessReview
+                      ? "Reconnect your teammate"
+                    : humanTeammates.length > 0
+                      ? "Start your first conversation"
+                      : "Your workspace is ready"}
+                </h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss welcome guide"
+                onClick={dismissOnboarding}
+              >
+                ×
+              </button>
+            </div>
+            <p>
+              {needsFirstTeammate
+                ? "Invite one person, then message or call from the same conversation."
+                : needsTeammateAccessReview
+                  ? "Review the existing inactive account before sending another invitation."
+                : humanTeammates.length > 0
+                  ? "Message a teammate now—there is no setup form."
+                  : capabilities?.allow_public_channels === true
+                    ? "Browse a room to start messaging."
+                    : "An administrator needs to add you to a room or teammate conversation."}
+            </p>
+            <div className="onboarding-spotlight-actions">
+              {needsFirstTeammate ? (
+                <Link className="button primary compact" to={invitationPath}>
+                  Invite your first teammate
+                </Link>
+              ) : needsTeammateAccessReview ? (
+                <Link className="button primary compact" to={peoplePath}>
+                  Manage teammate access
+                </Link>
+              ) : humanTeammates.length > 0 ? (
+                humanTeammates.slice(0, 3).map((user) => (
+                  <button
+                    className="button primary compact"
+                    type="button"
+                    key={user.id}
+                    aria-busy={directStartingUserId === user.id}
+                    disabled={directStartingUserId !== null}
+                    onClick={() => void startDirect(user.id)}
+                  >
+                    {directStartingUserId === user.id
+                      ? `Opening ${user.display_name}…`
+                      : `Message ${user.display_name}`}
+                  </button>
+                ))
+              ) : capabilities?.allow_public_channels === true ? (
+                <button
+                  className="button primary compact"
+                  type="button"
+                  onClick={() => {
+                    setShowBrowseChannels(true);
+                    setShowCreateConversation(false);
                     setShowSearch(false);
-                  }}>Choose or start a conversation</button>}
-            </li>
-            <li className={hasSentMessage ? "complete" : undefined}>
-              <span aria-hidden="true">{hasSentMessage ? "✓" : "2"}</span>
-              {hasSentMessage
-                ? "First message sent"
-                : needsFirstTeammate
-                  ? <Link to={invitationPath}>Invite a teammate to send your first message</Link>
-                : <button type="button" onClick={() => {
-                    if (activeConversation) document.getElementById("message-composer")?.focus();
-                    else {
-                      setShowCreateConversation(true);
-                      setShowBrowseChannels(false);
-                      setShowSearch(false);
-                    }
-                  }}>Send your first message</button>}
-            </li>
-            <li><span aria-hidden="true">3</span><Link to="/app/you#notification-settings">Choose notification preferences</Link></li>
-          </ol>
-        </section>}
+                  }}
+                >
+                  Browse rooms
+                </button>
+              ) : null}
+            </div>
+            <small>Notification preferences remain available anytime under You.</small>
+          </section>
+        )}
         {showCreateConversation && <CreateConversationForm users={conversationUsers} allowPublicChannels={capabilities?.allow_public_channels === true} emptyDirectAction={canInviteTeammates ? <Link className="button ghost compact" to={invitationPath}>Invite your first teammate</Link> : undefined} onCancel={() => setShowCreateConversation(false)} onCreate={create} onStartDirect={startDirect} />}
         {conversations.length > 0 && <div className="conversation-filters" role="search" aria-label="Filter conversations">
           <label className="sr-only" htmlFor="conversation-filter-query">Filter conversations by title</label>
@@ -1096,7 +1172,7 @@ export function ChatPage() {
           </div>
         </div>}
         <nav className="conversation-list" aria-label="Conversation list">
-          {conversations.length === 0 ? <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button>{canInviteTeammates && <Link className="button ghost compact" to={invitationPath}>Invite a teammate</Link>}</div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
+          {conversations.length === 0 ? showOnboardingSpotlight ? <p className="empty-copy">Your conversations will appear here.</p> : <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button>{canInviteTeammates && <Link className="button ghost compact" to={invitationPath}>Invite a teammate</Link>}</div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationTitle(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
         </nav>
       </aside>
 

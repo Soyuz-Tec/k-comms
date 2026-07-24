@@ -35,7 +35,6 @@ export default function App() {
   return (
     <SessionProvider>
       <BrowserRouter>
-        <RouteOrientation />
         <ApplicationRoutes />
       </BrowserRouter>
     </SessionProvider>
@@ -47,33 +46,36 @@ function ApplicationRoutes() {
   if (!session) {
     return (
       <Routes>
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/forgot-password" element={<><RouteOrientation authenticated={false} /><ForgotPasswordPage /></>} />
+        <Route path="/reset-password" element={<><RouteOrientation authenticated={false} /><ResetPasswordPage /></>} />
         <Route path="*" element={<AuthScreen />} />
       </Routes>
     );
   }
 
   return (
-    <WorkspaceDataProvider>
-      <StepUpProvider>
-        <Suspense fallback={<RouteLoading />}>
-          <Routes>
-            <Route element={<ProductShell />}>
-              <Route path="/app" element={<ChatPage />} />
-              <Route path="/app/calls" element={<CallsPage />} />
-              <Route path="/app/directory" element={<DirectoryPage />} />
-              <Route path="/app/files" element={<FilesPage />} />
-              <Route path="/app/you" element={<YouPage />} />
-              <Route path="/app/settings" element={<Navigate to="/app/you" replace />} />
-              <Route path="/admin" element={<AdminPage />} />
-              <Route path="/ops" element={<OpsPage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/app" replace />} />
-          </Routes>
-        </Suspense>
-      </StepUpProvider>
-    </WorkspaceDataProvider>
+    <>
+      <RouteOrientation authenticated />
+      <WorkspaceDataProvider>
+        <StepUpProvider>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route element={<ProductShell />}>
+                <Route path="/app" element={<ChatPage />} />
+                <Route path="/app/calls" element={<CallsPage />} />
+                <Route path="/app/directory" element={<DirectoryPage />} />
+                <Route path="/app/files" element={<FilesPage />} />
+                <Route path="/app/you" element={<YouPage />} />
+                <Route path="/app/settings" element={<Navigate to="/app/you" replace />} />
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="/ops" element={<OpsPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/app" replace />} />
+            </Routes>
+          </Suspense>
+        </StepUpProvider>
+      </WorkspaceDataProvider>
+    </>
   );
 }
 

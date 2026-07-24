@@ -182,21 +182,21 @@ test.describe("low-click member information architecture", () => {
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("onboarding opens notification preferences in one action without manual scrolling", async ({ page }) => {
+  test("onboarding starts a known-teammate message in one action", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const fixture = await installWorkspace(page, { showOnboarding: true });
+    const fixture = await installWorkspace(page, {
+      showOnboarding: true,
+      emptyConversations: true
+    });
     await page.goto("/app/");
 
     let actions = 0;
-    const preferencesLink = page.getByRole("link", { name: "Choose notification preferences" });
-    await expect(preferencesLink).toBeVisible();
-    await countedClick(preferencesLink, () => actions += 1);
+    const messageButton = page.getByRole("button", { name: "Message Grace Hopper" });
+    await expect(messageButton).toBeVisible();
+    await countedClick(messageButton, () => actions += 1);
 
-    await expect(page).toHaveURL(/\/app\/you#notification-settings$/);
-    const preferencesHeading = page.getByRole("heading", { name: "Notification preferences" });
-    await expect(preferencesHeading).toBeVisible();
-    await expect(preferencesHeading).toBeFocused();
-    await expectInViewport(preferencesHeading);
+    await expect(page).toHaveURL(new RegExp(`conversation=${directConversationId}`));
+    expect(fixture.directConversationRequests).toBe(1);
     expect(actions).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
@@ -204,9 +204,14 @@ test.describe("low-click member information architecture", () => {
 
 async function installWorkspace(
   page: Page,
-  options: { firstRun?: boolean; showOnboarding?: boolean } = {}
+  options: {
+    firstRun?: boolean;
+    showOnboarding?: boolean;
+    emptyConversations?: boolean;
+  } = {}
 ) {
   const firstRun = options.firstRun === true;
+  const emptyConversations = options.emptyConversations === true;
   const dismissOnboarding = !firstRun && options.showOnboarding !== true;
   const state = {
     directConversationRequests: 0,
@@ -367,7 +372,7 @@ async function installWorkspace(
       });
     }
     if (method === "GET" && path === "/api/v1/conversations") {
-      return json(route, { data: firstRun ? [] : [general] });
+      return json(route, { data: emptyConversations ? [] : [general] });
     }
     if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/members$/.test(path)) {
       return json(route, { data: [] });

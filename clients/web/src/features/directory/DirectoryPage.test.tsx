@@ -196,9 +196,11 @@ describe("DirectoryPage", () => {
       expect(harness.joinPublicChannel).toHaveBeenCalledWith("room-public")
     );
     expect(harness.setConversations).toHaveBeenCalledWith(expect.any(Function));
-    expect(screen.getByLabelText("location")).toHaveTextContent(
-      "/app?conversation=room-public"
-    );
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent(
+        "/app?conversation=room-public"
+      );
+    });
   });
 
   it("keeps the Rooms empty state hidden while a failed load is retryable", async () => {

@@ -919,7 +919,28 @@ paths:
                 display_name: {type: string, minLength: 1, maxLength: 120}
                 password: {type: string, minLength: 12, maxLength: 256}
       responses:
-        '201': {description: Invitation accepted and session created}
+        '201':
+          description: Invitation accepted and user activated; authenticate through the sessions endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [id, tenant_id, display_name, email, account_type, role, status, version]
+                    properties:
+                      id: {type: string, format: uuid}
+                      tenant_id: {type: string, format: uuid}
+                      display_name: {type: string, minLength: 1, maxLength: 120}
+                      email: {type: string, format: email}
+                      account_type: {const: human}
+                      role: {enum: [member, moderator, admin, compliance_admin, security_admin, owner]}
+                      status: {const: active}
+                      version: {type: integer, minimum: 1}
         '401': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}

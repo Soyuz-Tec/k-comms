@@ -36,12 +36,11 @@ function isRendered(element: HTMLElement): boolean {
 function routeDestination(): HTMLElement | null {
   const main = document.querySelector<HTMLElement>("main#main-content, main");
   if (!main) return null;
-  const candidates = [
-    ...document.querySelectorAll<HTMLElement>(
-      "main#main-content [data-route-focus], main#main-content h1, main [data-route-focus], main h1"
-    )
-  ];
-  return candidates.find(isRendered) ?? main;
+  const explicit = [
+    ...main.querySelectorAll<HTMLElement>("[data-route-focus]")
+  ].find(isRendered);
+  if (explicit) return explicit;
+  return [...main.querySelectorAll<HTMLElement>("h1")].find(isRendered) ?? main;
 }
 
 function focusRouteDestination(destination: HTMLElement, scroll = false) {
@@ -73,8 +72,17 @@ function fragmentDestination(id: string): HTMLElement | null {
   return focusTarget ?? target;
 }
 
-export function routeLabel(pathname: string, search: string): string {
+export function routeLabel(
+  pathname: string,
+  search: string,
+  authenticated = true
+): string {
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  if (
+    !authenticated &&
+    normalizedPath !== "/forgot-password" &&
+    normalizedPath !== "/reset-password"
+  ) return "Sign in";
   const base = routeLabels[normalizedPath] ?? "K-Comms";
   if (normalizedPath !== "/admin") return base;
   const section = new URLSearchParams(search).get("section");
@@ -82,11 +90,11 @@ export function routeLabel(pathname: string, search: string): string {
   return sectionLabel ? `${sectionLabel} · ${base}` : base;
 }
 
-export function RouteOrientation() {
+export function RouteOrientation({ authenticated = true }: { authenticated?: boolean }) {
   const location = useLocation();
   const label = useMemo(
-    () => routeLabel(location.pathname, location.search),
-    [location.pathname, location.search]
+    () => routeLabel(location.pathname, location.search, authenticated),
+    [authenticated, location.pathname, location.search]
   );
 
   useEffect(() => {

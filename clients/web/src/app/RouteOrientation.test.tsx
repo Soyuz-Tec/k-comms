@@ -37,6 +37,23 @@ function DelayedNotificationSettings() {
 }
 
 describe("RouteOrientation", () => {
+  it("labels signed-out app routes as sign-in and prioritizes the task heading", async () => {
+    render(
+      <MemoryRouter initialEntries={["/admin?section=people"]}>
+        <RouteOrientation authenticated={false} />
+        <main>
+          <h1>Marketing story</h1>
+          <h2 data-route-focus>Sign in to your workspace</h2>
+        </main>
+      </MemoryRouter>
+    );
+
+    const signIn = screen.getByRole("heading", { name: "Sign in to your workspace" });
+    await waitFor(() => expect(signIn).toHaveFocus());
+    expect(document.title).toBe("Sign in | K-Comms");
+    expect(screen.getByText("Sign in view")).toHaveAttribute("aria-live", "polite");
+  });
+
   it("updates the document title and moves focus to the routed heading", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter initialEntries={["/app/"]}><Harness /></MemoryRouter>);
