@@ -138,6 +138,10 @@ function Assert-LiveKitImageFlags {
 function Protect-StateDirectory {
     param([Parameter(Mandatory)][string]$Path)
 
+    # Re-check the complete custom path immediately before changing ACLs. The
+    # directory may have been created since the initial validation, and an
+    # ancestor must not have been replaced with a junction in that interval.
+    Assert-SafeStateRootPath -Path $Path
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
         throw "The local-release state directory does not exist: $Path"
     }
@@ -166,14 +170,44 @@ function Assert-NoReparsePointAncestors {
 
     $current = [IO.DirectoryInfo]::new([IO.Path]::GetFullPath($Path))
     while ($null -ne $current) {
-        if ($current.Exists) {
-            $item = Get-Item -LiteralPath $current.FullName -Force
-            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        $attributes = $null
+        try {
+            # File.GetAttributes observes the path entry itself, including a
+            # dangling link, instead of relying on DirectoryInfo.Exists (which
+            # can report false when a reparse target is unavailable).
+            $attributes = [IO.File]::GetAttributes($current.FullName)
+        }
+        catch {
+            # PowerShell 5.1 wraps static .NET invocation failures in a
+            # MethodInvocationException, so inspect the inner cause explicitly.
+            $cause =
+                if ($_.Exception.InnerException) {
+                    $_.Exception.InnerException
+                }
+                else {
+                    $_.Exception
+                }
+            if (
+                $cause -is [IO.FileNotFoundException] -or
+                $cause -is [IO.DirectoryNotFoundException]
+            ) {
+                $attributes = $null
+            }
+            else {
                 throw (
-                    "A custom local-release state root must not traverse a reparse point " +
-                    "or junction: $($current.FullName)"
+                    "Could not safely inspect custom local-release state-root ancestor " +
+                    "$($current.FullName): $($cause.Message)"
                 )
             }
+        }
+        if (
+            $null -ne $attributes -and
+            ($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        ) {
+            throw (
+                "A custom local-release state root must not traverse a reparse point " +
+                "or junction: $($current.FullName)"
+            )
         }
         $current = $current.Parent
     }
@@ -281,6 +315,10 @@ function Initialize-OwnedStateDirectory {
     }
 
     New-Item -ItemType Directory -Path $Path | Out-Null
+    # Validate again after creation and before writing the ownership marker.
+    # This closes the gap where a custom ancestor could be replaced while the
+    # previously non-existent state path was being created.
+    Assert-SafeStateRootPath -Path $Path
     $markerPath = Get-StateOwnershipMarkerPath -Path $Path
     Write-JsonAtomic -Path $markerPath -Value ([ordered]@{
         schemaVersion = 1
@@ -1374,17 +1412,39 @@ function Invoke-StateRootSafetySelfTest {
             throw "State-root safety self-test accepted a reparse point"
         }
 
+        $nestedUnderJunction = Join-Path $junctionPath "nested\state"
         $blockedReparseAncestor = $false
+        $originalCustomStateRootRequested = $customStateRootRequested
         try {
-            Assert-NoReparsePointAncestors `
-                -Path (Join-Path $junctionPath "nested\state")
+            # Exercise the actual custom-StateRoot initialization path, not
+            # only the ancestor helper in isolation.
+            $script:customStateRootRequested = $true
+            Initialize-OwnedStateDirectory `
+                -Path $nestedUnderJunction `
+                -ExpectedProject $testProject
         }
         catch {
             $blockedReparseAncestor = $true
         }
+        finally {
+            $script:customStateRootRequested = $originalCustomStateRootRequested
+        }
         if (-not $blockedReparseAncestor) {
             throw "State-root safety self-test accepted a reparse-point ancestor"
         }
+
+        $safeCustomPath = Join-Path $temporaryParent "safe-custom-owned"
+        $originalCustomStateRootRequested = $customStateRootRequested
+        try {
+            $script:customStateRootRequested = $true
+            Initialize-OwnedStateDirectory `
+                -Path $safeCustomPath `
+                -ExpectedProject $testProject
+        }
+        finally {
+            $script:customStateRootRequested = $originalCustomStateRootRequested
+        }
+        Assert-OwnedStateDirectory -Path $safeCustomPath -ExpectedProject $testProject
 
         $blockedDangerousRoot = $false
         try {
@@ -1493,6 +1553,7 @@ function Invoke-Validate {
             -Arguments @("config", "--quiet") | Out-Null
         Invoke-StateRootSafetySelfTest
         Invoke-PortPreflightSelfTest
+        Invoke-FailedCandidateCleanupSelfTest
     }
     finally {
         Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
@@ -1504,7 +1565,8 @@ function Remove-FailedCandidateRuntime {
     param(
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposeProject,
-        [Parameter(Mandatory)][string]$ComposePath
+        [Parameter(Mandatory)][string]$ComposePath,
+        [scriptblock]$ComposeInvoker = $null
     )
 
     $candidateServices = @(
@@ -1518,33 +1580,54 @@ function Remove-FailedCandidateRuntime {
     $cleanupErrors = [Collections.Generic.List[string]]::new()
 
     foreach ($service in $candidateServices) {
-        $stop = Invoke-Compose `
-            -EnvironmentFile $EnvironmentFile `
-            -ComposeProject $ComposeProject `
-            -ComposePath $ComposePath `
-            -Arguments @("stop", $service) `
-            -AllowFailure
+        $stopArguments = @("stop", $service)
+        $stop =
+            if ($ComposeInvoker) {
+                & $ComposeInvoker $stopArguments
+            }
+            else {
+                Invoke-Compose `
+                    -EnvironmentFile $EnvironmentFile `
+                    -ComposeProject $ComposeProject `
+                    -ComposePath $ComposePath `
+                    -Arguments @("stop", $service) `
+                    -AllowFailure
+            }
         if ($stop.ExitCode -ne 0) {
             $cleanupErrors.Add("stop $service failed: $($stop.Output)")
         }
 
-        $remove = Invoke-Compose `
-            -EnvironmentFile $EnvironmentFile `
-            -ComposeProject $ComposeProject `
-            -ComposePath $ComposePath `
-            -Arguments @("rm", "--force", $service) `
-            -AllowFailure
+        $removeArguments = @("rm", "--force", $service)
+        $remove =
+            if ($ComposeInvoker) {
+                & $ComposeInvoker $removeArguments
+            }
+            else {
+                Invoke-Compose `
+                    -EnvironmentFile $EnvironmentFile `
+                    -ComposeProject $ComposeProject `
+                    -ComposePath $ComposePath `
+                    -Arguments @("rm", "--force", $service) `
+                    -AllowFailure
+            }
         if ($remove.ExitCode -ne 0) {
             $cleanupErrors.Add("remove $service failed: $($remove.Output)")
         }
     }
 
-    $remaining = Invoke-Compose `
-        -EnvironmentFile $EnvironmentFile `
-        -ComposeProject $ComposeProject `
-        -ComposePath $ComposePath `
-        -Arguments @("ps", "--all", "--quiet") `
-        -AllowFailure
+    $remainingArguments = @("ps", "--all", "--quiet")
+    $remaining =
+        if ($ComposeInvoker) {
+            & $ComposeInvoker $remainingArguments
+        }
+        else {
+            Invoke-Compose `
+                -EnvironmentFile $EnvironmentFile `
+                -ComposeProject $ComposeProject `
+                -ComposePath $ComposePath `
+                -Arguments @("ps", "--all", "--quiet") `
+                -AllowFailure
+        }
     if ($remaining.ExitCode -ne 0) {
         $cleanupErrors.Add("candidate runtime verification failed: $($remaining.Output)")
     }
@@ -1559,6 +1642,74 @@ function Remove-FailedCandidateRuntime {
             "Failed to remove the first candidate runtime completely. " +
             ($cleanupErrors -join " | ")
         )
+    }
+}
+
+function Invoke-FailedCandidateCleanupSelfTest {
+    $expectedServices = @(
+        "app",
+        "migrate",
+        "minio-init",
+        "livekit",
+        "minio",
+        "postgres"
+    )
+    $calls = [Collections.Generic.List[string]]::new()
+    $successfulInvoker = {
+        param([string[]]$Arguments)
+
+        $calls.Add(($Arguments -join " ")) | Out-Null
+        [PSCustomObject]@{
+            ExitCode = 0
+            Output = ""
+        }
+    }.GetNewClosure()
+
+    Remove-FailedCandidateRuntime `
+        -EnvironmentFile "self-test.env" `
+        -ComposeProject "k-comms-cleanup-self-test" `
+        -ComposePath "self-test-compose.yaml" `
+        -ComposeInvoker $successfulInvoker
+
+    foreach ($service in $expectedServices) {
+        if ($calls -notcontains "stop $service") {
+            throw "First-candidate cleanup self-test did not stop service $service"
+        }
+        if ($calls -notcontains "rm --force $service") {
+            throw "First-candidate cleanup self-test did not remove service $service"
+        }
+    }
+    if ($calls -notcontains "ps --all --quiet") {
+        throw "First-candidate cleanup self-test did not verify the complete project"
+    }
+
+    $remainingInvoker = {
+        param([string[]]$Arguments)
+
+        [PSCustomObject]@{
+            ExitCode = 0
+            Output =
+                if ($Arguments[0] -eq "ps") {
+                    "unexpected-candidate-container"
+                }
+                else {
+                    ""
+                }
+        }
+    }
+    $blockedRemaining = $false
+    try {
+        Remove-FailedCandidateRuntime `
+            -EnvironmentFile "self-test.env" `
+            -ComposeProject "k-comms-cleanup-self-test" `
+            -ComposePath "self-test-compose.yaml" `
+            -ComposeInvoker $remainingInvoker
+    }
+    catch {
+        $blockedRemaining = $true
+    }
+    if (-not $blockedRemaining) {
+        throw "First-candidate cleanup self-test accepted a remaining container"
     }
 }
 

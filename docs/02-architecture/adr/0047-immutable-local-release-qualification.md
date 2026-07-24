@@ -44,10 +44,13 @@ entry point. A deployment:
 The state directory is never adopted implicitly. The operator creates a
 canonical-path and Compose-project ownership marker before applying its
 current-user-only ACL. Existing unmarked directories, dangerous roots,
-repository ancestors, and reparse points fail before any ACL mutation.
+repository ancestors, and reparse points in any existing custom-path ancestor
+fail before state is written or any ACL is mutated. The path is checked again
+after directory creation and immediately before ACL hardening.
 Deploy, Rollback, and Stop are serialized by both an exclusive state-file lock
-and a Compose-project mutex. The first failed candidate removes only its
-application container, retaining state services and failure evidence. Status
+and a Compose-project mutex. The first failed candidate stops and removes every
+candidate container, verifies the project has no remaining containers, and
+retains named data volumes and failure evidence. Status
 distinguishes the recorded receipt from observed container health and image
 identity.
 
@@ -121,7 +124,10 @@ attestation, and approval controls.
 - PowerShell parser validation for `scripts/manage_local_release.ps1`
 - `powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Validate`
 - State-root mutation tests for unowned directories, canonical marker mismatch,
-  reparse points, dangerous roots, and concurrent operations
+  a normal child below a junction ancestor, dangerous roots, post-create
+  revalidation, and concurrent operations
+- Executable first-candidate failure cleanup tests covering all services and a
+  fail-closed remaining-container observation
 - A deployment receipt showing successful forward migration, healthy packaged
   application, revision-matching image labels, retained predecessor, and a
   rollback rehearsal without down migrations

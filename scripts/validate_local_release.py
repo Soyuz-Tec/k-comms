@@ -389,10 +389,72 @@ def validate_local_release(
         not ancestor_body
         or "[io.directoryinfo]::new" not in ancestor_body
         or ".parent" not in ancestor_body
+        or "[io.file]::getattributes" not in ancestor_body
+        or ".innerexception" not in ancestor_body
+        or "[io.filenotfoundexception]" not in ancestor_body
         or "[io.fileattributes]::reparsepoint" not in ancestor_body
     ):
         errors.append(
-            "custom state-root ancestor validation must walk to the filesystem root and reject reparse points"
+            "custom state-root ancestor validation must inspect path entries through "
+            "the filesystem root and reject reparse points"
+        )
+    protect_state_body = _compact(
+        _function_body(runner_document, "Protect-StateDirectory")
+    )
+    initialize_state_body = _compact(
+        _function_body(runner_document, "Initialize-OwnedStateDirectory")
+    )
+    state_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-StateRootSafetySelfTest")
+    )
+    create_position = initialize_state_body.find(
+        "new-item -itemtype directory -path $path"
+    )
+    post_create_position = initialize_state_body.find(
+        "assert-safestaterootpath -path $path", create_position + 1
+    )
+    marker_position = initialize_state_body.find(
+        "$markerpath = get-stateownershipmarkerpath", create_position + 1
+    )
+    if (
+        create_position < 0
+        or post_create_position < 0
+        or marker_position < 0
+        or post_create_position > marker_position
+        or "assert-safestaterootpath -path $path" not in protect_state_body
+    ):
+        errors.append(
+            "state-root paths must be revalidated after creation and immediately "
+            "before ACL mutation"
+        )
+    if (
+        "initialize-ownedstatedirectory" not in state_self_test_body
+        or "-path $nestedunderjunction" not in state_self_test_body
+        or "$script:customstaterootrequested = $true" not in state_self_test_body
+        or "-path $safecustompath" not in state_self_test_body
+    ):
+        errors.append(
+            "state-root self-test must exercise rejected junction traversal and "
+            "accepted non-existent custom-path initialization"
+        )
+
+    cleanup_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-FailedCandidateCleanupSelfTest")
+    )
+    validate_body = _compact(_function_body(runner_document, "Invoke-Validate"))
+    if "invoke-failedcandidatecleanupselftest" not in validate_body:
+        errors.append(
+            "local release validation must execute first-candidate cleanup self-tests"
+        )
+    if (
+        "invoke-failedcandidatecleanupselftest" not in validate_body
+        or "remove-failedcandidateruntime" not in cleanup_self_test_body
+        or "-composeinvoker $successfulinvoker" not in cleanup_self_test_body
+        or "unexpected-candidate-container" not in cleanup_self_test_body
+    ):
+        errors.append(
+            "first-candidate cleanup must have an executable self-test for complete "
+            "service removal and remaining-container rejection"
         )
 
     port_body = _compact(_function_body(runner_document, "Assert-CandidatePorts"))

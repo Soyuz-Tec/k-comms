@@ -134,14 +134,68 @@ class LocalReleasePolicyTest(unittest.TestCase):
     def test_rejects_custom_state_root_without_ancestor_walk(self) -> None:
         runner = self.runner.replace(
             "$customStateRootRequested", "$removedCustomStateRootGuard"
-        ).replace("$current = $current.Parent", "$current = $null")
+        ).replace("$current = $current.Parent", "$current = $null").replace(
+            "[IO.File]::GetAttributes", "[IO.File]::GetLastWriteTime"
+        ).replace(
+            "$_.Exception.InnerException", "$null"
+        )
         errors = validate_local_release(self.compose, runner)
         self.assertIn(
             "custom state-root validation must inspect all existing ancestors", errors
         )
         self.assertIn(
-            "custom state-root ancestor validation must walk to the filesystem root "
-            "and reject reparse points",
+            "custom state-root ancestor validation must inspect path entries through "
+            "the filesystem root and reject reparse points",
+            errors,
+        )
+
+    def test_rejects_state_root_without_post_create_and_pre_acl_revalidation(
+        self,
+    ) -> None:
+        runner = self.runner.replace(
+            "function Protect-StateDirectory {\n"
+            "    param([Parameter(Mandatory)][string]$Path)\n\n"
+            "    # Re-check the complete custom path immediately before changing ACLs. The\n"
+            "    # directory may have been created since the initial validation, and an\n"
+            "    # ancestor must not have been replaced with a junction in that interval.\n"
+            "    Assert-SafeStateRootPath -Path $Path",
+            "function Protect-StateDirectory {\n"
+            "    param([Parameter(Mandatory)][string]$Path)",
+        )
+        runner = runner.replace(
+            "    New-Item -ItemType Directory -Path $Path | Out-Null\n"
+            "    # Validate again after creation and before writing the ownership marker.\n"
+            "    # This closes the gap where a custom ancestor could be replaced while the\n"
+            "    # previously non-existent state path was being created.\n"
+            "    Assert-SafeStateRootPath -Path $Path",
+            "    New-Item -ItemType Directory -Path $Path | Out-Null",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "state-root paths must be revalidated after creation and immediately "
+            "before ACL mutation",
+            errors,
+        )
+
+    def test_rejects_state_root_self_test_that_bypasses_custom_initialization(
+        self,
+    ) -> None:
+        runner = self.runner.replace(
+            "Initialize-OwnedStateDirectory `\n"
+            "                -Path $nestedUnderJunction `",
+            "Assert-NoReparsePointAncestors `\n"
+            "                -Path $nestedUnderJunction `",
+        ).replace(
+            "$script:customStateRootRequested = $true",
+            "$script:customStateRootRequested = $false",
+        ).replace(
+            "-Path $safeCustomPath",
+            "-Path $temporaryParent",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "state-root self-test must exercise rejected junction traversal and "
+            "accepted non-existent custom-path initialization",
             errors,
         )
 
@@ -240,6 +294,27 @@ class LocalReleasePolicyTest(unittest.TestCase):
         )
         self.assertIn(
             "first-candidate failure cleanup must verify that no candidate containers remain",
+            errors,
+        )
+
+    def test_rejects_missing_executable_first_candidate_cleanup_self_test(
+        self,
+    ) -> None:
+        runner = self.runner.replace(
+            "        Invoke-FailedCandidateCleanupSelfTest",
+            "        Write-Host \"cleanup self-test removed\"",
+        ).replace(
+            "-ComposeInvoker $successfulInvoker",
+            "-ComposeInvoker $remainingInvoker",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "local release validation must execute first-candidate cleanup self-tests",
+            errors,
+        )
+        self.assertIn(
+            "first-candidate cleanup must have an executable self-test for complete "
+            "service removal and remaining-container rejection",
             errors,
         )
 
