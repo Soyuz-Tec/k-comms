@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sha256Base64Url, sha256Hex } from "./sha256";
+import { sha256Base64Url, sha256BlobHex, sha256Hex } from "./sha256";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -57,5 +57,47 @@ describe("browser SHA-256", () => {
     await expect(sha256Hex(new TextEncoder().encode("abc"))).resolves.toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+  });
+
+  it("hashes a Blob known vector through bounded slices without SubtleCrypto", async () => {
+    vi.stubGlobal("crypto", {});
+    const blob = new Blob(["abc"]);
+    const wholeBlobArrayBuffer = vi.spyOn(blob, "arrayBuffer");
+
+    await expect(sha256BlobHex(blob)).resolves.toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+    expect(wholeBlobArrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it("hashes large Blobs in fixed-size slices without allocating the whole Blob", async () => {
+    const blobSize = 5 * 1024 * 1024 + 17;
+    const wholeBlobArrayBuffer = vi.fn<() => Promise<ArrayBuffer>>(() => {
+      throw new Error("whole-blob arrayBuffer must not be called");
+    });
+    const sliceLengths: number[] = [];
+    const slice = vi.fn((start = 0, end = blobSize) => {
+      const length = end - start;
+      sliceLengths.push(length);
+      return {
+        size: length,
+        arrayBuffer: async () => new Uint8Array(length).buffer
+      } as unknown as Blob;
+    });
+    const blob = {
+      size: blobSize,
+      arrayBuffer: wholeBlobArrayBuffer,
+      slice
+    } as unknown as Blob;
+    const subtleDigest = vi.fn();
+    vi.stubGlobal("crypto", { subtle: { digest: subtleDigest } });
+
+    await expect(sha256BlobHex(blob)).resolves.toBe(
+      "0c086025b0bbb57526aa3a8444e22ec65d0ce52e497cfba54e5ac826ee9d1444"
+    );
+    expect(wholeBlobArrayBuffer).not.toHaveBeenCalled();
+    expect(subtleDigest).not.toHaveBeenCalled();
+    expect(sliceLengths).toHaveLength(6);
+    expect(Math.max(...sliceLengths)).toBe(1024 * 1024);
   });
 });

@@ -61,7 +61,7 @@ import type {
   WebhookDelivery,
   WebhookEndpoint
 } from "./types";
-import { sha256Hex } from "./lib/sha256";
+import { sha256BlobHex } from "./lib/sha256";
 
 const sessionKey = "k-comms.session.v1";
 const guestSessionKey = "k-comms.guest-session.v1";
@@ -1846,7 +1846,7 @@ function nonNegativeHeaderInteger(value: string | null): number {
 }
 
 export async function sha256(file: File): Promise<string> {
-  return sha256Hex(await file.arrayBuffer());
+  return sha256BlobHex(file);
 }
 
 export async function uploadToPresignedTarget(

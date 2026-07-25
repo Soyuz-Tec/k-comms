@@ -210,6 +210,44 @@ jobs:
       - run: python scripts/test_validate_readiness_ledger.py
       - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json
 
+  windows-local-release:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-validation.txt
+      - run: python -m pip install --requirement requirements-validation.txt
+      - name: Parse Windows release scripts
+        run: |
+          $scripts = @(
+              (Join-Path $env:GITHUB_WORKSPACE "scripts\manage_local_release.ps1"),
+              (Join-Path $env:GITHUB_WORKSPACE "scripts\qualify_local_release.ps1")
+          )
+
+          foreach ($script in $scripts) {
+              $tokens = $null
+              $parseErrors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $script,
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              ) | Out-Null
+
+              if ($parseErrors.Count -ne 0) {
+                  $parseErrors | Format-List | Out-String | Write-Host
+                  throw "PowerShell parser rejected $script"
+              }
+          }
+      - run: python scripts/test_validate_local_release.py
+      - run: python scripts/validate_local_release.py
+
   qualification-scripts:
     runs-on: ubuntu-24.04
     timeout-minutes: 5

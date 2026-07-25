@@ -18,6 +18,8 @@ const roundConstants = new Uint32Array([
 ]);
 
 const fallbackChunkBytes = 1024 * 1024;
+const blobHashChunkBytes = 1024 * 1024;
+const subtleCryptoBlobLimitBytes = 4 * 1024 * 1024;
 
 export async function sha256Digest(
   input: ArrayBuffer | Uint8Array<ArrayBuffer>
@@ -40,7 +42,31 @@ export async function sha256Hex(
   input: ArrayBuffer | Uint8Array<ArrayBuffer>
 ): Promise<string> {
   const digest = await sha256Digest(input);
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return digestHex(digest);
+}
+
+export async function sha256BlobHex(blob: Blob): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+
+  if (subtle && blob.size <= subtleCryptoBlobLimitBytes) {
+    try {
+      const bytes = await blob.arrayBuffer();
+      return digestHex(new Uint8Array(await subtle.digest("SHA-256", bytes)));
+    } catch {
+      // Fall through to the bounded incremental path when WebCrypto is rejected.
+    }
+  }
+
+  const hash = new Sha256State();
+
+  for (let offset = 0; offset < blob.size; offset += blobHashChunkBytes) {
+    const end = Math.min(offset + blobHashChunkBytes, blob.size);
+    const bytes = new Uint8Array(await blob.slice(offset, end).arrayBuffer());
+    hash.update(bytes);
+    if (end < blob.size) await yieldToMainThread();
+  }
+
+  return digestHex(hash.digest());
 }
 
 export async function sha256Base64Url(
@@ -220,6 +246,10 @@ class Sha256State {
 
 function rotateRight(value: number, bits: number): number {
   return (value >>> bits) | (value << (32 - bits));
+}
+
+function digestHex(digest: Uint8Array<ArrayBuffer>): string {
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function yieldToMainThread(): Promise<void> {
