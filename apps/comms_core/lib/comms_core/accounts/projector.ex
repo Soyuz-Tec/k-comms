@@ -28,7 +28,7 @@ defmodule CommsCore.Accounts.Projector do
     struct!(UserView, %{
       id: user.id,
       tenant_id: user.tenant_id,
-      display_name: user.display_name,
+      display_name: visible_display_name(user),
       email: if(user.account_type in [:service, :guest], do: nil, else: user.email),
       account_type: user.account_type,
       access_scope: user.access_scope,
@@ -44,7 +44,7 @@ defmodule CommsCore.Accounts.Projector do
   def directory_person(%User{} = user) do
     struct!(DirectoryPersonView, %{
       id: user.id,
-      display_name: user.display_name
+      display_name: visible_display_name(user)
     })
   end
 
@@ -101,4 +101,7 @@ defmodule CommsCore.Accounts.Projector do
       device: device(session.device)
     })
   end
+
+  defp visible_display_name(%User{status: :deleted}), do: "Deleted user"
+  defp visible_display_name(%User{display_name: display_name}), do: display_name
 end

@@ -3,6 +3,7 @@ defmodule CommsWeb.Presenter do
     DeviceView,
     DirectoryPersonView,
     InitialConversationReceipt,
+    RetainedSenderLabelView,
     SessionView,
     UserView
   }
@@ -85,6 +86,10 @@ defmodule CommsWeb.Presenter do
     %{id: person.id, display_name: person.display_name}
   end
 
+  def retained_sender_label(%RetainedSenderLabelView{} = label) do
+    %{id: label.id, display_name: label.display_name, redacted: label.redacted}
+  end
+
   def device(%DeviceView{} = device) do
     %{
       id: device.id,
@@ -120,6 +125,7 @@ defmodule CommsWeb.Presenter do
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: conversation.title,
+      counterpart_user_id: conversation.counterpart_user_id,
       counterpart_display_name: conversation.counterpart_display_name,
       visibility: conversation.visibility,
       latest_sequence: conversation.latest_sequence,
@@ -146,6 +152,7 @@ defmodule CommsWeb.Presenter do
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: conversation.title,
+      counterpart_user_id: nil,
       counterpart_display_name: nil,
       visibility: conversation.visibility,
       latest_sequence: conversation.latest_sequence,

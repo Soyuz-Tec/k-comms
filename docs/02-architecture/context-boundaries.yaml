@@ -22,6 +22,7 @@ enforcement:
         - context:conversations:publishes:add:ephemeral_room.owner_upgraded.v1
         - context:conversations:publishes:add:ephemeral_room.reactivated.v1
         - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
+        - context:identity_access:public_contracts:add:CommsCore.Accounts.RetainedSenderLabelView
         - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits
         - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits.Bucket
         - context:platform_runtime:public_contracts:add:CommsCore.PlatformRateLimits.Decision
@@ -34,8 +35,8 @@ enforcement:
         - 'table:conversation_guest_links:add:{"canonical_schema":"CommsCore.Conversations.GuestLink","owner":"conversations","role":"source"}'
         - 'table:public_rate_limit_buckets:add:{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket","owner":"platform_runtime","role":"technical"}'
         - 'technical_interfaces:web-distributed-public-rate-limit:add:{"callers":["CommsWeb.InstantRoomMessageRateLimit","CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.","contracts":["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct","id":"web-distributed-public-rate-limit","interface":"CommsCore.PlatformRateLimits","operations":[{"arity":4,"name":"allow?"}],"owner":"platform_runtime","transaction":"independent"}'
-      adr: docs/02-architecture/adr/0050-add-self-service-instant-rooms.md
-      removal_condition: Remove after the cumulative ADR-0046 mobile projections, ADR-0049 guest-access contracts and tables, and exact ADR-0050 instant-room ownership, rate-limit boundary, tables, public contract, durable lifecycle event declarations, and worker adapter dependencies are present on the protected branch; this declaration may not authorize later manifest changes.
+      adr: docs/02-architecture/adr/0052-retained-message-sender-labels.md
+      removal_condition: Remove after the cumulative ADR-0046 mobile projections, ADR-0049 guest-access contracts and tables, ADR-0050 instant-room ownership and rate-limit boundaries, and ADR-0052 retained sender-label contract are present on the protected branch; this declaration may not authorize later manifest changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -274,6 +275,7 @@ contexts:
       - CommsCore.Accounts.NotificationRecipient
       - CommsCore.Accounts.NotificationReceipt
       - CommsCore.Accounts.PasswordRecoveryResult
+      - CommsCore.Accounts.RetainedSenderLabelView
       - CommsCore.Accounts.SessionView
       - CommsCore.Accounts.UserView
       - CommsCore.ServiceAccounts.ServiceAccountView

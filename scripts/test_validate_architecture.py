@@ -678,7 +678,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         transition = transitions["add-mobile-read-guest-access-and-instant-rooms"]
         self.assertEqual(
             transition["adr"],
-            "docs/02-architecture/adr/0050-add-self-service-instant-rooms.md",
+            "docs/02-architecture/adr/0052-retained-message-sender-labels.md",
         )
         self.assertEqual(
             set(transition["approved_changes"]),
@@ -707,6 +707,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "ephemeral_room.reactivated.v1",
                 "context:identity_access:public_contracts:add:"
                 "CommsCore.Accounts.DirectoryPersonView",
+                "context:identity_access:public_contracts:add:"
+                "CommsCore.Accounts.RetainedSenderLabelView",
                 "context:platform_runtime:owned_modules:add:"
                 "CommsCore.PlatformRateLimits",
                 "context:platform_runtime:owned_modules:add:"

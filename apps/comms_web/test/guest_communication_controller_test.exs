@@ -194,6 +194,50 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
     assert sent["data"]["conversation_id"] == conversation_id
     assert sent["data"]["sender_user_id"] == session["user"]["id"]
 
+    guest_history_with_labels =
+      guest_conn(guest_token)
+      |> get("/api/v1/guest/conversation/messages?after_sequence=0&include=sender_labels")
+      |> json_response(200)
+
+    assert Enum.any?(
+             guest_history_with_labels["data"],
+             &(&1["id"] == sent["data"]["id"])
+           )
+
+    assert guest_history_with_labels["included"]["sender_labels"] == [
+             %{
+               "id" => session["user"]["id"],
+               "display_name" => "External Guest",
+               "redacted" => false
+             }
+           ]
+
+    refreshed_guest_labels =
+      guest_conn(guest_token)
+      |> post("/api/v1/guest/conversation/message-sender-labels", %{
+        message_ids: [
+          old_message["data"]["id"],
+          sent["data"]["id"],
+          Ecto.UUID.generate()
+        ],
+        conversation_id: substituted_conversation_id
+      })
+      |> json_response(200)
+
+    assert refreshed_guest_labels["data"] == [
+             %{
+               "id" => session["user"]["id"],
+               "display_name" => "External Guest",
+               "redacted" => false
+             }
+           ]
+
+    assert guest_conn(guest_token)
+           |> post("/api/v1/guest/conversation/message-sender-labels", %{
+             message_ids: [sent["data"]["id"], sent["data"]["id"]]
+           })
+           |> response(422)
+
     cursor =
       guest_conn(guest_token)
       |> put("/api/v1/guest/conversation/read-cursor", %{
@@ -267,9 +311,51 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
     assert is_binary(refreshed["access_token"])
     assert refreshed["refresh_token"] != session["refresh_token"]
 
+    assert :ok = CommsWeb.Endpoint.subscribe("conversation:#{conversation_id}")
+
     assert guest_conn(refreshed["access_token"])
            |> delete("/api/v1/guest/sessions/current")
            |> response(204)
+
+    assert_receive %Phoenix.Socket.Broadcast{
+      topic: "conversation:" <> ^conversation_id,
+      event: "membership.changed.v1",
+      payload: %{
+        user_id: guest_user_id,
+        action: "removed",
+        source: "guest_link"
+      }
+    }
+
+    assert guest_user_id == session["user"]["id"]
+
+    retained_history =
+      member_conn(member_token)
+      |> get(
+        "/api/v1/conversations/#{conversation_id}/messages?after_sequence=0&include=sender_labels"
+      )
+      |> json_response(200)
+
+    assert Enum.any?(retained_history["data"], &(&1["id"] == sent["data"]["id"]))
+
+    assert Enum.any?(
+             retained_history["included"]["sender_labels"],
+             &(&1 == %{
+                 "id" => session["user"]["id"],
+                 "display_name" => "External Guest",
+                 "redacted" => false
+               })
+           )
+
+    active_members =
+      member_conn(member_token)
+      |> get("/api/v1/conversations/#{conversation_id}/members")
+      |> json_response(200)
+
+    refute Enum.any?(
+             active_members["data"],
+             &(&1["user"]["id"] == session["user"]["id"])
+           )
 
     assert guest_conn(refreshed["access_token"])
            |> get("/api/v1/guest/conversation")

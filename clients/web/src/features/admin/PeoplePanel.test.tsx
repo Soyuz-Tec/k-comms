@@ -143,8 +143,14 @@ describe("PeoplePanel", () => {
     const user = userEvent.setup();
     renderPanel({ invitations, adminUserSessions, adminRevokeSession });
 
-    await user.click(screen.getByRole("button", { name: "Manage" }));
-    const trigger = await screen.findByRole("button", { name: "Revoke" });
+    await user.click(
+      screen.getByRole("button", {
+        name: "Manage sessions for Taylor Member"
+      })
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "Revoke session session- for Taylor Member"
+    });
     await user.click(trigger);
     expect(screen.getByRole("alertdialog", { name: "Revoke this session?" })).toHaveTextContent("session-");
     expect(adminRevokeSession).not.toHaveBeenCalled();

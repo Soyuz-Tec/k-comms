@@ -252,6 +252,7 @@ defmodule CommsWeb.FallbackController do
               :invalid_mention_id,
               :too_many_mentions,
               :invalid_message_body,
+              :invalid_message_ids,
               :idempotency_key_required,
               :invalid_idempotency_key,
               :invalid_sequence,

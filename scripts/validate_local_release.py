@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the immutable, loopback-only local release composition."""
+"""Validate the immutable local or explicit-private-LAN release composition."""
 
 from __future__ import annotations
 
@@ -17,15 +17,17 @@ REQUIRED_SERVICES = {"postgres", "minio", "minio-init", "livekit", "migrate", "a
 IMMUTABLE_IMAGES = {"postgres", "minio", "minio-init", "livekit"}
 EXPECTED_PORTS = {
     "minio": [
-        "127.0.0.1:${K_COMMS_RELEASE_MINIO_PORT:-5900}:9000",
+        "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:${K_COMMS_RELEASE_MINIO_PORT:-5900}:9000",
         "127.0.0.1:${K_COMMS_RELEASE_MINIO_CONSOLE_PORT:-5901}:9001",
     ],
     "livekit": [
-        "127.0.0.1:${K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT:-7980}:7880/tcp",
-        "127.0.0.1:${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}:${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}/tcp",
-        "127.0.0.1:${K_COMMS_RELEASE_LIVEKIT_UDP_PORT:-7982}:${K_COMMS_RELEASE_LIVEKIT_UDP_PORT:-7982}/udp",
+        "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:${K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT:-7980}:7880/tcp",
+        "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}:${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}/tcp",
+        "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:${K_COMMS_RELEASE_LIVEKIT_UDP_PORT:-7982}:${K_COMMS_RELEASE_LIVEKIT_UDP_PORT:-7982}/udp",
     ],
-    "app": ["127.0.0.1:${K_COMMS_RELEASE_APP_PORT:-4188}:4000"],
+    "app": [
+        "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:${K_COMMS_RELEASE_APP_PORT:-4188}:4000"
+    ],
 }
 
 
@@ -48,6 +50,12 @@ def _function_body(document: str, name: str) -> str:
 
 def _compact(document: str) -> str:
     return re.sub(r"\s+", " ", document.casefold()).strip()
+
+
+def _compact_powershell(document: str) -> str:
+    """Compact PowerShell while ignoring line-continuation backticks."""
+
+    return _compact(document.replace("`", ""))
 
 
 def validate_local_release(
@@ -105,6 +113,25 @@ def validate_local_release(
         errors.append(
             "service 'app' must use only the internal livekit:7880 API origin"
         )
+    required_network_environment = {
+        "K_COMMS_PODMAN_BIND_ADDRESS": (
+            "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}"
+        ),
+        "K_COMMS_RELEASE_HOST": "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
+        "K_COMMS_LOCAL_RELEASE_HOST": "${K_COMMS_LOCAL_RELEASE_HOST:-}",
+        "PHX_HOST": "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
+    }
+    for name, expected in required_network_environment.items():
+        if str(app_environment.get(name, "")) != expected:
+            errors.append(
+                f"service 'app' must pass exact selected release topology "
+                f"{name}={expected}"
+            )
+    if "K_COMMS_RELEASE_BIND_ADDRESS" in app_environment:
+        errors.append(
+            "service 'app' must not receive the legacy direct-bind variable "
+            "K_COMMS_RELEASE_BIND_ADDRESS"
+        )
     required_instant_room_environment = {
         "INSTANT_ROOMS_ENABLED": "${INSTANT_ROOMS_ENABLED:-true}",
         "INSTANT_ROOM_TENANT_SLUG": (
@@ -140,7 +167,7 @@ def validate_local_release(
     livekit_command = [str(value) for value in _list(livekit.get("command"))]
     for required in (
         "--node-ip",
-        "127.0.0.1",
+        "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
         "--rtc.tcp_port",
         "${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}",
         "--udp-port",
@@ -190,6 +217,31 @@ def validate_local_release(
                 f"service {name!r} ports must be {expected!r}; "
                 f"observed {observed_ports!r}"
             )
+
+    podman_bind_prefix = "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:"
+    minio_console_mapping = (
+        "127.0.0.1:${K_COMMS_RELEASE_MINIO_CONSOLE_PORT:-5901}:9001"
+    )
+    unsafe_published_ports = []
+    for service_name in ("app", "minio", "livekit"):
+        for port_mapping in _list(
+            _mapping(services.get(service_name)).get("ports")
+        ):
+            rendered_mapping = str(port_mapping)
+            if (
+                rendered_mapping != minio_console_mapping
+                and not rendered_mapping.startswith(podman_bind_prefix)
+            ):
+                unsafe_published_ports.append(
+                    f"{service_name}:{rendered_mapping}"
+                )
+    if unsafe_published_ports:
+        errors.append(
+            "all Podman-published application, object, and media ports must use "
+            "only K_COMMS_PODMAN_BIND_ADDRESS with a 127.0.0.1 default; wildcard "
+            "and direct RFC1918 binds are forbidden; observed "
+            f"{unsafe_published_ports!r}"
+        )
 
     for name in ("postgres", "minio-init", "migrate"):
         if _mapping(services.get(name)).get("ports"):
@@ -263,7 +315,13 @@ def validate_local_release(
             "local release validation must inspect the exact pinned LiveKit flag surface"
         ),
         "assert-candidateports": (
-            "deploy and start must preflight unique, available loopback ports"
+            "deploy and start must preflight unique ports on the selected bind address"
+        ),
+        "resolve-releasebindaddress": (
+            "local release orchestration must validate an explicit safe bind address"
+        ),
+        "invoke-bindaddressselftest": (
+            "local release validation must execute bind-address policy self-tests"
         ),
         "invoke-portpreflightselftest": (
             "local release validation must execute port preflight self-tests"
@@ -313,10 +371,83 @@ def validate_local_release(
             )
         if source_body.count("assert-repositoryhead") < 2:
             errors.append(
-                "immutable source capture must verify repository HEAD before and after archiving"
-            )
+            "immutable source capture must verify repository HEAD before and after archiving"
+        )
+
+    compose_interpolation_names_body = _compact_powershell(
+        _function_body(runner_document, "Get-ComposeInterpolationNames")
+    )
+    sealed_compose_environment_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-WithSealedComposeEnvironment")
+    )
+    invoke_compose_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-Compose")
+    )
+    if (
+        "[collections.generic.hashset[string]]::new("
+        not in compose_interpolation_names_body
+        or "[stringcomparer]::ordinalignorecase"
+        not in compose_interpolation_names_body
+        or "[regex]::matches(" not in compose_interpolation_names_body
+        or r"\$\{(?<name>[a-za-z_][a-za-z0-9_]*)[^}]*\}"
+        not in compose_interpolation_names_body
+        or "read-environmentfile -path $environmentfile"
+        not in sealed_compose_environment_body
+        or "get-composeinterpolationnames -composepath $composepath"
+        not in sealed_compose_environment_body
+        or "foreach ($name in $retainedenvironment.keys)"
+        not in sealed_compose_environment_body
+        or '$null = $names.add("k_comms_podman_bind_address")'
+        not in sealed_compose_environment_body
+        or "[environment]::getenvironmentvariables("
+        not in sealed_compose_environment_body
+        or "[environmentvariabletarget]::process"
+        not in sealed_compose_environment_body
+        or "$processenvironmentnames = "
+        "[collections.generic.dictionary[string, string]]::new("
+        not in sealed_compose_environment_body
+        or "[stringcomparer]::ordinalignorecase"
+        not in sealed_compose_environment_body
+        or "foreach ($existingname in $processenvironment.keys)"
+        not in sealed_compose_environment_body
+        or "$processenvironmentnames[[string]$existingname] = "
+        "[string]$existingname"
+        not in sealed_compose_environment_body
+        or "exists = $processenvironmentnames.containskey($name)"
+        not in sealed_compose_environment_body
+        or "name = $originalname"
+        not in sealed_compose_environment_body
+        or "$(if ($prior.exists) { [string]$prior.name } else { $name })"
+        not in sealed_compose_environment_body
+        or "[environment]::getenvironmentvariable("
+        not in sealed_compose_environment_body
+        or "if ($retainedenvironment.contains($name))"
+        not in sealed_compose_environment_body
+        or "[environment]::setenvironmentvariable("
+        not in sealed_compose_environment_body
+        or '"k_comms_podman_bind_address", $podmanbindaddress,'
+        not in sealed_compose_environment_body
+        or "& $action" not in sealed_compose_environment_body
+        or "finally { foreach ($name in $names)"
+        not in sealed_compose_environment_body
+        or "$(if ($prior.exists) { [string]$prior.value } else { $null })"
+        not in sealed_compose_environment_body
+        or "invoke-withsealedcomposeenvironment"
+        not in invoke_compose_body
+        or "-environmentfile $environmentfile"
+        not in invoke_compose_body
+        or "-composepath $composepath"
+        not in invoke_compose_body
+        or "invoke-nativecommand" not in invoke_compose_body
+    ):
+        errors.append(
+            "every Compose call must seal all retained and referenced "
+            "interpolation variables against ambient process overrides, force "
+            "the Podman bind to loopback, and restore the caller environment"
+        )
 
     deploy_body = _compact(_function_body(runner_document, "Invoke-DeployLocked"))
+    deploy_entry = _compact(_function_body(runner_document, "Invoke-Deploy"))
     wait_application_body = _compact(
         _function_body(runner_document, "Wait-Application")
     )
@@ -347,6 +478,51 @@ def validate_local_release(
     new_release_environment_body = _compact(
         _function_body(runner_document, "New-ReleaseEnvironment")
     )
+    release_environment_topology_body = _compact(
+        _function_body(runner_document, "Assert-ReleaseEnvironmentTopology")
+    )
+    resolve_bind_address_body = _compact(
+        _function_body(runner_document, "Resolve-ReleaseBindAddress")
+    )
+    network_category_body = _compact(
+        _function_body(runner_document, "Assert-ReleaseNetworkCategory")
+    )
+    network_observation_body = _compact(
+        _function_body(runner_document, "Resolve-ReleaseNetworkObservation")
+    )
+    current_network_observation_body = _compact(
+        _function_body(
+            runner_document,
+            "Assert-ReleaseNetworkObservationCurrent",
+        )
+    )
+    local_address_body = _compact(
+        _function_body(runner_document, "Test-IPv4AssignedLocally")
+    )
+    preferred_address_record_body = _compact(
+        _function_body(
+            runner_document,
+            "Test-PreferredReleaseIPAddressRecord",
+        )
+    )
+    network_observation_match_body = _compact(
+        _function_body(
+            runner_document,
+            "Assert-ReleaseNetworkObservationMatches",
+        )
+    )
+    bind_address_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-BindAddressSelfTest")
+    )
+    receipt_topology_body = _compact(
+        _function_body(runner_document, "Resolve-ReceiptNetworkTopology")
+    )
+    receipt_network_record_body = _compact(
+        _function_body(runner_document, "New-ReceiptNetworkRecord")
+    )
+    receipt_profile_record_body = _compact(
+        _function_body(runner_document, "Get-ReceiptNetworkProfileRecord")
+    )
     ensure_instant_room_tenant_body = _compact(
         _function_body(runner_document, "Ensure-InstantRoomTenant")
     )
@@ -376,6 +552,55 @@ def validate_local_release(
     )
     validate_body = _compact(_function_body(runner_document, "Invoke-Validate"))
     restore_body = _compact(_function_body(runner_document, "Restore-Release"))
+    retained_assets_body = _compact(
+        _function_body(runner_document, "Assert-RetainedReleaseAssets")
+    )
+    forwarder_listeners_body = _compact_powershell(
+        _function_body(runner_document, "New-LanForwarderListeners")
+    )
+    forwarder_limits_body = _compact_powershell(
+        _function_body(runner_document, "New-LanForwarderLimits")
+    )
+    new_forwarder_record_body = _compact_powershell(
+        _function_body(runner_document, "New-LanForwarderReceiptRecord")
+    )
+    forwarder_record_assets_body = _compact_powershell(
+        _function_body(runner_document, "Assert-LanForwarderRecordAssets")
+    )
+    forwarder_assets_body = _compact_powershell(
+        _function_body(runner_document, "Assert-LanForwarderAssets")
+    )
+    forwarder_observation_body = _compact_powershell(
+        _function_body(runner_document, "Get-LanForwarderObservation")
+    )
+    forwarder_command_pattern_body = _compact_powershell(
+        _function_body(runner_document, "Get-ExactCommandLineValuePattern")
+    )
+    forwarder_command_line_body = _compact_powershell(
+        _function_body(runner_document, "Test-LanForwarderCommandLine")
+    )
+    forwarder_ready_body = _compact_powershell(
+        _function_body(runner_document, "Assert-LanForwarderReady")
+    )
+    verified_forwarder_process_body = _compact_powershell(
+        _function_body(runner_document, "Get-VerifiedLanForwarderCommandProcess")
+    )
+    forwarder_owned_endpoints_body = _compact_powershell(
+        _function_body(runner_document, "Get-LanForwarderOwnedEndpoints")
+    )
+    forwarder_ports_released_body = _compact_powershell(
+        _function_body(runner_document, "Assert-LanForwarderPortsReleased")
+    )
+    stop_forwarder_body = _compact_powershell(
+        _function_body(runner_document, "Stop-LanForwarder")
+    )
+    start_forwarder_body = _compact_powershell(
+        _function_body(runner_document, "Start-LanForwarder")
+    )
+    forwarder_self_test_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-LanForwarderSelfTest")
+    )
+    status_body = _compact(_function_body(runner_document, "Invoke-Status"))
     rollback_body = _compact(_function_body(runner_document, "Invoke-RollbackLocked"))
     if (
         "[switch]$requireguestlinks" not in wait_application_body
@@ -454,6 +679,602 @@ def validate_local_release(
     if "-requireinstantrooms" in restore_body:
         errors.append(
             "predecessor restore must not require instant rooms introduced by the candidate"
+        )
+    if (
+        "[net.ipaddress]::tryparse" not in resolve_bind_address_body
+        or "[net.sockets.addressfamily]::internetwork"
+        not in resolve_bind_address_body
+        or "$value -cne $canonical" not in resolve_bind_address_body
+        or '$canonical -eq "0.0.0.0"' not in resolve_bind_address_body
+        or '$canonical -cne "127.0.0.1"' not in resolve_bind_address_body
+        or "test-rfc1918ipv4" not in resolve_bind_address_body
+        or "test-ipv4assignedlocally" not in resolve_bind_address_body
+        or "[net.networkinformation.networkinterface]::getallnetworkinterfaces()"
+        not in local_address_body
+        or "[net.networkinformation.operationalstatus]::up"
+        not in local_address_body
+        or "$unicast.address.equals($address)" not in local_address_body
+    ):
+        errors.append(
+            "BindAddress must be canonical IPv4, never wildcard, loopback or "
+            "RFC1918 only, and an RFC1918 address must be assigned to an active "
+            "local interface"
+        )
+    if (
+        "invoke-bindaddressselftest" not in validate_body
+        or "resolve-releasebindaddress" not in bind_address_self_test_body
+        or '"0.0.0.0"' not in bind_address_self_test_body
+        or '"127.0.0.2"' not in bind_address_self_test_body
+        or '"127.1"' not in bind_address_self_test_body
+        or '"127.000.000.001"' not in bind_address_self_test_body
+        or '"3232235953"' not in bind_address_self_test_body
+        or '"0xc0.0xa8.0x01.0xb1"' not in bind_address_self_test_body
+        or '"203.0.113.10"' not in bind_address_self_test_body
+        or '"::1"' not in bind_address_self_test_body
+    ):
+        errors.append(
+            "local release validation must exercise alternate numeric forms, "
+            "wildcard, public, IPv6, and loopback bind-address policy"
+        )
+    if (
+        "[switch]$allowpublicnetworkprofile" not in runner_document.lower()
+        or '$networkcategory -ceq "private"' not in network_category_body
+        or "if (-not $allowpublicnetworkprofile)" not in network_category_body
+        or "get-netipaddress" not in network_observation_body
+        or "get-netconnectionprofile" not in network_observation_body
+        or "assert-releasenetworkcategory" not in network_observation_body
+        or "publicnetworkprofileoverrideused" not in network_observation_body
+        or "test-preferredreleaseipaddressrecord" not in network_observation_body
+        or '$addressrecord.addressstate -ceq "preferred"'
+        not in preferred_address_record_body
+        or "$addressrecord.ipaddress -ceq $expectedaddress"
+        not in preferred_address_record_body
+        or "-allowpublicnetworkprofile:$allowpublicnetworkprofile"
+        not in network_observation_body
+        or 'assert-releasenetworkcategory -networkcategory "public"'
+        not in bind_address_self_test_body
+        or "-allowpublicnetworkprofile" not in bind_address_self_test_body
+        or '"tentative"' not in bind_address_self_test_body
+        or '"duplicate"' not in bind_address_self_test_body
+        or '"deprecated"' not in bind_address_self_test_body
+        or '"invalid"' not in bind_address_self_test_body
+    ):
+        errors.append(
+            "LAN release selection must require one exact Preferred Windows IPv4 "
+            "address, and non-Private network profiles must fail closed unless an "
+            "explicit audited AllowPublicNetworkProfile override is supplied"
+        )
+    forbidden_host_network_mutations = (
+        "new-netfirewallrule",
+        "set-netfirewallrule",
+        "remove-netfirewallrule",
+        "set-netconnectionprofile",
+        "netsh advfirewall",
+        "portproxy",
+    )
+    if any(
+        mutation in _compact(runner_document)
+        for mutation in forbidden_host_network_mutations
+    ):
+        errors.append(
+            "local release orchestration must never mutate Windows Firewall, "
+            "network profiles, or port-proxy state"
+        )
+    if (
+        "resolve-releasenetworkobservation" not in current_network_observation_body
+        or "assert-releasenetworkobservationmatches"
+        not in current_network_observation_body
+        or "assert-releasenetworkobservationmatches" not in receipt_topology_body
+        or '"bindaddress"' not in network_observation_match_body
+        or '"interfaceindex"' not in network_observation_match_body
+        or '"interfacealias"' not in network_observation_match_body
+        or '"networkname"' not in network_observation_match_body
+        or '"networkcategory"' not in network_observation_match_body
+        or "network-profile self-test accepted drift"
+        not in bind_address_self_test_body
+        or "assert-releasenetworkobservationcurrent" not in deploy_body
+        or deploy_body.count("assert-releasenetworkobservationcurrent") < 3
+    ):
+        errors.append(
+            "LAN deployment must revalidate the selected interface and network "
+            "profile before activation and before sealing its receipt"
+        )
+    if (
+        '$podmanbindaddress = "127.0.0.1"' not in _compact(runner_document)
+        or '$values["k_comms_podman_bind_address"] = $podmanbindaddress'
+        not in new_release_environment_body
+        or '$values["k_comms_release_host"] = $bindaddress'
+        not in new_release_environment_body
+        or '$values["k_comms_local_release_host"] =' not in new_release_environment_body
+        or 'if ($bindaddress -eq "127.0.0.1") { "" } else { $bindaddress }'
+        not in new_release_environment_body
+        or '$values["phx_host"] = $bindaddress'
+        not in new_release_environment_body
+        or '$values["public_app_url"] = "http://$bindaddress`:$appport"'
+        not in new_release_environment_body
+        or '$values["livekit_server_url"] = "ws://$bindaddress`:$livekitsignalport"'
+        not in new_release_environment_body
+        or '$values["s3_public_endpoint"] = "http://$bindaddress`:$minioport"'
+        not in new_release_environment_body
+        or "csp_connect_sources" not in new_release_environment_body
+    ):
+        errors.append(
+            "release environment must keep Podman on exact loopback while "
+            "deriving Phoenix, browser, media, object, CORS, and CSP origins "
+            "from the exact selected public host"
+        )
+    if (
+        "assert-releaseenvironmenttopology" not in deploy_body
+        or "assert-releaseenvironmenttopology" not in validate_body
+        or "k_comms_podman_bind_address = $podmanbindaddress"
+        not in release_environment_topology_body
+        or "k_comms_local_release_host = $expectedruntimehost"
+        not in release_environment_topology_body
+        or "cors_origins = $expectedbrowserorigins"
+        not in release_environment_topology_body
+        or "minio_api_cors_allow_origin = $expectedbrowserorigins"
+        not in release_environment_topology_body
+        or "csp_connect_sources =" not in release_environment_topology_body
+    ):
+        errors.append(
+            "deploy and validation must assert the complete loopback or LAN "
+            "release-environment topology before Compose rendering"
+        )
+    deploy_flow_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-DeployLocked")
+    )
+    restore_flow_body = _compact_powershell(
+        _function_body(runner_document, "Restore-Release")
+    )
+    deploy_local_bootstrap_position = deploy_flow_body.find(
+        "ensure-instantroomtenant "
+        "-environmentfile $environmentfile "
+        "-composeproject $projectname "
+        "-composepath $composesourcepath "
+        "-expectedbindaddress $podmanbindaddress"
+    )
+    deploy_local_health_position = deploy_flow_body.find(
+        "wait-application -expectedbindaddress $podmanbindaddress"
+    )
+    deploy_forwarder_start_position = deploy_flow_body.find(
+        "start-lanforwarder -receipt $candidateforwarderreceipt"
+    )
+    deploy_forwarder_ready_position = deploy_flow_body.find(
+        "assert-lanforwarderready -receipt $candidateforwarderreceipt"
+    )
+    deploy_public_health_position = deploy_flow_body.find(
+        "wait-application -expectedbindaddress $bindaddress"
+    )
+    restore_local_bootstrap_position = restore_flow_body.find(
+        "ensure-instantroomtenant "
+        "-environmentfile $receipt.environmentfile "
+        "-composeproject $receipt.projectname "
+        "-composepath $receipt.composesourcepath "
+        "-expectedbindaddress $topology.podmanbindaddress"
+    )
+    restore_local_health_position = restore_flow_body.find(
+        "wait-application -expectedbindaddress $topology.podmanbindaddress"
+    )
+    restore_forwarder_start_position = restore_flow_body.find(
+        "start-lanforwarder -receipt $receipt"
+    )
+    restore_forwarder_ready_position = restore_flow_body.find(
+        "assert-lanforwarderready -receipt $receipt"
+    )
+    restore_public_health_position = restore_flow_body.find(
+        "wait-application -expectedbindaddress $topology.bindaddress"
+    )
+    if (
+        "[parameter(mandatory)][string]$expectedbindaddress"
+        not in wait_application_body
+        or wait_application_body.count("$expectedbindaddress") < 4
+        or "[parameter(mandatory)][string]$expectedbindaddress"
+        not in ensure_instant_room_tenant_body
+        or "if ($bindaddress -cne $podmanbindaddress)"
+        not in deploy_body
+        or "if (test-receiptrequireslanforwarder -receipt $receipt)"
+        not in restore_body
+        or min(
+            deploy_local_bootstrap_position,
+            deploy_local_health_position,
+            deploy_forwarder_start_position,
+            deploy_forwarder_ready_position,
+            deploy_public_health_position,
+            restore_local_bootstrap_position,
+            restore_local_health_position,
+            restore_forwarder_start_position,
+            restore_forwarder_ready_position,
+            restore_public_health_position,
+        )
+        < 0
+        or not (
+            deploy_local_bootstrap_position
+            < deploy_local_health_position
+            < deploy_forwarder_start_position
+            < deploy_forwarder_ready_position
+            < deploy_public_health_position
+        )
+        or not (
+            restore_local_bootstrap_position
+            < restore_local_health_position
+            < restore_forwarder_start_position
+            < restore_forwarder_ready_position
+            < restore_public_health_position
+        )
+    ):
+        errors.append(
+            "deployment and restore must prove loopback Podman bootstrap and "
+            "health before activating, identity-checking, and publicly probing "
+            "a required LAN forwarder"
+        )
+    if (
+        "network = new-receiptnetworkrecord" not in deploy_body
+        or "bindaddress = $observation.bindaddress"
+        not in receipt_network_record_body
+        or "publichost = $observation.bindaddress"
+        not in receipt_network_record_body
+        or "publicappurl = $publicappurl" not in receipt_network_record_body
+        or "resolve-releasenetworkobservation" not in receipt_topology_body
+        or "public host must match" not in receipt_topology_body
+        or "public application url does not match" not in receipt_topology_body
+    ):
+        errors.append(
+            "release receipts must persist and revalidate the exact bind address, "
+            "public host, and public application origin"
+        )
+    if (
+        "$script:releasenetworkobservation = resolve-releasenetworkobservation"
+        not in deploy_entry
+        or "$script:releasenetworkobservation = resolve-releasenetworkobservation"
+        not in validate_body
+        or "$script:bindaddress = $script:releasenetworkobservation.bindaddress"
+        not in deploy_entry
+        or "$script:bindaddress = $script:releasenetworkobservation.bindaddress"
+        not in validate_body
+        or "k_comms_podman_bind_address" not in retained_assets_body
+        or "schema-v5 release environment must not retain the legacy direct-bind"
+        not in retained_assets_body
+        or "expectedtopologyenvironment" not in retained_assets_body
+        or "public_app_url = $apporigin" not in retained_assets_body
+        or "livekit_server_url =" not in retained_assets_body
+        or "s3_public_endpoint =" not in retained_assets_body
+        or "k_comms_local_release_host" not in retained_assets_body
+        or "retained schema-v5 release environment topology does not"
+        not in retained_assets_body
+    ):
+        errors.append(
+            "deploy/validate must normalize the requested address and retained "
+            "receipts must match the hash-bound network environment"
+        )
+    required_listener_markers = (
+        'name = "app"',
+        'name = "minio"',
+        'name = "livekitsignal"',
+        'name = "livekittcp"',
+        'name = "livekitudp"',
+        'protocol = "udp"',
+        "publicport = $expectedappport",
+        "publicport = $expectedminioport",
+        "publicport = $expectedlivekitsignalport",
+        "publicport = $expectedlivekittcpport",
+        "publicport = $expectedlivekitudpport",
+        "targethost = $podmanbindaddress",
+        "targetport = $expectedappport",
+        "targetport = $expectedminioport",
+        "targetport = $expectedlivekitsignalport",
+        "targetport = $expectedlivekittcpport",
+        "targetport = $expectedlivekitudpport",
+    )
+    required_limit_markers = (
+        "maxtcpconnections",
+        "tcpconnecttimeoutms",
+        "tcpidletimeoutms",
+        "tcpshutdowngracems",
+        "tcpbacklog",
+        "sockethighwatermarkbytes",
+        "maxudpmappings",
+        "udpmappingidletimeoutms",
+        "maxudppendingdatagramspermapping",
+        "maxudppendingpublicdatagrams",
+    )
+    if (
+        any(
+            marker not in forwarder_listeners_body
+            for marker in required_listener_markers
+        )
+        or forwarder_listeners_body.count("targethost = $podmanbindaddress") != 5
+        or any(
+            marker not in forwarder_limits_body
+            for marker in required_limit_markers
+        )
+        or not any(
+            marker in _compact(runner_document)
+            for marker in (
+                (
+                    '$lanforwardersourcerelativepath = '
+                    '"scripts/lan_release_forwarder.mjs"'
+                ),
+                (
+                    '$lanforwardersourcerelativepath = '
+                    '"scripts\\lan_release_forwarder.mjs"'
+                ),
+            )
+        )
+        or "[io.file]::copy($sourcepath, $scriptpath, $false)"
+        not in new_forwarder_record_body
+        or "if ($sourcesha256 -cne $scriptsha256)"
+        not in new_forwarder_record_body
+        or "schemaversion = 1" not in new_forwarder_record_body
+        or "bindaddress = $expectedbindaddress" not in new_forwarder_record_body
+        or "readinesstoken = $readinesstoken" not in new_forwarder_record_body
+        or "readyfile = $statuspath" not in new_forwarder_record_body
+        or "limits = new-lanforwarderlimits" not in new_forwarder_record_body
+        or "sourcesha256 = $sourcesha256" not in new_forwarder_record_body
+        or "scriptsha256 = $scriptsha256" not in new_forwarder_record_body
+        or "configsha256 = $configsha256" not in new_forwarder_record_body
+        or "assert-pathequals" not in forwarder_record_assets_body
+        or "get-filehash -literalpath $scriptpath -algorithm sha256"
+        not in forwarder_record_assets_body
+        or "get-filehash -literalpath $configpath -algorithm sha256"
+        not in forwarder_record_assets_body
+        or '-name "schemaversion" -expected 1'
+        not in forwarder_record_assets_body
+        or '-name "bindaddress" -expected $expectedbindaddress'
+        not in forwarder_record_assets_body
+        or '-name "readinesstoken" -expected $forwarder.readinesstoken'
+        not in forwarder_record_assets_body
+        or "lan forwarder configuration readyfile"
+        not in forwarder_record_assets_body
+        or forwarder_record_assets_body.count("assert-lanforwarderlisteners") < 2
+        or "foreach ($entry in $expectedlimits.getenumerator())"
+        not in forwarder_record_assets_body
+        or "pre-schema-v5 receipts cannot authorize lan forwarding"
+        not in forwarder_assets_body
+        or "schema-v5 retained release is missing its forwarder record"
+        not in forwarder_assets_body
+        or '-name "required" -expected $false'
+        not in forwarder_assets_body
+        or "assert-lanforwarderrecordassets" not in forwarder_assets_body
+        or "schemaversion = 5" not in deploy_body
+        or "forwarder = $forwarderrecord" not in deploy_body
+        or "new-lanforwarderreceiptrecord" not in deploy_body
+        or '$forwarderrecord = [ordered]@{ required = $false '
+        'kind = "not-required" }'
+        not in deploy_flow_body
+    ):
+        errors.append(
+            "schema-v5 LAN receipts must seal an immutable, hash-bound "
+            "forwarder configuration with exact loopback-targeted TCP/UDP "
+            "listeners and bounded resource limits"
+        )
+    if (
+        'status = "not-required"' not in forwarder_observation_body
+        or "get-filehash -literalpath ([string]$forwarder.configpath)"
+        not in forwarder_observation_body
+        or '-name "processstarttimeutc"'
+        not in forwarder_observation_body
+        or "$process.starttime.touniversaltime()"
+        not in forwarder_observation_body
+        or ").totalseconds ) -le 5" not in forwarder_observation_body
+        or "-classname win32_process" not in forwarder_observation_body
+        or "test-lanforwardercommandline"
+        not in forwarder_observation_body
+        or '[string]$ready.event -ceq "lan_release_forwarder_ready"'
+        not in forwarder_observation_body
+        or "[int]$ready.schemaversion -eq 1" not in forwarder_observation_body
+        or "[string]$ready.configsha256 -ceq"
+        not in forwarder_observation_body
+        or "[string]$ready.readinesstoken -ceq"
+        not in forwarder_observation_body
+        or "assert-lanforwarderlisteners" not in forwarder_observation_body
+        or "get-nettcpconnection" not in forwarder_observation_body
+        or "get-netudpendpoint" not in forwarder_observation_body
+        or "where-object { [int]$_.owningprocess -eq $pidvalue }"
+        not in forwarder_observation_body
+        or "$endpoint.count -ne 1" not in forwarder_observation_body
+        or "$processmatchesreceipt -and $configurationhashmatches -and"
+        not in forwarder_observation_body
+        or "assert-lanforwarderassets -receipt $receipt"
+        not in forwarder_ready_body
+        or "-not $observation.processmatchesreceipt"
+        not in forwarder_ready_body
+        or "-not $observation.confighashmatchesreceipt"
+        not in forwarder_ready_body
+        or "-not $observation.listenersmatchreceipt"
+        not in forwarder_ready_body
+        or "-filter \"processid = $processid\""
+        not in verified_forwarder_process_body
+        or "command identity changed" not in verified_forwarder_process_body
+        or "$process.starttime.touniversaltime()"
+        not in verified_forwarder_process_body
+        or "start identity changed" not in verified_forwarder_process_body
+    ):
+        errors.append(
+            "forwarder readiness must prove receipt-bound process identity, "
+            "configuration hash, token, start time, and exact TCP/UDP listener "
+            "ownership"
+        )
+    if (
+        "[regex]::escape($value)" not in forwarder_command_pattern_body
+        or 'if ($value -match "\\s")'
+        not in forwarder_command_pattern_body
+        or 'return ""$escaped""'
+        not in forwarder_command_pattern_body
+        or 'return "(?:"$escaped"|$escaped)"'
+        not in forwarder_command_pattern_body
+        or "get-exactcommandlinevaluepattern"
+        not in forwarder_command_line_body
+        or forwarder_command_line_body.count(
+            "get-exactcommandlinevaluepattern"
+        )
+        != 3
+        or '"^\\s*" +' not in forwarder_command_line_body
+        or '"\\s+" + $scriptpattern' not in forwarder_command_line_body
+        or '"\\s+--config(?:\\s+|=)" +' not in forwarder_command_line_body
+        or '"\\s*$"' not in forwarder_command_line_body
+        or "[regex]::ismatch(" not in forwarder_command_line_body
+        or "[text.regularexpressions.regexoptions]::ignorecase"
+        not in forwarder_command_line_body
+        or "[text.regularexpressions.regexoptions]::cultureinvariant"
+        not in forwarder_command_line_body
+        or "test-lanforwardercommandline"
+        not in verified_forwarder_process_body
+        or "rejected a canonical exact command line"
+        not in forwarder_self_test_body
+        or "accepted a decoy command line" not in forwarder_self_test_body
+    ):
+        errors.append(
+            "forwarder process identity must use one anchored, ordered "
+            "executable/script/--config command line with no decoy arguments"
+        )
+    if (
+        "get-lanforwarderownedendpoints -receipt $receipt"
+        not in forwarder_ports_released_body
+        or "lan forwarder public listeners remain after stop"
+        not in forwarder_ports_released_body
+        or "stop-lanforwarder -receipt $receipt -allownotrunning"
+        not in start_forwarder_body
+        or "-windowstyle hidden" not in start_forwarder_body
+        or "-redirectstandardoutput ([string]$forwarder.stdoutlogpath)"
+        not in start_forwarder_body
+        or "-redirectstandarderror ([string]$forwarder.stderrlogpath)"
+        not in start_forwarder_body
+        or "get-lanforwarderobservation -receipt $receipt"
+        not in start_forwarder_body
+        or "stop-ownedlanforwarderprocess" not in start_forwarder_body
+        or "$startedprocesstimeutc = $process.starttime.touniversaltime()"
+        not in start_forwarder_body
+        or "-expectedstarttimeutc $startedprocesstimeutc"
+        not in start_forwarder_body
+        or "assert-lanforwarderportsreleased -receipt $receipt"
+        not in start_forwarder_body
+        or "cleanup could not prove every" not in start_forwarder_body
+        or "public listener closed" not in start_forwarder_body
+        or "get-verifiedlanforwardercommandprocess"
+        not in stop_forwarder_body
+        or "$commandprocesses = @(get-lanforwardercommandprocesses -forwarder $forwarder)"
+        not in stop_forwarder_body
+        or "multiple exact-command lan forwarder processes were found"
+        not in stop_forwarder_body
+        or "$receiptboundprocess = (" not in stop_forwarder_body
+        or "fresh exact-command discovery does not match ready evidence"
+        not in stop_forwarder_body
+        or "elseif ($commandprocesses.count -eq 1)"
+        not in stop_forwarder_body
+        or "$foreignendpoints = @("
+        not in stop_forwarder_body
+        or "[int]$_.owningprocess -ne $exactprocessid"
+        not in stop_forwarder_body
+        or "refusing to replace stale lan forwarder readiness"
+        not in stop_forwarder_body
+        or '"stale-evidence lan forwarder process $exactprocessid"'
+        not in stop_forwarder_body
+        or "readiness evidence is missing or stale while"
+        not in stop_forwarder_body
+        or "listener ports remain occupied"
+        not in stop_forwarder_body
+        or "refusing to stop process" not in stop_forwarder_body
+        or "start identity changed after readiness verification"
+        not in stop_forwarder_body
+        or "assert-lanforwarderportsreleased -receipt $receipt"
+        not in stop_forwarder_body
+        or "get-nettcpconnection" not in forwarder_owned_endpoints_body
+        or "get-netudpendpoint" not in forwarder_owned_endpoints_body
+    ):
+        errors.append(
+            "forwarder lifecycle must replace only receipt-owned processes, "
+            "retain hidden-process logs, and prove failed-start and stop cleanup "
+            "released every public listener"
+        )
+    if (
+        "invoke-lanforwarderselftest -temporarydirectory $temporarydirectory"
+        not in validate_body
+        or "a tampered immutable script" not in forwarder_self_test_body
+        or "a tampered hash-bound configuration" not in forwarder_self_test_body
+        or "a tampered ready token" not in forwarder_self_test_body
+        or "ready process-start drift" not in forwarder_self_test_body
+        or "ready listener drift" not in forwarder_self_test_body
+        or "did not replace the retained process" not in forwarder_self_test_body
+        or "left an exact-command orphan process" not in forwarder_self_test_body
+        or "an unowned public listener during start"
+        not in forwarder_self_test_body
+        or forwarder_self_test_body.count(
+            "assert-lanforwarderportsreleased -receipt $receipt"
+        )
+        < 3
+    ):
+        errors.append(
+            "local release validation must exercise forwarder asset, READY, "
+            "process-replacement, orphan-cleanup, occupied-port, and "
+            "listener-release controls"
+        )
+    if (
+        "interfaceindex = $observation.interfaceindex"
+        not in receipt_network_record_body
+        or "interfacealias = $observation.interfacealias"
+        not in receipt_network_record_body
+        or "networkname = $observation.networkname"
+        not in receipt_network_record_body
+        or "networkcategory = $observation.networkcategory"
+        not in receipt_network_record_body
+        or "allowpublicnetworkprofile = $observation.allowpublicnetworkprofile"
+        not in receipt_network_record_body
+        or "publicnetworkprofileoverrideused =" not in receipt_network_record_body
+        or "allowpublicnetworkprofile" not in receipt_profile_record_body
+        or "publicnetworkprofileoverrideused" not in receipt_profile_record_body
+        or "bindaddress = $bindaddress" not in receipt_profile_record_body
+        or "interfaceindex" not in receipt_topology_body
+        or "networkcategory" not in receipt_topology_body
+    ):
+        errors.append(
+            "release receipts must persist the observed Windows interface and "
+            "network profile plus the audited non-Private-profile override"
+        )
+    if (
+        "get-receiptbindaddress" not in status_body
+        or "get-receiptpublichost" not in status_body
+        or "get-receiptpublicappurl" not in status_body
+        or '"bind address: $recordedbindaddress"' not in status_body
+        or '"public host: $recordedpublichost"' not in status_body
+        or '"application: $recordedpublicappurl/app/"' not in status_body
+        or "recorded network interface:" not in status_body
+        or "recorded network profile:" not in status_body
+        or "public network profile override authorized:" not in status_body
+        or "public network profile override used:" not in status_body
+        or "resolve-receiptnetworktopology -receipt $current" not in status_body
+        or "observed network topology matches receipt:" not in status_body
+        or "$networktopologymatchesreceipt = $false" not in status_body
+        or "$networktopologymatchesreceipt = $true" not in status_body
+        or "-not $networktopologymatchesreceipt" not in status_body
+        or "resolve-receiptnetworktopology -receipt $current" not in rollback_body
+        or "resolve-receiptnetworktopology -receipt $target" not in rollback_body
+    ):
+        errors.append(
+            "Status must re-observe and expose an explicit receipt-network match, "
+            "and Rollback must revalidate both retained network topologies"
+        )
+    if (
+        "get-lanforwarderobservation -receipt $current" not in status_body
+        or '"forwarder: $($forwarderobservation.status)"' not in status_body
+        or "if ($forwarderobservation.required)" not in status_body
+        or '"observed forwarder matches receipt: "' not in status_body
+        or "$($forwarderobservation.processmatchesreceipt)"
+        not in status_body
+        or '"observed forwarder configuration hash matches receipt: "'
+        not in status_body
+        or "$($forwarderobservation.confighashmatchesreceipt)"
+        not in status_body
+        or '"observed forwarder listeners match receipt: "'
+        not in status_body
+        or "$($forwarderobservation.listenersmatchreceipt)"
+        not in status_body
+        or '$forwarderobservation.status -notin @("ready", "not-required")'
+        not in status_body
+    ):
+        errors.append(
+            "Status must report the exact forwarder readiness, receipt-identity, "
+            "configuration-hash, and listener-ownership evidence consumed by "
+            "qualification"
         )
     deploy_bootstrap_position = deploy_body.find("ensure-instantroomtenant")
     deploy_capability_position = deploy_body.find("wait-application")
@@ -812,22 +1633,52 @@ def validate_local_release(
             "service removal and remaining-container rejection"
         )
 
-    port_body = _compact(_function_body(runner_document, "Assert-CandidatePorts"))
+    port_body = _compact_powershell(
+        _function_body(runner_document, "Assert-CandidatePorts")
+    )
+    retained_forwarder_port_body = _compact_powershell(
+        _function_body(runner_document, "Test-RetainedForwarderOwnsPort")
+    )
+    declared_port_specifications = port_body.split("$duplicates =", 1)[0]
     if (
         "group-object -property port" not in port_body
-        or "test-loopbackportavailable" not in port_body
+        or "[parameter(mandatory)][string]$candidatebindaddress" not in port_body
+        or "test-bindaddressportavailable" not in port_body
+        or "-address ([net.ipaddress]::parse($specification.bindaddress))"
+        not in port_body
+        or declared_port_specifications.count(
+            "bindaddress = $podmanbindaddress"
+        )
+        != 5
+        or 'bindaddress = "127.0.0.1"' not in port_body
+        or "if ($candidatebindaddress -ceq $podmanbindaddress) { return }"
+        not in port_body
+        or port_body.count("forwarder\" protocol = \"tcp\"") != 4
+        or 'name = "livekit media udp forwarder" protocol = "udp"'
+        not in port_body
+        or "-address ([net.ipaddress]::parse($candidatebindaddress))"
+        not in port_body
     ):
         errors.append(
-            "candidate port preflight must enforce uniqueness and loopback availability"
+            "candidate port preflight must enforce uniqueness, loopback-only "
+            "Podman and MinIO-console availability, and exact selected-address "
+            "TCP/UDP forwarder availability"
         )
     if (
         "get-runningretainedservices" not in port_body
         or "ownedbyretainedrelease" not in port_body
         or "test-retainedserviceownsport" not in port_body
+        or "test-retainedforwarderownsport" not in port_body
+        or "assert-lanforwarderready -receipt $receipt"
+        not in retained_forwarder_port_body
+        or "[string]$listener.protocol -ceq $protocol"
+        not in retained_forwarder_port_body
+        or "[int]$listener.publicport -eq $expectedport"
+        not in retained_forwarder_port_body
     ):
         errors.append(
-            "candidate port preflight must only exempt verified port mappings owned by "
-            "the retained release"
+            "candidate port preflight must only exempt verified Podman mappings "
+            "or ready receipt-bound forwarder listeners owned by the retained release"
         )
 
     start_entry = _compact(_function_body(runner_document, "Invoke-Start"))
@@ -850,7 +1701,9 @@ def validate_local_release(
     if (
         "get-currentreceipt" not in start_body
         or "assert-immutablerestartreceipt" not in start_body
+        or "resolve-receiptnetworktopology -receipt $current" not in start_body
         or "assert-candidateports" not in start_body
+        or "-candidatebindaddress $topology.bindaddress" not in start_body
         or "restore-release" not in start_body
         or "-runmigration" not in start_body
         or "-updatepointer" not in start_body
@@ -860,6 +1713,10 @@ def validate_local_release(
         )
     start_guard_position = start_body.find("assert-guestrollbacksafe")
     start_restore_position = start_body.find("restore-release")
+    start_topology_position = start_body.find(
+        "resolve-receiptnetworktopology -receipt $current"
+    )
+    start_port_position = start_body.find("assert-candidateports")
     if (
         start_guard_position < 0
         or start_restore_position < 0
@@ -869,6 +1726,81 @@ def validate_local_release(
     ):
         errors.append(
             "Start must fail closed before activating a guest-incompatible retained receipt"
+        )
+    if (
+        start_topology_position < 0
+        or start_port_position < 0
+        or start_topology_position > start_port_position
+        or start_topology_position > start_guard_position
+        or start_topology_position > start_restore_position
+    ):
+        errors.append(
+            "Start must reject retained network drift before any Compose-capable "
+            "port, rollback-safety, or restore action"
+        )
+    start_order_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-StartLocked")
+    )
+    start_image_evidence_position = start_order_body.find(
+        "get-imageevidence -imagereference $current.imagereference "
+        "-expectedrevision $current.revision"
+    )
+    start_image_id_position = start_order_body.find(
+        "if ($retainedimage.imageid -ne $current.imageid)"
+    )
+    start_image_digest_position = start_order_body.find(
+        "$retainedimage.imagedigest -ne [string]$current.imagedigest"
+    )
+    start_forwarder_stop_position = start_order_body.find(
+        "stop-lanforwarder -receipt $current -allownotrunning"
+    )
+    start_port_preflight_position = start_order_body.find(
+        "assert-candidateports"
+    )
+    if (
+        min(
+            start_image_evidence_position,
+            start_image_id_position,
+            start_image_digest_position,
+            start_forwarder_stop_position,
+            start_port_preflight_position,
+        )
+        < 0
+        or not (
+            start_image_evidence_position
+            < start_image_id_position
+            < start_forwarder_stop_position
+            < start_port_preflight_position
+        )
+        or start_image_digest_position > start_forwarder_stop_position
+    ):
+        errors.append(
+            "Start must validate the retained image revision, ID, and digest, "
+            "then stale-safely stop its forwarder before candidate port preflight"
+        )
+    rollback_current_topology_position = rollback_body.find(
+        "resolve-receiptnetworktopology -receipt $current"
+    )
+    rollback_target_topology_position = rollback_body.find(
+        "resolve-receiptnetworktopology -receipt $target"
+    )
+    rollback_guard_position = rollback_body.find("assert-guestrollbacksafe")
+    rollback_restore_position = rollback_body.find(
+        "restore-rollbacktargetorcurrent"
+    )
+    if (
+        rollback_current_topology_position < 0
+        or rollback_target_topology_position < 0
+        or rollback_guard_position < 0
+        or rollback_restore_position < 0
+        or rollback_current_topology_position > rollback_guard_position
+        or rollback_target_topology_position > rollback_guard_position
+        or rollback_current_topology_position > rollback_restore_position
+        or rollback_target_topology_position > rollback_restore_position
+    ):
+        errors.append(
+            "Rollback must reject current or target network drift before any "
+            "Compose-capable rollback-safety or restore action"
         )
     if (
         '"build",' in start_entry
@@ -891,6 +1823,113 @@ def validate_local_release(
     ):
         errors.append(
             "retained release startup must validate assets, image identity, digest, and use its retained migration path"
+        )
+    restore_image_evidence_position = restore_flow_body.find(
+        "get-imageevidence -imagereference $receipt.imagereference "
+        "-expectedrevision $receipt.revision"
+    )
+    restore_image_id_position = restore_flow_body.find(
+        "if ($image.imageid -ne $receipt.imageid)"
+    )
+    restore_image_digest_position = restore_flow_body.find(
+        "$image.imagedigest -ne [string]$receipt.imagedigest"
+    )
+    restore_active_forwarder_stop_position = restore_flow_body.find(
+        "stop-lanforwarder -receipt $activereceipt -allownotrunning"
+    )
+    if (
+        min(
+            restore_image_evidence_position,
+            restore_image_id_position,
+            restore_image_digest_position,
+            restore_active_forwarder_stop_position,
+        )
+        < 0
+        or not (
+            restore_image_evidence_position
+            < restore_image_id_position
+            < restore_active_forwarder_stop_position
+        )
+        or restore_image_digest_position > restore_active_forwarder_stop_position
+    ):
+        errors.append(
+            "Restore must validate the target image revision, ID, and digest "
+            "before stopping the active receipt's forwarder"
+        )
+    deploy_entry_flow_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-Deploy")
+    )
+    start_flow_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-StartLocked")
+    )
+    rollback_flow_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-RollbackLocked")
+    )
+    stop_flow_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-StopLocked")
+    )
+    deploy_previous_stop_position = deploy_flow_body.find(
+        "stop-lanforwarder -receipt $previousreceipt -allownotrunning"
+    )
+    deploy_service_start_position = deploy_flow_body.find(
+        "start-releaseservices"
+    )
+    restore_active_stop_position = restore_flow_body.find(
+        "stop-lanforwarder -receipt $activereceipt -allownotrunning"
+    )
+    restore_service_start_position = restore_flow_body.find(
+        "start-releaseservices"
+    )
+    rollback_stop_position = rollback_flow_body.find(
+        "stop-lanforwarder -receipt $current -allownotrunning"
+    )
+    rollback_restore_position = rollback_flow_body.find(
+        "restore-rollbacktargetorcurrent"
+    )
+    stop_forwarder_position = stop_flow_body.find(
+        "stop-lanforwarder -receipt $current -allownotrunning"
+    )
+    stop_compose_position = stop_flow_body.find("invoke-compose")
+    if (
+        'if ($script:bindaddress -cne $podmanbindaddress) { '
+        '$requiredcommands += "node" }'
+        not in deploy_entry_flow_body
+        or "if (test-receiptrequireslanforwarder -receipt $current) { "
+        'assert-requiredtools -commands @("node") }'
+        not in start_flow_body
+        or "if ( (test-receiptrequireslanforwarder -receipt $current) -or "
+        "(test-receiptrequireslanforwarder -receipt $target) ) { "
+        'assert-requiredtools -commands @("node") }'
+        not in rollback_flow_body
+        or min(
+            deploy_previous_stop_position,
+            deploy_service_start_position,
+            restore_active_stop_position,
+            restore_service_start_position,
+            rollback_stop_position,
+            rollback_restore_position,
+            stop_forwarder_position,
+            stop_compose_position,
+        )
+        < 0
+        or deploy_previous_stop_position > deploy_service_start_position
+        or restore_active_stop_position > restore_service_start_position
+        or rollback_stop_position > rollback_restore_position
+        or stop_forwarder_position > stop_compose_position
+        or "if ($candidateforwarderreceipt -and $candidateforwarderstarted)"
+        not in deploy_flow_body
+        or "stop-lanforwarder -receipt $candidateforwarderreceipt"
+        not in deploy_flow_body
+        or "if ($targetforwarderstarted)" not in restore_flow_body
+        or "stop-lanforwarder -receipt $receipt -allownotrunning"
+        not in restore_flow_body
+        or '"node"' in status_body
+        or '"node"' in stop_flow_body
+    ):
+        errors.append(
+            "Deploy, Restore, Start, Rollback, and Stop must manage the "
+            "receipt-bound forwarder, including failure cleanup, with Node "
+            "required only for LAN mode"
         )
 
     return errors

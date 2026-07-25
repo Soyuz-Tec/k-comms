@@ -3,6 +3,12 @@ import { Link } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { conversationTitle, errorText, formatDateTime } from "../../lib/format";
+import {
+  conversationParticipantIdentifier,
+  duplicateDirectConversationNames,
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { CallLaunchButton } from "./CallSessionProvider";
 import type {
   CallMediaKind,
@@ -94,6 +100,14 @@ export function CallsPage() {
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   );
+  const duplicateDirectNames = useMemo(
+    () => duplicateDirectConversationNames(conversations),
+    [conversations]
+  );
+  const duplicateUserNames = useMemo(
+    () => duplicateParticipantNames(users),
+    [users]
+  );
   const callableConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
     return conversations
@@ -149,10 +163,13 @@ export function CallsPage() {
         ) : (
           <ul className="calls-launch-list">
             {callableConversations.map((conversation) => {
-              const title = conversationTitle(conversation);
+              const title = conversationParticipantIdentifier(
+                conversation,
+                duplicateDirectNames
+              );
               return (
                 <li key={conversation.id}>
-                  <ConversationIdentity conversation={conversation} />
+                  <ConversationIdentity conversation={conversation} title={title} />
                   <div className="calls-quick-actions">
                     <Link
                       to={conversationPath(conversation.id)}
@@ -241,6 +258,8 @@ export function CallsPage() {
                 call={call}
                 conversation={conversationById.get(call.conversation_id)}
                 startedBy={userById.get(call.started_by_user_id)}
+                duplicateDirectNames={duplicateDirectNames}
+                duplicateUserNames={duplicateUserNames}
               />
             ))}
           </ol>
@@ -264,13 +283,22 @@ export function CallsPage() {
 function CallSessionRow({
   call,
   conversation,
-  startedBy
+  startedBy,
+  duplicateDirectNames,
+  duplicateUserNames
 }: {
   call: CallSummary;
   conversation?: Conversation;
   startedBy?: User;
+  duplicateDirectNames: ReadonlySet<string>;
+  duplicateUserNames: ReadonlySet<string>;
 }) {
-  const title = conversation ? conversationTitle(conversation) : "Conversation";
+  const title = conversation
+    ? conversationParticipantIdentifier(conversation, duplicateDirectNames)
+    : "Conversation";
+  const startedByIdentifier = startedBy
+    ? participantIdentifier(startedBy, duplicateUserNames)
+    : "a member";
   const active = call.status === "active";
   const ending = call.status === "ending";
   const time = active || ending ? call.started_at : call.ended_at || call.started_at;
@@ -289,7 +317,7 @@ function CallSessionRow({
         <p>
           <span>{call.media_kind === "video" ? "Video" : "Audio"}</span>
           <span aria-hidden="true"> · </span>
-          <span>{active || ending ? "Started" : "Ended"} by {startedBy?.display_name || "a member"}</span>
+          <span>{active || ending ? "Started" : "Ended"} by {startedByIdentifier}</span>
         </p>
         <p>
           <time dateTime={time}>{formatDateTime(time)}</time>
@@ -323,12 +351,18 @@ function CallSessionRow({
   );
 }
 
-function ConversationIdentity({ conversation }: { conversation: Conversation }) {
+function ConversationIdentity({
+  conversation,
+  title
+}: {
+  conversation: Conversation;
+  title: string;
+}) {
   return (
     <div className="calls-conversation-identity">
       <span aria-hidden="true">{conversation.kind === "direct" ? "@" : "#"}</span>
       <div>
-        <strong>{conversationTitle(conversation)}</strong>
+        <strong>{title}</strong>
         <small>{conversation.kind === "direct" ? "Direct conversation" : `${conversation.kind} conversation`}</small>
       </div>
     </div>

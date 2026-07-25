@@ -509,6 +509,7 @@ defmodule CommsCore.ConversationsTest do
 
     assert direct.visibility == :private
     assert direct.title == nil
+    assert direct.counterpart_user_id == member.user.id
     assert direct.counterpart_display_name == member.user.display_name
     assert Repo.get!(Conversation, direct.id).title == nil
 
@@ -527,12 +528,14 @@ defmodule CommsCore.ConversationsTest do
 
     assert updated.title == nil
     assert updated.visibility == :private
+    assert updated.counterpart_user_id == member.user.id
     assert updated.counterpart_display_name == member.user.display_name
     assert Repo.get!(Conversation, direct.id).title == nil
 
     assert {:ok, archived} =
              Conversations.archive_view(direct.id, %{version: updated.version}, subject)
 
+    assert archived.counterpart_user_id == member.user.id
     assert archived.counterpart_display_name == member.user.display_name
   end
 
@@ -547,6 +550,7 @@ defmodule CommsCore.ConversationsTest do
     assert created.kind == :direct
     assert created.visibility == :private
     assert created.title == nil
+    assert created.counterpart_user_id == member.id
     assert created.counterpart_display_name == member.display_name
 
     assert {:ok, %{conversation: replayed, created: false}} =
@@ -556,29 +560,40 @@ defmodule CommsCore.ConversationsTest do
              Conversations.get_or_create_direct_view(account.user.id, member_subject)
 
     assert replayed.id == created.id
+    assert replayed.counterpart_user_id == member.id
     assert replayed.counterpart_display_name == member.display_name
     assert member_replayed.id == created.id
+    assert member_replayed.counterpart_user_id == account.user.id
     assert member_replayed.counterpart_display_name == account.user.display_name
 
-    assert %ConversationView{counterpart_display_name: counterpart_name} =
+    assert %ConversationView{
+             counterpart_user_id: counterpart_user_id,
+             counterpart_display_name: counterpart_name
+           } =
              Enum.find(
                Conversations.list_for_user_views(owner_subject),
                &(&1.id == created.id)
              )
 
+    assert counterpart_user_id == member.id
     assert counterpart_name == member.display_name
 
     assert {:ok, %ConversationView{} = owner_view} =
              Conversations.get_for_user_view(created.id, owner_subject)
 
+    assert owner_view.counterpart_user_id == member.id
     assert owner_view.counterpart_display_name == member.display_name
 
-    assert %ConversationView{counterpart_display_name: owner_name} =
+    assert %ConversationView{
+             counterpart_user_id: owner_user_id,
+             counterpart_display_name: owner_name
+           } =
              Enum.find(
                Conversations.list_for_user_views(member_subject),
                &(&1.id == created.id)
              )
 
+    assert owner_user_id == account.user.id
     assert owner_name == account.user.display_name
 
     assert Repo.aggregate(

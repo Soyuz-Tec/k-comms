@@ -3,7 +3,9 @@ import { RealtimeConversation } from "./realtime";
 import type { RealtimeCallbacks } from "./realtime";
 
 const phoenix = vi.hoisted(() => ({
-  handlers: new Map<string, (payload?: unknown) => void>()
+  handlers: new Map<string, (payload?: unknown) => void>(),
+  joinResponse: undefined as unknown,
+  joinParams: null as Record<string, unknown> | null
 }));
 
 vi.mock("phoenix", () => ({
@@ -36,13 +38,29 @@ vi.mock("phoenix", () => ({
     list() { return [...this.keys]; }
   },
   Socket: class MockSocket {
-    channel() {
+    channel(
+      _topic: string,
+      params: Record<string, unknown> | (() => Record<string, unknown>)
+    ) {
       return {
         on: (event: string, callback: (payload?: unknown) => void) => {
           phoenix.handlers.set(event, callback);
         },
         onError: () => undefined,
-        join: () => ({ receive: () => undefined }),
+        join: () => {
+          phoenix.joinParams =
+            typeof params === "function" ? params() : params;
+          const push = {
+            receive: (
+              status: string,
+              callback: (payload?: unknown) => void
+            ) => {
+              if (status === "ok") callback(phoenix.joinResponse);
+              return push;
+            }
+          };
+          return push;
+        },
         leave: () => undefined,
         push: () => ({ receive: () => undefined })
       };
@@ -75,7 +93,53 @@ function callbacks(): RealtimeCallbacks {
 }
 
 describe("RealtimeConversation audio call events", () => {
-  beforeEach(() => phoenix.handlers.clear());
+  beforeEach(() => {
+    phoenix.handlers.clear();
+    phoenix.joinResponse = undefined;
+    phoenix.joinParams = null;
+  });
+
+  it("reconciles socket replay through REST from the pre-replay sequence", () => {
+    const listener = callbacks();
+    let afterSequence = 7;
+    const replayed = {
+      id: "message-8",
+      tenant_id: "tenant-1",
+      conversation_id: "conversation-1",
+      sender_user_id: "departed-guest",
+      sender_device_id: "device-1",
+      client_message_id: "client-8",
+      conversation_sequence: 8,
+      body: "Replayed message",
+      metadata: {},
+      status: "active",
+      inserted_at: "2026-07-25T10:00:00Z",
+      attachments: [],
+      reactions: []
+    };
+    phoenix.joinResponse = {
+      messages: [replayed],
+      has_more: false,
+      next_after_sequence: 8
+    };
+    vi.mocked(listener.onMessages).mockImplementation(() => {
+      afterSequence = 8;
+    });
+    const realtime = new RealtimeConversation(
+      "/socket",
+      "ticket",
+      "conversation-1",
+      () => afterSequence,
+      listener
+    );
+
+    realtime.connect();
+
+    expect(phoenix.joinParams).toMatchObject({ after_sequence: 7 });
+    expect(listener.onMessages).toHaveBeenCalledWith([replayed]);
+    expect(listener.onCatchUpRequired).toHaveBeenCalledWith(7);
+    expect(listener.onCatchUpRequired).toHaveBeenCalledTimes(1);
+  });
 
   it("binds the versioned start and end broadcasts and validates their status", () => {
     const listener = callbacks();
@@ -142,7 +206,42 @@ describe("RealtimeConversation audio call events", () => {
       leaves: { "already-gone": { metas: [{ phx_ref: "old" }] } }
     });
 
-    expect(listener.onPresence).toHaveBeenNthCalledWith(1, 2);
-    expect(listener.onPresence).toHaveBeenNthCalledWith(2, 2);
+    expect(listener.onPresence).toHaveBeenNthCalledWith(
+      1,
+      2,
+      ["user-1", "user-2"]
+    );
+    expect(listener.onPresence).toHaveBeenNthCalledWith(
+      2,
+      2,
+      ["user-1", "user-2"]
+    );
+  });
+
+  it("drops buffered channel and Presence callbacks after disconnect", () => {
+    const listener = callbacks();
+    const realtime = new RealtimeConversation(
+      "/socket",
+      "ticket",
+      "conversation-1",
+      () => 0,
+      listener
+    );
+    realtime.disconnect();
+    vi.mocked(listener.onStatus).mockClear();
+
+    phoenix.handlers.get("presence_state")?.({
+      "user-1": { metas: [{ phx_ref: "one" }] }
+    });
+    phoenix.handlers.get("typing.start")?.({ user_id: "user-1" });
+    phoenix.handlers.get("membership.changed.v1")?.({
+      conversation_id: "conversation-1",
+      action: "added"
+    });
+
+    expect(listener.onPresence).not.toHaveBeenCalled();
+    expect(listener.onTyping).not.toHaveBeenCalled();
+    expect(listener.onMembershipChanged).not.toHaveBeenCalled();
+    expect(listener.onStatus).not.toHaveBeenCalled();
   });
 });

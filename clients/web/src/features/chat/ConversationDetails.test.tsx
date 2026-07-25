@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { Conversation, ConversationMembership, User } from "../../types";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { ConversationDetails } from "./ConversationDetails";
 
 const conversation: Conversation = {
@@ -10,6 +14,7 @@ const conversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "General",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "tenant",
   latest_sequence: 4,
@@ -45,12 +50,12 @@ describe("ConversationDetails confirmations", () => {
     const api = apiFor(members);
     render(<ConversationDetails api={api as unknown as ApiClient} conversation={conversation} currentUserId={currentUser.id} users={[currentUser, teammate]} onClose={vi.fn()} onLeft={vi.fn()} onUpdated={vi.fn()} />);
 
-    const remove = await screen.findByRole("button", { name: "Remove" });
+    const remove = await screen.findByRole("button", { name: "Remove Grace" });
     await user.click(remove);
     expect(screen.getByRole("alertdialog", { name: "Remove Grace?" })).toBeVisible();
     expect(screen.queryByRole("dialog", { name: "General" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    const restoredRemove = await screen.findByRole("button", { name: "Remove" });
+    const restoredRemove = await screen.findByRole("button", { name: "Remove Grace" });
     await waitFor(() => expect(restoredRemove).toHaveFocus());
     expect(api.removeConversationMember).not.toHaveBeenCalled();
 
@@ -110,5 +115,86 @@ describe("ConversationDetails confirmations", () => {
 
     expect(await screen.findByText("Temporary guest")).toBeVisible();
     expect(screen.getByText("Guest", { selector: ".role-chip" })).toBeVisible();
+  });
+
+  it("uses unique visible identifiers while member actions retain internal user ids", async () => {
+    const userActions = userEvent.setup();
+    const firstJordan: User = {
+      ...teammate,
+      id: "jordan-first",
+      display_name: "Jordan"
+    };
+    const secondJordan: User = {
+      ...teammate,
+      id: "jordan-second",
+      display_name: "JORDAN"
+    };
+    const availableJordan: User = {
+      ...teammate,
+      id: "jordan-available",
+      display_name: "Jordan"
+    };
+    const duplicateNames = duplicateParticipantNames([
+      firstJordan,
+      secondJordan,
+      availableJordan
+    ]);
+    const firstIdentifier = participantIdentifier(firstJordan, duplicateNames);
+    const secondIdentifier = participantIdentifier(secondJordan, duplicateNames);
+    const availableIdentifier = participantIdentifier(availableJordan, duplicateNames);
+    const members = [
+      membership("member-current", currentUser, "owner", 3),
+      membership("member-first", firstJordan, "member", 7),
+      membership("member-second", secondJordan, "moderator", 9)
+    ];
+    const api = apiFor(members);
+
+    render(
+      <ConversationDetails
+        api={api as unknown as ApiClient}
+        conversation={conversation}
+        currentUserId={currentUser.id}
+        users={[currentUser, firstJordan, secondJordan, availableJordan]}
+        onClose={vi.fn()}
+        onLeft={vi.fn()}
+        onUpdated={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText(firstIdentifier)).toBeVisible();
+    expect(screen.getByText(secondIdentifier)).toBeVisible();
+
+    await userActions.selectOptions(
+      screen.getByRole("combobox", { name: `Role for ${firstIdentifier}` }),
+      "moderator"
+    );
+    await waitFor(() =>
+      expect(api.updateConversationMember).toHaveBeenCalledWith(
+        conversation.id,
+        firstJordan.id,
+        "moderator",
+        7
+      )
+    );
+
+    await userActions.click(
+      screen.getByRole("button", { name: `Remove ${secondIdentifier}` })
+    );
+    expect(
+      screen.getByRole("alertdialog", { name: `Remove ${secondIdentifier}?` })
+    ).toBeVisible();
+    await userActions.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await userActions.selectOptions(
+      await screen.findByRole("combobox", { name: "Add a person" }),
+      availableJordan.id
+    );
+    await waitFor(() =>
+      expect(api.addConversationMember).toHaveBeenCalledWith(
+        conversation.id,
+        availableJordan.id
+      )
+    );
+    expect(screen.getByRole("option", { name: availableIdentifier })).toBeVisible();
   });
 });

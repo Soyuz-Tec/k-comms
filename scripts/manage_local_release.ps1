@@ -7,6 +7,8 @@ param(
     [string]$StateRoot = "",
     [ValidatePattern("^[a-z0-9][a-z0-9_-]*$")]
     [string]$ProjectName = "k-comms-release",
+    [string]$BindAddress = "127.0.0.1",
+    [switch]$AllowPublicNetworkProfile,
     [ValidateRange(1024, 65535)]
     [int]$AppPort = 4188,
     [ValidateRange(1024, 65535)]
@@ -32,6 +34,8 @@ $env:PODMAN_COMPOSE_WARNING_LOGS = "false"
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repositoryRoot "deploy\compose.local-release.yaml"
+$lanForwarderSourceRelativePath = "scripts\lan_release_forwarder.mjs"
+$podmanBindAddress = "127.0.0.1"
 $currentPointerPath = $null
 $stateOwnershipMarkerName = ".k-comms-local-release-state-v1.json"
 $customStateRootRequested = -not [string]::IsNullOrWhiteSpace($StateRoot)
@@ -95,6 +99,114 @@ function Invoke-NativeCommand {
     }
 }
 
+function Get-ComposeInterpolationNames {
+    param([Parameter(Mandatory)][string]$ComposePath)
+
+    if (-not (Test-Path -LiteralPath $ComposePath -PathType Leaf)) {
+        throw "Compose source is missing: $ComposePath"
+    }
+    $names = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    $source = Get-Content -LiteralPath $ComposePath -Raw
+    foreach ($match in [Regex]::Matches(
+        $source,
+        '\$\{(?<name>[A-Za-z_][A-Za-z0-9_]*)[^}]*\}'
+    )) {
+        $null = $names.Add($match.Groups["name"].Value)
+    }
+    return @($names | Sort-Object)
+}
+
+function Invoke-WithSealedComposeEnvironment {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+
+    if (-not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) {
+        throw "Compose environment file is missing: $EnvironmentFile"
+    }
+    $retainedEnvironment = Read-EnvironmentFile -Path $EnvironmentFile
+    $names = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($name in Get-ComposeInterpolationNames -ComposePath $ComposePath) {
+        $null = $names.Add($name)
+    }
+    foreach ($name in $retainedEnvironment.Keys) {
+        if ([string]$name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+            throw "Compose environment contains invalid variable name '$name'"
+        }
+        $null = $names.Add([string]$name)
+    }
+    $null = $names.Add("K_COMMS_PODMAN_BIND_ADDRESS")
+
+    $processEnvironment = [Environment]::GetEnvironmentVariables(
+        [EnvironmentVariableTarget]::Process
+    )
+    $processEnvironmentNames =
+        [Collections.Generic.Dictionary[string, string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($existingName in $processEnvironment.Keys) {
+        $processEnvironmentNames[[string]$existingName] =
+            [string]$existingName
+    }
+    $snapshot = [ordered]@{}
+    foreach ($name in $names) {
+        $originalName =
+            if ($processEnvironmentNames.ContainsKey($name)) {
+                [string]$processEnvironmentNames[$name]
+            }
+            else {
+                [string]$name
+            }
+        $snapshot[$name] = [PSCustomObject]@{
+            Exists = $processEnvironmentNames.ContainsKey($name)
+            Name = $originalName
+            Value = [Environment]::GetEnvironmentVariable(
+                $originalName,
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
+
+    try {
+        foreach ($name in $names) {
+            $value =
+                if ($retainedEnvironment.Contains($name)) {
+                    [string]$retainedEnvironment[$name]
+                }
+                else {
+                    $null
+                }
+            [Environment]::SetEnvironmentVariable(
+                $name,
+                $value,
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+        [Environment]::SetEnvironmentVariable(
+            "K_COMMS_PODMAN_BIND_ADDRESS",
+            $podmanBindAddress,
+            [EnvironmentVariableTarget]::Process
+        )
+        & $Action
+    }
+    finally {
+        foreach ($name in $names) {
+            $prior = $snapshot[$name]
+            [Environment]::SetEnvironmentVariable(
+                $(if ($prior.Exists) { [string]$prior.Name } else { $name }),
+                $(if ($prior.Exists) { [string]$prior.Value } else { $null }),
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
+}
+
 function Invoke-Compose {
     param(
         [Parameter(Mandatory)]
@@ -115,11 +227,16 @@ function Invoke-Compose {
         "-f", $ComposePath
     ) + $Arguments
 
-    Invoke-NativeCommand `
-        -FilePath "podman" `
-        -Arguments $composeArguments `
-        -EchoOutput:$EchoOutput `
-        -AllowFailure:$AllowFailure
+    Invoke-WithSealedComposeEnvironment `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposePath $ComposePath `
+        -Action {
+            Invoke-NativeCommand `
+                -FilePath "podman" `
+                -Arguments $composeArguments `
+                -EchoOutput:$EchoOutput `
+                -AllowFailure:$AllowFailure
+        }
 }
 
 function Assert-LiveKitImageFlags {
@@ -555,6 +672,484 @@ function Get-CurrentReceipt {
     Read-JsonFile -Path $pointer.receiptPath
 }
 
+function Get-ReceiptSchemaVersion {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if ($Receipt -is [Collections.IDictionary]) {
+        if ($Receipt.Contains("schemaVersion")) {
+            return [int]$Receipt["schemaVersion"]
+        }
+        return 1
+    }
+    $schemaVersionProperty = $Receipt.PSObject.Properties["schemaVersion"]
+    if ($schemaVersionProperty) {
+        return [int]$schemaVersionProperty.Value
+    }
+    return 1
+}
+
+function Get-ReceiptPodmanBindAddress {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $value = Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "podmanBindAddress" `
+        -DefaultValue $podmanBindAddress
+    if ([string]::IsNullOrWhiteSpace([string]$value)) {
+        return $podmanBindAddress
+    }
+    return [string]$value
+}
+
+function Test-ReceiptRequiresLanForwarder {
+    param([Parameter(Mandatory)]$Receipt)
+
+    (Get-ReceiptBindAddress -Receipt $Receipt) -cne $podmanBindAddress
+}
+
+function Test-Rfc1918IPv4 {
+    param([Parameter(Mandatory)][Net.IPAddress]$Address)
+
+    if ($Address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+        return $false
+    }
+    $octets = $Address.GetAddressBytes()
+    return (
+        $octets[0] -eq 10 -or
+        ($octets[0] -eq 172 -and $octets[1] -ge 16 -and $octets[1] -le 31) -or
+        ($octets[0] -eq 192 -and $octets[1] -eq 168)
+    )
+}
+
+function Test-IPv4AssignedLocally {
+    param([Parameter(Mandatory)][Net.IPAddress]$Address)
+
+    foreach ($networkInterface in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($networkInterface.OperationalStatus -ne [Net.NetworkInformation.OperationalStatus]::Up) {
+            continue
+        }
+        foreach ($unicast in $networkInterface.GetIPProperties().UnicastAddresses) {
+            if (
+                $unicast.Address.AddressFamily -eq
+                    [Net.Sockets.AddressFamily]::InterNetwork -and
+                $unicast.Address.Equals($Address)
+            ) {
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
+function Test-PreferredReleaseIPAddressRecord {
+    param(
+        [Parameter(Mandatory)]$AddressRecord,
+        [Parameter(Mandatory)][string]$ExpectedAddress
+    )
+
+    return (
+        [string]$AddressRecord.IPAddress -ceq $ExpectedAddress -and
+        [string]$AddressRecord.AddressState -ceq "Preferred"
+    )
+}
+
+function Resolve-ReleaseBindAddress {
+    param([Parameter(Mandatory)][string]$Value)
+
+    $parsed = $null
+    if (
+        [string]::IsNullOrWhiteSpace($Value) -or
+        -not [Net.IPAddress]::TryParse($Value, [ref]$parsed) -or
+        $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork
+    ) {
+        throw "BindAddress must be an explicit IPv4 address"
+    }
+
+    $canonical = $parsed.ToString()
+    if ($Value -cne $canonical) {
+        throw "BindAddress must use the canonical dotted-decimal IPv4 form"
+    }
+    if ($canonical -eq "0.0.0.0") {
+        throw "BindAddress must never be the wildcard address 0.0.0.0"
+    }
+    if ([Net.IPAddress]::IsLoopback($parsed)) {
+        if ($canonical -cne "127.0.0.1") {
+            throw "BindAddress loopback mode requires the canonical address 127.0.0.1"
+        }
+        return "127.0.0.1"
+    }
+    if (-not (Test-Rfc1918IPv4 -Address $parsed)) {
+        throw "BindAddress must be loopback or an RFC1918 private IPv4 address"
+    }
+    if (-not (Test-IPv4AssignedLocally -Address $parsed)) {
+        throw "BindAddress $canonical is not assigned to an active local network interface"
+    }
+    return $canonical
+}
+
+function Assert-ReleaseNetworkCategory {
+    param(
+        [Parameter(Mandatory)][string]$NetworkCategory,
+        [switch]$AllowPublicNetworkProfile
+    )
+
+    if ($NetworkCategory -ceq "Private") {
+        return $false
+    }
+    if (-not $AllowPublicNetworkProfile) {
+        throw (
+            "BindAddress is attached to the non-Private Windows network profile " +
+            "'$NetworkCategory'. Re-run with -AllowPublicNetworkProfile only after " +
+            "explicitly accepting the LAN exposure risk."
+        )
+    }
+    return $true
+}
+
+function Resolve-ReleaseNetworkObservation {
+    param(
+        [Parameter(Mandatory)][string]$Value,
+        [switch]$AllowPublicNetworkProfile
+    )
+
+    $resolvedBindAddress = Resolve-ReleaseBindAddress -Value $Value
+    if ($resolvedBindAddress -ceq "127.0.0.1") {
+        if ($AllowPublicNetworkProfile) {
+            throw (
+                "-AllowPublicNetworkProfile is valid only with a non-loopback " +
+                "RFC1918 BindAddress"
+            )
+        }
+        return [PSCustomObject]@{
+            BindAddress = $resolvedBindAddress
+            InterfaceIndex = 0
+            InterfaceAlias = "Loopback"
+            NetworkName = "Loopback"
+            NetworkCategory = "Loopback"
+            AllowPublicNetworkProfile = $false
+            PublicNetworkProfileOverrideUsed = $false
+        }
+    }
+
+    $addresses = @(
+        Get-NetIPAddress `
+            -AddressFamily IPv4 `
+            -IPAddress $resolvedBindAddress `
+            -ErrorAction Stop |
+            Where-Object {
+                Test-PreferredReleaseIPAddressRecord `
+                    -AddressRecord $_ `
+                    -ExpectedAddress $resolvedBindAddress
+            }
+    )
+    if ($addresses.Count -ne 1) {
+        throw (
+            "BindAddress $resolvedBindAddress must be reported as Preferred on " +
+            "exactly one Windows network interface"
+        )
+    }
+    $address = $addresses[0]
+    $profiles = @(
+        Get-NetConnectionProfile `
+            -InterfaceIndex $address.InterfaceIndex `
+            -ErrorAction Stop
+    )
+    if ($profiles.Count -ne 1) {
+        throw (
+            "BindAddress $resolvedBindAddress must have exactly one observable " +
+            "Windows network profile"
+        )
+    }
+    $profile = $profiles[0]
+    $category = [string]$profile.NetworkCategory
+    if (
+        $category -cne "Private" -and
+        $category -cne "Public" -and
+        $category -cne "DomainAuthenticated"
+    ) {
+        throw (
+            "BindAddress $resolvedBindAddress has unsupported Windows network " +
+            "profile category '$category'"
+        )
+    }
+    $overrideUsed = Assert-ReleaseNetworkCategory `
+        -NetworkCategory $category `
+        -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+
+    [PSCustomObject]@{
+        BindAddress = $resolvedBindAddress
+        InterfaceIndex = [int]$address.InterfaceIndex
+        InterfaceAlias = [string]$address.InterfaceAlias
+        NetworkName = [string]$profile.Name
+        NetworkCategory = $category
+        AllowPublicNetworkProfile = [bool]$AllowPublicNetworkProfile
+        PublicNetworkProfileOverrideUsed = [bool]$overrideUsed
+    }
+}
+
+function Assert-ReleaseNetworkObservationMatches {
+    param(
+        [Parameter(Mandatory)]$Expected,
+        [Parameter(Mandatory)]$Observed,
+        [Parameter(Mandatory)][string]$Context
+    )
+
+    foreach ($comparison in @(
+        @("bindAddress", [string]$Expected.BindAddress, [string]$Observed.BindAddress),
+        @("interfaceIndex", [int]$Expected.InterfaceIndex, [int]$Observed.InterfaceIndex),
+        @("interfaceAlias", [string]$Expected.InterfaceAlias, [string]$Observed.InterfaceAlias),
+        @("networkName", [string]$Expected.NetworkName, [string]$Observed.NetworkName),
+        @("networkCategory", [string]$Expected.NetworkCategory, [string]$Observed.NetworkCategory),
+        @(
+            "publicNetworkProfileOverrideUsed",
+            [bool]$Expected.PublicNetworkProfileOverrideUsed,
+            [bool]$Observed.PublicNetworkProfileOverrideUsed
+        )
+    )) {
+        if ($comparison[1] -cne $comparison[2]) {
+            throw (
+                "$Context $($comparison[0]) no longer matches the observed interface"
+            )
+        }
+    }
+}
+
+function Assert-ReleaseNetworkObservationCurrent {
+    param([Parameter(Mandatory)]$Expected)
+
+    $current = Resolve-ReleaseNetworkObservation `
+        -Value $Expected.BindAddress `
+        -AllowPublicNetworkProfile:$Expected.AllowPublicNetworkProfile
+    Assert-ReleaseNetworkObservationMatches `
+        -Expected $Expected `
+        -Observed $current `
+        -Context "Selected release network profile"
+    return $current
+}
+
+function Get-ReceiptNetworkProperty {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [Parameter(Mandatory)][string]$Name,
+        $DefaultValue = $null
+    )
+
+    $network =
+        if ($Receipt -is [Collections.IDictionary]) {
+            if ($Receipt.Contains("network")) {
+                $Receipt["network"]
+            }
+            else {
+                $null
+            }
+        }
+        else {
+            $networkProperty = $Receipt.PSObject.Properties["network"]
+            if ($networkProperty) {
+                $networkProperty.Value
+            }
+            else {
+                $null
+            }
+        }
+    if (-not $network) {
+        return $DefaultValue
+    }
+    if ($network -is [Collections.IDictionary]) {
+        if ($network.Contains($Name)) {
+            return $network[$Name]
+        }
+        return $DefaultValue
+    }
+    $property = $network.PSObject.Properties[$Name]
+    if (-not $property) {
+        return $DefaultValue
+    }
+    return $property.Value
+}
+
+function Get-ReceiptBindAddress {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $value = Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "bindAddress" `
+        -DefaultValue "127.0.0.1"
+    if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+        return [string]$value
+    }
+    return "127.0.0.1"
+}
+
+function Get-ReceiptPublicHost {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $value = Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "publicHost"
+    if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+        return [string]$value
+    }
+    return (Get-ReceiptBindAddress -Receipt $Receipt)
+}
+
+function Get-ReceiptPublicAppUrl {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if ($Receipt -is [Collections.IDictionary]) {
+        if (
+            $Receipt.Contains("publicAppUrl") -and
+            -not [string]::IsNullOrWhiteSpace([string]$Receipt["publicAppUrl"])
+        ) {
+            return [string]$Receipt["publicAppUrl"]
+        }
+    }
+    else {
+        $topLevelProperty = $Receipt.PSObject.Properties["publicAppUrl"]
+        if (
+            $topLevelProperty -and
+            -not [string]::IsNullOrWhiteSpace([string]$topLevelProperty.Value)
+        ) {
+            return [string]$topLevelProperty.Value
+        }
+    }
+    $value = Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "publicAppUrl"
+    if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+        return [string]$value
+    }
+    $publicHost = Get-ReceiptPublicHost -Receipt $Receipt
+    return "http://$publicHost`:$($Receipt.ports.app)"
+}
+
+function Get-ReceiptNetworkProfileRecord {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $bindAddress = Get-ReceiptBindAddress -Receipt $Receipt
+    $isLoopback = $bindAddress -ceq "127.0.0.1"
+    [PSCustomObject]@{
+        BindAddress = $bindAddress
+        InterfaceIndex = [int](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "interfaceIndex" `
+            -DefaultValue $(if ($isLoopback) { 0 } else { -1 }))
+        InterfaceAlias = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "interfaceAlias" `
+            -DefaultValue $(if ($isLoopback) { "Loopback" } else { "" }))
+        NetworkName = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "networkName" `
+            -DefaultValue $(if ($isLoopback) { "Loopback" } else { "" }))
+        NetworkCategory = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "networkCategory" `
+            -DefaultValue $(if ($isLoopback) { "Loopback" } else { "" }))
+        AllowPublicNetworkProfile = [bool](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "allowPublicNetworkProfile" `
+            -DefaultValue $false)
+        PublicNetworkProfileOverrideUsed = [bool](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "publicNetworkProfileOverrideUsed" `
+            -DefaultValue $false)
+    }
+}
+
+function New-ReceiptNetworkRecord {
+    param(
+        [Parameter(Mandatory)]$Observation,
+        [Parameter(Mandatory)][string]$PublicAppUrl
+    )
+
+    [ordered]@{
+        bindAddress = $Observation.BindAddress
+        podmanBindAddress = $podmanBindAddress
+        publicHost = $Observation.BindAddress
+        publicAppUrl = $PublicAppUrl
+        exposureMode =
+            if ($Observation.BindAddress -ceq $podmanBindAddress) {
+                "loopback"
+            }
+            else {
+                "lan-forwarder"
+            }
+        interfaceIndex = $Observation.InterfaceIndex
+        interfaceAlias = $Observation.InterfaceAlias
+        networkName = $Observation.NetworkName
+        networkCategory = $Observation.NetworkCategory
+        allowPublicNetworkProfile = $Observation.AllowPublicNetworkProfile
+        publicNetworkProfileOverrideUsed =
+            $Observation.PublicNetworkProfileOverrideUsed
+    }
+}
+
+function Resolve-ReceiptNetworkTopology {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $schemaVersion = Get-ReceiptSchemaVersion -Receipt $Receipt
+    $recordedBindAddress = Get-ReceiptBindAddress -Receipt $Receipt
+    if ($schemaVersion -lt 5 -and $recordedBindAddress -cne $podmanBindAddress) {
+        throw (
+            "Schema-v3/v4 retained releases are supported only in loopback mode. " +
+            "Deploy a schema-v5 LAN-forwarded release."
+        )
+    }
+    $recordedPodmanBindAddress = Get-ReceiptPodmanBindAddress -Receipt $Receipt
+    if ($recordedPodmanBindAddress -cne $podmanBindAddress) {
+        throw "Retained release Podman bind address must be exactly $podmanBindAddress"
+    }
+    $record = Get-ReceiptNetworkProfileRecord -Receipt $Receipt
+    $observation = Resolve-ReleaseNetworkObservation `
+        -Value $recordedBindAddress `
+        -AllowPublicNetworkProfile:$record.AllowPublicNetworkProfile
+    $resolvedBindAddress = $observation.BindAddress
+    $publicHost = Get-ReceiptPublicHost -Receipt $Receipt
+    if ($publicHost -cne $resolvedBindAddress) {
+        throw "Retained release public host must match its explicit bind address"
+    }
+    $expectedPublicAppUrl = "http://$publicHost`:$($Receipt.ports.app)"
+    $publicAppUrl = Get-ReceiptPublicAppUrl -Receipt $Receipt
+    if ($publicAppUrl -cne $expectedPublicAppUrl) {
+        throw "Retained release public application URL does not match its recorded topology"
+    }
+    if ($schemaVersion -ge 5) {
+        $expectedExposureMode =
+            if ($resolvedBindAddress -ceq $podmanBindAddress) {
+                "loopback"
+            }
+            else {
+                "lan-forwarder"
+            }
+        $recordedExposureMode = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "exposureMode")
+        if ($recordedExposureMode -cne $expectedExposureMode) {
+            throw "Retained release exposure mode does not match its recorded topology"
+        }
+    }
+    if ($resolvedBindAddress -cne "127.0.0.1") {
+        Assert-ReleaseNetworkObservationMatches `
+            -Expected $record `
+            -Observed $observation `
+            -Context "Retained release network profile"
+    }
+    [PSCustomObject]@{
+        BindAddress = $resolvedBindAddress
+        PodmanBindAddress = $recordedPodmanBindAddress
+        PublicHost = $publicHost
+        PublicAppUrl = $publicAppUrl
+        InterfaceIndex = $observation.InterfaceIndex
+        InterfaceAlias = $observation.InterfaceAlias
+        NetworkName = $observation.NetworkName
+        NetworkCategory = $observation.NetworkCategory
+        AllowPublicNetworkProfile = $observation.AllowPublicNetworkProfile
+        PublicNetworkProfileOverrideUsed =
+            $observation.PublicNetworkProfileOverrideUsed
+    }
+}
+
 function New-StableEnvironment {
     [ordered]@{
         POSTGRES_USER = "kcomms"
@@ -621,6 +1216,10 @@ function New-ReleaseEnvironment {
     $values["K_COMMS_RELEASE_IMAGE"] = $ImageReference
     $values["K_COMMS_RELEASE_REVISION"] = $Revision
     $values["K_COMMS_RELEASE_VERSION"] = "sha-$Revision"
+    $values["K_COMMS_PODMAN_BIND_ADDRESS"] = $podmanBindAddress
+    $values["K_COMMS_RELEASE_HOST"] = $BindAddress
+    $values["K_COMMS_LOCAL_RELEASE_HOST"] =
+        if ($BindAddress -eq "127.0.0.1") { "" } else { $BindAddress }
     $values["K_COMMS_RELEASE_APP_PORT"] = "$AppPort"
     $values["K_COMMS_RELEASE_MINIO_PORT"] = "$MinioPort"
     $values["K_COMMS_RELEASE_MINIO_CONSOLE_PORT"] = "$MinioConsolePort"
@@ -630,17 +1229,22 @@ function New-ReleaseEnvironment {
     $values["POSTGRES_DB"] = "k_comms_release"
     $values["DATABASE_URL"] =
         "ecto://$($Stable.POSTGRES_USER):$($Stable.POSTGRES_PASSWORD)@postgres:5432/k_comms_release"
-    $values["PHX_HOST"] = "127.0.0.1"
-    $values["PUBLIC_APP_URL"] = "http://127.0.0.1:$AppPort"
-    $values["CORS_ORIGINS"] =
-        "http://127.0.0.1:$AppPort,http://localhost:$AppPort"
-    $values["LIVEKIT_SERVER_URL"] = "ws://127.0.0.1:$LiveKitSignalPort"
-    $values["S3_PUBLIC_ENDPOINT"] = "http://127.0.0.1:$MinioPort"
-    $values["MINIO_API_CORS_ALLOW_ORIGIN"] =
-        "http://127.0.0.1:$AppPort,http://localhost:$AppPort"
+    $values["PHX_HOST"] = $BindAddress
+    $values["PUBLIC_APP_URL"] = "http://$BindAddress`:$AppPort"
+    $browserOrigins =
+        if ($BindAddress -eq "127.0.0.1") {
+            "http://127.0.0.1:$AppPort,http://localhost:$AppPort"
+        }
+        else {
+            "http://$BindAddress`:$AppPort"
+        }
+    $values["CORS_ORIGINS"] = $browserOrigins
+    $values["LIVEKIT_SERVER_URL"] = "ws://$BindAddress`:$LiveKitSignalPort"
+    $values["S3_PUBLIC_ENDPOINT"] = "http://$BindAddress`:$MinioPort"
+    $values["MINIO_API_CORS_ALLOW_ORIGIN"] = $browserOrigins
     $values["CSP_CONNECT_SOURCES"] =
-        "'self' http://127.0.0.1:$AppPort ws://127.0.0.1:$AppPort " +
-        "ws://127.0.0.1:$LiveKitSignalPort http://127.0.0.1:$MinioPort"
+        "'self' http://$BindAddress`:$AppPort ws://$BindAddress`:$AppPort " +
+        "ws://$BindAddress`:$LiveKitSignalPort http://$BindAddress`:$MinioPort"
     $values["S3_BUCKET"] = "k-comms-release"
     $values["ALLOW_BOOTSTRAP"] = "true"
     $values["INSTANT_ROOMS_ENABLED"] = "true"
@@ -656,6 +1260,52 @@ function New-ReleaseEnvironment {
     $values["BOOTSTRAP_OWNER_DISPLAY_NAME"] = "Instant Room Owner"
     $values["BOOTSTRAP_OWNER_EMAIL"] = "instant-room-owner@k-comms.local"
     $values
+}
+
+function Assert-ReleaseEnvironmentTopology {
+    param(
+        [Parameter(Mandatory)][Collections.IDictionary]$Values,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress
+    )
+
+    $appOrigin = "http://$ExpectedBindAddress`:$AppPort"
+    $expectedRuntimeHost =
+        if ($ExpectedBindAddress -eq "127.0.0.1") {
+            ""
+        }
+        else {
+            $ExpectedBindAddress
+        }
+    $expectedBrowserOrigins =
+        if ($ExpectedBindAddress -eq "127.0.0.1") {
+            "$appOrigin,http://localhost:$AppPort"
+        }
+        else {
+            $appOrigin
+        }
+    $expectedValues = [ordered]@{
+        K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+        K_COMMS_RELEASE_HOST = $ExpectedBindAddress
+        K_COMMS_LOCAL_RELEASE_HOST = $expectedRuntimeHost
+        PHX_HOST = $ExpectedBindAddress
+        PUBLIC_APP_URL = $appOrigin
+        CORS_ORIGINS = $expectedBrowserOrigins
+        LIVEKIT_SERVER_URL = "ws://$ExpectedBindAddress`:$LiveKitSignalPort"
+        S3_PUBLIC_ENDPOINT = "http://$ExpectedBindAddress`:$MinioPort"
+        MINIO_API_CORS_ALLOW_ORIGIN = $expectedBrowserOrigins
+        CSP_CONNECT_SOURCES =
+            "'self' $appOrigin ws://$ExpectedBindAddress`:$AppPort " +
+            "ws://$ExpectedBindAddress`:$LiveKitSignalPort " +
+            "http://$ExpectedBindAddress`:$MinioPort"
+    }
+    foreach ($entry in $expectedValues.GetEnumerator()) {
+        if (
+            -not $Values.Contains($entry.Key) -or
+            [string]$Values[$entry.Key] -cne [string]$entry.Value
+        ) {
+            throw "Release environment topology is inconsistent for $($entry.Key)"
+        }
+    }
 }
 
 function Assert-RequiredTools {
@@ -972,6 +1622,7 @@ function Wait-HttpEndpoint {
 
 function Wait-Application {
     param(
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
         [Parameter(Mandatory)][int]$ExpectedAppPort,
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitPort,
@@ -979,14 +1630,14 @@ function Wait-Application {
         [switch]$RequireInstantRooms
     )
 
-    $baseUri = "http://127.0.0.1:$ExpectedAppPort"
+    $baseUri = "http://$ExpectedBindAddress`:$ExpectedAppPort"
     Wait-HttpEndpoint -Uri "$baseUri/health/ready" -Description "K-Comms readiness"
     Wait-HttpEndpoint -Uri "$baseUri/app/" -Description "packaged K-Comms web client"
     Wait-HttpEndpoint `
-        -Uri "http://127.0.0.1:$ExpectedMinioPort/minio/health/ready" `
+        -Uri "http://$ExpectedBindAddress`:$ExpectedMinioPort/minio/health/ready" `
         -Description "MinIO"
     Wait-HttpEndpoint `
-        -Uri "http://127.0.0.1:$ExpectedLiveKitPort/" `
+        -Uri "http://$ExpectedBindAddress`:$ExpectedLiveKitPort/" `
         -Description "LiveKit"
 
     $status = Invoke-RestMethod -Uri "$baseUri/api/v1/status" -TimeoutSec 10
@@ -1032,6 +1683,7 @@ function Ensure-InstantRoomTenant {
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposeProject,
         [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
         [Parameter(Mandatory)][int]$ExpectedAppPort,
         [Parameter(Mandatory)][Collections.IDictionary]$ReleaseEnvironment
     )
@@ -1073,7 +1725,7 @@ function Ensure-InstantRoomTenant {
     try {
         $null = Invoke-RestMethod `
             -Method Post `
-            -Uri "http://127.0.0.1:$ExpectedAppPort/api/v1/bootstrap" `
+            -Uri "http://$ExpectedBindAddress`:$ExpectedAppPort/api/v1/bootstrap" `
             -ContentType "application/json" `
             -Body $payload `
             -TimeoutSec 30
@@ -1881,9 +2533,1071 @@ function Start-ReleaseServices {
     }
 }
 
+function Get-RequiredForwarderProperty {
+    param(
+        [Parameter(Mandatory)]$Object,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Context
+    )
+
+    if ($Object -is [Collections.IDictionary]) {
+        if (-not $Object.Contains($Name)) {
+            throw "$Context is missing required property '$Name'"
+        }
+        return $Object[$Name]
+    }
+    $property = $Object.PSObject.Properties[$Name]
+    if (-not $property) {
+        throw "$Context is missing required property '$Name'"
+    }
+    return $property.Value
+}
+
+function New-LanForwarderListeners {
+    param(
+        [Parameter(Mandatory)][int]$ExpectedAppPort,
+        [Parameter(Mandatory)][int]$ExpectedMinioPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+    )
+
+    @(
+        [ordered]@{
+            name = "app"
+            protocol = "tcp"
+            publicPort = $ExpectedAppPort
+            targetHost = $podmanBindAddress
+            targetPort = $ExpectedAppPort
+        }
+        [ordered]@{
+            name = "minio"
+            protocol = "tcp"
+            publicPort = $ExpectedMinioPort
+            targetHost = $podmanBindAddress
+            targetPort = $ExpectedMinioPort
+        }
+        [ordered]@{
+            name = "livekitSignal"
+            protocol = "tcp"
+            publicPort = $ExpectedLiveKitSignalPort
+            targetHost = $podmanBindAddress
+            targetPort = $ExpectedLiveKitSignalPort
+        }
+        [ordered]@{
+            name = "livekitTcp"
+            protocol = "tcp"
+            publicPort = $ExpectedLiveKitTcpPort
+            targetHost = $podmanBindAddress
+            targetPort = $ExpectedLiveKitTcpPort
+        }
+        [ordered]@{
+            name = "livekitUdp"
+            protocol = "udp"
+            publicPort = $ExpectedLiveKitUdpPort
+            targetHost = $podmanBindAddress
+            targetPort = $ExpectedLiveKitUdpPort
+        }
+    )
+}
+
+function New-LanForwarderLimits {
+    [ordered]@{
+        maxTcpConnections = 256
+        tcpConnectTimeoutMs = 5000
+        tcpIdleTimeoutMs = 120000
+        tcpShutdownGraceMs = 3000
+        tcpBacklog = 128
+        socketHighWaterMarkBytes = 65536
+        maxUdpMappings = 256
+        udpMappingIdleTimeoutMs = 60000
+        maxUdpPendingDatagramsPerMapping = 32
+        maxUdpPendingPublicDatagrams = 1024
+    }
+}
+
+function Assert-ForwarderValue {
+    param(
+        [Parameter(Mandatory)]$Object,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)]$Expected,
+        [Parameter(Mandatory)][string]$Context
+    )
+
+    $actual = Get-RequiredForwarderProperty `
+        -Object $Object `
+        -Name $Name `
+        -Context $Context
+    if ([string]$actual -cne [string]$Expected) {
+        throw (
+            "$Context property '$Name' does not match the sealed release; " +
+            "expected '$Expected', observed '$actual'"
+        )
+    }
+}
+
+function Assert-LanForwarderListeners {
+    param(
+        [Parameter(Mandatory)]$Actual,
+        [Parameter(Mandatory)]$Expected,
+        [Parameter(Mandatory)][string]$Context
+    )
+
+    $actualListeners = @($Actual)
+    $expectedListeners = @($Expected)
+    if ($actualListeners.Count -ne $expectedListeners.Count) {
+        throw (
+            "$Context must contain exactly $($expectedListeners.Count) listeners; " +
+            "observed $($actualListeners.Count)"
+        )
+    }
+    for ($index = 0; $index -lt $expectedListeners.Count; $index++) {
+        foreach ($propertyName in @(
+            "name",
+            "protocol",
+            "publicPort",
+            "targetHost",
+            "targetPort"
+        )) {
+            Assert-ForwarderValue `
+                -Object $actualListeners[$index] `
+                -Name $propertyName `
+                -Expected (
+                    Get-RequiredForwarderProperty `
+                        -Object $expectedListeners[$index] `
+                        -Name $propertyName `
+                        -Context "expected LAN forwarder listener"
+                ) `
+                -Context "$Context listener $index"
+        }
+    }
+}
+
+function Assert-PathEquals {
+    param(
+        [Parameter(Mandatory)][string]$Actual,
+        [Parameter(Mandatory)][string]$Expected,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    $actualFullPath = [IO.Path]::GetFullPath($Actual)
+    $expectedFullPath = [IO.Path]::GetFullPath($Expected)
+    if (-not $actualFullPath.Equals(
+        $expectedFullPath,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "$Description must be $expectedFullPath"
+    }
+}
+
+function New-LanForwarderReceiptRecord {
+    param(
+        [Parameter(Mandatory)][string]$ImmutableSourceRoot,
+        [Parameter(Mandatory)][string]$CandidateDirectory,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
+        [Parameter(Mandatory)][int]$ExpectedAppPort,
+        [Parameter(Mandatory)][int]$ExpectedMinioPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+    )
+
+    $sourcePath = Join-Path `
+        $ImmutableSourceRoot `
+        ($lanForwarderSourceRelativePath.Replace("/", "\"))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Immutable LAN forwarder source is missing: $sourcePath"
+    }
+    $nodeCommand = Get-Command node -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
+    $nodeExecutablePath = [IO.Path]::GetFullPath($nodeCommand.Source)
+    $scriptPath = Join-Path $CandidateDirectory "lan_release_forwarder.mjs"
+    $configPath = Join-Path $CandidateDirectory "lan_release_forwarder.config.json"
+    $statusPath = Join-Path $CandidateDirectory "lan_release_forwarder.ready.json"
+    $stdoutLogPath = Join-Path $CandidateDirectory "lan_release_forwarder.stdout.log"
+    $stderrLogPath = Join-Path $CandidateDirectory "lan_release_forwarder.stderr.log"
+    [IO.File]::Copy($sourcePath, $scriptPath, $false)
+    $sourceSha256 =
+        (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $scriptSha256 =
+        (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sourceSha256 -cne $scriptSha256) {
+        throw "Copied LAN forwarder does not match its immutable source"
+    }
+
+    $listeners = New-LanForwarderListeners `
+        -ExpectedAppPort $ExpectedAppPort `
+        -ExpectedMinioPort $ExpectedMinioPort `
+        -ExpectedLiveKitSignalPort $ExpectedLiveKitSignalPort `
+        -ExpectedLiveKitTcpPort $ExpectedLiveKitTcpPort `
+        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort
+    $readinessToken = New-UrlSafeSecret 32
+    $configuration = [ordered]@{
+        schemaVersion = 1
+        bindAddress = $ExpectedBindAddress
+        readinessToken = $readinessToken
+        readyFile = $statusPath
+        listeners = $listeners
+        limits = New-LanForwarderLimits
+    }
+    Write-JsonAtomic -Path $configPath -Value $configuration
+    $configSha256 =
+        (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    [ordered]@{
+        required = $true
+        kind = "node-lan-forwarder-v1"
+        nodeExecutablePath = $nodeExecutablePath
+        sourceRelativePath = $lanForwarderSourceRelativePath
+        sourceSha256 = $sourceSha256
+        scriptPath = $scriptPath
+        scriptSha256 = $scriptSha256
+        configPath = $configPath
+        configSha256 = $configSha256
+        statusPath = $statusPath
+        stdoutLogPath = $stdoutLogPath
+        stderrLogPath = $stderrLogPath
+        readinessToken = $readinessToken
+        listeners = $listeners
+    }
+}
+
+function Assert-LanForwarderRecordAssets {
+    param(
+        [Parameter(Mandatory)]$Forwarder,
+        [Parameter(Mandatory)][string]$CandidateDirectory,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
+        [Parameter(Mandatory)][int]$ExpectedAppPort,
+        [Parameter(Mandatory)][int]$ExpectedMinioPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+    )
+
+    Assert-ForwarderValue `
+        -Object $Forwarder `
+        -Name "required" `
+        -Expected $true `
+        -Context "LAN forwarder receipt"
+    Assert-ForwarderValue `
+        -Object $Forwarder `
+        -Name "kind" `
+        -Expected "node-lan-forwarder-v1" `
+        -Context "LAN forwarder receipt"
+    Assert-ForwarderValue `
+        -Object $Forwarder `
+        -Name "sourceRelativePath" `
+        -Expected $lanForwarderSourceRelativePath `
+        -Context "LAN forwarder receipt"
+
+    $expectedPaths = [ordered]@{
+        scriptPath = Join-Path $CandidateDirectory "lan_release_forwarder.mjs"
+        configPath = Join-Path $CandidateDirectory "lan_release_forwarder.config.json"
+        statusPath = Join-Path $CandidateDirectory "lan_release_forwarder.ready.json"
+        stdoutLogPath = Join-Path $CandidateDirectory "lan_release_forwarder.stdout.log"
+        stderrLogPath = Join-Path $CandidateDirectory "lan_release_forwarder.stderr.log"
+    }
+    foreach ($entry in $expectedPaths.GetEnumerator()) {
+        $path = [string](Get-RequiredForwarderProperty `
+            -Object $Forwarder `
+            -Name $entry.Key `
+            -Context "LAN forwarder receipt")
+        Assert-PathEquals `
+            -Actual $path `
+            -Expected $entry.Value `
+            -Description "LAN forwarder $($entry.Key)"
+    }
+
+    $scriptPath = [string]$Forwarder.scriptPath
+    $configPath = [string]$Forwarder.configPath
+    $nodeExecutablePath = [string](Get-RequiredForwarderProperty `
+        -Object $Forwarder `
+        -Name "nodeExecutablePath" `
+        -Context "LAN forwarder receipt")
+    foreach ($asset in @(
+        @("Node executable", $nodeExecutablePath),
+        @("script", $scriptPath),
+        @("configuration", $configPath)
+    )) {
+        if (-not (Test-Path -LiteralPath $asset[1] -PathType Leaf)) {
+            throw "LAN forwarder $($asset[0]) is missing: $($asset[1])"
+        }
+    }
+
+    $scriptSha256 =
+        (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    foreach ($hashProperty in @("sourceSha256", "scriptSha256")) {
+        Assert-ForwarderValue `
+            -Object $Forwarder `
+            -Name $hashProperty `
+            -Expected $scriptSha256 `
+            -Context "LAN forwarder receipt"
+    }
+    $configSha256 =
+        (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Assert-ForwarderValue `
+        -Object $Forwarder `
+        -Name "configSha256" `
+        -Expected $configSha256 `
+        -Context "LAN forwarder receipt"
+
+    $config = Read-JsonFile -Path $configPath
+    Assert-ForwarderValue `
+        -Object $config `
+        -Name "schemaVersion" `
+        -Expected 1 `
+        -Context "LAN forwarder configuration"
+    Assert-ForwarderValue `
+        -Object $config `
+        -Name "bindAddress" `
+        -Expected $ExpectedBindAddress `
+        -Context "LAN forwarder configuration"
+    Assert-ForwarderValue `
+        -Object $config `
+        -Name "readinessToken" `
+        -Expected $Forwarder.readinessToken `
+        -Context "LAN forwarder configuration"
+    Assert-PathEquals `
+        -Actual ([string]$config.readyFile) `
+        -Expected ([string]$Forwarder.statusPath) `
+        -Description "LAN forwarder configuration readyFile"
+
+    $expectedListeners = New-LanForwarderListeners `
+        -ExpectedAppPort $ExpectedAppPort `
+        -ExpectedMinioPort $ExpectedMinioPort `
+        -ExpectedLiveKitSignalPort $ExpectedLiveKitSignalPort `
+        -ExpectedLiveKitTcpPort $ExpectedLiveKitTcpPort `
+        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort
+    Assert-LanForwarderListeners `
+        -Actual $config.listeners `
+        -Expected $expectedListeners `
+        -Context "LAN forwarder configuration"
+    Assert-LanForwarderListeners `
+        -Actual $Forwarder.listeners `
+        -Expected $expectedListeners `
+        -Context "LAN forwarder receipt"
+    $expectedLimits = New-LanForwarderLimits
+    foreach ($entry in $expectedLimits.GetEnumerator()) {
+        Assert-ForwarderValue `
+            -Object $config.limits `
+            -Name $entry.Key `
+            -Expected $entry.Value `
+            -Context "LAN forwarder configuration limits"
+    }
+}
+
+function Get-ReceiptForwarder {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if ($Receipt -is [Collections.IDictionary]) {
+        if ($Receipt.Contains("forwarder")) {
+            return $Receipt["forwarder"]
+        }
+        return $null
+    }
+    $property = $Receipt.PSObject.Properties["forwarder"]
+    if (-not $property) {
+        return $null
+    }
+    return $property.Value
+}
+
+function Assert-LanForwarderAssets {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $schemaVersion = Get-ReceiptSchemaVersion -Receipt $Receipt
+    $requiresForwarder = Test-ReceiptRequiresLanForwarder -Receipt $Receipt
+    if ($schemaVersion -lt 5) {
+        if ($requiresForwarder) {
+            throw "Pre-schema-v5 receipts cannot authorize LAN forwarding"
+        }
+        return
+    }
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    if (-not $forwarder) {
+        throw "Schema-v5 retained release is missing its forwarder record"
+    }
+    if (-not $requiresForwarder) {
+        Assert-ForwarderValue `
+            -Object $forwarder `
+            -Name "required" `
+            -Expected $false `
+            -Context "Loopback forwarder receipt"
+        return
+    }
+
+    Assert-LanForwarderRecordAssets `
+        -Forwarder $forwarder `
+        -CandidateDirectory (Split-Path -Parent ([string]$Receipt.receiptPath)) `
+        -ExpectedBindAddress (Get-ReceiptBindAddress -Receipt $Receipt) `
+        -ExpectedAppPort ([int]$Receipt.ports.app) `
+        -ExpectedMinioPort ([int]$Receipt.ports.minio) `
+        -ExpectedLiveKitSignalPort ([int]$Receipt.ports.livekitSignal) `
+        -ExpectedLiveKitTcpPort ([int]$Receipt.ports.livekitTcp) `
+        -ExpectedLiveKitUdpPort ([int]$Receipt.ports.livekitUdp)
+}
+
+function Get-ExactCommandLineValuePattern {
+    param(
+        [Parameter(Mandatory)][string]$Value
+    )
+
+    $escaped = [Regex]::Escape($Value)
+    if ($Value -match "\s") {
+        return "`"$escaped`""
+    }
+    return "(?:`"$escaped`"|$escaped)"
+}
+
+function Test-LanForwarderCommandLine {
+    param(
+        [Parameter(Mandatory)][string]$CommandLine,
+        [Parameter(Mandatory)]$Forwarder
+    )
+
+    $executablePattern =
+        Get-ExactCommandLineValuePattern `
+            -Value ([IO.Path]::GetFullPath(
+                [string]$Forwarder.nodeExecutablePath
+            ))
+    $scriptPattern =
+        Get-ExactCommandLineValuePattern `
+            -Value ([IO.Path]::GetFullPath([string]$Forwarder.scriptPath))
+    $configPattern =
+        Get-ExactCommandLineValuePattern `
+            -Value ([IO.Path]::GetFullPath([string]$Forwarder.configPath))
+    $pattern = (
+        "^\s*" +
+        $executablePattern +
+        "\s+" +
+        $scriptPattern +
+        "\s+--config(?:\s+|=)" +
+        $configPattern +
+        "\s*$"
+    )
+    return [Regex]::IsMatch(
+        $CommandLine,
+        $pattern,
+        (
+            [Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )
+    )
+}
+
+function Get-LanForwarderObservation {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    if (-not (Test-ReceiptRequiresLanForwarder -Receipt $Receipt)) {
+        return [PSCustomObject]@{
+            Required = $false
+            Status = "not-required"
+            ProcessId = 0
+            ProcessStartTimeUtc = ""
+            ProcessFound = $false
+            ProcessMatchesReceipt = $true
+            ConfigHashMatchesReceipt = $true
+            ListenersMatchReceipt = $true
+            Detail = "loopback release"
+        }
+    }
+
+    $configurationHashMatches = $false
+    try {
+        $configurationHashMatches =
+            (Get-FileHash `
+                -LiteralPath ([string]$forwarder.configPath) `
+                -Algorithm SHA256).Hash.ToLowerInvariant() -ceq
+                    [string]$forwarder.configSha256
+    }
+    catch {
+        $configurationHashMatches = $false
+    }
+    if (-not (Test-Path -LiteralPath $forwarder.statusPath -PathType Leaf)) {
+        return [PSCustomObject]@{
+            Required = $true
+            Status = "not-ready"
+            ProcessId = 0
+            ProcessStartTimeUtc = ""
+            ProcessFound = $false
+            ProcessMatchesReceipt = $false
+            ConfigHashMatchesReceipt = $configurationHashMatches
+            ListenersMatchReceipt = $false
+            Detail = "readiness evidence is missing"
+        }
+    }
+
+    try {
+        $ready = Read-JsonFile -Path $forwarder.statusPath
+        $pidValue = [int](Get-RequiredForwarderProperty `
+            -Object $ready `
+            -Name "pid" `
+            -Context "LAN forwarder readiness evidence")
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        $processFound = $null -ne $process
+        $identityMatches = $false
+        if ($processFound) {
+            $cimProcess = Get-CimInstance `
+                -ClassName Win32_Process `
+                -Filter "ProcessId = $pidValue" `
+                -ErrorAction Stop
+            $commandLine = [string]$cimProcess.CommandLine
+            $readyProcessStartValue =
+                Get-RequiredForwarderProperty `
+                    -Object $ready `
+                    -Name "processStartTimeUtc" `
+                    -Context "LAN forwarder readiness evidence"
+            $readyProcessStart =
+                if ($readyProcessStartValue -is [DateTime]) {
+                    $readyProcessStartValue.ToUniversalTime()
+                }
+                else {
+                    [DateTimeOffset]::Parse(
+                        [string]$readyProcessStartValue,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::AssumeUniversal
+                    ).UtcDateTime
+                }
+            $actualProcessStart = $process.StartTime.ToUniversalTime()
+            $processStartMatches =
+                [Math]::Abs(
+                    ($readyProcessStart - $actualProcessStart).TotalSeconds
+                ) -le 5 -and
+                $readyProcessStart -le [DateTime]::UtcNow.AddSeconds(1)
+            $identityMatches = (
+                $processStartMatches -and
+                [IO.Path]::GetFullPath([string]$cimProcess.ExecutablePath).Equals(
+                    [IO.Path]::GetFullPath([string]$forwarder.nodeExecutablePath),
+                    [StringComparison]::OrdinalIgnoreCase
+                ) -and
+                (Test-LanForwarderCommandLine `
+                    -CommandLine $commandLine `
+                    -Forwarder $forwarder)
+            )
+        }
+
+        $readyIdentityMatches = (
+            [string]$ready.event -ceq "lan_release_forwarder_ready" -and
+            [int]$ready.schemaVersion -eq 1 -and
+            [string]$ready.bindAddress -ceq
+                (Get-ReceiptBindAddress -Receipt $Receipt) -and
+            [string]$ready.configSha256 -ceq
+                [string]$forwarder.configSha256 -and
+            [string]$ready.readinessToken -ceq
+                [string]$forwarder.readinessToken
+        )
+        $expectedListeners = @($forwarder.listeners)
+        $readyListenersMatch = $true
+        try {
+            Assert-LanForwarderListeners `
+                -Actual $ready.listeners `
+                -Expected $expectedListeners `
+                -Context "LAN forwarder readiness evidence"
+        }
+        catch {
+            $readyListenersMatch = $false
+        }
+
+        $listenerOwnershipMatches = $processFound
+        if ($listenerOwnershipMatches) {
+            foreach ($listener in $expectedListeners) {
+                $endpoint = @(
+                    if ([string]$listener.protocol -ceq "tcp") {
+                        Get-NetTCPConnection `
+                            -State Listen `
+                            -LocalAddress ([string]$ready.bindAddress) `
+                            -LocalPort ([int]$listener.publicPort) `
+                            -ErrorAction SilentlyContinue |
+                        Where-Object { [int]$_.OwningProcess -eq $pidValue }
+                    }
+                    else {
+                        Get-NetUDPEndpoint `
+                            -LocalAddress ([string]$ready.bindAddress) `
+                            -LocalPort ([int]$listener.publicPort) `
+                            -ErrorAction SilentlyContinue |
+                        Where-Object { [int]$_.OwningProcess -eq $pidValue }
+                    }
+                )
+                if ($endpoint.Count -ne 1) {
+                    $listenerOwnershipMatches = $false
+                    break
+                }
+            }
+        }
+
+        $processMatchesReceipt =
+            $processFound -and $identityMatches -and $readyIdentityMatches
+        $listenersMatchReceipt =
+            $readyListenersMatch -and $listenerOwnershipMatches
+        [PSCustomObject]@{
+            Required = $true
+            Status =
+                if (
+                    $processMatchesReceipt -and
+                    $configurationHashMatches -and
+                    $listenersMatchReceipt
+                ) {
+                    "ready"
+                }
+                else {
+                    "not-ready"
+                }
+            ProcessId = $pidValue
+            ProcessStartTimeUtc =
+                if ($processFound) {
+                    $process.StartTime.ToUniversalTime().ToString("o")
+                }
+                else {
+                    ""
+                }
+            ProcessFound = $processFound
+            ProcessMatchesReceipt = $processMatchesReceipt
+            ConfigHashMatchesReceipt = $configurationHashMatches
+            ListenersMatchReceipt = $listenersMatchReceipt
+            Detail =
+                if (
+                    $processMatchesReceipt -and
+                    $configurationHashMatches -and
+                    $listenersMatchReceipt
+                ) {
+                    "verified"
+                }
+                else {
+                    "readiness identity, asset hash, or listener ownership mismatch"
+                }
+        }
+    }
+    catch {
+        [PSCustomObject]@{
+            Required = $true
+            Status = "not-ready"
+            ProcessId = 0
+            ProcessStartTimeUtc = ""
+            ProcessFound = $false
+            ProcessMatchesReceipt = $false
+            ConfigHashMatchesReceipt = $configurationHashMatches
+            ListenersMatchReceipt = $false
+            Detail = $_.Exception.Message
+        }
+    }
+}
+
+function Assert-LanForwarderReady {
+    param([Parameter(Mandatory)]$Receipt)
+
+    Assert-LanForwarderAssets -Receipt $Receipt
+    $observation = Get-LanForwarderObservation -Receipt $Receipt
+    if (
+        $observation.Required -and
+        (
+            $observation.Status -cne "ready" -or
+            -not $observation.ProcessMatchesReceipt -or
+            -not $observation.ConfigHashMatchesReceipt -or
+            -not $observation.ListenersMatchReceipt
+        )
+    ) {
+        throw "LAN forwarder is not ready and receipt-bound: $($observation.Detail)"
+    }
+    return $observation
+}
+
+function Stop-OwnedLanForwarderProcess {
+    param(
+        [Parameter(Mandatory)][Diagnostics.Process]$Process,
+        [Parameter(Mandatory)][DateTime]$ExpectedStartTimeUtc,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    try {
+        $Process.Refresh()
+        if (-not $Process.HasExited) {
+            $observedStartTime = $Process.StartTime.ToUniversalTime()
+            if ($observedStartTime.Ticks -ne $ExpectedStartTimeUtc.ToUniversalTime().Ticks) {
+                throw (
+                    "Refusing to stop $Description because its process start " +
+                    "identity changed"
+                )
+            }
+            $Process.Kill()
+            $null = $Process.WaitForExit(10000)
+            $Process.Refresh()
+            if (-not $Process.HasExited) {
+                throw "$Description did not exit"
+            }
+        }
+    }
+    finally {
+        $Process.Dispose()
+    }
+}
+
+function Get-LanForwarderCommandProcesses {
+    param([Parameter(Mandatory)]$Forwarder)
+
+    $matches = [Collections.Generic.List[object]]::new()
+    $expectedExecutable =
+        [IO.Path]::GetFullPath([string]$Forwarder.nodeExecutablePath)
+    foreach ($candidate in @(
+        Get-CimInstance -ClassName Win32_Process -ErrorAction Stop
+    )) {
+        if (
+            [string]::IsNullOrWhiteSpace([string]$candidate.ExecutablePath) -or
+            [string]::IsNullOrWhiteSpace([string]$candidate.CommandLine)
+        ) {
+            continue
+        }
+        if (-not [IO.Path]::GetFullPath([string]$candidate.ExecutablePath).Equals(
+            $expectedExecutable,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            continue
+        }
+        if (Test-LanForwarderCommandLine `
+            -CommandLine ([string]$candidate.CommandLine) `
+            -Forwarder $Forwarder) {
+            $matches.Add($candidate)
+        }
+    }
+    return @($matches)
+}
+
+function Get-VerifiedLanForwarderCommandProcess {
+    param(
+        [Parameter(Mandatory)]$Forwarder,
+        [Parameter(Mandatory)][int]$ProcessId
+    )
+
+    $freshCimProcess = Get-CimInstance `
+        -ClassName Win32_Process `
+        -Filter "ProcessId = $ProcessId" `
+        -ErrorAction Stop
+    if (-not $freshCimProcess) {
+        throw "LAN forwarder process $ProcessId disappeared during verification"
+    }
+    $expectedExecutable =
+        [IO.Path]::GetFullPath([string]$Forwarder.nodeExecutablePath)
+    if (
+        [string]::IsNullOrWhiteSpace([string]$freshCimProcess.ExecutablePath) -or
+        -not [IO.Path]::GetFullPath(
+            [string]$freshCimProcess.ExecutablePath
+        ).Equals(
+            $expectedExecutable,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        -not (Test-LanForwarderCommandLine `
+            -CommandLine ([string]$freshCimProcess.CommandLine) `
+            -Forwarder $Forwarder)
+    ) {
+        throw "LAN forwarder process $ProcessId command identity changed"
+    }
+
+    $process = Get-Process -Id $ProcessId -ErrorAction Stop
+    $processStartTimeUtc = $process.StartTime.ToUniversalTime()
+    $cimStartTimeUtc =
+        ([DateTime]$freshCimProcess.CreationDate).ToUniversalTime()
+    if (
+        [Math]::Abs(
+            ($processStartTimeUtc - $cimStartTimeUtc).TotalSeconds
+        ) -gt 2
+    ) {
+        $process.Dispose()
+        throw "LAN forwarder process $ProcessId start identity changed"
+    }
+    [PSCustomObject]@{
+        Process = $process
+        StartTimeUtc = $processStartTimeUtc
+    }
+}
+
+function Get-LanForwarderOwnedEndpoints {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [int]$ProcessId = 0
+    )
+
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $bindAddress = Get-ReceiptBindAddress -Receipt $Receipt
+    $endpoints = [Collections.Generic.List[object]]::new()
+    foreach ($listener in @($forwarder.listeners)) {
+        $observed =
+            if ([string]$listener.protocol -ceq "tcp") {
+                @(
+                    Get-NetTCPConnection `
+                        -State Listen `
+                        -LocalAddress $bindAddress `
+                        -LocalPort ([int]$listener.publicPort) `
+                        -ErrorAction SilentlyContinue
+                )
+            }
+            else {
+                @(
+                    Get-NetUDPEndpoint `
+                        -LocalAddress $bindAddress `
+                        -LocalPort ([int]$listener.publicPort) `
+                        -ErrorAction SilentlyContinue
+                )
+            }
+        foreach ($endpoint in $observed) {
+            if ($ProcessId -eq 0 -or [int]$endpoint.OwningProcess -eq $ProcessId) {
+                $endpoints.Add([PSCustomObject]@{
+                    Name = [string]$listener.name
+                    Protocol = [string]$listener.protocol
+                    Port = [int]$listener.publicPort
+                    OwningProcess = [int]$endpoint.OwningProcess
+                })
+            }
+        }
+    }
+    return @($endpoints)
+}
+
+function Assert-LanForwarderPortsReleased {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $remaining = @(Get-LanForwarderOwnedEndpoints -Receipt $Receipt)
+        if ($remaining.Count -eq 0) {
+            return
+        }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            $descriptions = @(
+                $remaining |
+                    ForEach-Object {
+                        "$($_.Protocol):$($_.Port) pid=$($_.OwningProcess)"
+                    }
+            )
+            throw (
+                "LAN forwarder public listeners remain after stop: " +
+                ($descriptions -join ", ")
+            )
+        }
+        Start-Sleep -Milliseconds 200
+    } while ($true)
+}
+
+function Stop-LanForwarder {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [switch]$AllowNotRunning
+    )
+
+    Assert-LanForwarderAssets -Receipt $Receipt
+    if (-not (Test-ReceiptRequiresLanForwarder -Receipt $Receipt)) {
+        return
+    }
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $statusExists =
+        Test-Path -LiteralPath $forwarder.statusPath -PathType Leaf
+    $observation =
+        if ($statusExists) {
+            Get-LanForwarderObservation -Receipt $Receipt
+        }
+        else {
+            $null
+        }
+    $commandProcesses = @(Get-LanForwarderCommandProcesses -Forwarder $forwarder)
+    if ($commandProcesses.Count -gt 1) {
+        throw "Multiple exact-command LAN forwarder processes were found"
+    }
+
+    $receiptBoundProcess = (
+        $observation -and
+        $observation.ProcessFound -and
+        $observation.ProcessMatchesReceipt -and
+        $observation.ConfigHashMatchesReceipt
+    )
+    if ($receiptBoundProcess) {
+        if (
+            $commandProcesses.Count -ne 1 -or
+            [int]$commandProcesses[0].ProcessId -ne
+                [int]$observation.ProcessId
+        ) {
+            throw (
+                "Refusing to stop process $($observation.ProcessId) because " +
+                "fresh exact-command discovery does not match READY evidence"
+            )
+        }
+        $verifiedProcess = Get-VerifiedLanForwarderCommandProcess `
+            -Forwarder $forwarder `
+            -ProcessId $observation.ProcessId
+        $recordedProcessStartTime = [DateTime]::Parse(
+            [string]$observation.ProcessStartTimeUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        ).ToUniversalTime()
+        if (
+            $verifiedProcess.StartTimeUtc.Ticks -ne
+                $recordedProcessStartTime.Ticks
+        ) {
+            $verifiedProcess.Process.Dispose()
+            throw (
+                "Refusing to stop process $($observation.ProcessId) because its " +
+                "start identity changed after readiness verification"
+            )
+        }
+        Stop-OwnedLanForwarderProcess `
+            -Process $verifiedProcess.Process `
+            -ExpectedStartTimeUtc $verifiedProcess.StartTimeUtc `
+            -Description "LAN forwarder process $($observation.ProcessId)"
+    }
+    elseif ($commandProcesses.Count -eq 1) {
+        $exactProcessId = [int]$commandProcesses[0].ProcessId
+        $foreignEndpoints = @(
+            Get-LanForwarderOwnedEndpoints -Receipt $Receipt |
+                Where-Object {
+                    [int]$_.OwningProcess -ne $exactProcessId
+                }
+        )
+        if ($foreignEndpoints.Count -gt 0) {
+            throw (
+                "Refusing to replace stale LAN forwarder readiness because " +
+                "one or more public listener ports are owned by another process"
+            )
+        }
+        $verifiedProcess = Get-VerifiedLanForwarderCommandProcess `
+            -Forwarder $forwarder `
+            -ProcessId $exactProcessId
+        Stop-OwnedLanForwarderProcess `
+            -Process $verifiedProcess.Process `
+            -ExpectedStartTimeUtc $verifiedProcess.StartTimeUtc `
+            -Description (
+                "stale-evidence LAN forwarder process $exactProcessId"
+            )
+    }
+    else {
+        $unownedEndpoints = @(Get-LanForwarderOwnedEndpoints -Receipt $Receipt)
+        if ($unownedEndpoints.Count -gt 0) {
+            throw (
+                "LAN forwarder readiness evidence is missing or stale while " +
+                "public listener ports remain occupied"
+            )
+        }
+        Remove-Item `
+            -LiteralPath $forwarder.statusPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+        if ($AllowNotRunning) {
+            return
+        }
+        if ($statusExists) {
+            throw (
+                "LAN forwarder readiness evidence is stale and no exact-command " +
+                "forwarder process is running"
+            )
+        }
+        throw "LAN forwarder readiness evidence is missing"
+    }
+    Remove-Item `
+        -LiteralPath $forwarder.statusPath `
+        -Force `
+        -ErrorAction SilentlyContinue
+    Assert-LanForwarderPortsReleased -Receipt $Receipt
+}
+
+function Start-LanForwarder {
+    param([Parameter(Mandatory)]$Receipt)
+
+    Assert-LanForwarderAssets -Receipt $Receipt
+    if (-not (Test-ReceiptRequiresLanForwarder -Receipt $Receipt)) {
+        return (Get-LanForwarderObservation -Receipt $Receipt)
+    }
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    Stop-LanForwarder -Receipt $Receipt -AllowNotRunning
+    foreach ($path in @(
+        [string]$forwarder.statusPath,
+        [string]$forwarder.stdoutLogPath,
+        [string]$forwarder.stderrLogPath
+    )) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
+
+    $argumentList = (
+        '"{0}" --config "{1}"' -f
+            [string]$forwarder.scriptPath,
+            [string]$forwarder.configPath
+    )
+    $process = Start-Process `
+        -FilePath ([string]$forwarder.nodeExecutablePath) `
+        -ArgumentList $argumentList `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput ([string]$forwarder.stdoutLogPath) `
+        -RedirectStandardError ([string]$forwarder.stderrLogPath) `
+        -PassThru
+    $startedProcessTimeUtc = $process.StartTime.ToUniversalTime()
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds($ReadyTimeoutSeconds)
+        do {
+            $process.Refresh()
+            if ($process.HasExited) {
+                $stderr =
+                    if (Test-Path -LiteralPath $forwarder.stderrLogPath) {
+                        (Get-Content `
+                            -LiteralPath $forwarder.stderrLogPath `
+                            -Raw `
+                            -ErrorAction SilentlyContinue).Trim()
+                    }
+                    else {
+                        ""
+                    }
+                throw (
+                    "LAN forwarder exited before readiness with code " +
+                    "$($process.ExitCode): $stderr"
+                )
+            }
+            if (Test-Path -LiteralPath $forwarder.statusPath -PathType Leaf) {
+                $observation = Get-LanForwarderObservation -Receipt $Receipt
+                if ($observation.Status -ceq "ready") {
+                    return $observation
+                }
+            }
+            if ([DateTime]::UtcNow -ge $deadline) {
+                throw (
+                    "LAN forwarder did not become ready within " +
+                    "$ReadyTimeoutSeconds seconds"
+                )
+            }
+            Start-Sleep -Milliseconds 250
+        } while ($true)
+    }
+    catch {
+        $startError = $_
+        $cleanupFailures = [Collections.Generic.List[string]]::new()
+        try {
+            Stop-OwnedLanForwarderProcess `
+                -Process $process `
+                -ExpectedStartTimeUtc $startedProcessTimeUtc `
+                -Description "failed LAN forwarder candidate"
+        }
+        catch {
+            $cleanupFailures.Add($_.Exception.Message)
+        }
+        Remove-Item `
+            -LiteralPath $forwarder.statusPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+        try {
+            Assert-LanForwarderPortsReleased -Receipt $Receipt
+        }
+        catch {
+            $cleanupFailures.Add($_.Exception.Message)
+        }
+        if ($cleanupFailures.Count -gt 0) {
+            throw (
+                "LAN forwarder start failed and cleanup could not prove every " +
+                "public listener closed. Start: $($startError.Exception.Message) " +
+                "Cleanup: $($cleanupFailures -join ' | ')"
+            )
+        }
+        throw $startError
+    }
+}
+
 function Assert-RetainedReleaseAssets {
     param([Parameter(Mandatory)]$Receipt)
 
+    $schemaVersion = Get-ReceiptSchemaVersion -Receipt $Receipt
     if (-not (Test-Path -LiteralPath $Receipt.environmentFile -PathType Leaf)) {
         throw "Retained release environment is missing: $($Receipt.environmentFile)"
     }
@@ -1891,6 +3605,100 @@ function Assert-RetainedReleaseAssets {
         (Get-FileHash -LiteralPath $Receipt.environmentFile -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($environmentHash -ne $Receipt.environmentSha256) {
         throw "Retained release environment hash does not match its receipt"
+    }
+    $retainedEnvironment = Read-EnvironmentFile -Path $Receipt.environmentFile
+    if (
+        $schemaVersion -ge 5 -and
+        (
+            -not $retainedEnvironment.Contains("K_COMMS_PODMAN_BIND_ADDRESS") -or
+            [string]$retainedEnvironment["K_COMMS_PODMAN_BIND_ADDRESS"] -cne
+                $podmanBindAddress
+        )
+    ) {
+        throw (
+            "Retained release Podman exposure is not hash-bound to exact loopback " +
+            "$podmanBindAddress"
+        )
+    }
+    if (
+        $schemaVersion -ge 5 -and
+        $retainedEnvironment.Contains("K_COMMS_RELEASE_BIND_ADDRESS")
+    ) {
+        throw (
+            "Schema-v5 release environment must not retain the legacy direct-bind " +
+            "variable K_COMMS_RELEASE_BIND_ADDRESS"
+        )
+    }
+    if ($schemaVersion -ge 5) {
+        $recordedBindAddress = Get-ReceiptBindAddress -Receipt $Receipt
+        $recordedPublicHost = Get-ReceiptPublicHost -Receipt $Receipt
+        $expectedRuntimeHost =
+            if ($recordedBindAddress -ceq $podmanBindAddress) {
+                ""
+            }
+            else {
+                $recordedPublicHost
+            }
+        $appOrigin = "http://$recordedPublicHost`:$($Receipt.ports.app)"
+        $browserOrigins =
+            if ($recordedBindAddress -ceq $podmanBindAddress) {
+                "$appOrigin,http://localhost:$($Receipt.ports.app)"
+            }
+            else {
+                $appOrigin
+            }
+        $expectedTopologyEnvironment = [ordered]@{
+            K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+            K_COMMS_RELEASE_HOST = $recordedPublicHost
+            K_COMMS_LOCAL_RELEASE_HOST = $expectedRuntimeHost
+            PHX_HOST = $recordedPublicHost
+            PUBLIC_APP_URL = $appOrigin
+            CORS_ORIGINS = $browserOrigins
+            LIVEKIT_SERVER_URL =
+                "ws://$recordedPublicHost`:$($Receipt.ports.livekitSignal)"
+            S3_PUBLIC_ENDPOINT =
+                "http://$recordedPublicHost`:$($Receipt.ports.minio)"
+            MINIO_API_CORS_ALLOW_ORIGIN = $browserOrigins
+            CSP_CONNECT_SOURCES =
+                "'self' $appOrigin ws://$recordedPublicHost`:$($Receipt.ports.app) " +
+                "ws://$recordedPublicHost`:$($Receipt.ports.livekitSignal) " +
+                "http://$recordedPublicHost`:$($Receipt.ports.minio)"
+        }
+        foreach ($entry in $expectedTopologyEnvironment.GetEnumerator()) {
+            if (
+                -not $retainedEnvironment.Contains($entry.Key) -or
+                [string]$retainedEnvironment[$entry.Key] -cne
+                    [string]$entry.Value
+            ) {
+                throw (
+                    "Retained schema-v5 release environment topology does not " +
+                    "match its receipt for $($entry.Key)"
+                )
+            }
+        }
+    }
+    if ($retainedEnvironment.Contains("K_COMMS_RELEASE_BIND_ADDRESS")) {
+        $recordedBindAddress = Get-ReceiptBindAddress -Receipt $Receipt
+        $recordedPublicHost = Get-ReceiptPublicHost -Receipt $Receipt
+        $expectedRuntimeHost =
+            if ($recordedBindAddress -eq "127.0.0.1") {
+                ""
+            }
+            else {
+                $recordedPublicHost
+            }
+        if (
+            [string]$retainedEnvironment["K_COMMS_RELEASE_BIND_ADDRESS"] -cne
+                $recordedBindAddress -or
+            [string]$retainedEnvironment["K_COMMS_RELEASE_HOST"] -cne
+                $recordedPublicHost -or
+            [string]$retainedEnvironment["K_COMMS_LOCAL_RELEASE_HOST"] -cne
+                $expectedRuntimeHost -or
+            [string]$retainedEnvironment["PUBLIC_APP_URL"] -cne
+                (Get-ReceiptPublicAppUrl -Receipt $Receipt)
+        ) {
+            throw "Retained release network topology does not match its hash-bound environment"
+        }
     }
     if (-not (Test-Path -LiteralPath $Receipt.composeSourcePath -PathType Leaf)) {
         throw "Retained release Compose source is missing: $($Receipt.composeSourcePath)"
@@ -1909,13 +3717,6 @@ function Assert-RetainedReleaseAssets {
         throw "Retained rendered configuration hash does not match its receipt"
     }
 
-    $schemaVersionProperty = $Receipt.PSObject.Properties["schemaVersion"]
-    $schemaVersion = if ($schemaVersionProperty) {
-        [int]$schemaVersionProperty.Value
-    }
-    else {
-        1
-    }
     if ($schemaVersion -ge 3) {
         if (-not (Test-Path -LiteralPath $Receipt.sourceArchivePath -PathType Leaf)) {
             throw "Retained immutable source archive is missing: $($Receipt.sourceArchivePath)"
@@ -1926,6 +3727,7 @@ function Assert-RetainedReleaseAssets {
             throw "Retained immutable source archive hash does not match its receipt"
         }
     }
+    Assert-LanForwarderAssets -Receipt $Receipt
 }
 
 function Assert-ImmutableRestartReceipt {
@@ -1935,14 +3737,15 @@ function Assert-ImmutableRestartReceipt {
     $schemaVersionProperty = $Receipt.PSObject.Properties["schemaVersion"]
     if (-not $schemaVersionProperty -or [int]$schemaVersionProperty.Value -lt 3) {
         throw (
-            "Start requires a schema-v3 immutable-source receipt. " +
+            "Start requires a schema-v3-or-newer immutable-source receipt. " +
             "Deploy the clean committed candidate once before using Start."
         )
     }
 }
 
-function Test-LoopbackPortAvailable {
+function Test-BindAddressPortAvailable {
     param(
+        [Parameter(Mandatory)][Net.IPAddress]$Address,
         [Parameter(Mandatory)][int]$Port,
         [Parameter(Mandatory)]
         [ValidateSet("tcp", "udp")]
@@ -1971,7 +3774,7 @@ function Test-LoopbackPortAvailable {
             $protocolType
         )
         $socket.ExclusiveAddressUse = $true
-        $socket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback, $Port))
+        $socket.Bind([Net.IPEndPoint]::new($Address, $Port))
         if ($Protocol -eq "tcp") {
             $socket.Listen(1)
         }
@@ -2017,6 +3820,7 @@ function Test-RetainedServiceOwnsPort {
         [Parameter(Mandatory)]
         [ValidateSet("tcp", "udp")]
         [string]$Protocol,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
         [Parameter(Mandatory)][int]$ExpectedHostPort
     )
 
@@ -2035,9 +3839,10 @@ function Test-RetainedServiceOwnsPort {
         return $false
     }
 
+    $escapedBindAddress = [Regex]::Escape($ExpectedBindAddress)
     foreach ($line in ($result.Output -split "\r?\n")) {
         $candidate = $line.Trim()
-        if ($candidate -match "^127\.0\.0\.1:(?<port>[0-9]+)$") {
+        if ($candidate -match "^${escapedBindAddress}:(?<port>[0-9]+)$") {
             if ([int]$Matches["port"] -eq $ExpectedHostPort) {
                 return $true
             }
@@ -2046,8 +3851,44 @@ function Test-RetainedServiceOwnsPort {
     $false
 }
 
+function Test-RetainedForwarderOwnsPort {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [Parameter(Mandatory)][string]$Protocol,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
+        [Parameter(Mandatory)][int]$ExpectedPort
+    )
+
+    if (
+        -not (Test-ReceiptRequiresLanForwarder -Receipt $Receipt) -or
+        (Get-ReceiptBindAddress -Receipt $Receipt) -cne $ExpectedBindAddress
+    ) {
+        return $false
+    }
+    try {
+        $observation = Assert-LanForwarderReady -Receipt $Receipt
+        if ($observation.Status -cne "ready") {
+            return $false
+        }
+        $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+        foreach ($listener in @($forwarder.listeners)) {
+            if (
+                [string]$listener.protocol -ceq $Protocol -and
+                [int]$listener.publicPort -eq $ExpectedPort
+            ) {
+                return $true
+            }
+        }
+    }
+    catch {
+        return $false
+    }
+    return $false
+}
+
 function Assert-CandidatePorts {
     param(
+        [Parameter(Mandatory)][string]$CandidateBindAddress,
         [Parameter(Mandatory)][int]$CandidateAppPort,
         [Parameter(Mandatory)][int]$CandidateMinioPort,
         [Parameter(Mandatory)][int]$CandidateMinioConsolePort,
@@ -2061,6 +3902,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "application"
             Protocol = "tcp"
+            BindAddress = $podmanBindAddress
             Port = $CandidateAppPort
             Service = "app"
             ReceiptProperty = "app"
@@ -2069,6 +3911,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "MinIO API"
             Protocol = "tcp"
+            BindAddress = $podmanBindAddress
             Port = $CandidateMinioPort
             Service = "minio"
             ReceiptProperty = "minio"
@@ -2077,6 +3920,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "MinIO console"
             Protocol = "tcp"
+            BindAddress = "127.0.0.1"
             Port = $CandidateMinioConsolePort
             Service = "minio"
             ReceiptProperty = "minioConsole"
@@ -2085,6 +3929,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "LiveKit signaling"
             Protocol = "tcp"
+            BindAddress = $podmanBindAddress
             Port = $CandidateLiveKitSignalPort
             Service = "livekit"
             ReceiptProperty = "livekitSignal"
@@ -2093,6 +3938,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "LiveKit media TCP"
             Protocol = "tcp"
+            BindAddress = $podmanBindAddress
             Port = $CandidateLiveKitTcpPort
             Service = "livekit"
             ReceiptProperty = "livekitTcp"
@@ -2101,6 +3947,7 @@ function Assert-CandidatePorts {
         [PSCustomObject]@{
             Name = "LiveKit media UDP"
             Protocol = "udp"
+            BindAddress = $podmanBindAddress
             Port = $CandidateLiveKitUdpPort
             Service = "livekit"
             ReceiptProperty = "livekitUdp"
@@ -2129,9 +3976,11 @@ function Assert-CandidatePorts {
 
     foreach ($specification in $specifications) {
         $ownedByRetainedRelease = $false
+        $retainedBindAddress = $podmanBindAddress
         if (
             $PreviousReceipt -and
-            $runningServices -contains $specification.Service
+            $runningServices -contains $specification.Service -and
+            $retainedBindAddress -ceq $specification.BindAddress
         ) {
             $receiptPort =
                 $PreviousReceipt.ports.PSObject.Properties[$specification.ReceiptProperty]
@@ -2143,6 +3992,7 @@ function Assert-CandidatePorts {
                     -Service $specification.Service `
                     -ContainerPort $specification.ContainerPort `
                     -Protocol $specification.Protocol `
+                    -ExpectedBindAddress $specification.BindAddress `
                     -ExpectedHostPort $specification.Port)
         }
 
@@ -2150,13 +4000,69 @@ function Assert-CandidatePorts {
             continue
         }
 
-        $available = Test-LoopbackPortAvailable `
+        $available = Test-BindAddressPortAvailable `
+            -Address ([Net.IPAddress]::Parse($specification.BindAddress)) `
             -Port $specification.Port `
             -Protocol $specification.Protocol
         if (-not $available) {
             throw (
                 "Candidate $($specification.Name) $($specification.Protocol.ToUpperInvariant()) " +
-                "port $($specification.Port) is already in use on 127.0.0.1"
+                "port $($specification.Port) is already in use on " +
+                "$($specification.BindAddress)"
+            )
+        }
+    }
+
+    if ($CandidateBindAddress -ceq $podmanBindAddress) {
+        return
+    }
+    foreach ($publicSpecification in @(
+        [PSCustomObject]@{
+            Name = "application forwarder"
+            Protocol = "tcp"
+            Port = $CandidateAppPort
+        },
+        [PSCustomObject]@{
+            Name = "MinIO API forwarder"
+            Protocol = "tcp"
+            Port = $CandidateMinioPort
+        },
+        [PSCustomObject]@{
+            Name = "LiveKit signaling forwarder"
+            Protocol = "tcp"
+            Port = $CandidateLiveKitSignalPort
+        },
+        [PSCustomObject]@{
+            Name = "LiveKit media TCP forwarder"
+            Protocol = "tcp"
+            Port = $CandidateLiveKitTcpPort
+        },
+        [PSCustomObject]@{
+            Name = "LiveKit media UDP forwarder"
+            Protocol = "udp"
+            Port = $CandidateLiveKitUdpPort
+        }
+    )) {
+        $ownedByRetainedForwarder =
+            $PreviousReceipt -and
+            (Test-RetainedForwarderOwnsPort `
+                -Receipt $PreviousReceipt `
+                -Protocol $publicSpecification.Protocol `
+                -ExpectedBindAddress $CandidateBindAddress `
+                -ExpectedPort $publicSpecification.Port)
+        if ($ownedByRetainedForwarder) {
+            continue
+        }
+        $available = Test-BindAddressPortAvailable `
+            -Address ([Net.IPAddress]::Parse($CandidateBindAddress)) `
+            -Port $publicSpecification.Port `
+            -Protocol $publicSpecification.Protocol
+        if (-not $available) {
+            throw (
+                "Candidate $($publicSpecification.Name) " +
+                "$($publicSpecification.Protocol.ToUpperInvariant()) port " +
+                "$($publicSpecification.Port) is already in use on " +
+                "$CandidateBindAddress"
             )
         }
     }
@@ -2170,6 +4076,11 @@ function Restore-Release {
     )
 
     Assert-RetainedReleaseAssets -Receipt $Receipt
+    $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+    $activeReceipt = Get-CurrentReceipt
+    if ($activeReceipt) {
+        Assert-RetainedReleaseAssets -Receipt $activeReceipt
+    }
 
     $image = Get-ImageEvidence `
         -ImageReference $Receipt.imageReference `
@@ -2184,32 +4095,67 @@ function Restore-Release {
         throw "Retained image digest no longer matches the recorded image digest"
     }
 
-    $migrationOutput = Start-ReleaseServices `
-        -EnvironmentFile $Receipt.environmentFile `
-        -ComposeProject $Receipt.projectName `
-        -ComposePath $Receipt.composeSourcePath `
-        -RunMigration:$RunMigration
-    Invoke-Compose `
-        -EnvironmentFile $Receipt.environmentFile `
-        -ComposeProject $Receipt.projectName `
-        -ComposePath $Receipt.composeSourcePath `
-        -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
-        -EchoOutput | Out-Null
-    Wait-ContainerHealth `
-        -EnvironmentFile $Receipt.environmentFile `
-        -ComposeProject $Receipt.projectName `
-        -ComposePath $Receipt.composeSourcePath `
-        -Service "app"
-    Ensure-InstantRoomTenant `
-        -EnvironmentFile $Receipt.environmentFile `
-        -ComposeProject $Receipt.projectName `
-        -ComposePath $Receipt.composeSourcePath `
-        -ExpectedAppPort ([int]$Receipt.ports.app) `
-        -ReleaseEnvironment (Read-EnvironmentFile -Path $Receipt.environmentFile)
-    Wait-Application `
-        -ExpectedAppPort ([int]$Receipt.ports.app) `
-        -ExpectedMinioPort ([int]$Receipt.ports.minio) `
-        -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)
+    $targetForwarderStarted = $false
+    if ($activeReceipt) {
+        Stop-LanForwarder -Receipt $activeReceipt -AllowNotRunning
+    }
+    try {
+        $migrationOutput = Start-ReleaseServices `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath `
+            -RunMigration:$RunMigration
+        Invoke-Compose `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath `
+            -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
+            -EchoOutput | Out-Null
+        Wait-ContainerHealth `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath `
+            -Service "app"
+        Ensure-InstantRoomTenant `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath `
+            -ExpectedBindAddress $topology.PodmanBindAddress `
+            -ExpectedAppPort ([int]$Receipt.ports.app) `
+            -ReleaseEnvironment (Read-EnvironmentFile -Path $Receipt.environmentFile)
+        Wait-Application `
+            -ExpectedBindAddress $topology.PodmanBindAddress `
+            -ExpectedAppPort ([int]$Receipt.ports.app) `
+            -ExpectedMinioPort ([int]$Receipt.ports.minio) `
+            -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)
+        if (Test-ReceiptRequiresLanForwarder -Receipt $Receipt) {
+            $null = Start-LanForwarder -Receipt $Receipt
+            $targetForwarderStarted = $true
+            $null = Assert-LanForwarderReady -Receipt $Receipt
+            Wait-Application `
+                -ExpectedBindAddress $topology.BindAddress `
+                -ExpectedAppPort ([int]$Receipt.ports.app) `
+                -ExpectedMinioPort ([int]$Receipt.ports.minio) `
+                -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)
+        }
+    }
+    catch {
+        $restoreError = $_
+        if ($targetForwarderStarted) {
+            try {
+                Stop-LanForwarder -Receipt $Receipt -AllowNotRunning
+            }
+            catch {
+                throw (
+                    "Retained release restore failed and its target forwarder " +
+                    "could not be stopped safely. Restore: " +
+                    "$($restoreError.Exception.Message) Forwarder stop: " +
+                    "$($_.Exception.Message)"
+                )
+            }
+        }
+        throw $restoreError
+    }
 
     if ($UpdatePointer) {
         Write-JsonAtomic -Path $currentPointerPath -Value ([ordered]@{
@@ -2217,6 +4163,7 @@ function Restore-Release {
             revision = $Receipt.revision
             imageReference = $Receipt.imageReference
             imageId = $Receipt.imageId
+            publicAppUrl = $topology.PublicAppUrl
             updatedAt = [DateTime]::UtcNow.ToString("o")
         })
     }
@@ -2418,7 +4365,12 @@ function Invoke-PortPreflightSelfTest {
         $tcpSocket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback, 0))
         $tcpSocket.Listen(1)
         $occupiedTcpPort = ([Net.IPEndPoint]$tcpSocket.LocalEndPoint).Port
-        if (Test-LoopbackPortAvailable -Port $occupiedTcpPort -Protocol "tcp") {
+        if (
+            Test-BindAddressPortAvailable `
+                -Address ([Net.IPAddress]::Loopback) `
+                -Port $occupiedTcpPort `
+                -Protocol "tcp"
+        ) {
             throw "Port preflight self-test accepted an occupied TCP port"
         }
     }
@@ -2438,7 +4390,12 @@ function Invoke-PortPreflightSelfTest {
         $udpSocket.ExclusiveAddressUse = $true
         $udpSocket.Bind([Net.IPEndPoint]::new([Net.IPAddress]::Loopback, 0))
         $occupiedUdpPort = ([Net.IPEndPoint]$udpSocket.LocalEndPoint).Port
-        if (Test-LoopbackPortAvailable -Port $occupiedUdpPort -Protocol "udp") {
+        if (
+            Test-BindAddressPortAvailable `
+                -Address ([Net.IPAddress]::Loopback) `
+                -Port $occupiedUdpPort `
+                -Protocol "udp"
+        ) {
             throw "Port preflight self-test accepted an occupied UDP port"
         }
     }
@@ -2451,6 +4408,7 @@ function Invoke-PortPreflightSelfTest {
     $blockedDuplicate = $false
     try {
         Assert-CandidatePorts `
+            -CandidateBindAddress "127.0.0.1" `
             -CandidateAppPort 42001 `
             -CandidateMinioPort 42001 `
             -CandidateMinioConsolePort 42002 `
@@ -2463,6 +4421,591 @@ function Invoke-PortPreflightSelfTest {
     }
     if (-not $blockedDuplicate) {
         throw "Port preflight self-test accepted duplicate candidate ports"
+    }
+}
+
+function Invoke-BindAddressSelfTest {
+    if ((Resolve-ReleaseBindAddress -Value "127.0.0.1") -cne "127.0.0.1") {
+        throw "Bind-address self-test did not preserve the default loopback address"
+    }
+
+    foreach ($sample in @("10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.0.1")) {
+        if (-not (Test-Rfc1918IPv4 -Address ([Net.IPAddress]::Parse($sample)))) {
+            throw "Bind-address self-test rejected RFC1918 address $sample"
+        }
+    }
+    foreach ($sample in @("172.32.0.1", "169.254.1.1", "203.0.113.10")) {
+        if (Test-Rfc1918IPv4 -Address ([Net.IPAddress]::Parse($sample))) {
+            throw "Bind-address self-test accepted non-RFC1918 address $sample"
+        }
+    }
+
+    foreach ($sample in @(
+        "0.0.0.0",
+        "127.0.0.2",
+        "127.1",
+        "127.000.000.001",
+        "3232235953",
+        "0xC0.0xA8.0x01.0xB1",
+        " 127.0.0.1 ",
+        "203.0.113.10",
+        "::1",
+        "not-an-address"
+    )) {
+        $rejected = $false
+        try {
+            $null = Resolve-ReleaseBindAddress -Value $sample
+        }
+        catch {
+            $rejected = $true
+        }
+        if (-not $rejected) {
+            throw "Bind-address self-test accepted unsafe address $sample"
+        }
+    }
+
+    $preferredAddressRecord = [PSCustomObject]@{
+        IPAddress = "192.168.50.12"
+        AddressState = "Preferred"
+    }
+    if (-not (
+        Test-PreferredReleaseIPAddressRecord `
+            -AddressRecord $preferredAddressRecord `
+            -ExpectedAddress "192.168.50.12"
+    )) {
+        throw "Network-profile self-test rejected an exact Preferred address"
+    }
+    foreach ($addressState in @(
+        "Tentative",
+        "Duplicate",
+        "Deprecated",
+        "Invalid"
+    )) {
+        $nonPreferredAddressRecord = [PSCustomObject]@{
+            IPAddress = "192.168.50.12"
+            AddressState = $addressState
+        }
+        if (
+            Test-PreferredReleaseIPAddressRecord `
+                -AddressRecord $nonPreferredAddressRecord `
+                -ExpectedAddress "192.168.50.12"
+        ) {
+            throw (
+                "Network-profile self-test accepted non-Preferred address state " +
+                "$addressState"
+            )
+        }
+    }
+    $wrongAddressRecord = [PSCustomObject]@{
+        IPAddress = "192.168.50.13"
+        AddressState = "Preferred"
+    }
+    if (
+        Test-PreferredReleaseIPAddressRecord `
+            -AddressRecord $wrongAddressRecord `
+            -ExpectedAddress "192.168.50.12"
+    ) {
+        throw "Network-profile self-test accepted a different Preferred address"
+    }
+
+    if (Assert-ReleaseNetworkCategory -NetworkCategory "Private") {
+        throw "Network-profile self-test treated Private as requiring an override"
+    }
+    $publicBlocked = $false
+    try {
+        $null = Assert-ReleaseNetworkCategory -NetworkCategory "Public"
+    }
+    catch {
+        $publicBlocked = $true
+    }
+    if (-not $publicBlocked) {
+        throw "Network-profile self-test accepted Public without an explicit override"
+    }
+    if (-not (
+        Assert-ReleaseNetworkCategory `
+            -NetworkCategory "Public" `
+            -AllowPublicNetworkProfile
+    )) {
+        throw "Network-profile self-test did not audit the explicit Public override"
+    }
+    $loopbackOverrideBlocked = $false
+    try {
+        $null = Resolve-ReleaseNetworkObservation `
+            -Value "127.0.0.1" `
+            -AllowPublicNetworkProfile
+    }
+    catch {
+        $loopbackOverrideBlocked = $true
+    }
+    if (-not $loopbackOverrideBlocked) {
+        throw "Network-profile self-test accepted a meaningless loopback override"
+    }
+
+    $expectedObservation = [PSCustomObject]@{
+        BindAddress = "192.168.50.12"
+        InterfaceIndex = 12
+        InterfaceAlias = "Ethernet"
+        NetworkName = "Private test network"
+        NetworkCategory = "Private"
+        AllowPublicNetworkProfile = $false
+        PublicNetworkProfileOverrideUsed = $false
+    }
+    $matchingObservation = (
+        $expectedObservation |
+            ConvertTo-Json -Depth 4 |
+            ConvertFrom-Json
+    )
+    Assert-ReleaseNetworkObservationMatches `
+        -Expected $expectedObservation `
+        -Observed $matchingObservation `
+        -Context "Network-profile self-test"
+    foreach ($drift in @(
+        @("BindAddress", "192.168.50.13"),
+        @("InterfaceIndex", 13),
+        @("InterfaceAlias", "Wi-Fi"),
+        @("NetworkName", "Different network"),
+        @("NetworkCategory", "Public"),
+        @("PublicNetworkProfileOverrideUsed", $true)
+    )) {
+        $driftedObservation = (
+            $expectedObservation |
+                ConvertTo-Json -Depth 4 |
+                ConvertFrom-Json
+        )
+        $driftedObservation.PSObject.Properties[$drift[0]].Value = $drift[1]
+        $driftRejected = $false
+        try {
+            Assert-ReleaseNetworkObservationMatches `
+                -Expected $expectedObservation `
+                -Observed $driftedObservation `
+                -Context "Network-profile self-test"
+        }
+        catch {
+            $driftRejected = $true
+        }
+        if (-not $driftRejected) {
+            throw (
+                "Network-profile self-test accepted drift in $($drift[0])"
+            )
+        }
+    }
+
+    $selfTestOrigin =
+        "http://$($script:ReleaseNetworkObservation.BindAddress):4188"
+    $selfTestReceipt = (
+        [ordered]@{
+            schemaVersion = 5
+            publicAppUrl = $selfTestOrigin
+            network = New-ReceiptNetworkRecord `
+                -Observation $script:ReleaseNetworkObservation `
+                -PublicAppUrl $selfTestOrigin
+            ports = [ordered]@{app = 4188}
+        } |
+            ConvertTo-Json -Depth 8 |
+            ConvertFrom-Json
+    )
+    $selfTestTopology =
+        Resolve-ReceiptNetworkTopology -Receipt $selfTestReceipt
+    if (
+        $selfTestTopology.BindAddress -cne
+            $script:ReleaseNetworkObservation.BindAddress -or
+        $selfTestTopology.NetworkCategory -cne
+            $script:ReleaseNetworkObservation.NetworkCategory -or
+        $selfTestTopology.AllowPublicNetworkProfile -cne
+            $script:ReleaseNetworkObservation.AllowPublicNetworkProfile
+    ) {
+        throw "Network-profile receipt self-test did not preserve its audited topology"
+    }
+}
+
+function Assert-LanForwarderSelfTestRejected {
+    param(
+        [Parameter(Mandatory)][scriptblock]$Action,
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    $rejected = $false
+    try {
+        & $Action
+    }
+    catch {
+        $rejected = $true
+    }
+    if (-not $rejected) {
+        throw "LAN forwarder self-test accepted $Description"
+    }
+}
+
+function New-LanForwarderSelfTestPorts {
+    param([Parameter(Mandatory)][string]$PublicBindAddress)
+
+    $ports = [Collections.Generic.List[int]]::new()
+    foreach ($protocol in @("tcp", "tcp", "tcp", "tcp", "udp")) {
+        $selected = 0
+        for ($attempt = 0; $attempt -lt 500; $attempt++) {
+            $candidate = Get-Random -Minimum 42000 -Maximum 61000
+            if ($ports.Contains($candidate)) {
+                continue
+            }
+            if (
+                (Test-BindAddressPortAvailable `
+                    -Address ([Net.IPAddress]::Parse($PublicBindAddress)) `
+                    -Port $candidate `
+                    -Protocol $protocol) -and
+                (Test-BindAddressPortAvailable `
+                    -Address ([Net.IPAddress]::Loopback) `
+                    -Port $candidate `
+                    -Protocol $protocol)
+            ) {
+                $selected = $candidate
+                break
+            }
+        }
+        if ($selected -eq 0) {
+            throw "LAN forwarder self-test could not allocate an unused $protocol port"
+        }
+        $ports.Add($selected)
+    }
+    return @($ports)
+}
+
+function New-LanForwarderSelfTestReceipt {
+    param(
+        [Parameter(Mandatory)][string]$CandidateDirectory,
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
+        [Parameter(Mandatory)][int[]]$Ports
+    )
+
+    $forwarder = New-LanForwarderReceiptRecord `
+        -ImmutableSourceRoot $repositoryRoot `
+        -CandidateDirectory $CandidateDirectory `
+        -ExpectedBindAddress $ExpectedBindAddress `
+        -ExpectedAppPort $Ports[0] `
+        -ExpectedMinioPort $Ports[1] `
+        -ExpectedLiveKitSignalPort $Ports[2] `
+        -ExpectedLiveKitTcpPort $Ports[3] `
+        -ExpectedLiveKitUdpPort $Ports[4]
+    [PSCustomObject]@{
+        schemaVersion = 5
+        receiptPath = Join-Path $CandidateDirectory "deployment.json"
+        publicAppUrl = "http://$ExpectedBindAddress`:$($Ports[0])"
+        network = [PSCustomObject]@{
+            bindAddress = $ExpectedBindAddress
+            podmanBindAddress = $podmanBindAddress
+            publicHost = $ExpectedBindAddress
+            publicAppUrl = "http://$ExpectedBindAddress`:$($Ports[0])"
+            exposureMode = "lan-forwarder"
+        }
+        ports = [PSCustomObject]@{
+            app = $Ports[0]
+            minio = $Ports[1]
+            minioConsole = 61999
+            livekitSignal = $Ports[2]
+            livekitTcp = $Ports[3]
+            livekitUdp = $Ports[4]
+        }
+        forwarder = $forwarder
+    }
+}
+
+function Invoke-LanForwarderSelfTest {
+    param([Parameter(Mandatory)][string]$TemporaryDirectory)
+
+    $commandIdentityFixture = [PSCustomObject]@{
+        nodeExecutablePath = "C:\Program Files\nodejs\node.exe"
+        scriptPath = "C:\K Comms State\lan_release_forwarder.mjs"
+        configPath = "C:\K Comms State\lan_release_forwarder.config.json"
+    }
+    $validCommandLines = @(
+        (
+            '"C:\Program Files\nodejs\node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config "C:\K Comms State\lan_release_forwarder.config.json"'
+        ),
+        (
+            '"C:\Program Files\nodejs\node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config="C:\K Comms State\lan_release_forwarder.config.json"'
+        )
+    )
+    foreach ($commandLine in $validCommandLines) {
+        if (-not (Test-LanForwarderCommandLine `
+            -CommandLine $commandLine `
+            -Forwarder $commandIdentityFixture)) {
+            throw (
+                "LAN forwarder self-test rejected a canonical exact command line: " +
+                $commandLine
+            )
+        }
+    }
+    $decoyCommandLines = @(
+        (
+            '"C:\Program Files\nodejs\node.exe" "C:\decoy.mjs" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config "C:\K Comms State\lan_release_forwarder.config.json"'
+        ),
+        (
+            '"C:\Program Files\nodejs\node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" extra ' +
+            '--config "C:\K Comms State\lan_release_forwarder.config.json"'
+        ),
+        (
+            '"C:\Program Files\nodejs\node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config "C:\other.json" ' +
+            '"C:\K Comms State\lan_release_forwarder.config.json"'
+        ),
+        (
+            '"C:\Program Files\nodejs\node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config "C:\K Comms State\lan_release_forwarder.config.json" ' +
+            '--inspect'
+        ),
+        (
+            '"C:\Program Files\nodejs\not-node.exe" ' +
+            '"C:\K Comms State\lan_release_forwarder.mjs" ' +
+            '--config "C:\K Comms State\lan_release_forwarder.config.json"'
+        )
+    )
+    foreach ($commandLine in $decoyCommandLines) {
+        if (Test-LanForwarderCommandLine `
+            -CommandLine $commandLine `
+            -Forwarder $commandIdentityFixture) {
+            throw (
+                "LAN forwarder self-test accepted a decoy command line: " +
+                $commandLine
+            )
+        }
+    }
+
+    $sourcePath = Join-Path `
+        $repositoryRoot `
+        ($lanForwarderSourceRelativePath.Replace("/", "\"))
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "LAN forwarder self-test source is missing: $sourcePath"
+    }
+    $nodeAvailable = $null -ne (
+        Get-Command node -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    )
+    if (-not $nodeAvailable) {
+        if ($BindAddress -cne $podmanBindAddress) {
+            throw "LAN validation requires the node command"
+        }
+        Write-Verbose "Skipping Node LAN forwarder self-test in loopback-only validation."
+        return
+    }
+
+    $liveLifecycleTest = $BindAddress -cne $podmanBindAddress
+    $testBindAddress =
+        if ($liveLifecycleTest) {
+            $BindAddress
+        }
+        else {
+            "192.168.50.12"
+        }
+    $testPorts =
+        if ($liveLifecycleTest) {
+            New-LanForwarderSelfTestPorts -PublicBindAddress $testBindAddress
+        }
+        else {
+            @(50101, 50102, 50103, 50104, 50105)
+        }
+    $candidateDirectory = Join-Path $TemporaryDirectory "forwarder-self-test"
+    New-Item -ItemType Directory -Path $candidateDirectory | Out-Null
+    $receipt = New-LanForwarderSelfTestReceipt `
+        -CandidateDirectory $candidateDirectory `
+        -ExpectedBindAddress $testBindAddress `
+        -Ports $testPorts
+    $forwarder = Get-ReceiptForwarder -Receipt $receipt
+    Assert-LanForwarderAssets -Receipt $receipt
+
+    $scriptBytes = [IO.File]::ReadAllBytes([string]$forwarder.scriptPath)
+    $configBytes = [IO.File]::ReadAllBytes([string]$forwarder.configPath)
+    try {
+        [IO.File]::AppendAllText(
+            [string]$forwarder.scriptPath,
+            "`n// tamper",
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Assert-LanForwarderSelfTestRejected `
+            -Description "a tampered immutable script" `
+            -Action { Assert-LanForwarderAssets -Receipt $receipt }
+    }
+    finally {
+        [IO.File]::WriteAllBytes([string]$forwarder.scriptPath, $scriptBytes)
+    }
+    try {
+        [IO.File]::AppendAllText(
+            [string]$forwarder.configPath,
+            " ",
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Assert-LanForwarderSelfTestRejected `
+            -Description "a tampered hash-bound configuration" `
+            -Action { Assert-LanForwarderAssets -Receipt $receipt }
+    }
+    finally {
+        [IO.File]::WriteAllBytes([string]$forwarder.configPath, $configBytes)
+    }
+    Assert-LanForwarderAssets -Receipt $receipt
+
+    if (-not $liveLifecycleTest) {
+        return
+    }
+
+    $cleanupError = $null
+    try {
+        $firstObservation = Start-LanForwarder -Receipt $receipt
+        if ($firstObservation.Status -cne "ready") {
+            throw "LAN forwarder self-test did not reach verified readiness"
+        }
+        $firstProcessId = $firstObservation.ProcessId
+        $readyBytes = [IO.File]::ReadAllBytes([string]$forwarder.statusPath)
+
+        try {
+            $tamperedReady = Read-JsonFile -Path $forwarder.statusPath
+            $tamperedReady.readinessToken = "tampered-token"
+            Write-JsonAtomic -Path $forwarder.statusPath -Value $tamperedReady
+            if (
+                (Get-LanForwarderObservation -Receipt $receipt).
+                    ProcessMatchesReceipt
+            ) {
+                throw "LAN forwarder self-test accepted a tampered READY token"
+            }
+            $staleReadyReplacement = Start-LanForwarder -Receipt $receipt
+            if ($staleReadyReplacement.Status -cne "ready") {
+                throw (
+                    "LAN forwarder self-test could not replace a process with " +
+                    "stale READY evidence"
+                )
+            }
+            if (
+                $staleReadyReplacement.ProcessId -eq $firstProcessId -and
+                (Get-Process -Id $firstProcessId -ErrorAction SilentlyContinue)
+            ) {
+                throw (
+                    "LAN forwarder self-test retained the process referenced by " +
+                    "stale READY evidence"
+                )
+            }
+            $firstProcessId = $staleReadyReplacement.ProcessId
+            $readyBytes =
+                [IO.File]::ReadAllBytes([string]$forwarder.statusPath)
+        }
+        finally {
+            if (
+                -not (Test-Path `
+                    -LiteralPath $forwarder.statusPath `
+                    -PathType Leaf)
+            ) {
+                [IO.File]::WriteAllBytes(
+                    [string]$forwarder.statusPath,
+                    $readyBytes
+                )
+            }
+        }
+
+        try {
+            $tamperedReady = Read-JsonFile -Path $forwarder.statusPath
+            $tamperedReady.processStartTimeUtc = "2000-01-01T00:00:00.000Z"
+            Write-JsonAtomic -Path $forwarder.statusPath -Value $tamperedReady
+            if (
+                (Get-LanForwarderObservation -Receipt $receipt).
+                    ProcessMatchesReceipt
+            ) {
+                throw (
+                    "LAN forwarder self-test accepted READY process-start drift"
+                )
+            }
+        }
+        finally {
+            [IO.File]::WriteAllBytes([string]$forwarder.statusPath, $readyBytes)
+        }
+
+        try {
+            $tamperedReady = Read-JsonFile -Path $forwarder.statusPath
+            $tamperedReady.listeners[0].publicPort =
+                [int]$tamperedReady.listeners[0].publicPort + 1
+            Write-JsonAtomic -Path $forwarder.statusPath -Value $tamperedReady
+            if (
+                (Get-LanForwarderObservation -Receipt $receipt).
+                    ListenersMatchReceipt
+            ) {
+                throw "LAN forwarder self-test accepted READY listener drift"
+            }
+        }
+        finally {
+            [IO.File]::WriteAllBytes([string]$forwarder.statusPath, $readyBytes)
+        }
+
+        $replacement = Start-LanForwarder -Receipt $receipt
+        if ($replacement.Status -cne "ready") {
+            throw "LAN forwarder self-test replacement did not become ready"
+        }
+        if (
+            $replacement.ProcessId -eq $firstProcessId -and
+            (Get-Process -Id $firstProcessId -ErrorAction SilentlyContinue)
+        ) {
+            throw "LAN forwarder self-test did not replace the retained process"
+        }
+
+        Remove-Item -LiteralPath $forwarder.statusPath -Force
+        Stop-LanForwarder -Receipt $receipt -AllowNotRunning
+        if (
+            @(Get-LanForwarderCommandProcesses -Forwarder $forwarder).Count -ne 0
+        ) {
+            throw "LAN forwarder self-test left an exact-command orphan process"
+        }
+        Assert-LanForwarderPortsReleased -Receipt $receipt
+
+        $occupiedSocket = [Net.Sockets.Socket]::new(
+            [Net.Sockets.AddressFamily]::InterNetwork,
+            [Net.Sockets.SocketType]::Stream,
+            [Net.Sockets.ProtocolType]::Tcp
+        )
+        try {
+            $occupiedSocket.ExclusiveAddressUse = $true
+            $occupiedSocket.Bind([Net.IPEndPoint]::new(
+                [Net.IPAddress]::Parse($testBindAddress),
+                $testPorts[0]
+            ))
+            $occupiedSocket.Listen(1)
+            Assert-LanForwarderSelfTestRejected `
+                -Description "an unowned public listener during start" `
+                -Action { $null = Start-LanForwarder -Receipt $receipt }
+            if (
+                @(Get-LanForwarderCommandProcesses -Forwarder $forwarder).Count -ne 0
+            ) {
+                throw (
+                    "LAN forwarder self-test failed start left a Node process"
+                )
+            }
+        }
+        finally {
+            $occupiedSocket.Dispose()
+        }
+        Assert-LanForwarderPortsReleased -Receipt $receipt
+
+        $null = Start-LanForwarder -Receipt $receipt
+        Stop-LanForwarder -Receipt $receipt
+        Assert-LanForwarderPortsReleased -Receipt $receipt
+    }
+    finally {
+        try {
+            [IO.File]::WriteAllBytes([string]$forwarder.scriptPath, $scriptBytes)
+            [IO.File]::WriteAllBytes([string]$forwarder.configPath, $configBytes)
+            Stop-LanForwarder -Receipt $receipt -AllowNotRunning
+        }
+        catch {
+            $cleanupError = $_
+        }
+        if ($cleanupError) {
+            throw (
+                "LAN forwarder self-test cleanup failed: " +
+                $cleanupError.Exception.Message
+            )
+        }
     }
 }
 
@@ -2505,7 +5048,15 @@ function Invoke-StableEncryptionKeySelfTest {
 }
 
 function Invoke-Validate {
-    Assert-RequiredTools -Commands @("podman", "python", "icacls.exe")
+    $script:ReleaseNetworkObservation = Resolve-ReleaseNetworkObservation `
+        -Value $BindAddress `
+        -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+    $script:BindAddress = $script:ReleaseNetworkObservation.BindAddress
+    $requiredCommands = @("podman", "python", "icacls.exe")
+    if ($script:BindAddress -cne $podmanBindAddress) {
+        $requiredCommands += "node"
+    }
+    Assert-RequiredTools -Commands $requiredCommands
     Invoke-NativeCommand `
         -FilePath "python" `
         -Arguments @("scripts/validate_local_release.py") `
@@ -2519,6 +5070,9 @@ function Invoke-Validate {
             -Stable (New-StableEnvironment) `
             -Revision ("0" * 40) `
             -ImageReference ("localhost/k-comms:sha-" + ("0" * 40))
+        Assert-ReleaseEnvironmentTopology `
+            -Values $sample `
+            -ExpectedBindAddress $BindAddress
         $samplePath = Join-Path $temporaryDirectory "release.env"
         Write-EnvironmentFile -Path $samplePath -Values $sample
         $sampleComposePath = Join-Path $temporaryDirectory "compose.source.yaml"
@@ -2529,7 +5083,9 @@ function Invoke-Validate {
             -ComposePath $sampleComposePath `
             -Arguments @("config", "--quiet") | Out-Null
         Invoke-StateRootSafetySelfTest
+        Invoke-BindAddressSelfTest
         Invoke-PortPreflightSelfTest
+        Invoke-LanForwarderSelfTest -TemporaryDirectory $temporaryDirectory
         Invoke-StableEncryptionKeySelfTest
         Invoke-CapabilityCompatibilitySelfTest
         Invoke-GuestRollbackCompatibilitySelfTest
@@ -2694,7 +5250,15 @@ function Invoke-FailedCandidateCleanupSelfTest {
 }
 
 function Invoke-Deploy {
-    Assert-RequiredTools -Commands @("git", "podman", "tar", "icacls.exe")
+    $script:ReleaseNetworkObservation = Resolve-ReleaseNetworkObservation `
+        -Value $BindAddress `
+        -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+    $script:BindAddress = $script:ReleaseNetworkObservation.BindAddress
+    $requiredCommands = @("git", "podman", "tar", "icacls.exe")
+    if ($script:BindAddress -cne $podmanBindAddress) {
+        $requiredCommands += "node"
+    }
+    Assert-RequiredTools -Commands $requiredCommands
     $revision = Assert-CleanRevision
     Ensure-PodmanReady
     Initialize-OwnedStateDirectory -Path $StateRoot -ExpectedProject $ProjectName
@@ -2710,6 +5274,9 @@ function Invoke-Deploy {
 function Invoke-DeployLocked {
     param([Parameter(Mandatory)][string]$Revision)
 
+    $releaseNetworkObservation =
+        Assert-ReleaseNetworkObservationCurrent `
+            -Expected $script:ReleaseNetworkObservation
     New-Item -ItemType Directory -Path (Join-Path $StateRoot "history") -Force | Out-Null
 
     $previousReceipt = Get-CurrentReceipt
@@ -2720,6 +5287,7 @@ function Invoke-DeployLocked {
         )
     }
     Assert-CandidatePorts `
+        -CandidateBindAddress $BindAddress `
         -CandidateAppPort $AppPort `
         -CandidateMinioPort $MinioPort `
         -CandidateMinioConsolePort $MinioConsolePort `
@@ -2751,6 +5319,12 @@ function Invoke-DeployLocked {
     $rendered = $null
     $image = $null
     $migrationSucceeded = $false
+    $forwarderRecord = [ordered]@{
+        required = $false
+        kind = "not-required"
+    }
+    $candidateForwarderReceipt = $null
+    $candidateForwarderStarted = $false
     try {
         $source = New-ImmutableSourceContext `
             -ExpectedRevision $Revision `
@@ -2760,12 +5334,26 @@ function Invoke-DeployLocked {
         [IO.File]::Copy($snapshotComposePath, $composeSourcePath, $false)
         $composeSourceSha256 =
             (Get-FileHash -LiteralPath $composeSourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($BindAddress -cne $podmanBindAddress) {
+            $forwarderRecord = New-LanForwarderReceiptRecord `
+                -ImmutableSourceRoot $source.contextPath `
+                -CandidateDirectory $candidateDirectory `
+                -ExpectedBindAddress $BindAddress `
+                -ExpectedAppPort $AppPort `
+                -ExpectedMinioPort $MinioPort `
+                -ExpectedLiveKitSignalPort $LiveKitSignalPort `
+                -ExpectedLiveKitTcpPort $LiveKitTcpPort `
+                -ExpectedLiveKitUdpPort $LiveKitUdpPort
+        }
 
         $stableEnvironment = Get-StableEnvironment
         $releaseEnvironment = New-ReleaseEnvironment `
             -Stable $stableEnvironment `
             -Revision $Revision `
             -ImageReference $imageReference
+        Assert-ReleaseEnvironmentTopology `
+            -Values $releaseEnvironment `
+            -ExpectedBindAddress $BindAddress
         Write-EnvironmentFile -Path $environmentFile -Values $releaseEnvironment
         $environmentSha256 =
             (Get-FileHash -LiteralPath $environmentFile -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -2796,7 +5384,30 @@ function Invoke-DeployLocked {
             -ExpectedRevision $Revision `
             -Phase "after building the immutable candidate image"
         $image = Get-ImageEvidence -ImageReference $imageReference -ExpectedRevision $Revision
+        $candidateForwarderReceipt = [PSCustomObject]@{
+            schemaVersion = 5
+            receiptPath = $receiptPath
+            publicAppUrl = "http://$BindAddress`:$AppPort"
+            network = New-ReceiptNetworkRecord `
+                -Observation $releaseNetworkObservation `
+                -PublicAppUrl "http://$BindAddress`:$AppPort"
+            ports = [PSCustomObject]@{
+                app = $AppPort
+                minio = $MinioPort
+                minioConsole = $MinioConsolePort
+                livekitSignal = $LiveKitSignalPort
+                livekitTcp = $LiveKitTcpPort
+                livekitUdp = $LiveKitUdpPort
+            }
+            forwarder = $forwarderRecord
+        }
 
+        $releaseNetworkObservation =
+            Assert-ReleaseNetworkObservationCurrent `
+                -Expected $releaseNetworkObservation
+        if ($previousReceipt) {
+            Stop-LanForwarder -Receipt $previousReceipt -AllowNotRunning
+        }
         $candidateTouchedRuntime = $true
         $migrationOutput = Start-ReleaseServices `
             -EnvironmentFile $environmentFile `
@@ -2824,17 +5435,35 @@ function Invoke-DeployLocked {
             -EnvironmentFile $environmentFile `
             -ComposeProject $ProjectName `
             -ComposePath $composeSourcePath `
+            -ExpectedBindAddress $podmanBindAddress `
             -ExpectedAppPort $AppPort `
             -ReleaseEnvironment $releaseEnvironment
         Wait-Application `
+            -ExpectedBindAddress $podmanBindAddress `
             -ExpectedAppPort $AppPort `
             -ExpectedMinioPort $MinioPort `
             -ExpectedLiveKitPort $LiveKitSignalPort `
             -RequireGuestLinks `
             -RequireInstantRooms
+        if ($BindAddress -cne $podmanBindAddress) {
+            $null = Start-LanForwarder -Receipt $candidateForwarderReceipt
+            $candidateForwarderStarted = $true
+            $null = Assert-LanForwarderReady `
+                -Receipt $candidateForwarderReceipt
+            Wait-Application `
+                -ExpectedBindAddress $BindAddress `
+                -ExpectedAppPort $AppPort `
+                -ExpectedMinioPort $MinioPort `
+                -ExpectedLiveKitPort $LiveKitSignalPort `
+                -RequireGuestLinks `
+                -RequireInstantRooms
+        }
+        $releaseNetworkObservation =
+            Assert-ReleaseNetworkObservationCurrent `
+                -Expected $releaseNetworkObservation
 
         $receipt = [ordered]@{
-            schemaVersion = 3
+            schemaVersion = 5
             status = "healthy"
             receiptPath = $receiptPath
             deployedAt = [DateTime]::UtcNow.ToString("o")
@@ -2856,6 +5485,11 @@ function Invoke-DeployLocked {
             renderedConfigPath = $rendered.path
             redactedConfigPath = $rendered.redactedPath
             renderedConfigSha256 = $rendered.sha256
+            publicAppUrl = "http://$BindAddress`:$AppPort"
+            network = New-ReceiptNetworkRecord `
+                -Observation $releaseNetworkObservation `
+                -PublicAppUrl "http://$BindAddress`:$AppPort"
+            forwarder = $forwarderRecord
             migration = [ordered]@{
                 command = "CommsCore.Release.migrate()"
                 direction = "up"
@@ -2886,22 +5520,44 @@ function Invoke-DeployLocked {
             revision = $Revision
             imageReference = $imageReference
             imageId = $image.imageId
+            publicAppUrl = "http://$BindAddress`:$AppPort"
             updatedAt = [DateTime]::UtcNow.ToString("o")
         })
     }
     catch {
         $deploymentError = $_
+        if ($candidateForwarderReceipt -and $candidateForwarderStarted) {
+            try {
+                Stop-LanForwarder `
+                    -Receipt $candidateForwarderReceipt `
+                    -AllowNotRunning
+                $candidateForwarderStarted = $false
+            }
+            catch {
+                throw (
+                    "Candidate deployment failed and its public LAN forwarder " +
+                    "could not be stopped safely. Candidate: " +
+                    "$($deploymentError.Exception.Message) Forwarder cleanup: " +
+                    "$($_.Exception.Message)"
+                )
+            }
+        }
         try {
             Write-JsonAtomic -Path (Join-Path $candidateDirectory "failure.json") -Value ([ordered]@{
                 failedAt = [DateTime]::UtcNow.ToString("o")
                 revision = $Revision
                 candidateId = $candidateId
                 imageReference = $imageReference
+                publicAppUrl = "http://$BindAddress`:$AppPort"
+                network = New-ReceiptNetworkRecord `
+                    -Observation $releaseNetworkObservation `
+                    -PublicAppUrl "http://$BindAddress`:$AppPort"
                 environmentSha256 = $environmentSha256
                 composeSourcePath = $composeSourcePath
                 composeSourceSha256 = $composeSourceSha256
                 sourceArchivePath = if ($source) { $source.archivePath } else { $null }
                 sourceArchiveSha256 = if ($source) { $source.archiveSha256 } else { $null }
+                forwarder = $forwarderRecord
                 message = $deploymentError.Exception.Message
                 previousReceiptPath = if ($previousReceipt) { $previousReceipt.receiptPath } else { $null }
             })
@@ -2963,7 +5619,25 @@ function Invoke-DeployLocked {
         }
     }
 
-    Write-Host "K-Comms local release is healthy at http://127.0.0.1:$AppPort/app/"
+    Write-Host "K-Comms local release is healthy at http://$BindAddress`:$AppPort/app/"
+    Write-Host "Bind address: $BindAddress"
+    Write-Host "Public host: $BindAddress"
+    Write-Host (
+        "Network interface: $($releaseNetworkObservation.InterfaceAlias) " +
+        "(index $($releaseNetworkObservation.InterfaceIndex))"
+    )
+    Write-Host (
+        "Network profile: $($releaseNetworkObservation.NetworkName) " +
+        "[$($releaseNetworkObservation.NetworkCategory)]"
+    )
+    Write-Host (
+        "Public network profile override authorized: " +
+        "$($releaseNetworkObservation.AllowPublicNetworkProfile)"
+    )
+    Write-Host (
+        "Public network profile override used: " +
+        "$($releaseNetworkObservation.PublicNetworkProfileOverrideUsed)"
+    )
     Write-Host "Revision: $Revision"
     Write-Host "Image: $imageReference"
     Write-Host "Image ID: $($image.imageId)"
@@ -2998,6 +5672,16 @@ function Invoke-RollbackLocked {
     }
     $target = Read-JsonFile -Path $current.previousReceiptPath
     Assert-RetainedReleaseAssets -Receipt $current
+    Assert-RetainedReleaseAssets -Receipt $target
+    $null = Resolve-ReceiptNetworkTopology -Receipt $current
+    $targetTopology = Resolve-ReceiptNetworkTopology -Receipt $target
+    if (
+        (Test-ReceiptRequiresLanForwarder -Receipt $current) -or
+        (Test-ReceiptRequiresLanForwarder -Receipt $target)
+    ) {
+        Assert-RequiredTools -Commands @("node")
+    }
+    Stop-LanForwarder -Receipt $current -AllowNotRunning
     Assert-GuestRollbackSafe `
         -CurrentReceipt $current `
         -TargetReceipt $target `
@@ -3013,11 +5697,25 @@ function Invoke-RollbackLocked {
         rolledBackAt = [DateTime]::UtcNow.ToString("o")
         fromReceiptPath = $current.receiptPath
         toReceiptPath = $target.receiptPath
+        publicAppUrl = $targetTopology.PublicAppUrl
+        network = New-ReceiptNetworkRecord `
+            -Observation $targetTopology `
+            -PublicAppUrl $targetTopology.PublicAppUrl
         migrationDirection = "none"
         result = "healthy"
     })
     Write-Host "Restored K-Comms revision $($target.revision) without down migrations."
-    Write-Host "Application: http://127.0.0.1:$($target.ports.app)/app/"
+    Write-Host "Bind address: $($targetTopology.BindAddress)"
+    Write-Host "Public host: $($targetTopology.PublicHost)"
+    Write-Host (
+        "Network profile: $($targetTopology.NetworkName) " +
+        "[$($targetTopology.NetworkCategory)]"
+    )
+    Write-Host (
+        "Public network profile override used: " +
+        "$($targetTopology.PublicNetworkProfileOverrideUsed)"
+    )
+    Write-Host "Application: $($targetTopology.PublicAppUrl)/app/"
     Write-Host "Rollback receipt: $eventPath"
 }
 
@@ -3112,12 +5810,56 @@ function Invoke-Status {
         return
     }
     Assert-RetainedReleaseAssets -Receipt $current
+    $networkTopologyMatchesReceipt = $false
+    $networkTopologyDetail = ""
+    try {
+        $observedNetworkTopology =
+            Resolve-ReceiptNetworkTopology -Receipt $current
+        $networkTopologyMatchesReceipt = $true
+        $networkTopologyDetail = (
+            "$($observedNetworkTopology.InterfaceAlias) " +
+            "(index $($observedNetworkTopology.InterfaceIndex)); " +
+            "$($observedNetworkTopology.NetworkName) " +
+            "[$($observedNetworkTopology.NetworkCategory)]"
+        )
+    }
+    catch {
+        $networkTopologyDetail = $_.Exception.Message
+    }
     $observation = Get-AppRuntimeObservation -Receipt $current
+    $forwarderObservation = Get-LanForwarderObservation -Receipt $current
+    $recordedBindAddress = Get-ReceiptBindAddress -Receipt $current
+    $recordedPublicHost = Get-ReceiptPublicHost -Receipt $current
+    $recordedPublicAppUrl = Get-ReceiptPublicAppUrl -Receipt $current
+    $recordedNetworkProfile = Get-ReceiptNetworkProfileRecord -Receipt $current
     Write-Host "Recorded revision: $($current.revision)"
     Write-Host "Recorded image: $($current.imageReference)"
     Write-Host "Recorded image ID: $($current.imageId)"
     Write-Host "Image digest: $($current.imageDigest)"
-    Write-Host "Application: http://127.0.0.1:$($current.ports.app)/app/"
+    Write-Host "Bind address: $recordedBindAddress"
+    Write-Host "Public host: $recordedPublicHost"
+    Write-Host (
+        "Recorded network interface: $($recordedNetworkProfile.InterfaceAlias) " +
+        "(index $($recordedNetworkProfile.InterfaceIndex))"
+    )
+    Write-Host (
+        "Recorded network profile: $($recordedNetworkProfile.NetworkName) " +
+        "[$($recordedNetworkProfile.NetworkCategory)]"
+    )
+    Write-Host (
+        "Public network profile override authorized: " +
+        "$($recordedNetworkProfile.AllowPublicNetworkProfile)"
+    )
+    Write-Host (
+        "Public network profile override used: " +
+        "$($recordedNetworkProfile.PublicNetworkProfileOverrideUsed)"
+    )
+    Write-Host (
+        "Observed network topology matches receipt: " +
+        "$networkTopologyMatchesReceipt"
+    )
+    Write-Host "Observed network topology: $networkTopologyDetail"
+    Write-Host "Application: $recordedPublicAppUrl/app/"
     Write-Host "Receipt: $($current.receiptPath)"
     Write-Host "Observed application state: $($observation.Status)"
     Write-Host "Observed application health: $($observation.Health)"
@@ -3125,12 +5867,34 @@ function Invoke-Status {
         Write-Host "Observed image ID: $($observation.ImageId)"
     }
     Write-Host "Observed image matches receipt: $($observation.ImageMatchesReceipt)"
+    Write-Host "Forwarder: $($forwarderObservation.Status)"
+    if ($forwarderObservation.Required) {
+        Write-Host (
+            "Observed forwarder matches receipt: " +
+            "$($forwarderObservation.ProcessMatchesReceipt)"
+        )
+        Write-Host (
+            "Observed forwarder configuration hash matches receipt: " +
+            "$($forwarderObservation.ConfigHashMatchesReceipt)"
+        )
+        Write-Host (
+            "Observed forwarder listeners match receipt: " +
+            "$($forwarderObservation.ListenersMatchReceipt)"
+        )
+        Write-Host "Observed forwarder process ID: $($forwarderObservation.ProcessId)"
+        Write-Host "Observed forwarder detail: $($forwarderObservation.Detail)"
+    }
     if (
+        -not $networkTopologyMatchesReceipt -or
         $observation.Status -ne "running" -or
         $observation.Health -ne "healthy" -or
-        -not $observation.ImageMatchesReceipt
+        -not $observation.ImageMatchesReceipt -or
+        $forwarderObservation.Status -notin @("ready", "not-required")
     ) {
-        Write-Warning "Recorded release is not currently observed as healthy on its recorded image."
+        Write-Warning (
+            "Recorded release is not currently observed with its sealed network " +
+            "topology, healthy application state, and recorded image."
+        )
     }
     if (Get-Command podman -ErrorAction SilentlyContinue) {
         Invoke-Compose `
@@ -3165,8 +5929,27 @@ function Invoke-StartLocked {
         throw "No successful K-Comms local release is recorded"
     }
     Assert-ImmutableRestartReceipt -Receipt $current
+    $topology = Resolve-ReceiptNetworkTopology -Receipt $current
+    if (Test-ReceiptRequiresLanForwarder -Receipt $current) {
+        Assert-RequiredTools -Commands @("node")
+    }
+
+    $retainedImage = Get-ImageEvidence `
+        -ImageReference $current.imageReference `
+        -ExpectedRevision $current.revision
+    if ($retainedImage.imageId -ne $current.imageId) {
+        throw "Retained image tag no longer resolves to the recorded image ID"
+    }
+    if (
+        [string]$current.imageDigest -and
+        $retainedImage.imageDigest -ne [string]$current.imageDigest
+    ) {
+        throw "Retained image digest no longer matches the recorded image digest"
+    }
+    Stop-LanForwarder -Receipt $current -AllowNotRunning
 
     Assert-CandidatePorts `
+        -CandidateBindAddress $topology.BindAddress `
         -CandidateAppPort ([int]$current.ports.app) `
         -CandidateMinioPort ([int]$current.ports.minio) `
         -CandidateMinioConsolePort ([int]$current.ports.minioConsole) `
@@ -3202,6 +5985,10 @@ function Invoke-StartLocked {
             revision = $current.revision
             imageReference = $current.imageReference
             imageId = $current.imageId
+            publicAppUrl = $topology.PublicAppUrl
+            network = New-ReceiptNetworkRecord `
+                -Observation $topology `
+                -PublicAppUrl $topology.PublicAppUrl
             migration = [ordered]@{
                 command = "CommsCore.Release.migrate()"
                 direction = "up"
@@ -3219,6 +6006,10 @@ function Invoke-StartLocked {
                 receiptPath = $current.receiptPath
                 revision = $current.revision
                 imageReference = $current.imageReference
+                publicAppUrl = $topology.PublicAppUrl
+                network = New-ReceiptNetworkRecord `
+                    -Observation $topology `
+                    -PublicAppUrl $topology.PublicAppUrl
                 message = $startError.Exception.Message
                 result = "failed"
             })
@@ -3230,7 +6021,17 @@ function Invoke-StartLocked {
     }
 
     Write-Host "Started retained K-Comms revision $($current.revision) without rebuilding source."
-    Write-Host "Application: http://127.0.0.1:$($current.ports.app)/app/"
+    Write-Host "Bind address: $($topology.BindAddress)"
+    Write-Host "Public host: $($topology.PublicHost)"
+    Write-Host (
+        "Network profile: $($topology.NetworkName) " +
+        "[$($topology.NetworkCategory)]"
+    )
+    Write-Host (
+        "Public network profile override used: " +
+        "$($topology.PublicNetworkProfileOverrideUsed)"
+    )
+    Write-Host "Application: $($topology.PublicAppUrl)/app/"
     Write-Host "Start receipt: $eventPath"
 }
 
@@ -3240,7 +6041,6 @@ function Invoke-Stop {
         Write-Host "No successful K-Comms local release is recorded."
         return
     }
-    Ensure-PodmanReady
     Initialize-OwnedStateDirectory -Path $StateRoot -ExpectedProject $ProjectName
     $operationLock = Enter-ReleaseOperationLock -Path $StateRoot -ComposeProject $ProjectName
     try {
@@ -3258,6 +6058,8 @@ function Invoke-StopLocked {
         return
     }
     Assert-RetainedReleaseAssets -Receipt $current
+    Stop-LanForwarder -Receipt $current -AllowNotRunning
+    Ensure-PodmanReady
     Invoke-Compose `
         -EnvironmentFile $current.environmentFile `
         -ComposeProject $current.projectName `

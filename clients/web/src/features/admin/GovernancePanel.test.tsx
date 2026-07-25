@@ -29,6 +29,7 @@ const activeConversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "Release planning",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 7,

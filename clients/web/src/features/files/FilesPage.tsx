@@ -4,11 +4,16 @@ import { downloadUrl } from "../../api";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import {
-  conversationTitle,
   errorText,
   formatBytes,
   formatDateTime
 } from "../../lib/format";
+import {
+  conversationParticipantIdentifier,
+  duplicateDirectConversationNames,
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import type {
   Conversation,
   FileSafetyState,
@@ -81,6 +86,14 @@ export function FilesPage() {
     () => new Map(users.map((user) => [user.id, user])),
     [users]
   );
+  const duplicateDirectNames = useMemo(
+    () => duplicateDirectConversationNames(conversations),
+    [conversations]
+  );
+  const duplicateUserNames = useMemo(
+    () => duplicateParticipantNames(users),
+    [users]
+  );
   if (!session) return null;
 
   async function openDownload(file: FileSummary) {
@@ -146,9 +159,22 @@ export function FilesPage() {
                 <option value="">All conversations</option>
                 {conversations
                   .filter((conversation) => !conversation.archived_at)
-                  .sort((left, right) => conversationTitle(left).localeCompare(conversationTitle(right)))
+                  .sort((left, right) =>
+                    conversationParticipantIdentifier(left, duplicateDirectNames)
+                      .localeCompare(
+                        conversationParticipantIdentifier(
+                          right,
+                          duplicateDirectNames
+                        )
+                      )
+                  )
                   .map((conversation) => (
-                    <option key={conversation.id} value={conversation.id}>{conversationTitle(conversation)}</option>
+                    <option key={conversation.id} value={conversation.id}>
+                      {conversationParticipantIdentifier(
+                        conversation,
+                        duplicateDirectNames
+                      )}
+                    </option>
                   ))}
               </select>
             </label>
@@ -190,6 +216,8 @@ export function FilesPage() {
                 file={file}
                 conversation={conversationById.get(file.conversation_id)}
                 owner={userById.get(file.owner_user_id)}
+                duplicateDirectNames={duplicateDirectNames}
+                duplicateUserNames={duplicateUserNames}
                 downloading={downloadingId === file.id}
                 onDownload={() => void openDownload(file)}
               />
@@ -216,16 +244,25 @@ function FileRow({
   file,
   conversation,
   owner,
+  duplicateDirectNames,
+  duplicateUserNames,
   downloading,
   onDownload
 }: {
   file: FileSummary;
   conversation?: Conversation;
   owner?: User;
+  duplicateDirectNames: ReadonlySet<string>;
+  duplicateUserNames: ReadonlySet<string>;
   downloading: boolean;
   onDownload: () => void;
 }) {
-  const sourceTitle = conversation ? conversationTitle(conversation) : "Conversation";
+  const sourceTitle = conversation
+    ? conversationParticipantIdentifier(conversation, duplicateDirectNames)
+    : "Conversation";
+  const ownerIdentifier = owner
+    ? participantIdentifier(owner, duplicateUserNames)
+    : "a member";
   const sharedAt = file.shared_at || file.uploaded_at || file.inserted_at;
   return (
     <li className="file-row">
@@ -241,7 +278,7 @@ function FileRow({
           <span>{sourceTitle}</span>
         </p>
         <p>
-          <span>Shared by {owner?.display_name || "a member"}</span>
+          <span>Shared by {ownerIdentifier}</span>
           <span aria-hidden="true"> · </span>
           <time dateTime={sharedAt}>{formatDateTime(sharedAt)}</time>
         </p>

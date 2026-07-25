@@ -7,13 +7,15 @@ import type {
   ConversationMembership,
   GuestAccountConversionResult,
   Message,
-  MessagePage
+  MessagePage,
+  RetainedSenderLabel
 } from "../../types";
 
 export interface GuestRoomApi {
   conversation(): Promise<Conversation>;
   conversationMembers(): Promise<ConversationMembership[]>;
   messages(afterSequence?: number, limit?: number): Promise<MessagePage>;
+  messageSenderLabels(messageIds: string[]): Promise<RetainedSenderLabel[]>;
   sendMessage(input: {
     client_message_id: string;
     body: string;
@@ -56,6 +58,10 @@ export class MemberRoomApi implements GuestRoomApi {
 
   messages(afterSequence = 0, limit = 200): Promise<MessagePage> {
     return this.api.messages(this.conversationId, afterSequence, limit);
+  }
+
+  messageSenderLabels(messageIds: string[]): Promise<RetainedSenderLabel[]> {
+    return this.api.messageSenderLabels(this.conversationId, messageIds);
   }
 
   sendMessage(input: {
@@ -118,6 +124,10 @@ export class DelegatingRoomApi implements GuestRoomApi {
 
   messages(afterSequence = 0, limit = 200): Promise<MessagePage> {
     return this.delegate.messages(afterSequence, limit);
+  }
+
+  messageSenderLabels(messageIds: string[]): Promise<RetainedSenderLabel[]> {
+    return this.delegate.messageSenderLabels(messageIds);
   }
 
   sendMessage(input: {

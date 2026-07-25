@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import { StepUpProvider } from "../../app/step-up";
 import type { AuditEvent } from "../../types";
+import type { User } from "../../types";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { AuditPanel } from "./AuditPanel";
 
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: { stepUp: vi.fn() } }) }));
@@ -49,5 +54,54 @@ describe("AuditPanel export", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:audit-export");
     expect(await screen.findByRole("status")).toHaveTextContent("Downloaded 5000 audit events");
     expect(screen.getByRole("status")).toHaveTextContent("5,000-row limit");
+  });
+
+  it("disambiguates duplicate actor usernames in the audit list", async () => {
+    const users = [
+      {
+        id: "actor-one",
+        tenant_id: "tenant-1",
+        display_name: "Alex",
+        email: "alex.one@example.test",
+        account_type: "human",
+        role: "member",
+        status: "active"
+      },
+      {
+        id: "actor-two",
+        tenant_id: "tenant-1",
+        display_name: "ALEX",
+        email: "alex.two@example.test",
+        account_type: "human",
+        role: "member",
+        status: "active"
+      }
+    ] satisfies User[];
+    const events = users.map((actor, index) => ({
+      id: `audit-${index}`,
+      actor_user_id: actor.id,
+      action: "message.sent",
+      resource_type: "message",
+      resource_id: `message-${index}`,
+      metadata: {},
+      request_id: `request-${index}`,
+      inserted_at: "2026-07-12T10:00:00Z"
+    } satisfies AuditEvent));
+    const api = {
+      auditEvents: vi.fn().mockResolvedValue(events)
+    } as unknown as ApiClient;
+    const duplicates = duplicateParticipantNames(users);
+
+    render(
+      <StepUpProvider>
+        <AuditPanel api={api} users={users} />
+      </StepUpProvider>
+    );
+
+    for (const actor of users) {
+      expect(
+        await screen.findByText(participantIdentifier(actor, duplicates))
+      ).toBeVisible();
+    }
   });
 });

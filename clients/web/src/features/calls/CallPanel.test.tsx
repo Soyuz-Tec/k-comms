@@ -90,6 +90,7 @@ const conversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "group",
   title: "Design group",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,
@@ -106,6 +107,12 @@ const activeVideoCall: Call = {
   started_at: "2026-07-15T10:00:00Z",
   expires_at: "2026-07-15T18:00:00Z",
   can_end: true
+};
+
+const secondConversation: Conversation = {
+  ...conversation,
+  id: "conversation-2",
+  title: "Operations group"
 };
 
 const joined = {
@@ -296,6 +303,95 @@ describe("CallPanel video calls", () => {
     expect(linus.track.detach).toHaveBeenCalled();
   });
 
+  it("ignores old-room device and media failures after switching conversations", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const api = apiWith(activeVideoCall);
+    vi.mocked(api.call).mockImplementation(async (conversationId) =>
+      conversationId === conversation.id ? activeVideoCall : null
+    );
+    const user = userEvent.setup();
+    const view = render(
+      <CallPanel
+        api={api}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the video call" }))
+        .getByRole("button", { name: "Join video call" })
+    );
+    expect(await screen.findByText("Connected")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Unmute microphone" }));
+    expect(
+      await screen.findByRole("button", { name: "Mute microphone" })
+    ).toBeVisible();
+
+    const deviceSwitch = deferred<boolean>();
+    const screenShare = deferred<void>();
+    livekit.switchActiveDevice.mockImplementationOnce(() => deviceSwitch.promise);
+    livekit.localParticipant.setScreenShareEnabled.mockImplementationOnce(
+      () => screenShare.promise
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Microphone" }),
+      "mic-2"
+    );
+    await waitFor(() =>
+      expect(livekit.switchActiveDevice).toHaveBeenCalledWith(
+        "audioinput",
+        "mic-2",
+        true
+      )
+    );
+    await user.click(screen.getByRole("button", { name: "Share screen" }));
+    await waitFor(() =>
+      expect(livekit.localParticipant.setScreenShareEnabled)
+        .toHaveBeenCalledWith(true, expect.any(Object))
+    );
+
+    view.rerender(
+      <CallPanel
+        api={api}
+        conversation={secondConversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Start video call" })
+    );
+    const secondDialog = screen.getByRole("dialog", {
+      name: "Start a video call"
+    });
+    const secondMicrophone = within(secondDialog).getByRole<HTMLSelectElement>(
+      "combobox",
+      { name: /Microphone/ }
+    );
+    await waitFor(() => expect(secondMicrophone.value).toBe("mic-2"));
+
+    await act(async () => {
+      deviceSwitch.reject(new Error("old microphone switch failed"));
+      screenShare.reject(new Error("old screen share failed"));
+    });
+
+    expect(secondMicrophone.value).toBe("mic-2");
+    expect(screen.queryByText(/old microphone switch failed/i))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/old screen share failed/i))
+      .not.toBeInTheDocument();
+    expect(secondDialog).toBeVisible();
+  });
+
   it("focuses the connected dock and keeps collaboration routes one action away", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -429,3 +525,13 @@ describe("CallPanel video calls", () => {
     expect(livekit.disconnect).toHaveBeenCalledTimes(1);
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}

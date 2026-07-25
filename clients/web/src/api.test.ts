@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, downloadUrl, GuestApiClient } from "./api";
+import {
+  ApiClient,
+  downloadUrl,
+  GuestApiClient,
+  isApprovedPrivateLanObjectUrl
+} from "./api";
 import type { GuestSession, Session } from "./types";
 
 const session: Session = {
@@ -81,6 +86,47 @@ describe("presigned URL validation", () => {
     expect(downloadUrl({ url: "https://user:pass@objects.example.test/file", approved_origin: "https://objects.example.test" })).toBeNull();
     expect(downloadUrl({ url: "http://objects.example.test/file", approved_origin: "http://objects.example.test" })).toBeNull();
   });
+
+  it("permits cleartext object access only on the exact current RFC1918 host", () => {
+    const target = new URL("http://192.168.1.177:5900/k-comms/file");
+    const approved = new URL("http://192.168.1.177:5900");
+
+    expect(
+      isApprovedPrivateLanObjectUrl(
+        target,
+        approved,
+        new URL("http://192.168.1.177:4188/app")
+      )
+    ).toBe(true);
+    expect(
+      isApprovedPrivateLanObjectUrl(
+        target,
+        approved,
+        new URL("https://192.168.1.177:4188/app")
+      )
+    ).toBe(false);
+    expect(
+      isApprovedPrivateLanObjectUrl(
+        target,
+        approved,
+        new URL("http://192.168.1.178:4188/app")
+      )
+    ).toBe(false);
+    expect(
+      isApprovedPrivateLanObjectUrl(
+        target,
+        new URL("http://192.168.1.177:5901"),
+        new URL("http://192.168.1.177:4188/app")
+      )
+    ).toBe(false);
+    expect(
+      isApprovedPrivateLanObjectUrl(
+        new URL("http://203.0.113.10:5900/k-comms/file"),
+        new URL("http://203.0.113.10:5900"),
+        new URL("http://203.0.113.10:4188/app")
+      )
+    ).toBe(false);
+  });
 });
 
 describe("public password recovery", () => {
@@ -110,6 +156,7 @@ describe("instant-room API", () => {
     tenant_id: "tenant-1",
     kind: "group" as const,
     title: "Instant room",
+    counterpart_user_id: null,
     counterpart_display_name: null,
     visibility: "private" as const,
     latest_sequence: 0,
@@ -272,6 +319,7 @@ describe("guest communication API", () => {
       tenant_id: "tenant-1",
       kind: "group",
       title: "Launch room",
+      counterpart_user_id: null,
       counterpart_display_name: null,
       visibility: "private",
       latest_sequence: 0,
@@ -285,6 +333,121 @@ describe("guest communication API", () => {
       email_hint: "a***@example.test"
     }
   };
+
+  it("opts guest and member history reads into retained sender labels", async () => {
+    const page = {
+      data: [],
+      included: { sender_labels: [] },
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() =>
+        Promise.resolve(new Response(JSON.stringify(page), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }))
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const memberApi = new ApiClient("https://comms.test", session, vi.fn());
+    const guestApi = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      vi.fn()
+    );
+
+    await memberApi.messages("conversation-1", 7, 20, 30);
+    await guestApi.messages(9, 40);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/conversations/conversation-1/messages?after_sequence=7&limit=20&include=sender_labels&before_sequence=30"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://comms.test/api/v1/guest/conversation/messages?after_sequence=9&limit=40&include=sender_labels"
+    );
+  });
+
+  it("refreshes rendered sender labels through bounded member and guest batches", async () => {
+    const messageIds = Array.from(
+      { length: 201 },
+      (_, index) =>
+        `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`
+    );
+    const fetchMock = vi.fn<typeof fetch>((_input, options) => {
+      const requested = JSON.parse(String(options?.body)).message_ids as string[];
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: requested.map((id) => ({
+              id,
+              display_name: `Sender ${id.slice(-3)}`,
+              redacted: false
+            }))
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const memberApi = new ApiClient("https://comms.test", session, vi.fn());
+    const guestApi = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      vi.fn()
+    );
+
+    const labels = await memberApi.messageSenderLabels(
+      "conversation-1",
+      [...messageIds].reverse().concat(messageIds[0]!)
+    );
+    await guestApi.messageSenderLabels([messageIds[0]!]);
+
+    expect(labels).toHaveLength(201);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/conversations/conversation-1/message-sender-labels"
+    );
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).message_ids
+    ).toEqual(messageIds.slice(0, 200));
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).message_ids
+    ).toEqual(messageIds.slice(200));
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "https://comms.test/api/v1/guest/conversation/message-sender-labels"
+    );
+  });
+
+  it("opts thread reads into retained sender labels", async () => {
+    const thread = {
+      data: { root: {}, replies: [], reply_count: 0 },
+      included: { sender_labels: [] },
+      page: { has_more: false, next_before_sequence: null }
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(thread), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.messageThread("conversation-1", "message-1", 17, 25)).resolves.toEqual(
+      thread
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/conversations/conversation-1/messages/message-1/thread?limit=25&include=sender_labels&before_sequence=17"
+    );
+  });
 
   it("creates and revokes a host link through canonical resources", async () => {
     const link = {
@@ -787,7 +950,7 @@ describe("message search API", () => {
     })).resolves.toEqual(page);
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://comms.test/api/v1/search?q=release+plan&limit=25&cursor=opaque%2B%2F%3D&conversation_id=conversation-1&sender_user_id=user-2&after=2026-07-01T00%3A00%3A00Z&before=2026-08-01T00%3A00%3A00Z"
+      "https://comms.test/api/v1/search?q=release+plan&limit=25&include=sender_labels&cursor=opaque%2B%2F%3D&conversation_id=conversation-1&sender_user_id=user-2&after=2026-07-01T00%3A00%3A00Z&before=2026-08-01T00%3A00%3A00Z"
     );
   });
 });

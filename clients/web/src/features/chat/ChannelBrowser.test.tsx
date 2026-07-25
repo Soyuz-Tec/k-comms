@@ -10,6 +10,7 @@ const publicChannel: PublicChannel = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "Projects",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "tenant",
   latest_sequence: 0,

@@ -828,12 +828,12 @@ defmodule CommsCore.Conversations do
 
   def list_for_user_views(subject) do
     results = list_for_user(subject)
-    counterpart_names = direct_counterpart_display_names(results, subject)
+    counterparts = direct_counterparts(results, subject)
 
     Enum.map(results, fn result ->
       CommsCore.Conversations.Projector.user_conversation(
         result,
-        Map.get(counterpart_names, result.conversation.id)
+        Map.get(counterparts, result.conversation.id)
       )
     end)
   end
@@ -2123,32 +2123,31 @@ defmodule CommsCore.Conversations do
   defp project_direct_conversation_result({:error, _reason} = error, _subject), do: error
 
   defp project_authorized_user_conversation(result, subject) do
-    counterpart_names = direct_counterpart_display_names([result], subject)
+    counterparts = direct_counterparts([result], subject)
 
     CommsCore.Conversations.Projector.user_conversation(
       result,
-      Map.get(counterpart_names, result.conversation.id)
+      Map.get(counterparts, result.conversation.id)
     )
   end
 
   defp project_authorized_conversation(%Conversation{} = conversation, subject) do
-    counterpart_names =
-      direct_counterpart_display_names([%{conversation: conversation}], subject)
+    counterparts = direct_counterparts([%{conversation: conversation}], subject)
 
     CommsCore.Conversations.Projector.conversation(
       conversation,
-      Map.get(counterpart_names, conversation.id)
+      Map.get(counterparts, conversation.id)
     )
   end
 
-  defp direct_counterpart_display_names(results, subject) do
+  defp direct_counterparts(results, subject) do
     case Accounts.access_grant(subject) do
-      {:ok, grant} -> direct_counterpart_display_names_for_grant(results, grant)
+      {:ok, grant} -> direct_counterparts_for_grant(results, grant)
       _ -> %{}
     end
   end
 
-  defp direct_counterpart_display_names_for_grant(results, grant) do
+  defp direct_counterparts_for_grant(results, grant) do
     tenant_id = grant.tenant_id
     user_id = grant.user_id
 
@@ -2179,13 +2178,22 @@ defmodule CommsCore.Conversations do
         )
       end
 
-    display_names =
+    counterpart_users =
       tenant_id
       |> Accounts.resolve_user_views(Enum.map(counterpart_memberships, & &1.user_id))
-      |> Map.new(&{&1.id, &1.display_name})
+      |> Map.new(&{&1.id, &1})
 
     Map.new(counterpart_memberships, fn membership ->
-      {membership.conversation_id, Map.get(display_names, membership.user_id)}
+      counterpart =
+        case Map.get(counterpart_users, membership.user_id) do
+          %{id: id, display_name: display_name} ->
+            %{user_id: id, display_name: display_name}
+
+          nil ->
+            nil
+        end
+
+      {membership.conversation_id, counterpart}
     end)
   end
 

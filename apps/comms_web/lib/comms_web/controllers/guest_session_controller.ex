@@ -109,6 +109,12 @@ defmodule CommsWeb.GuestSessionController do
       |> Map.put(:request_id, conn.assigns[:request_id])
 
     with :ok <- Conversations.logout_guest_session(subject) do
+      CommsWeb.Broadcast.event(subject.guest_conversation_id, "membership.changed.v1", %{
+        user_id: subject.user_id,
+        action: "removed",
+        source: "guest_link"
+      })
+
       CommsWeb.Endpoint.broadcast("session_socket:#{subject.session_id}", "disconnect", %{})
       send_resp(conn, :no_content, "")
     end

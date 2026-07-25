@@ -33,6 +33,12 @@ export interface DirectoryPerson {
   display_name: string;
 }
 
+export interface RetainedSenderLabel {
+  id: string;
+  display_name: string;
+  redacted: boolean;
+}
+
 export interface DirectoryPeoplePage {
   data: DirectoryPerson[];
   page: {
@@ -165,6 +171,7 @@ export interface Conversation {
   tenant_id: string;
   kind: "direct" | "group" | "channel";
   title: string | null;
+  counterpart_user_id: string | null;
   counterpart_display_name: string | null;
   visibility: "private" | "tenant";
   latest_sequence: number;
@@ -314,6 +321,9 @@ export interface MessageThread {
     replies: Message[];
     reply_count: number;
   };
+  included?: {
+    sender_labels: RetainedSenderLabel[];
+  };
   page: {
     has_more: boolean;
     next_before_sequence: number | null;
@@ -436,6 +446,9 @@ export interface UploadDescriptor {
 
 export interface MessagePage {
   data: Message[];
+  included?: {
+    sender_labels: RetainedSenderLabel[];
+  };
   page: {
     has_more: boolean;
     next_after_sequence: number | null;
@@ -454,6 +467,9 @@ export interface MessageSearchOptions {
 
 export interface MessageSearchPage {
   data: Message[];
+  included?: {
+    sender_labels: RetainedSenderLabel[];
+  };
   page: {
     limit: number;
     has_more: boolean;

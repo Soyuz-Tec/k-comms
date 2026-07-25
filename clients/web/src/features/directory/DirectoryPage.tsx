@@ -4,6 +4,10 @@ import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { conversationTitle, errorText } from "../../lib/format";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { canManageUsers } from "../../lib/roles";
 import type {
   CallMediaKind,
@@ -307,6 +311,7 @@ function DirectoryPeople({
   showInvite: boolean;
   onStart: (person: DirectoryPerson, mode: StartMode) => Promise<void>;
 }) {
+  const duplicateNames = duplicateParticipantNames(people);
   if (people.length === 0) {
     return (
       <DirectoryEmpty
@@ -322,15 +327,16 @@ function DirectoryPeople({
   }
   return (
     <ul className="directory-list" aria-label="People">
-      {people.map((person) => (
-        <li key={person.id} className="directory-row">
+      {people.map((person) => {
+        const identifier = participantIdentifier(person, duplicateNames);
+        return <li key={person.id} className="directory-row">
           <AvatarBadge name={person.display_name} />
           <div className="directory-row-copy">
-            <strong>{person.display_name}</strong>
+            <strong>{identifier}</strong>
             <small>Workspace member</small>
           </div>
           <QuickActions
-            name={person.display_name}
+            name={identifier}
             busyAction={busyAction}
             actionPrefix={person.id}
             audioEnabled={audioEnabled}
@@ -338,7 +344,7 @@ function DirectoryPeople({
             onAction={(mode) => void onStart(person, mode)}
           />
         </li>
-      ))}
+      })}
     </ul>
   );
 }

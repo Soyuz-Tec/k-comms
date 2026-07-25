@@ -406,6 +406,113 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   min-height: 44px;
 }
 
+.guest-participant-roster {
+  width: min(960px, 100%);
+  flex: 0 0 auto;
+  align-self: center;
+  padding: .65rem .8rem;
+  border-inline: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f8f7f1;
+}
+
+.guest-participant-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .45rem;
+}
+
+.guest-participant-heading h2 {
+  margin: 0;
+  font-size: .9rem;
+}
+
+.guest-participant-heading > span {
+  color: var(--ink-soft);
+  font-size: .75rem;
+  white-space: nowrap;
+}
+
+.guest-participant-roster ul {
+  max-height: 7rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: .4rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-gutter: stable;
+}
+
+.guest-participant-roster li {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .35rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.guest-participant-identity {
+  min-width: 0;
+  display: grid;
+  gap: .1rem;
+}
+
+.guest-participant-identity strong,
+.guest-participant-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guest-participant-identity strong {
+  font-size: .82rem;
+}
+
+.guest-participant-you {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.guest-participant-disambiguator {
+  color: var(--ink-soft);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .025em;
+}
+
+.guest-participant-identity small {
+  display: flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: .7rem;
+}
+
+.guest-participant-presence {
+  width: .5rem;
+  height: .5rem;
+  flex: 0 0 auto;
+  margin-right: .3rem;
+  border-radius: 50%;
+  background: #74827e;
+}
+
+.guest-participant-presence.online {
+  background: #15875e;
+}
+
+.guest-participant-presence.unknown {
+  border: 1px solid #74827e;
+  background: transparent;
+}
+
 .guest-room {
   width: min(960px, 100%);
   min-height: 0;
@@ -647,6 +754,14 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     padding: .8rem;
   }
 
+  .guest-participant-roster {
+    padding: .55rem .7rem;
+  }
+
+  .guest-participant-roster ul {
+    max-height: 6.5rem;
+  }
+
   .guest-composer {
     position: sticky;
     bottom: 0;
@@ -658,6 +773,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-share-dialog,
   .guest-entry-card,
   .guest-room,
+  .guest-participant-roster,
   .guest-badge,
   .guest-qr {
     border: 1px solid CanvasText;

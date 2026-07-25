@@ -396,6 +396,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Ordered message page clipped to the admission history boundary
@@ -427,6 +431,26 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/message-sender-labels:
+    post:
+      tags: [Guest Access]
+      operationId: refreshGuestMessageSenderLabels
+      summary: Refresh labels for rendered authors inside the guest admission history boundary
+      security: [{guestBearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SenderLabelRefreshRequest'}
+      responses:
+        '200':
+          description: Labels derived only from requested messages inside guest-visible history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SenderLabelRefreshResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/guest/conversation/read-cursor:
     put:
@@ -1086,6 +1110,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Ordered durable message page with an explicit continuation state
@@ -1111,6 +1139,27 @@ paths:
               $ref: '#/components/schemas/SendMessageRequest'
       responses:
         '201': {description: Canonical committed message}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/message-sender-labels:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [Messages]
+      operationId: refreshMessageSenderLabels
+      summary: Refresh labels for rendered authors inside the caller's authorized history
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SenderLabelRefreshRequest'}
+      responses:
+        '200':
+          description: Labels derived only from requested messages inside authorized history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SenderLabelRefreshResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/read-cursor:
@@ -1147,6 +1196,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by the root and this authorized reply page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Canonical thread root and ascending bounded reply page
@@ -1254,6 +1307,10 @@ paths:
           in: query
           description: Exclusive upper bound for message creation time
           schema: {type: string, format: date-time}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized result page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Membership-filtered message matches with an opaque continuation cursor
@@ -3592,6 +3649,34 @@ components:
       properties:
         id: {type: string, format: uuid}
         display_name: {type: string, minLength: 1, maxLength: 120}
+    RetainedSenderLabel:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, redacted]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        redacted: {type: boolean}
+    SenderLabelRefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [message_ids]
+      properties:
+        message_ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items: {type: string, format: uuid}
+    SenderLabelRefreshResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          maxItems: 200
+          items: {$ref: '#/components/schemas/RetainedSenderLabel'}
     DirectoryPersonPage:
       type: object
       additionalProperties: false
@@ -3621,12 +3706,16 @@ components:
         created: {type: boolean}
     Conversation:
       type: object
-      required: [id, tenant_id, kind, title, counterpart_display_name, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
+      required: [id, tenant_id, kind, title, counterpart_user_id, counterpart_display_name, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         kind: {enum: [direct, group, channel]}
         title: {type: [string, 'null'], maxLength: 160}
+        counterpart_user_id:
+          type: [string, 'null']
+          format: uuid
+          description: Server-derived current counterpart identifier for an authorized direct conversation; null for non-direct conversations.
         counterpart_display_name:
           type: [string, 'null']
           maxLength: 120
@@ -3837,6 +3926,15 @@ components:
         data:
           type: array
           items: {$ref: '#/components/schemas/Message'}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           required: [has_more, reset_required]
@@ -3852,6 +3950,15 @@ components:
         data:
           type: array
           items: {$ref: '#/components/schemas/Message'}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           additionalProperties: false
@@ -3875,6 +3982,15 @@ components:
               type: array
               items: {$ref: '#/components/schemas/Message'}
             reply_count: {type: integer, minimum: 0}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           additionalProperties: false

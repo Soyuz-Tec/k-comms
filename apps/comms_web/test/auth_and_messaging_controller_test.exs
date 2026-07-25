@@ -157,6 +157,95 @@ defmodule CommsWeb.AuthAndMessagingControllerTest do
              "reset_required" => false
            }
 
+    refute Map.has_key?(replay, "included")
+
+    replay_with_labels =
+      authenticated_conn(token)
+      |> get(
+        "/api/v1/conversations/#{conversation_id}/messages?after_sequence=0&limit=50&include=sender_labels"
+      )
+      |> json_response(200)
+
+    assert replay_with_labels["data"] == replay["data"]
+
+    assert replay_with_labels["included"]["sender_labels"] == [
+             %{"id" => me["user"]["id"], "display_name" => "Owner", "redacted" => false}
+           ]
+
+    refreshed_labels =
+      authenticated_conn(token)
+      |> post(
+        "/api/v1/conversations/#{conversation_id}/message-sender-labels",
+        %{message_ids: [message_id]}
+      )
+      |> json_response(200)
+
+    assert refreshed_labels["data"] == [
+             %{
+               "id" => me["user"]["id"],
+               "display_name" => "Owner",
+               "redacted" => false
+             }
+           ]
+
+    assert authenticated_conn(token)
+           |> post(
+             "/api/v1/conversations/#{conversation_id}/message-sender-labels",
+             %{message_ids: [message_id, message_id]}
+           )
+           |> json_response(422) == %{
+             "error" => %{
+               "code" => "invalid_message_ids",
+               "detail" => "The request could not be processed"
+             }
+           }
+
+    assert authenticated_conn(token)
+           |> post(
+             "/api/v1/conversations/#{conversation_id}/message-sender-labels",
+             %{}
+           )
+           |> response(422)
+
+    assert authenticated_conn(token)
+           |> post(
+             "/api/v1/conversations/#{Ecto.UUID.generate()}/message-sender-labels",
+             %{message_ids: [message_id]}
+           )
+           |> response(403)
+
+    reply =
+      authenticated_conn(token)
+      |> put_req_header("idempotency-key", "web-thread-reply-0001")
+      |> post("/api/v1/conversations/#{conversation_id}/messages", %{
+        body: "Thread reply",
+        reply_to_message_id: message_id
+      })
+      |> json_response(201)
+
+    thread =
+      authenticated_conn(token)
+      |> get("/api/v1/conversations/#{conversation_id}/messages/#{reply["data"]["id"]}/thread")
+      |> json_response(200)
+
+    assert thread["data"]["root"]["id"] == message_id
+    assert Enum.map(thread["data"]["replies"], & &1["id"]) == [reply["data"]["id"]]
+    refute Map.has_key?(thread, "included")
+
+    thread_with_labels =
+      authenticated_conn(token)
+      |> get(
+        "/api/v1/conversations/#{conversation_id}/messages/#{message_id}/thread?include=sender_labels"
+      )
+      |> json_response(200)
+
+    assert thread_with_labels["data"] == thread["data"]
+    assert thread_with_labels["page"] == thread["page"]
+
+    assert thread_with_labels["included"]["sender_labels"] == [
+             %{"id" => me["user"]["id"], "display_name" => "Owner", "redacted" => false}
+           ]
+
     deleted =
       authenticated_conn(token)
       |> delete("/api/v1/messages/#{message_id}")

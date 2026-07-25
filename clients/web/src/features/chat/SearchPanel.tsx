@@ -1,8 +1,18 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApiClient } from "../../api";
-import type { Conversation, Message, User } from "../../types";
-import { conversationTitle, errorText, formatTime } from "../../lib/format";
+import type { Conversation, Message, RetainedSenderLabel, User } from "../../types";
+import { errorText, formatTime } from "../../lib/format";
+import {
+  conversationParticipantIdentifier,
+  duplicateDirectConversationNames,
+  duplicateParticipantNames,
+  mergeRetainedSenderLabelMaps,
+  participantIdentifier,
+  retainedSenderLabelMap,
+  resolveVisibleSenderIdentity,
+  type ParticipantIdentity
+} from "../../lib/participantIdentity";
 import { useModalDialog } from "../../components/useModalDialog";
 
 type DateScope = "any" | "day" | "week" | "month";
@@ -12,6 +22,8 @@ const DATE_WINDOWS: Record<Exclude<DateScope, "any">, number> = {
   week: 7 * 24 * 60 * 60 * 1_000,
   month: 30 * 24 * 60 * 60 * 1_000
 };
+
+const SENDER_LABEL_REFRESH_DELAYS_MS = [30_000, 60_000, 120_000, 300_000] as const;
 
 export function SearchPanel({
   api,
@@ -36,15 +48,135 @@ export function SearchPanel({
   const [hasSearched, setHasSearched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retainedSenderLabelsById, setRetainedSenderLabelsById] = useState(
+    () => new Map<string, RetainedSenderLabel>()
+  );
+  const retainedSenderLabelsByIdRef = useRef(retainedSenderLabelsById);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const duplicateDirectoryNames = useMemo(
+    () => duplicateParticipantNames(users),
+    [users]
+  );
+  const visibleSenderIdentities = useMemo(() => {
+    const identitiesById = new Map<string, ParticipantIdentity>();
+    for (const message of results) {
+      const identity = resolveVisibleSenderIdentity(
+        message.sender_user_id,
+        new Map(),
+        retainedSenderLabelsById,
+        [usersById]
+      );
+      if (identity) identitiesById.set(identity.id, identity);
+    }
+    return identitiesById;
+  }, [results, retainedSenderLabelsById, usersById]);
+  const duplicateVisibleSenderNames = useMemo(
+    () => duplicateParticipantNames(visibleSenderIdentities.values()),
+    [visibleSenderIdentities]
+  );
   const conversationsById = useMemo(
     () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
+    [conversations]
+  );
+  const duplicateDirectNames = useMemo(
+    () => duplicateDirectConversationNames(conversations),
     [conversations]
   );
   const resultButtons = useRef<Array<HTMLButtonElement | null>>([]);
   const requestId = useRef(0);
   const submittedAfter = useRef<string | undefined>(undefined);
+  const senderLabelRefreshInFlightRef = useRef(false);
   const dialogRef = useModalDialog(onClose);
+
+  useEffect(() => {
+    retainedSenderLabelsByIdRef.current = retainedSenderLabelsById;
+  }, [retainedSenderLabelsById]);
+
+  useEffect(() => {
+    const messageIdsByConversation =
+      senderLabelMessageIdsByConversation(results);
+    if (messageIdsByConversation.size === 0) return;
+    let current = true;
+    let timeout: number | undefined;
+    let backoffIndex = 0;
+
+    const scheduleRefresh = () => {
+      if (!current || document.hidden) return;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        timeout = undefined;
+        void refreshSenderLabels();
+      }, SENDER_LABEL_REFRESH_DELAYS_MS[backoffIndex]);
+    };
+
+    const refreshSenderLabels = async () => {
+      if (document.hidden) return;
+      if (senderLabelRefreshInFlightRef.current) {
+        scheduleRefresh();
+        return;
+      }
+      senderLabelRefreshInFlightRef.current = true;
+      let labelsChanged = false;
+      try {
+        const settled = await Promise.allSettled(
+          [...messageIdsByConversation].map(
+            ([resultConversationId, messageIds]) =>
+              api.messageSenderLabels(
+                resultConversationId,
+                messageIds
+              )
+          )
+        );
+        if (!current) return;
+        const labels = settled.flatMap((result) =>
+          result.status === "fulfilled"
+            ? result.value
+            : []
+        );
+        if (labels.length > 0) {
+          const existing = retainedSenderLabelsByIdRef.current;
+          const merged = mergeRetainedSenderLabels(existing, labels);
+          labelsChanged = !retainedSenderLabelMapsEqual(existing, merged);
+          if (labelsChanged) {
+            retainedSenderLabelsByIdRef.current = merged;
+            setRetainedSenderLabelsById(merged);
+          }
+        }
+      } catch {
+        // This reconciliation is best effort and retries with bounded backoff.
+      } finally {
+        senderLabelRefreshInFlightRef.current = false;
+        if (current) {
+          backoffIndex = labelsChanged
+            ? 0
+            : Math.min(
+                backoffIndex + 1,
+                SENDER_LABEL_REFRESH_DELAYS_MS.length - 1
+              );
+          scheduleRefresh();
+        }
+      }
+    };
+
+    const visibilityChanged = () => {
+      if (!current) return;
+      if (document.hidden) {
+        if (timeout !== undefined) window.clearTimeout(timeout);
+        timeout = undefined;
+        return;
+      }
+      backoffIndex = 0;
+      scheduleRefresh();
+    };
+
+    document.addEventListener("visibilitychange", visibilityChanged);
+    scheduleRefresh();
+    return () => {
+      current = false;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
+  }, [api, results]);
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,6 +204,11 @@ export function SearchPanel({
       });
       if (currentRequest !== requestId.current) return;
       setResults((current) => append ? [...current, ...response.data] : response.data);
+      setRetainedSenderLabelsById((current) =>
+        append
+          ? mergeRetainedSenderLabels(current, response.included?.sender_labels)
+          : retainedSenderLabelMap(response.included?.sender_labels)
+      );
       setCursor(response.page.next_cursor);
       setHasMore(response.page.has_more);
       setHasSearched(true);
@@ -82,6 +219,7 @@ export function SearchPanel({
         setCursor(null);
         setHasMore(false);
         setHasSearched(false);
+        setRetainedSenderLabelsById(new Map());
       }
       setError(errorText(reason));
     } finally {
@@ -97,6 +235,7 @@ export function SearchPanel({
   function resetResults() {
     requestId.current += 1;
     setResults([]);
+    setRetainedSenderLabelsById(new Map());
     setCursor(null);
     setHasMore(false);
     submittedAfter.current = undefined;
@@ -116,6 +255,13 @@ export function SearchPanel({
     resultButtons.current[nextIndex]?.focus();
   }
 
+  function resultSenderIdentifier(userId: string): string {
+    const identity = visibleSenderIdentities.get(userId);
+    return identity
+      ? participantIdentifier(identity, duplicateVisibleSenderNames)
+      : "Unknown user";
+  }
+
   return (
     <div className="drawer-backdrop">
       <aside ref={dialogRef} className="search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title">
@@ -129,13 +275,13 @@ export function SearchPanel({
             <label>Conversation
               <select value={conversationId} onChange={(event) => { setConversationId(event.target.value); resetResults(); }}>
                 <option value="all">All conversations</option>
-                {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationTitle(conversation)}</option>)}
+                {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateDirectNames)}</option>)}
               </select>
             </label>
             <label>Sender
               <select value={senderId} onChange={(event) => { setSenderId(event.target.value); resetResults(); }}>
                 <option value="all">Anyone</option>
-                {users.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}
+                {users.map((user) => <option key={user.id} value={user.id}>{participantIdentifier(user, duplicateDirectoryNames)}</option>)}
               </select>
             </label>
             <label>Date
@@ -155,11 +301,65 @@ export function SearchPanel({
         <ol className="search-results" aria-describedby={hasSearched ? "message-search-summary" : undefined}>
           {results.map((message, index) => {
             const conversation = conversationsById.get(message.conversation_id);
-            return <li key={message.id}><button ref={(element) => { resultButtons.current[index] = element; }} type="button" onKeyDown={(event) => moveResultFocus(event, index)} onClick={() => onSelect(message)}><span><strong>{conversation ? conversationTitle(conversation) : "Conversation"}</strong><time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time></span><p>{message.body || "Message unavailable"}</p><small>{usersById.get(message.sender_user_id)?.display_name || "Unknown user"}</small></button></li>;
+            return <li key={message.id}><button ref={(element) => { resultButtons.current[index] = element; }} type="button" onKeyDown={(event) => moveResultFocus(event, index)} onClick={() => onSelect(message)}><span><strong>{conversation ? conversationParticipantIdentifier(conversation, duplicateDirectNames) : "Conversation"}</strong><time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time></span><p>{message.body || "Message unavailable"}</p><small>{resultSenderIdentifier(message.sender_user_id)}</small></button></li>;
           })}
         </ol>
         {hasMore && <button className="button ghost full" type="button" disabled={busy || !cursor} onClick={() => void loadResults(cursor, true)}>{busy ? "Loading…" : "Load more results"}</button>}
       </aside>
     </div>
+  );
+}
+
+function mergeRetainedSenderLabels(
+  current: Map<string, RetainedSenderLabel>,
+  incoming: RetainedSenderLabel[] | undefined
+): Map<string, RetainedSenderLabel> {
+  return mergeRetainedSenderLabelMaps(current, incoming);
+}
+
+function retainedSenderLabelMapsEqual(
+  left: ReadonlyMap<string, RetainedSenderLabel>,
+  right: ReadonlyMap<string, RetainedSenderLabel>
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [id, label] of left) {
+    const candidate = right.get(id);
+    if (
+      !candidate ||
+      candidate.display_name !== label.display_name ||
+      candidate.redacted !== label.redacted
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function senderLabelMessageIdsByConversation(
+  messages: Message[]
+): Map<string, string[]> {
+  const messageIdsByConversationAndSender = new Map<
+    string,
+    Map<string, string>
+  >();
+  for (const message of messages) {
+    const messageIdsBySender =
+      messageIdsByConversationAndSender.get(message.conversation_id) ||
+      new Map<string, string>();
+    if (!messageIdsBySender.has(message.sender_user_id)) {
+      messageIdsBySender.set(message.sender_user_id, message.id);
+    }
+    messageIdsByConversationAndSender.set(
+      message.conversation_id,
+      messageIdsBySender
+    );
+  }
+  return new Map(
+    [...messageIdsByConversationAndSender].map(
+      ([resultConversationId, messageIdsBySender]) => [
+        resultConversationId,
+        [...messageIdsBySender.values()]
+      ]
+    )
   );
 }

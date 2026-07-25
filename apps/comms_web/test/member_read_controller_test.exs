@@ -39,6 +39,7 @@ defmodule CommsWeb.MemberReadControllerTest do
     assert created["created"] == true
     assert created["data"]["kind"] == "direct"
     assert created["data"]["title"] == nil
+    assert created["data"]["counterpart_user_id"] == other_user.id
     assert created["data"]["counterpart_display_name"] == "Direct Member"
 
     listed =
@@ -47,8 +48,17 @@ defmodule CommsWeb.MemberReadControllerTest do
       |> get("/api/v1/conversations")
       |> json_response(200)
 
-    assert %{"counterpart_display_name" => "Direct Member", "title" => nil} =
+    assert %{
+             "counterpart_user_id" => counterpart_user_id,
+             "counterpart_display_name" => "Direct Member",
+             "title" => nil
+           } =
              Enum.find(listed["data"], &(&1["id"] == created["data"]["id"]))
+
+    assert counterpart_user_id == other_user.id
+
+    assert %{"counterpart_user_id" => nil} =
+             Enum.find(listed["data"], &(&1["id"] == account.conversation.id))
 
     shown =
       account
@@ -56,6 +66,7 @@ defmodule CommsWeb.MemberReadControllerTest do
       |> get("/api/v1/conversations/#{created["data"]["id"]}")
       |> json_response(200)
 
+    assert shown["data"]["counterpart_user_id"] == other_user.id
     assert shown["data"]["counterpart_display_name"] == "Direct Member"
     assert shown["data"]["title"] == nil
 
@@ -67,6 +78,7 @@ defmodule CommsWeb.MemberReadControllerTest do
 
     assert existing["created"] == false
     assert existing["data"]["id"] == created["data"]["id"]
+    assert existing["data"]["counterpart_user_id"] == other_user.id
     assert existing["data"]["counterpart_display_name"] == "Direct Member"
 
     missing =

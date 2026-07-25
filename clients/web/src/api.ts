@@ -49,6 +49,7 @@ import type {
   PushSubscriptionRecord,
   AuditEvent,
   RetentionPolicy,
+  RetainedSenderLabel,
   Session,
   ServiceAccount,
   ServiceAccountScope,
@@ -63,6 +64,7 @@ import type {
 
 const sessionKey = "k-comms.session.v1";
 const guestSessionKey = "k-comms.guest-session.v1";
+const senderLabelBatchSize = 200;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -971,11 +973,27 @@ export class ApiClient {
   ): Promise<MessagePage> {
     const query = new URLSearchParams({
       after_sequence: String(afterSequence),
-      limit: String(limit)
+      limit: String(limit),
+      include: "sender_labels"
     });
     if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
     return this.request<MessagePage>(
       `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`
+    );
+  }
+
+  messageSenderLabels(
+    conversationId: string,
+    messageIds: string[]
+  ): Promise<RetainedSenderLabel[]> {
+    return resolveSenderLabelBatches(messageIds, (batch) =>
+      this.request<DataResponse<RetainedSenderLabel[]>>(
+        `/api/v1/conversations/${encodeURIComponent(conversationId)}/message-sender-labels`,
+        {
+          method: "POST",
+          body: JSON.stringify({ message_ids: batch })
+        }
+      ).then((response) => response.data)
     );
   }
 
@@ -985,7 +1003,10 @@ export class ApiClient {
     beforeSequence?: number,
     limit = 50
   ): Promise<MessageThread> {
-    const query = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 100))) });
+    const query = new URLSearchParams({
+      limit: String(Math.max(1, Math.min(limit, 100))),
+      include: "sender_labels"
+    });
     if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
     return this.request(
       `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/thread?${query.toString()}`
@@ -1027,7 +1048,8 @@ export class ApiClient {
   searchMessagePage(query: string, options: MessageSearchOptions = {}): Promise<MessageSearchPage> {
     const params = new URLSearchParams({
       q: query,
-      limit: String(Math.max(1, Math.min(options.limit ?? 50, 200)))
+      limit: String(Math.max(1, Math.min(options.limit ?? 50, 200))),
+      include: "sender_labels"
     });
     if (options.cursor) params.set("cursor", options.cursor);
     if (options.conversation_id) params.set("conversation_id", options.conversation_id);
@@ -1342,9 +1364,22 @@ export class GuestApiClient {
   messages(afterSequence = 0, limit = 200): Promise<MessagePage> {
     const query = new URLSearchParams({
       after_sequence: String(afterSequence),
-      limit: String(limit)
+      limit: String(limit),
+      include: "sender_labels"
     });
     return this.request(`/api/v1/guest/conversation/messages?${query.toString()}`);
+  }
+
+  messageSenderLabels(messageIds: string[]): Promise<RetainedSenderLabel[]> {
+    return resolveSenderLabelBatches(messageIds, (batch) =>
+      this.request<DataResponse<RetainedSenderLabel[]>>(
+        "/api/v1/guest/conversation/message-sender-labels",
+        {
+          method: "POST",
+          body: JSON.stringify({ message_ids: batch })
+        }
+      ).then((response) => response.data)
+    );
   }
 
   sendMessage(input: SendMessageInput): Promise<Message> {
@@ -1522,6 +1557,24 @@ export class GuestApiClient {
   private url(path: string): string {
     return `${this.baseUrl.replace(/\/$/, "")}${path}`;
   }
+}
+
+async function resolveSenderLabelBatches(
+  messageIds: string[],
+  resolveBatch: (messageIds: string[]) => Promise<RetainedSenderLabel[]>
+): Promise<RetainedSenderLabel[]> {
+  const normalizedIds = [...new Set(messageIds)].sort();
+  const labels: RetainedSenderLabel[] = [];
+
+  for (let offset = 0; offset < normalizedIds.length; offset += senderLabelBatchSize) {
+    labels.push(
+      ...await resolveBatch(
+        normalizedIds.slice(offset, offset + senderLabelBatchSize)
+      )
+    );
+  }
+
+  return labels;
 }
 
 function unwrapData<T>(payload: DataResponse<T> | T): T {
@@ -1846,10 +1899,45 @@ function validatedPresignedUrl(descriptor: UploadDescriptor): string {
     target.protocol === "http:" &&
     ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) &&
     ["localhost", "127.0.0.1", "[::1]"].includes(approved.hostname);
-  if (target.protocol !== "https:" && !localDevelopment) {
+  const privateLanEvaluation = isApprovedPrivateLanObjectUrl(
+    target,
+    approved,
+    new URL(window.location.href)
+  );
+  if (target.protocol !== "https:" && !localDevelopment && !privateLanEvaluation) {
     throw new Error("Object-store URLs must use HTTPS");
   }
   return target.toString();
+}
+
+export function isApprovedPrivateLanObjectUrl(
+  target: URL,
+  approved: URL,
+  page: URL
+): boolean {
+  return (
+    target.protocol === "http:" &&
+    approved.protocol === "http:" &&
+    page.protocol === "http:" &&
+    target.origin === approved.origin &&
+    target.hostname === approved.hostname &&
+    target.hostname === page.hostname &&
+    isCanonicalRfc1918Host(target.hostname)
+  );
+}
+
+function isCanonicalRfc1918Host(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  if (parts.some((part) => !/^(0|[1-9][0-9]{0,2})$/.test(part))) return false;
+  const octets = parts.map(Number);
+  if (octets.some((octet) => octet > 255)) return false;
+  const [first, second] = octets as [number, number, number, number];
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
 }
 
 function attachmentContentType(file: File): string {

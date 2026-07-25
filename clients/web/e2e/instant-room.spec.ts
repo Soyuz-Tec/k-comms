@@ -35,7 +35,12 @@ test.describe("instant-room front door", () => {
       "44px"
     );
     await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
-    await expect(page.getByText(/1 person online/i)).toBeVisible();
+    await expect(page.getByText("Presence unknown · 1 total")).toBeVisible();
+    await expect(
+      page
+        .getByRole("list", { name: "Room participants" })
+        .getByText("Guest host", { exact: false })
+    ).toContainText("Guest host (you)");
 
     expect(fixture.createRequests).toHaveLength(1);
     expect(fixture.idempotencyKeys).toHaveLength(1);

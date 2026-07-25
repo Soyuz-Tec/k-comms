@@ -102,6 +102,12 @@ test.describe("guest communication by secure link or QR", () => {
 
     await expect(page.getByRole("main")).toHaveClass(/guest-shell/);
     await expect(page.getByRole("heading", { name: "Partner room" })).toBeVisible();
+    const participantRoster = page.getByRole("list", {
+      name: "Room participants"
+    });
+    await expect(participantRoster.getByText("Jordan Guest", { exact: false }))
+      .toContainText("Jordan Guest (you)");
+    await expect(participantRoster.getByText("Ada Host")).toBeVisible();
     expect(fixture.joinInput).toMatchObject({
       token: guestToken,
       display_name: "Jordan Guest",
@@ -113,6 +119,11 @@ test.describe("guest communication by secure link or QR", () => {
     await composer.fill("Hello from the shared guest room");
     await composer.press("Enter");
     await expect(page.getByText("Hello from the shared guest room", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".guest-message-meta").filter({
+        hasText: "Jordan Guest (you)"
+      })
+    ).toBeVisible();
     await expect(composer).toBeFocused();
     expect(fixture.guestMessageInput).toMatchObject({
       body: "Hello from the shared guest room",
@@ -168,6 +179,9 @@ test.describe("guest communication by secure link or QR", () => {
     await expect(page.getByRole("heading", { name: "Partner room" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "Room participants" })
+    ).toBeVisible();
     await expectNoDocumentOverflow(page);
     await expectNoWcagFailures(page);
     expect(fixture.joinInput?.display_name).toBe("Phone Guest");
@@ -445,14 +459,24 @@ async function installGuestCommunicationFixture(
     }
     if (method === "GET" && path === "/api/v1/guest/conversation/members") {
       return json(route, {
-        data: [{
-          id: "44444444-4444-4444-8444-444444444444",
-          role: "member",
-          joined_at: "2026-07-24T12:00:00Z",
-          last_read_sequence: 0,
-          version: 1,
-          user: guest
-        }]
+        data: [
+          {
+            id: "33333333-3333-4333-8333-333333333333",
+            role: "owner",
+            joined_at: "2026-07-24T11:00:00Z",
+            last_read_sequence: 0,
+            version: 1,
+            user: host
+          },
+          {
+            id: "44444444-4444-4444-8444-444444444444",
+            role: "member",
+            joined_at: "2026-07-24T12:00:00Z",
+            last_read_sequence: 0,
+            version: 1,
+            user: guest
+          }
+        ]
       });
     }
     if (method === "GET" && path === "/api/v1/guest/conversation/messages") {

@@ -174,6 +174,12 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
       refute Map.has_key?(meta, "device_id")
       refute Map.has_key?(meta, :connection_id)
       refute Map.has_key?(meta, "connection_id")
+      refute Map.has_key?(meta, :email)
+      refute Map.has_key?(meta, "email")
+      refute Map.has_key?(meta, :session_id)
+      refute Map.has_key?(meta, "session_id")
+      refute Map.has_key?(meta, :token)
+      refute Map.has_key?(meta, "token")
     end)
 
     command_id = "device-command-id-0001"
@@ -312,6 +318,44 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
     assert DateTime.compare(closed.closed_at, renewed.last_seen_at) in [:eq, :gt]
   end
 
+  test "presence deduplicates a user's tabs and removes the user only after the final tab leaves" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    topic = "conversation:#{account.conversation.id}"
+
+    socket_one = socket(CommsWeb.UserSocket, "user:#{account.user.id}:one", subject)
+    socket_two = socket(CommsWeb.UserSocket, "user:#{account.user.id}:two", subject)
+
+    assert {:ok, _reply, tab_one} =
+             subscribe_and_join(socket_one, ConversationChannel, topic, %{})
+
+    assert {:ok, _reply, tab_two} =
+             subscribe_and_join(socket_two, ConversationChannel, topic, %{})
+
+    presence =
+      wait_for_presence(topic, fn state ->
+        match?(%{metas: [_, _]}, Map.get(state, account.user.id))
+      end)
+
+    assert Map.keys(presence) == [account.user.id]
+    assert length(presence[account.user.id].metas) == 2
+
+    Process.unlink(tab_one.channel_pid)
+    assert_reply(leave(tab_one), :ok)
+
+    presence =
+      wait_for_presence(topic, fn state ->
+        match?(%{metas: [_]}, Map.get(state, account.user.id))
+      end)
+
+    assert Map.keys(presence) == [account.user.id]
+
+    Process.unlink(tab_two.channel_pid)
+    assert_reply(leave(tab_two), :ok)
+
+    assert %{} = wait_for_presence(topic, &(&1 == %{}))
+  end
+
   test "ephemeral message and typing limits reject before domain work" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -403,6 +447,22 @@ defmodule CommsWeb.ConversationChannelAuthorizationTest do
   end
 
   defp wait_for_lease(lease_id, predicate), do: wait_for_lease(lease_id, predicate, 50)
+
+  defp wait_for_presence(topic, predicate), do: wait_for_presence(topic, predicate, 100)
+
+  defp wait_for_presence(_topic, _predicate, 0),
+    do: flunk("presence did not reach the expected state")
+
+  defp wait_for_presence(topic, predicate, attempts_left) do
+    presence = CommsWeb.Presence.list(topic)
+
+    if predicate.(presence) do
+      presence
+    else
+      Process.sleep(10)
+      wait_for_presence(topic, predicate, attempts_left - 1)
+    end
+  end
 
   defp wait_for_lease(_lease_id, _predicate, 0),
     do: flunk("presence lease did not reach the expected state")

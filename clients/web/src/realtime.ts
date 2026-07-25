@@ -44,13 +44,13 @@ export class RealtimeInbox {
     });
     this.channel = (this.socket as DynamicSocket).channel(`user:${userId}`, { protocol_version: 1 });
     this.channel.on("conversation.activity.v1", (payload?: unknown) => {
-      if (isConversationActivityEvent(payload)) this.callbacks.onActivity(payload);
+      if (!this.stopped && isConversationActivityEvent(payload)) this.callbacks.onActivity(payload);
     });
     this.channel.on("conversation.membership.v1", (payload?: unknown) => {
-      if (isConversationMembershipEvent(payload)) this.callbacks.onMembership(payload);
+      if (!this.stopped && isConversationMembershipEvent(payload)) this.callbacks.onMembership(payload);
     });
     this.channel.on("notification.available.v1", (payload?: unknown) => {
-      if (isNotificationAvailableEvent(payload)) this.callbacks.onNotification(payload);
+      if (!this.stopped && isNotificationAvailableEvent(payload)) this.callbacks.onNotification(payload);
     });
     this.socket.onError(() => this.requestReconnect());
     this.socket.onClose(() => this.requestReconnect());
@@ -101,7 +101,7 @@ export interface RealtimeCallbacks {
   onAudioCallEnded: (event: CallRealtimeEvent) => void;
   onCatchUpRequired: (afterSequence: number) => void;
   onTyping: (userId: string, active: boolean) => void;
-  onPresence: (onlineUsers: number) => void;
+  onPresence: (onlineUsers: number, onlineUserIds: string[]) => void;
   onError: (message: string) => void;
   onReconnectRequired: () => void;
 }
@@ -112,6 +112,7 @@ export class RealtimeConversation {
   private readonly presence: Presence;
   private stopped = false;
   private reconnectRequested = false;
+  private joinAfterSequence = 0;
   private readonly deliveredCallEvents = new Set<string>();
 
   constructor(
@@ -129,38 +130,50 @@ export class RealtimeConversation {
 
     this.channel = (this.socket as DynamicSocket).channel(`conversation:${conversationId}`, () => ({
       protocol_version: 1,
-      after_sequence: this.afterSequence(),
+      after_sequence: this.joinAfterSequence,
       client_capabilities: ["message_revisions", "attachment_v2"]
     }));
     this.presence = new Presence(this.channel);
     this.presence.onSync(() => {
+      if (this.stopped) return;
       // Phoenix Presence resolves state/diff ordering and per-key metas before
       // this callback. Counting the final keys avoids drift when one person has
       // several tabs or a leave and join cross during reconnect.
-      this.callbacks.onPresence(this.presence.list().length);
+      const onlineUserIds = this.presence.list((userId) => userId);
+      this.callbacks.onPresence(onlineUserIds.length, onlineUserIds);
     });
 
     this.bindEvents();
   }
 
   connect(): void {
+    const preReplaySequence = this.afterSequence();
+    this.joinAfterSequence = preReplaySequence;
     this.callbacks.onStatus("connecting");
     this.socket.connect();
     this.channel
       .join()
       .receive("ok", (response?: unknown) => {
         if (this.stopped) return;
-        const { messages, hasMore, nextAfterSequence } = readReplay(response);
+        const { messages, hasMore } = readReplay(response);
         if (messages.length > 0) this.callbacks.onMessages(messages);
-        if (hasMore) this.callbacks.onCatchUpRequired(nextAfterSequence);
+        // The closed v1 replay messages intentionally contain no embedded
+        // sender projection. Re-read the same authorized sequence range via
+        // REST so its sender-label sidecar can reconcile departed identities.
+        // Consumers merge by message ID, so this does not duplicate messages.
+        if (messages.length > 0 || hasMore) {
+          this.callbacks.onCatchUpRequired(preReplaySequence);
+        }
         this.callbacks.onStatus("live");
       })
       .receive("error", (response?: unknown) => {
+        if (this.stopped) return;
         this.callbacks.onStatus("reconnecting");
         this.callbacks.onError(readReason(response, "Unable to join the conversation"));
         this.requestReconnect();
       })
       .receive("timeout", () => {
+        if (this.stopped) return;
         this.callbacks.onStatus("reconnecting");
         this.requestReconnect();
       });
@@ -189,6 +202,7 @@ export class RealtimeConversation {
   }
 
   setTyping(active: boolean): void {
+    if (this.stopped) return;
     this.channel.push("command", commandEnvelope(active ? "typing.start.v1" : "typing.stop.v1", {}));
   }
 
@@ -217,50 +231,57 @@ export class RealtimeConversation {
 
     for (const event of ["message.created.v1", "message.updated.v1", "message.deleted.v1"]) {
       this.channel.on(event, (payload?: unknown) => {
-        if (isMessage(payload)) this.callbacks.onMessages([payload]);
+        if (!this.stopped && isMessage(payload)) this.callbacks.onMessages([payload]);
       });
     }
     this.channel.on("message.reaction_added.v1", (payload?: unknown) => {
-      if (isReactionEvent(payload)) this.callbacks.onReactionAdded(payload);
+      if (!this.stopped && isReactionEvent(payload)) this.callbacks.onReactionAdded(payload);
     });
     this.channel.on("message.reaction_removed.v1", (payload?: unknown) => {
-      if (isReactionEvent(payload)) this.callbacks.onReactionRemoved(payload);
+      if (!this.stopped && isReactionEvent(payload)) this.callbacks.onReactionRemoved(payload);
     });
     this.channel.on("conversation.read.v1", (payload?: unknown) => {
-      if (isReadCursorEvent(payload)) this.callbacks.onRead(payload);
+      if (!this.stopped && isReadCursorEvent(payload)) this.callbacks.onRead(payload);
     });
     this.channel.on("membership.changed.v1", (payload?: unknown) => {
-      if (isMembershipEvent(payload)) this.callbacks.onMembershipChanged(payload);
+      if (!this.stopped && isMembershipEvent(payload)) this.callbacks.onMembershipChanged(payload);
     });
-    this.channel.on("conversation.updated.v1", () => this.callbacks.onConversationChanged());
-    this.channel.on("conversation.archived.v1", () => this.callbacks.onConversationChanged());
+    this.channel.on("conversation.updated.v1", () => {
+      if (!this.stopped) this.callbacks.onConversationChanged();
+    });
+    this.channel.on("conversation.archived.v1", () => {
+      if (!this.stopped) this.callbacks.onConversationChanged();
+    });
     this.channel.on("call.started.v1", (payload?: unknown) => {
-      if (isCallRealtimeEvent(payload, "active", true)) this.deliverCallEvent(payload);
+      if (!this.stopped && isCallRealtimeEvent(payload, "active", true)) this.deliverCallEvent(payload);
     });
     this.channel.on("call.ended.v1", (payload?: unknown) => {
-      if (isCallRealtimeEvent(payload, "ended", true)) this.deliverCallEvent(payload);
+      if (!this.stopped && isCallRealtimeEvent(payload, "ended", true)) this.deliverCallEvent(payload);
     });
     this.channel.on("audio_call.started.v1", (payload?: unknown) => {
-      if (isCallRealtimeEvent(payload, "active")) {
+      if (!this.stopped && isCallRealtimeEvent(payload, "active")) {
         if (!this.callbacks.onCallStarted) this.callbacks.onAudioCallStarted(payload);
         this.deliverCallEvent({ ...payload, media_kind: "audio" });
       }
     });
     this.channel.on("audio_call.ended.v1", (payload?: unknown) => {
-      if (isCallRealtimeEvent(payload, "ended")) {
+      if (!this.stopped && isCallRealtimeEvent(payload, "ended")) {
         if (!this.callbacks.onCallEnded) this.callbacks.onAudioCallEnded(payload);
         this.deliverCallEvent({ ...payload, media_kind: "audio" });
       }
     });
     this.channel.on("typing.start", (payload?: unknown) => {
+      if (this.stopped) return;
       const userId = readString(payload, "user_id");
       if (userId) this.callbacks.onTyping(userId, true);
     });
     this.channel.on("typing.stop", (payload?: unknown) => {
+      if (this.stopped) return;
       const userId = readString(payload, "user_id");
       if (userId) this.callbacks.onTyping(userId, false);
     });
     this.channel.on("typing.v1", (payload?: unknown) => {
+      if (this.stopped) return;
       const userId = readString(payload, "user_id");
       const state = readString(payload, "state");
       if (userId && (state === "started" || state === "stopped")) {
@@ -270,6 +291,7 @@ export class RealtimeConversation {
   }
 
   private deliverCallEvent(event: CallRealtimeEvent): void {
+    if (this.stopped) return;
     const key = `${event.id}:${event.status}`;
     if (this.deliveredCallEvents.has(key)) return;
     this.deliveredCallEvents.add(key);
@@ -321,25 +343,18 @@ export function socketEndpoint(apiBase: string): string {
 function readReplay(value: unknown): {
   messages: Message[];
   hasMore: boolean;
-  nextAfterSequence: number;
 } {
   if (!value || typeof value !== "object") {
-    return { messages: [], hasMore: false, nextAfterSequence: 0 };
+    return { messages: [], hasMore: false };
   }
   const response = value as {
     messages?: unknown;
     has_more?: unknown;
-    next_after_sequence?: unknown;
   };
   const messages = Array.isArray(response.messages) ? response.messages.filter(isMessage) : [];
-  const lastSequence = messages.at(-1)?.conversation_sequence || 0;
   return {
     messages,
-    hasMore: response.has_more === true,
-    nextAfterSequence:
-      typeof response.next_after_sequence === "number"
-        ? response.next_after_sequence
-        : lastSequence
+    hasMore: response.has_more === true
   };
 }
 

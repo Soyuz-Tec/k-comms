@@ -13,6 +13,7 @@ const firstConversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "group",
   title: "Execution room",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,

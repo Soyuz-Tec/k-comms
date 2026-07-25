@@ -59,5 +59,5 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
   await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
   await page.getByRole("button", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People, roles and sessions" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: /Ada Lovelace/ })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Ada Lovelace ada@example.test" })).toBeVisible();
 });

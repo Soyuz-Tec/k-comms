@@ -4,14 +4,17 @@ defmodule CommsCore.Conversations.Projector do
   alias CommsCore.Accounts.UserView
   alias CommsCore.Conversations.{Conversation, ConversationView, Membership, MembershipView}
 
-  def conversation(%Conversation{} = conversation, counterpart_display_name \\ nil) do
+  def conversation(%Conversation{} = conversation, counterpart \\ nil) do
+    {counterpart_user_id, counterpart_display_name} =
+      direct_counterpart(conversation, counterpart)
+
     struct!(ConversationView, %{
       id: conversation.id,
       tenant_id: conversation.tenant_id,
       kind: conversation.kind,
       title: if(conversation.kind == :direct, do: nil, else: conversation.title),
-      counterpart_display_name:
-        if(conversation.kind == :direct, do: counterpart_display_name, else: nil),
+      counterpart_user_id: counterpart_user_id,
+      counterpart_display_name: counterpart_display_name,
       visibility: conversation.visibility,
       latest_sequence: max(conversation.next_sequence - 1, 0),
       archived_at: conversation.archived_at,
@@ -23,10 +26,10 @@ defmodule CommsCore.Conversations.Projector do
 
   def user_conversation(
         %{conversation: %Conversation{} = conversation} = result,
-        counterpart_display_name \\ nil
+        counterpart \\ nil
       ) do
     conversation
-    |> conversation(counterpart_display_name)
+    |> conversation(counterpart)
     |> Map.merge(%{
       membership_role: result.membership_role,
       last_read_sequence: result.last_read_sequence,
@@ -63,4 +66,13 @@ defmodule CommsCore.Conversations.Projector do
   end
 
   def membership(nil), do: nil
+
+  defp direct_counterpart(
+         %Conversation{kind: :direct},
+         %{user_id: user_id, display_name: display_name}
+       )
+       when is_binary(user_id) and is_binary(display_name),
+       do: {user_id, display_name}
+
+  defp direct_counterpart(%Conversation{}, _counterpart), do: {nil, nil}
 end

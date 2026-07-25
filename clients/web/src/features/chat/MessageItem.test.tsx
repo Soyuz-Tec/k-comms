@@ -21,6 +21,68 @@ const message: Message = {
 };
 
 describe("MessageItem", () => {
+  it("uses the current username as the visible self identifier", () => {
+    render(
+      <MessageItem
+        message={{
+          ...message,
+          reply_to_message_id: "earlier-message"
+        }}
+        currentUserId="user-1"
+        senderName="Ada · #A1B2C"
+        replySenderName="Ada · #A1B2C"
+        replyPreview={{
+          ...message,
+          id: "earlier-message",
+          body: "Earlier message"
+        }}
+        seenCount={0}
+        focused={false}
+        onReaction={vi.fn()}
+        onAttachment={vi.fn()}
+        onReply={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onReport={vi.fn()}
+      />
+    );
+
+    expect(screen.getAllByText("Ada · #A1B2C (you)")).toHaveLength(2);
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+  });
+
+  it("renders explicitly resolved sender and reply labels without synthetic users", () => {
+    render(
+      <MessageItem
+        message={{
+          ...message,
+          sender_user_id: "departed-user",
+          reply_to_message_id: "earlier-message"
+        }}
+        currentUserId="user-1"
+        senderName="Departed Guest"
+        replySenderName="Earlier Guest"
+        replyPreview={{
+          ...message,
+          id: "earlier-message",
+          sender_user_id: "earlier-user",
+          body: "Earlier message"
+        }}
+        seenCount={0}
+        focused={false}
+        onReaction={vi.fn()}
+        onAttachment={vi.fn()}
+        onReply={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onReport={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Departed Guest")).toBeVisible();
+    expect(screen.getByText("Earlier Guest")).toBeVisible();
+  });
+
   it("blocks quarantined attachments and exposes their safety state", () => {
     render(<MessageItem message={message} currentUserId="user-1" seenCount={0} focused={false} onReaction={vi.fn()} onAttachment={vi.fn()} onReply={vi.fn()} onEdit={vi.fn()} onDelete={vi.fn()} onReport={vi.fn()} />);
     const attachment = screen.getByRole("button", { name: /report\.pdf/i });

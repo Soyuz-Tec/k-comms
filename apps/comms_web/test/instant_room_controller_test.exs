@@ -117,9 +117,13 @@ defmodule CommsWeb.InstantRoomControllerTest do
     assert Map.keys(preview["data"]) |> Enum.sort() ==
              ~w(expires_at participant_limit room_title status)
 
+    conversation_topic = "conversation:#{response["conversation"]["id"]}"
+    assert :ok = CommsWeb.Endpoint.subscribe(conversation_topic)
+    join_key = idempotency_key()
+
     joined =
       build_conn()
-      |> public_json_headers(idempotency_key())
+      |> public_json_headers(join_key)
       |> post(
         "/api/v1/instant-room-sessions",
         Jason.encode!(%{
@@ -137,9 +141,42 @@ defmodule CommsWeb.InstantRoomControllerTest do
     assert joined["user"]["id"] != response["user"]["id"]
     assert joined["capabilities"]["self_service_conversion"] == true
 
+    assert_receive %Phoenix.Socket.Broadcast{
+      topic: ^conversation_topic,
+      event: "membership.changed.v1",
+      payload: %{
+        user_id: joined_user_id,
+        action: "added",
+        role: :member,
+        source: "guest_link"
+      }
+    }
+
+    assert joined_user_id == joined["user"]["id"]
+    refute_received %Phoenix.Socket.Broadcast{topic: ^conversation_topic}
+
+    replayed_join =
+      build_conn()
+      |> public_json_headers(join_key)
+      |> post(
+        "/api/v1/instant-room-sessions",
+        Jason.encode!(%{
+          token: response["token"],
+          display_name: "Instant guest",
+          device: %{name: "Guest browser", platform: "web"}
+        })
+      )
+      |> json_response(200)
+
+    assert replayed_join["replayed"] == true
+    assert replayed_join["user"]["id"] == joined["user"]["id"]
+    refute_receive %Phoenix.Socket.Broadcast{topic: ^conversation_topic}, 50
+
     refreshed =
       build_conn()
-      |> post("/api/v1/guest/sessions/refresh", %{refresh_token: joined["refresh_token"]})
+      |> post("/api/v1/guest/sessions/refresh", %{
+        refresh_token: replayed_join["refresh_token"]
+      })
       |> json_response(200)
 
     assert refreshed["user"]["id"] == joined["user"]["id"]
@@ -169,6 +206,47 @@ defmodule CommsWeb.InstantRoomControllerTest do
     assert is_binary(response["share_url"])
     refute Map.has_key?(response, "access_token")
     refute Map.has_key?(response, "refresh_token")
+  end
+
+  test "a fresh human join for an already-active membership emits no added event", %{
+    account: account
+  } do
+    token =
+      account
+      |> Fixtures.authentication_result()
+      |> CommsWeb.Token.issue()
+      |> Map.fetch!(:access_token)
+
+    created =
+      build_conn()
+      |> public_json_headers(idempotency_key())
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> post(
+        "/api/v1/instant-rooms",
+        Jason.encode!(%{title: "Existing member room"})
+      )
+      |> json_response(201)
+
+    conversation_topic = "conversation:#{created["conversation"]["id"]}"
+    assert :ok = CommsWeb.Endpoint.subscribe(conversation_topic)
+
+    joined =
+      build_conn()
+      |> public_json_headers(idempotency_key())
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> post(
+        "/api/v1/instant-room-sessions",
+        Jason.encode!(%{token: created["token"]})
+      )
+      |> json_response(201)
+
+    assert joined["replayed"] == false
+
+    refute_receive %Phoenix.Socket.Broadcast{
+                     topic: ^conversation_topic,
+                     event: "membership.changed.v1"
+                   },
+                   50
   end
 
   test "a cross-tenant human falls back to a public-workspace guest without selecting a tenant",

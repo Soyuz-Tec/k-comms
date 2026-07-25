@@ -125,7 +125,10 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
     assert nested_reply.thread_root_message_id == root.id
 
     assert {:ok, first_page} =
-             Messaging.get_thread(account.conversation.id, nested_reply.id, subject, limit: 1)
+             Messaging.get_thread(account.conversation.id, nested_reply.id, subject,
+               limit: 1,
+               include_sender_labels: true
+             )
 
     assert %MessageView{} = first_page.root
     assert Enum.all?(first_page.replies, &match?(%MessageView{}, &1))
@@ -135,6 +138,16 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
     assert first_page.has_more
     assert first_page.next_before_sequence == nested_reply.conversation_sequence
 
+    assert [
+             %CommsCore.Accounts.RetainedSenderLabelView{
+               id: sender_id,
+               display_name: sender_name
+             }
+           ] = first_page.sender_labels
+
+    assert sender_id == account.user.id
+    assert sender_name == account.user.display_name
+
     assert {:ok, older_page} =
              Messaging.get_thread(account.conversation.id, root.id, subject,
                limit: 1,
@@ -143,6 +156,7 @@ defmodule CommsCore.MessagingMentionsThreadsTest do
 
     assert Enum.map(older_page.replies, & &1.id) == [first_reply.id]
     refute older_page.has_more
+    assert older_page.sender_labels == []
 
     assert {:ok, deleted_root} = Governance.delete_message(root.id, subject)
     assert deleted_root.status == :deleted

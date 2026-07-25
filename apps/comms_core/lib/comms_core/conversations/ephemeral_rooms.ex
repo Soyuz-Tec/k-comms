@@ -951,14 +951,15 @@ defmodule CommsCore.Conversations.EphemeralRooms do
 
         enqueue_guest_admission_expiry!(admission)
 
-        response(
+        join_response(
           room,
           conversation,
           nil,
           authentication,
           admission,
           membership,
-          false
+          false,
+          true
         )
     end
   end
@@ -993,7 +994,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       })
       |> update_or_rollback()
 
-    response(room, conversation, nil, authentication, updated, membership, true)
+    join_response(room, conversation, nil, authentication, updated, membership, true, false)
   end
 
   defp join_human!(
@@ -1025,7 +1026,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
             )
           ) || Repo.rollback(:forbidden)
 
-        response(room, conversation, nil, nil, nil, membership, true)
+        join_response(room, conversation, nil, nil, nil, membership, true, false)
 
       nil ->
         membership =
@@ -1039,37 +1040,43 @@ defmodule CommsCore.Conversations.EphemeralRooms do
             )
           )
 
-        membership =
+        {membership, membership_changed} =
           case membership do
             %Membership{left_at: nil} = current ->
-              current
+              {current, false}
 
             %Membership{} = departed
             when joiner_scope.access_scope in [:workspace, :conversation_only] ->
               quota_ok!(ensure_member_capacity(room, conversation))
 
-              departed
-              |> Membership.changeset(%{
-                role: :member,
-                joined_at: now(),
-                left_at: nil
-              })
-              |> Ecto.Changeset.optimistic_lock(:lock_version)
-              |> update_or_rollback()
+              reactivated =
+                departed
+                |> Membership.changeset(%{
+                  role: :member,
+                  joined_at: now(),
+                  left_at: nil
+                })
+                |> Ecto.Changeset.optimistic_lock(:lock_version)
+                |> update_or_rollback()
+
+              {reactivated, true}
 
             nil when joiner_scope.access_scope in [:workspace, :conversation_only] ->
               quota_ok!(ensure_member_capacity(room, conversation))
 
-              %Membership{}
-              |> Membership.changeset(%{
-                tenant_id: room.tenant_id,
-                conversation_id: room.conversation_id,
-                user_id: joiner_scope.user_id,
-                role: :member,
-                joined_at: now(),
-                last_read_sequence: max(conversation.next_sequence - 1, 0)
-              })
-              |> insert_or_rollback()
+              inserted =
+                %Membership{}
+                |> Membership.changeset(%{
+                  tenant_id: room.tenant_id,
+                  conversation_id: room.conversation_id,
+                  user_id: joiner_scope.user_id,
+                  role: :member,
+                  joined_at: now(),
+                  last_read_sequence: max(conversation.next_sequence - 1, 0)
+                })
+                |> insert_or_rollback()
+
+              {inserted, true}
 
             _ ->
               Repo.rollback(:forbidden)
@@ -1090,7 +1097,16 @@ defmodule CommsCore.Conversations.EphemeralRooms do
         })
         |> insert_or_rollback()
 
-        response(room, conversation, nil, nil, nil, membership, false)
+        join_response(
+          room,
+          conversation,
+          nil,
+          nil,
+          nil,
+          membership,
+          false,
+          membership_changed
+        )
     end
   end
 
@@ -1927,6 +1943,22 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       capabilities: capabilities!(room.tenant_id),
       replayed: replayed
     }
+  end
+
+  defp join_response(
+         room,
+         conversation,
+         token,
+         authentication,
+         admission,
+         membership,
+         replayed,
+         membership_changed
+       )
+       when is_boolean(membership_changed) do
+    room
+    |> response(conversation, token, authentication, admission, membership, replayed)
+    |> Map.put(:membership_changed, membership_changed)
   end
 
   defp project_room(room) do

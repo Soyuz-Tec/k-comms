@@ -52,6 +52,7 @@ defmodule CommsCore.Accounts do
   @ephemeral_guest_authority_max_seconds 86_400
   @default_directory_limit 25
   @max_directory_limit 100
+  @max_retained_sender_label_ids 200
 
   @doc """
   Resolves an active human or guest session into persistence-free
@@ -294,6 +295,59 @@ defmodule CommsCore.Accounts do
   end
 
   def resolve_user_views(_tenant_id, _user_ids), do: []
+
+  @doc """
+  Resolves display labels for identities referenced by retained content.
+
+  The caller must derive IDs from an already authorized, tenant-scoped page.
+  Unlike active member projections, this deliberately includes expired guests
+  and other retained lifecycle states so durable messages remain attributable.
+  Erased identities always render as `Deleted user`.
+
+  Input is fail-closed, de-duplicated, and bounded to one message page. Results
+  contain only user ID and display name and are ordered by user ID.
+  """
+  @spec resolve_retained_sender_labels(String.t(), [String.t()]) ::
+          [CommsCore.Accounts.RetainedSenderLabelView.t()]
+  def resolve_retained_sender_labels(tenant_id, user_ids)
+      when is_binary(tenant_id) and is_list(user_ids) do
+    normalized_ids = user_ids |> Enum.uniq() |> Enum.sort()
+
+    cond do
+      not valid_uuid?(tenant_id) ->
+        []
+
+      normalized_ids == [] or length(normalized_ids) > @max_retained_sender_label_ids ->
+        []
+
+      not Enum.all?(normalized_ids, &valid_uuid?/1) ->
+        []
+
+      true ->
+        User
+        |> where(
+          [user],
+          user.tenant_id == ^tenant_id and user.id in ^normalized_ids
+        )
+        |> order_by([user], asc: user.id)
+        |> select([user], %{
+          id: user.id,
+          display_name: user.display_name,
+          status: user.status
+        })
+        |> Repo.all()
+        |> Enum.map(fn user ->
+          struct!(CommsCore.Accounts.RetainedSenderLabelView, %{
+            id: user.id,
+            display_name:
+              if(user.status == :deleted, do: "Deleted user", else: user.display_name),
+            redacted: user.status == :deleted
+          })
+        end)
+    end
+  end
+
+  def resolve_retained_sender_labels(_tenant_id, _user_ids), do: []
 
   @doc """
   Lists active human identities visible to the authenticated caller.

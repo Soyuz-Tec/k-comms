@@ -58,6 +58,12 @@ if config_env() == :prod do
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
   local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
 
+  local_release_host =
+    case System.get_env("K_COMMS_LOCAL_RELEASE_HOST") do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: value
+    end
+
   instant_rooms_enabled? =
     parse_boolean.(
       System.get_env("INSTANT_ROOMS_ENABLED", "false"),
@@ -264,6 +270,7 @@ if config_env() == :prod do
     development_adapters?: development_adapters?,
     runtime_purpose: runtime_purpose,
     audio_provider_mode: audio_provider_mode,
+    local_release_host: local_release_host,
     phx_host: host,
     public_app_url: public_app_url,
     livekit_server_url: livekit_server_url,
@@ -540,6 +547,9 @@ if config_env() == :prod do
     livekit_api_key: livekit_api_key,
     livekit_api_secret: livekit_api_secret,
     audio_token_ttl_seconds: audio_token_ttl_seconds,
+    allow_insecure_local_object_storage: local_release? and development_adapters?,
+    insecure_local_object_storage_host:
+      if(local_release? and development_adapters?, do: local_release_host, else: nil),
     object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
     notification_adapter: provider_runtime.notification_adapter,
     notification_http: notification_http,

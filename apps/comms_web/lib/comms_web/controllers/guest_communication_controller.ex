@@ -31,6 +31,10 @@ defmodule CommsWeb.GuestCommunicationController do
     CommsWeb.MessageController.index(conn, scoped(params, conn))
   end
 
+  def sender_labels(conn, params) do
+    CommsWeb.MessageController.sender_labels(conn, scoped(params, conn))
+  end
+
   def create_message(conn, params) do
     CommsWeb.MessageController.create(conn, scoped(params, conn))
   end

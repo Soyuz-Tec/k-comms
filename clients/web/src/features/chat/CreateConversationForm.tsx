@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import type { CreateConversationInput } from "../../api";
 import { Field } from "../../components/Field";
 import { stringValue } from "../../lib/format";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import type { User } from "../../types";
 
 export function CreateConversationForm({
@@ -57,10 +61,17 @@ export function CreateConversationForm({
     });
   }
 
-  const selectableUsers =
-    kind === "direct"
-      ? users.filter(({ account_type: accountType }) => accountType !== "service")
-      : users;
+  const selectableUsers = useMemo(
+    () =>
+      kind === "direct"
+        ? users.filter(({ account_type: accountType }) => accountType !== "service")
+        : users,
+    [kind, users]
+  );
+  const duplicateDisplayNames = useMemo(
+    () => duplicateParticipantNames(selectableUsers),
+    [selectableUsers]
+  );
 
   return (
     <form className="create-conversation" onSubmit={(event) => void submit(event)}>
@@ -74,7 +85,7 @@ export function CreateConversationForm({
         {selectableUsers.length === 0 ? <div className="empty-copy"><p>Create another account before starting a conversation.</p>{kind === "direct" && emptyDirectAction}</div> : selectableUsers.map((user) => (
           <label key={user.id}>
             <input type={kind === "direct" ? "radio" : "checkbox"} name={kind === "direct" ? "direct-member" : undefined} checked={selectedUsers.includes(user.id)} onChange={(event) => toggleUser(user.id, event.target.checked)} />
-            <span>{user.display_name}{user.account_type === "service" && <span className="role-chip">Bot</span>}</span>
+            <span>{participantIdentifier(user, duplicateDisplayNames)}{user.account_type === "service" && <span className="role-chip">Bot</span>}</span>
           </label>
         ))}
       </fieldset>

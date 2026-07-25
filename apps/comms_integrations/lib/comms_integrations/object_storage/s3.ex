@@ -8,6 +8,13 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   @version_page_size 100
   @max_purge_passes 10
   @max_version_listing_bytes 262_144
+  @local_development_hosts [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "minio",
+    "host.containers.internal"
+  ]
 
   @impl true
   def presign_upload(attachment) do
@@ -410,7 +417,33 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   defp public_endpoint_allowed?(_, _, _), do: false
 
   defp local_development_host?(host) do
-    host in ["localhost", "127.0.0.1", "::1", "minio", "host.containers.internal"]
+    host in @local_development_hosts or exact_insecure_local_host?(host)
+  end
+
+  defp exact_insecure_local_host?(host) when is_binary(host) do
+    case Application.get_env(:comms_integrations, :insecure_local_object_storage_host) do
+      selected when is_binary(selected) ->
+        selected == host and canonical_rfc1918_ipv4?(selected)
+
+      _other ->
+        false
+    end
+  end
+
+  defp exact_insecure_local_host?(_host), do: false
+
+  defp canonical_rfc1918_ipv4?(value) do
+    with {:ok, address} <- :inet.parse_ipv4_address(String.to_charlist(value)),
+         true <- address |> :inet.ntoa() |> to_string() == value do
+      case address do
+        {10, _, _, _} -> true
+        {172, second, _, _} when second in 16..31 -> true
+        {192, 168, _, _} -> true
+        _other -> false
+      end
+    else
+      _invalid -> false
+    end
   end
 
   defp verify_size(headers, expected) do

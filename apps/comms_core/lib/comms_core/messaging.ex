@@ -30,6 +30,8 @@ defmodule CommsCore.Messaging do
   @max_metadata_bytes 65_536
   @default_search_limit 50
   @max_search_limit 200
+  @max_history_page_limit 200
+  @max_sender_label_refresh_message_ids 200
   @required [:tenant_id, :conversation_id, :sender_user_id, :sender_device_id, :client_message_id]
 
   @doc """
@@ -294,6 +296,91 @@ defmodule CommsCore.Messaging do
   end
 
   @doc """
+  Returns one authorized durable history page and optional retained sender labels.
+
+  Label IDs are derived only from the sliced, guest-history-clipped page. The
+  IdentityAccess lookup is tenant-scoped and batched, so callers cannot use
+  this operation as a directory enumeration surface.
+  """
+  @spec list_history_page(Ecto.UUID.t(), map(), keyword()) ::
+          {:ok,
+           %{
+             messages: [MessageView.t()],
+             sender_labels: [CommsCore.Accounts.RetainedSenderLabelView.t()],
+             has_more: boolean(),
+             next_after_sequence: non_neg_integer() | nil
+           }}
+          | {:error, term()}
+  def list_history_page(conversation_id, subject, opts \\ [])
+      when is_binary(conversation_id) and is_map(subject) and is_list(opts) do
+    limit_count =
+      clamp_limit(Keyword.get(opts, :limit, 100), @max_history_page_limit)
+
+    history_opts =
+      opts
+      |> Keyword.delete(:include_sender_labels)
+      |> Keyword.put(:limit, limit_count + 1)
+
+    with {:ok, messages} <- list_history(conversation_id, subject, history_opts) do
+      has_more = length(messages) > limit_count
+      page = Enum.take(messages, limit_count)
+
+      {:ok,
+       %{
+         messages: page,
+         sender_labels: retained_sender_labels(page, subject, opts),
+         has_more: has_more,
+         next_after_sequence:
+           page
+           |> List.last()
+           |> then(&if(&1, do: &1.conversation_sequence, else: nil))
+       }}
+    end
+  end
+
+  @doc """
+  Refreshes retained labels for authors represented by an already-rendered
+  message window.
+
+  Caller-supplied message IDs are never used as identity IDs. The conversation
+  read grant and, for guests, the admission history floor are applied first;
+  authors are derived only from matching messages inside that authorized
+  history scope before reaching IdentityAccess. Requests are unique and bounded
+  to one label batch.
+  """
+  @spec refresh_sender_labels(Ecto.UUID.t(), [Ecto.UUID.t()], map()) ::
+          {:ok, [CommsCore.Accounts.RetainedSenderLabelView.t()]}
+          | {:error, :forbidden | :invalid_message_ids}
+  def refresh_sender_labels(conversation_id, message_ids, subject)
+      when is_binary(conversation_id) and is_list(message_ids) and is_map(subject) do
+    with :ok <- Conversations.authorize_read(conversation_id, subject),
+         :ok <- validate_sender_label_refresh_message_ids(message_ids),
+         {:ok, after_sequence} <- scoped_history_after_sequence(subject, 0) do
+      visible_sender_ids =
+        Message
+        |> where(
+          [message],
+          message.tenant_id == ^value(subject, :tenant_id) and
+            message.conversation_id == ^conversation_id and
+            message.conversation_sequence > ^after_sequence and
+            message.id in ^message_ids
+        )
+        |> distinct(true)
+        |> select([message], message.sender_user_id)
+        |> Repo.all()
+
+      {:ok,
+       Accounts.resolve_retained_sender_labels(
+         value(subject, :tenant_id),
+         visible_sender_ids
+       )}
+    end
+  end
+
+  def refresh_sender_labels(_conversation_id, _message_ids, _subject),
+    do: {:error, :invalid_message_ids}
+
+  @doc """
   Checks whether a realtime message event is inside the caller's durable
   history scope.
 
@@ -330,6 +417,12 @@ defmodule CommsCore.Messaging do
   def message_event_visible?(_conversation_id, _message_id, _subject),
     do: {:error, :forbidden}
 
+  @doc """
+  Returns one authorized thread page and optional retained sender labels.
+
+  Label IDs are derived only from the root and sliced reply page after
+  conversation authorization. Callers cannot supply arbitrary identity IDs.
+  """
   def get_thread(conversation_id, message_id, subject, opts \\ []) do
     target =
       Repo.get_by(Message,
@@ -376,6 +469,7 @@ defmodule CommsCore.Messaging do
        %{
          root: root,
          replies: replies,
+         sender_labels: retained_sender_labels([root | replies], subject, opts),
          reply_count: root.thread_reply_count,
          has_more: has_more,
          next_before_sequence: next_before_sequence
@@ -532,7 +626,14 @@ defmodule CommsCore.Messaging do
     limit_count = clamp_limit(Keyword.get(opts, :limit, @default_search_limit), @max_search_limit)
 
     if query_text == "" do
-      {:ok, %{messages: [], limit: limit_count, has_more: false, next_cursor: nil}}
+      {:ok,
+       %{
+         messages: [],
+         sender_labels: [],
+         limit: limit_count,
+         has_more: false,
+         next_cursor: nil
+       }}
     else
       with {:ok, conversation_id} <- optional_search_uuid(Keyword.get(opts, :conversation_id)),
            {:ok, sender_user_id} <- optional_search_uuid(Keyword.get(opts, :sender_user_id)),
@@ -570,6 +671,7 @@ defmodule CommsCore.Messaging do
         {:ok,
          %{
            messages: messages,
+           sender_labels: retained_sender_labels(messages, subject, opts),
            limit: limit_count,
            has_more: has_more,
            next_cursor: if(has_more, do: search_cursor_for(List.last(messages)), else: nil)
@@ -585,6 +687,19 @@ defmodule CommsCore.Messaging do
       with {:ok, grant} <- Accounts.access_grant(subject) do
         {:ok, Conversations.active_membership_authorization_query(grant)}
       end
+    end
+  end
+
+  defp retained_sender_labels(messages, subject, opts) do
+    if Keyword.get(opts, :include_sender_labels, false) do
+      sender_ids =
+        messages
+        |> Enum.map(& &1.sender_user_id)
+        |> Enum.uniq()
+
+      Accounts.resolve_retained_sender_labels(value(subject, :tenant_id), sender_ids)
+    else
+      []
     end
   end
 
@@ -1106,6 +1221,17 @@ defmodule CommsCore.Messaging do
 
   defp invalid_optional_uuid?(nil), do: false
   defp invalid_optional_uuid?(value), do: invalid_uuid?(value)
+
+  defp validate_sender_label_refresh_message_ids(message_ids) do
+    if message_ids != [] and
+         length(message_ids) <= @max_sender_label_refresh_message_ids and
+         length(Enum.uniq(message_ids)) == length(message_ids) and
+         Enum.all?(message_ids, &(not invalid_uuid?(&1))) do
+      :ok
+    else
+      {:error, :invalid_message_ids}
+    end
+  end
 
   defp metadata_size_valid?(metadata) do
     case Jason.encode(metadata) do

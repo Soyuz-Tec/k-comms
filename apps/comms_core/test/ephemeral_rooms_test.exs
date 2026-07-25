@@ -131,7 +131,9 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert {:ok, replay} =
              Conversations.join_ephemeral_room(created.join_token, attrs, :guest)
 
+    assert first.membership_changed
     assert replay.replayed
+    refute replay.membership_changed
     assert replay.authentication.user.id == first.authentication.user.id
     assert replay.membership.id == first.membership.id
     assert replay.admission.id == first.admission.id
@@ -190,8 +192,21 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
 
     refute joined.replayed
+    assert joined.membership_changed
     assert replayed.replayed
+    refute replayed.membership_changed
     assert replayed.membership.id == joined.membership.id
+
+    assert {:ok, active_member_join} =
+             Conversations.join_ephemeral_room(
+               created.join_token,
+               %{idempotency_key: secret()},
+               other_subject
+             )
+
+    refute active_member_join.replayed
+    refute active_member_join.membership_changed
+    assert active_member_join.membership.id == joined.membership.id
   end
 
   test "same-tenant conversation-only humans reuse their identity for instant-room create and join" do
@@ -275,6 +290,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
 
     assert rejoined.membership.id == joined.membership.id
+    assert rejoined.membership_changed
     assert Repo.get!(Membership, joined.membership.id).left_at == nil
     assert {:error, :forbidden} = Conversations.authorize_create(scoped_subject)
 

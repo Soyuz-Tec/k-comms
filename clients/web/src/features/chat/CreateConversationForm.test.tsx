@@ -1,6 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import type { User } from "../../types";
 import { CreateConversationForm } from "./CreateConversationForm";
 
@@ -48,5 +52,39 @@ describe("CreateConversationForm", () => {
       "href",
       "/admin?section=people#admin-invitations"
     );
+  });
+
+  it("disambiguates duplicate candidates while starting direct chat by user id", async () => {
+    const first = { ...teammate, id: "grace-first" };
+    const second = {
+      ...teammate,
+      id: "grace-second",
+      display_name: "GRACE HOPPER"
+    };
+    const duplicateNames = duplicateParticipantNames([first, second]);
+    const firstIdentifier = participantIdentifier(first, duplicateNames);
+    const secondIdentifier = participantIdentifier(second, duplicateNames);
+    const startDirect = vi.fn().mockResolvedValue(undefined);
+    const userActions = userEvent.setup();
+
+    render(
+      <CreateConversationForm
+        users={[first, second]}
+        onCancel={vi.fn()}
+        onCreate={vi.fn()}
+        onStartDirect={startDirect}
+      />
+    );
+
+    expect(screen.getByText(firstIdentifier)).toBeVisible();
+    expect(screen.getByText(secondIdentifier)).toBeVisible();
+    await userActions.click(
+      screen.getByRole("radio", { name: secondIdentifier })
+    );
+    await userActions.click(
+      screen.getByRole("button", { name: "Start message" })
+    );
+
+    expect(startDirect).toHaveBeenCalledWith(second.id);
   });
 });

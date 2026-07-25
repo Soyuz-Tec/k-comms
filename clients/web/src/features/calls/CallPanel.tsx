@@ -15,6 +15,10 @@ import type {
 } from "livekit-client";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText } from "../../lib/format";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import type {
   Call,
   CallMediaKind,
@@ -764,11 +768,15 @@ export function CallPanel({
   }
 
   async function reloadDevices(kind: CallMediaKind) {
+    const room = roomRef.current;
+    const generation = operationGenerationRef.current;
+    if (!room) return;
     try {
       const [audioDevices, videoDevices] = await Promise.all([
         Room.getLocalDevices("audioinput", false),
         kind === "video" ? Room.getLocalDevices("videoinput", false) : Promise.resolve([])
       ]);
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setMicrophones(audioDevices);
       setSelectedMicrophone((current) => deviceSelection(current, audioDevices));
       setCameras(videoDevices);
@@ -783,11 +791,14 @@ export function CallPanel({
     setSelectedMicrophone(deviceId);
     const room = roomRef.current;
     if (!room || !microphoneEnabled) return;
+    const generation = operationGenerationRef.current;
     try {
       const switched = await room.switchActiveDevice("audioinput", deviceId, true);
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       if (!switched) throw new Error("The selected microphone could not be activated.");
       setError(null);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setSelectedMicrophone(previousDeviceId);
       setError(mediaErrorText(reason, "microphone"));
     }
@@ -798,12 +809,15 @@ export function CallPanel({
     setSelectedCamera(deviceId);
     const room = roomRef.current;
     if (!room || !cameraEnabled) return;
+    const generation = operationGenerationRef.current;
     try {
       const switched = await room.switchActiveDevice("videoinput", deviceId, true);
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       if (!switched) throw new Error("The selected camera could not be activated.");
       setError(null);
       updateRoomState(room);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setSelectedCamera(previousDeviceId);
       setError(mediaErrorText(reason, "camera"));
     }
@@ -812,12 +826,14 @@ export function CallPanel({
   async function toggleMicrophone() {
     const room = roomRef.current;
     if (!room) return;
+    const generation = operationGenerationRef.current;
     setError(null);
     try {
       if (!microphoneEnabled) {
         const boundaryError = mediaBoundaryError("microphone");
         if (boundaryError) throw new Error(boundaryError);
         const devices = await Room.getLocalDevices("audioinput", true);
+        if (!operationIsCurrent(generation) || roomRef.current !== room) return;
         setMicrophones(devices);
         const deviceId = selectedMicrophone || devices[0]?.deviceId || "";
         if (!deviceId) throw new Error("No microphone was found.");
@@ -826,8 +842,10 @@ export function CallPanel({
       } else {
         await room.localParticipant.setMicrophoneEnabled(false);
       }
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       updateRoomState(room);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setError(mediaErrorText(reason, "microphone"));
     }
   }
@@ -835,12 +853,14 @@ export function CallPanel({
   async function toggleCamera() {
     const room = roomRef.current;
     if (!room || roomMediaKindRef.current !== "video") return;
+    const generation = operationGenerationRef.current;
     setError(null);
     try {
       if (!cameraEnabled) {
         const boundaryError = mediaBoundaryError("camera");
         if (boundaryError) throw new Error(boundaryError);
         const devices = await Room.getLocalDevices("videoinput", true);
+        if (!operationIsCurrent(generation) || roomRef.current !== room) return;
         setCameras(devices);
         const deviceId = selectedCamera || devices[0]?.deviceId || "";
         if (!deviceId) throw new Error("No camera was found.");
@@ -849,8 +869,10 @@ export function CallPanel({
       } else {
         await room.localParticipant.setCameraEnabled(false);
       }
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       updateRoomState(room);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setError(mediaErrorText(reason, "camera"));
     }
   }
@@ -858,6 +880,7 @@ export function CallPanel({
   async function toggleScreenShare() {
     const room = roomRef.current;
     if (!room || roomMediaKindRef.current !== "video") return;
+    const generation = operationGenerationRef.current;
     setError(null);
     try {
       await room.localParticipant.setScreenShareEnabled(!screenShareEnabled, {
@@ -866,8 +889,10 @@ export function CallPanel({
         selfBrowserSurface: "exclude",
         surfaceSwitching: "include"
       });
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       updateRoomState(room);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setError(mediaErrorText(reason, "screen"));
     }
   }
@@ -875,13 +900,18 @@ export function CallPanel({
   async function enablePlayback() {
     const room = roomRef.current;
     if (!room) return;
+    const generation = operationGenerationRef.current;
+    const kind = roomMediaKindRef.current;
     try {
       await room.startAudio();
-      if (roomMediaKindRef.current === "video") await room.startVideo();
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
+      if (kind === "video") await room.startVideo();
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setAudioBlocked(!room.canPlaybackAudio);
-      setVideoBlocked(roomMediaKindRef.current === "video" && !room.canPlaybackVideo);
+      setVideoBlocked(kind === "video" && !room.canPlaybackVideo);
       setError(null);
     } catch (reason: unknown) {
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setError(`Media playback is still blocked. ${errorText(reason)}`);
     }
   }
@@ -1049,6 +1079,13 @@ export function CallPanel({
     phase,
     screenShareEnabled
   ]);
+  const duplicateCallParticipantNames =
+    duplicateParticipantNames(
+      participants.map((participant) => ({
+        id: participant.id,
+        display_name: participant.name
+      }))
+    );
 
   return (
     <div className="call-control audio-call-control">
@@ -1148,7 +1185,13 @@ export function CallPanel({
             {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
             {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
             {joinedKind === "audio" && <ul className="audio-participant-list" aria-label="Call participants">
-              {participants.map((participant) => <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{participant.name}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small></span></li>)}
+              {participants.map((participant) => {
+                const identifier = participantIdentifier(
+                  { id: participant.id, display_name: participant.name },
+                  duplicateCallParticipantNames
+                );
+                return <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{identifier}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small></span></li>;
+              })}
             </ul>}
             <div className="call-device-grid">
               <div className="audio-device-row">
@@ -1354,19 +1397,31 @@ function CallPrejoinDialog({
 }
 
 function VideoParticipantGrid({ participants }: { participants: ParticipantView[] }) {
+  const duplicateNames = duplicateParticipantNames(
+    participants.map((participant) => ({
+      id: participant.id,
+      display_name: participant.name
+    }))
+  );
   return <div className={`video-participant-grid participant-count-${Math.min(participants.length, 4)}`} role="list" aria-label="Video participants">
-    {participants.map((participant) => <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""}`} role="listitem" key={participant.id} data-participant-id={participant.id}>
+    {participants.map((participant) => {
+      const identifier = participantIdentifier(
+        { id: participant.id, display_name: participant.name },
+        duplicateNames
+      );
+      return <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""}`} role="listitem" aria-label={`${identifier}${participant.local ? " (you)" : ""}`} key={participant.id} data-participant-id={participant.id}>
       <div className="video-track-stack">
         {participant.videoTracks.length > 0
-          ? participant.videoTracks.map((video) => <VideoTrackElement key={video.id} video={video} participant={participant} />)
+          ? participant.videoTracks.map((video) => <VideoTrackElement key={video.id} video={video} participant={participant} participantIdentifier={identifier} />)
           : <div className="video-placeholder" aria-hidden="true"><span>{initials(participant.name)}</span><small>Camera off</small></div>}
       </div>
-      <div className="video-participant-caption"><strong>{participant.name}{participant.local ? " (you)" : ""}</strong><span aria-label={`${participant.microphoneEnabled ? "Microphone on" : "Muted"}; ${participant.cameraEnabled ? "Camera on" : "Camera off"}`}>{participant.microphoneEnabled ? "●" : "○"} {participant.cameraEnabled ? "Camera on" : "Camera off"}</span></div>
-    </article>)}
+      <div className="video-participant-caption"><strong>{identifier}{participant.local ? " (you)" : ""}</strong><span aria-label={`${participant.microphoneEnabled ? "Microphone on" : "Muted"}; ${participant.cameraEnabled ? "Camera on" : "Camera off"}`}>{participant.microphoneEnabled ? "●" : "○"} {participant.cameraEnabled ? "Camera on" : "Camera off"}</span></div>
+    </article>;
+    })}
   </div>;
 }
 
-function VideoTrackElement({ video, participant }: { video: VideoTrackView; participant: ParticipantView }) {
+function VideoTrackElement({ video, participant, participantIdentifier: identifier }: { video: VideoTrackView; participant: ParticipantView; participantIdentifier: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const container = containerRef.current;
@@ -1388,7 +1443,7 @@ function VideoTrackElement({ video, participant }: { video: VideoTrackView; part
   }, [participant.id, participant.local, video.source, video.track]);
   return <div className={`video-track-frame ${video.source === "screen_share" ? "screen-share" : "camera"}`}>
     <div ref={containerRef} className="video-track-mount" aria-hidden="true" />
-    <span className="visually-hidden">{participant.name} {video.source === "screen_share" ? "screen share" : "camera"}</span>
+    <span className="visually-hidden">{identifier} {video.source === "screen_share" ? "screen share" : "camera"}</span>
   </div>;
 }
 

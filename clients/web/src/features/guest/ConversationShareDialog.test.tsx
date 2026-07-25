@@ -14,6 +14,7 @@ const room: Conversation = {
   tenant_id: "tenant-1",
   kind: "group",
   title: "Launch room",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,
@@ -284,6 +285,7 @@ describe("ConversationShareDialog", () => {
       ...room,
       kind: "direct",
       title: null,
+      counterpart_user_id: "user-morgan",
       counterpart_display_name: "Morgan",
       membership_role: "owner"
     };

@@ -35,6 +35,8 @@ defmodule CommsWeb.InstantRoomController do
          {:ok, actor, attrs} <- join_actor(conn, params, idempotency_key, tenant),
          {:ok, result} <- Conversations.join_ephemeral_room(token, attrs, actor),
          {:ok, payload} <- join_payload(result) do
+      broadcast_join(result)
+
       conn
       |> put_resp_header("cache-control", "no-store")
       |> put_status(if(result.replayed, do: :ok, else: :created))
@@ -137,6 +139,21 @@ defmodule CommsWeb.InstantRoomController do
 
     with_guest_session(base, result)
   end
+
+  defp broadcast_join(%{
+         membership_changed: true,
+         conversation: conversation,
+         membership: membership
+       }) do
+    CommsWeb.Broadcast.event(conversation.id, "membership.changed.v1", %{
+      user_id: membership.user_id,
+      action: "added",
+      role: membership.role,
+      source: "guest_link"
+    })
+  end
+
+  defp broadcast_join(_result), do: :ok
 
   defp with_join_link(payload, %{join_token: token}) when is_binary(token) do
     Map.merge(payload, %{token: token, share_url: share_url(token)})

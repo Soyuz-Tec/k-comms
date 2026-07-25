@@ -8,6 +8,7 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
     tenant_id: "tenant-1",
     kind: "channel",
     title: "General",
+    counterpart_user_id: null,
     counterpart_display_name: null,
     visibility: "tenant",
     latest_sequence: 0,
@@ -24,6 +25,7 @@ describe("conversationTitle", () => {
         conversation({
           kind: "direct",
           title: "stale-client-controlled-title",
+          counterpart_user_id: "user-2",
           counterpart_display_name: "  Grace Hopper  ",
           visibility: "private"
         })
@@ -37,6 +39,7 @@ describe("conversationTitle", () => {
         conversation({
           kind: "direct",
           title: null,
+          counterpart_user_id: null,
           counterpart_display_name: null,
           visibility: "private"
         })

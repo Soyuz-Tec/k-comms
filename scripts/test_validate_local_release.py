@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import copy
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 import yaml
-
 from validate_local_release import (
     DEFAULT_COMPOSE,
     DEFAULT_RUNNER,
     ROOT,
+    _function_body,
     validate_local_release,
     validate_paths,
 )
@@ -58,6 +61,12 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "service 'postgres' image must be pinned by sha256 digest", errors
         )
         self.assertTrue(any("service 'app' ports must be" in error for error in errors))
+        self.assertTrue(
+            any(
+                "wildcard and direct RFC1918 binds are forbidden" in error
+                for error in errors
+            )
+        )
 
     def test_rejects_incomplete_local_release_gates(self) -> None:
         document = copy.deepcopy(self.compose)
@@ -142,6 +151,866 @@ class LocalReleasePolicyTest(unittest.TestCase):
         ]
         errors = validate_local_release(document, self.runner)
         self.assertTrue(any("local media setting" in error for error in errors))
+
+    def test_requires_explicit_private_lan_topology_contract(self) -> None:
+        document = copy.deepcopy(self.compose)
+        del document["services"]["app"]["environment"][
+            "K_COMMS_LOCAL_RELEASE_HOST"
+        ]
+        del document["services"]["app"]["environment"][
+            "K_COMMS_PODMAN_BIND_ADDRESS"
+        ]
+        document["services"]["app"]["environment"][
+            "K_COMMS_RELEASE_BIND_ADDRESS"
+        ] = "${K_COMMS_RELEASE_BIND_ADDRESS:-127.0.0.1}"
+        document["services"]["minio"]["ports"][1] = (
+            "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}:"
+            "${K_COMMS_RELEASE_MINIO_CONSOLE_PORT:-5901}:9001"
+        )
+        errors = validate_local_release(document, self.runner)
+        self.assertTrue(
+            any(
+                "K_COMMS_LOCAL_RELEASE_HOST=${K_COMMS_LOCAL_RELEASE_HOST:-}"
+                in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "K_COMMS_PODMAN_BIND_ADDRESS="
+                "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}" in error
+                for error in errors
+            )
+        )
+        self.assertIn(
+            "service 'app' must not receive the legacy direct-bind variable "
+            "K_COMMS_RELEASE_BIND_ADDRESS",
+            errors,
+        )
+        self.assertTrue(
+            any("service 'minio' ports must be" in error for error in errors)
+        )
+
+    def test_rejects_wildcard_or_direct_lan_podman_bindings(self) -> None:
+        for unsafe_mapping in (
+            "0.0.0.0:${K_COMMS_RELEASE_APP_PORT:-4188}:4000",
+            "192.168.50.12:${K_COMMS_RELEASE_APP_PORT:-4188}:4000",
+            (
+                "${K_COMMS_RELEASE_BIND_ADDRESS:-127.0.0.1}:"
+                "${K_COMMS_RELEASE_APP_PORT:-4188}:4000"
+            ),
+        ):
+            with self.subTest(unsafe_mapping=unsafe_mapping):
+                document = copy.deepcopy(self.compose)
+                document["services"]["app"]["ports"] = [unsafe_mapping]
+                errors = validate_local_release(document, self.runner)
+                self.assertTrue(
+                    any(
+                        "wildcard and direct RFC1918 binds are forbidden" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_requires_compose_ambient_environment_sealing_and_restoration(
+        self,
+    ) -> None:
+        expected = (
+            "every Compose call must seal all retained and referenced "
+            "interpolation variables against ambient process overrides, force "
+            "the Podman bind to loopback, and restore the caller environment"
+        )
+        mutations = (
+            (
+                (
+                    "    Invoke-WithSealedComposeEnvironment `\n"
+                    "        -EnvironmentFile $EnvironmentFile `"
+                ),
+                (
+                    "    Removed-SealedComposeEnvironment `\n"
+                    "        -EnvironmentFile $EnvironmentFile `"
+                ),
+            ),
+            (
+                (
+                    '            "K_COMMS_PODMAN_BIND_ADDRESS",\n'
+                    "            $podmanBindAddress,"
+                ),
+                (
+                    '            "K_COMMS_PODMAN_BIND_ADDRESS",\n'
+                    '            "0.0.0.0",'
+                ),
+            ),
+            (
+                (
+                    "    finally {\n"
+                    "        foreach ($name in $names) {"
+                ),
+                (
+                    "    if ($false) {\n"
+                    "        foreach ($name in $names) {"
+                ),
+            ),
+            (
+                "            Exists = $processEnvironmentNames.ContainsKey($name)",
+                "            Exists = $processEnvironment.Contains($name)",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_compose_environment_seal_blocks_ambient_overrides_at_runtime(
+        self,
+    ) -> None:
+        function_sources = "\n".join(
+            f"function {name} {{"
+            f"{_function_body(self.runner, name)}"
+            for name in (
+                "Read-EnvironmentFile",
+                "Get-ComposeInterpolationNames",
+                "Invoke-WithSealedComposeEnvironment",
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = ROOT / Path(temporary_directory)
+            environment_path = temporary_path / "release.env"
+            compose_path = temporary_path / "compose.yaml"
+            test_script_path = temporary_path / "sealed-compose-self-test.ps1"
+            environment_path.write_text(
+                "K_COMMS_PODMAN_BIND_ADDRESS=127.0.0.1\n"
+                "K_COMMS_RELEASE_HOST=192.168.50.12\n"
+                "RETAINED_ONLY=sealed-value\n",
+                encoding="utf-8",
+            )
+            compose_path.write_text(
+                "services:\n"
+                "  app:\n"
+                "    image: example.invalid/app:sealed\n"
+                "    environment:\n"
+                "      HOST: ${K_COMMS_RELEASE_HOST}\n"
+                "      ABSENT: ${REFERENCED_BUT_ABSENT:-default}\n"
+                "    ports:\n"
+                '      - "${K_COMMS_PODMAN_BIND_ADDRESS}:4188:4000"\n',
+                encoding="utf-8",
+            )
+            quoted_environment_path = str(environment_path).replace("'", "''")
+            quoted_compose_path = str(compose_path).replace("'", "''")
+            driver = f"""
+$ErrorActionPreference = "Stop"
+$podmanBindAddress = "127.0.0.1"
+$environmentPath = '{quoted_environment_path}'
+$composePath = '{quoted_compose_path}'
+$ambient = [ordered]@{{
+    K_COMMS_PODMAN_BIND_ADDRESS = "0.0.0.0"
+    K_COMMS_RELEASE_HOST = "203.0.113.10"
+    RETAINED_ONLY = "ambient-retained-value"
+    referenced_but_absent = "ambient-absent-value"
+}}
+foreach ($entry in $ambient.GetEnumerator()) {{
+    [Environment]::SetEnvironmentVariable(
+        $entry.Key,
+        $entry.Value,
+        [EnvironmentVariableTarget]::Process
+    )
+}}
+$script:actionObservedSealedValues = $false
+Invoke-WithSealedComposeEnvironment `
+    -EnvironmentFile $environmentPath `
+    -ComposePath $composePath `
+    -Action {{
+        if ($env:K_COMMS_PODMAN_BIND_ADDRESS -cne "127.0.0.1") {{
+            throw "ambient wildcard reached Compose"
+        }}
+        if ($env:K_COMMS_RELEASE_HOST -cne "192.168.50.12") {{
+            throw "ambient public host reached Compose"
+        }}
+        if ($env:RETAINED_ONLY -cne "sealed-value") {{
+            throw "ambient retained-only value reached Compose"
+        }}
+        if ($null -ne [Environment]::GetEnvironmentVariable(
+            "REFERENCED_BUT_ABSENT",
+            [EnvironmentVariableTarget]::Process
+        )) {{
+            throw "ambient absent value reached Compose"
+        }}
+        $script:actionObservedSealedValues = $true
+    }}
+if (-not $script:actionObservedSealedValues) {{
+    throw "sealed action was not executed"
+}}
+foreach ($entry in $ambient.GetEnumerator()) {{
+    $restored = [Environment]::GetEnvironmentVariable(
+        $entry.Key,
+        [EnvironmentVariableTarget]::Process
+    )
+    if ($restored -cne $entry.Value) {{
+        throw "ambient value was not restored after success: $($entry.Key)"
+    }}
+}}
+$restoredNames = @(
+    [Environment]::GetEnvironmentVariables(
+        [EnvironmentVariableTarget]::Process
+    ).Keys
+)
+if (-not @(
+    $restoredNames |
+        Where-Object {{ [string]$_ -ceq "referenced_but_absent" }}
+).Count) {{
+    throw "mixed-case ambient key spelling was not restored after success"
+}}
+$expectedFailureObserved = $false
+try {{
+    Invoke-WithSealedComposeEnvironment `
+        -EnvironmentFile $environmentPath `
+        -ComposePath $composePath `
+        -Action {{ throw "expected sealed-action failure" }}
+}}
+catch {{
+    if ($_.Exception.Message -cne "expected sealed-action failure") {{
+        throw
+    }}
+    $expectedFailureObserved = $true
+}}
+if (-not $expectedFailureObserved) {{
+    throw "failing sealed action did not fail"
+}}
+foreach ($entry in $ambient.GetEnumerator()) {{
+    $restored = [Environment]::GetEnvironmentVariable(
+        $entry.Key,
+        [EnvironmentVariableTarget]::Process
+    )
+    if ($restored -cne $entry.Value) {{
+        throw "ambient value was not restored after failure: $($entry.Key)"
+    }}
+}}
+$restoredNames = @(
+    [Environment]::GetEnvironmentVariables(
+        [EnvironmentVariableTarget]::Process
+    ).Keys
+)
+if (-not @(
+    $restoredNames |
+        Where-Object {{ [string]$_ -ceq "referenced_but_absent" }}
+).Count) {{
+    throw "mixed-case ambient key spelling was not restored after failure"
+}}
+Write-Output "sealed Compose environment runtime self-test passed"
+"""
+            test_script_path.write_text(
+                function_sources + driver,
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(test_script_path),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+            self.assertIn(
+                "sealed Compose environment runtime self-test passed",
+                result.stdout,
+            )
+
+    def test_rejects_unsafe_or_unassigned_bind_address_policy(self) -> None:
+        runner = self.runner.replace(
+            '$canonical -eq "0.0.0.0"',
+            '$canonical -eq "removed-wildcard"',
+        ).replace(
+            "Test-IPv4AssignedLocally -Address $parsed",
+            "RemovedLocalAddressCheck -Address $parsed",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "BindAddress must be canonical IPv4, never wildcard, loopback or "
+            "RFC1918 only, and an RFC1918 address must be assigned to an active "
+            "local interface",
+            errors,
+        )
+
+    def test_requires_canonical_ipv4_and_profile_override_policy(self) -> None:
+        runner = self.runner.replace(
+            "$Value -cne $canonical",
+            "$Value -ceq $canonical",
+        ).replace(
+            "if (-not $AllowPublicNetworkProfile)",
+            "if ($false)",
+            1,
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "BindAddress must be canonical IPv4, never wildcard, loopback or "
+            "RFC1918 only, and an RFC1918 address must be assigned to an active "
+            "local interface",
+            errors,
+        )
+        self.assertIn(
+            "LAN release selection must require one exact Preferred Windows IPv4 "
+            "address, and non-Private network profiles must fail closed unless an "
+            "explicit audited AllowPublicNetworkProfile override is supplied",
+            errors,
+        )
+
+    def test_rejects_firewall_profile_or_portproxy_mutation(self) -> None:
+        for forbidden_command in (
+            "New-NetFirewallRule -DisplayName 'K-Comms'",
+            "Set-NetFirewallRule -DisplayName 'K-Comms'",
+            "Remove-NetFirewallRule -DisplayName 'K-Comms'",
+            "Set-NetConnectionProfile -NetworkCategory Private",
+            "netsh advfirewall firewall add rule name=K-Comms",
+            "netsh interface portproxy add v4tov4",
+        ):
+            with self.subTest(forbidden_command=forbidden_command):
+                errors = validate_local_release(
+                    self.compose,
+                    self.runner + f"\n{forbidden_command}\n",
+                )
+                self.assertIn(
+                    "local release orchestration must never mutate Windows "
+                    "Firewall, network profiles, or port-proxy state",
+                    errors,
+                )
+
+    def test_rejects_non_preferred_windows_address_policy(self) -> None:
+        runner = self.runner.replace(
+            '$AddressRecord.AddressState -ceq "Preferred"',
+            '$AddressRecord.AddressState -ne "Invalid"',
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "LAN release selection must require one exact Preferred Windows IPv4 "
+            "address, and non-Private network profiles must fail closed unless an "
+            "explicit audited AllowPublicNetworkProfile override is supplied",
+            errors,
+        )
+
+    def test_requires_executable_interface_and_profile_drift_checks(self) -> None:
+        runner = self.runner.replace(
+            "Assert-ReleaseNetworkObservationMatches",
+            "RemovedNetworkObservationMatch",
+        ).replace(
+            "Network-profile self-test accepted drift",
+            "Network-profile self-test ignored drift",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "LAN deployment must revalidate the selected interface and network "
+            "profile before activation and before sealing its receipt",
+            errors,
+        )
+
+    def test_requires_profile_receipt_and_activation_revalidation(self) -> None:
+        runner = self.runner.replace(
+            "Assert-ReleaseNetworkObservationCurrent",
+            "RemovedCurrentNetworkObservation",
+        ).replace(
+            "publicNetworkProfileOverrideUsed =",
+            "removedProfileOverride =",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "LAN deployment must revalidate the selected interface and network "
+            "profile before activation and before sealing its receipt",
+            errors,
+        )
+        self.assertIn(
+            "release receipts must persist the observed Windows interface and "
+            "network profile plus the audited non-Private-profile override",
+            errors,
+        )
+
+    def test_requires_address_aware_health_and_receipt_lifecycle(self) -> None:
+        runner = self.runner.replace(
+            "-ExpectedBindAddress $BindAddress `",
+            "-RemovedBindAddress $BindAddress `",
+        ).replace(
+            "network = New-ReceiptNetworkRecord",
+            "removedTopology = RemovedReceiptNetworkRecord",
+        ).replace(
+            "Resolve-ReceiptNetworkTopology -Receipt $current",
+            "RemovedReceiptTopology -Receipt $current",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "deployment and restore must prove loopback Podman bootstrap and "
+            "health before activating, identity-checking, and publicly probing "
+            "a required LAN forwarder",
+            errors,
+        )
+        self.assertIn(
+            "release receipts must persist and revalidate the exact bind address, "
+            "public host, and public application origin",
+            errors,
+        )
+        self.assertIn(
+            "Status must re-observe and expose an explicit receipt-network match, "
+            "and Rollback must revalidate both retained network topologies",
+            errors,
+        )
+
+    def test_requires_hash_bound_forwarder_receipt_and_configuration(
+        self,
+    ) -> None:
+        expected = (
+            "schema-v5 LAN receipts must seal an immutable, hash-bound "
+            "forwarder configuration with exact loopback-targeted TCP/UDP "
+            "listeners and bounded resource limits"
+        )
+        mutations = (
+            (
+                "scriptSha256 = $scriptSha256",
+                "removedHash = $scriptSha256",
+            ),
+            (
+                "targetHost = $podmanBindAddress",
+                "targetHost = $ExpectedBindAddress",
+            ),
+            (
+                "maxUdpMappings = 256",
+                "removedLimit = 256",
+            ),
+            (
+                (
+                    "        required = $false\n"
+                    '        kind = "not-required"'
+                ),
+                (
+                    "        required = $true\n"
+                    '        kind = "incorrect-loopback-forwarder"'
+                ),
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_requires_receipt_bound_forwarder_readiness_evidence(self) -> None:
+        expected = (
+            "forwarder readiness must prove receipt-bound process identity, "
+            "configuration hash, token, start time, and exact TCP/UDP listener "
+            "ownership"
+        )
+        mutations = (
+            (
+                '"lan_release_forwarder_ready"',
+                '"removed_forwarder_ready_event"',
+            ),
+            (
+                '-Name "processStartTimeUtc"',
+                '-Name "removedProcessStartTimeUtc"',
+            ),
+            (
+                "Get-NetUDPEndpoint",
+                "Removed-NetUDPEndpoint",
+            ),
+            (
+                "Where-Object { [int]$_.OwningProcess -eq $pidValue }",
+                "Where-Object { $false }",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_requires_anchored_ordered_forwarder_command_identity(self) -> None:
+        expected = (
+            "forwarder process identity must use one anchored, ordered "
+            "executable/script/--config command line with no decoy arguments"
+        )
+        mutations = (
+            (
+                '"^\\s*" +',
+                '"\\s*" +',
+            ),
+            (
+                '"\\s*$"',
+                '"\\s*"',
+            ),
+            (
+                "Test-LanForwarderCommandLine `",
+                "Removed-LanForwarderCommandLine `",
+            ),
+            (
+                "accepted a decoy command line",
+                "accepted an unrelated command line",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertNotEqual(runner, self.runner)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_forwarder_command_identity_rejects_decoy_arguments_at_runtime(
+        self,
+    ) -> None:
+        function_sources = "\n".join(
+            f"function {name} {{"
+            f"{_function_body(self.runner, name)}"
+            for name in (
+                "Get-ExactCommandLineValuePattern",
+                "Test-LanForwarderCommandLine",
+            )
+        )
+        driver = r"""
+$ErrorActionPreference = "Stop"
+$forwarder = [PSCustomObject]@{
+    nodeExecutablePath = "C:\Program Files\nodejs\node.exe"
+    scriptPath = "C:\Release State\lan_release_forwarder.mjs"
+    configPath = "C:\Release State\lan-forwarder.config.json"
+}
+$validCommandLines = @(
+    '"C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json"',
+    '"C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs" --config="C:\Release State\lan-forwarder.config.json"'
+)
+foreach ($commandLine in $validCommandLines) {
+    if (-not (Test-LanForwarderCommandLine `
+        -CommandLine $commandLine `
+        -Forwarder $forwarder)) {
+        throw "valid exact command line was rejected: $commandLine"
+    }
+}
+$invalidCommandLines = @(
+    'decoy "C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json"',
+    '"C:\Program Files\nodejs\node.exe" --inspect "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json"',
+    '"C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json" --inspect',
+    '"C:\Program Files\nodejs\node.exe.bak" "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json"',
+    '"C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs.bak" --config "C:\Release State\lan-forwarder.config.json"',
+    '"C:\Program Files\nodejs\node.exe" "C:\Release State\lan_release_forwarder.mjs" --config "C:\Release State\lan-forwarder.config.json.bak"',
+    '"C:\Program Files\nodejs\node.exe" --config "C:\Release State\lan-forwarder.config.json" "C:\Release State\lan_release_forwarder.mjs"'
+)
+foreach ($commandLine in $invalidCommandLines) {
+    if (Test-LanForwarderCommandLine `
+        -CommandLine $commandLine `
+        -Forwarder $forwarder) {
+        throw "decoy command line was accepted: $commandLine"
+    }
+}
+$plainForwarder = [PSCustomObject]@{
+    nodeExecutablePath = "C:\node\node.exe"
+    scriptPath = "C:\state\lan_release_forwarder.mjs"
+    configPath = "C:\state\lan-forwarder.config.json"
+}
+foreach ($commandLine in @(
+    'C:\node\node.exe C:\state\lan_release_forwarder.mjs --config C:\state\lan-forwarder.config.json',
+    '"C:\node\node.exe" "C:\state\lan_release_forwarder.mjs" --config="C:\state\lan-forwarder.config.json"'
+)) {
+    if (-not (Test-LanForwarderCommandLine `
+        -CommandLine $commandLine `
+        -Forwarder $plainForwarder)) {
+        throw "valid no-whitespace-path command line was rejected: $commandLine"
+    }
+}
+if (Test-LanForwarderCommandLine `
+    -CommandLine (
+        'C:\node\node.exe C:\state\lan_release_forwarder.mjs ' +
+        '--config C:\state\lan-forwarder.config.json.bak'
+    ) `
+    -Forwarder $plainForwarder) {
+    throw "no-whitespace-path suffix decoy was accepted"
+}
+Write-Output "strict forwarder command identity runtime self-test passed"
+"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            test_script_path = (
+                Path(temporary_directory) / "forwarder-command-self-test.ps1"
+            )
+            test_script_path.write_text(
+                function_sources + driver,
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(test_script_path),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+            self.assertIn(
+                "strict forwarder command identity runtime self-test passed",
+                result.stdout,
+            )
+
+    def test_requires_forwarder_start_stop_and_cleanup_controls(self) -> None:
+        expected = (
+            "forwarder lifecycle must replace only receipt-owned processes, "
+            "retain hidden-process logs, and prove failed-start and stop cleanup "
+            "released every public listener"
+        )
+        mutations = (
+            (
+                "-WindowStyle Hidden",
+                "-WindowStyle Normal",
+            ),
+            (
+                "Get-VerifiedLanForwarderCommandProcess",
+                "Removed-VerifiedLanForwarderCommandProcess",
+            ),
+            (
+                "Assert-LanForwarderPortsReleased -Receipt $Receipt",
+                "Write-Warning 'listener release not verified'",
+            ),
+            (
+                "elseif ($commandProcesses.Count -eq 1)",
+                "elseif ($false)",
+            ),
+            (
+                "[int]$_.OwningProcess -ne $exactProcessId",
+                "$false",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertNotEqual(runner, self.runner)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_restore_validates_target_image_before_stopping_active_forwarder(
+        self,
+    ) -> None:
+        image_evidence = (
+            "$image = Get-ImageEvidence `\n"
+            "        -ImageReference $Receipt.imageReference `"
+        )
+        premature_stop = (
+            "Stop-LanForwarder -Receipt $activeReceipt -AllowNotRunning\n\n"
+            "    " + image_evidence
+        )
+        runner = self.runner.replace(image_evidence, premature_stop)
+        self.assertNotEqual(runner, self.runner)
+        self.assertIn(
+            "Restore must validate the target image revision, ID, and digest "
+            "before stopping the active receipt's forwarder",
+            validate_local_release(self.compose, runner),
+        )
+
+    def test_start_recovers_forwarder_only_after_retained_image_validation(
+        self,
+    ) -> None:
+        expected = (
+            "Start must validate the retained image revision, ID, and digest, "
+            "then stale-safely stop its forwarder before candidate port preflight"
+        )
+        image_evidence = (
+            "$retainedImage = Get-ImageEvidence `\n"
+            "        -ImageReference $current.imageReference `"
+        )
+        premature_stop = (
+            "Stop-LanForwarder -Receipt $current -AllowNotRunning\n\n"
+            "    " + image_evidence
+        )
+        mutations = (
+            self.runner.replace(image_evidence, premature_stop),
+            self.runner.replace(
+                "    Stop-LanForwarder -Receipt $current -AllowNotRunning\n\n"
+                "    Assert-CandidatePorts `",
+                "    Assert-CandidatePorts `",
+                1,
+            ),
+        )
+        for runner in mutations:
+            with self.subTest():
+                self.assertNotEqual(runner, self.runner)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_requires_forwarder_calls_across_every_release_lifecycle(
+        self,
+    ) -> None:
+        expected = (
+            "Deploy, Restore, Start, Rollback, and Stop must manage the "
+            "receipt-bound forwarder, including failure cleanup, with Node "
+            "required only for LAN mode"
+        )
+        mutations = (
+            (
+                (
+                    "    Assert-RetainedReleaseAssets -Receipt $current\n"
+                    "    Stop-LanForwarder -Receipt $current -AllowNotRunning\n"
+                    "    Ensure-PodmanReady"
+                ),
+                (
+                    "    Assert-RetainedReleaseAssets -Receipt $current\n"
+                    "    Write-Warning 'forwarder left running'\n"
+                    "    Ensure-PodmanReady"
+                ),
+            ),
+            (
+                (
+                    "                Stop-LanForwarder `\n"
+                    "                    -Receipt $candidateForwarderReceipt `"
+                ),
+                (
+                    "                Removed-CandidateForwarderCleanup `\n"
+                    "                    -Receipt $candidateForwarderReceipt `"
+                ),
+            ),
+            (
+                (
+                    "if ($script:BindAddress -cne $podmanBindAddress) {\n"
+                    '        $requiredCommands += "node"\n'
+                    "    }"
+                ),
+                (
+                    "if ($false) {\n"
+                    '        $requiredCommands += "node"\n'
+                    "    }"
+                ),
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_requires_forwarder_status_and_executable_self_tests(self) -> None:
+        missing_status = self.runner.replace(
+            "Observed forwarder configuration hash matches receipt:",
+            "Forwarder configuration was recorded:",
+        )
+        self.assertIn(
+            "Status must report the exact forwarder readiness, receipt-identity, "
+            "configuration-hash, and listener-ownership evidence consumed by "
+            "qualification",
+            validate_local_release(self.compose, missing_status),
+        )
+
+        missing_self_test = self.runner.replace(
+            "        Invoke-LanForwarderSelfTest "
+            "-TemporaryDirectory $temporaryDirectory",
+            "        Write-Warning 'forwarder self-test removed'",
+        )
+        self.assertIn(
+            "local release validation must exercise forwarder asset, READY, "
+            "process-replacement, orphan-cleanup, occupied-port, and "
+            "listener-release controls",
+            validate_local_release(self.compose, missing_self_test),
+        )
+
+    def test_rejects_public_probe_before_local_health_and_forwarder_ready(
+        self,
+    ) -> None:
+        marker = (
+            "        Ensure-InstantRoomTenant `\n"
+            "            -EnvironmentFile $environmentFile `"
+        )
+        premature_public_probe = (
+            "        Wait-Application `\n"
+            "            -ExpectedBindAddress $BindAddress `\n"
+            "            -ExpectedAppPort $AppPort `\n"
+            "            -ExpectedMinioPort $MinioPort `\n"
+            "            -ExpectedLiveKitPort $LiveKitSignalPort\n"
+        )
+        runner = self.runner.replace(
+            marker,
+            premature_public_probe + marker,
+        )
+        self.assertIn(
+            "deployment and restore must prove loopback Podman bootstrap and "
+            "health before activating, identity-checking, and publicly probing "
+            "a required LAN forwarder",
+            validate_local_release(self.compose, runner),
+        )
+
+    def test_requires_status_network_match_and_pre_compose_drift_guards(self) -> None:
+        runner = self.runner.replace(
+            "function Invoke-StartLocked {\n    $current = Get-CurrentReceipt",
+            "function Invoke-StartLocked {\n"
+            "    Assert-CandidatePorts\n"
+            "    $current = Get-CurrentReceipt",
+        ).replace(
+            "function Invoke-RollbackLocked {\n    $current = Get-CurrentReceipt",
+            "function Invoke-RollbackLocked {\n"
+            "    Assert-GuestRollbackSafe\n"
+            "    $current = Get-CurrentReceipt",
+        ).replace(
+            "Observed network topology matches receipt:",
+            "Recorded network topology only:",
+        ).replace(
+            "$networkTopologyMatchesReceipt = $true",
+            "$networkTopologyMatchesReceipt = $false",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "Status must re-observe and expose an explicit receipt-network match, "
+            "and Rollback must revalidate both retained network topologies",
+            errors,
+        )
+        self.assertIn(
+            "Start must reject retained network drift before any Compose-capable "
+            "port, rollback-safety, or restore action",
+            errors,
+        )
+        self.assertIn(
+            "Rollback must reject current or target network drift before any "
+            "Compose-capable rollback-safety or restore action",
+            errors,
+        )
+
+    def test_requires_release_environment_topology_assertion(self) -> None:
+        runner = self.runner.replace(
+            "        Assert-ReleaseEnvironmentTopology `",
+            "        RemovedEnvironmentTopologyAssertion `",
+        ).replace(
+            "K_COMMS_LOCAL_RELEASE_HOST = $expectedRuntimeHost",
+            "K_COMMS_LOCAL_RELEASE_HOST = $ExpectedBindAddress",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "deploy and validation must assert the complete loopback or LAN "
+            "release-environment topology before Compose rendering",
+            errors,
+        )
 
     def test_rejects_podman_incompatible_loopback_candidate_flag(self) -> None:
         document = copy.deepcopy(self.compose)
@@ -329,9 +1198,8 @@ class LocalReleasePolicyTest(unittest.TestCase):
 
     def test_requires_guest_capability_only_for_the_candidate(self) -> None:
         candidate_without_guest_check = self.runner.replace(
-            "            -ExpectedLiveKitPort $LiveKitSignalPort `\n"
-            "            -RequireGuestLinks",
-            "            -ExpectedLiveKitPort $LiveKitSignalPort",
+            "            -RequireGuestLinks `",
+            "            -RemovedGuestLinks `",
         )
         errors = validate_local_release(self.compose, candidate_without_guest_check)
         self.assertIn(
@@ -644,13 +1512,24 @@ class LocalReleasePolicyTest(unittest.TestCase):
     def test_rejects_late_or_incomplete_candidate_port_preflight(self) -> None:
         runner = self.runner.replace(
             "    Assert-CandidatePorts `\n"
+            "        -CandidateBindAddress $BindAddress `\n"
             "        -CandidateAppPort $AppPort `",
             "    Assert-RemovedCandidatePorts `\n"
+            "        -CandidateBindAddress $BindAddress `\n"
             "        -CandidateAppPort $AppPort `",
         )
         runner = runner.replace("Group-Object -Property Port", "Group-Object -Property Name")
         runner = runner.replace(
             "Test-RetainedServiceOwnsPort", "RemovedRetainedPortOwnershipCheck"
+        )
+        runner = runner.replace(
+            "Test-RetainedForwarderOwnsPort",
+            "RemovedRetainedForwarderOwnershipCheck",
+        )
+        runner = runner.replace(
+            "            BindAddress = $podmanBindAddress",
+            "            BindAddress = $CandidateBindAddress",
+            1,
         )
         errors = validate_local_release(self.compose, runner)
         self.assertIn(
@@ -658,12 +1537,14 @@ class LocalReleasePolicyTest(unittest.TestCase):
             errors,
         )
         self.assertIn(
-            "candidate port preflight must enforce uniqueness and loopback availability",
+            "candidate port preflight must enforce uniqueness, loopback-only "
+            "Podman and MinIO-console availability, and exact selected-address "
+            "TCP/UDP forwarder availability",
             errors,
         )
         self.assertIn(
-            "candidate port preflight must only exempt verified port mappings owned by "
-            "the retained release",
+            "candidate port preflight must only exempt verified Podman mappings "
+            "or ready receipt-bound forwarder listeners owned by the retained release",
             errors,
         )
 
@@ -730,6 +1611,34 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "this compatible current release is restarted even if it was stopped before Rollback",
             runbook,
         )
+        self.assertIn("-BindAddress 192.168.1.25", runbook)
+        self.assertIn("-AllowPublicNetworkProfile", runbook)
+        self.assertIn("observed Windows interface/profile", runbook)
+        self.assertIn("-LanTextOnly", runbook)
+        self.assertIn("media was **not qualified**", runbook)
+        self.assertIn("MinIO admin console (`5901`) stays", runbook)
+        self.assertIn("Windows Firewall", runbook)
+        self.assertIn("K_COMMS_PODMAN_BIND_ADDRESS=127.0.0.1", runbook)
+        self.assertIn("all retained and referenced interpolation", runbook)
+        self.assertIn("K_COMMS_PODMAN_BIND_ADDRESS=0.0.0.0", runbook)
+        self.assertIn("cannot widen the retained publication", runbook)
+        self.assertIn("scripts/lan_release_forwarder.mjs", runbook)
+        self.assertIn("Forwarder: ready", runbook)
+        self.assertIn("Forwarder: not-required", runbook)
+        self.assertIn("schema v5", runbook)
+        self.assertIn("http://<LAN-IP>", runbook)
+        self.assertIn("always text-only", runbook)
+        self.assertIn("local probes alone must not be reported as LAN", runbook)
+        self.assertIn("HTTPS/WSS ingress", runbook)
+        self.assertIn("reserving it in DHCP/router policy", runbook)
+        self.assertIn("does not continuously supervise it", runbook)
+        self.assertIn("Automatic crash restart remains an operations gap", runbook)
+        self.assertIn("authentication, session, and join tokens", runbook)
+        self.assertIn("Trusted HTTPS/WSS is mandatory", runbook)
+        self.assertIn("internal-production use", runbook)
+        self.assertIn("does **not** prove that", runbook)
+        self.assertIn("the STUN probe failed", runbook)
+        self.assertIn("never infer media capability from forwarder readiness", runbook)
 
 
 if __name__ == "__main__":

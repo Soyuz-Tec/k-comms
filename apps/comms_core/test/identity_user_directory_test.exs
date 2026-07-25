@@ -2,7 +2,7 @@ defmodule CommsCore.Accounts.UserDirectoryTest do
   use CommsCore.DataCase, async: false
 
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.{User, UserView}
+  alias CommsCore.Accounts.{RetainedSenderLabelView, User, UserView}
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
@@ -80,6 +80,64 @@ defmodule CommsCore.Accounts.UserDirectoryTest do
     assert [] == Accounts.resolve_user_views(other_account.tenant.id, [alpha.id])
     assert [] == Accounts.resolve_user_views(account.tenant.id, [])
     assert [] == Accounts.resolve_user_views(nil, requested_ids)
+  end
+
+  test "retained sender labels are bounded, tenant-scoped, label-only, and include expired identities" do
+    account = Fixtures.account_fixture()
+    other_account = Fixtures.account_fixture()
+
+    expired_guest =
+      %User{}
+      |> User.guest_changeset(%{
+        tenant_id: account.tenant.id,
+        external_subject: "guest:expired-label-#{System.unique_integer([:positive])}",
+        display_name: "Departed Guest",
+        guest_expires_at: DateTime.utc_now() |> DateTime.add(-60, :second)
+      })
+      |> Repo.insert!()
+
+    erased =
+      Fixtures.user_fixture(account, %{
+        display_name: "Former Sensitive Name",
+        status: :deleted
+      }).user
+
+    requested_ids = [
+      erased.id,
+      other_account.user.id,
+      expired_guest.id,
+      expired_guest.id
+    ]
+
+    labels = Accounts.resolve_retained_sender_labels(account.tenant.id, requested_ids)
+
+    assert Enum.map(labels, & &1.id) == Enum.sort([erased.id, expired_guest.id])
+    assert Enum.all?(labels, &match?(%RetainedSenderLabelView{}, &1))
+
+    assert Enum.find(labels, &(&1.id == expired_guest.id)).display_name ==
+             "Departed Guest"
+
+    refute Enum.find(labels, &(&1.id == expired_guest.id)).redacted
+
+    assert Enum.find(labels, &(&1.id == erased.id)).display_name ==
+             "Deleted user"
+
+    assert Enum.find(labels, &(&1.id == erased.id)).redacted
+    assert CommsCore.Accounts.Projector.user(erased).display_name == "Deleted user"
+
+    assert CommsCore.Accounts.Projector.directory_person(erased).display_name ==
+             "Deleted user"
+
+    Enum.each(labels, fn label ->
+      assert Map.keys(Map.from_struct(label)) |> Enum.sort() == [:display_name, :id, :redacted]
+    end)
+
+    assert [] == Accounts.resolve_user_views(account.tenant.id, [expired_guest.id])
+    assert [] == Accounts.resolve_retained_sender_labels(account.tenant.id, ["not-a-uuid"])
+    assert [] == Accounts.resolve_retained_sender_labels(nil, [expired_guest.id])
+
+    oversized = Enum.map(1..201, fn _index -> Ecto.UUID.generate() end)
+    assert [] == Accounts.resolve_retained_sender_labels(account.tenant.id, oversized)
   end
 
   defp service_user_fixture(account, display_name) do

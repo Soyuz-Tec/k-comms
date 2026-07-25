@@ -15,6 +15,7 @@ const room: Conversation = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "Execution room",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "tenant",
   latest_sequence: 4,
@@ -131,6 +132,7 @@ describe("DirectoryPage", () => {
         id: "direct-1",
         kind: "direct",
         title: null,
+        counterpart_user_id: person.id,
         counterpart_display_name: "Grace Hopper",
         visibility: "private"
       },

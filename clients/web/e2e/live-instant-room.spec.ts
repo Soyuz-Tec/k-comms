@@ -136,6 +136,25 @@ test.describe("real-stack instant-room acceptance", () => {
         })
       ]);
 
+      const hostRoster = hostPage.getByRole("list", {
+        name: "Room participants"
+      });
+      const guestRoster = guestPage.getByRole("list", {
+        name: "Room participants"
+      });
+      await Promise.all([
+        expect(hostRoster.getByText("Live Room Guest")).toBeVisible({
+          timeout: 30_000
+        }),
+        expect(guestRoster.getByText("Live Room Guest", { exact: false }))
+          .toContainText("Live Room Guest (you)", { timeout: 30_000 }),
+        expect(hostRoster.getByText("Guest host", { exact: false }))
+          .toContainText("Guest host (you)", { timeout: 30_000 }),
+        expect(guestRoster.getByText("Guest host")).toBeVisible({
+          timeout: 30_000
+        })
+      ]);
+
       const guestIdentity = await storedGuestRoomIdentity(guestPage);
       expect(guestIdentity).toMatchObject({
         roomId: hostBeforeConversion.roomId,

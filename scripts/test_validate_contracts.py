@@ -27,6 +27,21 @@ class ContractValidationTests(unittest.TestCase):
         validate_guest_contract(self.openapi)
         validate_instant_room_contract(self.openapi)
 
+    def test_conversation_counterpart_id_is_nullable_and_uuid_shaped(self) -> None:
+        conversation = self.openapi["components"]["schemas"]["Conversation"]
+        self.assertIn("counterpart_user_id", conversation["required"])
+        self.assertEqual(
+            conversation["properties"]["counterpart_user_id"],
+            {
+                "type": ["string", "null"],
+                "format": "uuid",
+                "description": (
+                    "Server-derived current counterpart identifier for an authorized "
+                    "direct conversation; null for non-direct conversations."
+                ),
+            },
+        )
+
     def test_guest_link_creation_requires_runtime_conversion_metadata(self) -> None:
         document = copy.deepcopy(self.openapi)
         data = document["components"]["schemas"]["GuestLinkCreationResponse"][

@@ -20,6 +20,7 @@ import {
 import { SessionProvider } from "../../app/session";
 import type {
   Conversation,
+  ConversationMembership,
   GuestLinkPreview,
   GuestSession,
   Message,
@@ -31,6 +32,7 @@ import {
   GuestShell,
   loadGuestMessageCatchUp
 } from "./GuestAccessPage";
+import { participantDisambiguator } from "../../lib/participantIdentity";
 
 const realtimeHarness = vi.hoisted(() => ({
   callbacks: null as null | {
@@ -38,6 +40,9 @@ const realtimeHarness = vi.hoisted(() => ({
     onMessages: (messages: Message[]) => void;
     onReactionAdded: (event: ReactionEvent) => void;
     onReactionRemoved: (event: ReactionEvent) => void;
+    onMembershipChanged: () => void;
+    onCatchUpRequired: (afterSequence: number) => void;
+    onPresence: (count: number, userIds: string[]) => void;
   },
   tickets: [] as string[],
   disconnects: 0
@@ -60,6 +65,9 @@ vi.mock("../../realtime", () => ({
         onMessages: (messages: Message[]) => void;
         onReactionAdded: (event: ReactionEvent) => void;
         onReactionRemoved: (event: ReactionEvent) => void;
+        onMembershipChanged: () => void;
+        onCatchUpRequired: (afterSequence: number) => void;
+        onPresence: (count: number, userIds: string[]) => void;
       }
     ) {
       realtimeHarness.callbacks = callbacks;
@@ -76,6 +84,7 @@ const conversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "group",
   title: "Launch room",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,
@@ -182,6 +191,7 @@ describe("GuestAccessPage", () => {
         reset_required: false
       }
     });
+    vi.spyOn(GuestApiClient.prototype, "messageSenderLabels").mockResolvedValue([]);
     vi.spyOn(GuestApiClient.prototype, "socketTicket").mockResolvedValue({
       ticket: "socket-ticket",
       expires_in: 60
@@ -1193,6 +1203,937 @@ describe("GuestAccessPage", () => {
     expect(composer).toHaveFocus();
   });
 
+  it("shows live participants and uses the same display names in chat", async () => {
+    const host = {
+      id: "member-host",
+      role: "owner" as const,
+      joined_at: "2026-07-24T11:00:00Z",
+      last_read_sequence: 0,
+      user: {
+        id: "member-2",
+        tenant_id: "tenant-1",
+        display_name: "Ada Host",
+        account_type: "human" as const,
+        role: "owner" as const,
+        status: "active"
+      }
+    };
+    vi.mocked(GuestApiClient.prototype.conversationMembers).mockResolvedValue([
+      {
+        id: "member-guest",
+        role: "member",
+        joined_at: "2026-07-24T12:00:00Z",
+        last_read_sequence: 0,
+        user: guestSession.user
+      },
+      host
+    ]);
+    vi.mocked(GuestApiClient.prototype.messages).mockResolvedValue({
+      data: [message(1), message(2, guestSession.user.id)],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    act(() => realtimeHarness.callbacks?.onPresence(
+      2,
+      [guestSession.user.id, host.user.id]
+    ));
+    expect(await within(roster).findByText("Taylor", { exact: false }))
+      .toHaveTextContent("Taylor (you)");
+    expect(within(roster).getByText("Ada Host")).toBeVisible();
+    expect(screen.getByText("2 online · 2 total")).toBeVisible();
+
+    const messageList = document.querySelector(".guest-message-list");
+    expect(messageList).not.toBeNull();
+    expect(within(messageList as HTMLElement).getByText("Ada Host")).toBeVisible();
+    expect(
+      within(messageList as HTMLElement).getByText("Taylor (you)")
+    ).toBeVisible();
+  });
+
+  it("restores a departed sender username from the authorized history sidecar", async () => {
+    vi.mocked(GuestApiClient.prototype.conversationMembers).mockResolvedValue([
+      {
+        id: "member-guest",
+        role: "member",
+        joined_at: "2026-07-24T12:00:00Z",
+        last_read_sequence: 0,
+        user: guestSession.user
+      }
+    ]);
+    vi.mocked(GuestApiClient.prototype.messages).mockResolvedValue({
+      data: [message(9, "departed-guest")],
+      included: {
+        sender_labels: [
+          { id: "departed-guest", display_name: "Jordan Departed", redacted: false }
+        ]
+      },
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    const roster = await screen.findByRole("list", {
+      name: "Room participants"
+    });
+    expect(within(roster).queryByText("Jordan Departed")).not.toBeInTheDocument();
+
+    const messageList = document.querySelector(".guest-message-list");
+    expect(messageList).not.toBeNull();
+    expect(
+      await within(messageList as HTMLElement).findByText("Jordan Departed")
+    ).toBeVisible();
+  });
+
+  it("replaces a departed guest cache with the erased history sidecar label", async () => {
+    const activeGuest = {
+      id: "member-erased-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:01:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "erased-guest",
+        display_name: "Avery Active Guest"
+      }
+    };
+    const selfMembership = {
+      id: "member-self",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    membersLookup.mockResolvedValue([selfMembership, activeGuest]);
+    const guestMessage = {
+      ...message(52, activeGuest.user.id),
+      body: "Message before guest erasure"
+    };
+    const messagesLookup = vi.mocked(GuestApiClient.prototype.messages);
+    messagesLookup.mockResolvedValue({
+      data: [message(51, guestSession.user.id)],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+    renderPage();
+
+    const roster = await screen.findByRole("list", {
+      name: "Room participants"
+    });
+    expect(await within(roster).findByText("Avery Active Guest")).toBeVisible();
+    await waitFor(() => expect(membersLookup.mock.calls.length).toBeGreaterThanOrEqual(2));
+    act(() => realtimeHarness.callbacks?.onMessages([guestMessage]));
+    expect(await screen.findByText("Message before guest erasure")).toBeVisible();
+    vi.mocked(GuestApiClient.prototype.messageSenderLabels).mockResolvedValue([
+      { id: activeGuest.user.id, display_name: "Deleted user", redacted: true }
+    ]);
+    membersLookup.mockResolvedValue([selfMembership]);
+
+    act(() => realtimeHarness.callbacks?.onMembershipChanged());
+
+    expect(await screen.findByText("Deleted user")).toBeVisible();
+    expect(within(roster).queryByText("Avery Active Guest")).not.toBeInTheDocument();
+    expect(screen.queryByText("Avery Active Guest")).not.toBeInTheDocument();
+    expect(GuestApiClient.prototype.messageSenderLabels).toHaveBeenCalledWith([
+      guestMessage.id
+    ]);
+  });
+
+  it("refreshes an erased guest older than 200 rendered messages without replaying history", async () => {
+    const selfMembership = {
+      id: "member-self",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const oldAuthorMembership = {
+      ...selfMembership,
+      id: "member-old-author",
+      user: {
+        ...guestSession.user,
+        id: "old-guest-author",
+        display_name: "Old Guest Before Erasure"
+      }
+    };
+    const renderedMessages = [
+      {
+        ...message(1, oldAuthorMembership.user.id),
+        body: "Old guest message remains visible"
+      },
+      ...Array.from(
+        { length: 200 },
+        (_, index) => message(index + 2, guestSession.user.id)
+      )
+    ];
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    membersLookup.mockResolvedValue([
+      selfMembership,
+      oldAuthorMembership
+    ]);
+    const messagesLookup = vi.mocked(GuestApiClient.prototype.messages);
+    messagesLookup.mockResolvedValue({
+      data: renderedMessages,
+      included: {
+        sender_labels: [
+          {
+            id: oldAuthorMembership.user.id,
+            display_name: oldAuthorMembership.user.display_name,
+            redacted: false
+          }
+        ]
+      },
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+    renderPage();
+
+    const oldMessageBody = await screen.findByText(
+      "Old guest message remains visible"
+    );
+    const messageList = oldMessageBody.closest(".guest-message-list");
+    expect(messageList).not.toBeNull();
+    expect(
+      within(messageList as HTMLElement)
+        .getByText("Old Guest Before Erasure")
+    ).toBeVisible();
+    await waitFor(() => expect(membersLookup.mock.calls.length).toBeGreaterThanOrEqual(2));
+    vi.mocked(GuestApiClient.prototype.messageSenderLabels).mockResolvedValue([
+      {
+        id: oldAuthorMembership.user.id,
+        display_name: "Deleted user",
+        redacted: true
+      }
+    ]);
+    membersLookup.mockResolvedValue([selfMembership]);
+
+    act(() => realtimeHarness.callbacks?.onMembershipChanged());
+
+    expect(await screen.findByText("Deleted user")).toBeVisible();
+    expect(screen.queryByText("Old Guest Before Erasure")).not.toBeInTheDocument();
+    expect(GuestApiClient.prototype.messageSenderLabels).toHaveBeenCalledWith([
+      "message-1"
+    ]);
+    expect(messagesLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips hidden sender-label refreshes and backs off unchanged labels until a change resets the delay", async () => {
+    let now = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const selfMembership = {
+      id: "member-self",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const departedMembership = {
+      ...selfMembership,
+      id: "member-adaptive-departed",
+      user: {
+        ...guestSession.user,
+        id: "adaptive-departed-guest",
+        display_name: "Former guest"
+      }
+    };
+    const departedMessage = {
+      ...message(61, departedMembership.user.id),
+      body: "Adaptive guest sender label"
+    };
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    membersLookup.mockResolvedValue([
+      selfMembership,
+      departedMembership
+    ]);
+    vi.mocked(GuestApiClient.prototype.messages).mockResolvedValue({
+      data: [departedMessage],
+      included: {
+        sender_labels: [
+          {
+            id: departedMembership.user.id,
+            display_name: "Former guest",
+            redacted: false
+          }
+        ]
+      },
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    const senderLabelsLookup = vi.mocked(
+      GuestApiClient.prototype.messageSenderLabels
+    );
+    senderLabelsLookup
+      .mockResolvedValueOnce([
+        {
+          id: departedMembership.user.id,
+          display_name: "Former guest",
+          redacted: false
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: departedMembership.user.id,
+          display_name: "Former guest",
+          redacted: false
+        }
+      ])
+      .mockResolvedValue([
+        {
+          id: departedMembership.user.id,
+          display_name: "Renamed guest",
+          redacted: false
+        }
+      ]);
+    storeGuestSession(guestSession);
+    renderPage();
+    await screen.findByText("Adaptive guest sender label");
+    await waitFor(() => expect(realtimeHarness.callbacks).not.toBeNull());
+    membersLookup.mockResolvedValue([selfMembership]);
+
+    const reconcile = async () => {
+      const expectedMemberCalls = membersLookup.mock.calls.length + 1;
+      act(() => realtimeHarness.callbacks?.onMembershipChanged());
+      await waitFor(() =>
+        expect(membersLookup).toHaveBeenCalledTimes(expectedMemberCalls)
+      );
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
+      });
+    };
+
+    await reconcile();
+    await waitFor(() => expect(senderLabelsLookup).toHaveBeenCalledTimes(1));
+
+    now = 30_000;
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden"
+    });
+    await reconcile();
+    expect(senderLabelsLookup).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible"
+    });
+    await reconcile();
+    await waitFor(() => expect(senderLabelsLookup).toHaveBeenCalledTimes(2));
+
+    now = 60_000;
+    await reconcile();
+    expect(senderLabelsLookup).toHaveBeenCalledTimes(2);
+
+    now = 90_000;
+    await reconcile();
+    await waitFor(() => expect(senderLabelsLookup).toHaveBeenCalledTimes(3));
+    expect(await screen.findByText("Renamed guest")).toBeVisible();
+
+    now = 120_000;
+    await reconcile();
+    await waitFor(() => expect(senderLabelsLookup).toHaveBeenCalledTimes(4));
+    nowSpy.mockRestore();
+  });
+
+  it("keeps an ordinary departed guest named when the sidecar retains no override", async () => {
+    const activeGuest = {
+      id: "member-ordinary-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:01:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "ordinary-guest",
+        display_name: "Jordan Ordinary Guest"
+      }
+    };
+    const selfMembership = {
+      id: "member-self",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    membersLookup.mockResolvedValue([selfMembership, activeGuest]);
+    const guestMessage = {
+      ...message(52, activeGuest.user.id),
+      body: "Ordinary departed message"
+    };
+    const messagesLookup = vi.mocked(GuestApiClient.prototype.messages);
+    messagesLookup.mockResolvedValue({
+      data: [message(51, guestSession.user.id)],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+    renderPage();
+
+    await screen.findByText("Jordan Ordinary Guest");
+    await waitFor(() => expect(membersLookup.mock.calls.length).toBeGreaterThanOrEqual(2));
+    act(() => realtimeHarness.callbacks?.onMessages([guestMessage]));
+    expect(await screen.findByText("Ordinary departed message")).toBeVisible();
+    membersLookup.mockResolvedValue([selfMembership]);
+
+    act(() => realtimeHarness.callbacks?.onMembershipChanged());
+
+    await waitFor(() =>
+      expect(GuestApiClient.prototype.messageSenderLabels).toHaveBeenCalledWith([
+        guestMessage.id
+      ])
+    );
+    expect(screen.getByText("Jordan Ordinary Guest")).toBeVisible();
+    expect(screen.getByText("Ordinary departed message")).toBeVisible();
+  });
+
+  it("reconciles socket replay through guest REST history without duplicating it", async () => {
+    const replayed = {
+      ...message(2, "departed-replay-guest"),
+      body: "Replayed guest message"
+    };
+    const messagesLookup = vi.mocked(GuestApiClient.prototype.messages);
+    messagesLookup
+      .mockResolvedValueOnce({
+        data: [message(1, guestSession.user.id)],
+        page: {
+          has_more: false,
+          next_after_sequence: null,
+          reset_required: false
+        }
+      })
+      .mockResolvedValueOnce({
+        data: [replayed],
+        included: {
+          sender_labels: [
+            {
+              id: replayed.sender_user_id,
+              display_name: "Jordan Replay",
+              redacted: false
+            }
+          ]
+        },
+        page: {
+          has_more: false,
+          next_after_sequence: null,
+          reset_required: false
+        }
+      });
+    storeGuestSession(guestSession);
+    renderPage();
+    await screen.findByText("Message 1");
+    await waitFor(() => expect(realtimeHarness.callbacks).not.toBeNull());
+
+    act(() => {
+      realtimeHarness.callbacks?.onMessages([replayed]);
+      realtimeHarness.callbacks?.onCatchUpRequired(1);
+    });
+
+    expect(await screen.findByText("Jordan Replay")).toBeVisible();
+    expect(screen.getAllByText("Replayed guest message")).toHaveLength(1);
+    expect(messagesLookup).toHaveBeenCalledWith(1, 200);
+  });
+
+  it("disambiguates duplicate usernames restored only from retained history", async () => {
+    vi.mocked(GuestApiClient.prototype.conversationMembers).mockResolvedValue([
+      {
+        id: "member-guest",
+        role: "member",
+        joined_at: "2026-07-24T12:00:00Z",
+        last_read_sequence: 0,
+        user: guestSession.user
+      }
+    ]);
+    vi.mocked(GuestApiClient.prototype.messages).mockResolvedValue({
+      data: [
+        message(9, "departed-alex-1"),
+        message(10, "departed-alex-2")
+      ],
+      included: {
+        sender_labels: [
+          { id: "departed-alex-1", display_name: "Alex", redacted: false },
+          { id: "departed-alex-2", display_name: "ALEX", redacted: false }
+        ]
+      },
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    await screen.findByText("Message 9");
+    const messageList = document.querySelector(".guest-message-list");
+    expect(messageList).not.toBeNull();
+    const scoped = within(messageList as HTMLElement);
+    expect(
+      await scoped.findByText(
+        `Alex · #${participantDisambiguator("departed-alex-1")}`
+      )
+    ).toBeVisible();
+    expect(
+      scoped.getByText(
+        `ALEX · #${participantDisambiguator("departed-alex-2")}`
+      )
+    ).toBeVisible();
+  });
+
+  it("adds stable identifiers to duplicate participant names in chat", async () => {
+    const duplicate = {
+      id: "member-duplicate",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:01:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-duplicate",
+        display_name: "TAYLOR"
+      }
+    };
+    vi.mocked(GuestApiClient.prototype.conversationMembers).mockResolvedValue([
+      {
+        id: "member-guest",
+        role: "member",
+        joined_at: "2026-07-24T12:00:00Z",
+        last_read_sequence: 0,
+        user: guestSession.user
+      },
+      duplicate
+    ]);
+    vi.mocked(GuestApiClient.prototype.messages).mockResolvedValue({
+      data: [
+        message(10, guestSession.user.id),
+        message(11, duplicate.user.id)
+      ],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    await screen.findByText("Message 10");
+    const messageList = document.querySelector(".guest-message-list");
+    expect(messageList).not.toBeNull();
+    const scoped = within(messageList as HTMLElement);
+    expect(
+      await scoped.findByText(
+        `Taylor · #${participantDisambiguator(guestSession.user.id)} (you)`
+      )
+    ).toBeVisible();
+    expect(
+      scoped.getByText(
+        `TAYLOR · #${participantDisambiguator(duplicate.user.id)}`
+      )
+    ).toBeVisible();
+  });
+
+  it("updates the participant list when a guest joins and leaves", async () => {
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const joiningGuest = {
+      id: "member-joining",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:01:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-2",
+        display_name: "Jordan Guest"
+      }
+    };
+    membersLookup.mockResolvedValue([selfMembership]);
+    storeGuestSession(guestSession);
+    renderPage();
+
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    expect(within(roster).getByText("Taylor", { exact: false })).toBeVisible();
+
+    membersLookup.mockResolvedValue([selfMembership, joiningGuest]);
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(
+        2,
+        [guestSession.user.id, joiningGuest.user.id]
+      );
+      realtimeHarness.callbacks?.onMembershipChanged();
+    });
+
+    expect(await within(roster).findByText("Jordan Guest")).toBeVisible();
+    expect(screen.getByText("2 online · 2 total")).toBeVisible();
+    act(() => {
+      realtimeHarness.callbacks?.onMessages([
+        message(50, joiningGuest.user.id)
+      ]);
+    });
+
+    membersLookup.mockResolvedValue([selfMembership]);
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+      realtimeHarness.callbacks?.onMembershipChanged();
+    });
+
+    await waitFor(() =>
+      expect(within(roster).queryByText("Jordan Guest")).not.toBeInTheDocument()
+    );
+    expect(screen.getByText("1 online · 1 total")).toBeVisible();
+    expect(
+      within(document.querySelector(".guest-message-list") as HTMLElement)
+        .getByText("Jordan Guest")
+    ).toBeVisible();
+  });
+
+  it("reconciles an expired participant when only the Presence set changes", async () => {
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const expiredMembership = {
+      id: "member-expiring",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:01:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-expiring",
+        display_name: "Expiring Guest"
+      }
+    };
+    membersLookup.mockResolvedValue([selfMembership, expiredMembership]);
+    storeGuestSession(guestSession);
+    renderPage();
+
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    expect(await within(roster).findByText("Expiring Guest")).toBeVisible();
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(
+        2,
+        [guestSession.user.id, expiredMembership.user.id]
+      );
+    });
+    await waitFor(() => expect(screen.getByText("2 online · 2 total")).toBeVisible());
+
+    const callsBeforeExpiry = membersLookup.mock.calls.length;
+    membersLookup.mockResolvedValue([selfMembership]);
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+    });
+
+    await waitFor(() =>
+      expect(membersLookup).toHaveBeenCalledTimes(callsBeforeExpiry + 1)
+    );
+    await waitFor(() =>
+      expect(within(roster).queryByText("Expiring Guest")).not.toBeInTheDocument()
+    );
+    expect(screen.getByText("1 online · 1 total")).toBeVisible();
+  });
+
+  it("periodically reconciles an offline expiry without overlapping duplicate ticks", async () => {
+    let reconcile: (() => void) | undefined;
+    const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation((handler, timeout) => {
+      if (timeout === 30_000 && typeof handler === "function") {
+        reconcile = handler as () => void;
+      }
+      return 42 as unknown as ReturnType<typeof window.setInterval>;
+    });
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const expiredMembership = {
+      ...selfMembership,
+      id: "member-offline-expired",
+      user: {
+        ...guestSession.user,
+        id: "guest-offline-expired",
+        display_name: "Offline Expired"
+      }
+    };
+    membersLookup
+      .mockResolvedValueOnce([selfMembership, expiredMembership])
+      .mockResolvedValueOnce([selfMembership, expiredMembership])
+      .mockResolvedValue([selfMembership]);
+    storeGuestSession(guestSession);
+    const view = renderPage();
+
+    const roster = await screen.findByRole("list", {
+      name: "Room participants"
+    });
+    expect(await within(roster).findByText("Offline Expired")).toBeVisible();
+    await waitFor(() => expect(membersLookup.mock.calls.length).toBeGreaterThanOrEqual(2));
+    const callsBeforeReconciliation = membersLookup.mock.calls.length;
+    expect(reconcile).toBeTypeOf("function");
+
+    act(() => {
+      reconcile?.();
+      reconcile?.();
+    });
+
+    await waitFor(() =>
+      expect(membersLookup).toHaveBeenCalledTimes(
+        callsBeforeReconciliation + 1
+      )
+    );
+    await waitFor(() =>
+      expect(within(roster).queryByText("Offline Expired"))
+        .not.toBeInTheDocument()
+    );
+    view.unmount();
+    intervalSpy.mockRestore();
+  });
+
+  it("reconciles the participant list after a realtime reconnect", async () => {
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const joinedWhileOffline = {
+      id: "member-offline-join",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:02:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-offline-join",
+        display_name: "Offline Join"
+      }
+    };
+    membersLookup.mockResolvedValue([selfMembership]);
+    storeGuestSession(guestSession);
+    renderPage();
+
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    expect(within(roster).queryByText("Offline Join")).not.toBeInTheDocument();
+
+    membersLookup.mockResolvedValue([selfMembership, joinedWhileOffline]);
+    act(() => {
+      realtimeHarness.callbacks?.onStatus("reconnecting");
+      realtimeHarness.callbacks?.onStatus("live");
+    });
+
+    expect(await within(roster).findByText("Offline Join")).toBeVisible();
+  });
+
+  it("does not let a stale initial member response replace a newer live reload", async () => {
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const liveMembership = {
+      id: "member-live",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:03:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-live",
+        display_name: "Live Reload"
+      }
+    };
+    let resolveInitial:
+      | ((members: ConversationMembership[]) => void)
+      | undefined;
+    let resolveLive:
+      | ((members: ConversationMembership[]) => void)
+      | undefined;
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    membersLookup
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveInitial = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveLive = resolve;
+      }));
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    await waitFor(() => expect(membersLookup).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByText("live", { selector: ".guest-connection" }))
+        .toBeVisible()
+    );
+    await act(async () => {
+      resolveInitial?.([selfMembership]);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(membersLookup).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveLive?.([selfMembership, liveMembership]);
+      await Promise.resolve();
+    });
+    const roster = screen.getByRole("list", { name: "Room participants" });
+    expect(await within(roster).findByText("Live Reload")).toBeVisible();
+
+    await screen.findByRole("textbox", { name: "Message" });
+    expect(within(roster).getByText("Live Reload")).toBeVisible();
+  });
+
+  it("serializes membership reloads and applies the newest queued response", async () => {
+    const membersLookup = vi.mocked(
+      GuestApiClient.prototype.conversationMembers
+    );
+    const selfMembership = {
+      id: "member-guest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:00:00Z",
+      last_read_sequence: 0,
+      user: guestSession.user
+    };
+    const newestMembership = {
+      id: "member-newest",
+      role: "member" as const,
+      joined_at: "2026-07-24T12:04:00Z",
+      last_read_sequence: 0,
+      user: {
+        ...guestSession.user,
+        id: "guest-newest",
+        display_name: "Newest Membership"
+      }
+    };
+    storeGuestSession(guestSession);
+    renderPage();
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    await within(roster).findByText("Taylor", { exact: false });
+
+    let resolveOlder:
+      | ((members: ConversationMembership[]) => void)
+      | undefined;
+    let resolveNewer:
+      | ((members: ConversationMembership[]) => void)
+      | undefined;
+    membersLookup
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOlder = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveNewer = resolve;
+      }));
+    const callsBeforeEvents = membersLookup.mock.calls.length;
+    act(() => {
+      realtimeHarness.callbacks?.onMembershipChanged();
+    });
+    await waitFor(() =>
+      expect(membersLookup).toHaveBeenCalledTimes(callsBeforeEvents + 1)
+    );
+    act(() => {
+      realtimeHarness.callbacks?.onMembershipChanged();
+    });
+    await act(async () => {
+      resolveOlder?.([selfMembership]);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(membersLookup).toHaveBeenCalledTimes(callsBeforeEvents + 2)
+    );
+
+    await act(async () => {
+      resolveNewer?.([selfMembership, newestMembership]);
+      await Promise.resolve();
+    });
+    expect(await within(roster).findByText("Newest Membership")).toBeVisible();
+  });
+
+  it("marks presence unknown off-line and restores it only after a fresh sync", async () => {
+    storeGuestSession(guestSession);
+    renderPage();
+    const roster = await screen.findByRole("list", { name: "Room participants" });
+    await within(roster).findByText("Taylor", { exact: false });
+
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+    });
+    expect(within(roster).getByText("Online · Guest")).toBeVisible();
+
+    act(() => {
+      realtimeHarness.callbacks?.onStatus("reconnecting");
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+    });
+    expect(screen.getByText("Presence unknown · 1 total")).toBeVisible();
+    expect(within(roster).queryByText("Online · Guest")).not.toBeInTheDocument();
+
+    act(() => {
+      realtimeHarness.callbacks?.onStatus("live");
+    });
+    expect(screen.getByText("Presence unknown · 1 total")).toBeVisible();
+
+    act(() => {
+      realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);
+    });
+    expect(within(roster).getByText("Online · Guest")).toBeVisible();
+    expect(screen.getByText("1 online · 1 total")).toBeVisible();
+  });
+
   it("does not send while an IME composition is being confirmed", async () => {
     const sendMessage = vi.spyOn(GuestApiClient.prototype, "sendMessage");
     storeGuestSession(guestSession);
@@ -1246,11 +2187,21 @@ describe("GuestAccessPage", () => {
 describe("loadGuestMessageCatchUp", () => {
   it("loads more than 700 messages through bounded forward pages", async () => {
     const allMessages = Array.from({ length: 750 }, (_, index) => message(index + 1));
+    const capturedLabels: string[] = [];
     const messages = vi.fn(async (afterSequence: number, limit: number) => {
       const data = allMessages.slice(afterSequence, afterSequence + limit);
       const nextAfterSequence = data.at(-1)?.conversation_sequence ?? null;
       return {
         data,
+        included: {
+          sender_labels: [
+            {
+              id: `sender-page-${afterSequence}`,
+              display_name: `Sender ${afterSequence}`,
+              redacted: false
+            }
+          ]
+        },
         page: {
           has_more: afterSequence + data.length < allMessages.length,
           next_after_sequence: nextAfterSequence,
@@ -1260,13 +2211,23 @@ describe("loadGuestMessageCatchUp", () => {
     });
 
     await expect(
-      loadGuestMessageCatchUp({ messages } as unknown as Pick<GuestApiClient, "messages">, 0)
+      loadGuestMessageCatchUp(
+        { messages } as unknown as Pick<GuestApiClient, "messages">,
+        0,
+        (labels) => capturedLabels.push(...labels.map(({ id }) => id))
+      )
     ).resolves.toHaveLength(750);
     expect(messages.mock.calls.map(([afterSequence]) => afterSequence)).toEqual([
       0,
       200,
       400,
       600
+    ]);
+    expect(capturedLabels).toEqual([
+      "sender-page-0",
+      "sender-page-200",
+      "sender-page-400",
+      "sender-page-600"
     ]);
   });
 });

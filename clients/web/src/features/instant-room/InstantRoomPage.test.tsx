@@ -96,6 +96,7 @@ const conversation: Conversation = {
   tenant_id: "tenant-public",
   kind: "group",
   title: "Instant room",
+  counterpart_user_id: null,
   counterpart_display_name: null,
   visibility: "private",
   latest_sequence: 0,
