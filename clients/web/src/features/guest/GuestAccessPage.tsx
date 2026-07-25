@@ -409,7 +409,12 @@ function GuestJoin({
         setRetryAt(null);
       }
     }).catch(async (reason: unknown) => {
-      if (!(reason instanceof ApiError) || reason.status !== 404) throw reason;
+      const legacyGuestLinkCandidate =
+        reason instanceof ApiError &&
+        (reason.status === 404 ||
+          (reason.status === 503 && reason.code === "instant_rooms_unavailable"));
+
+      if (!legacyGuestLinkCandidate) throw reason;
       const result = await api.previewGuestLink(token);
       if (current) {
         setInstantRoom(false);

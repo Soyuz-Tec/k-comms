@@ -223,6 +223,30 @@ describe("GuestAccessPage", () => {
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
   });
 
+  it("keeps legacy guest links usable when instant rooms are disabled", async () => {
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockRejectedValue(
+      new ApiError(
+        503,
+        "instant_rooms_unavailable",
+        "Instant communication rooms are unavailable"
+      )
+    );
+    const previewGuestLink = vi
+      .spyOn(GuestApiClient.prototype, "previewGuestLink")
+      .mockResolvedValue(preview);
+    window.history.replaceState({}, "", "/join#guest=legacy-link-secret");
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("button", { name: "Join conversation" })
+    ).toBeVisible();
+    expect(previewGuestLink).toHaveBeenCalledWith("legacy-link-secret");
+    expect(
+      screen.queryByText(/Instant communication rooms are unavailable/i)
+    ).not.toBeInTheDocument();
+  });
+
   it("retries a transient preview with the scrubbed token still in memory", async () => {
     const user = userEvent.setup();
     const previewGuestLink = vi
