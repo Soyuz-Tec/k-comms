@@ -54,6 +54,25 @@ describe("RouteOrientation", () => {
     expect(screen.getByText("Sign in view")).toHaveAttribute("aria-live", "polite");
   });
 
+  it("orients the guest entry as a join task instead of a sign-in task", async () => {
+    render(
+      <MemoryRouter initialEntries={["/join"]}>
+        <RouteOrientation authenticated={false} />
+        <main>
+          <h1>Open a K-Comms guest link</h1>
+        </main>
+      </MemoryRouter>
+    );
+
+    const join = screen.getByRole("heading", { name: "Open a K-Comms guest link" });
+    await waitFor(() => expect(join).toHaveFocus());
+    expect(document.title).toBe("Join conversation | K-Comms");
+    expect(screen.getByText("Join conversation view")).toHaveAttribute(
+      "aria-live",
+      "polite"
+    );
+  });
+
   it("updates the document title and moves focus to the routed heading", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter initialEntries={["/app/"]}><Harness /></MemoryRouter>);

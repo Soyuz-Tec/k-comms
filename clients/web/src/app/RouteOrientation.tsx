@@ -8,6 +8,7 @@ const routeLabels: Record<string, string> = {
   "/app/files": "Files",
   "/app/you": "You",
   "/app/settings": "Profile and settings",
+  "/join": "Join conversation",
   "/admin": "Workspace administration",
   "/ops": "Service operations",
   "/forgot-password": "Password recovery",
@@ -80,6 +81,7 @@ export function routeLabel(
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   if (
     !authenticated &&
+    normalizedPath !== "/join" &&
     normalizedPath !== "/forgot-password" &&
     normalizedPath !== "/reset-password"
   ) return "Sign in";
