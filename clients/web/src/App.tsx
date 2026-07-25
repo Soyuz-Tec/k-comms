@@ -8,6 +8,7 @@ import { StepUpProvider } from "./app/step-up";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
 import { GuestAccessPage } from "./features/guest/GuestAccessPage";
+import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
 import "./mobile-experience.css";
 
 const AdminPage = lazy(() =>
@@ -56,12 +57,30 @@ function ApplicationRoutes() {
     );
   }
 
+  if (location.pathname === "/") {
+    return (
+      <>
+        <RouteOrientation authenticated={Boolean(session)} />
+        <Routes>
+          <Route path="/" element={<InstantRoomPage />} />
+        </Routes>
+      </>
+    );
+  }
+
   if (!session) {
     return (
       <Routes>
         <Route path="/forgot-password" element={<><RouteOrientation authenticated={false} /><ForgotPasswordPage /></>} />
         <Route path="/reset-password" element={<><RouteOrientation authenticated={false} /><ResetPasswordPage /></>} />
-        <Route path="*" element={<AuthScreen />} />
+        <Route path="/sign-in" element={<AuthScreen />} />
+        <Route
+          path="/app"
+          element={authFlowRequested(location.search, location.hash)
+            ? <AuthScreen />
+            : <Navigate to="/" replace />}
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );
   }
@@ -83,12 +102,23 @@ function ApplicationRoutes() {
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/ops" element={<OpsPage />} />
               </Route>
+              <Route path="/sign-in" element={<Navigate to="/app" replace />} />
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Routes>
           </Suspense>
         </StepUpProvider>
       </WorkspaceDataProvider>
     </>
+  );
+}
+
+function authFlowRequested(search: string, hash: string): boolean {
+  const query = new URLSearchParams(search);
+  const fragment = new URLSearchParams(hash.replace(/^#/, ""));
+  return (
+    query.has("invitation_token") ||
+    fragment.has("invitation_token") ||
+    query.get("setup") === "workspace"
   );
 }
 

@@ -6,6 +6,7 @@ import process from "node:process";
 import {
   AcceptanceError,
   ApiClient,
+  assertInstantRoomCapabilityAndEndpoint,
   assertMessage,
   assertNoSensitiveValues,
   assertRecord,
@@ -333,7 +334,13 @@ async function reconcileHistory(api, token, conversationId, afterSequence, maxim
   throw new AcceptanceError("history reconciliation exceeded its bounded page count");
 }
 
-function summarize(config, sendResult, idempotency, historyResult) {
+function summarize(
+  config,
+  sendResult,
+  idempotency,
+  historyResult,
+  instantRoomProof
+) {
   const successful = sendResult.results.filter((result) => result?.ok === true);
   const failed = config.messageCount - successful.length;
   const latencies = successful.map((result) => result.latencyMs);
@@ -345,6 +352,7 @@ function summarize(config, sendResult, idempotency, historyResult) {
   const unexpected = [...uniqueHistoryIds].filter((id) => !expectedIds.has(id)).length;
 
   return {
+    instant_rooms: instantRoomProof,
     profile: {
       messages: config.messageCount,
       concurrency: config.concurrency,
@@ -475,6 +483,7 @@ async function runStagingLoad(env = process.env, logger = console) {
   const state = { token: null, deviceId: null, conversationId: null };
   const runId = randomUUID();
   let summary = null;
+  let instantRoomProof = null;
   let primaryError = null;
   let cleanup;
 
@@ -484,6 +493,18 @@ async function runStagingLoad(env = process.env, logger = console) {
 
   try {
     await api.request("/health/ready");
+    const statusResponse = await api.request("/api/v1/status");
+    const serviceStatus = assertRecord(statusResponse.payload, "service status");
+    assert(
+      serviceStatus.status === "operational",
+      "service did not report operational status"
+    );
+    instantRoomProof = await assertInstantRoomCapabilityAndEndpoint(
+      api,
+      serviceStatus,
+      config.baseUrl
+    );
+
     const login = await api.request("/api/v1/sessions", {
       method: "POST",
       body: {
@@ -530,7 +551,13 @@ async function runStagingLoad(env = process.env, logger = console) {
       baselineSequence,
       config.messageCount
     );
-    summary = summarize(config, sendResult, idempotency, historyResult);
+    summary = summarize(
+      config,
+      sendResult,
+      idempotency,
+      historyResult,
+      instantRoomProof
+    );
     summary.thresholds = evaluateThresholds(summary, config);
   } catch (error) {
     primaryError = error;
@@ -606,5 +633,6 @@ export {
   percentile,
   readLoadConfiguration,
   redactLoadText,
-  runStagingLoad
+  runStagingLoad,
+  summarize
 };

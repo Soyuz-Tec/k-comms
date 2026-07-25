@@ -106,6 +106,36 @@ def validate_local_release(
         errors.append(
             "service 'app' must use only the internal livekit:7880 API origin"
         )
+    required_instant_room_environment = {
+        "INSTANT_ROOMS_ENABLED": "${INSTANT_ROOMS_ENABLED:-true}",
+        "INSTANT_ROOM_TENANT_SLUG": (
+            "${INSTANT_ROOM_TENANT_SLUG:-k-comms-development}"
+        ),
+        "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS": (
+            "${INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS:-3600}"
+        ),
+        "INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS": (
+            "${INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS:-86400}"
+        ),
+        "INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS": (
+            "${INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS:-30}"
+        ),
+        "INSTANT_ROOM_PRESENCE_LEASE_SECONDS": (
+            "${INSTANT_ROOM_PRESENCE_LEASE_SECONDS:-90}"
+        ),
+        "INSTANT_ROOM_RECONNECT_GRACE_SECONDS": (
+            "${INSTANT_ROOM_RECONNECT_GRACE_SECONDS:-90}"
+        ),
+        "INSTANT_ROOM_MAX_PARTICIPANTS": (
+            "${INSTANT_ROOM_MAX_PARTICIPANTS:-25}"
+        ),
+    }
+    for name, expected in required_instant_room_environment.items():
+        if str(app_environment.get(name, "")) != expected:
+            errors.append(
+                f"service 'app' must set {name}={expected} for bounded "
+                "instant-room qualification"
+            )
 
     livekit = _mapping(services.get("livekit"))
     livekit_command = [str(value) for value in _list(livekit.get("command"))]
@@ -297,8 +327,23 @@ def validate_local_release(
     capability_self_test_body = _compact(
         _function_body(runner_document, "Invoke-CapabilityCompatibilitySelfTest")
     )
+    new_stable_environment_body = _compact(
+        _function_body(runner_document, "New-StableEnvironment")
+    )
+    get_stable_environment_body = _compact(
+        _function_body(runner_document, "Get-StableEnvironment")
+    )
+    new_release_environment_body = _compact(
+        _function_body(runner_document, "New-ReleaseEnvironment")
+    )
+    ensure_instant_room_tenant_body = _compact(
+        _function_body(runner_document, "Ensure-InstantRoomTenant")
+    )
     guest_rollback_probe_body = _compact(
         _function_body(runner_document, "Get-GuestRollbackHazards")
+    )
+    rollback_receipt_support_body = _compact(
+        _function_body(runner_document, "Test-ReceiptSupportsGuestRollback")
     )
     guest_rollback_quiesce_body = _compact(
         _function_body(runner_document, "Stop-ApplicationForGuestRollbackProbe")
@@ -332,6 +377,17 @@ def validate_local_release(
             "candidate health checks must support explicit guest-links capability enforcement"
         )
     if (
+        "[switch]$requireinstantrooms" not in wait_application_body
+        or "-requireinstantrooms:$requireinstantrooms"
+        not in wait_application_body
+        or "[switch]$requireinstantrooms" not in application_capabilities_body
+        or '$capabilities.psobject.properties["instant_rooms"]'
+        not in application_capabilities_body
+    ):
+        errors.append(
+            "candidate health checks must support explicit instant-rooms capability enforcement"
+        )
+    if (
         "invoke-capabilitycompatibilityselftest" not in validate_body
         or "assert-applicationcapabilities -status $predecessor"
         not in capability_self_test_body
@@ -342,6 +398,16 @@ def validate_local_release(
     ):
         errors.append(
             "release validation must execute predecessor and candidate capability self-tests"
+        )
+    if (
+        "-status $predecessor ` -requireguestlinks ` -requireinstantrooms"
+        not in capability_self_test_body
+        or "instant_rooms = $true" not in capability_self_test_body
+        or "-status $candidate ` -requireguestlinks ` -requireinstantrooms"
+        not in capability_self_test_body
+    ):
+        errors.append(
+            "release validation must exercise candidate instant-rooms capability enforcement"
         )
     migration_quiesce_position = start_release_body.find(
         "stop-applicationformigration"
@@ -366,9 +432,47 @@ def validate_local_release(
         errors.append(
             "candidate deployment must require the guest-links capability before sealing"
         )
+    if "-requireinstantrooms" not in deploy_body:
+        errors.append(
+            "candidate deployment must require the instant-rooms capability before sealing"
+        )
     if "-requireguestlinks" in restore_body:
         errors.append(
             "predecessor restore must not require capabilities introduced by the candidate"
+        )
+    if "-requireinstantrooms" in restore_body:
+        errors.append(
+            "predecessor restore must not require instant rooms introduced by the candidate"
+        )
+    deploy_bootstrap_position = deploy_body.find("ensure-instantroomtenant")
+    deploy_capability_position = deploy_body.find("wait-application")
+    restore_bootstrap_position = restore_body.find("ensure-instantroomtenant")
+    restore_capability_position = restore_body.find("wait-application")
+    if (
+        "bootstrap_owner_password = new-urlsafesecret 48"
+        not in new_stable_environment_body
+        or '$values["bootstrap_owner_password"] = new-urlsafesecret 48'
+        not in get_stable_environment_body
+        or '$values["instant_rooms_enabled"] = "true"'
+        not in new_release_environment_body
+        or '$values["instant_room_tenant_slug"] = "k-comms-development"'
+        not in new_release_environment_body
+        or ensure_instant_room_tenant_body.count(
+            "test-instantroomtenantexists"
+        )
+        < 2
+        or "/api/v1/bootstrap" not in ensure_instant_room_tenant_body
+        or "no active tenant was persisted" not in ensure_instant_room_tenant_body
+        or deploy_bootstrap_position < 0
+        or deploy_capability_position < 0
+        or deploy_bootstrap_position > deploy_capability_position
+        or restore_bootstrap_position < 0
+        or restore_capability_position < 0
+        or restore_bootstrap_position > restore_capability_position
+    ):
+        errors.append(
+            "local release must bootstrap and verify the fixed instant-room tenant "
+            "before candidate or restored-release capability checks"
         )
     if (
         "rollbackcapabilities = @(" not in deploy_body
@@ -377,6 +481,22 @@ def validate_local_release(
     ):
         errors.append(
             "release receipts must declare guest identity and expiry-worker rollback compatibility"
+        )
+    if (
+        '"instant_room_lifecycle_v1"' not in deploy_body
+        or '"instant_room_presence_lease_v1"' not in deploy_body
+        or '"instant_room_expiry_worker_v1"' not in deploy_body
+        or '"conversation_only_human_v1"' not in deploy_body
+        or '"instant_room_lifecycle_v1"' not in rollback_receipt_support_body
+        or '"instant_room_presence_lease_v1"'
+        not in rollback_receipt_support_body
+        or '"instant_room_expiry_worker_v1"'
+        not in rollback_receipt_support_body
+        or '"conversation_only_human_v1"' not in rollback_receipt_support_body
+    ):
+        errors.append(
+            "release receipts and rollback guard must declare every instant-room "
+            "persistence and worker compatibility capability"
         )
     if (
         '-arguments @("stop", "app")' not in guest_rollback_quiesce_body
@@ -396,6 +516,34 @@ def validate_local_release(
     ):
         errors.append(
             "guest rollback preflight must query persisted guest identities and active expiry jobs"
+        )
+    if (
+        "conversation_ephemeral_rooms" not in guest_rollback_probe_body
+        or "conversation_ephemeral_join_receipts"
+        not in guest_rollback_probe_body
+        or "conversation_ephemeral_presence_leases"
+        not in guest_rollback_probe_body
+        or "access_scope = ''conversation_only''"
+        not in guest_rollback_probe_body
+        or "commsworkers.ephemeralroomlifecycleworker"
+        not in guest_rollback_probe_body
+        or "commsworkers.ephemeralroomreconcilerworker"
+        not in guest_rollback_probe_body
+        or "to_regclass('public.conversation_ephemeral_rooms')"
+        not in guest_rollback_probe_body
+        or "to_regclass('public.conversation_ephemeral_join_receipts')"
+        not in guest_rollback_probe_body
+        or "information_schema.columns" not in guest_rollback_probe_body
+        or "ephemeralrooms" not in guest_rollback_safe_body
+        or "ephemeraljoinreceipts" not in guest_rollback_safe_body
+        or "ephemeralpresenceleases" not in guest_rollback_safe_body
+        or "conversationonlyhumans" not in guest_rollback_safe_body
+        or "activeephemeralroomjobs" not in guest_rollback_safe_body
+    ):
+        errors.append(
+            "communication rollback preflight must fail-safely query instant rooms, "
+            "join receipts, presence leases, conversation-only humans, and active "
+            "lifecycle jobs"
         )
     if (
         "test-receiptsupportsguestrollback" not in guest_rollback_safe_body

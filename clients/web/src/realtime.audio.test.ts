@@ -7,6 +7,34 @@ const phoenix = vi.hoisted(() => ({
 }));
 
 vi.mock("phoenix", () => ({
+  Presence: class MockPresence {
+    private sync: (() => void) | null = null;
+    private readonly keys = new Set<string>();
+
+    constructor(channel: {
+      on: (event: string, callback: (payload?: unknown) => void) => void;
+    }) {
+      channel.on("presence_state", (payload?: unknown) => {
+        this.keys.clear();
+        if (payload && typeof payload === "object") {
+          Object.keys(payload).forEach((key) => this.keys.add(key));
+        }
+        this.sync?.();
+      });
+      channel.on("presence_diff", (payload?: unknown) => {
+        const diff =
+          payload && typeof payload === "object"
+            ? payload as { joins?: object; leaves?: object }
+            : {};
+        Object.keys(diff.joins || {}).forEach((key) => this.keys.add(key));
+        Object.keys(diff.leaves || {}).forEach((key) => this.keys.delete(key));
+        this.sync?.();
+      });
+    }
+
+    onSync(callback: () => void) { this.sync = callback; }
+    list() { return [...this.keys]; }
+  },
   Socket: class MockSocket {
     channel() {
       return {
@@ -99,5 +127,22 @@ describe("RealtimeConversation audio call events", () => {
     expect(listener.onCallEnded).toHaveBeenCalledTimes(1);
     expect(listener.onAudioCallStarted).not.toHaveBeenCalled();
     expect(listener.onAudioCallEnded).not.toHaveBeenCalled();
+  });
+
+  it("reports the final Presence key count instead of accumulating diff arithmetic", () => {
+    const listener = callbacks();
+    new RealtimeConversation("/socket", "ticket", "conversation-1", () => 0, listener);
+
+    phoenix.handlers.get("presence_state")?.({
+      "user-1": { metas: [{ phx_ref: "one" }, { phx_ref: "two" }] },
+      "user-2": { metas: [{ phx_ref: "three" }] }
+    });
+    phoenix.handlers.get("presence_diff")?.({
+      joins: { "user-1": { metas: [{ phx_ref: "four" }] } },
+      leaves: { "already-gone": { metas: [{ phx_ref: "old" }] } }
+    });
+
+    expect(listener.onPresence).toHaveBeenNthCalledWith(1, 2);
+    expect(listener.onPresence).toHaveBeenNthCalledWith(2, 2);
   });
 });

@@ -36,7 +36,12 @@ defmodule CommsWeb.MessageController do
     subject = conn.assigns.current_subject
     started_at = System.monotonic_time()
 
-    with [idempotency_key] <- get_req_header(conn, "idempotency-key"),
+    with :ok <-
+           CommsWeb.InstantRoomMessageRateLimit.check(
+             conversation_id,
+             subject
+           ),
+         [idempotency_key] <- get_req_header(conn, "idempotency-key"),
          true <- byte_size(idempotency_key) in 8..128 || {:error, :invalid_idempotency_key},
          attrs <-
            Map.merge(params, %{
@@ -76,6 +81,7 @@ defmodule CommsWeb.MessageController do
     else
       [] -> {:error, :idempotency_key_required}
       [_ | _] -> {:error, :invalid_idempotency_key}
+      {:error, :rate_limited, retry_after} -> rate_limited(conn, retry_after)
       {:error, _} = error -> error
     end
   end
@@ -144,4 +150,19 @@ defmodule CommsWeb.MessageController do
   end
 
   defp integer(_, default), do: default
+
+  defp rate_limited(conn, retry_after) do
+    retry_after = max(retry_after, 1)
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> put_status(:too_many_requests)
+    |> json(%{
+      error: %{
+        code: "rate_limited",
+        detail: "Too many requests",
+        retry_after: retry_after
+      }
+    })
+  end
 end

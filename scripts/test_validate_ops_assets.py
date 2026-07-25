@@ -12,6 +12,7 @@ import yaml
 from validate_ops_assets import (
     ALERT_RULES,
     DASHBOARD,
+    EXPECTED_RUNBOOKS,
     ROOT,
     validate_alert_document,
     validate_dashboard_document,
@@ -28,6 +29,14 @@ class OperationsAssetValidationTest(unittest.TestCase):
 
     def test_repository_assets_pass(self) -> None:
         self.assertEqual(validate_ops_assets(ROOT), [])
+
+    def test_instant_room_runbook_is_classified_and_executable(self) -> None:
+        name = "instant-room-degradation.md"
+        self.assertIn(name, EXPECTED_RUNBOOKS)
+        text = (
+            ROOT / "docs/08-reliability/runbooks" / name
+        ).read_text(encoding="utf-8")
+        self.assertEqual(validate_runbook_text(name, text), [])
 
     def test_alert_requires_actionable_annotation_contract(self) -> None:
         document = copy.deepcopy(self.alerts)

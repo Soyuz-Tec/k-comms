@@ -775,12 +775,12 @@ defmodule CommsCore.Attachments do
     )
   end
 
-  defp authorize_attachment(%Attachment{owner_user_id: owner_id} = attachment, subject) do
-    if owner_id == value(subject, :user_id) do
-      :ok
-    else
-      authorize_attached_message(attachment, subject)
-    end
+  defp authorize_attachment(%Attachment{message_id: message_id} = attachment, subject)
+       when is_binary(message_id),
+       do: authorize_attached_message(attachment, subject)
+
+  defp authorize_attachment(%Attachment{owner_user_id: owner_id}, subject) do
+    if owner_id == value(subject, :user_id), do: :ok, else: {:error, :forbidden}
   end
 
   defp authorize_attached_message(%Attachment{message_id: message_id}, subject)
@@ -799,8 +799,6 @@ defmodule CommsCore.Attachments do
       do: Conversations.authorize_read(conversation_id, subject),
       else: {:error, :forbidden}
   end
-
-  defp authorize_attached_message(_, _), do: {:error, :forbidden}
 
   defp validate_type(type) do
     if type in @allowed_exact or Enum.any?(@allowed_prefixes, &String.starts_with?(type, &1)) do

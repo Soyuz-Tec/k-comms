@@ -104,6 +104,144 @@ describe("public password recovery", () => {
   });
 });
 
+describe("instant-room API", () => {
+  const conversation = {
+    id: "conversation-instant",
+    tenant_id: "tenant-1",
+    kind: "group" as const,
+    title: "Instant room",
+    counterpart_display_name: null,
+    visibility: "private" as const,
+    latest_sequence: 0,
+    inserted_at: "2026-07-24T12:00:00Z",
+    updated_at: "2026-07-24T12:00:00Z"
+  };
+  const room = {
+    id: "room-instant",
+    conversation_id: conversation.id,
+    owner_user_id: "guest-1",
+    owner_kind: "guest",
+    status: "active",
+    participant_limit: 25,
+    idle_since: null,
+    expires_at: null,
+    inserted_at: "2026-07-24T12:00:00Z",
+    updated_at: "2026-07-24T12:00:00Z",
+    generation: 7,
+    reconnect_grace_seconds: 90,
+    last_presence_at: "2026-07-24T12:00:30Z"
+  };
+  const key = "A".repeat(43);
+
+  it("sends a 256-bit idempotency key and preserves the exact server share URL", async () => {
+    const shareUrl =
+      "https://public.example.test/join#guest=server%2Bfragment";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        ...session,
+        access_token: "guest-access",
+        refresh_token: "guest-refresh",
+        user: { ...session.user, account_type: "guest", email: null },
+        room,
+        conversation,
+        share_url: shareUrl,
+        capabilities: {
+          allow_audio_calls: true,
+          allow_video_calls: true,
+          conversion_enabled: true,
+          self_service_conversion: true
+        }
+      }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", null, vi.fn());
+
+    const created = await api.createInstantRoom({
+      device: { name: "Browser", platform: "web" }
+    }, key);
+
+    expect(created.share_url).toBe(shareUrl);
+    expect(created.guest_session).toMatchObject({
+      access_token: "guest-access",
+      share_url: shareUrl,
+      instant_room: {
+        id: "room-instant",
+        owner_kind: "guest",
+        owner_user_id: "guest-1",
+        participant_limit: 25
+      },
+      capabilities: { self_service_conversion: true }
+    });
+    expect(created.room).not.toHaveProperty("generation");
+    expect(created.room).not.toHaveProperty("reconnect_grace_seconds");
+    expect(created.room).not.toHaveProperty("last_presence_at");
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Idempotency-Key")).toBe(key);
+    expect(headers.has("Authorization")).toBe(false);
+  });
+
+  it("maps only the public preview fields without tenant coupling", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        data: {
+          room_title: "Instant room",
+          status: "active",
+          expires_at: null,
+          participant_limit: 25,
+          tenant_id: "must-not-cross-the-public-boundary",
+          conversion_enabled: true
+        }
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.previewInstantRoom("fragment-secret")).resolves.toEqual({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.has("Authorization")).toBe(false);
+  });
+
+  it("uses a separate idempotency key for guest admission and exposes Retry-After", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { code: "rate_limited", detail: "Slow down" } }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "12"
+          }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", null, vi.fn());
+
+    await expect(api.joinInstantRoom({
+      token: "fragment-secret",
+      display_name: "Taylor",
+      device: { name: "Browser", platform: "web" }
+    }, key)).rejects.toMatchObject({
+      status: 429,
+      code: "rate_limited",
+      retryAfterSeconds: 12
+    });
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Idempotency-Key")).toBe(key);
+    expect(headers.has("Authorization")).toBe(false);
+  });
+});
+
 describe("conversation membership concurrency", () => {
   it("sends the membership version when removing a member", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
@@ -263,7 +401,11 @@ describe("guest communication API", () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(
       JSON.stringify({
         authentication: accountSession,
-        conversation: guestSession.conversation
+        conversation: guestSession.conversation,
+        socket_handoff: {
+          ticket: "converted-socket-ticket",
+          expires_in: 60
+        }
       }),
       { status: 200, headers: { "content-type": "application/json" } }
     ));
@@ -276,7 +418,11 @@ describe("guest communication API", () => {
       password: "correct horse battery staple"
     })).resolves.toMatchObject({
       session: { access_token: "member-access" },
-      conversation: { id: "conversation-1" }
+      conversation: { id: "conversation-1" },
+      socket_handoff: {
+        ticket: "converted-socket-ticket",
+        expires_in: 60
+      }
     });
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://comms.test/api/v1/guest/account");
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
@@ -333,6 +479,60 @@ describe("guest communication API", () => {
     await expect(api.conversation()).rejects.toMatchObject({ status: 401 });
 
     expect(onSession).toHaveBeenCalledWith(null, "access_ended");
+  });
+
+  it("keeps instant-room metadata across a guest token refresh", async () => {
+    const onSession = vi.fn();
+    const instantSession: GuestSession = {
+      ...guestSession,
+      instant_room: {
+        id: "room-1",
+        conversation_id: guestSession.conversation.id,
+        owner_user_id: guestSession.user.id,
+        owner_kind: "guest",
+        status: "active",
+        participant_limit: 25,
+        idle_since: null,
+        expires_at: null,
+        inserted_at: "2026-07-24T12:00:00Z",
+        updated_at: "2026-07-24T12:00:00Z"
+      },
+      share_url:
+        "https://comms.example.test/join#guest=server-returned-secret"
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "invalid_access_token" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          ...guestSession,
+          access_token: "refreshed-access",
+          refresh_token: "refreshed-refresh"
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: guestSession.conversation }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      instantSession,
+      onSession
+    );
+
+    await expect(api.conversation()).resolves.toMatchObject({
+      id: "conversation-1"
+    });
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({
+      access_token: "refreshed-access",
+      instant_room: expect.objectContaining({ id: "room-1" }),
+      share_url: instantSession.share_url
+    }));
   });
 
   it("uses only conversation-scoped guest routes for audio and video call lifecycle", async () => {

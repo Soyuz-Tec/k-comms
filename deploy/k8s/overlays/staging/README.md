@@ -21,6 +21,21 @@ the participant-token lifetime. Failed removal attempts remain durable after
 the horizon until one succeeds at or after it. A green
 portable staging run therefore does not claim audio or video readiness.
 
+The portable overlay also keeps `INSTANT_ROOMS_ENABLED=false`,
+`INSTANT_ROOM_TENANT_SLUG=""`, and `TRUSTED_PROXY_CIDRS=""`. Kubernetes
+ingress normally presents the ingress-controller address to the application;
+trusting `X-Forwarded-For` without the controller's exact source networks would
+either collapse every user into one distributed rate-limit identity or trust a
+spoofable header. To qualify instant rooms, the provider-owned staging
+composition must adapt
+`instant-rooms-provider-patch.example.yaml`: replace every placeholder with the
+exact narrow ingress-controller CIDR, keep the ConfigMap list identical to the
+`k-comms-edge-ingress` NetworkPolicy `ipBlock` set, and retain the composed
+validator receipt. Generic RFC1918 blocks, loopback/link-local ranges, and
+configuration-only enablement are rejected. Local immutable-release
+qualification remains enabled because it is loopback-only and has no reverse
+proxy boundary.
+
 ## 1. Configure, validate, and render
 
 Use an immutable promoted image digest. The evidence directory must be
@@ -33,6 +48,9 @@ export OVERLAY=deploy/k8s/overlays/staging
 export NAMESPACE=k-comms-staging
 export IMAGE_DIGEST='<64 hexadecimal characters, without the sha256: prefix>'
 export EVIDENCE_DIR='<encrypted restricted deployment artifact directory>'
+# Leave false for the fail-closed portable package. Set true only when the exact
+# ingress-controller source networks are known and approved.
+export ENABLE_STAGING_INSTANT_ROOMS=false
 
 cp "$OVERLAY/secrets.env.example" "$OVERLAY/secrets.env"
 cp "$OVERLAY/bootstrap-secrets.env.example" "$OVERLAY/bootstrap-secrets.env"
@@ -56,6 +74,21 @@ cp -R deploy/k8s "$RENDER_ROOT/k8s"
 chmod -R go-rwx "$RENDER_ROOT"
 export RENDER_OVERLAY="$RENDER_ROOT/k8s/overlays/staging"
 
+# Provider-composed instant-room qualification is opt-in and modifies only the
+# disposable render tree. Replace the placeholder in both YAML documents with
+# identical exact CIDRs; for multiple ranges, use a comma-separated ConfigMap
+# value and one matching NetworkPolicy ipBlock per range.
+if [ "$ENABLE_STAGING_INSTANT_ROOMS" = true ]; then
+  $EDITOR "$RENDER_OVERLAY/instant-rooms-provider-patch.example.yaml"
+  ! grep -q 'REPLACE_WITH_EXACT_INGRESS_CIDR' \
+    "$RENDER_OVERLAY/instant-rooms-provider-patch.example.yaml"
+  (
+    cd "$RENDER_OVERLAY"
+    kustomize edit add patch \
+      --path instant-rooms-provider-patch.example.yaml
+  )
+fi
+
 # Use standalone Kustomize v5 to pin both release Jobs and workloads.
 for kustomization in "$RENDER_OVERLAY" "$RENDER_OVERLAY/bootstrap"; do
   (cd "$kustomization" && kustomize edit set image \
@@ -67,6 +100,7 @@ export BOOTSTRAP_BUNDLE="$EVIDENCE_DIR/k-comms-bootstrap-${IMAGE_DIGEST}.yaml"
 kustomize build "$RENDER_OVERLAY" > "$APPROVED_BUNDLE"
 kustomize build "$RENDER_OVERLAY/bootstrap" > "$BOOTSTRAP_BUNDLE"
 chmod 0600 "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE"
+python scripts/validate_staging_manifests.py "$APPROVED_BUNDLE"
 sha256sum "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE" > \
   "$EVIDENCE_DIR/rendered-bundles-${IMAGE_DIGEST}.sha256"
 
@@ -104,6 +138,13 @@ kubectl apply --server-side -f "$APPROVED_BUNDLE" \
 
 test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
   -o jsonpath='{.data.ALLOW_BOOTSTRAP}')" = "false"
+if [ "$ENABLE_STAGING_INSTANT_ROOMS" = true ]; then
+  test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
+    -o jsonpath='{.data.INSTANT_ROOMS_ENABLED}')" = "true"
+else
+  test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
+    -o jsonpath='{.data.INSTANT_ROOMS_ENABLED}')" = "false"
+fi
 
 kubectl -n "$NAMESPACE" apply \
   -f "$OVERLAY/postgres-service.yaml" \

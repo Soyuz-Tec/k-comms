@@ -24,6 +24,38 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 10, window: 60, scope: :guest_admission_token)
   end
 
+  pipeline :instant_room_create_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSameOriginJSON)
+    plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :ip)
+    plug(CommsWeb.Plugs.OptionalHumanAuthentication)
+
+    plug(CommsWeb.Plugs.DistributedRateLimit,
+      scope: :instant_room_create,
+      limit: 2,
+      window: 60
+    )
+
+    plug(CommsWeb.Plugs.DistributedRateLimit,
+      scope: :instant_room_create,
+      limit: 10,
+      window: 86_400
+    )
+  end
+
+  pipeline :instant_room_join_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSameOriginJSON)
+    plug(CommsWeb.Plugs.RateLimit, limit: 60, window: 60, scope: :ip)
+    plug(CommsWeb.Plugs.OptionalHumanAuthentication)
+
+    plug(CommsWeb.Plugs.DistributedRateLimit,
+      scope: :instant_room_join,
+      limit: 10,
+      window: 60
+    )
+  end
+
   pipeline :guest_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.AuthenticateGuest)
@@ -45,6 +77,19 @@ defmodule CommsWeb.Router do
       limit: 5,
       window: 60,
       scope: :guest_account_conversion_identity
+    )
+
+    plug(CommsWeb.Plugs.DistributedRateLimit,
+      scope: :instant_room_conversion,
+      limit: 5,
+      window: 60
+    )
+
+    plug(CommsWeb.Plugs.DistributedRateLimit,
+      scope: :instant_room_conversion,
+      limit: 5,
+      window: 60,
+      key_source: :authenticated_subject
     )
   end
 
@@ -103,6 +148,17 @@ defmodule CommsWeb.Router do
     post("/guest-links/preview", GuestSessionController, :preview)
     post("/guest-sessions", GuestSessionController, :create)
     post("/guest/sessions/refresh", GuestSessionController, :refresh)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:instant_room_create_api)
+    post("/instant-rooms", InstantRoomController, :create)
+  end
+
+  scope "/api/v1", CommsWeb do
+    pipe_through(:instant_room_join_api)
+    post("/instant-rooms/preview", InstantRoomController, :preview)
+    post("/instant-room-sessions", InstantRoomController, :join)
   end
 
   scope "/api/v1/guest", CommsWeb do

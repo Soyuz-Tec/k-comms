@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: k-comms-public-admission-rate-limit
+  annotations:
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    nginx.ingress.kubernetes.io/limit-rps: "5"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/proxy-body-size: 2m
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - comms.staging.example.invalid
+      secretName: k-comms-staging-tls
+  rules:
+    - host: comms.staging.example.invalid
+      http:
+        paths:
+          - path: /api/v1/instant-rooms
+            pathType: Prefix
+            backend: &edgeBackend
+              service:
+                name: k-comms-edge
+                port:
+                  name: http
+          - path: /api/v1/instant-room-sessions
+            pathType: Exact
+            backend: *edgeBackend
+          - path: /api/v1/guest-links/preview
+            pathType: Exact
+            backend: *edgeBackend
+          - path: /api/v1/guest-sessions
+            pathType: Exact
+            backend: *edgeBackend
+          - path: /api/v1/guest
+            pathType: Prefix
+            backend: *edgeBackend

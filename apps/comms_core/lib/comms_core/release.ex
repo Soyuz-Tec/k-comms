@@ -1,7 +1,7 @@
 defmodule CommsCore.Release do
   @app :comms_core
 
-  alias CommsCore.{Accounts, Attachments, Repo, RuntimePorts}
+  alias CommsCore.{Accounts, Attachments, Conversations, Repo, RuntimePorts}
   alias CommsCore.Attachments.{RestoreCandidate, RestoreContext, RestoredObjectIdentity}
 
   @restore_remap_confirmation "remap-restored-attachment-versions"
@@ -9,6 +9,16 @@ defmodule CommsCore.Release do
                                  "guest_identity_v1",
                                  "guest_admission_expiry_worker_v1"
                                ])
+  @instant_room_rollback_capabilities MapSet.new([
+                                        "instant_room_lifecycle_v1",
+                                        "instant_room_presence_lease_v1",
+                                        "instant_room_expiry_worker_v1",
+                                        "conversation_only_human_v1"
+                                      ])
+  @communication_rollback_capabilities MapSet.union(
+                                         @guest_rollback_capabilities,
+                                         @instant_room_rollback_capabilities
+                                       )
   @migration_lock_timeout_default_ms 5_000
   @migration_lock_timeout_range 1_000..30_000
   @migration_statement_timeout_default_ms 300_000
@@ -93,6 +103,65 @@ defmodule CommsCore.Release do
 
   @doc false
   def assert_guest_rollback_compatible, do: assert_guest_rollback_compatible!()
+
+  @doc """
+  Refuses activation of a communication-incompatible rollback target while
+  persisted guest or instant-room state, bounded join receipts, presence leases,
+  or runnable lifecycle work requires capabilities that the target does not
+  declare.
+
+  A target carrying every communication rollback capability is accepted without
+  a database probe. Partial and legacy targets require all application writers
+  to be stopped. The one-shot operation then proves exclusive database access
+  and fails closed for each unsupported persisted-state or worker-job hazard.
+  """
+  @spec assert_communication_rollback_compatible!() :: :ok
+  def assert_communication_rollback_compatible! do
+    with {:ok, context} <-
+           validate_communication_rollback_environment(&System.get_env/1) do
+      if communication_rollback_capable?(context.capabilities) do
+        IO.puts(
+          "Communication rollback target #{context.target_revision} " <>
+            "declares the required compatibility capabilities"
+        )
+
+        :ok
+      else
+        load_app()
+
+        {:ok, hazards, _started_apps} =
+          Ecto.Migrator.with_repo(Repo, fn repo ->
+            assert_database_quiesced!(repo)
+
+            communication_rollback_hazards(repo)
+            |> assert_communication_rollback_hazards!(context)
+          end)
+
+        IO.puts(
+          "Communication rollback preflight passed for #{context.target_revision}: " <>
+            "guest_users=#{hazards.guest_users} " <>
+            "active_guest_expiry_jobs=#{hazards.active_guest_expiry_jobs} " <>
+            "ephemeral_rooms=#{hazards.ephemeral_rooms} " <>
+            "ephemeral_join_receipts=#{hazards.ephemeral_join_receipts} " <>
+            "ephemeral_presence_leases=#{hazards.ephemeral_presence_leases} " <>
+            "active_ephemeral_room_lifecycle_jobs=" <>
+            "#{hazards.active_ephemeral_room_lifecycle_jobs} " <>
+            "active_ephemeral_room_reconciler_jobs=" <>
+            "#{hazards.active_ephemeral_room_reconciler_jobs} " <>
+            "conversation_only_humans=#{hazards.conversation_only_humans}"
+        )
+
+        :ok
+      end
+    else
+      {:error, reason} ->
+        raise "communication rollback compatibility check refused: #{migration_error(reason)}"
+    end
+  end
+
+  @doc false
+  def assert_communication_rollback_compatible,
+    do: assert_communication_rollback_compatible!()
 
   def bootstrap do
     load_app()
@@ -228,33 +297,13 @@ defmodule CommsCore.Release do
 
   @doc false
   def validate_guest_rollback_environment(get_env) when is_function(get_env, 1) do
-    with :ok <- require_one_shot(get_env) do
-      capabilities =
-        get_env.("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
-        |> to_string()
-        |> String.split(",", trim: true)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> MapSet.new()
+    validate_rollback_environment(get_env, &guest_rollback_capable?/1)
+  end
 
-      target_revision = get_env.("K_COMMS_ROLLBACK_TARGET_REVISION")
-
-      cond do
-        not valid_release_target_identifier?(target_revision) ->
-          {:error, :rollback_target_revision_required}
-
-        not guest_rollback_capable?(capabilities) and
-            get_env.("K_COMMS_ROLLBACK_WRITES_QUIESCED") != "true" ->
-          {:error, :rollback_writes_quiescence_confirmation_required}
-
-        true ->
-          {:ok,
-           %{
-             capabilities: capabilities,
-             target_revision: target_revision
-           }}
-      end
-    end
+  @doc false
+  def validate_communication_rollback_environment(get_env)
+      when is_function(get_env, 1) do
+    validate_rollback_environment(get_env, &communication_rollback_capable?/1)
   end
 
   @doc false
@@ -350,6 +399,76 @@ defmodule CommsCore.Release do
 
   def assert_guest_rollback_hazards!(_rows, _capabilities) do
     raise "guest rollback compatibility check failed: PostgreSQL returned an invalid hazard snapshot"
+  end
+
+  @doc false
+  def assert_communication_rollback_hazards!(
+        %{
+          guest_users: guest_users,
+          active_guest_expiry_jobs: active_guest_expiry_jobs,
+          ephemeral_rooms: ephemeral_rooms,
+          ephemeral_join_receipts: ephemeral_join_receipts,
+          ephemeral_presence_leases: ephemeral_presence_leases,
+          active_ephemeral_room_lifecycle_jobs: active_ephemeral_room_lifecycle_jobs,
+          active_ephemeral_room_reconciler_jobs: active_ephemeral_room_reconciler_jobs,
+          conversation_only_humans: conversation_only_humans
+        } = hazards,
+        %{
+          capabilities: %MapSet{} = capabilities,
+          target_revision: target_revision
+        }
+      )
+      when is_integer(guest_users) and guest_users >= 0 and
+             is_integer(active_guest_expiry_jobs) and active_guest_expiry_jobs >= 0 and
+             is_integer(ephemeral_rooms) and ephemeral_rooms >= 0 and
+             is_integer(ephemeral_join_receipts) and ephemeral_join_receipts >= 0 and
+             is_integer(ephemeral_presence_leases) and ephemeral_presence_leases >= 0 and
+             is_integer(active_ephemeral_room_lifecycle_jobs) and
+             active_ephemeral_room_lifecycle_jobs >= 0 and
+             is_integer(active_ephemeral_room_reconciler_jobs) and
+             active_ephemeral_room_reconciler_jobs >= 0 and
+             is_integer(conversation_only_humans) and conversation_only_humans >= 0 and
+             is_binary(target_revision) do
+    unsupported_hazards =
+      [
+        {"guest_identity_v1", guest_users},
+        {"guest_admission_expiry_worker_v1", active_guest_expiry_jobs},
+        {"instant_room_lifecycle_v1", ephemeral_rooms + ephemeral_join_receipts},
+        {"instant_room_presence_lease_v1", ephemeral_presence_leases},
+        {"instant_room_expiry_worker_v1",
+         active_ephemeral_room_lifecycle_jobs + active_ephemeral_room_reconciler_jobs},
+        {"conversation_only_human_v1", conversation_only_humans}
+      ]
+      |> Enum.filter(fn {capability, count} ->
+        count > 0 and not MapSet.member?(capabilities, capability)
+      end)
+
+    if unsupported_hazards == [] do
+      hazards
+    else
+      missing_capabilities =
+        unsupported_hazards
+        |> Enum.map_join(", ", fn {capability, _count} -> capability end)
+
+      raise "communication rollback compatibility check blocked: " <>
+              "target #{target_revision} lacks #{missing_capabilities} while PostgreSQL contains " <>
+              "guest_users=#{guest_users}, " <>
+              "active_guest_expiry_jobs=#{active_guest_expiry_jobs}, " <>
+              "ephemeral_rooms=#{ephemeral_rooms}, " <>
+              "ephemeral_join_receipts=#{ephemeral_join_receipts}, " <>
+              "ephemeral_presence_leases=#{ephemeral_presence_leases}, " <>
+              "active_ephemeral_room_lifecycle_jobs=" <>
+              "#{active_ephemeral_room_lifecycle_jobs}, " <>
+              "active_ephemeral_room_reconciler_jobs=" <>
+              "#{active_ephemeral_room_reconciler_jobs}, " <>
+              "conversation_only_humans=#{conversation_only_humans}; " <>
+              "retain or deploy a compatible bridge release, or roll forward"
+    end
+  end
+
+  def assert_communication_rollback_hazards!(_rows, _capabilities) do
+    raise "communication rollback compatibility check failed: " <>
+            "PostgreSQL returned an invalid hazard snapshot"
   end
 
   @doc """
@@ -460,12 +579,61 @@ defmodule CommsCore.Release do
     MapSet.subset?(@guest_rollback_capabilities, capabilities)
   end
 
+  defp communication_rollback_capable?(capabilities) do
+    MapSet.subset?(@communication_rollback_capabilities, capabilities)
+  end
+
+  defp validate_rollback_environment(get_env, compatible?)
+       when is_function(get_env, 1) and is_function(compatible?, 1) do
+    with :ok <- require_one_shot(get_env) do
+      capabilities =
+        get_env.("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
+        |> to_string()
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> MapSet.new()
+
+      target_revision = get_env.("K_COMMS_ROLLBACK_TARGET_REVISION")
+
+      cond do
+        not valid_release_target_identifier?(target_revision) ->
+          {:error, :rollback_target_revision_required}
+
+        not compatible?.(capabilities) and
+            get_env.("K_COMMS_ROLLBACK_WRITES_QUIESCED") != "true" ->
+          {:error, :rollback_writes_quiescence_confirmation_required}
+
+        true ->
+          {:ok,
+           %{
+             capabilities: capabilities,
+             target_revision: target_revision
+           }}
+      end
+    end
+  end
+
   defp guest_rollback_hazards(repo) when is_atom(repo) do
     %{
       guest_users: Accounts.persisted_guest_identity_count(),
       active_guest_expiry_jobs:
         repo.active_oban_job_count!(RuntimePorts.job_worker_name!(:guest_admission_expiry))
     }
+  end
+
+  defp communication_rollback_hazards(repo) when is_atom(repo) do
+    guest_rollback_hazards(repo)
+    |> Map.merge(%{
+      ephemeral_rooms: Conversations.persisted_ephemeral_room_count(),
+      ephemeral_join_receipts: Conversations.persisted_ephemeral_join_receipt_count(),
+      ephemeral_presence_leases: Conversations.persisted_ephemeral_presence_lease_count(),
+      active_ephemeral_room_lifecycle_jobs:
+        repo.active_oban_job_count!(RuntimePorts.job_worker_name!(:ephemeral_room_lifecycle)),
+      active_ephemeral_room_reconciler_jobs:
+        repo.active_oban_job_count!(RuntimePorts.job_worker_name!(:ephemeral_room_reconciler)),
+      conversation_only_humans: Accounts.persisted_conversation_only_human_count()
+    })
   end
 
   defp valid_release_target_identifier?(value) when is_binary(value),

@@ -1,7 +1,7 @@
 defmodule CommsCore.ReleaseDatabaseProbeTest do
   use CommsCore.DataCase, async: false
 
-  alias CommsCore.{Accounts, Repo, RuntimePorts}
+  alias CommsCore.{Accounts, Conversations, Repo, RuntimePorts}
   alias CommsCore.Accounts.{AuthenticationResult, User}
   alias CommsTestSupport.Fixtures
 
@@ -70,6 +70,32 @@ defmodule CommsCore.ReleaseDatabaseProbeTest do
 
     assert Repo.active_oban_job_count!(worker_name) == initial_worker_count + 4
     assert Repo.active_oban_job_count!(other_worker) == initial_other_worker_count + 1
+  end
+
+  test "communication rollback probes expose bounded owner-context counts" do
+    for count <- [
+          Accounts.persisted_conversation_only_human_count(),
+          Conversations.persisted_ephemeral_room_count(),
+          Conversations.persisted_ephemeral_join_receipt_count(),
+          Conversations.persisted_ephemeral_presence_lease_count()
+        ] do
+      assert is_integer(count)
+      assert count >= 0
+    end
+  end
+
+  test "platform persistence recognizes both instant-room lifecycle workers" do
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    for kind <- [:ephemeral_room_lifecycle, :ephemeral_room_reconciler] do
+      worker_name = RuntimePorts.job_worker_name!(kind)
+      initial_count = Repo.active_oban_job_count!(worker_name)
+
+      insert_job(worker_name, "scheduled", timestamp)
+      insert_job(worker_name, "completed", timestamp)
+
+      assert Repo.active_oban_job_count!(worker_name) == initial_count + 1
+    end
   end
 
   defp insert_job(worker_name, state, timestamp) do

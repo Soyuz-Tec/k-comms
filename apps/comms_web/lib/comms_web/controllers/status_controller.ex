@@ -1,6 +1,7 @@
 defmodule CommsWeb.StatusController do
   use CommsWeb, :controller
 
+  alias CommsCore.Administration
   alias CommsCore.Notifications, as: NotificationDelivery
   alias CommsIntegrations.Audio.LiveKitReadiness
   alias CommsIntegrations.{Notifications, Scanner, Webhooks}
@@ -19,6 +20,7 @@ defmodule CommsWeb.StatusController do
         attachment_scanning: available?(Scanner.status()),
         bootstrap: Application.get_env(:comms_web, :allow_bootstrap, false),
         guest_links: true,
+        instant_rooms: instant_rooms_available?(),
         notifications: available?(Notifications.status()),
         push_notifications: available?(NotificationDelivery.push_status()),
         realtime: true,
@@ -29,4 +31,19 @@ defmodule CommsWeb.StatusController do
 
   defp available?(%{status: status}) when status in [:available, "available"], do: true
   defp available?(_status), do: false
+
+  defp instant_rooms_available? do
+    with true <- Application.get_env(:comms_core, :instant_rooms_enabled, false),
+         slug when is_binary(slug) <- Application.get_env(:comms_core, :instant_room_tenant_slug),
+         true <- String.trim(slug) != "",
+         {:ok, _tenant} <- Administration.active_tenant_by_slug(slug) do
+      true
+    else
+      _ -> false
+    end
+  rescue
+    _error -> false
+  catch
+    :exit, _reason -> false
+  end
 end

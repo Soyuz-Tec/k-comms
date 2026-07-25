@@ -126,12 +126,11 @@ test.describe("real-stack audio qualification", () => {
       // This is a whole K-Comms session revocation, not only a call admission
       // revocation. The closed realtime socket forces an authentication retry;
       // once both access and refresh credentials are rejected, the product must
-      // remove the authenticated workspace (including the call) and require a
-      // fresh sign-in. Call-only removals retain their terminal in-call notice
-      // and are covered by AudioCallPanel's component tests.
-      await expect(memberPage.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible({
-        timeout: 20_000
-      });
+      // remove the authenticated workspace (including the call). Signed-out
+      // `/app` now routes to the account-optional instant-room front door;
+      // explicit account authentication remains available at `/sign-in`.
+      await expect(memberPage).toHaveURL(/\/$/, { timeout: 20_000 });
+      await expect(memberPage.locator(".app-shell")).toHaveCount(0);
       await expect(memberPage.locator(".audio-call-dock")).toHaveCount(0);
       await expect(memberPage.locator('audio[data-k-comms-call-audio="remote"]')).toHaveCount(0);
       await expect.poll(() => allPeerConnectionsClosed(memberPage), { timeout: 20_000 }).toBe(true);

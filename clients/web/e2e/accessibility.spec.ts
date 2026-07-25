@@ -82,7 +82,7 @@ test("accessibility matrix names every representative release state", () => {
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
-  await page.goto("/app/");
+  await page.goto("/sign-in");
   await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
   const recoveryLink = page.getByRole("link", { name: "Forgot password?" });
   await expect(recoveryLink).toBeVisible();
@@ -217,7 +217,7 @@ test("platform operations satisfies automated WCAG A and AA checks", async ({ pa
 
 test("keyboard focus remains visible in forced-colors and reduced-motion modes", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
-  await page.goto("/app/");
+  await page.goto("/sign-in");
   const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
   await expect(heading).toBeVisible();
   await expect(heading).toBeFocused();
@@ -257,11 +257,7 @@ async function expectNoWcagFailures(page: Page) {
 }
 
 async function openClientRoute(page: Page, path: string) {
-  await page.goto("/app/");
-  await page.evaluate((nextPath) => {
-    window.history.pushState({}, "", nextPath);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
+  await page.goto(path);
 }
 
 async function installAuthenticatedMocks(

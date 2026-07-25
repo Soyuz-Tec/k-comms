@@ -5,7 +5,8 @@ import {
   evaluateThresholds,
   percentile,
   readLoadConfiguration,
-  redactLoadText
+  redactLoadText,
+  summarize
 } from "./staging_load.mjs";
 
 const required = {
@@ -103,4 +104,39 @@ test("evaluateThresholds fails explicit p95 and zero-loss gates", () => {
   });
   assert.equal(thresholds.passed, false);
   assert.deepEqual(thresholds.failures, ["p95_threshold_exceeded", "zero_loss_threshold_failed"]);
+});
+
+test("load summary reports the instant-room qualification receipt", () => {
+  const proof = {
+    capability: true,
+    unavailable_preview_contract: true
+  };
+  const summary = summarize(
+    {
+      messageCount: 1,
+      concurrency: 1,
+      durationSeconds: 0,
+      duplicateProbes: 0,
+      timeoutMs: 1_000,
+      maxRunSeconds: 30
+    },
+    {
+      elapsedMs: 10,
+      results: [
+        {
+          ok: true,
+          latencyMs: 10,
+          message: { id: "018f1010-7b3a-7d90-a283-9f31f65f6a10" }
+        }
+      ]
+    },
+    { attempted: 0, failures: 0, not_probed: 0 },
+    {
+      ordered: true,
+      messages: [{ id: "018f1010-7b3a-7d90-a283-9f31f65f6a10" }]
+    },
+    proof
+  );
+
+  assert.deepEqual(summary.instant_rooms, proof);
 });

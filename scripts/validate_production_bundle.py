@@ -14,10 +14,30 @@ from urllib.parse import urlsplit
 
 import yaml
 
-
 IMAGE_DIGEST = re.compile(r"^.+@sha256:[a-f0-9]{64}$")
 PLACEHOLDER = re.compile(r"(?:\.invalid\b|CHANGE_ME|REPLACE_WITH)", re.IGNORECASE)
 PRODUCTION_NAMESPACE = "k-comms-production"
+COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS = {
+    "guest_identity_v1": ("users.account_type=guest",),
+    "guest_admission_expiry_worker_v1": (
+        "CommsWorkers.GuestAdmissionExpiryWorker",
+    ),
+    "instant_room_lifecycle_v1": (
+        "conversation_ephemeral_rooms",
+        "conversation_ephemeral_join_receipts",
+    ),
+    "instant_room_presence_lease_v1": (
+        "conversation_ephemeral_presence_leases",
+    ),
+    "instant_room_expiry_worker_v1": (
+        "CommsWorkers.EphemeralRoomLifecycleWorker",
+        "CommsWorkers.EphemeralRoomReconcilerWorker",
+    ),
+    "conversation_only_human_v1": ("users.access_scope=conversation_only",),
+}
+COMMUNICATION_ROLLBACK_CAPABILITIES = ",".join(
+    COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS
+)
 DATA_PLANE_MARKER = re.compile(
     r"(?:^|[^a-z0-9])(?:postgres(?:ql)?|minio)(?:$|[^a-z0-9])",
     re.IGNORECASE,
@@ -83,7 +103,12 @@ CLUSTER_SCOPED_RESOURCES = frozenset(
         ("storage.k8s.io", "VolumeAttributesClass"),
     }
 )
-WORKER_RELEASE_RPC_COMMAND = [
+WORKER_READY_RPC_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "ERL_AFLAGS= /app/bin/k_comms rpc '{:ok, _latency} = CommsCore.Operations.database_readiness(); pid = Oban.whereis(Oban); true = is_pid(pid); :ok'",
+]
+WORKER_LIVE_RPC_COMMAND = [
     "/bin/sh",
     "-ec",
     "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'",
@@ -212,6 +237,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_vapid(data.get("WEB_PUSH_VAPID_PUBLIC_KEY"), errors)
     validate_oidc_issuer(data.get("OIDC_ISSUER"), errors)
     validate_livekit(data, errors)
+    validate_instant_room_production_gate(data, errors)
     validate_database_tls(data, documents, errors)
 
     if public_origin:
@@ -239,6 +265,36 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_database_egress(documents, errors)
     validate_trusted_proxy_ingress(data, documents, errors)
     return errors
+
+
+def validate_instant_room_production_gate(
+    data: dict, errors: list[str]
+) -> None:
+    """Keep the public instant-room surface closed until its production gates land.
+
+    This is deliberately not an operator-supplied attestation. A configuration
+    patch alone must never promote the current unverified-email conversion and
+    controlled non-production abuse posture. Enabling the feature requires a
+    reviewed validator/code change after the ADR-0050 production prerequisites
+    are implemented and qualified in the immutable release.
+    """
+
+    if str(data.get("INSTANT_ROOMS_ENABLED", "")).strip().lower() != "false":
+        errors.append(
+            "ConfigMap k-comms-config: INSTANT_ROOMS_ENABLED must remain false "
+            "for production promotion until verified-email conversion, "
+            "production abuse/privacy controls, capacity qualification, and "
+            "multi-replica realtime evidence are implemented and approved"
+        )
+
+    if (
+        "INSTANT_ROOM_TENANT_SLUG" not in data
+        or str(data.get("INSTANT_ROOM_TENANT_SLUG", "")).strip() != ""
+    ):
+        errors.append(
+            "ConfigMap k-comms-config: INSTANT_ROOM_TENANT_SLUG must be "
+            "explicitly empty while the production instant-room gate is closed"
+        )
 
 
 def validate_unique_resource_identities(
@@ -779,7 +835,23 @@ def _positive_decimal(value: object) -> int | None:
 def validate_rollback_capability_annotations(
     documents: list[dict], errors: list[str]
 ) -> None:
-    expected = "guest_identity_v1,guest_admission_expiry_worker_v1"
+    lifecycle_hazards = set(
+        COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS.get(
+            "instant_room_lifecycle_v1", ()
+        )
+    )
+    required_lifecycle_hazards = {
+        "conversation_ephemeral_rooms",
+        "conversation_ephemeral_join_receipts",
+    }
+    if not required_lifecycle_hazards.issubset(lifecycle_hazards):
+        errors.append(
+            "Production rollback capability contract: "
+            "instant_room_lifecycle_v1 must cover persisted instant-room "
+            "and join-receipt rows"
+        )
+
+    expected = COMMUNICATION_ROLLBACK_CAPABILITIES
     capabilities: dict[str, object] = {}
     for name in ("k-comms-edge", "k-comms-worker"):
         deployment = named_document(documents, "Deployment", name)
@@ -837,11 +909,11 @@ def validate_guest_rollback_preflight(
     container = containers[0]
     if container.get("command") != ["/app/bin/k_comms"] or container.get("args") != [
         "eval",
-        "CommsCore.Release.assert_guest_rollback_compatible!()",
+        "CommsCore.Release.assert_communication_rollback_compatible!()",
     ]:
         errors.append(
             "Job k-comms-guest-rollback-preflight: must use the reviewed "
-            "CommsCore.Release.assert_guest_rollback_compatible!() runner"
+            "CommsCore.Release.assert_communication_rollback_compatible!() runner"
         )
 
     environment = {
@@ -874,12 +946,12 @@ def validate_guest_rollback_preflight(
     allowed_capabilities = {
         None,
         "",
-        "guest_identity_v1,guest_admission_expiry_worker_v1",
+        COMMUNICATION_ROLLBACK_CAPABILITIES,
     }
     if capability_value not in allowed_capabilities:
         errors.append(
             "Job k-comms-guest-rollback-preflight: target capabilities must be "
-            "empty for a legacy target or the exact guest-compatible capability pair"
+            "empty for a legacy target or the exact communication-compatible capability set"
         )
 
 
@@ -1026,14 +1098,21 @@ def _validate_application_probes(
             errors.append(
                 "Deployment k-comms-edge: probes must use the retained live/ready HTTP endpoints"
             )
-    elif any(
-        not isinstance(probe.get("exec"), dict)
-        or probe["exec"].get("command") != WORKER_RELEASE_RPC_COMMAND
-        for probe in probes.values()
-    ):
-        errors.append(
-            "Deployment k-comms-worker: probes must use the exact retained release RPC health-check command"
-        )
+    else:
+        expected = {
+            "startupProbe": WORKER_READY_RPC_COMMAND,
+            "readinessProbe": WORKER_READY_RPC_COMMAND,
+            "livenessProbe": WORKER_LIVE_RPC_COMMAND,
+        }
+        if any(
+            not isinstance(probes[key].get("exec"), dict)
+            or probes[key]["exec"].get("command") != command
+            for key, command in expected.items()
+        ):
+            errors.append(
+                "Deployment k-comms-worker: probes must use the exact retained "
+                "release RPC readiness and liveness commands"
+            )
 
 
 def validate_external_data_plane(documents: list[dict], errors: list[str]) -> None:

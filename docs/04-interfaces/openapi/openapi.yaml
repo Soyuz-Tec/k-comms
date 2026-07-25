@@ -9,6 +9,7 @@ tags:
   - name: System
   - name: Sessions
   - name: Guest Access
+  - name: Instant Rooms
   - name: Users
   - name: Conversations
   - name: Calls
@@ -166,6 +167,119 @@ paths:
       responses:
         '204': {description: Session revoked}
         '401': {$ref: '#/components/responses/Error'}
+  /api/v1/instant-rooms:
+    post:
+      tags: [Instant Rooms]
+      operationId: createInstantRoom
+      summary: Create a feature-gated communication room in the configured public tenant
+      description: Accepts no bearer or one valid human bearer. Invalid, guest, service, malformed, or duplicate Authorization values fail closed. A same-tenant human with workspace or conversation-only scope becomes the registered owner; only a valid human from another tenant is represented by a distinct conversation-only guest in the configured tenant, without cross-tenant linking or authority widening. Every caller supplies the exact trusted Origin and application/json. Exact idempotent replay within ten minutes reissues the usable encrypted response and never creates another room or identity.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredIdempotencyKey'
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInstantRoomRequest'}
+      responses:
+        '200':
+          description: Exact idempotent replay of the existing room and usable bounded credentials
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomCreationResponse'}
+        '201':
+          description: Instant room, unique join link, and anonymous guest session when applicable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomCreationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/InstantRoomConflict'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, replay encryption, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
+  /api/v1/instant-rooms/preview:
+    post:
+      tags: [Instant Rooms]
+      operationId: previewInstantRoom
+      summary: Resolve display-safe metadata for one available instant-room token
+      description: Accepts no bearer or one valid human bearer; supplied invalid, guest, service, malformed, or duplicate Authorization values fail closed. Every caller supplies the exact trusted Origin and application/json. The response never reveals the configured tenant, room id, conversation id, lifecycle generation, token, or replay metadata.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InstantRoomTokenRequest'}
+      responses:
+        '200':
+          description: Display-safe room preview
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomPreviewResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404':
+          description: The room token is malformed, unknown, expired, exhausted, revoked, or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomUnavailableError'}
+        '415': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
+  /api/v1/instant-room-sessions:
+    post:
+      tags: [Instant Rooms]
+      operationId: joinInstantRoom
+      summary: Join one instant room as a scoped guest or the authenticated human
+      description: Accepts no bearer or one valid human bearer; supplied invalid, guest, service, malformed, or duplicate Authorization values fail closed. Every caller supplies the exact trusted Origin, application/json, and a distinct idempotency key. A same-tenant human with workspace or conversation-only scope joins directly; only a valid human from another tenant uses a distinct conversation-only guest, without cross-tenant linking or authority widening. Guest replay resumes the same identity and admission with newly bounded credentials; signed-in replay never creates a duplicate membership.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredIdempotencyKey'
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInstantRoomSessionRequest'}
+      responses:
+        '200':
+          description: Exact idempotent replay for the existing admission
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomSessionResponse'}
+        '201':
+          description: Guest session or authenticated-human membership created for one room
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomSessionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404':
+          description: The room token is malformed, unknown, expired, exhausted, revoked, or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomUnavailableError'}
+        '409': {$ref: '#/components/responses/InstantRoomConflict'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, replay state, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
   /api/v1/guest-links/preview:
     post:
       tags: [Guest Access]
@@ -235,8 +349,10 @@ paths:
       operationId: revokeCurrentGuestSession
       security: [{guestBearerAuth: []}]
       responses:
-        '204': {description: Current guest session revoked}
+        '204':
+          description: Guest session, admission, membership, active room presence, and derived call authority atomically revoked; retained content is not deleted
         '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/guest/conversation:
     get:
       tags: [Guest Access]
@@ -310,6 +426,7 @@ paths:
               schema: {$ref: '#/components/schemas/MessageResponse'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/guest/conversation/read-cursor:
     put:
@@ -437,6 +554,12 @@ paths:
         '403': {$ref: '#/components/responses/GuestConversionForbidden'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room account conversion is feature-disabled or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
   /api/v1/me:
     get:
       tags: [Users]
@@ -2245,6 +2368,22 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    RequiredIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Exact canonical 256-bit unpadded Base64URL replay key. Create stores its SHA-256 digest and a ten-minute AES-GCM secret-response capsule; join stores a digest, request fingerprint, and bounded replay receipt and mints fresh bounded authentication. A changed request fingerprint under the same key conflicts.
+      schema:
+        type: string
+        minLength: 43
+        maxLength: 43
+        pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+    RequiredTrustedOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: Exact configured trusted origin. Browser and non-browser callers supply one value; this CSRF boundary is not authentication and never selects the public tenant.
+      schema: {type: string, format: uri, minLength: 1, maxLength: 2048}
     OptionalIdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -2258,6 +2397,32 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    InstantRoomConflict:
+      description: Instant-room idempotency conflict or expired replay window
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            fingerprint_conflict:
+              value:
+                error:
+                  code: idempotency_conflict
+                  detail: The idempotency key was already used with a different request
+            replay_expired:
+              value:
+                error:
+                  code: idempotency_replay_expired
+                  detail: The idempotency replay window has expired
+    InstantRoomRateLimited:
+      description: Shared public-admission or communication limit exceeded
+      headers:
+        Retry-After:
+          description: Whole seconds before the client should retry.
+          required: true
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InstantRoomRateLimitedError'}
     GuestCallForbidden:
       description: Guest call access is forbidden or its bounded authorization has expired
       content:
@@ -2329,7 +2494,7 @@ components:
         capabilities:
           type: object
           additionalProperties: false
-          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, notifications, push_notifications, realtime, webhooks]
+          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, webhooks]
           properties:
             administration: {type: boolean}
             audio_calls:
@@ -2341,6 +2506,9 @@ components:
             attachment_scanning: {type: boolean}
             bootstrap: {type: boolean}
             guest_links: {type: boolean}
+            instant_rooms:
+              type: boolean
+              description: False unless instant rooms are enabled and the configured public tenant slug resolves to one active tenant. Production still requires verification, adaptive distributed abuse controls, privacy, provider, and operations approval.
             notifications: {type: boolean}
             push_notifications: {type: boolean}
             realtime: {type: boolean}
@@ -2388,6 +2556,179 @@ components:
       required: [refresh_token]
       properties:
         refresh_token: {type: string, minLength: 40, maxLength: 512, writeOnly: true}
+    InstantRoomDevice:
+      type: object
+      additionalProperties: false
+      required: [name, platform]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        platform: {type: string, minLength: 1, maxLength: 40}
+    CreateInstantRoomRequest:
+      type: object
+      additionalProperties: false
+      description: Anonymous creation requires a complete device; display_name is optional and defaults to Guest host. A same-tenant human with workspace or conversation-only scope uses only title. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
+      properties:
+        title: {type: string, minLength: 1, maxLength: 160}
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Display name for the anonymous creator; ignored for an authenticated human.
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
+    InstantRoomTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          writeOnly: true
+          description: Opaque 256-bit join token captured from the client-side URL fragment.
+    CreateInstantRoomSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      description: Anonymous join requires display_name and a complete device. A same-tenant human with workspace or conversation-only scope uses only token. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          writeOnly: true
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Required when joining anonymously; ignored for an authenticated human.
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
+    InstantRoom:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, owner_user_id, owner_kind, status, participant_limit, idle_since, expires_at, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        owner_user_id: {type: string, format: uuid}
+        owner_kind: {enum: [guest, registered]}
+        status: {enum: [active, idle, expired]}
+        participant_limit: {type: integer, minimum: 2, maximum: 25}
+        idle_since: {type: [string, 'null'], format: date-time}
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: Authoritative idle-expiry deadline once the room is idle; null while active.
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    InstantRoomCreationResponse:
+      type: object
+      additionalProperties: false
+      required: [room, conversation, token, share_url, replayed]
+      properties:
+        room: {$ref: '#/components/schemas/InstantRoom'}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          readOnly: true
+          description: Freshly disclosed or exact-replay-decrypted join token; never returned by preview or room reads.
+        share_url:
+          type: string
+          format: uri
+          pattern: '/join#guest='
+          readOnly: true
+        replayed: {type: boolean}
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant:
+          type: object
+          description: Present only for the anonymous creator session.
+        user: {$ref: '#/components/schemas/GuestUser'}
+        device: {type: object}
+        admission: {$ref: '#/components/schemas/GuestAdmission'}
+        membership: {$ref: '#/components/schemas/MembershipSummary'}
+        capabilities: {$ref: '#/components/schemas/GuestCapabilities'}
+    InstantRoomPreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [room_title, status, expires_at, participant_limit]
+          properties:
+            room_title: {type: string, minLength: 1, maxLength: 160}
+            status: {enum: [active, idle]}
+            expires_at:
+              type: [string, 'null']
+              format: date-time
+              description: Idle-expiry deadline, or null while the room is active.
+            participant_limit: {type: integer, minimum: 2, maximum: 25}
+    InstantRoomSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [room, conversation, replayed]
+      properties:
+        room: {$ref: '#/components/schemas/InstantRoom'}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        replayed: {type: boolean}
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant:
+          type: object
+          description: Present only for an anonymous guest join.
+        user: {$ref: '#/components/schemas/GuestUser'}
+        device: {type: object}
+        admission: {$ref: '#/components/schemas/GuestAdmission'}
+        membership: {$ref: '#/components/schemas/MembershipSummary'}
+        capabilities: {$ref: '#/components/schemas/GuestCapabilities'}
+    InstantRoomUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail]
+          properties:
+            code: {const: instant_room_unavailable}
+            detail: {const: This instant communication room is unavailable}
+    InstantRoomsUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail]
+          properties:
+            code: {const: instant_rooms_unavailable}
+            detail: {const: Instant communication rooms are unavailable}
+    InstantRoomRateLimitedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail, retry_after]
+          properties:
+            code: {const: rate_limited}
+            detail: {const: Too many requests}
+            retry_after: {type: integer, minimum: 1}
     CreateGuestLinkRequest:
       type: object
       additionalProperties: false
@@ -2439,6 +2780,11 @@ components:
             name: {type: string, minLength: 1, maxLength: 120}
             platform: {type: string, minLength: 1, maxLength: 40}
     ConvertGuestAccountRequest:
+      description: Selects the verification-bound standard-link conversion or the production-gated, conversation-only instant-room conversion from server-authoritative admission purpose. The instant-room email is not a verified-email claim.
+      oneOf:
+        - $ref: '#/components/schemas/ConvertVerifiedGuestAccountRequest'
+        - $ref: '#/components/schemas/ConvertInstantRoomGuestAccountRequest'
+    ConvertVerifiedGuestAccountRequest:
       type: object
       additionalProperties: false
       required: [email, verification_code, password]
@@ -2459,6 +2805,20 @@ components:
           properties:
             name: {type: string, minLength: 1, maxLength: 120}
             platform: {type: string, minLength: 1, maxLength: 40}
+    ConvertInstantRoomGuestAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      description: Converts only an ephemeral-room guest into a conversation-only human. This request does not verify email ownership and must remain production-disabled until an approved verification provider and workflow are composed.
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Unverified login identifier; never a verified-email or recovery claim.
+        password: {type: string, minLength: 12, maxLength: 256, writeOnly: true}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
     GuestCapabilities:
       type: object
       additionalProperties: false
@@ -2467,6 +2827,9 @@ components:
         allow_audio_calls: {type: boolean}
         allow_video_calls: {type: boolean}
         conversion_enabled: {type: boolean}
+        self_service_conversion:
+          type: boolean
+          description: Present and true only for an instant-room guest eligible for conversation-only conversion; it is not evidence of verified email.
         email_hint:
           type: [string, 'null']
           maxLength: 320
@@ -2607,12 +2970,13 @@ components:
     GuestUser:
       type: object
       additionalProperties: false
-      required: [id, tenant_id, display_name, account_type, role, status, guest_expires_at]
+      required: [id, tenant_id, display_name, account_type, access_scope, role, status, guest_expires_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         display_name: {type: string, minLength: 1, maxLength: 120}
         account_type: {const: guest}
+        access_scope: {const: conversation_only}
         role: {const: member}
         status: {const: active}
         guest_expires_at: {type: string, format: date-time}
@@ -2638,6 +3002,14 @@ components:
       properties:
         authentication: {$ref: '#/components/schemas/TokenResponse'}
         conversation: {$ref: '#/components/schemas/Conversation'}
+        socket_handoff:
+          type: object
+          additionalProperties: false
+          required: [ticket, expires_in]
+          properties:
+            ticket: {type: string, readOnly: true}
+            expires_in: {type: integer, minimum: 1, maximum: 120}
+          description: Optional one-time handoff for instant-room conversion so the existing socket can reconnect under the new conversation-only human session.
     GuestConversationResponse:
       type: object
       additionalProperties: false
@@ -3712,7 +4084,9 @@ components:
         tenant: {type: object}
         user:
           type: object
+          required: [access_scope]
           properties:
+            access_scope: {enum: [workspace, conversation_only]}
             platform_role:
               type: [string, 'null']
               enum: [platform_operator, support_operator, security_operator, null]

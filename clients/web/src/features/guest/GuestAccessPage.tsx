@@ -8,8 +8,9 @@ import {
   useRef,
   useState
 } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
+import type { ApiClient } from "../../api";
 import {
   ApiError,
   GuestApiClient,
@@ -34,14 +35,33 @@ import type {
   ConversationMembership,
   GuestLinkPreview,
   GuestSession,
+  InstantRoomPreview,
+  InstantRoomResult,
   Message,
   ReactionEvent,
-  Session
+  Session,
+  SocketHandoff
 } from "../../types";
 import {
   guestTokenFromFragment,
   scrubGuestTokenFragment
 } from "./guestLink";
+import {
+  DelegatingRoomApi,
+  type GuestRoomApi,
+  MemberRoomApi
+} from "./roomApi";
+import {
+  instantRoomJoinIdempotencyKey,
+  rotateInstantRoomJoinIdempotencyKey
+} from "../instant-room/idempotency";
+import {
+  capturedInstantRoomShareUrl,
+  clearMemberInstantRoomContinuity,
+  loadMemberInstantRoomContinuity,
+  type MemberInstantRoomContinuity,
+  storeMemberInstantRoomContinuity
+} from "../instant-room/memberContinuity";
 import "./GuestAccess.css";
 
 const GuestCallPanel = lazy(() =>
@@ -53,7 +73,7 @@ const guestMessagePageSize = 200;
 const maxGuestCatchUpPages = 100;
 
 export async function loadGuestMessageCatchUp(
-  api: Pick<GuestApiClient, "messages">,
+  api: Pick<GuestRoomApi, "messages">,
   afterSequence: number
 ): Promise<Message[]> {
   const messages: Message[] = [];
@@ -76,8 +96,15 @@ export async function loadGuestMessageCatchUp(
 
 export function GuestAccessPage() {
   const navigate = useNavigate();
-  const { setSession: setAccountSession } = useSession();
+  const {
+    api: accountApi,
+    session: accountSession,
+    setSession: setAccountSession
+  } = useSession();
   const [token] = useState(() => guestTokenFromFragment());
+  const [entryShareUrl] = useState(() =>
+    token ? capturedInstantRoomShareUrl(token) : null
+  );
   const [accessEnded, setAccessEnded] = useState(false);
   const [guestSession, setGuestSessionState] = useState<GuestSession | null>(
     () => {
@@ -89,6 +116,16 @@ export function GuestAccessPage() {
       return loadStoredGuestSession();
     }
   );
+  const [continuedSession, setContinuedSession] =
+    useState<GuestSession | null>(null);
+  const [memberContinuity, setMemberContinuity] =
+    useState<MemberInstantRoomContinuity | null>(() =>
+      !token && accountSession
+        ? loadMemberInstantRoomContinuity(accountSession)
+        : null
+    );
+  const [continuityError, setContinuityError] = useState("");
+  const [continuityRetry, setContinuityRetry] = useState(0);
   const apiRef = useRef<GuestApiClient | null>(null);
 
   const setGuestSession = useCallback((
@@ -105,25 +142,186 @@ export function GuestAccessPage() {
   }, []);
 
   useLayoutEffect(() => {
-    if (token) scrubGuestTokenFragment();
+    if (token) {
+      clearMemberInstantRoomContinuity();
+      scrubGuestTokenFragment();
+    }
   }, [token]);
+
+  useEffect(() => {
+    if (!memberContinuity || !accountSession || token || guestSession) return;
+    let current = true;
+    setContinuityError("");
+    void accountApi.conversation(memberContinuity.conversation.id)
+      .then((conversation) => {
+        if (!current) return;
+        if (
+          conversation.id !== memberContinuity.conversation.id ||
+          conversation.archived_at
+        ) {
+          clearMemberInstantRoomContinuity();
+          setMemberContinuity(null);
+          return;
+        }
+        navigate(
+          `/app?conversation=${encodeURIComponent(conversation.id)}`,
+          { replace: true }
+        );
+        setMemberContinuity(null);
+      })
+      .catch((reason: unknown) => {
+        if (!current) return;
+        if (isDefinitiveRoomUnavailable(reason)) {
+          clearMemberInstantRoomContinuity();
+          setMemberContinuity(null);
+          return;
+        }
+        setContinuityError(
+          "K-Comms could not confirm this room. Retry to reopen the same conversation."
+        );
+      });
+    return () => {
+      current = false;
+    };
+  }, [
+    accountApi,
+    accountSession,
+    continuityRetry,
+    guestSession,
+    memberContinuity,
+    navigate,
+    token
+  ]);
 
   if (!apiRef.current) {
     apiRef.current = new GuestApiClient(apiBase, guestSession, setGuestSession);
   }
   const api = apiRef.current;
   api.setSession(guestSession);
+  const roomApiRef = useRef<DelegatingRoomApi | null>(null);
+  if (!roomApiRef.current) roomApiRef.current = new DelegatingRoomApi(api);
+  const roomApi = roomApiRef.current;
+  roomApi.setDelegate(
+    continuedSession
+      ? new MemberRoomApi(accountApi, continuedSession.conversation.id)
+      : api
+  );
+  const activeRoomSession =
+    continuedSession ||
+    (guestSession && accountSession
+      ? withoutGuestConversion(guestSession)
+      : guestSession);
 
-  if (guestSession) {
+  if (memberContinuity && !activeRoomSession) {
+    return (
+      <main className="guest-entry" id="main-content">
+        <section
+          className="guest-entry-card"
+          aria-labelledby="member-room-recovery-title"
+        >
+          <KCommsGuestBrand />
+          <span className="guest-badge">Member room</span>
+          <h1 id="member-room-recovery-title">Reopening your conversation…</h1>
+          {continuityError ? (
+            <>
+              <p className="form-error" role="alert">{continuityError}</p>
+              <button
+                className="button primary full"
+                type="button"
+                onClick={() => setContinuityRetry((value) => value + 1)}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <p role="status">Confirming the room with your signed-in account.</p>
+          )}
+        </section>
+      </main>
+    );
+  }
+
+  if (activeRoomSession) {
     return (
       <GuestShell
-        api={api}
-        initialSession={guestSession}
+        api={roomApi}
+        initialSession={activeRoomSession}
+        identityLabel={
+          activeRoomSession.user.account_type === "guest" ? "Guest" : "Member"
+        }
+        onAccessEnded={() => {
+          clearMemberInstantRoomContinuity();
+          if (continuedSession || accountSession) {
+            setAccessEnded(false);
+            setGuestSession(null);
+            setContinuedSession(null);
+            navigate("/app", { replace: true });
+            return;
+          }
+          setGuestSession(null, "access_ended");
+        }}
         onLeave={() => {
+          clearMemberInstantRoomContinuity();
+          if (continuedSession || accountSession) {
+            setAccessEnded(false);
+            setGuestSession(null);
+            if (continuedSession) {
+              navigate(
+                `/app?conversation=${encodeURIComponent(
+                  continuedSession.conversation.id
+                )}`,
+                { replace: true }
+              );
+              return;
+            }
+            navigate(
+              "/app",
+              { replace: true }
+            );
+            return;
+          }
           setAccessEnded(false);
           setGuestSession(null);
         }}
         onConverted={(session, conversation) => {
+          if (accountSession && !continuedSession) {
+            return;
+          }
+          if (
+            guestSession?.capabilities.self_service_conversion === true
+          ) {
+            const registeredRoom = guestSession.instant_room
+              ? {
+                  ...guestSession.instant_room,
+                  ...(guestSession.instant_room.owner_user_id ===
+                  guestSession.user.id
+                    ? { owner_kind: "registered" as const }
+                    : {})
+                }
+              : undefined;
+            const continued: GuestSession = {
+              ...session,
+              conversation,
+              capabilities: {
+                ...guestSession.capabilities,
+                conversion_enabled: false,
+                self_service_conversion: false
+              },
+              instant_room: registeredRoom,
+              share_url: guestSession.share_url
+            };
+            if (registeredRoom && guestSession.share_url) {
+              storeMemberInstantRoomContinuity(session, {
+                room: registeredRoom,
+                conversation,
+                share_url: guestSession.share_url
+              });
+            }
+            setGuestSession(null);
+            setAccountSession(session);
+            setContinuedSession(continued);
+            return;
+          }
           setGuestSession(null);
           setAccountSession(session);
           navigate(`/app?conversation=${encodeURIComponent(conversation.id)}`, {
@@ -135,65 +333,176 @@ export function GuestAccessPage() {
   }
 
   return (
-    <GuestJoin
-      api={api}
-      token={token}
-      accessEnded={accessEnded}
-      onJoined={setGuestSession}
-    />
+      <GuestJoin
+        api={api}
+        accountApi={accountApi}
+        accountSession={accountSession}
+        token={token}
+        accessEnded={accessEnded}
+        onJoined={(session) => {
+          const joinedSession =
+            session.instant_room && entryShareUrl
+              ? { ...session, share_url: entryShareUrl }
+              : session;
+          setGuestSession(
+            accountSession
+              ? withoutGuestConversion(joinedSession)
+              : joinedSession
+          );
+        }}
+        onAccountJoined={(result) => {
+          if (accountSession && entryShareUrl) {
+            storeMemberInstantRoomContinuity(accountSession, {
+              room: result.room,
+              conversation: result.conversation,
+              share_url: entryShareUrl
+            });
+          }
+          navigate(`/app?conversation=${encodeURIComponent(result.conversation.id)}`, {
+            replace: true
+          });
+        }}
+      />
   );
 }
 
 function GuestJoin({
   api,
+  accountApi,
+  accountSession,
   token,
   accessEnded,
-  onJoined
+  onJoined,
+  onAccountJoined
 }: {
   api: GuestApiClient;
+  accountApi: ApiClient;
+  accountSession: Session | null;
   token: string | null;
   accessEnded: boolean;
   onJoined: (session: GuestSession) => void;
+  onAccountJoined: (result: InstantRoomResult) => void;
 }) {
-  const [preview, setPreview] = useState<GuestLinkPreview | null>(null);
+  const [preview, setPreview] = useState<
+    GuestLinkPreview | InstantRoomPreview | null
+  >(null);
+  const [instantRoom, setInstantRoom] = useState(false);
   const [loading, setLoading] = useState(Boolean(token));
   const [joining, setJoining] = useState(false);
+  const [joinAsGuest, setJoinAsGuest] = useState(false);
   const [error, setError] = useState("");
+  const [previewRetryable, setPreviewRetryable] = useState(false);
+  const [previewRetry, setPreviewRetry] = useState(0);
+  const [retryAt, setRetryAt] = useState<number | null>(null);
+  const [clock, setClock] = useState(Date.now());
 
   useEffect(() => {
     if (!token) return;
     let current = true;
     setLoading(true);
     setError("");
-    void api.previewGuestLink(token).then((result) => {
-      if (current) setPreview(result);
+    setPreviewRetryable(false);
+    void accountApi.previewInstantRoom(token).then((result) => {
+      if (current) {
+        setInstantRoom(true);
+        setPreview(result);
+        setRetryAt(null);
+      }
+    }).catch(async (reason: unknown) => {
+      if (!(reason instanceof ApiError) || reason.status !== 404) throw reason;
+      const result = await api.previewGuestLink(token);
+      if (current) {
+        setInstantRoom(false);
+        setPreview(result);
+        setRetryAt(null);
+      }
     }).catch((reason: unknown) => {
-      if (current) setError(guestLinkError(reason));
+      if (current) {
+        setError(guestLinkError(reason));
+        setPreviewRetryable(isRetryableGuestLinkFailure(reason));
+        setGuestRetryDeadline(reason, setRetryAt, setClock);
+      }
     }).finally(() => {
       if (current) setLoading(false);
     });
     return () => {
       current = false;
     };
-  }, [api, token]);
+  }, [accountApi, api, previewRetry, token]);
+
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setClock(now);
+      if (now >= retryAt) setRetryAt(null);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+
+  const retrySeconds = retryAt
+    ? Math.max(0, Math.ceil((retryAt - clock) / 1_000))
+    : 0;
+  const retryBlocked = retrySeconds > 0;
+
+  const accountCanJoin = Boolean(accountSession && instantRoom);
+  const legacyConversionOffered =
+    preview !== null &&
+    "conversion_enabled" in preview &&
+    preview.conversion_enabled === true;
+
+  async function joinWithAccount() {
+    if (!token || !accountSession || retryBlocked) return;
+    setJoining(true);
+    setError("");
+    try {
+      const result = await joinInstantRoomWithReplayRecovery(
+        token,
+        "account",
+        (idempotencyKey) =>
+          accountApi.joinInstantRoom({ token }, idempotencyKey)
+      );
+      if (result.guest_session) {
+        onJoined(withoutGuestConversion(result.guest_session));
+        return;
+      }
+      onAccountJoined(result);
+    } catch (reason: unknown) {
+      setError(guestLinkError(reason));
+      setGuestRetryDeadline(reason, setRetryAt, setClock);
+    } finally {
+      setJoining(false);
+    }
+  }
 
   async function join(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
     const values = new FormData(event.currentTarget);
     const displayName = String(values.get("display_name") || "").trim();
-    if (!displayName) return;
+    if (!displayName || retryBlocked) return;
 
     setJoining(true);
     setError("");
     try {
-      onJoined(await api.joinGuest({
+      const input = {
         token,
         display_name: displayName,
-        device: { name: browserName(), platform: "web" }
-      }));
+        device: { name: browserName(), platform: "web" as const }
+      };
+      onJoined(
+        instantRoom
+          ? await joinInstantRoomWithReplayRecovery(
+              token,
+              "guest",
+              (idempotencyKey) =>
+                api.joinInstantRoom(input, idempotencyKey)
+            )
+          : await api.joinGuest(input)
+      );
     } catch (reason: unknown) {
       setError(guestLinkError(reason));
+      setGuestRetryDeadline(reason, setRetryAt, setClock);
     } finally {
       setJoining(false);
     }
@@ -213,10 +522,34 @@ function GuestJoin({
             <span className="guest-badge">Guest access</span>
             <h1 id="guest-entry-title">{preview.room_title}</h1>
             <p>
-              {preview.conversion_enabled === true
+              {legacyConversionOffered
                 ? "Join this room now. No account is required. Optional account creation needs the separate one-time code from the host."
                 : "Join this room now without creating an account. This link provides temporary communication access only."}
             </p>
+            {accountCanJoin && !joinAsGuest ? (
+              <div className="guest-join-form">
+                <button
+                  className="button primary full"
+                  type="button"
+                  disabled={joining || retryBlocked}
+                  onClick={() => void joinWithAccount()}
+                >
+                  {retryBlocked
+                    ? `Try again in ${retrySeconds}s`
+                    : joining
+                    ? "Joining room…"
+                    : `Join as ${accountSession?.user.display_name}`}
+                </button>
+                <button
+                  className="button ghost full"
+                  type="button"
+                  disabled={joining || retryBlocked}
+                  onClick={() => setJoinAsGuest(true)}
+                >
+                  Use a guest name instead
+                </button>
+              </div>
+            ) : (
             <form className="guest-join-form" onSubmit={(event) => void join(event)}>
               <label className="field">
                 Your display name
@@ -231,12 +564,25 @@ function GuestJoin({
                   placeholder="How people should see you"
                 />
               </label>
-              <button className="button primary full" type="submit" disabled={joining}>
-                {joining ? "Joining room…" : "Join conversation"}
+              <button
+                className="button primary full"
+                type="submit"
+                disabled={joining || retryBlocked}
+              >
+                {retryBlocked
+                  ? `Try again in ${retrySeconds}s`
+                  : joining
+                    ? "Joining room…"
+                    : "Join conversation"}
               </button>
             </form>
+            )}
             <small className="guest-expiry">
-              This invitation expires {formatDateTime(preview.expires_at)}.
+              {preview.expires_at
+                ? `This invitation expires ${formatDateTime(preview.expires_at)}.`
+                : instantRoom
+                  ? "This room stays active while someone is connected. Its idle countdown starts after the last person leaves."
+                  : "The host controls when this invitation ends."}
             </small>
           </>
         ) : (
@@ -244,20 +590,45 @@ function GuestJoin({
             <span className="guest-badge neutral">Guest link</span>
             <h1 id="guest-entry-title">
               {token
-                ? "This guest link is unavailable"
+                ? previewRetryable
+                  ? "We could not check this guest link"
+                  : "This guest link is unavailable"
                 : accessEnded
                   ? "Guest access has ended"
                   : "Open a K-Comms guest link"}
             </h1>
             <p>
               {token
-                ? "It may have expired, reached its guest limit or been revoked. Ask the room host for a new link."
+                ? previewRetryable
+                  ? "Your secure link is unchanged. Retry it here when K-Comms is available."
+                  : "It may have expired, reached its guest limit or been revoked. Ask the room host for a new link."
                 : accessEnded
                   ? "This guest session expired or was revoked. Ask the room host for a new link."
                   : "Scan the room QR code or open the unique link shared by its host."}
             </p>
             <div className="guest-entry-actions">
-              <Link className="button primary full" to="/app">
+              {token && previewRetryable && (
+                <button
+                  className="button primary full"
+                  type="button"
+                  disabled={retryBlocked}
+                  onClick={() => {
+                    if (retryBlocked) return;
+                    setRetryAt(null);
+                    setPreviewRetry((attempt) => attempt + 1);
+                  }}
+                >
+                  {retryBlocked
+                    ? `Try again in ${retrySeconds}s`
+                    : "Retry secure link"}
+                </button>
+              )}
+              <Link
+                className={`button ${
+                  token && previewRetryable ? "ghost" : "primary"
+                } full`}
+                to="/sign-in"
+              >
                 Return to K-Comms sign in
               </Link>
             </div>
@@ -269,32 +640,137 @@ function GuestJoin({
   );
 }
 
-function GuestShell({
+async function joinInstantRoomWithReplayRecovery<T>(
+  token: string,
+  mode: "account" | "guest",
+  join: (idempotencyKey: string) => Promise<T>
+): Promise<T> {
+  const idempotencyKey = await instantRoomJoinIdempotencyKey(token, mode);
+  try {
+    return await join(idempotencyKey);
+  } catch (reason: unknown) {
+    if (isExpiredReplay(reason)) {
+      return join(await rotateInstantRoomJoinIdempotencyKey(token, mode));
+    }
+    if (isTransientJoinFailure(reason)) {
+      await waitForRetry();
+      try {
+        return await join(idempotencyKey);
+      } catch (retryReason: unknown) {
+        if (isExpiredReplay(retryReason)) {
+          return join(await rotateInstantRoomJoinIdempotencyKey(token, mode));
+        }
+        throw retryReason;
+      }
+    }
+    throw reason;
+  }
+}
+
+function isExpiredReplay(reason: unknown): boolean {
+  return (
+    reason instanceof ApiError &&
+    reason.status === 409 &&
+    reason.code === "idempotency_replay_expired"
+  );
+}
+
+function isTransientJoinFailure(reason: unknown): boolean {
+  return (
+    reason instanceof TypeError ||
+    (reason instanceof ApiError && reason.status >= 500)
+  );
+}
+
+function isRetryableGuestLinkFailure(reason: unknown): boolean {
+  return (
+    reason instanceof TypeError ||
+    (reason instanceof ApiError &&
+      (reason.status === 429 || reason.status >= 500))
+  );
+}
+
+function setGuestRetryDeadline(
+  reason: unknown,
+  setRetryAt: (deadline: number | null) => void,
+  setClock: (now: number) => void
+): void {
+  const retryAfter =
+    reason instanceof ApiError ? reason.retryAfterSeconds : undefined;
+  const now = Date.now();
+  setClock(now);
+  setRetryAt(retryAfter && retryAfter > 0 ? now + retryAfter * 1_000 : null);
+}
+
+function waitForRetry(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 350));
+}
+
+function withoutGuestConversion(session: GuestSession): GuestSession {
+  return {
+    ...session,
+    capabilities: {
+      ...session.capabilities,
+      conversion_enabled: false,
+      self_service_conversion: false,
+      email_hint: null
+    }
+  };
+}
+
+function isDefinitiveRoomUnavailable(reason: unknown): boolean {
+  return (
+    reason instanceof ApiError &&
+    [401, 403, 404, 410].includes(reason.status)
+  );
+}
+
+export function GuestShell({
   api,
   initialSession,
   onLeave,
-  onConverted
+  onAccessEnded,
+  onConverted,
+  roomBanner,
+  identityLabel = "Guest",
+  initialPresenceCount = 1,
+  onPresenceChange
 }: {
-  api: GuestApiClient;
+  api: GuestRoomApi;
   initialSession: GuestSession;
   onLeave: () => void;
-  onConverted: (session: Session, conversation: Conversation) => void;
+  onAccessEnded?: () => void;
+  onConverted: (
+    session: Session,
+    conversation: Conversation,
+    socketHandoff?: SocketHandoff
+  ) => void;
+  roomBanner?: ReactNode;
+  identityLabel?: "Guest" | "Host" | "Member";
+  initialPresenceCount?: number;
+  onPresenceChange?: (count: number) => void;
 }) {
   const [conversation, setConversation] = useState(initialSession.conversation);
   const [members, setMembers] = useState<ConversationMembership[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [composer, setComposer] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [loadRetry, setLoadRetry] = useState(0);
   const [sending, setSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
+  const [onlineUsers, setOnlineUsers] = useState(initialPresenceCount);
+  const [realtimeHandoffVersion, setRealtimeHandoffVersion] = useState(0);
   const [error, setError] = useState("");
   const [showAccount, setShowAccount] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [conversionNotice, setConversionNotice] = useState("");
   const [realtimeCall, setRealtimeCall] = useState<CallRealtimeEvent | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const realtimeRef = useRef<RealtimeConversation | null>(null);
+  const socketHandoffTicketRef = useRef<string | null>(null);
   const latestSequenceRef = useRef(0);
   const knownMessageIdsRef = useRef(new Set<string>());
   const nearBottomRef = useRef(true);
@@ -305,7 +781,13 @@ function GuestShell({
   const accountToggleRef = useRef<HTMLButtonElement | null>(null);
   const accountEmailRef = useRef<HTMLInputElement | null>(null);
   const accountWasOpenRef = useRef(false);
-  const conversionEnabled = initialSession.capabilities.conversion_enabled === true;
+  const onAccessEndedRef = useRef(onAccessEnded);
+  onAccessEndedRef.current = onAccessEnded;
+  const selfServiceConversion =
+    initialSession.capabilities.self_service_conversion === true;
+  const conversionEnabled =
+    initialSession.capabilities.conversion_enabled === true ||
+    selfServiceConversion;
 
   const markLatestRead = useCallback(() => {
     const latest = latestSequenceRef.current;
@@ -377,6 +859,7 @@ function GuestShell({
   useEffect(() => {
     let current = true;
     setLoading(true);
+    setLoadError("");
     setError("");
     void Promise.all([
       api.conversation(),
@@ -392,14 +875,14 @@ function GuestShell({
         behavior: "auto"
       });
     }).catch((reason: unknown) => {
-      if (current) setError(errorText(reason));
+      if (current) setLoadError(errorText(reason));
     }).finally(() => {
       if (current) setLoading(false);
     });
     return () => {
       current = false;
     };
-  }, [api, mergeMessages]);
+  }, [api, loadRetry, mergeMessages]);
 
   useEffect(() => {
     if (import.meta.env.VITE_DISABLE_REALTIME === "true") {
@@ -427,7 +910,11 @@ function GuestShell({
       if (!current || connecting) return;
       connecting = true;
       try {
-        const { ticket } = await api.socketTicket();
+        const handoffTicket = socketHandoffTicketRef.current;
+        socketHandoffTicketRef.current = null;
+        const { ticket } = handoffTicket
+          ? { ticket: handoffTicket }
+          : await api.socketTicket();
         if (!current) return;
         realtime = new RealtimeConversation(
           socketEndpoint(apiBase),
@@ -463,7 +950,10 @@ function GuestShell({
                 .catch((reason: unknown) => setError(errorText(reason)));
             },
             onTyping: () => undefined,
-            onPresence: () => undefined,
+            onPresence: (count) => {
+              setOnlineUsers(count);
+              onPresenceChange?.(count);
+            },
             onError: (message) => setError(message),
             onReconnectRequired: () => {
               realtime?.disconnect();
@@ -480,6 +970,7 @@ function GuestShell({
           if (reason instanceof ApiError && [401, 403].includes(reason.status)) {
             setConnectionStatus("offline");
             setError("Guest access has ended. Ask the room host for a new link.");
+            onAccessEndedRef.current?.();
           } else {
             setConnectionStatus("offline");
             scheduleReconnect();
@@ -497,7 +988,15 @@ function GuestShell({
       realtime?.disconnect();
       realtimeRef.current = null;
     };
-  }, [api, applyReaction, conversation.id, mergeMessages, reloadMembers]);
+  }, [
+    api,
+    applyReaction,
+    conversation.id,
+    mergeMessages,
+    onPresenceChange,
+    realtimeHandoffVersion,
+    reloadMembers
+  ]);
 
   useLayoutEffect(() => {
     const behavior = scrollRequestRef.current;
@@ -531,6 +1030,10 @@ function GuestShell({
     }
   }, [showAccount]);
 
+  useEffect(() => {
+    if (conversionNotice) composerRef.current?.focus();
+  }, [conversionNotice]);
+
   const usersById = useMemo(
     () => new Map(members.map((member) => [member.user.id, member.user])),
     [members]
@@ -539,7 +1042,7 @@ function GuestShell({
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = composer.trim();
-    if (!body || sending) return;
+    if (!body || sending || loading || loadError) return;
     const input = {
       client_message_id: clientMessageId(),
       body,
@@ -613,14 +1116,44 @@ function GuestShell({
     event.preventDefault();
     const values = new FormData(event.currentTarget);
     setConverting(true);
+    setConversionNotice("");
     setError("");
     try {
+      if (!api.convertAccount) {
+        throw new Error("Account creation is not available for this room session.");
+      }
       const result = await api.convertAccount({
         email: String(values.get("email") || "").trim(),
-        verification_code: String(values.get("verification_code") || "").trim(),
-        password: String(values.get("password") || "")
+        password: String(values.get("password") || ""),
+        ...(selfServiceConversion
+          ? {
+              display_name:
+                String(values.get("display_name") || "").trim() || undefined
+            }
+          : {
+              verification_code: String(
+                values.get("verification_code") || ""
+              ).trim()
+            })
       });
-      onConverted(result.session, result.conversation);
+      if (selfServiceConversion) {
+        realtimeRef.current?.disconnect();
+        realtimeRef.current = null;
+        setConnectionStatus("connecting");
+        socketHandoffTicketRef.current = result.socket_handoff?.ticket || null;
+        onConverted(
+          result.session,
+          result.conversation,
+          result.socket_handoff
+        );
+        setShowAccount(false);
+        setConversionNotice(
+          `Account created for ${result.session.user.display_name}. You are still in this conversation.`
+        );
+        setRealtimeHandoffVersion((version) => version + 1);
+      } else {
+        onConverted(result.session, result.conversation);
+      }
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
@@ -633,11 +1166,12 @@ function GuestShell({
       <header className="guest-shell-header">
         <KCommsGuestBrand />
         <div className="guest-room-heading">
-          <span className="guest-badge">Guest</span>
+            <span className="guest-badge">{identityLabel}</span>
           <div>
             <h1>{conversationTitle(conversation)}</h1>
             <p>
-              {initialSession.tenant.name} ·{" "}
+              {initialSession.tenant.name} · {onlineUsers}{" "}
+              {onlineUsers === 1 ? "person" : "people"} online ·{" "}
               <span
                 className={`guest-connection ${connectionStatus}`}
                 role="status"
@@ -668,6 +1202,12 @@ function GuestShell({
         </div>
       </header>
 
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {conversionNotice}
+      </p>
+
+      {roomBanner}
+
       {conversionEnabled && showAccount && (
         <section
           className="guest-account-card"
@@ -677,12 +1217,18 @@ function GuestShell({
           <div>
             <h2 id="guest-account-title">Keep your conversation</h2>
             <p id="guest-account-email-help">
-              Enter the full email authorized by the host
-              {initialSession.capabilities.email_hint
-                ? <> ({initialSession.capabilities.email_hint})</>
-                : null}
-              , plus the one-time verification code the host sent separately.
-              Your identity and conversation history stay in place.
+              {selfServiceConversion
+                ? "Add an email and password without leaving the room. Your identity, membership and conversation history stay in place."
+                : (
+                  <>
+                    Enter the full email authorized by the host
+                    {initialSession.capabilities.email_hint
+                      ? <> ({initialSession.capabilities.email_hint})</>
+                      : null}
+                    , plus the one-time verification code the host sent separately.
+                    Your identity and conversation history stay in place.
+                  </>
+                )}
             </p>
           </div>
           <form onSubmit={(event) => void convertAccount(event)}>
@@ -698,7 +1244,19 @@ function GuestShell({
                 required
               />
             </label>
-            <div className="field">
+            {selfServiceConversion && (
+              <label className="field">
+                Display name <span className="optional">(optional)</span>
+                <input
+                  name="display_name"
+                  type="text"
+                  maxLength={120}
+                  autoComplete="name"
+                  defaultValue={initialSession.user.display_name}
+                />
+              </label>
+            )}
+            {!selfServiceConversion && <div className="field">
               <label htmlFor="guest-account-verification-code">
                 Account verification code
               </label>
@@ -717,7 +1275,7 @@ function GuestShell({
               <small id="guest-account-verification-help">
                 This code is separate from the room link and can be used only for this account conversion.
               </small>
-            </div>
+            </div>}
             <label className="field">
               Password
               <input
@@ -751,11 +1309,29 @@ function GuestShell({
             <div className="inline-loading" role="status">
               <span className="spinner" aria-hidden="true" />Loading conversation…
             </div>
+          ) : loadError ? (
+            <div className="empty-state guest-load-error" role="alert">
+              <span className="empty-mark" aria-hidden="true">!</span>
+              <h2>Could not load this conversation</h2>
+              <p>{loadError}</p>
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => setLoadRetry((attempt) => attempt + 1)}
+              >
+                Retry conversation
+              </button>
+            </div>
           ) : messages.length === 0 ? (
             <div className="empty-state">
               <span className="empty-mark" aria-hidden="true">✦</span>
               <h2>Start the conversation</h2>
-              <p>You joined as a guest. Send a message whenever you’re ready.</p>
+              <p>
+                {identityLabel === "Guest"
+                  ? "You joined as a guest. "
+                  : "Your room is ready. "}
+                Send a message whenever you’re ready.
+              </p>
             </div>
           ) : (
             <ol className="guest-message-list">
@@ -800,8 +1376,9 @@ function GuestShell({
             rows={2}
             maxLength={65_535}
             value={composer}
-            readOnly={sending}
+            readOnly={sending || loading || Boolean(loadError)}
             aria-busy={sending}
+            aria-disabled={loading || Boolean(loadError)}
             autoFocus
             placeholder={`Message ${conversationTitle(conversation)}`}
             onChange={(event) => setComposer(event.target.value)}
@@ -816,7 +1393,11 @@ function GuestShell({
               }
             }}
           />
-          <button className="button primary" type="submit" disabled={sending || !composer.trim()}>
+          <button
+            className="button primary"
+            type="submit"
+            disabled={sending || loading || Boolean(loadError) || !composer.trim()}
+          >
             {sending ? "Sending…" : "Send"}
           </button>
         </form>
@@ -853,6 +1434,22 @@ function KCommsGuestBrand() {
 }
 
 function guestLinkError(reason: unknown): string {
+  if (reason instanceof ApiError) {
+    if (reason.status === 429) {
+      return reason.retryAfterSeconds
+        ? `Too many attempts. Try again in ${reason.retryAfterSeconds} seconds.`
+        : "Too many attempts. Wait a moment, then try again.";
+    }
+    if (reason.status >= 500) {
+      return "K-Comms is temporarily unavailable. Your link is unchanged; try again shortly.";
+    }
+    if (
+      [404, 410, 422].includes(reason.status) ||
+      /expired|revoked|unavailable|exhausted/u.test(reason.code)
+    ) {
+      return "This communication link is unavailable. It may have expired or been revoked. Ask the host for a new link.";
+    }
+  }
   const message = errorText(reason);
   return message === "Something went wrong. Please try again."
     ? "This guest link is no longer available. Ask the host for a new link."

@@ -268,7 +268,11 @@ async function installGuestCommunicationFixture(
 
   if (authenticatedHost) {
     await page.addInitScript((session) => {
-      sessionStorage.setItem("k-comms.session.v1", JSON.stringify(session));
+      const bootstrapKey = "k-comms.e2e.host-session-installed";
+      if (sessionStorage.getItem(bootstrapKey) !== "true") {
+        sessionStorage.setItem("k-comms.session.v1", JSON.stringify(session));
+        sessionStorage.setItem(bootstrapKey, "true");
+      }
       localStorage.setItem(
         `k-comms:onboarding:${session.tenant.id}:${session.user.id}`,
         "dismissed"
@@ -322,6 +326,19 @@ async function installGuestCommunicationFixture(
           webhooks: true
         }
       });
+    }
+    if (method === "POST" && path === "/api/v1/instant-rooms/preview") {
+      // GuestAccessPage probes the new instant-room contract first because
+      // both room kinds use the same fragment-only join route. This fixture
+      // intentionally exercises a legacy host-created guest link, so mirror
+      // the real endpoint's safe not-found response and allow the client to
+      // fall back to /guest-links/preview.
+      return json(route, {
+        error: {
+          code: "not_found",
+          detail: "The room link is unavailable."
+        }
+      }, 404);
     }
     if (method === "GET" && path === "/api/v1/me") {
       const identity = convertedRequest ? convertedSession : hostSession;

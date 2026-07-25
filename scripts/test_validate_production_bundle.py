@@ -6,14 +6,23 @@ import unittest
 from pathlib import Path
 
 import yaml
-
-from validate_production_bundle import validate, validate_documents, validate_paths
-
+from validate_production_bundle import (
+    COMMUNICATION_ROLLBACK_CAPABILITIES,
+    COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS,
+    validate,
+    validate_documents,
+    validate_paths,
+)
 
 VAPID_PUBLIC_KEY = "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
 DIGEST_IMAGE = "ghcr.io/soyuz-tec/k-comms@sha256:" + "a" * 64
 PRODUCTION_NAMESPACE = "k-comms-production"
-WORKER_RELEASE_RPC_COMMAND = [
+WORKER_READY_RPC_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "ERL_AFLAGS= /app/bin/k_comms rpc '{:ok, _latency} = CommsCore.Operations.database_readiness(); pid = Oban.whereis(Oban); true = is_pid(pid); :ok'",
+]
+WORKER_LIVE_RPC_COMMAND = [
     "/bin/sh",
     "-ec",
     "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'",
@@ -31,6 +40,50 @@ CA_PEM = (
 class ValidateProductionBundleTest(unittest.TestCase):
     def test_accepts_a_fully_composed_provider_bundle(self) -> None:
         self.assertEqual(validate_documents(valid_documents()), [])
+
+    def test_rejects_configuration_only_instant_room_production_enablement(
+        self,
+    ) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config["INSTANT_ROOMS_ENABLED"] = "true"
+        config["INSTANT_ROOM_TENANT_SLUG"] = "production-public"
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "INSTANT_ROOMS_ENABLED must remain false" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "INSTANT_ROOM_TENANT_SLUG must be explicitly empty" in error
+                for error in errors
+            )
+        )
+
+    def test_requires_explicit_closed_instant_room_production_gate(self) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config.pop("INSTANT_ROOMS_ENABLED")
+        config.pop("INSTANT_ROOM_TENANT_SLUG")
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "INSTANT_ROOMS_ENABLED must remain false" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "INSTANT_ROOM_TENANT_SLUG must be explicitly empty" in error
+                for error in errors
+            )
+        )
 
     def test_rejects_fail_closed_defaults_placeholders_and_mutable_images(self) -> None:
         documents = valid_documents()
@@ -168,6 +221,14 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_instant_room_lifecycle_capability_covers_join_receipts(self) -> None:
+        lifecycle_hazards = COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS[
+            "instant_room_lifecycle_v1"
+        ]
+
+        self.assertIn("conversation_ephemeral_rooms", lifecycle_hazards)
+        self.assertIn("conversation_ephemeral_join_receipts", lifecycle_hazards)
+
     def test_accepts_rendered_guest_rollback_preflight_operation(self) -> None:
         documents = valid_documents()
         documents.append(guest_rollback_operation())
@@ -197,11 +258,19 @@ class ValidateProductionBundleTest(unittest.TestCase):
         self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
         self.assertTrue(any("activeDeadlineSeconds must be 1..300" in error for error in errors))
         self.assertTrue(
-            any("assert_guest_rollback_compatible!()" in error for error in errors)
+            any(
+                "assert_communication_rollback_compatible!()" in error
+                for error in errors
+            )
         )
         self.assertTrue(any("WRITES_QUIESCED must be true" in error for error in errors))
         self.assertTrue(any("must identify the exact target" in error for error in errors))
-        self.assertTrue(any("exact guest-compatible capability pair" in error for error in errors))
+        self.assertTrue(
+            any(
+                "exact communication-compatible capability set" in error
+                for error in errors
+            )
+        )
 
     def test_rejects_development_identity_modes_and_invalid_oidc_issuer(self) -> None:
         documents = valid_documents()
@@ -450,7 +519,8 @@ class ValidateProductionBundleTest(unittest.TestCase):
 
                     self.assertTrue(
                         any(
-                            "exact retained release RPC health-check command" in error
+                            "exact retained release RPC readiness and liveness commands"
+                            in error
                             for error in validate_documents(documents)
                         )
                     )
@@ -986,6 +1056,8 @@ def valid_documents() -> list[dict]:
             "HSTS_ENABLED": "true",
             "IDENTITY_PROVIDER_MODE": "oidc",
             "DIRECTORY_PROVISIONING_MODE": "scim",
+            "INSTANT_ROOMS_ENABLED": "false",
+            "INSTANT_ROOM_TENANT_SLUG": "",
             "OIDC_ISSUER": "https://identity.example.com/tenant/v2.0",
             "OIDC_CLIENT_ID": "k-comms-production",
             "OIDC_PROVIDER_NAME": "approved-corporate-idp",
@@ -1121,8 +1193,7 @@ def workload(kind: str, name: str) -> dict:
                     "labels": {"app.kubernetes.io/name": "k-comms"},
                     "annotations": {
                         "k-comms.soyuz-tec.io/rollback-capabilities": (
-                            "guest_identity_v1,"
-                            "guest_admission_expiry_worker_v1"
+                            COMMUNICATION_ROLLBACK_CAPABILITIES
                         )
                     },
                 },
@@ -1191,10 +1262,13 @@ def workload(kind: str, name: str) -> dict:
                 }
             )
         else:
-            for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
+            for probe in ("startupProbe", "readinessProbe"):
                 container[probe] = {
-                    "exec": {"command": list(WORKER_RELEASE_RPC_COMMAND)}
+                    "exec": {"command": list(WORKER_READY_RPC_COMMAND)}
                 }
+            container["livenessProbe"] = {
+                "exec": {"command": list(WORKER_LIVE_RPC_COMMAND)}
+            }
     else:
         document["spec"]["template"]["spec"]["restartPolicy"] = "Never"
         if name == "k-comms-migrate":

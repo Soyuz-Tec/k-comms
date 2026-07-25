@@ -23,6 +23,7 @@ from validate_architecture import (
     discover_schemas,
     generated_report_errors,
     main,
+    public_spec_operations,
     qualified_function_calls,
     read_yaml,
     strict_deferral_rejection_reason,
@@ -33,6 +34,22 @@ from validate_architecture import (
 
 
 class ValidateArchitectureTest(unittest.TestCase):
+    def test_public_specs_recognize_elixir_predicate_and_bang_functions(self) -> None:
+        source = """
+        defmodule CommsCore.Example do
+          @spec allow?(binary(), pos_integer()) :: boolean()
+          def allow?(_key, _limit), do: true
+
+          @spec enforce!(binary()) :: :ok
+          def enforce!(_key), do: :ok
+        end
+        """
+
+        self.assertEqual(
+            public_spec_operations(source),
+            {("allow?", 2), ("enforce!", 1)},
+        )
+
     def test_accepts_the_documented_dependency_and_repo_policy(self) -> None:
         with self.repository_fixture() as root:
             self.assertEqual(validate(root), [])
@@ -650,15 +667,25 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        transition = manifest["enforcement"]["reviewed_manifest_transitions"]
-        self.assertEqual(len(transition), 1)
+        transitions = {
+            transition["id"]: transition
+            for transition in manifest["enforcement"]["reviewed_manifest_transitions"]
+        }
         self.assertEqual(
-            transition[0]["adr"],
+            set(transitions),
+            {
+                "add-mobile-read-and-conversation-guest-access",
+                "add-self-service-instant-rooms",
+            },
+        )
+        transition = transitions["add-mobile-read-and-conversation-guest-access"]
+        self.assertEqual(
+            transition["adr"],
             "docs/02-architecture/adr/"
             "0049-conversation-guest-links-and-convertible-guest-identities.md",
         )
         self.assertEqual(
-            set(transition[0]["approved_changes"]),
+            set(transition["approved_changes"]),
             {
                 "context:calls:public_contracts:add:"
                 "CommsCore.AudioCalls.CallSessionView",
@@ -1579,6 +1606,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(interfaces),
             {
                 "notification-availability-adapter",
+                "web-distributed-public-rate-limit",
                 "web-validation-error-rendering",
                 "worker-attachment-restore-release",
                 "worker-outbox-publication",
@@ -1720,7 +1748,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "consumer": "conversations",
                 "port": "CommsCore.Conversations.CallLifecyclePort",
                 "result_contract": ("CommsCore.Conversations.CallLifecycleReceipt"),
-                "callers": ["CommsCore.Conversations"],
+                "callers": [
+                    "CommsCore.Conversations",
+                    "CommsCore.Conversations.EphemeralRooms",
+                ],
                 "operations": [{"name": "revoke_conversation_access", "arity": 1}],
                 "binding_key": "conversation_call_lifecycle_adapter",
             },

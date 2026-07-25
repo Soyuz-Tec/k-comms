@@ -126,6 +126,7 @@ function Assert-StatusPayload {
         "audio_calls",
         "video_calls",
         "guest_links",
+        "instant_rooms",
         "realtime"
     )) {
         Assert-PropertyValue `
@@ -134,6 +135,105 @@ function Assert-StatusPayload {
             -Expected $true `
             -Context "/api/v1/status capabilities"
     }
+}
+
+function Assert-InstantRoomUnavailablePayload {
+    param(
+        [Parameter(Mandatory)][int]$StatusCode,
+        [Parameter(Mandatory)]$Payload
+    )
+
+    Assert-Condition `
+        -Condition ($StatusCode -eq 404) `
+        -Message (
+            "POST /api/v1/instant-rooms/preview with an unknown token must " +
+            "return HTTP 404; observed $StatusCode"
+        )
+    $errorPayload = Get-RequiredProperty `
+        -Object $Payload `
+        -Name "error" `
+        -Context "/api/v1/instant-rooms/preview"
+    Assert-PropertyValue `
+        -Object $errorPayload `
+        -Name "code" `
+        -Expected "instant_room_unavailable" `
+        -Context "/api/v1/instant-rooms/preview error"
+}
+
+function Get-HttpFailureResponse {
+    param([Parameter(Mandatory)]$ErrorRecord)
+
+    $response = $ErrorRecord.Exception.Response
+    if ($null -eq $response) {
+        throw "HTTP request failed without a response: $($ErrorRecord.Exception.Message)"
+    }
+
+    $content = $null
+    $contentProperty = $response.PSObject.Properties["Content"]
+    if ($null -ne $contentProperty -and $null -ne $contentProperty.Value) {
+        $httpContent = $contentProperty.Value
+        if ($httpContent -is [string]) {
+            $content = $httpContent
+        }
+        elseif ($null -ne $httpContent.PSObject.Methods["ReadAsStringAsync"]) {
+            $content = $httpContent.ReadAsStringAsync().GetAwaiter().GetResult()
+        }
+    }
+    if ($null -eq $content) {
+        $stream = $response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($stream)
+        try {
+            $content = $reader.ReadToEnd()
+        }
+        finally {
+            $reader.Dispose()
+            $stream.Dispose()
+        }
+    }
+
+    [PSCustomObject]@{
+        StatusCode = [int]$response.StatusCode
+        Content = $content
+    }
+}
+
+function Invoke-InstantRoomEndpointCheck {
+    $path = "/api/v1/instant-rooms/preview"
+    $uri = "$script:BaseUri$path"
+    $body = @{
+        # A valid 256-bit Base64URL shape that is intentionally not issued by
+        # the service. This proves the uniform no-write unavailable contract.
+        token = ("A" * 43)
+    } | ConvertTo-Json -Compress
+
+    try {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri $uri `
+            -Method Post `
+            -Headers @{Origin = $script:BaseUri} `
+            -ContentType "application/json" `
+            -Body $body `
+            -TimeoutSec 15
+        $observed = [PSCustomObject]@{
+            StatusCode = [int]$response.StatusCode
+            Content = $response.Content
+        }
+    }
+    catch {
+        $observed = Get-HttpFailureResponse -ErrorRecord $_
+    }
+
+    try {
+        $payload = $observed.Content | ConvertFrom-Json
+    }
+    catch {
+        throw "POST $uri did not return valid JSON: $($_.Exception.Message)"
+    }
+    Assert-InstantRoomUnavailablePayload `
+        -StatusCode $observed.StatusCode `
+        -Payload $payload
+    Write-Host "PASS $path no-write unavailable contract"
 }
 
 function Assert-AppContract {
@@ -343,6 +443,7 @@ function Invoke-PackagedReleaseQualification {
     Invoke-JsonEndpointCheck -Path "/health/live" -Validator ${function:Assert-LivenessPayload}
     Invoke-JsonEndpointCheck -Path "/health/ready" -Validator ${function:Assert-ReadinessPayload}
     Invoke-JsonEndpointCheck -Path "/api/v1/status" -Validator ${function:Assert-StatusPayload}
+    Invoke-InstantRoomEndpointCheck
     Assert-PackagedApp
 
     $webRoot = Join-Path $script:RepositoryRoot "clients\web"
@@ -425,9 +526,18 @@ function Invoke-SelfTest {
             audio_calls = $true
             video_calls = $true
             guest_links = $true
+            instant_rooms = $true
             realtime = $true
         }
     })
+    Assert-InstantRoomUnavailablePayload `
+        -StatusCode 404 `
+        -Payload ([PSCustomObject]@{
+            error = [PSCustomObject]@{
+                code = "instant_room_unavailable"
+                detail = "This instant communication room is unavailable"
+            }
+        })
     Assert-AppContract `
         -StatusCode 200 `
         -ContentType "text/html; charset=utf-8" `

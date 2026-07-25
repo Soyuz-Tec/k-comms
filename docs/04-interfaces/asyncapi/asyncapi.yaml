@@ -29,6 +29,10 @@ channels:
         $ref: '#/components/messages/MembershipChanged'
       typing:
         $ref: '#/components/messages/Typing'
+      presenceState:
+        $ref: '#/components/messages/PresenceState'
+      presenceDiff:
+        $ref: '#/components/messages/PresenceDiff'
       callStarted:
         $ref: '#/components/messages/CallStarted'
       callEnded:
@@ -68,6 +72,8 @@ operations:
       - {$ref: '#/channels/conversation/messages/readCursor'}
       - {$ref: '#/channels/conversation/messages/membershipChanged'}
       - {$ref: '#/channels/conversation/messages/typing'}
+      - {$ref: '#/channels/conversation/messages/presenceState'}
+      - {$ref: '#/channels/conversation/messages/presenceDiff'}
       - {$ref: '#/channels/conversation/messages/callStarted'}
       - {$ref: '#/channels/conversation/messages/callEnded'}
       - {$ref: '#/channels/conversation/messages/audioCallStarted'}
@@ -152,6 +158,16 @@ components:
         properties:
           user_id: {type: string, format: uuid}
           state: {enum: [started, stopped]}
+    PresenceState:
+      name: presence_state
+      description: Full Phoenix Presence state after authorized join. Object keys are user UUIDs. Application metadata contains only account_type and online_at; Phoenix may add opaque phx_ref transport fields required for Presence diff reconciliation.
+      payload:
+        $ref: '#/components/schemas/PresenceStatePayload'
+    PresenceDiff:
+      name: presence_diff
+      description: Eventually consistent Phoenix Presence delta. Application metadata remains limited to account_type and online_at; opaque phx_ref transport fields are not domain connection identifiers. Durable ephemeral-room leases, not this payload, remain lifecycle authority.
+      payload:
+        $ref: '#/components/schemas/PresenceDiffPayload'
     CallStarted:
       name: call.started.v1
       description: Canonical audio/video call-start signal emitted on the authorized conversation topic. Active guest admissions receive the same event after per-event authorization.
@@ -207,6 +223,48 @@ components:
           message_id: {type: [string, 'null'], format: uuid}
           unread_count: {type: integer, minimum: 0}
   schemas:
+    PresenceMeta:
+      type: object
+      additionalProperties: false
+      required: [account_type, online_at]
+      properties:
+        account_type: {enum: [human, guest]}
+        online_at:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unix epoch seconds supplied by the server.
+        phx_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque Phoenix Presence transport reference; clients must not interpret, persist, log, or use it as a domain connection identifier.
+        phx_ref_prev:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque prior Phoenix Presence transport reference used only for diff reconciliation.
+    PresenceEntry:
+      type: object
+      additionalProperties: false
+      required: [metas]
+      properties:
+        metas:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/PresenceMeta'}
+    PresenceStatePayload:
+      type: object
+      description: Map whose property names are authorized user UUIDs.
+      propertyNames: {type: string, format: uuid}
+      additionalProperties: {$ref: '#/components/schemas/PresenceEntry'}
+    PresenceDiffPayload:
+      type: object
+      additionalProperties: false
+      required: [joins, leaves]
+      properties:
+        joins: {$ref: '#/components/schemas/PresenceStatePayload'}
+        leaves: {$ref: '#/components/schemas/PresenceStatePayload'}
     CallStartedPayload:
       type: object
       additionalProperties: false

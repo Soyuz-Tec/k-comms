@@ -7,6 +7,18 @@ data:
   PUBLIC_APP_URL: https://comms.staging.example.invalid
   CORS_ORIGINS: https://comms.staging.example.invalid
   HSTS_ENABLED: "true"
+  # The portable overlay cannot know the ingress-controller source networks.
+  # Keep public instant rooms closed until an environment-specific composition
+  # applies instant-rooms-provider-patch.example.yaml with exact narrow CIDRs.
+  INSTANT_ROOMS_ENABLED: "false"
+  INSTANT_ROOM_TENANT_SLUG: ""
+  TRUSTED_PROXY_CIDRS: ""
+  INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS: "3600"
+  INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS: "86400"
+  INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS: "30"
+  INSTANT_ROOM_PRESENCE_LEASE_SECONDS: "90"
+  INSTANT_ROOM_RECONNECT_GRACE_SECONDS: "90"
+  INSTANT_ROOM_MAX_PARTICIPANTS: "25"
   CSP_CONNECT_SOURCES: "'self' wss://comms.staging.example.invalid https://comms.staging.example.invalid https://objects.staging.example.invalid"
   # Portable staging carries no in-cluster SFU. Compose qualifies local
   # audio/video; AUDIO_* names govern both media kinds for compatibility. A

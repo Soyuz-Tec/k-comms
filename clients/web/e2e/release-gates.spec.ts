@@ -35,11 +35,7 @@ async function mockWorkspace(page: Page, role: Role, conversations: unknown[] = 
 }
 
 async function openClientRoute(page: Page, path: string) {
-  await page.goto("/app/");
-  await page.evaluate((nextPath) => {
-    window.history.pushState({}, "", nextPath);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
+  await page.goto(path);
 }
 
 test("protected product routes enforce the client role matrix", async ({ page }) => {

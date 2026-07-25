@@ -73,6 +73,26 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         )
         self.assertIn("guest_links = $true", self.document)
 
+    def test_requires_and_probes_the_instant_room_capability(self) -> None:
+        self.assertIn('"instant_rooms",', self.document)
+        self.assertIn("instant_rooms = $true", self.document)
+        self.assertIn(
+            'Invoke-InstantRoomEndpointCheck',
+            self.document,
+        )
+        self.assertIn(
+            '"/api/v1/instant-rooms/preview"',
+            self.document,
+        )
+        self.assertIn(
+            '-Headers @{Origin = $script:BaseUri}',
+            self.document,
+        )
+        self.assertIn(
+            '-Expected "instant_room_unavailable"',
+            self.document,
+        )
+
     def test_requires_the_exact_packaged_csp(self) -> None:
         for directive in (
             "default-src 'self'",

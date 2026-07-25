@@ -45,6 +45,16 @@ defmodule CommsWeb.FallbackController do
        do: {404, "guest_link_unavailable", "This guest communication link is unavailable"}
 
   defp error(reason)
+       when reason in [
+              :ephemeral_room_unavailable,
+              :ephemeral_room_not_found,
+              :instant_room_unavailable,
+              :ephemeral_room_expired,
+              :ephemeral_room_revoked
+            ],
+       do: {404, "instant_room_unavailable", "This instant communication room is unavailable"}
+
+  defp error(reason)
        when reason in [:invalid_guest_access_token, :guest_session_expired],
        do: {401, "unauthenticated", "Guest authentication failed"}
 
@@ -96,6 +106,24 @@ defmodule CommsWeb.FallbackController do
     do:
       {403, "guest_account_conversion_verification_failed",
        "Account conversion verification failed"}
+
+  defp error(:instant_rooms_unavailable),
+    do: {503, "instant_rooms_unavailable", "Instant communication rooms are unavailable"}
+
+  defp error(reason)
+       when reason in [
+              :ephemeral_replay_encryption_unavailable,
+              :idempotency_replay_unavailable
+            ],
+       do: {503, "instant_rooms_unavailable", "Instant communication rooms are unavailable"}
+
+  defp error(:idempotency_conflict),
+    do:
+      {409, "idempotency_conflict",
+       "The idempotency key was already used with a different request"}
+
+  defp error(:idempotency_replay_expired),
+    do: {409, "idempotency_replay_expired", "The idempotency replay window has expired"}
 
   defp error(:invalid_guest_conversion_email),
     do: {422, "invalid_guest_conversion_email", "The account conversion email is invalid"}
@@ -268,6 +296,7 @@ defmodule CommsWeb.FallbackController do
               :invalid_guest_link_expiry,
               :invalid_guest_link_max_uses,
               :invalid_guest_device,
+              :invalid_ephemeral_room_title,
               :guest_links_not_supported
             ],
        do: {422, Atom.to_string(reason), "The request could not be processed"}

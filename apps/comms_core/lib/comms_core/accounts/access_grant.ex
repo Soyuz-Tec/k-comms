@@ -14,6 +14,7 @@ defmodule CommsCore.Accounts.AccessGrant do
     :device_id,
     :session_id,
     :account_type,
+    :access_scope,
     :role,
     :step_up_recent?,
     :platform_claim_verified?
@@ -26,6 +27,7 @@ defmodule CommsCore.Accounts.AccessGrant do
     :session_id,
     :request_id,
     :account_type,
+    :access_scope,
     :guest_expires_at,
     :role,
     :step_up_at,
@@ -48,6 +50,7 @@ defmodule CommsCore.Accounts.AccessGrant do
           session_id: String.t(),
           request_id: String.t() | nil,
           account_type: :human | :guest,
+          access_scope: :workspace | :conversation_only,
           guest_expires_at: DateTime.t() | nil,
           role: tenant_role(),
           step_up_at: DateTime.t() | nil,

@@ -57,7 +57,8 @@ defmodule CommsCore.ConversationAuthorizationProjectionTest do
 
     assert sql =~ ~s(JOIN "conversation_memberships")
     assert sql =~ ~s(c0."archived_at" IS NULL)
-    assert length(params) == 2
+    assert sql =~ ~s("conversation_ephemeral_rooms")
+    assert length(params) >= 2
 
     authorizations = Repo.all(query)
     authorized_ids = MapSet.new(authorizations, & &1.conversation_id)

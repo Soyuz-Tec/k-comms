@@ -31,6 +31,7 @@ Keep these unchecked until verified against the target cluster:
 - [ ] Ingress class `nginx` exists, or the overlay has been adapted
 - [ ] DNS names resolve to the staging ingress
 - [ ] TLS secret `k-comms-staging-tls` contains the approved certificate chain
+- [ ] Instant rooms remain disabled, or the provider composition supplies exact narrow ingress-controller CIDRs in both `TRUSTED_PROXY_CIDRS` and the matching edge NetworkPolicy
 - [ ] Runtime and bootstrap env files contain no empty or `CHANGE_ME` values
 - [ ] The rendered staging ConfigMap is applied before MinIO starts
 - [ ] HTTP bootstrap remains disabled and the one-time release bootstrap succeeds

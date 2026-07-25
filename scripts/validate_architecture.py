@@ -3777,7 +3777,7 @@ def public_spec_operations(text: str) -> set[tuple[str, int]]:
             continue
         following_definition = re.search(
             rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
-            rf"{re.escape(spec.group('function'))}\b",
+            rf"{re.escape(spec.group('function'))}(?![A-Za-z0-9_!?])",
             code[parsed[1] :],
         )
         if following_definition and following_definition.group("kind") == "def":

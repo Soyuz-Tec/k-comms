@@ -5,7 +5,7 @@ test("production capability keeps the default page focused on sign-in", async ({
   await page.route("**/api/v1/status", (route) => route.fulfill({
     json: serviceStatus(false)
   }));
-  await page.goto("/app/");
+  await page.goto("/sign-in");
 
   const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
   await expect(heading).toBeVisible();
@@ -38,7 +38,7 @@ test("returning member signs in with one submitted form and reaches Inbox", asyn
   await page.addInitScript(() => {
     localStorage.setItem("k-comms.last-workspace-slug.v1", "acme");
   });
-  await page.goto("/app/");
+  await page.goto("/sign-in");
 
   await expect(page.getByText("acme", { exact: true })).toBeVisible();
   await page.getByLabel("Email address").fill("taylor@example.test");

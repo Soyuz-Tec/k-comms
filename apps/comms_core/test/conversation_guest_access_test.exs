@@ -512,6 +512,11 @@ defmodule CommsCore.Conversations.GuestAccessTest do
     assert {:ok, redemption} =
              Conversations.redeem_guest_link(token, guest_attrs("Communication Guest"))
 
+    refute redemption.capabilities.self_service_conversion
+
+    assert {:ok, %{capabilities: %{self_service_conversion: false}}} =
+             Conversations.guest_scope_for_session(redemption.authentication.session_id)
+
     assert {:error, :guest_account_conversion_not_enabled} =
              Conversations.convert_guest_account(
                %{

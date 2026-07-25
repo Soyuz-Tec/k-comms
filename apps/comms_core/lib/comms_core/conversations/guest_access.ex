@@ -20,6 +20,7 @@ defmodule CommsCore.Conversations.GuestAccess do
     GuestLink,
     GuestLinkPreviewView,
     GuestLinkView,
+    EphemeralRooms,
     Membership,
     Projector
   }
@@ -81,6 +82,7 @@ defmodule CommsCore.Conversations.GuestAccess do
             tenant_id: conversation.tenant_id,
             conversation_id: conversation.id,
             created_by_user_id: grant.user_id,
+            purpose: :standard,
             token_digest: token_digest,
             conversion_email: conversion_email,
             conversion_verification_digest: conversion_verification_digest,
@@ -355,7 +357,7 @@ defmodule CommsCore.Conversations.GuestAccess do
           authentication: authentication,
           conversation: Projector.conversation(conversation),
           admission: project_admission(admission),
-          capabilities: guest_capabilities!(tenant_id, link.conversion_email)
+          capabilities: guest_capabilities!(tenant_id, link.conversion_email, link.purpose)
         }
       end)
       |> transaction_result()
@@ -418,7 +420,8 @@ defmodule CommsCore.Conversations.GuestAccess do
                expires_at: admission.expires_at,
                converted_at: admission.converted_at,
                history_from_sequence: admission.history_from_sequence,
-               conversion_email: link.conversion_email
+               conversion_email: link.conversion_email,
+               link_purpose: link.purpose
              }
            )
          ) do
@@ -426,11 +429,16 @@ defmodule CommsCore.Conversations.GuestAccess do
         {:error, :forbidden}
 
       access ->
-        case guest_capabilities(access.tenant_id, access.conversion_email) do
+        case guest_capabilities(
+               access.tenant_id,
+               access.conversion_email,
+               access.link_purpose
+             ) do
           {:ok, capabilities} ->
             {:ok,
              access
              |> Map.delete(:conversion_email)
+             |> Map.delete(:link_purpose)
              |> Map.put(:capabilities, capabilities)}
 
           {:error, _reason} ->
@@ -481,6 +489,7 @@ defmodule CommsCore.Conversations.GuestAccess do
                converted_at: admission.converted_at,
                history_from_sequence: admission.history_from_sequence,
                conversion_email: link.conversion_email,
+               link_purpose: link.purpose,
                conversation: conversation
              }
            )
@@ -489,11 +498,16 @@ defmodule CommsCore.Conversations.GuestAccess do
         {:error, :forbidden}
 
       %{conversation: conversation} = scope ->
-        case guest_capabilities(scope.tenant_id, scope.conversion_email) do
+        case guest_capabilities(
+               scope.tenant_id,
+               scope.conversion_email,
+               scope.link_purpose
+             ) do
           {:ok, capabilities} ->
             {:ok,
              scope
              |> Map.delete(:conversion_email)
+             |> Map.delete(:link_purpose)
              |> Map.put(:conversation, Projector.conversation(conversation))
              |> Map.put(:capabilities, capabilities)}
 
@@ -529,6 +543,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         _policy = admission_policy!(snapshot.tenant_id)
         conversation = lock_conversion_conversation!(snapshot)
         link = lock_conversion_link!(snapshot)
+        ephemeral_room = EphemeralRooms.lock_conversion_room(link)
 
         admission =
           Repo.one(
@@ -547,11 +562,9 @@ defmodule CommsCore.Conversations.GuestAccess do
         membership = lock_admission_membership!(admission)
         timestamp = now()
         ensure_convertible!(conversation, link, admission, membership, timestamp)
-        expected_email = require_conversion_email!(link, attrs)
-        require_conversion_verification!(link, admission, expected_email, attrs)
 
         authentication =
-          case Accounts.convert_guest_account(attrs, guest_subject, expected_email) do
+          case convert_guest_identity(link, admission, attrs, guest_subject) do
             {:ok, result} -> result
             {:error, reason} -> Repo.rollback(reason)
           end
@@ -559,6 +572,21 @@ defmodule CommsCore.Conversations.GuestAccess do
         admission
         |> GuestAdmission.changeset(%{converted_at: timestamp})
         |> update_or_rollback()
+
+        ephemeral_owner_upgraded =
+          EphemeralRooms.upgrade_converted_owner(
+            ephemeral_room,
+            authentication,
+            timestamp,
+            value(guest_subject, :request_id)
+          )
+
+        EphemeralRooms.handoff_converted_presence(
+          ephemeral_room,
+          admission.session_id,
+          authentication,
+          timestamp
+        )
 
         audit!(
           admission.tenant_id,
@@ -572,7 +600,8 @@ defmodule CommsCore.Conversations.GuestAccess do
 
         %{
           authentication: authentication,
-          conversation: Projector.conversation(conversation)
+          conversation: Projector.conversation(conversation),
+          ephemeral_owner_upgraded: ephemeral_owner_upgraded
         }
       end)
       |> transaction_result()
@@ -583,6 +612,75 @@ defmodule CommsCore.Conversations.GuestAccess do
   end
 
   def convert_account(_attrs, _guest_subject), do: {:error, :forbidden}
+
+  @spec logout_session(
+          map(),
+          (Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), String.t() ->
+             :ok | {:error, term()})
+        ) :: :ok | {:error, term()}
+  def logout_session(guest_subject, call_access_revoker)
+      when is_map(guest_subject) and is_function(call_access_revoker, 4) do
+    admission_id =
+      value(guest_subject, :guest_admission_id) || value(guest_subject, :admission_id)
+
+    conversation_id =
+      value(guest_subject, :guest_conversation_id) ||
+        value(guest_subject, :conversation_id)
+
+    with {:ok, admission_id} <- cast_uuid(admission_id),
+         {:ok, conversation_id} <- cast_uuid(conversation_id),
+         %GuestAdmission{} = snapshot <-
+           admission_snapshot(admission_id, conversation_id, guest_subject) do
+      case Repo.transaction(fn ->
+             _policy = admission_policy!(snapshot.tenant_id)
+             _conversation = lock_expiry_conversation!(snapshot)
+             link = lock_expiry_link!(snapshot)
+             ephemeral_room = EphemeralRooms.lock_conversion_room(link)
+             admission = lock_expiry_admission!(snapshot)
+             membership = lock_admission_membership!(admission)
+             timestamp = now()
+
+             unless admission.revoked_at || admission.converted_at do
+               revoke_locked_admission!(
+                 admission,
+                 membership,
+                 timestamp,
+                 "guest_logout",
+                 call_access_revoker
+               )
+
+               EphemeralRooms.close_logged_out_presence(
+                 ephemeral_room,
+                 admission.guest_user_id,
+                 admission.session_id,
+                 timestamp
+               )
+
+               audit!(
+                 admission.tenant_id,
+                 admission.guest_user_id,
+                 "conversation.guest.logged_out",
+                 "conversation_guest_admission",
+                 admission.id,
+                 %{
+                   conversation_id: admission.conversation_id,
+                   guest_link_id: admission.guest_link_id
+                 },
+                 value(guest_subject, :request_id)
+               )
+             end
+
+             :ok
+           end) do
+        {:ok, :ok} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def logout_session(_guest_subject, _call_access_revoker), do: {:error, :forbidden}
 
   @spec expire_admission(
           Ecto.UUID.t(),
@@ -1258,14 +1356,40 @@ defmodule CommsCore.Conversations.GuestAccess do
 
   defp normalize_email(_email), do: ""
 
-  defp guest_capabilities(tenant_id, conversion_email) do
+  defp convert_guest_identity(
+         %GuestLink{purpose: :ephemeral_room},
+         admission,
+         attrs,
+         guest_subject
+       ) do
+    if Application.get_env(:comms_core, :instant_rooms_enabled, false) do
+      scoped_subject =
+        guest_subject
+        |> Map.put(:guest_authority_purpose, :ephemeral_room)
+        |> Map.put(:guest_admission_id, admission.id)
+        |> Map.put(:guest_conversation_id, admission.conversation_id)
+
+      Accounts.convert_ephemeral_guest_account(attrs, scoped_subject)
+    else
+      {:error, :instant_rooms_unavailable}
+    end
+  end
+
+  defp convert_guest_identity(%GuestLink{} = link, admission, attrs, guest_subject) do
+    expected_email = require_conversion_email!(link, attrs)
+    require_conversion_verification!(link, admission, expected_email, attrs)
+    Accounts.convert_guest_account(attrs, guest_subject, expected_email)
+  end
+
+  defp guest_capabilities(tenant_id, conversion_email, purpose) do
     case Administration.call_policy(tenant_id) do
       {:ok, policy} ->
         {:ok,
          %{
            allow_audio_calls: policy.allow_audio_calls,
            allow_video_calls: policy.allow_video_calls,
-           conversion_enabled: not is_nil(conversion_email),
+           conversion_enabled: purpose == :ephemeral_room or not is_nil(conversion_email),
+           self_service_conversion: purpose == :ephemeral_room,
            email_hint: email_hint(conversion_email)
          }}
 
@@ -1274,8 +1398,8 @@ defmodule CommsCore.Conversations.GuestAccess do
     end
   end
 
-  defp guest_capabilities!(tenant_id, conversion_email) do
-    case guest_capabilities(tenant_id, conversion_email) do
+  defp guest_capabilities!(tenant_id, conversion_email, purpose) do
+    case guest_capabilities(tenant_id, conversion_email, purpose) do
       {:ok, capabilities} -> capabilities
       {:error, reason} -> Repo.rollback(reason)
     end

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 async function openPublicRoute(page: Page, path: string) {
   await page.route("**/api/v1/status", (route) => route.fulfill({ json: { service: "k-comms", version: "0.3.0", status: "operational", capabilities: { bootstrap: false } } }));
-  await page.goto("/app/");
+  await page.goto("/sign-in");
   await page.evaluate((nextPath) => {
     window.history.pushState({}, "", nextPath);
     window.dispatchEvent(new PopStateEvent("popstate"));

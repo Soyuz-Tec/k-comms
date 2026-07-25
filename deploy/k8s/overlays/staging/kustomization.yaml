@@ -12,6 +12,7 @@ resources:
   - migration-job.yaml
   - data-network-policies.yaml
   - ingress.yaml
+  - public-admission-rate-limit-ingress.yaml
 patches:
   - path: configmap-patch.yaml
 images:

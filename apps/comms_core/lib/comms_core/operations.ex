@@ -15,7 +15,17 @@ defmodule CommsCore.Operations do
 
   @runtime_gauges_sql """
   SELECT
-    COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at)))::double precision, 0.0),
+    COALESCE(
+      EXTRACT(
+        EPOCH FROM (
+          NOW() - MIN(scheduled_at) FILTER (
+            WHERE state IN ('available', 'scheduled', 'retryable')
+              AND scheduled_at <= NOW()
+          )
+        )
+      )::double precision,
+      0.0
+    ),
     COUNT(*) FILTER (WHERE state IN ('available', 'scheduled', 'retryable')),
     COUNT(*) FILTER (WHERE state = 'discarded'),
     (SELECT COUNT(*) FROM outbox_events WHERE published_at IS NULL),

@@ -36,7 +36,7 @@ spec:
           command: ["/app/bin/k_comms"]
           args:
             - eval
-            - CommsCore.Release.assert_guest_rollback_compatible!()
+            - CommsCore.Release.assert_communication_rollback_compatible!()
           envFrom:
             - configMapRef:
                 name: k-comms-config

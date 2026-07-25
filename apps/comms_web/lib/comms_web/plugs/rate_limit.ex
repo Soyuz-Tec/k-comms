@@ -11,11 +11,20 @@ defmodule CommsWeb.Plugs.RateLimit do
     if CommsWeb.RateLimiter.allow?(key, limit, window) do
       conn
     else
+      retry_after = max(window, 1)
+
       conn
+      |> put_resp_header("retry-after", Integer.to_string(retry_after))
       |> put_resp_content_type("application/json")
       |> send_resp(
         429,
-        Jason.encode!(%{error: %{code: "rate_limited", detail: "Too many requests"}})
+        Jason.encode!(%{
+          error: %{
+            code: "rate_limited",
+            detail: "Too many requests",
+            retry_after: retry_after
+          }
+        })
       )
       |> halt()
     end

@@ -12,6 +12,14 @@ config :comms_core,
   tenant_invitation_identity_adapter: CommsCore.Accounts,
   notification_availability_notifier: CommsWeb.NotificationAvailabilityNotifier,
   audio_participant_eviction_enforcement_seconds: 660,
+  instant_rooms_enabled: false,
+  instant_room_tenant_slug: nil,
+  instant_room_guest_idle_ttl_seconds: 3_600,
+  instant_room_registered_idle_ttl_seconds: 86_400,
+  instant_room_presence_heartbeat_seconds: 30,
+  instant_room_presence_lease_seconds: 90,
+  instant_room_reconnect_grace_seconds: 90,
+  instant_room_max_participants: 25,
   job_workers: [
     audio_call_expiry: CommsWorkers.AudioCallExpiryWorker,
     audio_participant_eviction: CommsWorkers.AudioParticipantEvictionWorker,
@@ -19,6 +27,8 @@ config :comms_core,
     attachment_abandon_reconciler: CommsWorkers.AttachmentCleanupReconcilerWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     deletion: CommsWorkers.DeletionWorker,
+    ephemeral_room_lifecycle: CommsWorkers.EphemeralRoomLifecycleWorker,
+    ephemeral_room_reconciler: CommsWorkers.EphemeralRoomReconcilerWorker,
     guest_admission_expiry: CommsWorkers.GuestAdmissionExpiryWorker,
     notification_delivery: CommsWorkers.NotificationWorker,
     outbox_publication: CommsWorkers.OutboxWorker,
@@ -38,12 +48,20 @@ config :comms_core, CommsCore.Repo,
 
 config :comms_core, Oban,
   repo: CommsCore.Repo,
-  queues: [default: 10, notifications: 10, webhooks: 10, media: 5, outbox: 10],
+  queues: [
+    default: 10,
+    lifecycle: 10,
+    notifications: 10,
+    webhooks: 10,
+    media: 5,
+    outbox: 10
+  ],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 86_400},
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker}
+       {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker},
+       {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker}
      ]}
   ]
 

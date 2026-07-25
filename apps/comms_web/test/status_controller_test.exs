@@ -2,6 +2,9 @@ defmodule CommsWeb.StatusControllerTest do
   use CommsWeb.ConnCase, async: false
 
   alias CommsIntegrations.Audio.LiveKitReadiness
+  alias CommsCore.Administration.Tenant
+  alias CommsCore.Repo
+  alias CommsTestSupport.Fixtures
 
   test "GET /health/live", %{conn: conn} do
     conn = get(conn, "/health/live")
@@ -21,6 +24,17 @@ defmodule CommsWeb.StatusControllerTest do
   end
 
   test "GET /api/v1/status", %{conn: conn} do
+    account = Fixtures.account_fixture()
+    previous_enabled = Application.get_env(:comms_core, :instant_rooms_enabled)
+    previous_slug = Application.get_env(:comms_core, :instant_room_tenant_slug)
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    on_exit(fn ->
+      restore_env(:instant_rooms_enabled, previous_enabled)
+      restore_env(:instant_room_tenant_slug, previous_slug)
+    end)
+
     conn = get(conn, "/api/v1/status")
 
     assert %{
@@ -28,6 +42,7 @@ defmodule CommsWeb.StatusControllerTest do
              "capabilities" => %{
                "audio_calls" => audio_available,
                "guest_links" => true,
+               "instant_rooms" => true,
                "video_calls" => video_available
              }
            } = json_response(conn, 200)
@@ -42,6 +57,52 @@ defmodule CommsWeb.StatusControllerTest do
     assert get_resp_header(conn, "permissions-policy") == [
              "camera=(self), microphone=(self), geolocation=()"
            ]
+  end
+
+  test "instant rooms capability fails closed unless enabled and configured", %{conn: conn} do
+    account = Fixtures.account_fixture()
+    previous_enabled = Application.get_env(:comms_core, :instant_rooms_enabled)
+    previous_slug = Application.get_env(:comms_core, :instant_room_tenant_slug)
+
+    on_exit(fn ->
+      restore_env(:instant_rooms_enabled, previous_enabled)
+      restore_env(:instant_room_tenant_slug, previous_slug)
+    end)
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, false)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    assert conn
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, "missing-tenant")
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    account.tenant
+    |> Tenant.changeset(%{status: :suspended})
+    |> Repo.update!()
+
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, " ")
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
   end
 
   test "configured but unreachable LiveKit fails call capabilities closed", %{conn: conn} do
@@ -137,4 +198,7 @@ defmodule CommsWeb.StatusControllerTest do
   end
 
   defp eventually(_fun, 0), do: false
+
+  defp restore_env(key, nil), do: Application.delete_env(:comms_core, key)
+  defp restore_env(key, value), do: Application.put_env(:comms_core, key, value)
 end

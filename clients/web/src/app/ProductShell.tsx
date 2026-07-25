@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useNavigate } from "react-router";
 import { Brand } from "../components/Brand";
 import { MemberAreaLinks, MobileBottomNav } from "../components/MobileBottomNav";
 import { initials } from "../lib/format";
@@ -11,6 +11,8 @@ import {
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
+import { beginNewInstantRoomVisit } from "../features/instant-room/idempotency";
+import { clearMemberInstantRoomContinuity } from "../features/instant-room/memberContinuity";
 
 export function ProductShell() {
   const { session } = useSession();
@@ -23,6 +25,7 @@ export function ProductShell() {
 }
 
 function ProductShellContent() {
+  const navigate = useNavigate();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { error, setError, refreshAll } = useWorkspaceData();
@@ -54,6 +57,7 @@ function ProductShellContent() {
   const showOperations = canOperate(session.user.platform_role, session.user.platform_role_expires_at);
   const signOut = () => {
     teardownCall();
+    clearMemberInstantRoomContinuity();
     void logout();
   };
 
@@ -69,6 +73,17 @@ function ProductShellContent() {
           <nav className="product-nav member-product-nav" aria-label="Member areas">
             <MemberAreaLinks />
           </nav>
+          <button
+            className="button primary compact instant-room-launch"
+            type="button"
+            onClick={() => {
+              beginNewInstantRoomVisit();
+              navigate("/");
+            }}
+          >
+            <span aria-hidden="true">＋</span>
+            <span>Start instant room</span>
+          </button>
           <NotificationCenter />
           <div className="account-menu">
             <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>

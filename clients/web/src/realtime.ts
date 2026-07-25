@@ -1,4 +1,4 @@
-import { Socket } from "phoenix";
+import { Presence, Socket } from "phoenix";
 import type { Channel } from "phoenix";
 import type {
   CallRealtimeEvent,
@@ -109,8 +109,8 @@ export interface RealtimeCallbacks {
 export class RealtimeConversation {
   private readonly socket: Socket;
   private readonly channel: Channel;
+  private readonly presence: Presence;
   private stopped = false;
-  private onlineUsers = 0;
   private reconnectRequested = false;
   private readonly deliveredCallEvents = new Set<string>();
 
@@ -132,6 +132,13 @@ export class RealtimeConversation {
       after_sequence: this.afterSequence(),
       client_capabilities: ["message_revisions", "attachment_v2"]
     }));
+    this.presence = new Presence(this.channel);
+    this.presence.onSync(() => {
+      // Phoenix Presence resolves state/diff ordering and per-key metas before
+      // this callback. Counting the final keys avoids drift when one person has
+      // several tabs or a leave and join cross during reconnect.
+      this.callbacks.onPresence(this.presence.list().length);
+    });
 
     this.bindEvents();
   }
@@ -259,16 +266,6 @@ export class RealtimeConversation {
       if (userId && (state === "started" || state === "stopped")) {
         this.callbacks.onTyping(userId, state === "started");
       }
-    });
-    this.channel.on("presence_state", (payload?: unknown) => {
-      this.onlineUsers = recordSize(payload);
-      this.callbacks.onPresence(this.onlineUsers);
-    });
-    this.channel.on("presence_diff", (payload?: unknown) => {
-      const joins = readRecord(payload, "joins");
-      const leaves = readRecord(payload, "leaves");
-      this.onlineUsers = Math.max(0, this.onlineUsers + recordSize(joins) - recordSize(leaves));
-      this.callbacks.onPresence(this.onlineUsers);
     });
   }
 
@@ -435,16 +432,6 @@ function readString(value: unknown, key: string): string | null {
   if (!value || typeof value !== "object") return null;
   const candidate = (value as Record<string, unknown>)[key];
   return typeof candidate === "string" ? candidate : null;
-}
-
-function readRecord(value: unknown, key: string): Record<string, unknown> {
-  if (!value || typeof value !== "object") return {};
-  const candidate = (value as Record<string, unknown>)[key];
-  return candidate && typeof candidate === "object" ? (candidate as Record<string, unknown>) : {};
-}
-
-function recordSize(value: unknown): number {
-  return value && typeof value === "object" ? Object.keys(value).length : 0;
 }
 
 function readReason(value: unknown, fallback: string): string {

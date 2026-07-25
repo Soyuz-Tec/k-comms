@@ -9,6 +9,12 @@ defmodule CommsCore.Accounts.User do
     field(:email, :string)
     field(:password_hash, :string, redact: true)
     field(:account_type, Ecto.Enum, values: [:human, :service, :guest], default: :human)
+
+    field(:access_scope, Ecto.Enum,
+      values: [:workspace, :conversation_only],
+      default: :workspace
+    )
+
     field(:guest_expires_at, :utc_datetime_usec)
 
     field(:role, Ecto.Enum,
@@ -55,6 +61,9 @@ defmodule CommsCore.Accounts.User do
       :status
     ])
     |> check_constraint(:account_type, name: :users_account_type_allowed)
+    |> check_constraint(:access_scope, name: :users_access_scope_allowed)
+    |> check_constraint(:access_scope, name: :users_guest_access_scope_check)
+    |> check_constraint(:access_scope, name: :users_conversation_only_account_type_check)
     |> check_constraint(:guest_expires_at, name: :users_guest_expiry_required)
     |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/)
     |> validate_change(:email, fn :email, email ->
@@ -83,6 +92,7 @@ defmodule CommsCore.Accounts.User do
       :lock_version
     ])
     |> put_change(:account_type, :guest)
+    |> put_change(:access_scope, :conversation_only)
     |> put_change(:role, :member)
     |> put_change(:status, :active)
     |> validate_required([
@@ -97,6 +107,9 @@ defmodule CommsCore.Accounts.User do
     |> validate_length(:display_name, min: 1, max: 120)
     |> unique_constraint([:tenant_id, :external_subject])
     |> check_constraint(:account_type, name: :users_account_type_allowed)
+    |> check_constraint(:access_scope, name: :users_access_scope_allowed)
+    |> check_constraint(:access_scope, name: :users_guest_access_scope_check)
+    |> check_constraint(:access_scope, name: :users_conversation_only_account_type_check)
     |> check_constraint(:guest_expires_at, name: :users_guest_expiry_required)
   end
 
@@ -116,6 +129,7 @@ defmodule CommsCore.Accounts.User do
     ])
     |> update_change(:email, &normalize_email/1)
     |> put_change(:account_type, :human)
+    |> put_change(:access_scope, :workspace)
     |> put_change(:guest_expires_at, nil)
     |> validate_required([
       :external_subject,
@@ -129,6 +143,9 @@ defmodule CommsCore.Accounts.User do
     |> unique_constraint([:tenant_id, :external_subject])
     |> unique_constraint(:email, name: :users_tenant_email_unique)
     |> check_constraint(:account_type, name: :users_account_type_allowed)
+    |> check_constraint(:access_scope, name: :users_access_scope_allowed)
+    |> check_constraint(:access_scope, name: :users_guest_access_scope_check)
+    |> check_constraint(:access_scope, name: :users_conversation_only_account_type_check)
     |> check_constraint(:guest_expires_at, name: :users_guest_expiry_required)
     |> optimistic_lock(:lock_version)
   end
@@ -137,6 +154,52 @@ defmodule CommsCore.Accounts.User do
     value
     |> change()
     |> add_error(:account_type, "must be guest")
+  end
+
+  @doc """
+  Converts a locked instant-room guest into a conversation-only human account.
+
+  This deliberately separate changeset prevents the self-service instant-room
+  path from widening authority to the tenant workspace.
+  """
+  def ephemeral_guest_conversion_changeset(
+        %__MODULE__{account_type: :guest, access_scope: :conversation_only} = value,
+        attrs
+      ) do
+    value
+    |> cast(attrs, [
+      :external_subject,
+      :display_name,
+      :email,
+      :password_hash
+    ])
+    |> update_change(:email, &normalize_email/1)
+    |> put_change(:account_type, :human)
+    |> put_change(:access_scope, :conversation_only)
+    |> put_change(:guest_expires_at, nil)
+    |> validate_required([
+      :external_subject,
+      :display_name,
+      :email,
+      :password_hash
+    ])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+\.[^\s]+$/)
+    |> validate_change(:email, &reserved_identity_email/2)
+    |> validate_length(:display_name, min: 1, max: 120)
+    |> unique_constraint([:tenant_id, :external_subject])
+    |> unique_constraint(:email, name: :users_tenant_email_unique)
+    |> check_constraint(:account_type, name: :users_account_type_allowed)
+    |> check_constraint(:access_scope, name: :users_access_scope_allowed)
+    |> check_constraint(:access_scope, name: :users_guest_access_scope_check)
+    |> check_constraint(:access_scope, name: :users_conversation_only_account_type_check)
+    |> check_constraint(:guest_expires_at, name: :users_guest_expiry_required)
+    |> optimistic_lock(:lock_version)
+  end
+
+  def ephemeral_guest_conversion_changeset(value, _attrs) do
+    value
+    |> change()
+    |> add_error(:access_scope, "must be a conversation-only guest")
   end
 
   @doc false
@@ -164,6 +227,7 @@ defmodule CommsCore.Accounts.User do
       :lock_version
     ])
     |> update_change(:email, &normalize_email/1)
+    |> put_change(:access_scope, :workspace)
     |> validate_required([
       :tenant_id,
       :external_subject,
@@ -180,6 +244,8 @@ defmodule CommsCore.Accounts.User do
     |> unique_constraint([:tenant_id, :external_subject])
     |> unique_constraint(:email, name: :users_tenant_email_unique)
     |> check_constraint(:account_type, name: :users_account_type_allowed)
+    |> check_constraint(:access_scope, name: :users_access_scope_allowed)
+    |> check_constraint(:access_scope, name: :users_conversation_only_account_type_check)
   end
 
   defp normalize_email(value) when is_binary(value),

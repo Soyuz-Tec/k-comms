@@ -6,6 +6,16 @@ defmodule CommsCore.ReleaseTest do
   @database_client "k_comms/one_shot/worker/migrate-pod-a1b2c3"
   @default_settings %{lock_timeout_ms: 5_000, statement_timeout_ms: 300_000}
   @guest_capabilities "guest_identity_v1,guest_admission_expiry_worker_v1"
+  @communication_capabilities Enum.join(
+                                [
+                                  @guest_capabilities,
+                                  "instant_room_lifecycle_v1",
+                                  "instant_room_presence_lease_v1",
+                                  "instant_room_expiry_worker_v1",
+                                  "conversation_only_human_v1"
+                                ],
+                                ","
+                              )
 
   test "migration environment requires one-shot purpose and bounded ordered timeouts" do
     environment = %{
@@ -190,6 +200,138 @@ defmodule CommsCore.ReleaseTest do
                  end
   end
 
+  test "communication rollback environment requires quiescence for every partial target" do
+    compatible = %{
+      "K_COMMS_RUNTIME_PURPOSE" => "one_shot",
+      "K_COMMS_ROLLBACK_TARGET_REVISION" => "sha-communication-compatible",
+      "K_COMMS_ROLLBACK_TARGET_CAPABILITIES" => @communication_capabilities
+    }
+
+    assert {:ok, context} =
+             Release.validate_communication_rollback_environment(&Map.get(compatible, &1))
+
+    assert context.target_revision == "sha-communication-compatible"
+    assert MapSet.member?(context.capabilities, "instant_room_lifecycle_v1")
+    assert MapSet.member?(context.capabilities, "instant_room_presence_lease_v1")
+    assert MapSet.member?(context.capabilities, "instant_room_expiry_worker_v1")
+    assert MapSet.member?(context.capabilities, "conversation_only_human_v1")
+
+    partial =
+      Map.put(
+        compatible,
+        "K_COMMS_ROLLBACK_TARGET_CAPABILITIES",
+        @guest_capabilities
+      )
+
+    assert {:error, :rollback_writes_quiescence_confirmation_required} =
+             Release.validate_communication_rollback_environment(&Map.get(partial, &1))
+
+    assert {:ok, partial_context} =
+             Release.validate_communication_rollback_environment(
+               &(partial
+                 |> Map.put("K_COMMS_ROLLBACK_WRITES_QUIESCED", "true")
+                 |> Map.get(&1))
+             )
+
+    refute MapSet.member?(
+             partial_context.capabilities,
+             "instant_room_lifecycle_v1"
+           )
+  end
+
+  test "communication rollback hazards are evaluated per target capability" do
+    hazards = %{
+      guest_users: 2,
+      active_guest_expiry_jobs: 3,
+      ephemeral_rooms: 4,
+      ephemeral_join_receipts: 9,
+      ephemeral_presence_leases: 5,
+      active_ephemeral_room_lifecycle_jobs: 6,
+      active_ephemeral_room_reconciler_jobs: 7,
+      conversation_only_humans: 8
+    }
+
+    compatible = %{
+      target_revision: "sha-compatible",
+      capabilities: @communication_capabilities |> String.split(",") |> MapSet.new()
+    }
+
+    assert ^hazards =
+             Release.assert_communication_rollback_hazards!(
+               hazards,
+               compatible
+             )
+
+    clean_hazards = Map.new(hazards, fn {key, _value} -> {key, 0} end)
+    legacy = %{target_revision: "sha-legacy", capabilities: MapSet.new()}
+
+    assert ^clean_hazards =
+             Release.assert_communication_rollback_hazards!(
+               clean_hazards,
+               legacy
+             )
+
+    assert_raise RuntimeError,
+                 ~r/target sha-legacy lacks .*instant_room_lifecycle_v1.*ephemeral_rooms=1/,
+                 fn ->
+                   Release.assert_communication_rollback_hazards!(
+                     %{clean_hazards | ephemeral_rooms: 1},
+                     legacy
+                   )
+                 end
+
+    assert_raise RuntimeError,
+                 ~r/instant_room_lifecycle_v1.*ephemeral_join_receipts=1/,
+                 fn ->
+                   Release.assert_communication_rollback_hazards!(
+                     %{clean_hazards | ephemeral_join_receipts: 1},
+                     legacy
+                   )
+                 end
+
+    assert_raise RuntimeError,
+                 ~r/instant_room_presence_lease_v1.*ephemeral_presence_leases=1/,
+                 fn ->
+                   Release.assert_communication_rollback_hazards!(
+                     %{clean_hazards | ephemeral_presence_leases: 1},
+                     legacy
+                   )
+                 end
+
+    assert_raise RuntimeError,
+                 ~r/instant_room_expiry_worker_v1.*active_ephemeral_room_lifecycle_jobs=1.*active_ephemeral_room_reconciler_jobs=2/,
+                 fn ->
+                   Release.assert_communication_rollback_hazards!(
+                     %{
+                       clean_hazards
+                       | active_ephemeral_room_lifecycle_jobs: 1,
+                         active_ephemeral_room_reconciler_jobs: 2
+                     },
+                     legacy
+                   )
+                 end
+
+    assert_raise RuntimeError,
+                 ~r/conversation_only_human_v1.*conversation_only_humans=1/,
+                 fn ->
+                   Release.assert_communication_rollback_hazards!(
+                     %{clean_hazards | conversation_only_humans: 1},
+                     legacy
+                   )
+                 end
+
+    guest_capable = %{
+      target_revision: "sha-guest-only",
+      capabilities: @guest_capabilities |> String.split(",") |> MapSet.new()
+    }
+
+    assert ^clean_hazards =
+             Release.assert_communication_rollback_hazards!(
+               clean_hazards,
+               guest_capable
+             )
+  end
+
   test "release schema rollback is unconditionally refused before database access" do
     for version <- [202_607_240_001_90, 202_607_240_001_80, 1] do
       assert_raise RuntimeError,
@@ -209,6 +351,10 @@ defmodule CommsCore.ReleaseTest do
     assert_raise RuntimeError,
                  "guest rollback compatibility check refused: one_shot_runtime_required",
                  fn -> Release.assert_guest_rollback_compatible!() end
+
+    assert_raise RuntimeError,
+                 "communication rollback compatibility check refused: one_shot_runtime_required",
+                 fn -> Release.assert_communication_rollback_compatible!() end
   end
 
   test "each runtime boot gets a bounded unique database application name" do

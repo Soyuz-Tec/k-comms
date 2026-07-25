@@ -4,6 +4,11 @@ defmodule CommsWeb.ConversationChannel do
   alias CommsCore.{Conversations, Messaging}
   alias CommsWeb.Presenter
 
+  @message_limit 60
+  @message_window_seconds 60
+  @typing_limit 30
+  @typing_window_seconds 10
+
   @message_events [
     "message.created.v1",
     "message.updated.v1",
@@ -46,13 +51,14 @@ defmodule CommsWeb.ConversationChannel do
              after_sequence: after_sequence,
              limit: 501,
              probe_more: true
-           ) do
+           ),
+         {:ok, socket} <- open_ephemeral_presence(socket, conversation_id) do
       {messages, has_more, next_after_sequence} = replay_page(replay_messages, after_sequence)
 
       socket =
         socket
         |> assign(:conversation_id, conversation_id)
-        |> schedule_guest_expiry()
+        |> schedule_standard_guest_expiry()
 
       send(self(), :after_join)
 
@@ -71,22 +77,37 @@ defmodule CommsWeb.ConversationChannel do
   def handle_info(:after_join, socket) do
     case authorize_read(socket) do
       :ok ->
-        {:ok, _} =
-          CommsWeb.Presence.track(socket, socket.assigns.user_id, %{
-            device_id: socket.assigns.device_id,
-            online_at: System.system_time(:second)
-          })
+        case CommsWeb.Presence.track(socket, socket.assigns.user_id, %{
+               account_type: socket.assigns[:account_type],
+               online_at: System.system_time(:second)
+             }) do
+          {:ok, _ref} ->
+            push(socket, "presence_state", CommsWeb.Presence.list(socket))
+            {:noreply, schedule_ephemeral_heartbeat(socket)}
 
-        push(socket, "presence_state", CommsWeb.Presence.list(socket))
-        {:noreply, socket}
+          {:error, _reason} ->
+            {:stop, :unauthorized, socket}
+        end
 
       {:error, _reason} ->
         {:stop, :unauthorized, socket}
     end
   end
 
-  def handle_info(:guest_access_expired, socket),
-    do: {:stop, :unauthorized, socket}
+  def handle_info(:guest_access_expired, socket) do
+    _reauthorized = authorize_read(socket)
+    {:stop, :unauthorized, socket}
+  end
+
+  def handle_info(:ephemeral_presence_heartbeat, socket) do
+    with :ok <- authorize_read(socket),
+         {:ok, _result} <-
+           Conversations.heartbeat_ephemeral_presence(ephemeral_presence_attrs(socket)) do
+      {:noreply, schedule_ephemeral_heartbeat(socket)}
+    else
+      _ -> {:stop, :unauthorized, socket}
+    end
+  end
 
   @impl true
   def handle_in(
@@ -113,7 +134,8 @@ defmodule CommsWeb.ConversationChannel do
         sender_device_id: socket.assigns.device_id
       })
 
-    with :ok <- authorize_send_message(socket),
+    with :ok <- allow_channel_action(socket, :message),
+         :ok <- authorize_send_message(socket),
          {:ok, message, status} <-
            Messaging.accept_message_with_status(attrs, subject(socket)) do
       event = Presenter.message(message)
@@ -131,6 +153,7 @@ defmodule CommsWeb.ConversationChannel do
 
       {:reply, {:ok, event}, socket}
     else
+      {:error, :rate_limited} -> rate_limited(socket)
       {:error, :forbidden} -> stop_unauthorized(socket)
       {:error, reason} -> {:reply, {:error, %{reason: inspect(reason)}}, socket}
     end
@@ -154,14 +177,23 @@ defmodule CommsWeb.ConversationChannel do
   end
 
   def handle_in(event, _payload, socket) when event in ["typing.start", "typing.stop"] do
-    case authorize_read(socket) do
-      :ok ->
-        broadcast_from!(socket, event, %{user_id: socket.assigns.user_id})
-        {:noreply, socket}
+    with :ok <- allow_channel_action(socket, :typing),
+         :ok <- authorize_read(socket) do
+      broadcast_from!(socket, event, %{user_id: socket.assigns.user_id})
+      {:noreply, socket}
+    else
+      {:error, :rate_limited} ->
+        rate_limited(socket)
 
       {:error, _reason} ->
         stop_unauthorized(socket)
     end
+  end
+
+  @impl true
+  def terminate(_reason, socket) do
+    close_ephemeral_presence(socket)
+    :ok
   end
 
   @impl true
@@ -227,10 +259,13 @@ defmodule CommsWeb.ConversationChannel do
   defp invalid_command(socket), do: {:reply, {:error, %{reason: "invalid_command"}}, socket}
 
   defp handle_typing_command(state, _payload, socket) do
-    case authorize_read(socket) do
-      :ok ->
-        broadcast_from!(socket, "typing.v1", %{user_id: socket.assigns.user_id, state: state})
-        {:noreply, socket}
+    with :ok <- allow_channel_action(socket, :typing),
+         :ok <- authorize_read(socket) do
+      broadcast_from!(socket, "typing.v1", %{user_id: socket.assigns.user_id, state: state})
+      {:noreply, socket}
+    else
+      {:error, :rate_limited} ->
+        rate_limited(socket)
 
       {:error, _reason} ->
         stop_unauthorized(socket)
@@ -258,6 +293,128 @@ defmodule CommsWeb.ConversationChannel do
     {:stop, :unauthorized, {:error, %{reason: "forbidden"}}, socket}
   end
 
+  defp rate_limited(socket),
+    do: {:reply, {:error, %{reason: "rate_limited"}}, socket}
+
+  defp allow_channel_action(socket, action) do
+    {limit, window} =
+      case action do
+        :message -> {@message_limit, @message_window_seconds}
+        :typing -> {@typing_limit, @typing_window_seconds}
+      end
+
+    key = {
+      :conversation_channel,
+      action,
+      socket.assigns[:session_id] || socket.assigns[:user_id],
+      socket.assigns[:conversation_id]
+    }
+
+    with true <- CommsWeb.RateLimiter.allow?(key, limit, window),
+         :ok <- allow_distributed_channel_action(socket, action) do
+      :ok
+    else
+      _ -> {:error, :rate_limited}
+    end
+  end
+
+  defp allow_distributed_channel_action(
+         %{assigns: %{ephemeral_room_id: room_id}} = socket,
+         :message
+       )
+       when is_binary(room_id) do
+    case CommsWeb.InstantRoomMessageRateLimit.consume(
+           socket.assigns[:conversation_id],
+           subject(socket)
+         ) do
+      :ok -> :ok
+      {:error, :rate_limited, _retry_after} -> {:error, :rate_limited}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp allow_distributed_channel_action(_socket, _action), do: :ok
+
+  defp open_ephemeral_presence(socket, conversation_id) do
+    case Conversations.ephemeral_room_for_conversation(conversation_id, subject(socket)) do
+      {:ok, nil} ->
+        {:ok, assign(socket, :ephemeral_room_id, nil)}
+
+      {:ok, room} ->
+        socket =
+          socket
+          |> assign(:conversation_id, conversation_id)
+          |> assign(:ephemeral_room_id, room.id)
+          |> assign(:ephemeral_connection_id, ephemeral_connection_id())
+
+        case Conversations.open_ephemeral_presence(ephemeral_presence_attrs(socket)) do
+          {:ok, _result} -> {:ok, socket}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp schedule_ephemeral_heartbeat(%{assigns: %{ephemeral_room_id: room_id}} = socket)
+       when is_binary(room_id) do
+    seconds =
+      Application.get_env(:comms_core, :instant_room_presence_heartbeat_seconds, 30)
+      |> max(1)
+      |> min(60)
+
+    Process.send_after(self(), :ephemeral_presence_heartbeat, seconds * 1_000)
+    socket
+  end
+
+  defp schedule_ephemeral_heartbeat(socket), do: socket
+
+  defp ephemeral_connection_id do
+    32
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp schedule_standard_guest_expiry(socket) do
+    case {
+      socket.assigns[:ephemeral_room_id],
+      socket.assigns[:account_type],
+      socket.assigns[:guest_expires_at]
+    } do
+      {nil, account_type, %DateTime{} = expires_at}
+      when account_type in [:guest, "guest"] ->
+        delay_ms =
+          expires_at
+          |> DateTime.diff(DateTime.utc_now(), :millisecond)
+          |> max(0)
+
+        Process.send_after(self(), :guest_access_expired, delay_ms)
+        socket
+
+      _ ->
+        socket
+    end
+  end
+
+  defp close_ephemeral_presence(%{assigns: %{ephemeral_room_id: room_id}} = socket)
+       when is_binary(room_id) do
+    Conversations.close_ephemeral_presence(ephemeral_presence_attrs(socket))
+  end
+
+  defp close_ephemeral_presence(_socket), do: :ok
+
+  defp ephemeral_presence_attrs(socket) do
+    %{
+      conversation_id: socket.assigns[:conversation_id],
+      connection_id: socket.assigns[:ephemeral_connection_id],
+      tenant_id: socket.assigns[:tenant_id],
+      user_id: socket.assigns[:user_id],
+      device_id: socket.assigns[:device_id],
+      session_id: socket.assigns[:session_id]
+    }
+  end
+
   defp subject(socket) do
     Map.take(socket.assigns, [
       :tenant_id,
@@ -277,8 +434,7 @@ defmodule CommsWeb.ConversationChannel do
     case socket.assigns[:account_type] do
       account_type when account_type in [:guest, "guest"] ->
         with true <- socket.assigns[:guest_conversation_id] == conversation_id,
-             %DateTime{} = expires_at <- socket.assigns[:guest_expires_at],
-             :gt <- DateTime.compare(expires_at, DateTime.utc_now()) do
+             :ok <- guest_claim_deadline_allowed(socket) do
           :ok
         else
           _ -> {:error, :forbidden}
@@ -286,6 +442,22 @@ defmodule CommsWeb.ConversationChannel do
 
       _ ->
         :ok
+    end
+  end
+
+  defp guest_claim_deadline_allowed(%{assigns: %{ephemeral_room_id: room_id}})
+       when is_binary(room_id),
+       do: :ok
+
+  defp guest_claim_deadline_allowed(socket) do
+    case socket.assigns[:guest_expires_at] do
+      %DateTime{} = expires_at ->
+        if DateTime.compare(expires_at, DateTime.utc_now()) == :gt,
+          do: :ok,
+          else: {:error, :forbidden}
+
+      _ ->
+        {:error, :forbidden}
     end
   end
 
@@ -362,22 +534,6 @@ defmodule CommsWeb.ConversationChannel do
   defp event_message_id(payload) do
     Map.get(payload, :message_id) || Map.get(payload, "message_id") ||
       Map.get(payload, :id) || Map.get(payload, "id")
-  end
-
-  defp schedule_guest_expiry(socket) do
-    case {socket.assigns[:account_type], socket.assigns[:guest_expires_at]} do
-      {account_type, %DateTime{} = expires_at} when account_type in [:guest, "guest"] ->
-        delay_ms =
-          expires_at
-          |> DateTime.diff(DateTime.utc_now(), :millisecond)
-          |> max(0)
-
-        Process.send_after(self(), :guest_access_expired, delay_ms)
-        socket
-
-      _ ->
-        socket
-    end
   end
 
   defp integer(value, _) when is_integer(value), do: value

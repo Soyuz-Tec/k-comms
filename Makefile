@@ -61,6 +61,7 @@ docs-check:
 	$(PYTHON) scripts/validate_docs.py
 
 qualification-script-tests:
+	$(PYTHON) scripts/test_instant_room_deployment_contracts.py
 	$(PYTHON) scripts/test_validate_local_release.py
 	$(PYTHON) scripts/validate_local_release.py
 	$(PYTHON) scripts/test_validate_staging_secrets.py

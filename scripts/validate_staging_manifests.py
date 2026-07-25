@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Validate staging-only Kubernetes capacity contracts."""
+"""Validate staging capacity, migration, and public-ingress contracts."""
 
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import re
 import stat
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import yaml
-
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGING_MINIO_MANIFEST = Path(
@@ -20,8 +21,12 @@ STAGING_MINIO_MANIFEST = Path(
 STAGING_MIGRATION_MANIFEST = Path(
     "deploy/k8s/overlays/staging/migration-job.yaml"
 )
+STAGING_CONFIG_PATCH = Path(
+    "deploy/k8s/overlays/staging/configmap-patch.yaml"
+)
 MIN_MINIO_TMP_BYTES = 2 * 1024**3
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
+STAGING_INSTANT_ROOM_TENANT = "k-comms-staging"
 _BINARY_QUANTITY = re.compile(r"^(?P<value>[1-9][0-9]*)(?P<unit>Ki|Mi|Gi|Ti)?$")
 _BINARY_FACTORS = {
     None: 1,
@@ -57,6 +62,8 @@ def _named_items(value: Any, name: str) -> list[dict[str, Any]]:
 
 def validate_documents(documents: Sequence[Any]) -> list[str]:
     errors: list[str] = []
+    errors.extend(validate_instant_room_gate(documents))
+
     migration_jobs = [
         document
         for document in documents
@@ -119,6 +126,203 @@ def validate_documents(documents: Sequence[Any]) -> list[str]:
         errors.append(
             "StatefulSet minio tmp emptyDir sizeLimit must be at least 2Gi "
             "to cover the 1Gi tenant attachment ceiling plus temporary overhead"
+        )
+    return errors
+
+
+def validate_instant_room_gate(documents: Sequence[Any]) -> list[str]:
+    """Validate the portable-off and provider-composed staging contracts."""
+
+    errors: list[str] = []
+    config_maps = [
+        document
+        for document in documents
+        if isinstance(document, dict)
+        and document.get("kind") == "ConfigMap"
+        and document.get("metadata", {}).get("name") == "k-comms-config"
+    ]
+    if len(config_maps) != 1:
+        return [
+            "staging bundle must contain exactly one ConfigMap named k-comms-config"
+        ]
+
+    data = config_maps[0].get("data")
+    if not isinstance(data, dict):
+        return ["ConfigMap k-comms-config must define data"]
+
+    enabled = str(data.get("INSTANT_ROOMS_ENABLED", "")).strip().lower()
+    tenant_slug = str(data.get("INSTANT_ROOM_TENANT_SLUG", "")).strip()
+    raw_trusted_cidrs = str(data.get("TRUSTED_PROXY_CIDRS", "")).strip()
+
+    if enabled == "false":
+        if tenant_slug:
+            errors.append(
+                "ConfigMap k-comms-config: INSTANT_ROOM_TENANT_SLUG must be "
+                "empty while portable staging instant rooms are disabled"
+            )
+        if raw_trusted_cidrs:
+            errors.append(
+                "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS must be empty "
+                "in the fail-closed portable staging overlay"
+            )
+        return errors
+
+    if enabled != "true":
+        return [
+            (
+                "ConfigMap k-comms-config: INSTANT_ROOMS_ENABLED must be "
+                "explicitly true or false"
+            )
+        ]
+
+    if tenant_slug != STAGING_INSTANT_ROOM_TENANT:
+        errors.append(
+            "ConfigMap k-comms-config: enabled staging instant rooms must use "
+            f"the provisioned tenant {STAGING_INSTANT_ROOM_TENANT}"
+        )
+
+    trusted_cidrs, cidr_errors = _trusted_proxy_networks(raw_trusted_cidrs)
+    errors.extend(cidr_errors)
+    errors.extend(_validate_staging_edge_ingress(documents, trusted_cidrs))
+    return errors
+
+
+def _trusted_proxy_networks(
+    raw_value: str,
+) -> tuple[set[ipaddress._BaseNetwork], list[str]]:
+    raw_cidrs = [item.strip() for item in raw_value.split(",") if item.strip()]
+    if not raw_cidrs:
+        return set(), [
+            (
+                "ConfigMap k-comms-config: enabled staging instant rooms "
+                "require provider-specific TRUSTED_PROXY_CIDRS"
+            )
+        ]
+
+    forbidden_defaults = {
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+        ipaddress.ip_network("fc00::/7"),
+    }
+    networks: set[ipaddress._BaseNetwork] = set()
+    errors: list[str] = []
+    unsafe = False
+
+    for raw_cidr in raw_cidrs:
+        try:
+            network = ipaddress.ip_network(raw_cidr, strict=True)
+        except ValueError:
+            errors.append(
+                "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS contains an "
+                "invalid or placeholder network"
+            )
+            continue
+
+        if (
+            network.prefixlen == 0
+            or network.is_loopback
+            or network.is_link_local
+            or network.is_multicast
+            or any(
+                network == default or network.supernet_of(default)
+                for default in forbidden_defaults
+                if network.version == default.version
+            )
+        ):
+            unsafe = True
+        networks.add(network)
+
+    if unsafe:
+        errors.append(
+            "ConfigMap k-comms-config: TRUSTED_PROXY_CIDRS must use exact "
+            "provider ingress ranges, not generic or unsafe networks"
+        )
+    return networks, errors
+
+
+def _validate_staging_edge_ingress(
+    documents: Sequence[Any],
+    trusted_cidrs: set[ipaddress._BaseNetwork],
+) -> list[str]:
+    errors: list[str] = []
+    policies = [
+        document
+        for document in documents
+        if isinstance(document, dict)
+        and document.get("kind") == "NetworkPolicy"
+        and document.get("metadata", {}).get("name") == "k-comms-edge-ingress"
+    ]
+    if len(policies) != 1:
+        return [
+            (
+                "enabled staging instant rooms require exactly one "
+                "NetworkPolicy named k-comms-edge-ingress"
+            )
+        ]
+
+    ingress_rules = policies[0].get("spec", {}).get("ingress")
+    if not isinstance(ingress_rules, list) or not ingress_rules:
+        return [
+            (
+                "NetworkPolicy k-comms-edge-ingress: provider ingress sources "
+                "must be explicit when staging instant rooms are enabled"
+            )
+        ]
+
+    policy_cidrs: set[ipaddress._BaseNetwork] = set()
+    invalid_source = False
+    invalid_ports = False
+    for rule in ingress_rules:
+        if not isinstance(rule, dict):
+            invalid_source = True
+            invalid_ports = True
+            continue
+
+        ports = rule.get("ports")
+        if (
+            not isinstance(ports, list)
+            or len(ports) != 1
+            or not isinstance(ports[0], dict)
+            or ports[0].get("protocol") != "TCP"
+            or ports[0].get("port") != 4000
+            or set(ports[0]) != {"protocol", "port"}
+        ):
+            invalid_ports = True
+
+        sources = rule.get("from")
+        if not isinstance(sources, list) or not sources:
+            invalid_source = True
+            continue
+        for source in sources:
+            if not isinstance(source, dict) or set(source) != {"ipBlock"}:
+                invalid_source = True
+                continue
+            ip_block = source.get("ipBlock")
+            if not isinstance(ip_block, dict) or set(ip_block) != {"cidr"}:
+                invalid_source = True
+                continue
+            try:
+                policy_cidrs.add(
+                    ipaddress.ip_network(ip_block.get("cidr"), strict=True)
+                )
+            except (TypeError, ValueError):
+                invalid_source = True
+
+    if invalid_source:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: every source must be an "
+            "explicit valid ipBlock CIDR"
+        )
+    if invalid_ports:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: every ingress rule must expose "
+            "only TCP port 4000"
+        )
+    if policy_cidrs != trusted_cidrs:
+        errors.append(
+            "NetworkPolicy k-comms-edge-ingress: source CIDRs must exactly "
+            "match TRUSTED_PROXY_CIDRS"
         )
     return errors
 
@@ -221,6 +425,7 @@ def validate(path: Path | None = None) -> list[str]:
         [path]
         if path is not None
         else [
+            ROOT / STAGING_CONFIG_PATCH,
             ROOT / STAGING_MINIO_MANIFEST,
             ROOT / STAGING_MIGRATION_MANIFEST,
         ]
@@ -235,7 +440,10 @@ def validate(path: Path | None = None) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate the staging MinIO temporary-storage contract."
+        description=(
+            "Validate staging capacity, migration, and instant-room ingress "
+            "contracts."
+        )
     )
     parser.add_argument(
         "manifest",
@@ -258,7 +466,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("Staging manifest capacity and migration contracts are valid.")
+    print(
+        "Staging capacity, migration, and instant-room ingress contracts are valid."
+    )
     return 0
 
 

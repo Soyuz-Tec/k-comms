@@ -39,6 +39,7 @@ defmodule CommsWeb.Presenter do
       display_name: user.display_name,
       email: if(user.account_type == :guest, do: nil, else: user.email),
       account_type: user.account_type,
+      access_scope: user.access_scope,
       role: user.role,
       status: user.status,
       version: user.version
@@ -71,6 +72,7 @@ defmodule CommsWeb.Presenter do
       tenant_id: user.tenant_id,
       display_name: user.display_name,
       account_type: user.account_type,
+      access_scope: user.access_scope,
       role: user.role,
       status: user.status,
       guest_expires_at: user.guest_expires_at
@@ -266,8 +268,29 @@ defmodule CommsWeb.Presenter do
     }
   end
 
+  def instant_room(room) when is_map(room) do
+    room
+    |> Map.take([
+      :id,
+      :conversation_id,
+      :owner_user_id,
+      :owner_kind,
+      :status,
+      :participant_limit,
+      :idle_since,
+      :expires_at,
+      :inserted_at,
+      :updated_at
+    ])
+  end
+
+  def instant_room_preview(preview) when is_map(preview) do
+    preview
+    |> Map.take([:room_title, :status, :expires_at, :participant_limit])
+  end
+
   def guest_capabilities(capabilities) when is_map(capabilities) do
-    %{
+    presented = %{
       allow_audio_calls:
         Map.get(
           capabilities,
@@ -293,6 +316,21 @@ defmodule CommsWeb.Presenter do
           Map.get(capabilities, "email_hint")
         )
     }
+
+    if Map.has_key?(capabilities, :self_service_conversion) or
+         Map.has_key?(capabilities, "self_service_conversion") do
+      Map.put(
+        presented,
+        :self_service_conversion,
+        Map.get(
+          capabilities,
+          :self_service_conversion,
+          Map.get(capabilities, "self_service_conversion", false)
+        )
+      )
+    else
+      presented
+    end
   end
 
   def guest_capabilities(capabilities) when is_list(capabilities) do

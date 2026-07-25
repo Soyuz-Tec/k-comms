@@ -7,6 +7,7 @@ defmodule CommsCore.Conversations.GuestLink do
     field(:tenant_id, Ecto.UUID)
     belongs_to(:conversation, CommsCore.Conversations.Conversation)
     field(:created_by_user_id, Ecto.UUID)
+    field(:purpose, Ecto.Enum, values: [:standard, :ephemeral_room], default: :standard)
     field(:token_digest, :binary, redact: true)
     field(:conversion_email, :string, redact: true)
     field(:conversion_verification_digest, :binary, redact: true)
@@ -24,6 +25,7 @@ defmodule CommsCore.Conversations.GuestLink do
       :tenant_id,
       :conversation_id,
       :created_by_user_id,
+      :purpose,
       :token_digest,
       :conversion_email,
       :conversion_verification_digest,
@@ -38,6 +40,7 @@ defmodule CommsCore.Conversations.GuestLink do
       :tenant_id,
       :conversation_id,
       :created_by_user_id,
+      :purpose,
       :token_digest,
       :expires_at,
       :max_uses,
@@ -68,6 +71,7 @@ defmodule CommsCore.Conversations.GuestLink do
       name: :conversation_guest_links_conversion_verification_digest_check
     )
     |> check_constraint(:expires_at, name: :conversation_guest_links_expiry_check)
+    |> check_constraint(:purpose, name: :conversation_guest_links_purpose_check)
   end
 
   defp normalize_email(value) when is_binary(value),

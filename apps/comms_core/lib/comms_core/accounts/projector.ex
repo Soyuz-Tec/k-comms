@@ -31,6 +31,7 @@ defmodule CommsCore.Accounts.Projector do
       display_name: user.display_name,
       email: if(user.account_type in [:service, :guest], do: nil, else: user.email),
       account_type: user.account_type,
+      access_scope: user.access_scope,
       guest_expires_at: user.guest_expires_at,
       role: user.role,
       status: user.status,

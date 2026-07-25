@@ -88,6 +88,12 @@ export interface GuestCapabilities {
    * link and still requires the separately delivered one-time code.
    */
   conversion_enabled?: boolean;
+  /**
+   * Instant-room guests can upgrade the identity already in the room without
+   * a host-issued verifier. This is intentionally separate from the stricter
+   * pre-authorized conversion used by ordinary guest invitations.
+   */
+  self_service_conversion?: boolean;
   /** Masked display hint only; the guest must enter the full authorized email. */
   email_hint?: string | null;
 }
@@ -106,6 +112,52 @@ export interface GuestSession extends Session {
     guest_link_id: string;
     expires_at: string;
   };
+  instant_room?: InstantRoom;
+  /** The exact public URL returned by the server. Never reconstructed client-side. */
+  share_url?: string;
+}
+
+export type InstantRoomOwnerKind = "guest" | "registered";
+export type InstantRoomStatus = "active" | "idle" | "expired" | "revoked";
+
+export interface InstantRoom {
+  id: string;
+  conversation_id: string;
+  owner_user_id: string;
+  status: InstantRoomStatus;
+  owner_kind: InstantRoomOwnerKind;
+  participant_limit: number;
+  idle_since: string | null;
+  expires_at: string | null;
+  inserted_at: string;
+  updated_at: string;
+}
+
+export interface InstantRoomPreview {
+  room_title: string;
+  status: InstantRoomStatus;
+  expires_at: string | null;
+  participant_limit: number;
+}
+
+export interface InstantRoomResult {
+  room: InstantRoom;
+  conversation: Conversation;
+  /** The exact public URL returned by the server. */
+  share_url?: string;
+  /** Present only when an anonymous visitor was admitted as the room creator. */
+  guest_session?: GuestSession;
+}
+
+export interface SocketHandoff {
+  ticket: string;
+  expires_in: number;
+}
+
+export interface GuestAccountConversionResult {
+  session: Session;
+  conversation: Conversation;
+  socket_handoff?: SocketHandoff;
 }
 
 export interface Conversation {

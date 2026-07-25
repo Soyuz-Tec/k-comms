@@ -42,6 +42,14 @@ parse_bounded_integer = fn value, environment_name, allowed_range ->
   end
 end
 
+parse_boolean = fn value, environment_name ->
+  case value |> to_string() |> String.trim() |> String.downcase() do
+    "true" -> true
+    "false" -> false
+    _ -> raise "#{environment_name} must be true or false"
+  end
+end
+
 if config_env() == :prod do
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
@@ -49,6 +57,92 @@ if config_env() == :prod do
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
   local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
+
+  instant_rooms_enabled? =
+    parse_boolean.(
+      System.get_env("INSTANT_ROOMS_ENABLED", "false"),
+      "INSTANT_ROOMS_ENABLED"
+    )
+
+  instant_room_tenant_slug =
+    case System.get_env("INSTANT_ROOM_TENANT_SLUG") do
+      nil -> nil
+      value -> String.trim(value)
+    end
+
+  instant_room_guest_idle_ttl_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS", "3600"),
+      "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS",
+      60..3_600
+    )
+
+  instant_room_registered_idle_ttl_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS", "86400"),
+      "INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS",
+      60..86_400
+    )
+
+  instant_room_presence_heartbeat_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS", "30"),
+      "INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS",
+      1..60
+    )
+
+  instant_room_presence_lease_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_PRESENCE_LEASE_SECONDS", "90"),
+      "INSTANT_ROOM_PRESENCE_LEASE_SECONDS",
+      3..300
+    )
+
+  instant_room_reconnect_grace_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_RECONNECT_GRACE_SECONDS", "90"),
+      "INSTANT_ROOM_RECONNECT_GRACE_SECONDS",
+      3..300
+    )
+
+  instant_room_max_participants =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_MAX_PARTICIPANTS", "25"),
+      "INSTANT_ROOM_MAX_PARTICIPANTS",
+      2..25
+    )
+
+  if instant_room_presence_lease_seconds < instant_room_presence_heartbeat_seconds * 3 do
+    raise "INSTANT_ROOM_PRESENCE_LEASE_SECONDS must be at least three times " <>
+            "INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS"
+  end
+
+  if instant_room_reconnect_grace_seconds < instant_room_presence_lease_seconds do
+    raise "INSTANT_ROOM_RECONNECT_GRACE_SECONDS must be greater than or equal to " <>
+            "INSTANT_ROOM_PRESENCE_LEASE_SECONDS"
+  end
+
+  if instant_rooms_enabled? do
+    unless is_binary(instant_room_tenant_slug) and
+             byte_size(instant_room_tenant_slug) in 2..80 and
+             Regex.match?(
+               ~r/^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+               instant_room_tenant_slug
+             ) do
+      raise "INSTANT_ROOM_TENANT_SLUG must be a configured lowercase tenant slug " <>
+              "when instant rooms are enabled"
+    end
+
+    unless local_release? or
+             {instant_room_guest_idle_ttl_seconds, instant_room_registered_idle_ttl_seconds,
+              instant_room_presence_heartbeat_seconds, instant_room_presence_lease_seconds,
+              instant_room_reconnect_grace_seconds, instant_room_max_participants} ==
+               {3_600, 86_400, 30, 90, 90, 25} do
+      raise "production instant-room lifecycle values must be exactly " <>
+              "guest_idle=3600, registered_idle=86400, heartbeat=30, lease=90, " <>
+              "reconnect_grace=90, max_participants=25"
+    end
+  end
 
   audio_provider_mode =
     System.get_env("AUDIO_PROVIDER_MODE", "disabled") |> String.trim() |> String.downcase()
@@ -270,6 +364,14 @@ if config_env() == :prod do
     audio_participant_eviction_enforcement_seconds:
       audio_participant_eviction_enforcement_seconds,
     cluster_topologies: topologies,
+    instant_rooms_enabled: instant_rooms_enabled?,
+    instant_room_tenant_slug: instant_room_tenant_slug,
+    instant_room_guest_idle_ttl_seconds: instant_room_guest_idle_ttl_seconds,
+    instant_room_registered_idle_ttl_seconds: instant_room_registered_idle_ttl_seconds,
+    instant_room_presence_heartbeat_seconds: instant_room_presence_heartbeat_seconds,
+    instant_room_presence_lease_seconds: instant_room_presence_lease_seconds,
+    instant_room_reconnect_grace_seconds: instant_room_reconnect_grace_seconds,
+    instant_room_max_participants: instant_room_max_participants,
     session_ttl_seconds: String.to_integer(System.get_env("SESSION_TTL_SECONDS", "2592000")),
     session_absolute_ttl_seconds:
       String.to_integer(System.get_env("SESSION_ABSOLUTE_TTL_SECONDS", "2592000")),
@@ -332,7 +434,14 @@ if config_env() == :prod do
     queues:
       if(role == "edge",
         do: false,
-        else: [default: 20, notifications: 20, webhooks: 20, media: 10, outbox: 20]
+        else: [
+          default: 20,
+          lifecycle: 20,
+          notifications: 20,
+          webhooks: 20,
+          media: 10,
+          outbox: 20
+        ]
       )
 
   trusted_proxy_cidrs =

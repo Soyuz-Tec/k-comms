@@ -1,23 +1,28 @@
-# Guest rollback preflight
+# Communication rollback preflight
 
 This one-shot operation is the mandatory compatibility gate before applying an
 older K-Comms application bundle. It runs from the **currently deployed image**
 after edge and worker writers have been quiesced. It never runs migration
-rollback and never mutates guest data.
+rollback and never mutates guest, instant-room, bounded join-receipt,
+presence-lease, or identity data. The retained directory name is stable for
+existing operator automation.
 
-The target is guest-compatible only when both its edge and worker pod templates
-carry the exact identical annotation:
+The target is communication-compatible only when both its edge and worker pod
+templates carry the exact identical annotation:
 
 ```text
-k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1
+k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
 ```
 
 Missing, partial, unknown, or different annotations classify the target as
 legacy. For a legacy target, the release operation requires an exclusive
-database client and fails when any persisted guest user or any available,
-scheduled, executing, or retryable guest-admission expiry Job exists. A blocked
-target must be replaced with an approved guest-compatible bridge, or the
-incident must roll forward.
+database client and evaluates each state hazard against the target capability
+that owns it. It fails when unsupported persisted guest users, conversation-only
+human users, instant rooms, bounded join receipts, presence leases, or available,
+scheduled, executing, or retryable guest/instant-room lifecycle Jobs exist.
+Instant-room rows and their bounded join receipts are both owned by
+`instant_room_lifecycle_v1`. A blocked target must be replaced with an approved
+compatible bridge, or the incident must roll forward.
 
 ## Render and execute
 
@@ -74,7 +79,11 @@ if len(set(images)) != 1 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", images[0
     raise SystemExit("target edge and worker must use one exact immutable image")
 
 key = "k-comms.soyuz-tec.io/rollback-capabilities"
-expected = "guest_identity_v1,guest_admission_expiry_worker_v1"
+expected = (
+    "guest_identity_v1,guest_admission_expiry_worker_v1,"
+    "instant_room_lifecycle_v1,instant_room_presence_lease_v1,"
+    "instant_room_expiry_worker_v1,conversation_only_human_v1"
+)
 values = [
     deployments[name]["spec"]["template"]
     .get("metadata", {}).get("annotations", {}).get(key)

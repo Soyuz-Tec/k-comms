@@ -49,6 +49,7 @@ defmodule CommsCore.Accounts do
   @platform_roles PlatformRoleGrant.roles()
   @platform_role_min_ttl_seconds 300
   @platform_role_max_ttl_seconds 28_800
+  @ephemeral_guest_authority_max_seconds 86_400
   @default_directory_limit 25
   @max_directory_limit 100
 
@@ -77,7 +78,8 @@ defmodule CommsCore.Accounts do
             left_join: g in PlatformRoleGrant,
             on:
               g.user_id == u.id and g.tenant_id == u.tenant_id and
-                g.expires_at > ^timestamp and u.account_type == :human,
+                g.expires_at > ^timestamp and u.account_type == :human and
+                u.access_scope == :workspace,
             where:
               s.id == ^session_id and s.tenant_id == ^tenant_id and s.user_id == ^user_id and
                 s.device_id == ^device_id and u.id == ^user_id and
@@ -94,6 +96,7 @@ defmodule CommsCore.Accounts do
               device_id: s.device_id,
               session_id: s.id,
               account_type: u.account_type,
+              access_scope: u.access_scope,
               guest_expires_at: u.guest_expires_at,
               role: u.role,
               step_up_at: s.step_up_at,
@@ -227,6 +230,22 @@ defmodule CommsCore.Accounts do
   end
 
   @doc """
+  Counts persisted conversation-only human identities for rollback safety.
+
+  Suspended and deleted rows are included because a legacy release would treat
+  every such human as workspace-scoped after the access-scope column is gone.
+  """
+  @spec persisted_conversation_only_human_count() :: non_neg_integer()
+  def persisted_conversation_only_human_count do
+    User
+    |> where(
+      [user],
+      user.account_type == :human and user.access_scope == :conversation_only
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  @doc """
   Resolves requested user IDs that are active in the exact tenant.
 
   Human and service identities are both eligible. Results are de-duplicated by
@@ -239,7 +258,7 @@ defmodule CommsCore.Accounts do
     |> where(
       [user],
       user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
-        user.account_type in [:human, :service]
+        user.account_type in [:human, :service] and user.access_scope == :workspace
     )
     |> order_by([user], asc: user.id)
     |> select([user], user.id)
@@ -291,7 +310,7 @@ defmodule CommsCore.Accounts do
            }}
           | {:error, :forbidden | :invalid_cursor | :invalid_search_query}
   def list_directory_views(params, subject) when is_map(params) and is_map(subject) do
-    with {:ok, %AccessGrant{} = grant} <- access_grant(subject),
+    with {:ok, %AccessGrant{access_scope: :workspace} = grant} <- access_grant(subject),
          {:ok, cursor} <- optional_directory_cursor(value(params, :cursor)),
          {:ok, search} <- normalize_directory_search(value(params, :q)) do
       limit = parse_directory_limit(value(params, :limit))
@@ -301,7 +320,8 @@ defmodule CommsCore.Accounts do
         |> where(
           [user],
           user.tenant_id == ^grant.tenant_id and user.status == :active and
-            user.account_type == :human and user.id != ^grant.user_id
+            user.account_type == :human and user.access_scope == :workspace and
+            user.id != ^grant.user_id
         )
         |> maybe_search_directory(search)
         |> maybe_after_directory_cursor(cursor)
@@ -326,6 +346,7 @@ defmodule CommsCore.Accounts do
     else
       {:error, :forbidden} -> {:error, :forbidden}
       {:error, reason} when reason in [:invalid_cursor, :invalid_search_query] -> {:error, reason}
+      _ -> {:error, :forbidden}
     end
   end
 
@@ -353,7 +374,8 @@ defmodule CommsCore.Accounts do
             from(user in User,
               where:
                 user.tenant_id == ^tenant_id and user.id in ^normalized_ids and
-                  user.status == :active and user.account_type == :human,
+                  user.status == :active and user.account_type == :human and
+                  user.access_scope == :workspace,
               order_by: [asc: user.id],
               lock: "FOR SHARE"
             )
@@ -462,8 +484,9 @@ defmodule CommsCore.Accounts do
   end
 
   @doc """
-  Resolves active human users into the minimal projection needed for
-  notification delivery.
+  Resolves active workspace humans into the minimal projection needed for
+  notification delivery. Conversation-only humans are deliberately excluded
+  because their self-asserted email identifiers have not been verified.
 
   Results are scoped to the exact tenant, de-duplicated by persistence, and
   returned in user-id order.
@@ -476,7 +499,7 @@ defmodule CommsCore.Accounts do
     |> where(
       [user],
       user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
-        user.account_type == :human
+        user.account_type == :human and user.access_scope == :workspace
     )
     |> order_by([user], asc: user.id)
     |> select([user], %{user_id: user.id, email: user.email})
@@ -634,7 +657,8 @@ defmodule CommsCore.Accounts do
   @spec authorize_administer_users(map()) :: :ok | {:error, :forbidden}
   def authorize_administer_users(subject) when is_map(subject) do
     case access_grant(subject) do
-      {:ok, %AccessGrant{role: role}} when role in [:owner, :admin] ->
+      {:ok, %AccessGrant{access_scope: :workspace, role: role}}
+      when role in [:owner, :admin] ->
         :ok
 
       _ ->
@@ -675,6 +699,7 @@ defmodule CommsCore.Accounts do
     case access_grant(subject) do
       {:ok,
        %AccessGrant{
+         access_scope: :workspace,
          platform_role: role,
          platform_claim_verified?: true
        }}
@@ -694,6 +719,7 @@ defmodule CommsCore.Accounts do
     case access_grant(subject) do
       {:ok,
        %AccessGrant{
+         access_scope: :workspace,
          platform_role: :platform_operator,
          platform_claim_verified?: true
        }} ->
@@ -787,6 +813,132 @@ defmodule CommsCore.Accounts do
   def provision_guest_identity(_attrs), do: {:error, :transaction_required}
 
   @doc """
+  Extends one active instant-room guest's authority inside a caller transaction.
+
+  The deadline may move forward by at most 24 hours from the current time. The
+  guest user, session, and device are locked and updated together; the returned
+  receipt carries no persistence structs so Conversations can verify it against
+  its own locked room/admission rows.
+  """
+  @spec extend_ephemeral_guest_authority(Ecto.UUID.t(), DateTime.t() | String.t()) ::
+          {:ok,
+           %{
+             tenant_id: Ecto.UUID.t(),
+             user_id: Ecto.UUID.t(),
+             session_id: Ecto.UUID.t(),
+             expires_at: DateTime.t()
+           }}
+          | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
+  def extend_ephemeral_guest_authority(session_id, deadline) when is_binary(session_id) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(session_id) ->
+        {:error, :session_expired}
+
+      true ->
+        with {:ok, deadline} <- normalize_ephemeral_guest_deadline(deadline),
+             {:ok, receipt} <-
+               extend_ephemeral_guest_authority_in_transaction(session_id, deadline) do
+          {:ok, receipt}
+        end
+    end
+  end
+
+  def extend_ephemeral_guest_authority(_session_id, _deadline) do
+    if Repo.in_transaction?(),
+      do: {:error, :session_expired},
+      else: {:error, :transaction_required}
+  end
+
+  @doc """
+  Ensures one active instant-room guest remains authorized through a deadline.
+
+  Unlike `extend_ephemeral_guest_authority/2`, this transaction-only command is
+  idempotent when the guest already has a later authority window. It never
+  shortens user or session authority and returns the requested deadline as a
+  coverage receipt.
+  """
+  @spec ensure_ephemeral_guest_authority(Ecto.UUID.t(), DateTime.t() | String.t()) ::
+          {:ok,
+           %{
+             tenant_id: Ecto.UUID.t(),
+             user_id: Ecto.UUID.t(),
+             session_id: Ecto.UUID.t(),
+             expires_at: DateTime.t()
+           }}
+          | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
+  def ensure_ephemeral_guest_authority(session_id, deadline) when is_binary(session_id) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not valid_uuid?(session_id) ->
+        {:error, :session_expired}
+
+      true ->
+        with {:ok, deadline} <- normalize_ephemeral_guest_deadline(deadline),
+             {:ok, receipt} <-
+               ensure_ephemeral_guest_authority_in_transaction(session_id, deadline) do
+          {:ok, receipt}
+        end
+    end
+  end
+
+  def ensure_ephemeral_guest_authority(_session_id, _deadline) do
+    if Repo.in_transaction?(),
+      do: {:error, :session_expired},
+      else: {:error, :transaction_required}
+  end
+
+  @doc """
+  Reissues creator authentication after an instant-room creation response is
+  lost and safely replayed.
+
+  Conversations must first lock and verify the idempotency record, room, and
+  creator admission. This transaction-only command keeps the guest user and
+  device stable, revokes the prior refresh authority without broadcasting a
+  socket disconnect, and returns a fresh guest session/refresh credential.
+  """
+  @spec resume_ephemeral_guest_identity(map()) ::
+          {:ok, CommsCore.Accounts.AuthenticationResult.t()}
+          | {:error,
+             :transaction_required
+             | :forbidden
+             | :session_expired
+             | :tenant_unavailable
+             | :invalid_ephemeral_guest_deadline
+             | :invalid_guest_identity}
+  def resume_ephemeral_guest_identity(command) when is_map(command) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not ephemeral_guest_conversion_subject?(command) ->
+        {:error, :forbidden}
+
+      true ->
+        with {:ok, user_id} <- cast_uuid_value(value(command, :user_id)),
+             {:ok, session_id} <- cast_uuid_value(value(command, :session_id)),
+             {:ok, deadline} <-
+               normalize_ephemeral_guest_deadline(value(command, :expires_at)) do
+          resume_ephemeral_guest_identity_in_transaction(
+            user_id,
+            session_id,
+            value(command, :device) || %{},
+            deadline
+          )
+        else
+          {:error, :invalid_uuid} -> {:error, :invalid_guest_identity}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  def resume_ephemeral_guest_identity(_command), do: {:error, :forbidden}
+
+  @doc """
   Atomically converts a guest into a normal human account without changing the
   user id.
 
@@ -819,6 +971,44 @@ defmodule CommsCore.Accounts do
     do: {:error, :forbidden}
 
   @doc """
+  Converts a domain-authorized instant-room guest into a conversation-only
+  human. The submitted email remains unverified.
+
+  Conversations must call this from its locked admission transaction and add
+  the internal `:ephemeral_room` authority-purpose claim after verifying the
+  room. The original session is revoked for HTTP/refresh use, but no socket or
+  call disconnect is emitted; the adapter can complete a bounded socket handoff
+  to the replacement session first.
+  """
+  @spec convert_ephemeral_guest_account(map(), map()) ::
+          {:ok, CommsCore.Accounts.AuthenticationResult.t()}
+          | {:error,
+             :forbidden
+             | :transaction_required
+             | :session_expired
+             | :tenant_unavailable
+             | :weak_password
+             | :invalid_guest_account}
+  def convert_ephemeral_guest_account(attrs, guest_subject)
+      when is_map(attrs) and is_map(guest_subject) do
+    cond do
+      not Repo.in_transaction?() ->
+        {:error, :transaction_required}
+
+      not ephemeral_guest_conversion_subject?(guest_subject) ->
+        {:error, :forbidden}
+
+      true ->
+        attrs
+        |> convert_ephemeral_guest_account_in_transaction(guest_subject)
+        |> normalize_guest_account_result()
+    end
+  end
+
+  def convert_ephemeral_guest_account(_attrs, _guest_subject),
+    do: {:error, :forbidden}
+
+  @doc """
   Revokes an expiring guest session and propagates the revocation to active
   calls. The operation is safe both standalone and inside a caller transaction.
   """
@@ -837,8 +1027,15 @@ defmodule CommsCore.Accounts do
 
   def revoke_guest_session(_session_id, _reason), do: {:error, :invalid_reason}
 
-  def list_tenant_user_views(subject),
-    do: subject |> list_tenant_users() |> Enum.map(&CommsCore.Accounts.Projector.user/1)
+  def list_tenant_user_views(subject) do
+    case access_grant(subject) do
+      {:ok, %AccessGrant{access_scope: :workspace}} ->
+        subject |> list_tenant_users() |> Enum.map(&CommsCore.Accounts.Projector.user/1)
+
+      _ ->
+        []
+    end
+  end
 
   def list_admin_user_views(subject) do
     with {:ok, users} <- list_admin_users(subject) do
@@ -1272,6 +1469,210 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp extend_ephemeral_guest_authority_in_transaction(session_id, deadline) do
+    timestamp = now()
+    session = lock_active_ephemeral_guest_session(session_id, timestamp)
+
+    case session do
+      nil ->
+        {:error, :session_expired}
+
+      %Session{} = active_session ->
+        rolling_deadline =
+          timestamp
+          |> DateTime.add(session_ttl_seconds(), :second)
+          |> earlier_deadline(deadline)
+
+        user_changeset =
+          User.guest_expiration_changeset(active_session.user, deadline)
+
+        session_changeset =
+          Session.ephemeral_guest_authority_changeset(active_session, %{
+            expires_at: rolling_deadline,
+            absolute_expires_at: deadline,
+            last_used_at: timestamp
+          })
+
+        device_changeset =
+          Device.changeset(active_session.device, %{last_seen_at: timestamp})
+
+        with :ok <- valid_ephemeral_authority_changeset(user_changeset),
+             :ok <- valid_ephemeral_authority_changeset(session_changeset),
+             :ok <- valid_ephemeral_authority_changeset(device_changeset) do
+          _user = update_or_rollback(user_changeset)
+          updated_session = update_or_rollback(session_changeset)
+          _device = update_or_rollback(device_changeset)
+
+          {:ok,
+           %{
+             tenant_id: updated_session.tenant_id,
+             user_id: updated_session.user_id,
+             session_id: updated_session.id,
+             expires_at: deadline
+           }}
+        end
+    end
+  end
+
+  defp ensure_ephemeral_guest_authority_in_transaction(session_id, deadline) do
+    timestamp = now()
+
+    case lock_active_ephemeral_guest_session(session_id, timestamp) do
+      nil ->
+        {:error, :session_expired}
+
+      %Session{} = active_session ->
+        absolute_deadline = later_deadline(active_session.absolute_expires_at, deadline)
+        user_deadline = later_deadline(active_session.user.guest_expires_at, deadline)
+
+        rolling_deadline =
+          timestamp
+          |> DateTime.add(session_ttl_seconds(), :second)
+          |> earlier_deadline(absolute_deadline)
+          |> later_deadline(active_session.expires_at)
+
+        if DateTime.compare(rolling_deadline, deadline) == :lt do
+          {:error, :invalid_ephemeral_guest_deadline}
+        else
+          user_changeset =
+            User.guest_expiration_changeset(active_session.user, user_deadline)
+
+          session_changeset =
+            Session.ephemeral_guest_authority_changeset(active_session, %{
+              expires_at: rolling_deadline,
+              absolute_expires_at: absolute_deadline,
+              last_used_at: timestamp
+            })
+
+          device_changeset =
+            Device.changeset(active_session.device, %{last_seen_at: timestamp})
+
+          with :ok <- valid_ephemeral_authority_changeset(user_changeset),
+               :ok <- valid_ephemeral_authority_changeset(session_changeset),
+               :ok <- valid_ephemeral_authority_changeset(device_changeset) do
+            _user = update_or_rollback(user_changeset)
+            updated_session = update_or_rollback(session_changeset)
+            _device = update_or_rollback(device_changeset)
+
+            {:ok,
+             %{
+               tenant_id: updated_session.tenant_id,
+               user_id: updated_session.user_id,
+               session_id: updated_session.id,
+               expires_at: deadline
+             }}
+          end
+        end
+    end
+  end
+
+  defp lock_active_ephemeral_guest_session(session_id, timestamp) do
+    Repo.one(
+      from(s in Session,
+        join: u in User,
+        on: u.id == s.user_id and u.tenant_id == s.tenant_id,
+        join: d in Device,
+        on:
+          d.id == s.device_id and d.user_id == s.user_id and
+            d.tenant_id == s.tenant_id,
+        where:
+          s.id == ^session_id and is_nil(s.revoked_at) and
+            s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
+            u.status == :active and u.account_type == :guest and
+            u.access_scope == :conversation_only and not is_nil(u.guest_expires_at) and
+            u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
+        preload: [user: u, device: d],
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp resume_ephemeral_guest_identity_in_transaction(
+         user_id,
+         session_id,
+         device_attrs,
+         deadline
+       ) do
+    timestamp = now()
+
+    session =
+      Repo.one(
+        from(s in Session,
+          join: u in User,
+          on: u.id == s.user_id and u.tenant_id == s.tenant_id,
+          join: d in Device,
+          on:
+            d.id == s.device_id and d.user_id == s.user_id and
+              d.tenant_id == s.tenant_id,
+          where:
+            s.id == ^session_id and s.user_id == ^user_id and is_nil(s.revoked_at) and
+              s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
+              u.status == :active and u.account_type == :guest and
+              u.access_scope == :conversation_only and not is_nil(u.guest_expires_at) and
+              u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
+          preload: [user: u, device: d],
+          lock: "FOR UPDATE"
+        )
+      )
+
+    case session do
+      nil ->
+        {:error, :session_expired}
+
+      %Session{} = active_session ->
+        if DateTime.compare(deadline, active_session.user.guest_expires_at) == :lt do
+          {:error, :invalid_ephemeral_guest_deadline}
+        else
+          with {:ok, tenant} <- Administration.active_tenant(active_session.tenant_id) do
+            user_changeset =
+              active_session.user
+              |> User.guest_expiration_changeset(deadline)
+
+            device_changeset =
+              active_session.device
+              |> Device.changeset(ephemeral_resume_device_changes(device_attrs, timestamp))
+
+            with :ok <- valid_ephemeral_resume_changeset(user_changeset),
+                 :ok <- valid_ephemeral_resume_changeset(device_changeset) do
+              user = update_or_rollback(user_changeset)
+
+              active_session
+              |> Session.changeset(%{revoked_at: timestamp})
+              |> update_or_rollback()
+
+              device = update_or_rollback(device_changeset)
+
+              {replacement_session, refresh_token} =
+                create_guest_session_or_rollback(user, device, deadline, timestamp)
+
+              Audit.record(%{
+                tenant_id: user.tenant_id,
+                actor_user_id: user.id,
+                action: "guest_identity.resume_ephemeral",
+                resource_type: "session",
+                resource_id: replacement_session.id,
+                metadata: %{
+                  previous_session_id: active_session.id,
+                  access_scope: "conversation_only"
+                }
+              })
+              |> audit_or_rollback()
+
+              {:ok,
+               CommsCore.Accounts.Projector.authentication(%{
+                 tenant: tenant,
+                 user: user,
+                 device: device,
+                 session: replacement_session,
+                 refresh_token: refresh_token,
+                 conversation: nil
+               })}
+            end
+          end
+        end
+    end
+  end
+
   defp convert_guest_account_in_transaction(attrs, guest_subject, preauthorized_email) do
     password = value(attrs, :password)
     email = normalize_email(value(attrs, :email))
@@ -1356,6 +1757,74 @@ defmodule CommsCore.Accounts do
       end
     else
       false -> {:error, :guest_account_conversion_email_mismatch}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp convert_ephemeral_guest_account_in_transaction(attrs, guest_subject) do
+    password = value(attrs, :password)
+    email = normalize_email(value(attrs, :email))
+
+    with :ok <- validate_password(password),
+         {:ok, session, tenant} <- lock_active_guest_session(guest_subject),
+         true <- session.user.access_scope == :conversation_only do
+      changes = %{
+        external_subject: "local:#{email}",
+        display_name: value(attrs, :display_name) || session.user.display_name,
+        email: email,
+        password_hash: Password.hash(password)
+      }
+
+      with :ok <-
+             session.user
+             |> User.ephemeral_guest_conversion_changeset(changes)
+             |> valid_changeset() do
+        converted_user =
+          session.user
+          |> User.ephemeral_guest_conversion_changeset(changes)
+          |> update_or_validation_error()
+
+        converted_at = now()
+
+        session
+        |> Session.changeset(%{revoked_at: converted_at})
+        |> update_or_rollback()
+
+        device =
+          session.device
+          |> Device.changeset(%{last_seen_at: converted_at})
+          |> update_or_rollback()
+
+        {replacement_session, refresh_token} =
+          create_session_or_rollback(converted_user, device)
+
+        Audit.record(%{
+          tenant_id: converted_user.tenant_id,
+          actor_user_id: converted_user.id,
+          action: "guest_identity.convert_ephemeral",
+          resource_type: "user",
+          resource_id: converted_user.id,
+          metadata: %{
+            previous_session_id: value(guest_subject, :session_id),
+            replacement_session_id: replacement_session.id,
+            access_scope: "conversation_only"
+          },
+          request_id: optional_request_id(value(guest_subject, :request_id))
+        })
+        |> audit_or_rollback()
+
+        {:ok,
+         CommsCore.Accounts.Projector.authentication(%{
+           tenant: tenant,
+           user: converted_user,
+           device: device,
+           session: replacement_session,
+           refresh_token: refresh_token,
+           conversation: nil
+         })}
+      end
+    else
+      false -> {:error, :forbidden}
       {:error, _reason} = error -> error
     end
   end
@@ -2137,6 +2606,7 @@ defmodule CommsCore.Accounts do
         session_id: session.id,
         request_id: request_id,
         account_type: session.user.account_type,
+        access_scope: session.user.access_scope,
         guest_expires_at: session.user.guest_expires_at,
         role: session.user.role,
         step_up_at: session.step_up_at
@@ -2578,6 +3048,10 @@ defmodule CommsCore.Accounts do
     if DateTime.compare(first, second) == :gt, do: second, else: first
   end
 
+  defp later_deadline(first, second) do
+    if DateTime.compare(first, second) == :lt, do: second, else: first
+  end
+
   defp earlier_optional_deadline(first, %DateTime{} = second),
     do: earlier_deadline(first, second)
 
@@ -3008,7 +3482,8 @@ defmodule CommsCore.Accounts do
         id: value(subject, :user_id),
         tenant_id: tenant_id,
         status: :active,
-        account_type: :human
+        account_type: :human,
+        access_scope: :workspace
       )
 
     authorize_user_change!(actor, target, command.role, command.status)
@@ -3048,6 +3523,15 @@ defmodule CommsCore.Accounts do
   defp valid_owner_exclusions?(_values), do: false
 
   defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
+
+  defp cast_uuid_value(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :invalid_uuid}
+    end
+  end
+
+  defp cast_uuid_value(_value), do: {:error, :invalid_uuid}
 
   defp lock_tenant_users!(tenant_id) do
     Repo.all(
@@ -3108,7 +3592,8 @@ defmodule CommsCore.Accounts do
     case Repo.get_by(User,
            id: value(subject, :user_id),
            tenant_id: value(subject, :tenant_id),
-           status: :active
+           status: :active,
+           access_scope: :workspace
          ) do
       %User{role: :owner} -> :ok
       %User{role: :admin} when role in [:member, :moderator] -> :ok
@@ -3230,8 +3715,11 @@ defmodule CommsCore.Accounts do
 
   defp authorize_platform_role_target!(_user, nil), do: :ok
 
-  defp authorize_platform_role_target!(%User{status: :active, account_type: :human}, _role),
-    do: :ok
+  defp authorize_platform_role_target!(
+         %User{status: :active, account_type: :human, access_scope: :workspace},
+         _role
+       ),
+       do: :ok
 
   defp authorize_platform_role_target!(_user, _role), do: Repo.rollback(:not_found)
 
@@ -3318,12 +3806,21 @@ defmodule CommsCore.Accounts do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  defp ephemeral_resume_device_changes(attrs, timestamp) when is_map(attrs) do
+    %{last_seen_at: timestamp}
+    |> maybe_put(:name, value(attrs, :name))
+    |> maybe_put(:platform, value(attrs, :platform))
+  end
+
+  defp ephemeral_resume_device_changes(_attrs, timestamp), do: %{last_seen_at: timestamp}
+
   defp active_actor(subject) do
     Repo.get_by(User,
       id: value(subject, :user_id),
       tenant_id: value(subject, :tenant_id),
       status: :active,
-      account_type: :human
+      account_type: :human,
+      access_scope: :workspace
     )
   end
 
@@ -3389,6 +3886,19 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp normalize_ephemeral_guest_deadline(value) do
+    timestamp = now()
+
+    with {:ok, deadline} <- cast_datetime(value),
+         true <- DateTime.compare(deadline, timestamp) == :gt,
+         seconds when seconds <= @ephemeral_guest_authority_max_seconds <-
+           DateTime.diff(deadline, timestamp, :second) do
+      {:ok, deadline}
+    else
+      _ -> {:error, :invalid_ephemeral_guest_deadline}
+    end
+  end
+
   defp cast_datetime(%DateTime{} = value),
     do: {:ok, DateTime.truncate(value, :microsecond)}
 
@@ -3421,6 +3931,14 @@ defmodule CommsCore.Accounts do
   defp valid_changeset(%Ecto.Changeset{valid?: true}), do: :ok
   defp valid_changeset(%Ecto.Changeset{} = changeset), do: {:error, changeset}
 
+  defp valid_ephemeral_authority_changeset(%Ecto.Changeset{valid?: true}), do: :ok
+
+  defp valid_ephemeral_authority_changeset(%Ecto.Changeset{}),
+    do: {:error, :invalid_ephemeral_guest_deadline}
+
+  defp valid_ephemeral_resume_changeset(%Ecto.Changeset{valid?: true}), do: :ok
+  defp valid_ephemeral_resume_changeset(%Ecto.Changeset{}), do: {:error, :invalid_guest_identity}
+
   defp normalize_guest_identity_result({:error, %Ecto.Changeset{}}),
     do: {:error, :invalid_guest_identity}
 
@@ -3433,6 +3951,9 @@ defmodule CommsCore.Accounts do
     do: {:error, :invalid_guest_account}
 
   defp normalize_guest_account_result(result), do: result
+
+  defp ephemeral_guest_conversion_subject?(subject),
+    do: value(subject, :guest_authority_purpose) == :ephemeral_room
 
   defp optional_request_id(value) when is_binary(value) do
     value = String.trim(value)
@@ -3539,6 +4060,7 @@ defmodule CommsCore.Accounts do
       session_id: facts.session_id,
       request_id: value(subject, :request_id),
       account_type: facts.account_type,
+      access_scope: facts.access_scope,
       guest_expires_at: facts.guest_expires_at,
       role: facts.role,
       step_up_at: facts.step_up_at,
@@ -3669,7 +4191,7 @@ defmodule CommsCore.Accounts do
 
   defp authorize_tenant_role_with_step_up(action, subject, allowed_roles) do
     case access_grant(subject) do
-      {:ok, %AccessGrant{} = grant} ->
+      {:ok, %AccessGrant{access_scope: :workspace} = grant} ->
         cond do
           not Enum.member?(allowed_roles, grant.role) ->
             deny_privileged(action, subject, :forbidden)

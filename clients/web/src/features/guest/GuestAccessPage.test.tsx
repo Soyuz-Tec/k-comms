@@ -11,7 +11,10 @@ import { StrictMode } from "react";
 import { BrowserRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ApiClient,
+  ApiError,
   GuestApiClient,
+  storeSession,
   storeGuestSession
 } from "../../api";
 import { SessionProvider } from "../../app/session";
@@ -25,6 +28,7 @@ import type {
 } from "../../types";
 import {
   GuestAccessPage,
+  GuestShell,
   loadGuestMessageCatchUp
 } from "./GuestAccessPage";
 
@@ -34,7 +38,9 @@ const realtimeHarness = vi.hoisted(() => ({
     onMessages: (messages: Message[]) => void;
     onReactionAdded: (event: ReactionEvent) => void;
     onReactionRemoved: (event: ReactionEvent) => void;
-  }
+  },
+  tickets: [] as string[],
+  disconnects: 0
 }));
 
 vi.mock("../calls/CallPanel", () => ({
@@ -46,7 +52,7 @@ vi.mock("../../realtime", () => ({
   RealtimeConversation: class {
     constructor(
       _endpoint: string,
-      _ticket: string,
+      ticket: string,
       _conversationId: string,
       _afterSequence: () => number,
       private readonly callbacks: {
@@ -57,9 +63,10 @@ vi.mock("../../realtime", () => ({
       }
     ) {
       realtimeHarness.callbacks = callbacks;
+      realtimeHarness.tickets.push(ticket);
     }
     connect() { this.callbacks.onStatus("live"); }
-    disconnect() { /* no-op */ }
+    disconnect() { realtimeHarness.disconnects += 1; }
     sendMessage() { return Promise.reject(new Error("not used")); }
   }
 }));
@@ -147,11 +154,16 @@ describe("GuestAccessPage", () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/join");
     realtimeHarness.callbacks = null;
+    realtimeHarness.tickets = [];
+    realtimeHarness.disconnects = 0;
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible"
     });
     vi.restoreAllMocks();
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockRejectedValue(
+      new ApiError(404, "instant_room_not_found", "Not an instant-room link")
+    );
     vi.spyOn(GuestApiClient.prototype, "conversation").mockResolvedValue(conversation);
     vi.spyOn(GuestApiClient.prototype, "conversationMembers").mockResolvedValue([
       {
@@ -189,7 +201,9 @@ describe("GuestAccessPage", () => {
     renderPage();
 
     expect(window.location.hash).toBe("");
-    expect(previewGuestLink).toHaveBeenCalledWith("single-use-secret");
+    await waitFor(() =>
+      expect(previewGuestLink).toHaveBeenCalledWith("single-use-secret")
+    );
     const form = await screen.findByRole("button", { name: "Join conversation" })
       .then((button) => button.closest("form"));
     expect(form).not.toBeNull();
@@ -207,6 +221,392 @@ describe("GuestAccessPage", () => {
     expect(screen.getByText("Guest", { selector: ".guest-badge" })).toBeVisible();
     expect(screen.getByLabelText("Guest call controls")).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+  });
+
+  it("retries a transient preview with the scrubbed token still in memory", async () => {
+    const user = userEvent.setup();
+    const previewGuestLink = vi
+      .spyOn(GuestApiClient.prototype, "previewGuestLink")
+      .mockRejectedValueOnce(
+        new ApiError(503, "service_unavailable", "Temporarily unavailable")
+      )
+      .mockResolvedValueOnce(preview);
+    window.history.replaceState({}, "", "/join#guest=retry-preview-secret");
+
+    renderPage();
+
+    expect(window.location.hash).toBe("");
+    expect(
+      await screen.findByText(/K-Comms is temporarily unavailable/i)
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Retry secure link" })
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Join conversation" })
+    ).toBeVisible();
+    expect(previewGuestLink).toHaveBeenCalledTimes(2);
+    expect(previewGuestLink).toHaveBeenNthCalledWith(
+      1,
+      "retry-preview-secret"
+    );
+    expect(previewGuestLink).toHaveBeenNthCalledWith(
+      2,
+      "retry-preview-secret"
+    );
+    expect(window.location.hash).toBe("");
+  });
+
+  it("joins an instant room once with the signed-in identity and never also creates a guest", async () => {
+    const user = userEvent.setup();
+    const token = "A".repeat(43);
+    const accountSession: Session = {
+      ...guestSession,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...guestSession.user,
+        display_name: "Taylor Member",
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    storeSession(accountSession);
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(ApiClient.prototype, "joinInstantRoom")
+      .mockResolvedValue({
+        room: {
+          id: "room-1",
+          conversation_id: conversation.id,
+          owner_user_id: "guest-1",
+          owner_kind: "guest",
+          status: "active",
+          participant_limit: 25,
+          idle_since: null,
+          expires_at: null,
+          inserted_at: "2026-07-24T12:00:00Z",
+          updated_at: "2026-07-24T12:00:00Z"
+        },
+        conversation
+      });
+    const guestJoin = vi.spyOn(GuestApiClient.prototype, "joinInstantRoom");
+    window.history.replaceState({}, "", `/join#guest=${token}`);
+
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Join as Taylor Member" })
+    );
+
+    await waitFor(() => expect(joinInstantRoom).toHaveBeenCalledWith(
+      { token },
+      expect.stringMatching(/^[A-Za-z0-9_-]{43}$/)
+    ));
+    expect(guestJoin).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/app");
+    expect(window.location.search).toBe("?conversation=conversation-1");
+    expect(
+      window.sessionStorage.getItem("k-comms.member-instant-room.v1")
+    ).toContain(conversation.id);
+  });
+
+  it("retries an ambiguous signed-in join with the same account idempotency key", async () => {
+    const user = userEvent.setup();
+    const token = "N".repeat(43);
+    const accountSession: Session = {
+      ...guestSession,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...guestSession.user,
+        display_name: "Taylor Member",
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    storeSession(accountSession);
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(ApiClient.prototype, "joinInstantRoom")
+      .mockRejectedValueOnce(new TypeError("response was lost"))
+      .mockResolvedValueOnce({
+        room: {
+          id: "room-network-replay",
+          conversation_id: conversation.id,
+          owner_user_id: accountSession.user.id,
+          owner_kind: "registered",
+          status: "active",
+          participant_limit: 25,
+          idle_since: null,
+          expires_at: null,
+          inserted_at: "2026-07-24T12:00:00Z",
+          updated_at: "2026-07-24T12:00:00Z"
+        },
+        conversation
+      });
+    const guestJoin = vi.spyOn(
+      GuestApiClient.prototype,
+      "joinInstantRoom"
+    );
+    window.history.replaceState({}, "", `/join#guest=${token}`);
+
+    renderPage();
+    await user.click(
+      await screen.findByRole("button", { name: "Join as Taylor Member" })
+    );
+
+    await waitFor(
+      () => expect(joinInstantRoom).toHaveBeenCalledTimes(2),
+      { timeout: 2_000 }
+    );
+    expect(joinInstantRoom.mock.calls[1]![1]).toBe(
+      joinInstantRoom.mock.calls[0]![1]
+    );
+    expect(guestJoin).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("textbox", { name: "Your display name" })
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+  });
+
+  it("rotates an expired signed-in join replay once and completes admission", async () => {
+    const user = userEvent.setup();
+    const accountSession: Session = {
+      ...guestSession,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...guestSession.user,
+        display_name: "Taylor Member",
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    storeSession(accountSession);
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(ApiClient.prototype, "joinInstantRoom")
+      .mockRejectedValueOnce(
+        new ApiError(
+          409,
+          "idempotency_replay_expired",
+          "The replay window ended"
+        )
+      )
+      .mockResolvedValueOnce({
+        room: {
+          id: "room-1",
+          conversation_id: conversation.id,
+          owner_user_id: accountSession.user.id,
+          owner_kind: "registered",
+          status: "active",
+          participant_limit: 25,
+          idle_since: null,
+          expires_at: null,
+          inserted_at: "2026-07-24T12:00:00Z",
+          updated_at: "2026-07-24T12:00:00Z"
+        },
+        conversation
+      });
+    window.history.replaceState({}, "", "/join#guest=instant-secret");
+
+    renderPage();
+    await user.click(
+      await screen.findByRole("button", { name: "Join as Taylor Member" })
+    );
+
+    await waitFor(() => expect(joinInstantRoom).toHaveBeenCalledTimes(2));
+    expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(
+      joinInstantRoom.mock.calls[0]![1]
+    );
+    expect(window.location.pathname).toBe("/app");
+  });
+
+  it("rotates an expired guest join replay once and completes admission", async () => {
+    const user = userEvent.setup();
+    const instantSession: GuestSession = {
+      ...guestSession,
+      instant_room: {
+        id: "room-guest",
+        conversation_id: conversation.id,
+        owner_user_id: guestSession.user.id,
+        owner_kind: "guest",
+        status: "active",
+        participant_limit: 25,
+        idle_since: null,
+        expires_at: null,
+        inserted_at: "2026-07-24T12:00:00Z",
+        updated_at: "2026-07-24T12:00:00Z"
+      }
+    };
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(GuestApiClient.prototype, "joinInstantRoom")
+      .mockRejectedValueOnce(
+        new ApiError(
+          409,
+          "idempotency_replay_expired",
+          "The replay window ended"
+        )
+      )
+      .mockResolvedValueOnce(instantSession);
+    window.history.replaceState({}, "", "/join#guest=instant-secret");
+
+    renderPage();
+    await user.type(
+      await screen.findByRole("textbox", { name: "Your display name" }),
+      "Taylor"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Join conversation" })
+    );
+
+    expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
+    expect(joinInstantRoom).toHaveBeenCalledTimes(2);
+    expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(
+      joinInstantRoom.mock.calls[0]![1]
+    );
+  });
+
+  it("does not rotate a guest join key for rate limiting", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(GuestApiClient.prototype, "joinInstantRoom")
+      .mockRejectedValue(
+        new ApiError(429, "rate_limited", "Slow down", undefined, 12)
+      );
+    window.history.replaceState({}, "", "/join#guest=instant-secret");
+
+    renderPage();
+    await user.type(
+      await screen.findByRole("textbox", { name: "Your display name" }),
+      "Taylor"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Join conversation" })
+    );
+
+    expect(
+      await screen.findByText("Too many attempts. Try again in 12 seconds.")
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Try again in \d+s/ })
+    ).toBeDisabled();
+    expect(joinInstantRoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a cross-workspace guest fallback without replacing the signed-in account", async () => {
+    const user = userEvent.setup();
+    const accountSession: Session = {
+      ...guestSession,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      tenant: {
+        id: "tenant-private",
+        name: "Private workspace",
+        slug: "private-workspace",
+        status: "active"
+      },
+      user: {
+        ...guestSession.user,
+        tenant_id: "tenant-private",
+        display_name: "Taylor Member",
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    const fallbackSession: GuestSession = {
+      ...guestSession,
+      capabilities: {
+        ...guestSession.capabilities,
+        self_service_conversion: true
+      },
+      instant_room: {
+        id: "room-public",
+        conversation_id: conversation.id,
+        owner_user_id: "guest-1",
+        owner_kind: "guest",
+        status: "active",
+        participant_limit: 25,
+        idle_since: null,
+        expires_at: null,
+        inserted_at: "2026-07-24T12:00:00Z",
+        updated_at: "2026-07-24T12:00:00Z"
+      }
+    };
+    storeSession(accountSession);
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    const joinInstantRoom = vi
+      .spyOn(ApiClient.prototype, "joinInstantRoom")
+      .mockResolvedValue({
+        room: fallbackSession.instant_room!,
+        conversation,
+        guest_session: fallbackSession
+      });
+    const guestJoin = vi.spyOn(GuestApiClient.prototype, "joinInstantRoom");
+    window.history.replaceState({}, "", "/join#guest=instant-secret");
+
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Join as Taylor Member" })
+    );
+
+    await waitFor(() => expect(joinInstantRoom).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
+    expect(guestJoin).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Create account" })
+    ).not.toBeInTheDocument();
+    expect(
+      window.sessionStorage.getItem("k-comms.session.v1")
+    ).toContain("member-access");
+    expect(
+      window.sessionStorage.getItem("k-comms.guest-session.v1")
+    ).toContain("guest-access");
+
+    await user.click(screen.getByRole("button", { name: "Leave" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    expect(
+      window.sessionStorage.getItem("k-comms.session.v1")
+    ).toContain("member-access");
+    expect(
+      window.sessionStorage.getItem("k-comms.guest-session.v1")
+    ).toBeNull();
   });
 
   it("reads the token through React StrictMode initialization replay before scrubbing", async () => {
@@ -253,12 +653,65 @@ describe("GuestAccessPage", () => {
     renderPage();
 
     expect(window.location.hash).toBe("");
-    expect(previewGuestLink).toHaveBeenCalledWith("second-room-secret");
+    await waitFor(() =>
+      expect(previewGuestLink).toHaveBeenCalledWith("second-room-secret")
+    );
     expect(
       await screen.findByRole("button", { name: "Join conversation" })
     ).toBeVisible();
     expect(screen.queryByLabelText("Guest call controls")).not.toBeInTheDocument();
     expect(window.sessionStorage.getItem("k-comms.guest-session.v1")).toBeNull();
+  });
+
+  it("blocks the composer and retries when initial conversation hydration fails", async () => {
+    const user = userEvent.setup();
+    storeGuestSession(guestSession);
+    const conversationLookup = vi
+      .spyOn(GuestApiClient.prototype, "conversation")
+      .mockRejectedValueOnce(
+        new ApiError(503, "service_unavailable", "History is unavailable")
+      )
+      .mockResolvedValueOnce(conversation);
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Could not load this conversation"
+      })
+    ).toBeVisible();
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    expect(composer).toHaveAttribute("readonly");
+    expect(composer).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.queryByRole("heading", { name: "Start the conversation" })
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry conversation" })
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Start the conversation" })
+    ).toBeVisible();
+    expect(composer).not.toHaveAttribute("readonly");
+    expect(conversationLookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends a stale guest room when socket authorization is forbidden", async () => {
+    storeGuestSession(guestSession);
+    vi.spyOn(GuestApiClient.prototype, "socketTicket").mockRejectedValue(
+      new ApiError(403, "guest_access_revoked", "Access revoked")
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Guest access has ended" })
+    ).toBeVisible();
+    expect(
+      window.sessionStorage.getItem("k-comms.guest-session.v1")
+    ).toBeNull();
   });
 
   it("converts the guest in place and preserves the conversation route", async () => {
@@ -307,6 +760,287 @@ describe("GuestAccessPage", () => {
     expect(window.sessionStorage.getItem("k-comms.guest-session.v1")).toBeNull();
   });
 
+  it("hands realtime to the converted identity without unmounting room history", async () => {
+    const user = userEvent.setup();
+    const selfServiceSession: GuestSession = {
+      ...guestSession,
+      capabilities: {
+        ...guestSession.capabilities,
+        self_service_conversion: true
+      }
+    };
+    vi.spyOn(GuestApiClient.prototype, "messages").mockResolvedValue({
+      data: [message(1)],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    const convertedSession: Session = {
+      ...selfServiceSession,
+      user: {
+        ...selfServiceSession.user,
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    const convertAccount = vi
+      .spyOn(GuestApiClient.prototype, "convertAccount")
+      .mockResolvedValue({
+        session: convertedSession,
+        conversation,
+        socket_handoff: {
+          ticket: "converted-socket-ticket",
+          expires_in: 60
+        }
+      });
+    const onConverted = vi.fn();
+    const api = new GuestApiClient("", selfServiceSession, vi.fn());
+
+    render(
+      <GuestShell
+        api={api}
+        initialSession={selfServiceSession}
+        onLeave={vi.fn()}
+        onConverted={onConverted}
+        roomBanner={<div>Share controls remain mounted</div>}
+      />
+    );
+
+    expect(await screen.findByText("Message 1")).toBeVisible();
+    await waitFor(() =>
+      expect(realtimeHarness.tickets).toEqual(["socket-ticket"])
+    );
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await user.clear(screen.getByRole("textbox", { name: /Display name/ }));
+    await user.type(
+      screen.getByRole("textbox", { name: /Display name/ }),
+      "Taylor Human"
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Work email" }),
+      "taylor@example.test"
+    );
+    await user.type(
+      screen.getByLabelText(/^Password/),
+      "correct horse battery staple"
+    );
+    await user.click(
+      within(
+        screen.getByRole("heading", { name: "Keep your conversation" })
+          .closest("section") as HTMLElement
+      ).getByRole("button", { name: "Create account" })
+    );
+
+    await waitFor(() =>
+      expect(realtimeHarness.tickets).toEqual([
+        "socket-ticket",
+        "converted-socket-ticket"
+      ])
+    );
+    expect(convertAccount).toHaveBeenCalledWith({
+      email: "taylor@example.test",
+      password: "correct horse battery staple",
+      display_name: "Taylor Human"
+    });
+    expect(onConverted).toHaveBeenCalledWith(
+      convertedSession,
+      conversation,
+      { ticket: "converted-socket-ticket", expires_in: 60 }
+    );
+    expect(realtimeHarness.disconnects).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/Account created for Taylor/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+    expect(screen.getByText("Message 1")).toBeVisible();
+    expect(screen.getByText("Share controls remain mounted")).toBeVisible();
+  });
+
+  it("keeps an instant-room recipient on the same route after self-service upgrade", async () => {
+    const user = userEvent.setup();
+    const instantGuest: GuestSession = {
+      ...guestSession,
+      instant_room: {
+        id: "instant-room-1",
+        conversation_id: conversation.id,
+        owner_user_id: "guest-1",
+        owner_kind: "guest",
+        status: "active",
+        participant_limit: 25,
+        idle_since: null,
+        expires_at: null,
+        inserted_at: "2026-07-24T12:00:00Z",
+        updated_at: "2026-07-24T12:00:00Z"
+      },
+      capabilities: {
+        ...guestSession.capabilities,
+        self_service_conversion: true
+      }
+    };
+    storeGuestSession(instantGuest);
+    const convertedSession: Session = {
+      ...instantGuest,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...instantGuest.user,
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    vi.spyOn(GuestApiClient.prototype, "convertAccount").mockResolvedValue({
+      session: convertedSession,
+      conversation,
+      socket_handoff: {
+        ticket: "recipient-handoff-ticket",
+        expires_in: 60
+      }
+    });
+
+    renderPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Create account" })
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Work email" }),
+      "taylor@example.test"
+    );
+    await user.type(
+      screen.getByLabelText(/^Password/),
+      "correct horse battery staple"
+    );
+    await user.click(
+      within(
+        screen.getByRole("heading", { name: "Keep your conversation" })
+          .closest("section") as HTMLElement
+      ).getByRole("button", { name: "Create account" })
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Create account" })
+      ).not.toBeInTheDocument()
+    );
+    expect(window.location.pathname).toBe("/join");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeVisible();
+    expect(screen.getByText("Member", { selector: ".guest-badge" })).toBeVisible();
+    expect(
+      screen.queryByText(/You joined as a guest/i)
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Your room is ready/i)).toBeVisible();
+    expect(window.sessionStorage.getItem("k-comms.guest-session.v1")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("k-comms.session.v1")
+    ).toContain("member-access");
+    expect(realtimeHarness.tickets).toContain("recipient-handoff-ticket");
+  });
+
+  it("redirects a converted instant-room participant back to the same member conversation after remount", async () => {
+    const user = userEvent.setup();
+    const token = "A".repeat(43);
+    const instantGuest: GuestSession = {
+      ...guestSession,
+      instant_room: {
+        id: "instant-room-1",
+        conversation_id: conversation.id,
+        owner_user_id: "room-host-1",
+        owner_kind: "guest",
+        status: "active",
+        participant_limit: 25,
+        idle_since: null,
+        expires_at: null,
+        inserted_at: "2026-07-24T12:00:00Z",
+        updated_at: "2026-07-24T12:00:00Z"
+      },
+      capabilities: {
+        ...guestSession.capabilities,
+        self_service_conversion: true
+      }
+    };
+    const convertedSession: Session = {
+      ...instantGuest,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...instantGuest.user,
+        account_type: "human",
+        email: "taylor@example.test"
+      }
+    };
+    vi.spyOn(ApiClient.prototype, "previewInstantRoom").mockResolvedValue({
+      room_title: "Instant room",
+      status: "active",
+      expires_at: null,
+      participant_limit: 25
+    });
+    vi.spyOn(GuestApiClient.prototype, "joinInstantRoom")
+      .mockResolvedValue(instantGuest);
+    vi.spyOn(GuestApiClient.prototype, "convertAccount").mockResolvedValue({
+      session: convertedSession,
+      conversation,
+      socket_handoff: {
+        ticket: "recipient-handoff-ticket",
+        expires_in: 60
+      }
+    });
+    const memberConversation = vi
+      .spyOn(ApiClient.prototype, "conversation")
+      .mockResolvedValue(conversation);
+    window.history.replaceState({}, "", `/join#guest=${token}`);
+
+    const first = renderPage();
+    await user.type(
+      await screen.findByRole("textbox", { name: "Your display name" }),
+      "Taylor"
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Join conversation" })
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Create account" })
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Work email" }),
+      "taylor@example.test"
+    );
+    await user.type(
+      screen.getByLabelText(/^Password/),
+      "correct horse battery staple"
+    );
+    await user.click(
+      within(
+        screen.getByRole("heading", { name: "Keep your conversation" })
+          .closest("section") as HTMLElement
+      ).getByRole("button", { name: "Create account" })
+    );
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem("k-comms.member-instant-room.v1")
+      ).toContain(conversation.id)
+    );
+    const stored =
+      window.sessionStorage.getItem("k-comms.member-instant-room.v1") || "";
+    expect(stored).toContain(`#guest=${token}`);
+    expect(stored).not.toContain("guest-access");
+    expect(stored).not.toContain("guest-refresh");
+    first.unmount();
+    window.history.replaceState({}, "", "/join");
+
+    renderPage();
+
+    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    expect(window.location.search).toBe(
+      `?conversation=${encodeURIComponent(conversation.id)}`
+    );
+    expect(memberConversation).toHaveBeenCalledWith(conversation.id);
+    expect(
+      window.sessionStorage.getItem("k-comms.guest-session.v1")
+    ).toBeNull();
+  });
+
   it("fails closed when the guest session does not authorize account conversion", async () => {
     storeGuestSession({
       ...guestSession,
@@ -329,7 +1063,7 @@ describe("GuestAccessPage", () => {
 
     expect(
       screen.getByRole("link", { name: "Return to K-Comms sign in" })
-    ).toHaveAttribute("href", "/app");
+    ).toHaveAttribute("href", "/sign-in");
   });
 
   it("explains how to recover when a restored guest session has ended", async () => {
@@ -368,7 +1102,7 @@ describe("GuestAccessPage", () => {
     await user.click(
       await screen.findByRole("link", { name: "Return to K-Comms sign in" })
     );
-    expect(window.location.pathname).toBe("/app");
+    expect(window.location.pathname).toBe("/sign-in");
     first.unmount();
     window.history.replaceState({}, "", "/join");
     renderPage();

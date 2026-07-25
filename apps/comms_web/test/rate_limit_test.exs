@@ -26,7 +26,13 @@ defmodule CommsWeb.RateLimitTest do
     refute second.halted
     assert third.halted
     assert third.status == 429
-    assert Jason.decode!(third.resp_body)["error"]["code"] == "rate_limited"
+    assert get_resp_header(third, "retry-after") == ["60"]
+
+    assert %{
+             "code" => "rate_limited",
+             "detail" => "Too many requests",
+             "retry_after" => 60
+           } = Jason.decode!(third.resp_body)["error"]
   end
 
   test "service and password admission buckets do not consume each other's capacity" do

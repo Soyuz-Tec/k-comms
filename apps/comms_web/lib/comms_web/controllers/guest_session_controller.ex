@@ -77,23 +77,38 @@ defmodule CommsWeb.GuestSessionController do
 
     with {:ok, result} <-
            Conversations.convert_guest_account(attrs, conn.assigns.current_subject) do
-      CommsWeb.Endpoint.broadcast(
-        "session_socket:#{conn.assigns.current_subject.session_id}",
-        "disconnect",
-        %{}
-      )
+      ephemeral_handoff? = Map.get(result, :ephemeral_owner_upgraded, false)
 
-      json(conn, %{
+      unless ephemeral_handoff? do
+        CommsWeb.Endpoint.broadcast(
+          "session_socket:#{conn.assigns.current_subject.session_id}",
+          "disconnect",
+          %{}
+        )
+      end
+
+      payload = %{
         authentication: Token.issue(result.authentication),
         conversation: Presenter.conversation(result.conversation)
-      })
+      }
+
+      payload =
+        if ephemeral_handoff? do
+          maybe_put_socket_handoff(payload, result.authentication, conn.assigns[:request_id])
+        else
+          payload
+        end
+
+      json(conn, payload)
     end
   end
 
   def delete(conn, _params) do
-    subject = conn.assigns.current_subject
+    subject =
+      conn.assigns.current_subject
+      |> Map.put(:request_id, conn.assigns[:request_id])
 
-    with :ok <- Accounts.revoke_guest_session(subject.session_id, "guest_logout") do
+    with :ok <- Conversations.logout_guest_session(subject) do
       CommsWeb.Endpoint.broadcast("session_socket:#{subject.session_id}", "disconnect", %{})
       send_resp(conn, :no_content, "")
     end
@@ -149,5 +164,22 @@ defmodule CommsWeb.GuestSessionController do
       history_from_sequence: scope.history_from_sequence,
       converted_at: Map.get(scope, :converted_at)
     }
+  end
+
+  defp maybe_put_socket_handoff(payload, authentication, request_id) do
+    subject = %{
+      tenant_id: authentication.tenant.id,
+      user_id: authentication.user.id,
+      device_id: authentication.device.id,
+      session_id: authentication.session_id,
+      role: authentication.user.role,
+      account_type: authentication.user.account_type,
+      request_id: request_id
+    }
+
+    case Accounts.issue_socket_ticket(subject) do
+      {:ok, ticket} -> Map.put(payload, :socket_handoff, ticket)
+      {:error, _reason} -> payload
+    end
   end
 end

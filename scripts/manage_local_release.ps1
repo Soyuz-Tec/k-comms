@@ -513,6 +513,7 @@ function New-StableEnvironment {
         WEBHOOK_SECRET_ENCRYPTION_KEY = New-UrlSafeSecret 48
         PUSH_SUBSCRIPTION_ENCRYPTION_KEY = New-UrlSafeSecret 48
         METRICS_BEARER_TOKEN = New-UrlSafeSecret 36
+        BOOTSTRAP_OWNER_PASSWORD = New-UrlSafeSecret 48
         WEB_PUSH_VAPID_PUBLIC_KEY = "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
     }
 }
@@ -522,7 +523,12 @@ function Get-StableEnvironment {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         Write-EnvironmentFile -Path $path -Values (New-StableEnvironment)
     }
-    Read-EnvironmentFile -Path $path
+    $values = Read-EnvironmentFile -Path $path
+    if (-not $values.Contains("BOOTSTRAP_OWNER_PASSWORD")) {
+        $values["BOOTSTRAP_OWNER_PASSWORD"] = New-UrlSafeSecret 48
+        Write-EnvironmentFile -Path $path -Values $values
+    }
+    $values
 }
 
 function New-ReleaseEnvironment {
@@ -562,6 +568,18 @@ function New-ReleaseEnvironment {
         "ws://127.0.0.1:$LiveKitSignalPort http://127.0.0.1:$MinioPort"
     $values["S3_BUCKET"] = "k-comms-release"
     $values["ALLOW_BOOTSTRAP"] = "true"
+    $values["INSTANT_ROOMS_ENABLED"] = "true"
+    $values["INSTANT_ROOM_TENANT_SLUG"] = "k-comms-development"
+    $values["INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS"] = "3600"
+    $values["INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS"] = "86400"
+    $values["INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS"] = "30"
+    $values["INSTANT_ROOM_PRESENCE_LEASE_SECONDS"] = "90"
+    $values["INSTANT_ROOM_RECONNECT_GRACE_SECONDS"] = "90"
+    $values["INSTANT_ROOM_MAX_PARTICIPANTS"] = "25"
+    $values["BOOTSTRAP_TENANT_NAME"] = "K-Comms Development"
+    $values["BOOTSTRAP_TENANT_SLUG"] = "k-comms-development"
+    $values["BOOTSTRAP_OWNER_DISPLAY_NAME"] = "Instant Room Owner"
+    $values["BOOTSTRAP_OWNER_EMAIL"] = "instant-room-owner@k-comms.local"
     $values
 }
 
@@ -882,7 +900,8 @@ function Wait-Application {
         [Parameter(Mandatory)][int]$ExpectedAppPort,
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitPort,
-        [switch]$RequireGuestLinks
+        [switch]$RequireGuestLinks,
+        [switch]$RequireInstantRooms
     )
 
     $baseUri = "http://127.0.0.1:$ExpectedAppPort"
@@ -898,13 +917,117 @@ function Wait-Application {
     $status = Invoke-RestMethod -Uri "$baseUri/api/v1/status" -TimeoutSec 10
     Assert-ApplicationCapabilities `
         -Status $status `
-        -RequireGuestLinks:$RequireGuestLinks
+        -RequireGuestLinks:$RequireGuestLinks `
+        -RequireInstantRooms:$RequireInstantRooms
+}
+
+function Test-InstantRoomTenantExists {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$TenantSlug,
+        [Parameter(Mandatory)][string]$DatabaseUser,
+        [Parameter(Mandatory)][string]$DatabaseName
+    )
+
+    if ($TenantSlug -notmatch "^[a-z0-9]+(?:-[a-z0-9]+)*$") {
+        throw "Local instant-room tenant slug is malformed"
+    }
+
+    $query =
+        "SELECT 1 FROM tenants " +
+        "WHERE slug = '$TenantSlug' AND status = 'active' LIMIT 1"
+    $result = Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @(
+            "exec", "-T", "postgres",
+            "psql", "-U", $DatabaseUser, "-d", $DatabaseName,
+            "-tA", "-c", $query
+        ) `
+        -AllowFailure
+
+    $result.ExitCode -eq 0 -and $result.Output.Trim() -eq "1"
+}
+
+function Ensure-InstantRoomTenant {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][int]$ExpectedAppPort,
+        [Parameter(Mandatory)][Collections.IDictionary]$ReleaseEnvironment
+    )
+
+    if ([string]$ReleaseEnvironment["INSTANT_ROOMS_ENABLED"] -ne "true") {
+        return
+    }
+
+    $tenantSlug = [string]$ReleaseEnvironment["INSTANT_ROOM_TENANT_SLUG"]
+    $databaseUser = [string]$ReleaseEnvironment["POSTGRES_USER"]
+    $databaseName = [string]$ReleaseEnvironment["POSTGRES_DB"]
+
+    $exists = Test-InstantRoomTenantExists `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -TenantSlug $tenantSlug `
+        -DatabaseUser $databaseUser `
+        -DatabaseName $databaseName
+    if ($exists) {
+        return
+    }
+
+    $password = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_PASSWORD"]
+    if ([string]::IsNullOrWhiteSpace($password) -or $password.Length -lt 32) {
+        throw "Local instant-room tenant bootstrap password is missing or too short"
+    }
+
+    $payload = [ordered]@{
+        tenant_name = [string]$ReleaseEnvironment["BOOTSTRAP_TENANT_NAME"]
+        tenant_slug = $tenantSlug
+        display_name = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_DISPLAY_NAME"]
+        email = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_EMAIL"]
+        password = $password
+        device_name = "Local release bootstrap"
+        device_platform = "release"
+    } | ConvertTo-Json -Compress
+
+    try {
+        $null = Invoke-RestMethod `
+            -Method Post `
+            -Uri "http://127.0.0.1:$ExpectedAppPort/api/v1/bootstrap" `
+            -ContentType "application/json" `
+            -Body $payload `
+            -TimeoutSec 30
+    }
+    catch {
+        # A concurrent deployment may have created the fixed tenant after the
+        # preflight query. The authoritative postcondition below decides.
+    }
+
+    $exists = Test-InstantRoomTenantExists `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -TenantSlug $tenantSlug `
+        -DatabaseUser $databaseUser `
+        -DatabaseName $databaseName
+    if (-not $exists) {
+        throw (
+            "Local instant-room tenant bootstrap failed for configured slug " +
+            "'$tenantSlug'; no active tenant was persisted"
+        )
+    }
 }
 
 function Assert-ApplicationCapabilities {
     param(
         [Parameter(Mandatory)]$Status,
-        [switch]$RequireGuestLinks
+        [switch]$RequireGuestLinks,
+        [switch]$RequireInstantRooms
     )
 
     $capabilitiesProperty = $Status.PSObject.Properties["capabilities"]
@@ -926,6 +1049,13 @@ function Assert-ApplicationCapabilities {
             throw "Candidate K-Comms status does not report guest links as available"
         }
     }
+
+    if ($RequireInstantRooms) {
+        $instantRooms = $capabilities.PSObject.Properties["instant_rooms"]
+        if ($null -eq $instantRooms -or $instantRooms.Value -ne $true) {
+            throw "Candidate K-Comms status does not report instant rooms as available"
+        }
+    }
 }
 
 function Invoke-CapabilityCompatibilitySelfTest {
@@ -941,7 +1071,8 @@ function Invoke-CapabilityCompatibilitySelfTest {
     try {
         Assert-ApplicationCapabilities `
             -Status $predecessor `
-            -RequireGuestLinks
+            -RequireGuestLinks `
+            -RequireInstantRooms
     }
     catch {
         $candidateRequirementRejected = $true
@@ -955,9 +1086,14 @@ function Invoke-CapabilityCompatibilitySelfTest {
             audio_calls = $true
             video_calls = $true
             guest_links = $true
+            instant_rooms = $true
         }
     }
     Assert-ApplicationCapabilities -Status $candidate -RequireGuestLinks
+    Assert-ApplicationCapabilities `
+        -Status $candidate `
+        -RequireGuestLinks `
+        -RequireInstantRooms
 }
 
 function Test-ReceiptSupportsGuestRollback {
@@ -971,7 +1107,11 @@ function Test-ReceiptSupportsGuestRollback {
     $capabilities = @($property.Value | ForEach-Object { [string]$_ })
     (
         $capabilities -contains "guest_identity_v1" -and
-        $capabilities -contains "guest_admission_expiry_worker_v1"
+        $capabilities -contains "guest_admission_expiry_worker_v1" -and
+        $capabilities -contains "instant_room_lifecycle_v1" -and
+        $capabilities -contains "instant_room_presence_lease_v1" -and
+        $capabilities -contains "instant_room_expiry_worker_v1" -and
+        $capabilities -contains "conversation_only_human_v1"
     )
 }
 
@@ -981,12 +1121,58 @@ function Assert-GuestRollbackCompatibility {
         [ValidateRange(0, [long]::MaxValue)]
         [long]$GuestUsers,
         [ValidateRange(0, [long]::MaxValue)]
-        [long]$ActiveGuestExpiryJobs
+        [long]$ActiveGuestExpiryJobs,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$EphemeralRooms = 0,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$EphemeralJoinReceipts = 0,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$EphemeralPresenceLeases = 0,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$ConversationOnlyHumans = 0,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$ActiveEphemeralRoomJobs = 0
     )
 
-    $targetCompatible =
-        Test-ReceiptSupportsGuestRollback -Receipt $TargetReceipt
-    if ($targetCompatible -or ($GuestUsers -eq 0 -and $ActiveGuestExpiryJobs -eq 0)) {
+    $capabilitiesProperty = $TargetReceipt.PSObject.Properties["rollbackCapabilities"]
+    $capabilities = if ($null -eq $capabilitiesProperty) {
+        @()
+    }
+    else {
+        @($capabilitiesProperty.Value | ForEach-Object { [string]$_ })
+    }
+    $unsupported = @(
+        @(
+            [PSCustomObject]@{
+                Name = "guest_identity_v1"
+                Count = $GuestUsers
+            }
+            [PSCustomObject]@{
+                Name = "guest_admission_expiry_worker_v1"
+                Count = $ActiveGuestExpiryJobs
+            }
+            [PSCustomObject]@{
+                Name = "instant_room_lifecycle_v1"
+                Count = $EphemeralRooms + $EphemeralJoinReceipts
+            }
+            [PSCustomObject]@{
+                Name = "instant_room_presence_lease_v1"
+                Count = $EphemeralPresenceLeases
+            }
+            [PSCustomObject]@{
+                Name = "conversation_only_human_v1"
+                Count = $ConversationOnlyHumans
+            }
+            [PSCustomObject]@{
+                Name = "instant_room_expiry_worker_v1"
+                Count = $ActiveEphemeralRoomJobs
+            }
+        ) | Where-Object {
+            $_.Count -gt 0 -and $capabilities -notcontains $_.Name
+        }
+    )
+
+    if ($unsupported.Count -eq 0) {
         return
     }
 
@@ -997,13 +1183,19 @@ function Assert-GuestRollbackCompatibility {
     else {
         "unknown"
     }
+    $missingCapabilities =
+        @($unsupported | ForEach-Object { $_.Name }) -join ", "
     throw (
         "Legacy release activation blocked after quiescing the current application. " +
-        "Retained revision $revision " +
-        "does not declare guest identity and guest expiry-worker compatibility, while " +
-        "PostgreSQL contains $GuestUsers persisted guest user row(s) and " +
-        "$ActiveGuestExpiryJobs active guest expiry job(s). Retain or deploy a " +
-        "guest-compatible bridge release, or roll forward. No guest data was changed."
+        "Retained revision $revision lacks $missingCapabilities while PostgreSQL contains " +
+        "guest_users=$GuestUsers, active_guest_expiry_jobs=$ActiveGuestExpiryJobs, " +
+        "ephemeral_rooms=$EphemeralRooms, " +
+        "ephemeral_join_receipts=$EphemeralJoinReceipts, " +
+        "ephemeral_presence_leases=$EphemeralPresenceLeases, " +
+        "conversation_only_humans=$ConversationOnlyHumans, " +
+        "active_ephemeral_room_jobs=$ActiveEphemeralRoomJobs. Retain or deploy a " +
+        "communication-compatible bridge release, or roll forward. No communication " +
+        "data was changed."
     )
 }
 
@@ -1043,12 +1235,95 @@ function Get-GuestRollbackHazards {
     param([Parameter(Mandatory)]$CurrentReceipt)
 
     $environment = Read-EnvironmentFile -Path $CurrentReceipt.environmentFile
-    $query = (
-        "SELECT (SELECT count(*) FROM users WHERE account_type = 'guest')::text " +
-        "|| '|' || (SELECT count(*) FROM oban_jobs " +
-        "WHERE worker = 'CommsWorkers.GuestAdmissionExpiryWorker' " +
-        "AND state IN ('available', 'scheduled', 'executing', 'retryable'))::text;"
-    )
+    # The incomplete Oban group contains ('available', 'scheduled', 'executing', 'retryable')
+    # plus the suspended state introduced by newer Oban releases.
+    $query = @'
+CREATE TEMP TABLE k_comms_communication_rollback_probe (
+  guest_users bigint NOT NULL,
+  guest_jobs bigint NOT NULL,
+  ephemeral_rooms bigint NOT NULL,
+  ephemeral_join_receipts bigint NOT NULL,
+  ephemeral_leases bigint NOT NULL,
+  conversation_only_humans bigint NOT NULL,
+  ephemeral_jobs bigint NOT NULL
+);
+DO $k_comms$
+DECLARE
+  guest_users bigint := 0;
+  guest_jobs bigint := 0;
+  ephemeral_rooms bigint := 0;
+  ephemeral_join_receipts bigint := 0;
+  ephemeral_leases bigint := 0;
+  conversation_only_humans bigint := 0;
+  ephemeral_jobs bigint := 0;
+BEGIN
+  IF to_regclass('public.users') IS NOT NULL THEN
+    EXECUTE $probe$SELECT count(*) FROM users WHERE account_type = 'guest'$probe$
+      INTO guest_users;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'users'
+        AND column_name = 'access_scope'
+    ) THEN
+      EXECUTE
+        'SELECT count(*) FROM users ' ||
+        'WHERE account_type = ''human'' AND access_scope = ''conversation_only'''
+        INTO conversation_only_humans;
+    END IF;
+  END IF;
+
+  IF to_regclass('public.oban_jobs') IS NOT NULL THEN
+    EXECUTE $probe$
+      SELECT count(*)
+      FROM oban_jobs
+      WHERE worker = 'CommsWorkers.GuestAdmissionExpiryWorker'
+        AND state IN ('available', 'scheduled', 'executing', 'retryable', 'suspended')
+    $probe$
+      INTO guest_jobs;
+    EXECUTE
+      'SELECT count(*) FROM oban_jobs ' ||
+      'WHERE worker IN (''CommsWorkers.EphemeralRoomLifecycleWorker'', ' ||
+      '''CommsWorkers.EphemeralRoomReconcilerWorker'') ' ||
+      'AND state IN (''available'', ''scheduled'', ''executing'', ''retryable'', ''suspended'')'
+      INTO ephemeral_jobs;
+  END IF;
+
+  IF to_regclass('public.conversation_ephemeral_rooms') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM conversation_ephemeral_rooms'
+      INTO ephemeral_rooms;
+  END IF;
+
+  IF to_regclass('public.conversation_ephemeral_join_receipts') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM conversation_ephemeral_join_receipts'
+      INTO ephemeral_join_receipts;
+  END IF;
+
+  IF to_regclass('public.conversation_ephemeral_presence_leases') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM conversation_ephemeral_presence_leases'
+      INTO ephemeral_leases;
+  END IF;
+
+  INSERT INTO k_comms_communication_rollback_probe
+  VALUES (
+    guest_users,
+    guest_jobs,
+    ephemeral_rooms,
+    ephemeral_join_receipts,
+    ephemeral_leases,
+    conversation_only_humans,
+    ephemeral_jobs
+  );
+END;
+$k_comms$;
+SELECT guest_users::text || '|' || guest_jobs::text || '|' ||
+       ephemeral_rooms::text || '|' || ephemeral_join_receipts::text || '|' ||
+       ephemeral_leases::text || '|' || conversation_only_humans::text || '|' ||
+       ephemeral_jobs::text
+FROM k_comms_communication_rollback_probe;
+'@
 
     Invoke-Compose `
         -EnvironmentFile $CurrentReceipt.environmentFile `
@@ -1074,7 +1349,9 @@ function Get-GuestRollbackHazards {
 
     $match = [Regex]::Match(
         $probe.Output,
-        "(?m)^\s*(?<guestUsers>\d+)\|(?<guestJobs>\d+)\s*$"
+        "(?m)^\s*(?<guestUsers>\d+)\|(?<guestJobs>\d+)\|" +
+        "(?<rooms>\d+)\|(?<joinReceipts>\d+)\|(?<leases>\d+)\|" +
+        "(?<humans>\d+)\|(?<roomJobs>\d+)\s*$"
     )
     if (-not $match.Success) {
         throw "Could not parse the guest rollback compatibility probe"
@@ -1083,6 +1360,11 @@ function Get-GuestRollbackHazards {
     [PSCustomObject]@{
         GuestUsers = [long]$match.Groups["guestUsers"].Value
         ActiveGuestExpiryJobs = [long]$match.Groups["guestJobs"].Value
+        EphemeralRooms = [long]$match.Groups["rooms"].Value
+        EphemeralJoinReceipts = [long]$match.Groups["joinReceipts"].Value
+        EphemeralPresenceLeases = [long]$match.Groups["leases"].Value
+        ConversationOnlyHumans = [long]$match.Groups["humans"].Value
+        ActiveEphemeralRoomJobs = [long]$match.Groups["roomJobs"].Value
     }
 }
 
@@ -1118,7 +1400,12 @@ function Assert-GuestRollbackSafe {
         Assert-GuestRollbackCompatibility `
             -TargetReceipt $TargetReceipt `
             -GuestUsers $hazards.GuestUsers `
-            -ActiveGuestExpiryJobs $hazards.ActiveGuestExpiryJobs
+            -ActiveGuestExpiryJobs $hazards.ActiveGuestExpiryJobs `
+            -EphemeralRooms $hazards.EphemeralRooms `
+            -EphemeralJoinReceipts $hazards.EphemeralJoinReceipts `
+            -EphemeralPresenceLeases $hazards.EphemeralPresenceLeases `
+            -ConversationOnlyHumans $hazards.ConversationOnlyHumans `
+            -ActiveEphemeralRoomJobs $hazards.ActiveEphemeralRoomJobs
     }
     catch {
         $preflightError = $_
@@ -1216,7 +1503,11 @@ function Invoke-GuestRollbackCompatibilitySelfTest {
         revision = "compatible"
         rollbackCapabilities = @(
             "guest_identity_v1",
-            "guest_admission_expiry_worker_v1"
+            "guest_admission_expiry_worker_v1",
+            "instant_room_lifecycle_v1",
+            "instant_room_presence_lease_v1",
+            "instant_room_expiry_worker_v1",
+            "conversation_only_human_v1"
         )
     }
 
@@ -1230,21 +1521,87 @@ function Invoke-GuestRollbackCompatibilitySelfTest {
         -ActiveGuestExpiryJobs 1
 
     foreach ($hazard in @(
-        [PSCustomObject]@{ GuestUsers = 1; ActiveGuestExpiryJobs = 0 },
-        [PSCustomObject]@{ GuestUsers = 0; ActiveGuestExpiryJobs = 1 }
+        [PSCustomObject]@{
+            GuestUsers = 1
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 1
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 1
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 1
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 1
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 1
+            ActiveEphemeralRoomJobs = 0
+        },
+        [PSCustomObject]@{
+            GuestUsers = 0
+            ActiveGuestExpiryJobs = 0
+            EphemeralRooms = 0
+            EphemeralJoinReceipts = 0
+            EphemeralPresenceLeases = 0
+            ConversationOnlyHumans = 0
+            ActiveEphemeralRoomJobs = 1
+        }
     )) {
         $legacyHazardRejected = $false
         try {
             Assert-GuestRollbackCompatibility `
                 -TargetReceipt $legacy `
                 -GuestUsers $hazard.GuestUsers `
-                -ActiveGuestExpiryJobs $hazard.ActiveGuestExpiryJobs
+                -ActiveGuestExpiryJobs $hazard.ActiveGuestExpiryJobs `
+                -EphemeralRooms $hazard.EphemeralRooms `
+                -EphemeralJoinReceipts $hazard.EphemeralJoinReceipts `
+                -EphemeralPresenceLeases $hazard.EphemeralPresenceLeases `
+                -ConversationOnlyHumans $hazard.ConversationOnlyHumans `
+                -ActiveEphemeralRoomJobs $hazard.ActiveEphemeralRoomJobs
         }
         catch {
             $legacyHazardRejected = $true
         }
         if (-not $legacyHazardRejected) {
-            throw "Guest rollback self-test accepted persisted guest state for a legacy predecessor"
+            throw "Communication rollback self-test accepted unsupported persisted state for a legacy predecessor"
         }
     }
 
@@ -1309,6 +1666,11 @@ function Invoke-GuestRollbackCompatibilitySelfTest {
                 [PSCustomObject]@{
                     GuestUsers = 1
                     ActiveGuestExpiryJobs = 0
+                    EphemeralRooms = 0
+                    EphemeralJoinReceipts = 0
+                    EphemeralPresenceLeases = 0
+                    ConversationOnlyHumans = 0
+                    ActiveEphemeralRoomJobs = 0
                 }
             } `
             -RestoreAction { $staleLegacyRestoreState.Restores++ }
@@ -1763,6 +2125,12 @@ function Restore-Release {
         -ComposeProject $Receipt.projectName `
         -ComposePath $Receipt.composeSourcePath `
         -Service "app"
+    Ensure-InstantRoomTenant `
+        -EnvironmentFile $Receipt.environmentFile `
+        -ComposeProject $Receipt.projectName `
+        -ComposePath $Receipt.composeSourcePath `
+        -ExpectedAppPort ([int]$Receipt.ports.app) `
+        -ReleaseEnvironment (Read-EnvironmentFile -Path $Receipt.environmentFile)
     Wait-Application `
         -ExpectedAppPort ([int]$Receipt.ports.app) `
         -ExpectedMinioPort ([int]$Receipt.ports.minio) `
@@ -2338,11 +2706,18 @@ function Invoke-DeployLocked {
             -ComposeProject $ProjectName `
             -ComposePath $composeSourcePath `
             -Service "app"
+        Ensure-InstantRoomTenant `
+            -EnvironmentFile $environmentFile `
+            -ComposeProject $ProjectName `
+            -ComposePath $composeSourcePath `
+            -ExpectedAppPort $AppPort `
+            -ReleaseEnvironment $releaseEnvironment
         Wait-Application `
             -ExpectedAppPort $AppPort `
             -ExpectedMinioPort $MinioPort `
             -ExpectedLiveKitPort $LiveKitSignalPort `
-            -RequireGuestLinks
+            -RequireGuestLinks `
+            -RequireInstantRooms
 
         $receipt = [ordered]@{
             schemaVersion = 3
@@ -2376,6 +2751,10 @@ function Invoke-DeployLocked {
             rollbackCapabilities = @(
                 "guest_identity_v1"
                 "guest_admission_expiry_worker_v1"
+                "instant_room_lifecycle_v1"
+                "instant_room_presence_lease_v1"
+                "instant_room_expiry_worker_v1"
+                "conversation_only_human_v1"
             )
             ports = [ordered]@{
                 app = $AppPort

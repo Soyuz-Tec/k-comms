@@ -71,6 +71,42 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "service 'app' must use only the internal livekit:7880 API origin", errors
         )
 
+    def test_requires_bounded_instant_room_environment(self) -> None:
+        document = copy.deepcopy(self.compose)
+        document["services"]["app"]["environment"].pop(
+            "INSTANT_ROOM_PRESENCE_LEASE_SECONDS"
+        )
+        errors = validate_local_release(document, self.runner)
+        self.assertIn(
+            "service 'app' must set INSTANT_ROOM_PRESENCE_LEASE_SECONDS="
+            "${INSTANT_ROOM_PRESENCE_LEASE_SECONDS:-90} for bounded "
+            "instant-room qualification",
+            errors,
+        )
+
+    def test_requires_instant_room_bootstrap_and_candidate_capability(self) -> None:
+        missing_capability = self.runner.replace(
+            '$instantRooms = $capabilities.PSObject.Properties["instant_rooms"]',
+            '$instantRooms = $capabilities.PSObject.Properties["removed"]',
+        )
+        errors = validate_local_release(self.compose, missing_capability)
+        self.assertIn(
+            "candidate health checks must support explicit instant-rooms "
+            "capability enforcement",
+            errors,
+        )
+
+        missing_bootstrap = self.runner.replace(
+            "    Ensure-InstantRoomTenant `",
+            "    Write-Warning 'instant-room bootstrap removed' `",
+        )
+        errors = validate_local_release(self.compose, missing_bootstrap)
+        self.assertIn(
+            "local release must bootstrap and verify the fixed instant-room tenant "
+            "before candidate or restored-release capability checks",
+            errors,
+        )
+
     def test_rejects_incomplete_livekit_media_port_configuration(self) -> None:
         document = copy.deepcopy(self.compose)
         document["services"]["livekit"]["command"] = [
@@ -440,6 +476,42 @@ class LocalReleasePolicyTest(unittest.TestCase):
         errors = validate_local_release(self.compose, missing_self_test)
         self.assertIn(
             "release validation must exercise guest rollback compatibility self-tests",
+            errors,
+        )
+
+    def test_requires_instant_room_rollback_compatibility_guard(self) -> None:
+        missing_capability = self.runner.replace(
+            '"instant_room_lifecycle_v1"',
+            '"removed_instant_room_lifecycle_v1"',
+        )
+        errors = validate_local_release(self.compose, missing_capability)
+        self.assertIn(
+            "release receipts and rollback guard must declare every instant-room "
+            "persistence and worker compatibility capability",
+            errors,
+        )
+
+        missing_room_probe = self.runner.replace(
+            "conversation_ephemeral_rooms",
+            "removed_ephemeral_rooms",
+        )
+        errors = validate_local_release(self.compose, missing_room_probe)
+        self.assertIn(
+            "communication rollback preflight must fail-safely query instant rooms, "
+            "join receipts, presence leases, conversation-only humans, and active "
+            "lifecycle jobs",
+            errors,
+        )
+
+        missing_receipt_probe = self.runner.replace(
+            "conversation_ephemeral_join_receipts",
+            "removed_ephemeral_join_receipts",
+        )
+        errors = validate_local_release(self.compose, missing_receipt_probe)
+        self.assertIn(
+            "communication rollback preflight must fail-safely query instant rooms, "
+            "join receipts, presence leases, conversation-only humans, and active "
+            "lifecycle jobs",
             errors,
         )
 

@@ -133,6 +133,7 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
     assert session["admission"]["history_from_sequence"] >
              old_message["data"]["conversation_sequence"]
 
+    assert session["capabilities"]["self_service_conversion"] == false
     assert is_binary(session["access_token"])
     assert is_binary(session["refresh_token"])
 
@@ -262,6 +263,7 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
     assert refreshed["conversation"]["id"] == conversation_id
     assert refreshed["user"]["id"] == session["user"]["id"]
     assert refreshed["admission"]["guest_link_id"] == link["data"]["id"]
+    assert refreshed["capabilities"]["self_service_conversion"] == false
     assert is_binary(refreshed["access_token"])
     assert refreshed["refresh_token"] != session["refresh_token"]
 

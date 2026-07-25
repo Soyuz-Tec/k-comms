@@ -110,7 +110,7 @@ test.describe("authenticated mobile web acceptance", () => {
         capabilities: { bootstrap: false }
       }));
 
-      await page.goto("/app/");
+      await page.goto("/sign-in");
       const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
       const workspace = page.getByRole("textbox", { name: "Workspace address" });
       const submit = page.getByRole("button", { name: "Sign in" });
@@ -148,7 +148,7 @@ test.describe("authenticated mobile web acceptance", () => {
       capabilities: { bootstrap: true }
     }));
 
-    await page.goto("/app/");
+    await page.goto("/sign-in");
     const actions = page.getByRole("group", { name: "Other ways to continue" });
     const invitation = actions.getByRole("button", { name: "Use invitation code" });
     const setup = actions.getByRole("button", { name: "Create workspace" });
