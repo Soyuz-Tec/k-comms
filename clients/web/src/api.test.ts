@@ -3,7 +3,8 @@ import {
   ApiClient,
   downloadUrl,
   GuestApiClient,
-  isApprovedPrivateLanObjectUrl
+  isApprovedPrivateLanObjectUrl,
+  sha256
 } from "./api";
 import type { GuestSession, Session } from "./types";
 
@@ -19,6 +20,18 @@ const session: Session = {
 };
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("attachment checksums", () => {
+  it("hashes uploads when SubtleCrypto is unavailable on plain LAN HTTP", async () => {
+    vi.stubGlobal("crypto", {});
+
+    await expect(
+      sha256(new File(["abc"], "known-vector.txt", { type: "text/plain" }))
+    ).resolves.toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+  });
+});
 
 describe("ApiClient session refresh", () => {
   it("keeps the local session when refresh infrastructure is temporarily unavailable", async () => {

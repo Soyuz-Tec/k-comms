@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   beginNewInstantRoomVisit,
   instantRoomIdempotencyKey,
@@ -12,6 +12,8 @@ describe("instant-room idempotency keys", () => {
     window.sessionStorage.clear();
     vi.restoreAllMocks();
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it("creates a URL-safe 256-bit key and reuses it in the same tab", () => {
     const first = instantRoomIdempotencyKey();
@@ -89,5 +91,25 @@ describe("instant-room idempotency keys", () => {
     expect(
       await instantRoomJoinIdempotencyKey("secret-fragment-token", "guest")
     ).toBe(rotated);
+  });
+
+  it("persists the token digest without SubtleCrypto on plain LAN HTTP", async () => {
+    const browserCrypto = globalThis.crypto;
+    vi.stubGlobal("crypto", {
+      getRandomValues: browserCrypto.getRandomValues.bind(browserCrypto)
+    });
+
+    await instantRoomJoinIdempotencyKey("secret-fragment-token", "guest");
+
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem(
+          "k-comms.instant-room.join-idempotency.v1"
+        ) || "{}"
+      )
+    ).toMatchObject({
+      token_digest: "r5jEpiqsriwx7K0yY7Rsa5xnu7zYI9Lf7wIrfT1_DdE",
+      mode: "guest"
+    });
   });
 });

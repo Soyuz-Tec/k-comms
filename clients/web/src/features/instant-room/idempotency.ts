@@ -1,3 +1,5 @@
+import { sha256Base64Url as hashSha256Base64Url } from "../../lib/sha256";
+
 const instantRoomVisitKey = "k-comms.instant-room.idempotency.v1";
 const instantRoomJoinKey = "k-comms.instant-room.join-idempotency.v1";
 const encodedKeyPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -92,16 +94,5 @@ function persistInstantRoomJoinKey(
 }
 
 async function sha256Base64Url(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value)
-  );
-  const binary = Array.from(
-    new Uint8Array(digest),
-    (byte) => String.fromCharCode(byte)
-  ).join("");
-  return globalThis.btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
+  return hashSha256Base64Url(new TextEncoder().encode(value));
 }

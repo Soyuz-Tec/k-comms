@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -17,6 +18,8 @@ from validate_local_release import (
     validate_local_release,
     validate_paths,
 )
+
+WINDOWS_POWERSHELL = shutil.which("powershell.exe")
 
 
 class LocalReleasePolicyTest(unittest.TestCase):
@@ -264,6 +267,10 @@ class LocalReleasePolicyTest(unittest.TestCase):
                     validate_local_release(self.compose, runner),
                 )
 
+    @unittest.skipUnless(
+        WINDOWS_POWERSHELL,
+        "Windows PowerShell is required for this runtime self-test",
+    )
     def test_compose_environment_seal_blocks_ambient_overrides_at_runtime(
         self,
     ) -> None:
@@ -407,7 +414,7 @@ Write-Output "sealed Compose environment runtime self-test passed"
             )
             result = subprocess.run(
                 [
-                    "powershell.exe",
+                    WINDOWS_POWERSHELL,
                     "-NoProfile",
                     "-ExecutionPolicy",
                     "Bypass",
@@ -670,6 +677,10 @@ Write-Output "sealed Compose environment runtime self-test passed"
                     validate_local_release(self.compose, runner),
                 )
 
+    @unittest.skipUnless(
+        WINDOWS_POWERSHELL,
+        "Windows PowerShell is required for this runtime self-test",
+    )
     def test_forwarder_command_identity_rejects_decoy_arguments_at_runtime(
         self,
     ) -> None:
@@ -750,7 +761,7 @@ Write-Output "strict forwarder command identity runtime self-test passed"
             )
             result = subprocess.run(
                 [
-                    "powershell.exe",
+                    WINDOWS_POWERSHELL,
                     "-NoProfile",
                     "-ExecutionPolicy",
                     "Bypass",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { sha256Hex } from "../../lib/sha256";
 
 export function QrCode({
   value,
@@ -64,12 +65,5 @@ export function QrCode({
 }
 
 export async function qrValueFingerprint(value: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value)
-  );
-  const hexadecimal = Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-  return `sha256:${hexadecimal}`;
+  return `sha256:${await sha256Hex(new TextEncoder().encode(value))}`;
 }
