@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("admin exports filtered audit evidence and selects governance targets by name", async ({ page }) => {
   const session = {

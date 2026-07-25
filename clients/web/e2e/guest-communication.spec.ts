@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 import { createHash } from "node:crypto";
 
@@ -326,24 +326,12 @@ async function installGuestCommunicationFixture(
     }
 
     if (method === "GET" && path === "/api/v1/status") {
-      return json(route, {
-        service: "k-comms",
-        version: "0.3.0",
-        status: "operational",
-        node: "guest-e2e@node",
-        capabilities: {
-          administration: true,
-          audio_calls: false,
-          video_calls: false,
-          attachment_scanning: true,
-          bootstrap: false,
-          guest_links: true,
-          notifications: true,
-          push_notifications: false,
-          realtime: false,
-          webhooks: true
-        }
-      });
+      return json(route, mockServiceStatus({
+        audio_calls: false,
+        video_calls: false,
+        push_notifications: false,
+        realtime: false
+      }));
     }
     if (method === "POST" && path === "/api/v1/instant-rooms/preview") {
       // GuestAccessPage probes the new instant-room contract first because

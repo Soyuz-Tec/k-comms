@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Locator, Page, Route } from "@playwright/test";
 
 const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -102,13 +102,9 @@ test.describe("authenticated mobile web acceptance", () => {
   ]) {
     test(`phone sign-in exposes one complete task at ${viewport.width}px`, async ({ page }) => {
       await page.setViewportSize(viewport);
-      await page.route("**/api/v1/status", (route) => json(route, {
-        service: "k-comms",
-        version: "0.3.0",
-        status: "operational",
-        node: "mobile-test@node",
-        capabilities: { bootstrap: false }
-      }));
+      await page.route("**/api/v1/status", (route) =>
+        json(route, mockServiceStatus())
+      );
 
       await page.goto("/sign-in");
       const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
@@ -140,13 +136,9 @@ test.describe("authenticated mobile web acceptance", () => {
       }
     });
     await page.setViewportSize({ width: 320, height: 720 });
-    await page.route("**/api/v1/status", (route) => json(route, {
-      service: "k-comms",
-      version: "0.3.0",
-      status: "operational",
-      node: "mobile-test@node",
-      capabilities: { bootstrap: true }
-    }));
+    await page.route("**/api/v1/status", (route) =>
+      json(route, mockServiceStatus({ bootstrap: true }))
+    );
 
     await page.goto("/sign-in");
     const actions = page.getByRole("group", { name: "Other ways to continue" });
@@ -287,23 +279,10 @@ async function installWorkspace(page: Page) {
       return json(route, { tenant: session.tenant, user: session.user, device: session.device, capabilities });
     }
     if (method === "GET" && path === "/api/v1/status") {
-      return json(route, {
-        service: "k-comms",
-        version: "0.3.0",
-        status: "operational",
-        node: "mobile-test@node",
-        capabilities: {
-          administration: true,
-          audio_calls: true,
-          video_calls: true,
-          attachment_scanning: true,
-          bootstrap: false,
-          notifications: true,
-          push_notifications: false,
-          realtime: false,
-          webhooks: true
-        }
-      });
+      return json(route, mockServiceStatus({
+        push_notifications: false,
+        realtime: false
+      }));
     }
     if (method === "GET" && path === "/api/v1/users") return json(route, { data: [session.user] });
     if (method === "GET" && path === "/api/v1/conversations") return json(route, { data: [conversation] });

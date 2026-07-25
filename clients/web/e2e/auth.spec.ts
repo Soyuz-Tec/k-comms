@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 
 test("production capability keeps the default page focused on sign-in", async ({ page }) => {
@@ -8,7 +8,9 @@ test("production capability keeps the default page focused on sign-in", async ({
   await page.goto("/sign-in");
 
   const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+  const workspace = page.getByLabel("Workspace address");
   await expect(heading).toBeVisible();
+  await expect(workspace).toBeEnabled();
   await expect(heading).toBeFocused();
   await expect.poll(() => heading.evaluate((element) =>
     window.getComputedStyle(element).outlineStyle
@@ -19,7 +21,12 @@ test("production capability keeps the default page focused on sign-in", async ({
   await expect(page.getByRole("button", { name: "Create workspace" })).toHaveCount(0);
 
   await page.keyboard.press("Tab");
-  const workspace = page.getByLabel("Workspace address");
+  if (!(await workspace.evaluate((element) => element === document.activeElement))) {
+    await expect(
+      page.getByRole("link", { name: /Start an instant room/ })
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+  }
   await expect(workspace).toBeFocused();
   await expect.poll(() => workspace.evaluate((element) => {
     const style = window.getComputedStyle(element);
@@ -241,21 +248,7 @@ async function installAuthApi(
 }
 
 function serviceStatus(bootstrap: boolean) {
-  return {
-    service: "k-comms",
-    version: "0.3.0",
-    status: "operational",
-    capabilities: {
-      administration: true,
-      attachment_scanning: true,
-      audio_calls: true,
-      bootstrap,
-      notifications: true,
-      realtime: false,
-      video_calls: true,
-      webhooks: true
-    }
-  };
+  return mockServiceStatus({ bootstrap });
 }
 
 function json(route: Route, body: unknown, status = 200) {

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 
 const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -126,6 +126,9 @@ async function installInstantRoomFixture(page: Page) {
     const path = new URL(request.url()).pathname;
     const method = request.method();
 
+    if (method === "GET" && path === "/api/v1/status") {
+      return json(route, mockServiceStatus());
+    }
     if (method === "POST" && path === "/api/v1/instant-rooms") {
       createRequests.push(request.postDataJSON());
       idempotencyKeys.push(request.headers()["idempotency-key"] || "");

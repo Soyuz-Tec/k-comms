@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 type Role = "member" | "moderator" | "compliance_admin" | "security_admin" | "owner";

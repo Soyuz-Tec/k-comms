@@ -1,8 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 async function openPublicRoute(page: Page, path: string) {
-  await page.route("**/api/v1/status", (route) => route.fulfill({ json: { service: "k-comms", version: "0.3.0", status: "operational", capabilities: { bootstrap: false } } }));
+  await page.route("**/api/v1/status", (route) =>
+    route.fulfill({ json: mockServiceStatus() })
+  );
   await page.goto("/sign-in");
   await page.evaluate((nextPath) => {
     window.history.pushState({}, "", nextPath);
@@ -40,8 +42,11 @@ test("reset token is scrubbed before interaction and never persisted", async ({ 
   await expect(page).toHaveURL(/utm_source=email/);
   await expect(page).not.toHaveURL(/token=/);
   await expect(page).toHaveURL(/campaign=spring/);
-  await expect(page.getByLabel("New password", { exact: true })).toBeFocused();
-  await page.getByLabel("New password", { exact: true }).fill("correct horse battery staple");
+  const password = page.getByLabel("New password", { exact: true });
+  await expect(password).toBeEnabled();
+  await page.keyboard.press("Tab");
+  await expect(password).toBeFocused();
+  await password.fill("correct horse battery staple");
   await page.getByLabel("Confirm new password", { exact: true }).fill("correct horse battery staple");
   await page.getByRole("button", { name: "Update password" }).click();
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 
 const session = {
   access_token: "access-token",
@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [] } }));
-  await page.route("**/api/v1/status", (route) => route.fulfill({ json: { service: "k-comms", version: "0.3.0", status: "operational", node: "test@node" } }));
+  await page.route("**/api/v1/status", (route) => route.fulfill({ json: mockServiceStatus() }));
   await page.route("**/health/ready", (route) => route.fulfill({ json: { status: "ready" } }));
   await page.route("**/api/v1/admin/tenant", (route) => route.fulfill({ json: { data: tenantAdministration() } }));
   await page.route("**/api/v1/admin/invitations", (route) => route.fulfill({ json: { data: [] } }));

@@ -1,4 +1,4 @@
-import { expect as baseExpect, test } from "@playwright/test";
+import { expect as baseExpect, mockServiceStatus, test } from "./fixtures";
 import type { Locator, Page, Route } from "@playwright/test";
 
 const expect = baseExpect.configure({ timeout: 12_000 });
@@ -312,23 +312,10 @@ async function installWorkspace(
       });
     }
     if (method === "GET" && path === "/api/v1/status") {
-      return json(route, {
-        service: "k-comms",
-        version: "0.3.0",
-        status: "operational",
-        node: "ia-test@node",
-        capabilities: {
-          administration: true,
-          audio_calls: true,
-          video_calls: true,
-          attachment_scanning: true,
-          bootstrap: false,
-          notifications: true,
-          push_notifications: false,
-          realtime: false,
-          webhooks: true
-        }
-      });
+      return json(route, mockServiceStatus({
+        push_notifications: false,
+        realtime: false
+      }));
     }
     if (method === "GET" && path === "/api/v1/users") {
       return json(route, {

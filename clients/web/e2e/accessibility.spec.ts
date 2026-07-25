@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 const session = {
@@ -98,12 +98,7 @@ test("invitation acceptance satisfies automated WCAG A and AA checks", async ({ 
 
 test("workspace setup satisfies automated WCAG A and AA checks", async ({ page }) => {
   await page.route("**/api/v1/status", (route) => route.fulfill({
-    json: {
-      service: "k-comms",
-      version: "0.3.0",
-      status: "operational",
-      capabilities: { bootstrap: true }
-    }
+    json: mockServiceStatus({ bootstrap: true })
   }));
   await page.goto("/app/?setup=workspace");
   await expect(page.getByRole("button", { name: "Create workspace" })).toBeVisible();
@@ -280,23 +275,10 @@ async function installAuthenticatedMocks(
     }
   }));
   await page.route("**/api/v1/status", (route) => route.fulfill({
-    json: {
-      service: "k-comms",
-      version: "0.3.0",
-      status: "operational",
-      node: "accessibility-test@node",
-      capabilities: {
-        administration: true,
-        audio_calls: true,
-        video_calls: true,
-        attachment_scanning: true,
-        bootstrap: false,
-        notifications: true,
-        push_notifications: false,
-        realtime: false,
-        webhooks: true
-      }
-    }
+    json: mockServiceStatus({
+      push_notifications: false,
+      realtime: false
+    })
   }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
   await page.route("**/api/v1/directory/users**", (route) => route.fulfill({
