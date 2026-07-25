@@ -291,6 +291,9 @@ def validate_local_release(
         "K_COMMS_QUALIFICATION_CONFIRMATION": (
             "${K_COMMS_QUALIFICATION_CONFIRMATION:-}"
         ),
+        "K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION": (
+            "${K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION:-}"
+        ),
     }
     for name, expected in expected_qualification_environment.items():
         if str(qualification_environment.get(name, "")) != expected:

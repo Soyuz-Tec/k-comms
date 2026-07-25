@@ -105,6 +105,9 @@ class LocalReleasePolicyTest(unittest.TestCase):
         document["services"]["qualification"]["environment"][
             "K_COMMS_RUNTIME_PURPOSE"
         ] = "application"
+        document["services"]["qualification"]["environment"].pop(
+            "K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION"
+        )
         document["services"]["qualification"]["ports"] = ["127.0.0.1:4999:4000"]
 
         errors = validate_local_release(document, self.runner)
@@ -117,6 +120,15 @@ class LocalReleasePolicyTest(unittest.TestCase):
         self.assertTrue(
             any(
                 "qualification service must set K_COMMS_RUNTIME_PURPOSE=one_shot"
+                in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "qualification service must set "
+                "K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION="
+                "${K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION:-}"
                 in error
                 for error in errors
             )
