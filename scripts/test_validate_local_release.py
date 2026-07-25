@@ -96,7 +96,39 @@ class LocalReleasePolicyTest(unittest.TestCase):
             errors,
         )
 
-    def test_requires_instant_room_bootstrap_and_candidate_capability(self) -> None:
+    def test_requires_bounded_isolated_qualification_tenant_service(self) -> None:
+        document = copy.deepcopy(self.compose)
+        document["services"]["qualification"]["command"] = [
+            "eval",
+            "CommsCore.Release.bootstrap()",
+        ]
+        document["services"]["qualification"]["environment"][
+            "K_COMMS_RUNTIME_PURPOSE"
+        ] = "application"
+        document["services"]["qualification"]["ports"] = ["127.0.0.1:4999:4000"]
+
+        errors = validate_local_release(document, self.runner)
+
+        self.assertIn(
+            "qualification service must run only "
+            "CommsCore.Release.qualification_tenant()",
+            errors,
+        )
+        self.assertTrue(
+            any(
+                "qualification service must set K_COMMS_RUNTIME_PURPOSE=one_shot"
+                in error
+                for error in errors
+            )
+        )
+        self.assertIn(
+            "service 'qualification' must not publish a host port",
+            errors,
+        )
+
+    def test_requires_sealed_instant_room_provisioning_and_candidate_capability(
+        self,
+    ) -> None:
         missing_capability = self.runner.replace(
             '$instantRooms = $capabilities.PSObject.Properties["instant_rooms"]',
             '$instantRooms = $capabilities.PSObject.Properties["removed"]',
@@ -114,9 +146,57 @@ class LocalReleasePolicyTest(unittest.TestCase):
         )
         errors = validate_local_release(self.compose, missing_bootstrap)
         self.assertIn(
-            "local release must bootstrap and verify the fixed instant-room tenant "
-            "before candidate or restored-release capability checks",
+            "local release must provision and verify the fixed instant-room tenant "
+            "through the sealed one-shot release command before candidate or "
+            "restored-release capability checks",
             errors,
+        )
+
+        public_bootstrap = copy.deepcopy(self.compose)
+        public_bootstrap["services"]["app"]["environment"]["ALLOW_BOOTSTRAP"] = (
+            "${ALLOW_BOOTSTRAP:-true}"
+        )
+        public_bootstrap["services"]["bootstrap"]["environment"][
+            "ALLOW_BOOTSTRAP"
+        ] = "true"
+        public_bootstrap["services"]["bootstrap"]["command"] = [
+            "eval",
+            "CommsCore.Release.migrate()",
+        ]
+        errors = validate_local_release(public_bootstrap, self.runner)
+        self.assertIn(
+            "service 'app' must default the public bootstrap endpoint to disabled",
+            errors,
+        )
+        self.assertIn(
+            "bootstrap service must run only CommsCore.Release.bootstrap()",
+            errors,
+        )
+        self.assertTrue(
+            any(
+                "bootstrap service must set ALLOW_BOOTSTRAP=false" in error
+                for error in errors
+            )
+        )
+
+        missing_runtime_seal = self.runner.replace(
+            "        Start-SealedApplication `",
+            "        Invoke-Compose `",
+        )
+        self.assertIn(
+            "candidate deployment must activate the application through the "
+            "sealed public-bootstrap helper",
+            validate_local_release(self.compose, missing_runtime_seal),
+        )
+
+        public_bootstrap_health = self.runner.replace(
+            '$bootstrap = $capabilities.PSObject.Properties["bootstrap"]',
+            '$bootstrap = $capabilities.PSObject.Properties["removed"]',
+        )
+        self.assertIn(
+            "release health and self-tests must require the public bootstrap "
+            "endpoint to remain disabled",
+            validate_local_release(self.compose, public_bootstrap_health),
         )
 
     def test_requires_valid_repairable_stable_encryption_keys(self) -> None:
@@ -640,6 +720,35 @@ Write-Output "sealed Compose environment runtime self-test passed"
         for original, replacement in mutations:
             with self.subTest(original=original):
                 runner = self.runner.replace(original, replacement)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_requires_datetime_ready_process_start_normalization(self) -> None:
+        expected = (
+            "forwarder readiness must prove receipt-bound process identity, "
+            "configuration hash, token, start time, and exact TCP/UDP listener "
+            "ownership"
+        )
+        mutations = (
+            (
+                "if ($readyProcessStartValue -is [DateTime]) {",
+                "if ($false) {",
+            ),
+            (
+                "$readyProcessStartValue.ToUniversalTime()",
+                "[DateTime]::MinValue",
+            ),
+            (
+                "[DateTimeOffset]::Parse(",
+                "[DateTime]::Parse(",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                runner = self.runner.replace(original, replacement)
+                self.assertNotEqual(runner, self.runner)
                 self.assertIn(
                     expected,
                     validate_local_release(self.compose, runner),

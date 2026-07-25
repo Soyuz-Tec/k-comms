@@ -80,6 +80,8 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/sessions:
     post:
       tags: [Sessions]
@@ -98,6 +100,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
+          $ref: '#/components/responses/Error'
+        '426':
           $ref: '#/components/responses/Error'
   /api/v1/sessions/refresh:
     post:
@@ -122,6 +126,8 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/password-recovery/requests:
     post:
       tags: [Sessions]
@@ -142,6 +148,8 @@ paths:
                 $ref: '#/components/schemas/PasswordRecoveryAccepted'
         '429':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/password-recovery/resets:
     post:
       tags: [Sessions]
@@ -158,6 +166,7 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/sessions/current:
     delete:
@@ -522,6 +531,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/guest/conversation/calls/{callId}/join:
     parameters:
@@ -540,6 +550,7 @@ paths:
         '403': {$ref: '#/components/responses/GuestCallForbidden'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/guest/conversation/calls/{callId}/end:
     parameters:
@@ -579,6 +590,7 @@ paths:
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '426': {$ref: '#/components/responses/Error'}
         '503':
           description: Instant-room account conversion is feature-disabled or unavailable
           content:
@@ -929,6 +941,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/calls/{callId}/join:
     parameters:
@@ -947,6 +960,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/calls/{callId}/end:
     parameters:
@@ -1009,6 +1023,7 @@ paths:
               schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/audio-calls/{callId}/join:
     parameters:
@@ -1028,6 +1043,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/audio-calls/{callId}/end:
     parameters:
@@ -1450,6 +1466,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
   /api/v1/socket-tickets:
     post:
       tags: [Sessions]
@@ -1489,6 +1506,7 @@ paths:
         '200': {description: Session elevated for a bounded sensitive-operation window}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
 
   /api/v1/me/profile:
     patch:
@@ -1521,6 +1539,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
   /api/v1/me/devices:
     get:
       tags: [Users]
@@ -2551,7 +2570,7 @@ components:
         capabilities:
           type: object
           additionalProperties: false
-          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, webhooks]
+          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, secure_account_actions, secure_media_actions, webhooks]
           properties:
             administration: {type: boolean}
             audio_calls:
@@ -2569,6 +2588,12 @@ components:
             notifications: {type: boolean}
             push_notifications: {type: boolean}
             realtime: {type: boolean}
+            secure_account_actions:
+              type: boolean
+              description: False for clear-text HTTP requests handled by the explicit LAN text-only release, regardless of the request Host. Clients must fail closed until this value is known.
+            secure_media_actions:
+              type: boolean
+              description: False when call credential and media-control operations require a trusted HTTPS request. Clients combine this value with audio_calls or video_calls.
             webhooks: {type: boolean}
     Error:
       type: object
@@ -2623,14 +2648,14 @@ components:
     CreateInstantRoomRequest:
       type: object
       additionalProperties: false
-      description: Anonymous creation requires a complete device; display_name is optional and defaults to Guest host. A same-tenant human with workspace or conversation-only scope uses only title. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
+      description: Anonymous creation requires a complete device and a chosen display_name. A same-tenant human with workspace or conversation-only scope uses only title and its trusted profile identity. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
       properties:
         title: {type: string, minLength: 1, maxLength: 160}
         display_name:
           type: string
           minLength: 1
           maxLength: 120
-          description: Display name for the anonymous creator; ignored for an authenticated human.
+          description: Required for an anonymous creator; ignored for a same-tenant authenticated human.
         device: {$ref: '#/components/schemas/InstantRoomDevice'}
     InstantRoomTokenRequest:
       type: object

@@ -10,6 +10,11 @@ defmodule CommsWeb.GuestCommunicationController do
 
   alias CommsCore.{Accounts, Conversations}
 
+  plug(
+    CommsWeb.Plugs.RequireSecureTransport
+    when action in [:create_call, :join_call]
+  )
+
   def show_conversation(conn, _params) do
     with {:ok, conversation} <-
            Conversations.get_for_user_view(conversation_id(conn), conn.assigns.current_subject) do

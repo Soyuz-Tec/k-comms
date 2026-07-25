@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "release_revision": "REPLACE_WITH_FULL_GIT_SHA",
   "environment": "internal-staging",
   "study_started_on": "YYYY-MM-DD",
@@ -203,6 +203,140 @@
       "justified_exception_actions": []
     }
   ],
+  "instant_room_receipts": [
+    {
+      "id": "instant-room-host-start-untitled",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "signed_out",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-host-start-titled",
+      "participant_id": "P02",
+      "journey_role": "host",
+      "baseline": "signed_out",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-copy-link",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-system-share",
+      "participant_id": "P02",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-qr",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-guest-name-join",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "invite_link",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-roster-identity",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_room",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-first-message",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_room",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-host-reload",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-guest-rejoin",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "reentry",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-account-conversion-handoff",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_guest",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 3,
+      "checks": []
+    }
+  ],
   "sessions": [
     {
       "participant_id": "P01",
@@ -291,6 +425,18 @@
         {
           "id": "device-revocation",
           "category": "other",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "instant-room-first-contact",
+          "category": "public_room",
           "critical": true,
           "outcome": "failed",
           "duration_seconds": 0,

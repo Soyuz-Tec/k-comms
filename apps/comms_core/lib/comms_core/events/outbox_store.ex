@@ -9,6 +9,20 @@ defmodule CommsCore.Events.OutboxStore do
 
   @attempt_recorded_event [:k_comms, :outbox, :attempt, :recorded]
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      outbox_events:
+        repo.all(
+          from(event in OutboxEvent,
+            where: event.tenant_id == ^tenant_id,
+            select: event.id
+          )
+        )
+    }
+  end
+
   @spec insert_and_enqueue!(map()) :: Event.t()
   def insert_and_enqueue!(attrs) when is_map(attrs) do
     unless Repo.in_transaction?() do

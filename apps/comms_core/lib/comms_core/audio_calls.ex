@@ -31,6 +31,27 @@ defmodule CommsCore.AudioCalls do
   @default_session_limit 30
   @max_session_limit 100
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      calls:
+        repo.all(
+          from(call in AudioCall,
+            where: call.tenant_id == ^tenant_id,
+            select: call.id
+          )
+        ),
+      call_participants:
+        repo.all(
+          from(participant in AudioCallParticipant,
+            where: participant.tenant_id == ^tenant_id,
+            select: participant.id
+          )
+        )
+    }
+  end
+
   def start(conversation_id, subject),
     do: start(conversation_id, subject, :audio, &provider_cleanup_required/1)
 

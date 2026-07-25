@@ -18,6 +18,8 @@ const cohortTasks = {
   operator: [["ops-triage", "ops_safety", true]]
 };
 
+const instantRoomTask = ["instant-room-first-contact", "public_room", true];
+
 const actionJourneyFixtures = [
   ["sign-in-inbox", "P01", "end_to_end", 1],
   ["invite-inbox", "P01", "end_to_end", 1],
@@ -36,6 +38,69 @@ const actionJourneyFixtures = [
   ["ordinary-recovery", "P03", "daily_use", 1]
 ];
 
+const instantRoomJourneyFixtures = [
+  [
+    "instant-room-host-start-untitled",
+    "P01",
+    "host",
+    "signed_out",
+    1,
+    ["host_display_name_entered", "host_name_visible_in_room", "room_title_omitted_without_blocking"]
+  ],
+  [
+    "instant-room-host-start-titled",
+    "P02",
+    "host",
+    "signed_out",
+    1,
+    ["host_display_name_entered", "host_name_visible_in_room", "room_title_entered", "room_title_visible_in_room"]
+  ],
+  ["instant-room-copy-link", "P01", "host", "active_host", 1, ["invite_link_copied", "copied_target_matches_invite"]],
+  ["instant-room-system-share", "P02", "host", "active_host", 1, ["system_share_or_fallback_opened", "shared_target_matches_invite"]],
+  ["instant-room-qr", "P01", "host", "active_host", 1, ["qr_code_rendered", "qr_target_matches_invite"]],
+  ["instant-room-guest-name-join", "P03", "guest", "invite_link", 1, ["guest_display_name_entered", "guest_name_visible_in_room"]],
+  [
+    "instant-room-roster-identity",
+    "P03",
+    "guest",
+    "active_room",
+    1,
+    ["host_and_guest_names_visible", "names_match_chosen_values", "host_and_guest_names_distinct"]
+  ],
+  [
+    "instant-room-first-message",
+    "P03",
+    "guest",
+    "active_room",
+    1,
+    ["message_visible_to_other_participant", "sender_name_matches_chosen_value"]
+  ],
+  [
+    "instant-room-host-reload",
+    "P01",
+    "host",
+    "active_host",
+    1,
+    ["same_room_rejoined", "host_control_restored", "host_name_restored"]
+  ],
+  [
+    "instant-room-guest-rejoin",
+    "P03",
+    "guest",
+    "reentry",
+    1,
+    ["same_room_rejoined", "guest_name_restored", "roster_presence_restored"]
+  ],
+  [
+    "instant-room-account-conversion-handoff",
+    "P03",
+    "guest",
+    "active_guest",
+    3,
+    ["conversion_presented_as_optional", "anonymous_room_remained_usable", "workspace_address_presented", "portable_sign_in_link_presented"]
+  ]
+];
+
 test("passes a complete v3 study that satisfies quantitative, low-click, and human evidence gates", () => {
   const result = scoreStudy(passingStudy());
   assert.equal(result.pass, true);
@@ -47,6 +112,17 @@ test("passes a complete v3 study that satisfies quantitative, low-click, and hum
   assert.equal(result.metrics.unresolved_wcag_2_2_a_aa_findings, 0);
   assert.equal(result.metrics.action_count_targets_passed, 15);
   assert.equal(result.metrics.action_count_targets_total, 15);
+});
+
+test("passes a complete v4 study with exact public instant-room evidence", () => {
+  const result = scoreStudy(passingStudy(4));
+  assert.equal(result.schema_version, 4);
+  assert.equal(result.pass, true);
+  assert.equal(result.quantitative_pass, true);
+  assert.equal(result.instant_room_pass, true);
+  assert.equal(result.metrics.instant_room_unassisted_percent, 100);
+  assert.equal(result.metrics.instant_room_targets_passed, 11);
+  assert.equal(result.metrics.instant_room_targets_total, 11);
 });
 
 test("rejects legacy v2 evidence instead of silently omitting the new IA receipts", () => {
@@ -189,6 +265,10 @@ test("rejects privacy-sensitive and unknown fields", () => {
   const unknown = passingStudy();
   unknown.sessions[0].freeform_notes = "not part of the scorecard";
   assert.throws(() => scoreStudy(unknown), /not allowed by usability evidence schema v3/);
+
+  const publicRoomSensitive = passingStudy(4);
+  publicRoomSensitive.instant_room_receipts[0].display_name = "Synthetic Host";
+  assert.throws(() => scoreStudy(publicRoomSensitive), /Sensitive field/);
 });
 
 test("fails low-click journeys that exceed the authoritative v3 ceiling or are incomplete", () => {
@@ -298,7 +378,84 @@ test("accepts only coded justified exceptions and reports them outside the measu
   assert.throws(() => scoreStudy(unsupported), /not an allowed justified exception/);
 });
 
-function passingStudy() {
+test("requires the v4 public-room task and exact receipt set while leaving v3 evidence valid", () => {
+  const missingReceipts = passingStudy(4);
+  delete missingReceipts.instant_room_receipts;
+  assert.throws(() => scoreStudy(missingReceipts), /must contain exactly 11 public journey receipts/);
+
+  const missingTask = passingStudy(4);
+  missingTask.sessions[0].tasks.pop();
+  assert.throws(() => scoreStudy(missingTask), /exactly the 8 tasks assigned to cohort member/);
+
+  const v3WithV4Receipts = passingStudy();
+  v3WithV4Receipts.instant_room_receipts = passingStudy(4).instant_room_receipts;
+  assert.throws(() => scoreStudy(v3WithV4Receipts), /only allowed in usability evidence schema v4/);
+
+  assert.equal(scoreStudy(passingStudy()).pass, true);
+});
+
+test("binds v4 public-room receipts to roles, baselines, ceilings, and exact coded observations", () => {
+  const wrongRole = passingStudy(4);
+  wrongRole.instant_room_receipts.find(({ id }) => id === "instant-room-copy-link").journey_role = "guest";
+  assert.throws(() => scoreStudy(wrongRole), /journey_role must be host for instant-room-copy-link/);
+
+  const wrongBaseline = passingStudy(4);
+  wrongBaseline.instant_room_receipts.find(({ id }) => id === "instant-room-guest-name-join").baseline = "active_room";
+  assert.throws(() => scoreStudy(wrongBaseline), /baseline must be invite_link for instant-room-guest-name-join/);
+
+  const relaxedMaximum = passingStudy(4);
+  relaxedMaximum.instant_room_receipts.find(({ id }) => id === "instant-room-account-conversion-handoff").maximum_actions = 99;
+  assert.throws(
+    () => scoreStudy(relaxedMaximum),
+    /maximum_actions must be 3 for instant-room-account-conversion-handoff/
+  );
+
+  const missingIdentityObservation = passingStudy(4);
+  missingIdentityObservation.instant_room_receipts
+    .find(({ id }) => id === "instant-room-roster-identity")
+    .checks.pop();
+  const missingObservationResult = scoreStudy(missingIdentityObservation);
+  assert.equal(missingObservationResult.instant_room_pass, false);
+  assert.equal(
+    missingObservationResult.gates.find(({ name }) => name === "Public instant-room journey: instant-room-roster-identity")?.pass,
+    false
+  );
+
+  const wrongObservation = passingStudy(4);
+  wrongObservation.instant_room_receipts
+    .find(({ id }) => id === "instant-room-roster-identity")
+    .checks.push("qr_code_rendered");
+  assert.throws(() => scoreStudy(wrongObservation), /coded observation that is not required for this journey/);
+});
+
+test("fails incomplete, assisted, or over-budget public-room evidence without treating fixtures as human results", () => {
+  const incomplete = passingStudy(4);
+  incomplete.instant_room_receipts.find(({ id }) => id === "instant-room-qr").task_completed = false;
+  const incompleteResult = scoreStudy(incomplete);
+  assert.equal(incompleteResult.instant_room_pass, false);
+  assert.equal(incompleteResult.pass, false);
+
+  const overBudget = passingStudy(4);
+  overBudget.instant_room_receipts.find(({ id }) => id === "instant-room-host-start-untitled").action_count = 2;
+  const overBudgetResult = scoreStudy(overBudget);
+  assert.equal(overBudgetResult.instant_room_pass, false);
+  assert.equal(
+    overBudgetResult.gates.find(({ name }) => name === "Public instant-room journey: instant-room-host-start-untitled")?.pass,
+    false
+  );
+
+  const assistedTask = passingStudy(4);
+  for (const session of assistedTask.sessions.filter(({ cohort }) => cohort === "member")) {
+    const receipt = session.tasks.find(({ id }) => id === "instant-room-first-contact");
+    receipt.outcome = "assisted";
+    receipt.facilitator_interventions = 1;
+  }
+  const assistedResult = scoreStudy(assistedTask);
+  assert.equal(assistedResult.metrics.instant_room_unassisted_percent, 0);
+  assert.equal(assistedResult.quantitative_pass, false);
+});
+
+function passingStudy(schemaVersion = 3) {
   const cohorts = ["member", "member", "member", "member", "member", "member", "admin", "moderator", "compliance", "operator", "operator", "operator"];
   const accessMethods = ["keyboard", "screen_reader", "zoom_high_contrast", "voice_touch", "standard", "standard", "standard", "standard", "standard", "standard", "standard", "standard"];
   const sessions = cohorts.map((cohort, index) => ({
@@ -312,10 +469,13 @@ function passingStudy() {
     viewport_height_css_px: index < 2 ? 844 : 900,
     sus_responses: [5, 1, 5, 1, 5, 1, 5, 1, 5, 1],
     sensitive_action_confidence: 5,
-    tasks: cohortTasks[cohort].map(([id, category, critical]) => task(id, category, critical))
+    tasks: [
+      ...cohortTasks[cohort],
+      ...(schemaVersion === 4 && cohort === "member" ? [instantRoomTask] : [])
+    ].map(([id, category, critical]) => task(id, category, critical))
   }));
   return {
-    schema_version: 3,
+    schema_version: schemaVersion,
     release_revision: "a".repeat(40),
     environment: "internal-staging",
     study_started_on: "2020-01-14",
@@ -341,6 +501,14 @@ function passingStudy() {
     action_count_receipts: actionJourneyFixtures.map(([id, participantId, baseline, maximumActions, callActionCounts]) =>
       actionCountReceipt(id, participantId, baseline, maximumActions, callActionCounts)
     ),
+    ...(schemaVersion === 4
+      ? {
+        instant_room_receipts: instantRoomJourneyFixtures.map(
+          ([id, participantId, journeyRole, baseline, maximumActions, checks]) =>
+            instantRoomReceipt(id, participantId, journeyRole, baseline, maximumActions, checks)
+        )
+      }
+      : {}),
     sessions
   };
 }
@@ -372,6 +540,21 @@ function actionCountReceipt(id, participantId, baseline, maximumActions, callAct
     maximum_actions: maximumActions,
     justified_exception_actions: [],
     ...(callActionCounts ? { call_safety: callSafety(callActionCounts.lobby_action_count, callActionCounts.join_or_start_action_count) } : {})
+  };
+}
+
+function instantRoomReceipt(id, participantId, journeyRole, baseline, maximumActions, checks) {
+  return {
+    id,
+    participant_id: participantId,
+    journey_role: journeyRole,
+    baseline,
+    performed_on: "2020-01-15",
+    task_completed: true,
+    unassisted: true,
+    action_count: maximumActions,
+    maximum_actions: maximumActions,
+    checks: [...checks]
   };
 }
 

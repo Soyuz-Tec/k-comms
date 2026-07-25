@@ -56,5 +56,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0050 | Add self-service instant rooms | Accepted for implementation; production enablement gated |
 | 0051 | Use a host forwarder for explicit private-LAN release access | Accepted |
 | 0052 | Retain message sender labels as an authorized history sidecar | Accepted |
+| 0053 | Provision the local-release tenant through a sealed one-shot command | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

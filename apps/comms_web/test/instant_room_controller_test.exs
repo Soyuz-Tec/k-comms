@@ -208,6 +208,18 @@ defmodule CommsWeb.InstantRoomControllerTest do
     refute Map.has_key?(response, "refresh_token")
   end
 
+  test "anonymous creation rejects a missing display name" do
+    response =
+      build_conn()
+      |> public_json_headers(idempotency_key())
+      |> post(
+        "/api/v1/instant-rooms",
+        Jason.encode!(%{device: %{name: "Host browser", platform: "web"}})
+      )
+
+    assert json_response(response, 422)["error"]["code"] == "invalid_guest_display_name"
+  end
+
   test "a fresh human join for an already-active membership emits no added event", %{
     account: account
   } do

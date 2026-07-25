@@ -44,9 +44,13 @@ export default function App() {
 }
 
 function ApplicationRoutes() {
-  const { session } = useSession();
+  const { session, transportPolicyReady } = useSession();
   const location = useLocation();
-  if (location.pathname === "/join") {
+  const normalizedPathname =
+    location.pathname === "/"
+      ? "/"
+      : location.pathname.replace(/\/+$/, "");
+  if (normalizedPathname === "/join") {
     return (
       <>
         <RouteOrientation authenticated={false} />
@@ -68,6 +72,19 @@ function ApplicationRoutes() {
     );
   }
 
+  const publicAuthRoute = [
+    "/forgot-password",
+    "/reset-password",
+    "/sign-in"
+  ].includes(normalizedPathname);
+  const invitationEntry =
+    normalizedPathname === "/app" &&
+    hasInvitationToken(location.search, location.hash);
+
+  if (!transportPolicyReady && !publicAuthRoute && !invitationEntry) {
+    return <RouteLoading />;
+  }
+
   if (!session) {
     return (
       <Routes>
@@ -76,11 +93,14 @@ function ApplicationRoutes() {
         <Route path="/sign-in" element={<AuthScreen />} />
         <Route
           path="/app"
-          element={authFlowRequested(location.search, location.hash)
-            ? <AuthScreen />
-            : <Navigate to="/" replace />}
+          element={
+            <Navigate
+              to={`/sign-in${location.search}${location.hash}`}
+              replace
+            />
+          }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/sign-in" replace />} />
       </Routes>
     );
   }
@@ -112,13 +132,10 @@ function ApplicationRoutes() {
   );
 }
 
-function authFlowRequested(search: string, hash: string): boolean {
-  const query = new URLSearchParams(search);
-  const fragment = new URLSearchParams(hash.replace(/^#/, ""));
+function hasInvitationToken(search: string, hash: string): boolean {
   return (
-    query.has("invitation_token") ||
-    fragment.has("invitation_token") ||
-    query.get("setup") === "workspace"
+    new URLSearchParams(search).has("invitation_token") ||
+    new URLSearchParams(hash.replace(/^#/, "")).has("invitation_token")
   );
 }
 

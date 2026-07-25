@@ -21,8 +21,20 @@ test.describe("instant-room front door", () => {
 
     await page.goto("/");
 
+    await expect(
+      page.getByRole("heading", { name: "Start an instant room" })
+    ).toBeVisible();
+    expect(fixture.createRequests).toHaveLength(0);
+    await page
+      .getByRole("textbox", { name: "Your display name" })
+      .fill("Taylor Host");
+    await page
+      .getByRole("textbox", { name: /Room name/ })
+      .fill("Instant room");
+    await page.getByRole("button", { name: "Start instant room" }).click();
+
     await expect(page.getByRole("heading", { name: "Instant room" })).toBeVisible();
-    await expect(page.getByLabel("Secure room link")).toHaveValue(fixture.shareUrl);
+    await expect(page.getByLabel("Room invite link")).toHaveValue(fixture.shareUrl);
     await expect(
       page.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
@@ -39,10 +51,14 @@ test.describe("instant-room front door", () => {
     await expect(
       page
         .getByRole("list", { name: "Room participants" })
-        .getByText("Guest host", { exact: false })
-    ).toContainText("Guest host (you)");
+        .getByText("Taylor Host", { exact: false })
+    ).toContainText("Taylor Host (you)");
 
     expect(fixture.createRequests).toHaveLength(1);
+    expect(fixture.createRequests[0]).toMatchObject({
+      display_name: "Taylor Host",
+      title: "Instant room"
+    });
     expect(fixture.idempotencyKeys).toHaveLength(1);
     expect(fixture.idempotencyKeys[0]).toMatch(/^[A-Za-z0-9_-]{43}$/);
     await expectNoDocumentOverflow(page);
@@ -68,7 +84,7 @@ async function installInstantRoomFixture(page: Page) {
   const guest = {
     id: guestId,
     tenant_id: tenantId,
-    display_name: "Guest host",
+    display_name: "Taylor Host",
     account_type: "guest",
     role: "member",
     status: "active"

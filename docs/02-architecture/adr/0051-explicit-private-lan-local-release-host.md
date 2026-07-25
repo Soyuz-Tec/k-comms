@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-25
 - **Owners:** Delivery, Operations, Architecture, and Security
-- **Related decisions:** ADR-0008, ADR-0025, ADR-0047, ADR-0050
+- **Related decisions:** ADR-0008, ADR-0025, ADR-0047, ADR-0050, ADR-0053
 
 ## Context
 
@@ -111,6 +111,31 @@ forwarder for the explicit private-LAN mode.
     evaluation with no sensitive data. Trusted HTTPS/WSS is mandatory for
     internal production. Browser media must never be claimed from a plain HTTP
     LAN IP. Reliable remote media also requires, where applicable, TURN/TLS.
+12. The fixed instant-room tenant is provisioned through a loopback-only
+    one-shot release command before the forwarder starts. Every application
+    activation forces `ALLOW_BOOTSTRAP=false`, and LAN qualification requires
+    `/api/v1/status` to report `bootstrap=false`.
+13. On an explicit clear-text LAN release, the browser clears retained member
+    credentials and disables sign-in, recovery, invitation acceptance, account
+    conversion, and audio/video controls. The server independently rejects the
+    corresponding credential and media operations with HTTP `426
+    secure_transport_required`. The LAN release makes no loopback exception:
+    the raw TCP forwarder cannot prevent a remote client from spoofing a
+    loopback `Host` header. Only the actual request scheme, never
+    caller-supplied `Host` or `Origin` headers, can establish HTTPS. Operator
+    credential workflows therefore require a separately deployed loopback
+    profile or trusted HTTPS; a future terminating proxy must expose that
+    scheme through a separately validated trusted-proxy contract.
+14. Interrupted disposable qualification cleanup is state-root global but
+    remains bound to the release that created it. Its secret-free schema-v3
+    marker records the disposable tenant and isolated app identity plus the
+    originating retained receipt, environment, Compose, project, revision, and
+    image paths/hashes/identities. Recovery validates those exact history
+    assets and the local image, removes and confirms the isolated app absent,
+    deletes the tenant with the originating Compose context, then deletes the
+    marker last. Exact legacy schema-v2 tenant-only markers remain recoverable.
+    Recovery never substitutes the currently active candidate and never
+    persists a tenant password or release secret.
 
 The ordinary production path is unchanged. Without
 `K_COMMS_LOCAL_RELEASE=true`, application and provider origins continue to

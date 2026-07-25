@@ -488,9 +488,13 @@ export interface ServiceStatus {
     video_calls?: boolean;
     attachment_scanning: boolean;
     bootstrap: boolean;
+    guest_links: boolean;
+    instant_rooms: boolean;
     notifications: boolean;
     push_notifications?: boolean;
     realtime: boolean;
+    secure_account_actions: boolean;
+    secure_media_actions: boolean;
     webhooks: boolean;
   };
 }

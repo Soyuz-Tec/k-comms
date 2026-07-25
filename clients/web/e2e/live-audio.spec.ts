@@ -12,10 +12,8 @@ import type { AccountSession, AudioCall, Conversation, Session, User } from "../
 
 const enabled = process.env.K_COMMS_LIVE_AUDIO_E2E === "true";
 const liveStackURL = process.env.K_COMMS_LIVE_AUDIO_BASE_URL || "http://127.0.0.1:4178";
-
-interface BootstrapResponse extends Session {
-  conversation: Conversation;
-}
+const liveProvisionURL =
+  process.env.K_COMMS_LIVE_PROVISION_BASE_URL || "http://127.0.0.1:4178";
 
 interface DataResponse<T> {
   data: T;
@@ -163,7 +161,11 @@ test.describe("real-stack audio qualification", () => {
       const endedCallPayload = await expectJSON<DataResponse<unknown | null>>(endedCall, 200);
       expect(endedCallPayload.data).toBeNull();
     } finally {
-      await Promise.allSettled([ownerContext.close(), memberContext.close()]);
+      await Promise.allSettled([
+        cleanupAudioOwner(request, fixture.owner, fixture.conversation.id),
+        ownerContext.close(),
+        memberContext.close()
+      ]);
     }
   });
 
@@ -239,7 +241,7 @@ test.describe("real-stack audio qualification", () => {
       expect(endedCallPayload.data).toBeNull();
     } finally {
       await Promise.allSettled([
-        endActiveCallIfPresent(request, fixture.owner, fixture.conversation.id),
+        cleanupAudioOwner(request, fixture.owner, fixture.conversation.id),
         ownerContext.close(),
         memberOneContext.close(),
         memberTwoContext.close()
@@ -313,19 +315,24 @@ async function provisionDisposableGroupConversation(request: APIRequestContext) 
 }
 
 async function provisionAudioOwner(request: APIRequestContext, suffix: string) {
-  const tenantSlug = `audio-e2e-${suffix}`;
-  const ownerPassword = strongPassword();
-  const bootstrap = await request.post("/api/v1/bootstrap", {
+  const {
+    tenantSlug,
+    email: ownerEmail,
+    password: ownerPassword
+  } = sealedOwnerCredentials();
+  const signIn = await request.post(`${liveProvisionURL}/api/v1/sessions`, {
     data: {
-      tenant_name: `Audio E2E ${suffix}`,
       tenant_slug: tenantSlug,
-      display_name: "Audio Owner",
-      email: `audio-owner-${suffix}@example.test`,
-      password: ownerPassword
+      email: ownerEmail,
+      password: ownerPassword,
+      device: {
+        name: `Sealed audio qualification ${suffix}`,
+        platform: "playwright"
+      }
     }
   });
-  const owner = withReceivedAt(await expectJSON<BootstrapResponse>(bootstrap, 201));
-  const stepUp = await request.post("/api/v1/me/step-up", {
+  const owner = withReceivedAt(await expectJSON<Session>(signIn, 200));
+  const stepUp = await request.post(`${liveProvisionURL}/api/v1/me/step-up`, {
     headers: authorization(owner),
     data: { current_password: ownerPassword }
   });
@@ -557,6 +564,34 @@ async function allPeerConnectionsClosed(page: Page) {
 
 function authorization(session: Session) {
   return { Authorization: `Bearer ${session.access_token}` };
+}
+
+function sealedOwnerCredentials() {
+  const tenantSlug = process.env.K_COMMS_LIVE_OWNER_TENANT_SLUG;
+  const email = process.env.K_COMMS_LIVE_OWNER_EMAIL;
+  const password = process.env.K_COMMS_LIVE_OWNER_PASSWORD;
+  if (!tenantSlug || !email || !password) {
+    throw new Error(
+      "sealed owner credentials were not supplied by the local-release qualifier"
+    );
+  }
+  return { tenantSlug, email, password };
+}
+
+async function cleanupAudioOwner(
+  request: APIRequestContext,
+  owner: Session,
+  conversationId: string
+) {
+  try {
+    await endActiveCallIfPresent(request, owner, conversationId);
+  } finally {
+    const response = await request.delete(
+      `${liveProvisionURL}/api/v1/sessions/current`,
+      { headers: authorization(owner) }
+    );
+    await expectStatus(response, 204);
+  }
 }
 
 function withReceivedAt<T extends Session>(session: T): T {

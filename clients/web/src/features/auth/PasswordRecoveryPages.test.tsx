@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +9,22 @@ const api = vi.hoisted(() => ({
   requestPasswordRecovery: vi.fn(),
   resetPassword: vi.fn()
 }));
-vi.mock("../../app/session", () => ({ useSession: () => ({ api }) }));
+const transport = vi.hoisted(() => ({
+  transportPolicyReady: true,
+  accountActionsAllowed: true,
+  insecureNetworkOrigin: false
+}));
+vi.mock("../../app/session", () => ({
+  useSession: () => ({
+    api,
+    transportPolicyReady: transport.transportPolicyReady,
+    accountActionsAllowed:
+      transport.accountActionsAllowed && !transport.insecureNetworkOrigin
+  })
+}));
+vi.mock("../../lib/transportSecurity", () => ({
+  isInsecureNonLoopbackOrigin: () => transport.insecureNetworkOrigin
+}));
 
 function LocationProbe() {
   return <output data-testid="location">{useLocation().pathname}</output>;
@@ -19,6 +34,9 @@ describe("password recovery pages", () => {
   beforeEach(() => {
     api.requestPasswordRecovery.mockReset();
     api.resetPassword.mockReset();
+    transport.transportPolicyReady = true;
+    transport.accountActionsAllowed = true;
+    transport.insecureNetworkOrigin = false;
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/");
@@ -37,6 +55,40 @@ describe("password recovery pages", () => {
     expect(screen.getByText(/If an account matches those details/)).toBeVisible();
     expect(screen.queryByText("missing@example.test")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Return to sign in" })).toHaveAttribute("href", "/sign-in");
+  });
+
+  it("does not send recovery credentials over unencrypted non-loopback HTTP", () => {
+    transport.insecureNetworkOrigin = true;
+    render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
+
+    expect(
+      screen.getByText("HTTPS is required for account recovery.")
+    ).toBeVisible();
+    expect(screen.getByLabelText("Email address")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Send reset instructions" })
+    ).toBeDisabled();
+
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Send reset instructions" })
+        .closest("form") as HTMLFormElement
+    );
+    expect(api.requestPasswordRecovery).not.toHaveBeenCalled();
+  });
+
+  it("does not expose recovery credentials when the server denies them on loopback HTTP", () => {
+    transport.accountActionsAllowed = false;
+
+    render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
+
+    expect(
+      screen.getByText("HTTPS is required for account recovery.")
+    ).toBeVisible();
+    expect(screen.getByLabelText("Email address")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Send reset instructions" })
+    ).toBeDisabled();
   });
 
   it("scrubs the token immediately, keeps it out of storage, and clears it after a successful reset", async () => {
@@ -65,6 +117,29 @@ describe("password recovery pages", () => {
     expect(signIn).toHaveAttribute("href", "/sign-in");
     await user.click(signIn);
     expect(screen.getByTestId("location")).toHaveTextContent("/sign-in");
+  });
+
+  it("does not send a new password over unencrypted non-loopback HTTP", () => {
+    transport.insecureNetworkOrigin = true;
+    window.history.replaceState(
+      {},
+      "",
+      "/reset-password#token=never-send-over-http"
+    );
+    render(<MemoryRouter><ResetPasswordPage /></MemoryRouter>);
+
+    expect(screen.getByLabelText(/^New password/)).toBeDisabled();
+    expect(screen.getByLabelText("Confirm new password")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Update password" })
+    ).toBeDisabled();
+
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Update password" })
+        .closest("form") as HTMLFormElement
+    );
+    expect(api.resetPassword).not.toHaveBeenCalled();
   });
 
   it("renders a safe server-policy error without exposing the reset token", async () => {

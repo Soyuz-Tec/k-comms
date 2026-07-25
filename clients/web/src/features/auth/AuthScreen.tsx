@@ -15,7 +15,12 @@ type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
 
 export function AuthScreen() {
-  const { api, setSession } = useSession();
+  const {
+    api,
+    setSession,
+    transportPolicyReady,
+    accountActionsAllowed
+  } = useSession();
   const navigate = useNavigate();
   const [invitationContext] = useState(readInvitationContext);
   const [bootstrapRequested] = useState(readBootstrapRequest);
@@ -38,6 +43,8 @@ export function AuthScreen() {
   const [bootstrapAvailability, setBootstrapAvailability] =
     useState<BootstrapAvailability>("checking");
   const [statusAttempt, setStatusAttempt] = useState(0);
+  const accountActionsUnavailable =
+    !transportPolicyReady || !accountActionsAllowed;
 
   useLayoutEffect(() => {
     if (!invitationToken) return;
@@ -89,6 +96,7 @@ export function AuthScreen() {
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockInsecureCredentialSubmission()) return;
     const values = new FormData(event.currentTarget);
     const input: LoginInput = {
       tenant_slug: stringValue(values, "tenant_slug"),
@@ -110,6 +118,7 @@ export function AuthScreen() {
 
   async function submitBootstrap(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockInsecureCredentialSubmission()) return;
     const slug = workspaceSlug.trim().toLowerCase();
     if (!validWorkspaceSlug(slug)) {
       setCustomizeWorkspaceSlug(true);
@@ -142,6 +151,7 @@ export function AuthScreen() {
 
   async function acceptInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockInsecureCredentialSubmission()) return;
     const form = event.currentTarget;
     const values = new FormData(form);
     const token = invitationToken || stringValue(values, "token");
@@ -219,6 +229,15 @@ export function AuthScreen() {
     });
   }
 
+  function blockInsecureCredentialSubmission(): boolean {
+    if (!accountActionsUnavailable) return false;
+    setNotice(null);
+    setError(
+      "Secure account actions are unavailable for this deployment address. Open K-Comms over trusted HTTPS before entering or submitting credentials."
+    );
+    return true;
+  }
+
   const bootstrapEnabled = bootstrapAvailability === "enabled";
   const manualInvitation = mode === "invite" && !invitationToken;
   const eyebrow =
@@ -262,7 +281,7 @@ export function AuthScreen() {
         <ul className="feature-list" aria-label="Platform capabilities">
           <li><span aria-hidden="true">01</span> Direct and room messaging</li>
           <li><span aria-hidden="true">02</span> Voice and video calls</li>
-          <li><span aria-hidden="true">03</span> Safe file sharing</li>
+          <li><span aria-hidden="true">03</span> Managed file sharing</li>
         </ul>
       </section>
 
@@ -272,6 +291,24 @@ export function AuthScreen() {
           <h2 id="auth-heading" data-route-focus>{heading}</h2>
           <p className="muted">{description}</p>
 
+          <Link className="auth-instant-room-cta" to="/">
+            <strong>Start an instant room</strong>
+            <span>No account needed</span>
+          </Link>
+          {accountActionsUnavailable && (
+            <div
+              className="transport-warning"
+              id="auth-transport-warning"
+              role="alert"
+            >
+              <strong>HTTPS is required for account access.</strong>
+              <span>
+                Sign-in, invitation acceptance, and workspace creation are
+                disabled for this deployment address. Use instant rooms only
+                with non-sensitive evaluation data.
+              </span>
+            </div>
+          )}
           {error && <div className="form-error" role="alert">{error}</div>}
           {notice && <div className="inline-notice" role="status">{notice}</div>}
 
@@ -291,13 +328,20 @@ export function AuthScreen() {
                     autoCapitalize="none"
                     spellCheck={false}
                     hint="The short address from your invitation, such as acme."
+                    disabled={accountActionsUnavailable}
                     required
                   />
                 ) : (
                   <div className="auth-workspace-summary">
                     <span>Workspace address</span>
                     <strong>{loginWorkspaceSlug}</strong>
-                    <button type="button" onClick={editRememberedWorkspace}>Change</button>
+                    <button
+                      type="button"
+                      disabled={accountActionsUnavailable}
+                      onClick={editRememberedWorkspace}
+                    >
+                      Change
+                    </button>
                     <input type="hidden" name="tenant_slug" value={loginWorkspaceSlug} />
                   </div>
                 )}
@@ -308,18 +352,24 @@ export function AuthScreen() {
                   value={loginEmail}
                   onChange={(event) => setLoginEmail(event.target.value)}
                   autoComplete="username"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <PasswordField
                   label="Password"
                   name="password"
                   autoComplete="current-password"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <div className="auth-form-help">
                   <Link to="/forgot-password">Forgot password?</Link>
                 </div>
-                <button className="button primary full" type="submit" disabled={busy}>
+                <button
+                  className="button primary full"
+                  type="submit"
+                  disabled={busy || accountActionsUnavailable}
+                >
                   {busy ? "Signing in…" : "Sign in"}
                 </button>
               </form>
@@ -353,6 +403,7 @@ export function AuthScreen() {
                       label="Invitation code"
                       name="token"
                       autoComplete="off"
+                      disabled={accountActionsUnavailable}
                       required
                     />
                     <Field
@@ -362,6 +413,7 @@ export function AuthScreen() {
                       autoComplete="organization"
                       autoCapitalize="none"
                       spellCheck={false}
+                      disabled={accountActionsUnavailable}
                       required
                     />
                   </>
@@ -371,6 +423,7 @@ export function AuthScreen() {
                   name="display_name"
                   maxLength={120}
                   autoComplete="name"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <PasswordField
@@ -380,9 +433,14 @@ export function AuthScreen() {
                   maxLength={256}
                   autoComplete="new-password"
                   hint="At least 12 characters"
+                  disabled={accountActionsUnavailable}
                   required
                 />
-                <button className="button primary full" type="submit" disabled={busy}>
+                <button
+                  className="button primary full"
+                  type="submit"
+                  disabled={busy || accountActionsUnavailable}
+                >
                   {busy ? "Joining…" : "Join workspace"}
                 </button>
               </form>
@@ -412,6 +470,7 @@ export function AuthScreen() {
                   minLength={2}
                   maxLength={120}
                   autoComplete="organization"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <Field
@@ -419,6 +478,7 @@ export function AuthScreen() {
                   name="display_name"
                   maxLength={120}
                   autoComplete="name"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <Field
@@ -426,6 +486,7 @@ export function AuthScreen() {
                   name="email"
                   type="email"
                   autoComplete="username"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <PasswordField
@@ -435,6 +496,7 @@ export function AuthScreen() {
                   maxLength={256}
                   autoComplete="new-password"
                   hint="At least 12 characters"
+                  disabled={accountActionsUnavailable}
                   required
                 />
                 <details
@@ -456,9 +518,14 @@ export function AuthScreen() {
                     minLength={2}
                     maxLength={80}
                     hint="Lowercase letters, numbers, and single hyphens."
+                    disabled={accountActionsUnavailable}
                   />
                 </details>
-                <button className="button primary full" type="submit" disabled={busy}>
+                <button
+                  className="button primary full"
+                  type="submit"
+                  disabled={busy || accountActionsUnavailable}
+                >
                   {busy ? "Creating workspace…" : "Create workspace"}
                 </button>
               </form>

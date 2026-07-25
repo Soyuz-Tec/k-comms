@@ -9,7 +9,7 @@ import {
   storeGuestSession,
   storeSession
 } from "../../api";
-import { SessionProvider } from "../../app/session";
+import { SessionProvider, useSession } from "../../app/session";
 import type {
   Conversation,
   GuestSession,
@@ -18,6 +18,7 @@ import type {
   Session
 } from "../../types";
 import { InstantRoomPage } from "./InstantRoomPage";
+import { storeMemberInstantRoomContinuity } from "./memberContinuity";
 
 const uiHarness = vi.hoisted(() => ({
   qrValue: "",
@@ -171,6 +172,39 @@ function renderPage(strict = false) {
   return render(strict ? <StrictMode>{page}</StrictMode> : page);
 }
 
+function SessionLossControl() {
+  const { setSession } = useSession();
+  return (
+    <button type="button" onClick={() => setSession(null)}>
+      Expire member session
+    </button>
+  );
+}
+
+async function startRoom(
+  user: ReturnType<typeof userEvent.setup>,
+  options: { displayName?: string; title?: string } = {
+    displayName: "Taylor Host"
+  }
+) {
+  if (options.displayName !== undefined) {
+    const displayName = screen.getByRole("textbox", {
+      name: "Your display name"
+    });
+    await user.clear(displayName);
+    await user.type(displayName, options.displayName);
+  }
+  if (options.title !== undefined) {
+    await user.type(
+      screen.getByRole("textbox", { name: /Room name/ }),
+      options.title
+    );
+  }
+  await user.click(
+    screen.getByRole("button", { name: "Start instant room" })
+  );
+}
+
 describe("InstantRoomPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -180,25 +214,59 @@ describe("InstantRoomPage", () => {
     uiHarness.roomApis = [];
     uiHarness.delegatedTicket = "";
     vi.restoreAllMocks();
+    vi.spyOn(ApiClient.prototype, "status").mockResolvedValue({
+      service: "k-comms",
+      version: "test",
+      status: "operational",
+      capabilities: {
+        administration: true,
+        audio_calls: true,
+        video_calls: true,
+        attachment_scanning: true,
+        bootstrap: false,
+        guest_links: true,
+        instant_rooms: true,
+        notifications: true,
+        push_notifications: true,
+        realtime: true,
+        secure_account_actions: true,
+        secure_media_actions: true,
+        webhooks: true
+      }
+    });
   });
 
   it("creates once under StrictMode, enters the room and shares the exact server URL", async () => {
+    const user = userEvent.setup();
     const create = vi
       .spyOn(ApiClient.prototype, "createInstantRoom")
       .mockResolvedValue(result);
 
     renderPage(true);
+    expect(
+      screen.getByRole("heading", { name: "Start an instant room" })
+    ).toBeVisible();
+    expect(create).not.toHaveBeenCalled();
+    await startRoom(user, {
+      displayName: "Taylor Host",
+      title: "Daily check-in"
+    });
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
     const [input, key] = create.mock.calls[0]!;
     expect(input).toEqual(expect.objectContaining({
+      display_name: "Taylor Host",
+      title: "Daily check-in",
       device: expect.objectContaining({ platform: "web" })
     }));
     expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
     expect(uiHarness.qrValue).toBe(shareUrl);
     expect(screen.getByText(/remains available for 1 hour/i)).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Invite someone in one step" })
+    ).toHaveFocus();
 
     const stored = window.sessionStorage.getItem("k-comms.guest-session.v1") || "";
     expect(stored).toContain("guest-access");
@@ -206,6 +274,7 @@ describe("InstantRoomPage", () => {
   });
 
   it("retries one transient failure with the same idempotency key", async () => {
+    const user = userEvent.setup();
     const create = vi
       .spyOn(ApiClient.prototype, "createInstantRoom")
       .mockRejectedValueOnce(
@@ -214,6 +283,7 @@ describe("InstantRoomPage", () => {
       .mockResolvedValueOnce(result);
 
     renderPage();
+    await startRoom(user);
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(2);
@@ -221,6 +291,7 @@ describe("InstantRoomPage", () => {
   });
 
   it("rotates only an expired replay key and retries once", async () => {
+    const user = userEvent.setup();
     const create = vi
       .spyOn(ApiClient.prototype, "createInstantRoom")
       .mockRejectedValueOnce(
@@ -233,6 +304,7 @@ describe("InstantRoomPage", () => {
       .mockResolvedValueOnce(result);
 
     renderPage();
+    await startRoom(user);
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(2);
@@ -243,11 +315,13 @@ describe("InstantRoomPage", () => {
   });
 
   it("honors Retry-After before allowing another room request", async () => {
+    const user = userEvent.setup();
     vi.spyOn(ApiClient.prototype, "createInstantRoom").mockRejectedValue(
       new ApiError(429, "rate_limited", "Slow down", undefined, 8)
     );
 
     renderPage();
+    await startRoom(user);
 
     expect(
       await screen.findByText(/Room creation is rate-limited/i)
@@ -268,6 +342,7 @@ describe("InstantRoomPage", () => {
       .mockResolvedValueOnce(result);
 
     renderPage();
+    await startRoom(user);
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
 
@@ -276,12 +351,15 @@ describe("InstantRoomPage", () => {
   });
 
   it("does not restore an unrelated standard guest invitation on the front door", async () => {
+    const user = userEvent.setup();
     storeGuestSession(guestSession);
     const create = vi
       .spyOn(ApiClient.prototype, "createInstantRoom")
       .mockResolvedValue(result);
 
     renderPage();
+    expect(create).not.toHaveBeenCalled();
+    await startRoom(user);
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
@@ -312,6 +390,7 @@ describe("InstantRoomPage", () => {
     vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
 
     renderPage();
+    await startRoom(user, { displayName: undefined });
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(
@@ -343,6 +422,7 @@ describe("InstantRoomPage", () => {
       .mockResolvedValue({ ticket: "member-socket-ticket", expires_in: 60 });
 
     renderPage();
+    await startRoom(user);
     await screen.findByRole("heading", { name: "Live room" });
     const firstApi = uiHarness.roomApis.at(-1);
     await user.click(
@@ -390,6 +470,7 @@ describe("InstantRoomPage", () => {
     });
 
     const first = renderPage();
+    await startRoom(user);
     await screen.findByRole("heading", { name: "Live room" });
     await user.click(
       screen.getByRole("button", { name: "Simulate account upgrade" })
@@ -455,7 +536,14 @@ describe("InstantRoomPage", () => {
     });
 
     const first = renderPage();
+    expect(await screen.findByText("Starting as")).toBeVisible();
+    expect(
+      screen.queryByRole("textbox", { name: "Your display name" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(accountSession.user.display_name)).toBeVisible();
+    await startRoom(user, { displayName: undefined });
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty("display_name");
     first.unmount();
     renderPage();
 
@@ -464,6 +552,63 @@ describe("InstantRoomPage", () => {
     expect(conversationLookup).toHaveBeenCalledWith(conversation.id);
     expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
     await user.click(screen.getByRole("button", { name: "Leave room" }));
+    expect(
+      window.sessionStorage.getItem("k-comms.member-instant-room.v1")
+    ).toBeNull();
+  });
+
+  it("returns to the start form when a member session ends during room recovery", async () => {
+    const user = userEvent.setup();
+    const accountSession: Session = {
+      ...guestSession,
+      access_token: "member-access",
+      refresh_token: "member-refresh",
+      user: {
+        ...guestSession.user,
+        account_type: "human",
+        email: "host@example.test"
+      }
+    };
+    storeSession(accountSession);
+    storeMemberInstantRoomContinuity(accountSession, {
+      room: { ...room, owner_kind: "registered" },
+      conversation,
+      share_url: shareUrl
+    });
+    vi.spyOn(ApiClient.prototype, "conversation").mockImplementation(
+      () => new Promise<Conversation>(() => undefined)
+    );
+    vi.spyOn(ApiClient.prototype, "me").mockResolvedValue({
+      tenant: accountSession.tenant,
+      user: accountSession.user,
+      device: accountSession.device,
+      capabilities: {
+        allow_audio_calls: true,
+        allow_video_calls: true,
+        allow_public_channels: false,
+        message_edit_window_seconds: 900,
+        max_attachment_bytes: 10_000_000
+      }
+    });
+
+    render(
+      <SessionProvider>
+        <BrowserRouter>
+          <SessionLossControl />
+          <InstantRoomPage />
+        </BrowserRouter>
+      </SessionProvider>
+    );
+
+    expect(await screen.findByText("Opening your room…")).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Expire member session" })
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Start an instant room" })
+    ).toBeVisible();
+    expect(screen.queryByText("Opening your room…")).not.toBeInTheDocument();
     expect(
       window.sessionStorage.getItem("k-comms.member-instant-room.v1")
     ).toBeNull();
@@ -497,6 +642,7 @@ describe("InstantRoomPage", () => {
     });
 
     const first = renderPage();
+    await startRoom(user);
     await screen.findByRole("heading", { name: "Live room" });
     await user.click(
       screen.getByRole("button", { name: "Simulate account upgrade" })
@@ -510,6 +656,8 @@ describe("InstantRoomPage", () => {
     renderPage();
 
     await waitFor(() => expect(conversationLookup).toHaveBeenCalled());
+    expect(create).toHaveBeenCalledTimes(1);
+    await startRoom(user, { displayName: undefined });
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
     expect(create.mock.calls[1]![1]).not.toBe(create.mock.calls[0]![1]);
     expect(
@@ -528,6 +676,7 @@ describe("InstantRoomPage", () => {
     });
 
     renderPage();
+    await startRoom(user);
     await screen.findByRole("heading", { name: "Live room" });
     await user.click(screen.getByRole("button", { name: "Share" }));
 

@@ -58,7 +58,9 @@ function ProductShellContent() {
   const signOut = () => {
     teardownCall();
     clearMemberInstantRoomContinuity();
-    void logout();
+    void logout().finally(() => {
+      navigate("/sign-in", { replace: true });
+    });
   };
 
   return (

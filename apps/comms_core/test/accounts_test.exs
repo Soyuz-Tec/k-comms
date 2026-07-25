@@ -514,6 +514,46 @@ defmodule CommsCore.AccountsTest do
     assert Repo.aggregate(User, :count) == 1
   end
 
+  test "release qualification tenant deletion is exact, cascading, and idempotent" do
+    qualification_id = String.duplicate("b", 32)
+
+    attrs = %{
+      tenant_name: "K-Comms qualification #{qualification_id}",
+      tenant_slug: "k-comms-qualification-#{qualification_id}",
+      display_name: "K-Comms Qualification Owner",
+      email: "k-comms-qualification-owner+#{qualification_id}@example.test",
+      password: String.duplicate("Qx9!", 12)
+    }
+
+    assert {:ok, created} = Accounts.bootstrap_tenant(attrs)
+    assert Repo.get(Tenant, created.tenant.id)
+    assert Repo.get(User, created.user.id)
+    assert Repo.get(Conversation, created.conversation.id)
+    assert Repo.get(Session, created.session.id)
+
+    assert {:error, :qualification_tenant_identity_conflict} =
+             Accounts.delete_release_qualification_tenant(%{
+               attrs
+               | email: "other-owner@example.test"
+             })
+
+    assert Repo.get(Tenant, created.tenant.id)
+
+    assert {:ok, %{status: :deleted, tenant: deleted}} =
+             Accounts.delete_release_qualification_tenant(attrs)
+
+    assert deleted.id == created.tenant.id
+    refute Repo.get(Tenant, created.tenant.id)
+    refute Repo.get(User, created.user.id)
+    refute Repo.get(Conversation, created.conversation.id)
+    refute Repo.get(Session, created.session.id)
+
+    assert {:ok, %{status: :absent, tenant_slug: tenant_slug}} =
+             Accounts.delete_release_qualification_tenant(attrs)
+
+    assert tenant_slug == attrs.tenant_slug
+  end
+
   test "explicit local-proof bootstrap grants a platform role once with audit evidence" do
     restore_allow = preserve_env(:allow_bootstrap_platform_role)
     restore_role = preserve_env(:bootstrap_platform_role)

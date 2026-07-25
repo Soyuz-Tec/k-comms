@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useLocation } from "react-router";
 
 const routeLabels: Record<string, string> = {
+  "/": "Instant room",
   "/app": "Inbox",
   "/app/calls": "Calls",
   "/app/directory": "Directory",
@@ -81,6 +82,7 @@ export function routeLabel(
   const normalizedPath = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   if (
     !authenticated &&
+    normalizedPath !== "/" &&
     normalizedPath !== "/join" &&
     normalizedPath !== "/forgot-password" &&
     normalizedPath !== "/reset-password"

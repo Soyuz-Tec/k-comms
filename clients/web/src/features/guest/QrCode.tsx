@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { sha256Hex } from "../../lib/sha256";
+import { isEncryptedUrl } from "../../lib/transportSecurity";
 
 export function QrCode({
   value,
@@ -44,7 +45,8 @@ export function QrCode({
   if (failed) {
     return (
       <div className="guest-qr-unavailable" role="status">
-        QR unavailable. Copy the secure link instead.
+        QR unavailable. Copy the{" "}
+        {isEncryptedUrl(value) ? "secure link" : "invite link"} instead.
       </div>
     );
   }

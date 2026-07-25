@@ -413,6 +413,16 @@ class InstantRoomContractValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "auth-dependent"):
             validate_instant_room_contract(document)
 
+    def test_anonymous_creator_display_name_is_explicit(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        create = document["components"]["schemas"]["CreateInstantRoomRequest"]
+        create["description"] = create["description"].replace(
+            " and a chosen display_name", ""
+        )
+
+        with self.assertRaisesRegex(ValueError, "device requirements"):
+            validate_instant_room_contract(document)
+
     def test_creation_token_and_share_url_remain_response_only(self) -> None:
         for field in ("token", "share_url"):
             with self.subTest(field=field):

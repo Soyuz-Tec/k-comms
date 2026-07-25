@@ -66,6 +66,7 @@ import { sha256BlobHex } from "./lib/sha256";
 const sessionKey = "k-comms.session.v1";
 const guestSessionKey = "k-comms.guest-session.v1";
 const senderLabelBatchSize = 200;
+const apiRequestDeadlineMs = 30_000;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -86,6 +87,76 @@ export class ApiError extends Error {
     this.code = code;
     this.meta = meta;
     this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+function sameMemberSessionIdentity(
+  left: Session | null,
+  right: Session | null
+): boolean {
+  if (!left || !right) return left === right;
+  return left.tenant.id === right.tenant.id &&
+    left.user.id === right.user.id &&
+    left.device.id === right.device.id;
+}
+
+function sameGuestSessionIdentity(
+  left: GuestSession | null,
+  right: GuestSession | null
+): boolean {
+  if (!left || !right) return left === right;
+  return left.tenant.id === right.tenant.id &&
+    left.user.id === right.user.id &&
+    left.device.id === right.device.id &&
+    left.conversation.id === right.conversation.id;
+}
+
+interface DeadlineResponse<T> {
+  response: Response;
+  body: T;
+}
+
+async function fetchWithApiDeadline<T>(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  readBody: (response: Response) => Promise<T>
+): Promise<DeadlineResponse<T>> {
+  const callerSignal = init.signal;
+  const controller = new AbortController();
+  let abortSource: "caller" | "deadline" | null = null;
+  const timeoutError = new ApiError(
+    408,
+    "request_timeout",
+    "K-Comms did not respond in time. Try again."
+  );
+
+  const abortFromCaller = () => {
+    if (abortSource) return;
+    abortSource = "caller";
+    controller.abort(callerSignal?.reason);
+  };
+
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timeout = globalThis.setTimeout(() => {
+    if (abortSource) return;
+    abortSource = "deadline";
+    controller.abort(timeoutError);
+  }, apiRequestDeadlineMs);
+
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    return { response, body: await readBody(response) };
+  } catch (error) {
+    if (abortSource === "deadline") throw timeoutError;
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -234,12 +305,14 @@ export class ApiClient {
   }
 
   setSession(session: Session | null): void {
-    if (
+    const credentialsChanged =
       this.session?.access_token !== session?.access_token ||
-      this.session?.refresh_token !== session?.refresh_token
-    ) {
+      this.session?.refresh_token !== session?.refresh_token;
+    if (!sameMemberSessionIdentity(this.session, session)) {
       this.sessionGeneration += 1;
-      if (!session) this.refreshController?.abort();
+    }
+    if (credentialsChanged) {
+      this.refreshController?.abort();
     }
     this.session = session;
   }
@@ -1123,16 +1196,15 @@ export class ApiClient {
   }
 
   async logout(): Promise<void> {
-    this.sessionGeneration += 1;
-    this.refreshController?.abort();
-    try {
-      await this.request("/api/v1/sessions/current", {
+    const revocation = this.session
+      ? this.request("/api/v1/sessions/current", {
         method: "DELETE",
+        keepalive: true,
         retryAuthentication: false
-      });
-    } finally {
-      this.updateSession(null);
-    }
+      }).catch(() => undefined)
+      : Promise.resolve();
+    this.updateSession(null);
+    await revocation;
   }
 
   refreshSession(): Promise<Session | null> {
@@ -1148,32 +1220,71 @@ export class ApiClient {
   }
 
   private async request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
+    const requestGeneration = this.sessionGeneration;
+    const requestSession = this.session;
+    const requestAccessToken = this.session?.access_token;
+    const requestRefreshToken = this.session?.refresh_token;
+    const authenticatedRequest =
+      !options.skipAuthentication && Boolean(requestAccessToken);
     const headers = new Headers(options.headers);
     headers.set("Accept", "application/json");
     if (options.body && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
-    if (!options.skipAuthentication && this.session?.access_token) {
-      headers.set("Authorization", `Bearer ${this.session.access_token}`);
+    if (!options.skipAuthentication && requestAccessToken) {
+      headers.set("Authorization", `Bearer ${requestAccessToken}`);
     }
 
-    const response = await fetch(this.url(path), { ...options, headers });
+    const { response, body: payload } = await fetchWithApiDeadline(
+      this.url(path),
+      { ...options, headers },
+      async (result) => {
+        if (result.status === 204) return undefined;
+        const contentType = result.headers.get("content-type") || "";
+        return contentType.includes("application/json")
+          ? result.json()
+          : result.text();
+      }
+    );
     const shouldRetry = options.retryAuthentication !== false;
-    if (response.status === 401 && shouldRetry && this.session?.refresh_token) {
+    if (
+      response.status === 401 &&
+      shouldRetry &&
+      requestRefreshToken &&
+      this.sessionMatches(
+        requestGeneration,
+        requestSession
+      )
+    ) {
+      if (this.session?.refresh_token !== requestRefreshToken) {
+        return this.request<T>(path, {
+          ...options,
+          retryAuthentication: false
+        });
+      }
       const refreshed = await this.refresh();
-      if (refreshed) {
+      if (
+        refreshed &&
+        this.session?.access_token === refreshed.access_token &&
+        this.session?.refresh_token === refreshed.refresh_token
+      ) {
         return this.request<T>(path, { ...options, retryAuthentication: false });
       }
     }
 
     if (response.status === 204) {
+      if (
+        authenticatedRequest &&
+        !this.sessionMatches(requestGeneration, requestSession)
+      ) {
+        throw new ApiError(
+          409,
+          "session_changed",
+          "Your account changed before the request completed. Try again."
+        );
+      }
       return undefined as T;
     }
-
-    const contentType = response.headers.get("content-type") || "";
-    const payload: unknown = contentType.includes("application/json")
-      ? await response.json()
-      : await response.text();
 
     if (!response.ok) {
       const envelope = typeof payload === "object" && payload ? (payload as ErrorEnvelope) : {};
@@ -1186,24 +1297,54 @@ export class ApiClient {
       );
     }
 
+    if (
+      authenticatedRequest &&
+      !this.sessionMatches(requestGeneration, requestSession)
+    ) {
+      throw new ApiError(
+        409,
+        "session_changed",
+        "Your account changed before the request completed. Try again."
+      );
+    }
+
     return payload as T;
   }
 
   private async download(path: string, options: RequestOptions = {}): Promise<AuditExportFile> {
+    const requestGeneration = this.sessionGeneration;
+    const requestSession = this.session;
+    const requestAccessToken = this.session?.access_token;
+    const requestRefreshToken = this.session?.refresh_token;
     const headers = new Headers(options.headers);
     headers.set("Accept", "text/csv");
     if (options.body && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
-    if (this.session?.access_token) {
-      headers.set("Authorization", `Bearer ${this.session.access_token}`);
+    if (requestAccessToken) {
+      headers.set("Authorization", `Bearer ${requestAccessToken}`);
     }
 
     const response = await fetch(this.url(path), { ...options, headers });
     const shouldRetry = options.retryAuthentication !== false;
-    if (response.status === 401 && shouldRetry && this.session?.refresh_token) {
+    if (
+      response.status === 401 &&
+      shouldRetry &&
+      requestRefreshToken &&
+      this.sessionMatches(requestGeneration, requestSession)
+    ) {
+      if (this.session?.refresh_token !== requestRefreshToken) {
+        return this.download(path, {
+          ...options,
+          retryAuthentication: false
+        });
+      }
       const refreshed = await this.refresh();
-      if (refreshed) {
+      if (
+        refreshed &&
+        this.session?.access_token === refreshed.access_token &&
+        this.session?.refresh_token === refreshed.refresh_token
+      ) {
         return this.download(path, { ...options, retryAuthentication: false });
       }
     }
@@ -1223,8 +1364,17 @@ export class ApiClient {
       );
     }
 
+    const blob = await response.blob();
+    if (!this.sessionMatches(requestGeneration, requestSession)) {
+      throw new ApiError(
+        409,
+        "session_changed",
+        "Your account changed before the export completed. Run the export again."
+      );
+    }
+
     return {
-      blob: await response.blob(),
+      blob,
       filename: attachmentFilename(response.headers.get("content-disposition")),
       count: nonNegativeHeaderInteger(response.headers.get("x-export-row-count")),
       truncated: response.headers.get("x-export-truncated") === "true"
@@ -1250,12 +1400,24 @@ export class ApiClient {
 
     // Network failures and server outages deliberately propagate without
     // erasing the local session. A later request or online event can retry.
-    const response = await fetch(this.url("/api/v1/sessions/refresh"), {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-      signal: controller.signal
-    });
+    let response: Response;
+    let body: unknown;
+    try {
+      ({ response, body } = await fetchWithApiDeadline(
+        this.url("/api/v1/sessions/refresh"),
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+          signal: controller.signal
+        },
+        async (result) => result.ok ? result.json() : null
+      ));
+    } catch (error) {
+      if (!this.refreshMatches(generation, refreshToken)) return null;
+      throw error;
+    }
+    if (!this.refreshMatches(generation, refreshToken)) return null;
     if (!response.ok) {
       if ([400, 401, 403].includes(response.status)) {
         this.updateSession(null);
@@ -1263,13 +1425,7 @@ export class ApiClient {
       }
       throw new Error(`Session refresh is temporarily unavailable (${response.status})`);
     }
-    const session = withReceivedAt((await response.json()) as Session);
-    if (
-      generation !== this.sessionGeneration ||
-      this.session?.refresh_token !== refreshToken
-    ) {
-      return null;
-    }
+    const session = withReceivedAt(body as Session);
     this.updateSession(session);
     return session;
   }
@@ -1277,6 +1433,19 @@ export class ApiClient {
   private updateSession(session: Session | null): void {
     this.setSession(session);
     this.onSession(session);
+  }
+
+  private sessionMatches(
+    generation: number,
+    session: Session | null
+  ): boolean {
+    return generation === this.sessionGeneration &&
+      sameMemberSessionIdentity(this.session, session);
+  }
+
+  private refreshMatches(generation: number, refreshToken: string): boolean {
+    return generation === this.sessionGeneration &&
+      this.session?.refresh_token === refreshToken;
   }
 
   private url(path: string): string {
@@ -1287,6 +1456,8 @@ export class ApiClient {
 export class GuestApiClient {
   private session: GuestSession | null;
   private refreshPromise: Promise<GuestSession | null> | null = null;
+  private refreshController: AbortController | null = null;
+  private sessionGeneration = 0;
 
   constructor(
     private readonly baseUrl: string,
@@ -1300,6 +1471,15 @@ export class GuestApiClient {
   }
 
   setSession(session: GuestSession | null): void {
+    const credentialsChanged =
+      this.session?.access_token !== session?.access_token ||
+      this.session?.refresh_token !== session?.refresh_token;
+    if (!sameGuestSessionIdentity(this.session, session)) {
+      this.sessionGeneration += 1;
+    }
+    if (credentialsChanged) {
+      this.refreshController?.abort();
+    }
     this.session = session;
   }
 
@@ -1449,40 +1629,81 @@ export class GuestApiClient {
   }
 
   async logout(): Promise<void> {
-    try {
-      await this.request("/api/v1/guest/sessions/current", {
+    const revocation = this.session
+      ? this.request("/api/v1/guest/sessions/current", {
         method: "DELETE",
+        keepalive: true,
         retryAuthentication: false
-      });
-    } finally {
-      this.updateSession(null, "logout");
-    }
+      }).catch(() => undefined)
+      : Promise.resolve();
+    this.updateSession(null, "logout");
+    await revocation;
   }
 
   private async request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
+    const requestGeneration = this.sessionGeneration;
+    const requestSession = this.session;
+    const requestAccessToken = this.session?.access_token;
+    const requestRefreshToken = this.session?.refresh_token;
+    const authenticatedRequest = Boolean(requestAccessToken);
     const headers = new Headers(options.headers);
     headers.set("Accept", "application/json");
     if (options.body && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
-    if (this.session?.access_token) {
-      headers.set("Authorization", `Bearer ${this.session.access_token}`);
+    if (requestAccessToken) {
+      headers.set("Authorization", `Bearer ${requestAccessToken}`);
     }
 
-    const response = await fetch(this.url(path), { ...options, headers });
+    const { response, body: payload } = await fetchWithApiDeadline(
+      this.url(path),
+      { ...options, headers },
+      async (result) => {
+        if (result.status === 204) return undefined;
+        const contentType = result.headers.get("content-type") || "";
+        return contentType.includes("application/json")
+          ? result.json()
+          : result.text();
+      }
+    );
     const shouldRetry = options.retryAuthentication !== false;
-    if (response.status === 401 && shouldRetry && this.session?.refresh_token) {
+    if (
+      response.status === 401 &&
+      shouldRetry &&
+      requestRefreshToken &&
+      this.sessionMatches(
+        requestGeneration,
+        requestSession
+      )
+    ) {
+      if (this.session?.refresh_token !== requestRefreshToken) {
+        return this.request<T>(path, {
+          ...options,
+          retryAuthentication: false
+        });
+      }
       const refreshed = await this.refresh();
-      if (refreshed) {
+      if (
+        refreshed &&
+        this.session?.access_token === refreshed.access_token &&
+        this.session?.refresh_token === refreshed.refresh_token
+      ) {
         return this.request<T>(path, { ...options, retryAuthentication: false });
       }
     }
-    if (response.status === 204) return undefined as T;
-
-    const contentType = response.headers.get("content-type") || "";
-    const payload: unknown = contentType.includes("application/json")
-      ? await response.json()
-      : await response.text();
+    if (response.status === 204) {
+      if (
+        authenticatedRequest &&
+        !this.sessionMatches(requestGeneration, requestSession)
+      ) {
+        throw new ApiError(
+          409,
+          "session_changed",
+          "Your guest visit changed before the request completed. Try again."
+        );
+      }
+      return undefined as T;
+    }
 
     if (!response.ok) {
       const envelope = typeof payload === "object" && payload ? (payload as ErrorEnvelope) : {};
@@ -1494,6 +1715,16 @@ export class GuestApiClient {
         retryAfterSeconds(response.headers.get("retry-after"))
       );
     }
+    if (
+      authenticatedRequest &&
+      !this.sessionMatches(requestGeneration, requestSession)
+    ) {
+      throw new ApiError(
+        409,
+        "session_changed",
+        "Your guest visit changed before the request completed. Try again."
+      );
+    }
     return payload as T;
   }
 
@@ -1501,6 +1732,7 @@ export class GuestApiClient {
     if (!this.refreshPromise) {
       this.refreshPromise = this.performRefresh().finally(() => {
         this.refreshPromise = null;
+        this.refreshController = null;
       });
     }
     return this.refreshPromise;
@@ -1509,11 +1741,27 @@ export class GuestApiClient {
   private async performRefresh(): Promise<GuestSession | null> {
     const refreshToken = this.session?.refresh_token;
     if (!refreshToken) return null;
-    const response = await fetch(this.url("/api/v1/guest/sessions/refresh"), {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken })
-    });
+    const generation = this.sessionGeneration;
+    const controller = new AbortController();
+    this.refreshController = controller;
+    let response: Response;
+    let payload: unknown;
+    try {
+      ({ response, body: payload } = await fetchWithApiDeadline(
+        this.url("/api/v1/guest/sessions/refresh"),
+        {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+          signal: controller.signal
+        },
+        async (result) => result.ok ? result.json() : null
+      ));
+    } catch (error) {
+      if (!this.refreshMatches(generation, refreshToken)) return null;
+      throw error;
+    }
+    if (!this.refreshMatches(generation, refreshToken)) return null;
     if (!response.ok) {
       if ([400, 401, 403].includes(response.status)) {
         this.updateSession(null, "access_ended");
@@ -1523,10 +1771,9 @@ export class GuestApiClient {
     }
 
     const previous = this.session;
-    if (!previous || previous.refresh_token !== refreshToken) return null;
-    const payload = await response.json();
+    if (!previous) return null;
     const refreshed = normalizeGuestSession({
-      ...payload,
+      ...(readObject(payload) || {}),
       conversation: readObject(payload)?.conversation || previous.conversation,
       capabilities: readObject(payload)?.capabilities || previous.capabilities,
       admission: readObject(payload)?.admission || previous.admission,
@@ -1547,12 +1794,25 @@ export class GuestApiClient {
     session: GuestSession | null,
     reason?: "access_ended" | "logout"
   ): void {
-    this.session = session;
+    this.setSession(session);
     if (reason) {
       this.onSession(session, reason);
     } else {
       this.onSession(session);
     }
+  }
+
+  private sessionMatches(
+    generation: number,
+    session: GuestSession | null
+  ): boolean {
+    return generation === this.sessionGeneration &&
+      sameGuestSessionIdentity(this.session, session);
+  }
+
+  private refreshMatches(generation: number, refreshToken: string): boolean {
+    return generation === this.sessionGeneration &&
+      this.session?.refresh_token === refreshToken;
   }
 
   private url(path: string): string {

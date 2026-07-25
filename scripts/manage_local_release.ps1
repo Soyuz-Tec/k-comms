@@ -122,7 +122,8 @@ function Invoke-WithSealedComposeEnvironment {
     param(
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposePath,
-        [Parameter(Mandatory)][scriptblock]$Action
+        [Parameter(Mandatory)][scriptblock]$Action,
+        [switch]$SealPublicBootstrap
     )
 
     if (-not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) {
@@ -142,6 +143,7 @@ function Invoke-WithSealedComposeEnvironment {
         $null = $names.Add([string]$name)
     }
     $null = $names.Add("K_COMMS_PODMAN_BIND_ADDRESS")
+    $null = $names.Add("ALLOW_BOOTSTRAP")
 
     $processEnvironment = [Environment]::GetEnvironmentVariables(
         [EnvironmentVariableTarget]::Process
@@ -193,6 +195,13 @@ function Invoke-WithSealedComposeEnvironment {
             $podmanBindAddress,
             [EnvironmentVariableTarget]::Process
         )
+        if ($SealPublicBootstrap) {
+            [Environment]::SetEnvironmentVariable(
+                "ALLOW_BOOTSTRAP",
+                "false",
+                [EnvironmentVariableTarget]::Process
+            )
+        }
         & $Action
     }
     finally {
@@ -217,7 +226,8 @@ function Invoke-Compose {
         [Parameter(Mandatory)]
         [string[]]$Arguments,
         [switch]$EchoOutput,
-        [switch]$AllowFailure
+        [switch]$AllowFailure,
+        [switch]$SealPublicBootstrap
     )
 
     $composeArguments = @(
@@ -230,6 +240,7 @@ function Invoke-Compose {
     Invoke-WithSealedComposeEnvironment `
         -EnvironmentFile $EnvironmentFile `
         -ComposePath $ComposePath `
+        -SealPublicBootstrap:$SealPublicBootstrap `
         -Action {
             Invoke-NativeCommand `
                 -FilePath "podman" `
@@ -1246,7 +1257,7 @@ function New-ReleaseEnvironment {
         "'self' http://$BindAddress`:$AppPort ws://$BindAddress`:$AppPort " +
         "ws://$BindAddress`:$LiveKitSignalPort http://$BindAddress`:$MinioPort"
     $values["S3_BUCKET"] = "k-comms-release"
-    $values["ALLOW_BOOTSTRAP"] = "true"
+    $values["ALLOW_BOOTSTRAP"] = "false"
     $values["INSTANT_ROOMS_ENABLED"] = "true"
     $values["INSTANT_ROOM_TENANT_SLUG"] = "k-comms-development"
     $values["INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS"] = "3600"
@@ -1284,6 +1295,7 @@ function Assert-ReleaseEnvironmentTopology {
             $appOrigin
         }
     $expectedValues = [ordered]@{
+        ALLOW_BOOTSTRAP = "false"
         K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
         K_COMMS_RELEASE_HOST = $ExpectedBindAddress
         K_COMMS_LOCAL_RELEASE_HOST = $expectedRuntimeHost
@@ -1684,7 +1696,7 @@ function Ensure-InstantRoomTenant {
         [Parameter(Mandatory)][string]$ComposeProject,
         [Parameter(Mandatory)][string]$ComposePath,
         [Parameter(Mandatory)][string]$ExpectedBindAddress,
-        [Parameter(Mandatory)][int]$ExpectedAppPort,
+        [Parameter(Mandatory)][ValidateRange(1, 65535)][int]$ExpectedAppPort,
         [Parameter(Mandatory)][Collections.IDictionary]$ReleaseEnvironment
     )
 
@@ -1707,33 +1719,34 @@ function Ensure-InstantRoomTenant {
         return
     }
 
+    if ($ExpectedBindAddress -cne $podmanBindAddress) {
+        throw "Local instant-room tenant provisioning must run through the loopback Podman topology"
+    }
+    if ([string]$ReleaseEnvironment["ALLOW_BOOTSTRAP"] -cne "false") {
+        throw (
+            "The retained release does not seal ALLOW_BOOTSTRAP=false and has no " +
+            "active instant-room tenant. Deploy a current candidate; public HTTP bootstrap will not be used."
+        )
+    }
+    $bootstrapTenantSlug = [string]$ReleaseEnvironment["BOOTSTRAP_TENANT_SLUG"]
+    if ($bootstrapTenantSlug -cne $tenantSlug) {
+        throw "Local bootstrap tenant slug must match the configured instant-room tenant slug"
+    }
     $password = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_PASSWORD"]
     if ([string]::IsNullOrWhiteSpace($password) -or $password.Length -lt 32) {
         throw "Local instant-room tenant bootstrap password is missing or too short"
     }
 
-    $payload = [ordered]@{
-        tenant_name = [string]$ReleaseEnvironment["BOOTSTRAP_TENANT_NAME"]
-        tenant_slug = $tenantSlug
-        display_name = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_DISPLAY_NAME"]
-        email = [string]$ReleaseEnvironment["BOOTSTRAP_OWNER_EMAIL"]
-        password = $password
-        device_name = "Local release bootstrap"
-        device_platform = "release"
-    } | ConvertTo-Json -Compress
-
-    try {
-        $null = Invoke-RestMethod `
-            -Method Post `
-            -Uri "http://$ExpectedBindAddress`:$ExpectedAppPort/api/v1/bootstrap" `
-            -ContentType "application/json" `
-            -Body $payload `
-            -TimeoutSec 30
-    }
-    catch {
-        # A concurrent deployment may have created the fixed tenant after the
-        # preflight query. The authoritative postcondition below decides.
-    }
+    # The release command is PostgreSQL-serialized and idempotent for the same
+    # tenant slug and owner email. It creates no browser session and never
+    # exposes the bootstrap credential through the application listener.
+    Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @("run", "--rm", "--no-deps", "bootstrap") `
+        -SealPublicBootstrap `
+        -EchoOutput | Out-Null
 
     $exists = Test-InstantRoomTenantExists `
         -EnvironmentFile $EnvironmentFile `
@@ -1744,7 +1757,7 @@ function Ensure-InstantRoomTenant {
         -DatabaseName $databaseName
     if (-not $exists) {
         throw (
-            "Local instant-room tenant bootstrap failed for configured slug " +
+            "Local instant-room tenant one-shot provisioning failed for configured slug " +
             "'$tenantSlug'; no active tenant was persisted"
         )
     }
@@ -1770,6 +1783,11 @@ function Assert-ApplicationCapabilities {
         }
     }
 
+    $bootstrap = $capabilities.PSObject.Properties["bootstrap"]
+    if ($null -eq $bootstrap -or $bootstrap.Value -ne $false) {
+        throw "K-Comms status does not report the public bootstrap endpoint as disabled"
+    }
+
     if ($RequireGuestLinks) {
         $guestLinks = $capabilities.PSObject.Properties["guest_links"]
         if ($null -eq $guestLinks -or $guestLinks.Value -ne $true) {
@@ -1790,6 +1808,7 @@ function Invoke-CapabilityCompatibilitySelfTest {
         capabilities = [PSCustomObject]@{
             audio_calls = $true
             video_calls = $true
+            bootstrap = $false
         }
     }
     Assert-ApplicationCapabilities -Status $predecessor
@@ -1812,6 +1831,7 @@ function Invoke-CapabilityCompatibilitySelfTest {
         capabilities = [PSCustomObject]@{
             audio_calls = $true
             video_calls = $true
+            bootstrap = $false
             guest_links = $true
             instant_rooms = $true
         }
@@ -1821,6 +1841,29 @@ function Invoke-CapabilityCompatibilitySelfTest {
         -Status $candidate `
         -RequireGuestLinks `
         -RequireInstantRooms
+
+    $publicBootstrap = [PSCustomObject]@{
+        capabilities = [PSCustomObject]@{
+            audio_calls = $true
+            video_calls = $true
+            bootstrap = $true
+            guest_links = $true
+            instant_rooms = $true
+        }
+    }
+    $publicBootstrapRejected = $false
+    try {
+        Assert-ApplicationCapabilities `
+            -Status $publicBootstrap `
+            -RequireGuestLinks `
+            -RequireInstantRooms
+    }
+    catch {
+        $publicBootstrapRejected = $true
+    }
+    if (-not $publicBootstrapRejected) {
+        throw "Capability self-test accepted an application with public bootstrap enabled"
+    }
 }
 
 function Test-ReceiptSupportsGuestRollback {
@@ -2482,6 +2525,25 @@ function Stop-ApplicationForMigration {
     if ($runningServices -contains "app") {
         throw "The application remained active before the forward migration"
     }
+}
+
+function Start-SealedApplication {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath
+    )
+
+    # Always override the retained interpolation value. This keeps legacy
+    # receipts restartable when their tenant already exists without ever
+    # re-exposing the public bootstrap endpoint.
+    Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
+        -SealPublicBootstrap `
+        -EchoOutput | Out-Null
 }
 
 function Start-ReleaseServices {
@@ -3804,7 +3866,16 @@ function Get-RunningRetainedServices {
         throw "Could not inspect retained release services before port preflight"
     }
 
-    $knownServices = @("app", "migrate", "minio-init", "livekit", "minio", "postgres")
+    $knownServices = @(
+        "app",
+        "bootstrap",
+        "qualification",
+        "migrate",
+        "minio-init",
+        "livekit",
+        "minio",
+        "postgres"
+    )
     @(
         $result.Output -split "\r?\n" |
             ForEach-Object { $_.Trim() } |
@@ -4105,17 +4176,6 @@ function Restore-Release {
             -ComposeProject $Receipt.projectName `
             -ComposePath $Receipt.composeSourcePath `
             -RunMigration:$RunMigration
-        Invoke-Compose `
-            -EnvironmentFile $Receipt.environmentFile `
-            -ComposeProject $Receipt.projectName `
-            -ComposePath $Receipt.composeSourcePath `
-            -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
-            -EchoOutput | Out-Null
-        Wait-ContainerHealth `
-            -EnvironmentFile $Receipt.environmentFile `
-            -ComposeProject $Receipt.projectName `
-            -ComposePath $Receipt.composeSourcePath `
-            -Service "app"
         Ensure-InstantRoomTenant `
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
@@ -4123,6 +4183,15 @@ function Restore-Release {
             -ExpectedBindAddress $topology.PodmanBindAddress `
             -ExpectedAppPort ([int]$Receipt.ports.app) `
             -ReleaseEnvironment (Read-EnvironmentFile -Path $Receipt.environmentFile)
+        Start-SealedApplication `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath
+        Wait-ContainerHealth `
+            -EnvironmentFile $Receipt.environmentFile `
+            -ComposeProject $Receipt.projectName `
+            -ComposePath $Receipt.composeSourcePath `
+            -Service "app"
         Wait-Application `
             -ExpectedBindAddress $topology.PodmanBindAddress `
             -ExpectedAppPort ([int]$Receipt.ports.app) `
@@ -5107,6 +5176,8 @@ function Remove-FailedCandidateRuntime {
 
     $candidateServices = @(
         "app",
+        "bootstrap",
+        "qualification",
         "migrate",
         "minio-init",
         "livekit",
@@ -5184,6 +5255,8 @@ function Remove-FailedCandidateRuntime {
 function Invoke-FailedCandidateCleanupSelfTest {
     $expectedServices = @(
         "app",
+        "bootstrap",
+        "qualification",
         "migrate",
         "minio-init",
         "livekit",
@@ -5420,17 +5493,6 @@ function Invoke-DeployLocked {
             [string]$migrationOutput,
             (New-Object Text.UTF8Encoding($false))
         )
-        Invoke-Compose `
-            -EnvironmentFile $environmentFile `
-            -ComposeProject $ProjectName `
-            -ComposePath $composeSourcePath `
-            -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
-            -EchoOutput | Out-Null
-        Wait-ContainerHealth `
-            -EnvironmentFile $environmentFile `
-            -ComposeProject $ProjectName `
-            -ComposePath $composeSourcePath `
-            -Service "app"
         Ensure-InstantRoomTenant `
             -EnvironmentFile $environmentFile `
             -ComposeProject $ProjectName `
@@ -5438,6 +5500,15 @@ function Invoke-DeployLocked {
             -ExpectedBindAddress $podmanBindAddress `
             -ExpectedAppPort $AppPort `
             -ReleaseEnvironment $releaseEnvironment
+        Start-SealedApplication `
+            -EnvironmentFile $environmentFile `
+            -ComposeProject $ProjectName `
+            -ComposePath $composeSourcePath
+        Wait-ContainerHealth `
+            -EnvironmentFile $environmentFile `
+            -ComposeProject $ProjectName `
+            -ComposePath $composeSourcePath `
+            -Service "app"
         Wait-Application `
             -ExpectedBindAddress $podmanBindAddress `
             -ExpectedAppPort $AppPort `

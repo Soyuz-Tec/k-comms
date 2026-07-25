@@ -1283,6 +1283,30 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
   end
 
+  test "anonymous creation requires a chosen display name" do
+    account = Fixtures.account_fixture()
+    configure_public_tenant!(account.tenant.id)
+
+    assert {:error, :invalid_guest_display_name} =
+             Conversations.create_ephemeral_room(
+               %{
+                 idempotency_key: secret(),
+                 device: %{name: "Guest browser", platform: "test"}
+               },
+               :guest
+             )
+
+    assert {:error, :invalid_guest_display_name} =
+             Conversations.create_ephemeral_room(
+               %{
+                 idempotency_key: secret(),
+                 display_name: "   ",
+                 device: %{name: "Guest browser", platform: "test"}
+               },
+               :guest
+             )
+  end
+
   test "noncanonical Base64URL token and idempotency encodings fail closed" do
     account = Fixtures.account_fixture()
 

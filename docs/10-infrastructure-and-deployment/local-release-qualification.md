@@ -63,15 +63,25 @@ The command performs the complete local release transaction:
    candidate image's forward migrations through the isolated Ecto migration
    pool with a 5-second PostgreSQL lock timeout and an 8-minute statement
    timeout;
-9. starts the packaged application with no source mount; and
-10. waits for readiness, the packaged `/app/`, MinIO, LiveKit, both call
+9. provisions the fixed instant-room tenant through the exact image's
+   PostgreSQL-serialized `CommsCore.Release.bootstrap()` one-shot service,
+   verifies the active-tenant postcondition, and never calls the public
+   bootstrap HTTP endpoint;
+10. starts the packaged application with no source mount and forces
+    `ALLOW_BOOTSTRAP=false`, including when activating a retained legacy
+    environment; and
+11. waits for readiness, the packaged `/app/`, MinIO, LiveKit, both call
     capabilities, and guest-link availability through loopback; LAN mode then
     starts the retained forwarder, validates its ready identity/configuration
     hash/listeners, and probes the selected public address.
 
-Open `http://127.0.0.1:4188/app/?setup=workspace` to land directly on the
-local **Create development workspace** flow. The server still decides whether
-bootstrap is enabled; the URL does not bypass that control.
+The local workspace is already provisioned before the application starts.
+Open `http://127.0.0.1:4188/sign-in` to sign in on the host, or use `/` to
+start an instant room without an account. The public workspace-creation
+endpoint stays disabled. The initial owner password remains only in the
+current-user-protected local-release state; do not print or copy it into
+qualification evidence. Rotate that credential through the application before
+using the workspace beyond disposable local testing.
 
 ## Explicit private-LAN access
 
@@ -248,21 +258,71 @@ sealed values, including when non-default ports were deployed. It then checks:
 2. `/health/ready` reports ready database/runtime checks and configured object
    storage;
 3. `/api/v1/status` reports an operational service with administration,
-   realtime, audio-call, video-call, and guest-link capabilities available;
+   realtime, audio-call, video-call, and guest-link capabilities available,
+   plus `instant_rooms=true` and `bootstrap=false`;
 4. `/app/` is packaged HTML that references built `/app/assets/` files rather
    than Vite/source assets; and
 5. `/app/` returns the exact strict local-release Content Security Policy,
    including the sealed LiveKit and object-storage origins and no
    `unsafe-inline`, `unsafe-eval`, or wildcard source.
 
-Finally it runs `e2e/live-guest-communication.spec.ts` through Chromium
-against the external packaged server. Loopback qualification then runs
-`e2e/live-audio.spec.ts` and `e2e/live-video.spec.ts`, in that order, with one
-Playwright worker. The media tests provision disposable workspaces and prove
-real microphone RTP, camera RTP, group calls, screen sharing, access
-revocation, and clean call teardown. LAN text-only qualification stops after
-the guest test and never makes those media claims. Install the committed web
-dependencies and Playwright Chromium before running the qualifier:
+Before creating any disposable resource, the qualifier records a read-only,
+content-free fingerprint of the fixed instant-room tenant graph through the
+exact release image. Both default loopback and plain-HTTP LAN text-only
+qualification then write a schema-v3 cleanup marker and create a random
+`k-comms-qualification-<id>` tenant through the exact image's one-shot
+qualification command. They also start a temporary, non-restarting instance of
+the originating Compose `app` service from the marker-bound receipt, Compose
+source, and environment. That application uses the exact image and revision,
+the `edge` role, the disposable tenant slug, and a random
+`127.0.0.1:<high-port>` publication. Its `PUBLIC_APP_URL` remains the retained
+release's public origin; the temporary loopback origin is a narrowly admitted
+qualification origin, not a replacement public URL. The qualifier verifies the
+temporary container's deterministic name, ownership labels, image,
+revision, environment, hardening, loopback-only listener, readiness, and
+runtime role before the browser gate begins.
+
+`e2e/live-instant-room.spec.ts` opens the temporary origin first and creates the
+host's room there. Only this temporary browser context sends the
+qualification-id-derived documentation IPv6 address in `X-Forwarded-For`; the
+temporary application accepts it only when the connection source is the exact
+originating application network gateway `/32`. The test also proves that room
+creation uses the temporary origin as both its request origin and natural
+`Origin` header. It keeps the complete serialized guest session in memory,
+closes that browser context, and installs the session into a new
+public-origin context before the retained public page boots. The guest then
+opens the exact public share URL. Host and guest send no forwarded-address
+header through the public path and prove username-based roster presence plus
+two-way text through the retained application and, in LAN mode, its retained
+forwarder. Playwright traces, screenshots, video, and AI failure-copy are
+disabled for this bearer-bearing journey, and the captured share field is
+redacted before later assertions.
+
+The instant-room journey remains anonymous-only and never converts either
+browser identity. Default loopback qualification then runs
+`e2e/live-guest-communication.spec.ts`, `e2e/live-audio.spec.ts`, and
+`e2e/live-video.spec.ts`, in that order, against the same disposable tenant
+with one Playwright worker. Optional account conversion remains isolated in
+the live guest specification; that specification verifies the converted
+identity remains in the disposable tenant. The media tests prove real
+microphone RTP, camera RTP, group calls, screen sharing, access revocation,
+and clean call teardown.
+
+Plain-HTTP LAN text-only qualification stops after the anonymous instant-room
+roster/text journey and also proves that sign-in is rejected with HTTP 426
+`secure_transport_required`. It does not read or propagate the sealed owner
+credentials and does not attempt sign-in, account conversion,
+account-authenticated guest links, audio, or video.
+
+The rejection applies to every HTTP request handled by a LAN-configured
+release, including requests addressed to its loopback listener. The raw TCP
+forwarder cannot securely distinguish a genuine loopback client from a LAN
+client that supplied a loopback `Host` value. Run a separately deployed
+loopback profile for operator credential workflows, or provide trusted
+HTTPS/WSS.
+
+Install the committed web dependencies and Playwright Chromium before running
+the qualifier:
 
 ```powershell
 Set-Location clients/web
@@ -283,11 +343,13 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 `-LanTextOnly` is rejected for loopback and is mandatory for every
 non-loopback RFC1918 HTTP origin. LAN qualification still proves the retained
 image/receipt, current forwarder identity/readiness/hash, health, status
-capabilities, packaged assets, CSP, instant-room endpoint, and live guest
-communication flow, but it intentionally skips the audio and video
-specifications. Its final output states that media was **not qualified**. A
-default loopback qualification cannot opt out of media and continues to
-require both real audio and video gates.
+capabilities, packaged assets, CSP, instant-room endpoint, the server-side
+secure-transport boundary, and the anonymous live instant-room text flow. It
+intentionally skips credential, conversion, account-authenticated guest-link,
+audio, and video specifications. Its final output states that credential and
+media operations were **not qualified**. A default loopback qualification
+cannot opt out of media and continues to require both real audio and video
+gates. In short, media was **not qualified** by the LAN text-only result.
 
 The packaged qualifier does not run the mocked navigation, UI, or Axe suites.
 Those remain source-client gates (`npm run test:e2e`) because their API route
@@ -308,17 +370,23 @@ Set-Location ../..
 ```
 
 This deterministic test remains a fast source-client gate. The sealed-release
-qualifier separately runs `e2e/live-guest-communication.spec.ts` against the
-exact packaged runtime. Its first case provisions a disposable workspace, uses
-the owner browser UI to create a communication-only link and QR code, proves
-the QR contains the exact displayed link, opens that link in a clean browser,
-proves the fragment secret is scrubbed, joins with only a display name, delivers
-a realtime message, and verifies revocation ends both API and socket access.
-Tokens and disposable credentials remain in test process memory and are not
-printed. A second isolated live case uses the API to create and redeem the
-preauthorized single-use fixture, proves a mismatched conversion email fails
-closed, converts the same user in place with the exact email, reaches
-`/api/v1/me` as a human, and denies the old guest credential.
+loopback qualifier separately runs `e2e/live-guest-communication.spec.ts`
+against the exact packaged runtime. Its first case uses the isolated
+qualification owner through the loopback-only internal application port, then
+uses the owner browser UI to create a communication-only link and QR code,
+proves the QR
+contains the exact displayed link, opens that link in a clean browser, proves
+the fragment secret is scrubbed, joins with only a display name, delivers a
+realtime message, and verifies revocation ends both API and socket access.
+The random qualification password remains process-only and is not printed. A
+second isolated live case creates and redeems the preauthorized single-use
+fixture, proves a
+mismatched conversion email fails closed, converts the same user in place with
+the exact email, proves the converted session remains in the exact
+`k-comms-qualification-<id>` tenant, reaches `/api/v1/me` as a human, and
+denies the old guest credential. The guest specification rejects any owner
+slug outside that marker-bound disposable namespace. This
+account-authenticated suite is not run by `-LanTextOnly`.
 Real audio and video packet coverage remains in the two live media
 specifications described above.
 
@@ -365,6 +433,45 @@ The protected state contains:
 Do not copy the unredacted environment or rendered configuration into the
 repository, tickets, chat, or CI artifacts. The script rejects a state path
 inside the repository.
+
+Both qualification modes derive the random qualification id, application
+nonce, documentation client address, and any required password in process
+memory. Passwords and bearer sessions are never written to the cleanup marker
+or printed. The permanent bootstrap owner and fixed instant-room tenant are
+never used for disposable fixtures. Qualification is serialized by a named
+mutex plus the release state root's `operation.lock`; after acquiring both, the
+qualifier revalidates the active receipt, image, and topology before creating
+fixtures and again before reporting success.
+
+Before either the disposable tenant or temporary application is created, the
+qualifier writes one secret-free schema-v3
+`qualification-cleanup.json` marker at the state root shared by every retained
+candidate. In addition to the random tenant id, it binds the temporary
+application's deterministic name, nonce, random loopback port and origin,
+trusted gateway `/32`, documentation client address, and retained public
+origin to the originating deployment receipt, environment, Compose source,
+project, Git revision, and image ID. It uses only paths, hashes, addresses, and
+public image metadata.
+
+The mandatory `finally` recovery path verifies and removes the temporary
+application by its inspected container ID, confirms that it is absent, deletes
+the exact disposable tenant through the originating one-shot boundary, and
+only then deletes the marker. A same-name container whose image, revision,
+labels, environment, publication, or hardening differs from the marker is
+treated as a decoy: removal and tenant deletion both fail closed, leaving the
+marker for investigation. The next qualifier run performs the same stale
+recovery before starting new work. It accepts a legacy schema-v2 marker only
+for its original tenant-only recovery path; schema v3 is required for new
+work. Recovery remains possible after the active candidate changes—even when
+the new candidate lacks the qualification service—and fails closed if an
+origin asset was removed or tampered with.
+
+After the cleanup path, the qualifier reads the fixed instant-room tenant
+fingerprint again through the exact release image and requires an exact match.
+That second read runs even when a browser, media, or cleanup gate failed, and
+its failure is reported independently. The fingerprint contains only a
+tenant-presence flag, table counts, and a SHA-256 identity digest, never row
+ids, slugs, message content, credentials, or bearer material.
 
 ## Status, start, stop, and rollback
 
@@ -483,8 +590,9 @@ readiness, immutable restart, and application rollback. The HTTP checks prove
 LiveKit signaling availability, not successful WebRTC media packets. External
 browser media tests are therefore required before calling the release
 media-capable. A `-LanTextOnly` result is deliberately not media qualification;
-use the full loopback qualifier or trusted HTTPS/WSS media qualification before
-making that claim.
+it also does not qualify sign-in, account conversion, or account-authenticated
+guest links. Use the full loopback qualifier or trusted HTTPS/WSS qualification
+before making credential or media claims.
 
 On Podman Desktop, LiveKit's published TCP and UDP ports remain on
 `127.0.0.1` while `--node-ip` advertises the selected loopback or RFC1918

@@ -8,6 +8,7 @@ defmodule CommsWeb.StatusController do
 
   def show(conn, _params) do
     calls_available = available?(LiveKitReadiness.status())
+    secure_actions_available = secure_actions_available?(conn)
 
     json(conn, %{
       service: "k-comms",
@@ -24,6 +25,8 @@ defmodule CommsWeb.StatusController do
         notifications: available?(Notifications.status()),
         push_notifications: available?(NotificationDelivery.push_status()),
         realtime: true,
+        secure_account_actions: secure_actions_available,
+        secure_media_actions: secure_actions_available,
         webhooks: available?(Webhooks.status())
       }
     })
@@ -31,6 +34,11 @@ defmodule CommsWeb.StatusController do
 
   defp available?(%{status: status}) when status in [:available, "available"], do: true
   defp available?(_status), do: false
+
+  defp secure_actions_available?(conn) do
+    conn.scheme == :https or
+      not Application.get_env(:comms_web, :insecure_lan_release, false)
+  end
 
   defp instant_rooms_available? do
     with true <- Application.get_env(:comms_core, :instant_rooms_enabled, false),

@@ -53,6 +53,7 @@ import {
   MemberRoomApi
 } from "./roomApi";
 import {
+  beginNewInstantRoomVisit,
   instantRoomJoinIdempotencyKey,
   rotateInstantRoomJoinIdempotencyKey
 } from "../instant-room/idempotency";
@@ -94,6 +95,11 @@ interface SenderLabelRefreshBackoff {
   resultSignature: string | null;
   delayIndex: number;
   nextAttemptAt: number;
+}
+
+interface ConversionReceipt {
+  displayName: string;
+  workspaceSlug: string;
 }
 
 export async function loadGuestMessageCatchUp(
@@ -145,8 +151,15 @@ export function GuestAccessPage() {
   const {
     api: accountApi,
     session: accountSession,
-    setSession: setAccountSession
+    setSession: setAccountSession,
+    transportPolicyReady,
+    accountActionsAllowed,
+    mediaActionsAllowed
   } = useSession();
+  const secureAccountActionsAllowed =
+    transportPolicyReady && accountActionsAllowed;
+  const secureMediaActionsAllowed =
+    transportPolicyReady && mediaActionsAllowed;
   const [token] = useState(() => guestTokenFromFragment());
   const [entryShareUrl] = useState(() =>
     token ? capturedInstantRoomShareUrl(token) : null
@@ -172,6 +185,11 @@ export function GuestAccessPage() {
     );
   const [continuityError, setContinuityError] = useState("");
   const [continuityRetry, setContinuityRetry] = useState(0);
+  const restoredMemberSessionRef = useRef<string | null>(
+    memberContinuity && accountSession
+      ? memberSessionIdentity(accountSession)
+      : null
+  );
   const apiRef = useRef<GuestApiClient | null>(null);
 
   const setGuestSession = useCallback((
@@ -195,6 +213,38 @@ export function GuestAccessPage() {
   }, [token]);
 
   useEffect(() => {
+    if (
+      !transportPolicyReady ||
+      !accountSession ||
+      token ||
+      guestSession ||
+      continuedSession ||
+      memberContinuity
+    ) {
+      return;
+    }
+    const identity = memberSessionIdentity(accountSession);
+    if (restoredMemberSessionRef.current === identity) return;
+    restoredMemberSessionRef.current = identity;
+    const continuity = loadMemberInstantRoomContinuity(accountSession);
+    if (continuity) setMemberContinuity(continuity);
+  }, [
+    accountSession,
+    continuedSession,
+    guestSession,
+    memberContinuity,
+    token,
+    transportPolicyReady
+  ]);
+
+  useEffect(() => {
+    if (!accountSession && memberContinuity) {
+      clearMemberInstantRoomContinuity();
+      beginNewInstantRoomVisit();
+      setMemberContinuity(null);
+      setContinuityError("");
+      return;
+    }
     if (!memberContinuity || !accountSession || token || guestSession) return;
     let current = true;
     setContinuityError("");
@@ -292,6 +342,8 @@ export function GuestAccessPage() {
       <GuestShell
         api={roomApi}
         initialSession={activeRoomSession}
+        accountActionsAllowed={secureAccountActionsAllowed}
+        mediaActionsAllowed={secureMediaActionsAllowed}
         identityLabel={
           activeRoomSession.user.account_type === "guest" ? "Guest" : "Member"
         }
@@ -383,6 +435,8 @@ export function GuestAccessPage() {
         api={api}
         accountApi={accountApi}
         accountSession={accountSession}
+        accountActionsAllowed={secureAccountActionsAllowed}
+        mediaActionsAllowed={secureMediaActionsAllowed}
         token={token}
         accessEnded={accessEnded}
         onJoined={(session) => {
@@ -416,6 +470,8 @@ function GuestJoin({
   api,
   accountApi,
   accountSession,
+  accountActionsAllowed,
+  mediaActionsAllowed,
   token,
   accessEnded,
   onJoined,
@@ -424,6 +480,8 @@ function GuestJoin({
   api: GuestApiClient;
   accountApi: ApiClient;
   accountSession: Session | null;
+  accountActionsAllowed: boolean;
+  mediaActionsAllowed: boolean;
   token: string | null;
   accessEnded: boolean;
   onJoined: (session: GuestSession) => void;
@@ -563,10 +621,20 @@ function GuestJoin({
     <main className="guest-entry" id="main-content">
       <section className="guest-entry-card" aria-labelledby="guest-entry-title">
         <KCommsGuestBrand />
+        {(!accountActionsAllowed || !mediaActionsAllowed) && (
+          <div className="transport-warning" role="alert">
+            <strong>Secure account and media actions are unavailable.</strong>
+            <span>
+              Use non-sensitive content only. Open K-Comms over trusted HTTPS
+              before using account actions, microphone, camera, or screen
+              sharing.
+            </span>
+          </div>
+        )}
         {loading ? (
           <div className="guest-entry-loading" role="status">
             <span className="spinner" aria-hidden="true" />
-            <h1 id="guest-entry-title">Checking your secure link…</h1>
+            <h1 id="guest-entry-title">Checking your invite link…</h1>
           </div>
         ) : preview ? (
           <>
@@ -651,7 +719,7 @@ function GuestJoin({
             <p>
               {token
                 ? previewRetryable
-                  ? "Your secure link is unchanged. Retry it here when K-Comms is available."
+                  ? "Your invite link is unchanged. Retry it here when K-Comms is available."
                   : "It may have expired, reached its guest limit or been revoked. Ask the room host for a new link."
                 : accessEnded
                   ? "This guest session expired or was revoked. Ask the room host for a new link."
@@ -671,16 +739,19 @@ function GuestJoin({
                 >
                   {retryBlocked
                     ? `Try again in ${retrySeconds}s`
-                    : "Retry secure link"}
+                    : "Retry invite link"}
                 </button>
               )}
+              {(!token || !previewRetryable) && (
+                <Link className="button primary full" to="/">
+                  Start new room
+                </Link>
+              )}
               <Link
-                className={`button ${
-                  token && previewRetryable ? "ghost" : "primary"
-                } full`}
+                className="button ghost full"
                 to="/sign-in"
               >
-                Return to K-Comms sign in
+                Sign in to a workspace
               </Link>
             </div>
           </>
@@ -769,6 +840,10 @@ function withoutGuestConversion(session: GuestSession): GuestSession {
   };
 }
 
+function memberSessionIdentity(session: Session): string {
+  return `${session.tenant.id}:${session.user.id}:${session.device.id}`;
+}
+
 function isDefinitiveRoomUnavailable(reason: unknown): boolean {
   return (
     reason instanceof ApiError &&
@@ -779,6 +854,8 @@ function isDefinitiveRoomUnavailable(reason: unknown): boolean {
 export function GuestShell({
   api,
   initialSession,
+  accountActionsAllowed,
+  mediaActionsAllowed,
   onLeave,
   onAccessEnded,
   onConverted,
@@ -789,6 +866,8 @@ export function GuestShell({
 }: {
   api: GuestRoomApi;
   initialSession: GuestSession;
+  accountActionsAllowed: boolean;
+  mediaActionsAllowed: boolean;
   onLeave: () => void;
   onAccessEnded?: () => void;
   onConverted: (
@@ -827,6 +906,8 @@ export function GuestShell({
   const [showAccount, setShowAccount] = useState(false);
   const [converting, setConverting] = useState(false);
   const [conversionNotice, setConversionNotice] = useState("");
+  const [conversionReceipt, setConversionReceipt] =
+    useState<ConversionReceipt | null>(null);
   const [realtimeCall, setRealtimeCall] = useState<CallRealtimeEvent | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
@@ -1410,6 +1491,9 @@ export function GuestShell({
   const usersById = knownUsersById;
   const visibleSenderIdentities = useMemo(() => {
     const identities = new Map<string, ParticipantIdentity>();
+    for (const identity of activeUsersById.values()) {
+      identities.set(identity.id, identity);
+    }
     for (const message of messages) {
       const identity = resolveVisibleSenderIdentity(
         message.sender_user_id,
@@ -1486,21 +1570,22 @@ export function GuestShell({
     composerRef.current?.focus();
   }
 
-  async function leave() {
+  function leave() {
     setLeaving(true);
     setError("");
-    try {
-      await api.logout();
-    } catch (reason: unknown) {
-      setError(errorText(reason));
-    } finally {
-      onLeave();
-      setLeaving(false);
-    }
+    void api.logout().catch(() => undefined);
+    onLeave();
   }
 
   async function convertAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!accountActionsAllowed) {
+      setConversionNotice("");
+      setError(
+        "Account creation is disabled for this deployment address. Open K-Comms over trusted HTTPS before entering or submitting credentials."
+      );
+      return;
+    }
     const values = new FormData(event.currentTarget);
     setConverting(true);
     setConversionNotice("");
@@ -1537,6 +1622,10 @@ export function GuestShell({
         setConversionNotice(
           `Account created for ${result.session.user.display_name}. You are still in this conversation.`
         );
+        setConversionReceipt({
+          displayName: result.session.user.display_name,
+          workspaceSlug: result.session.tenant.slug
+        });
         setRealtimeHandoffVersion((version) => version + 1);
       } else {
         onConverted(result.session, result.conversation);
@@ -1574,7 +1663,7 @@ export function GuestShell({
           </div>
         </div>
         <div className="guest-shell-actions">
-          {conversionEnabled && (
+          {conversionEnabled && !conversionReceipt && (
             <button
               ref={accountToggleRef}
               className="button ghost"
@@ -1583,10 +1672,17 @@ export function GuestShell({
               aria-controls="guest-account-conversion"
               onClick={() => setShowAccount((value) => !value)}
             >
-              Create account
+              {identityLabel === "Host"
+                ? "Save this room"
+                : "Keep this conversation"}
             </button>
           )}
-          <button className="button danger" type="button" disabled={leaving} onClick={() => void leave()}>
+          {identityLabel === "Host" && (
+            <Link className="button ghost" to="/sign-in">
+              Sign in
+            </Link>
+          )}
+          <button className="button danger" type="button" disabled={leaving} onClick={leave}>
             {leaving ? "Leaving…" : "Leave"}
           </button>
         </div>
@@ -1596,9 +1692,52 @@ export function GuestShell({
         {conversionNotice}
       </p>
 
-      {roomBanner}
+      {conversionReceipt && (
+        <section
+          className="guest-conversion-receipt"
+          aria-labelledby="guest-conversion-receipt-title"
+        >
+          <div>
+            <strong id="guest-conversion-receipt-title">
+              Room saved for {conversionReceipt.displayName}
+            </strong>
+            <span>
+              Use this workspace address to sign in from another device.
+            </span>
+          </div>
+          <label>
+            Workspace address
+            <input
+              type="text"
+              value={conversionReceipt.workspaceSlug}
+              readOnly
+              spellCheck={false}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </label>
+          <a
+            className="button ghost"
+            href={`/sign-in?tenant_slug=${encodeURIComponent(
+              conversionReceipt.workspaceSlug
+            )}`}
+          >
+            Workspace sign-in link
+          </a>
+        </section>
+      )}
 
-      {conversionEnabled && showAccount && (
+      {roomBanner}
+      {(!accountActionsAllowed || !mediaActionsAllowed) && (
+        <div className="guest-transport-warning transport-warning" role="alert">
+          <strong>Secure account and media actions are unavailable.</strong>
+          <span>
+            Use non-sensitive content. Open this service over trusted HTTPS
+            before using account creation or audio/video controls.
+          </span>
+        </div>
+      )}
+
+      {conversionEnabled && !conversionReceipt && showAccount && (
         <section
           className="guest-account-card"
           id="guest-account-conversion"
@@ -1631,6 +1770,7 @@ export function GuestShell({
                 maxLength={320}
                 autoComplete="email"
                 aria-describedby="guest-account-email-help"
+                disabled={!accountActionsAllowed}
                 required
               />
             </label>
@@ -1643,6 +1783,7 @@ export function GuestShell({
                   maxLength={120}
                   autoComplete="name"
                   defaultValue={initialSession.user.display_name}
+                  disabled={!accountActionsAllowed}
                 />
               </label>
             )}
@@ -1660,6 +1801,7 @@ export function GuestShell({
                 autoComplete="one-time-code"
                 aria-describedby="guest-account-verification-help"
                 spellCheck={false}
+                disabled={!accountActionsAllowed}
                 required
               />
               <small id="guest-account-verification-help">
@@ -1674,11 +1816,16 @@ export function GuestShell({
                 minLength={12}
                 maxLength={256}
                 autoComplete="new-password"
+                disabled={!accountActionsAllowed}
                 required
               />
               <small>At least 12 characters; the server applies the final password policy.</small>
             </label>
-            <button className="button primary" type="submit" disabled={converting}>
+            <button
+              className="button primary"
+              type="submit"
+              disabled={converting || !accountActionsAllowed}
+            >
               {converting ? "Creating account…" : "Create account"}
             </button>
             <button className="button ghost" type="button" onClick={() => setShowAccount(false)}>
@@ -1787,7 +1934,7 @@ export function GuestShell({
             readOnly={sending || loading || Boolean(loadError)}
             aria-busy={sending}
             aria-disabled={loading || Boolean(loadError)}
-            autoFocus
+            autoFocus={!roomBanner}
             placeholder={`Message ${conversationTitle(conversation)}`}
             onChange={(event) => setComposer(event.target.value)}
             onKeyDown={(event) => {
@@ -1815,8 +1962,14 @@ export function GuestShell({
         <GuestCallPanel
           api={api}
           conversation={conversation}
-          audioEnabled={initialSession.capabilities.allow_audio_calls}
-          videoEnabled={initialSession.capabilities.allow_video_calls}
+          audioEnabled={
+            initialSession.capabilities.allow_audio_calls &&
+            mediaActionsAllowed
+          }
+          videoEnabled={
+            initialSession.capabilities.allow_video_calls &&
+            mediaActionsAllowed
+          }
           currentUserDisplayName={initialSession.user.display_name}
           realtimeEvent={realtimeCall}
         />
@@ -1918,6 +2071,9 @@ function KCommsGuestBrand() {
 
 function guestLinkError(reason: unknown): string {
   if (reason instanceof ApiError) {
+    if (reason.status === 426) {
+      return "This action requires trusted HTTPS. Open the secure K-Comms address and try again.";
+    }
     if (reason.status === 429) {
       return reason.retryAfterSeconds
         ? `Too many attempts. Try again in ${reason.retryAfterSeconds} seconds.`

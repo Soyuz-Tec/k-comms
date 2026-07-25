@@ -13,7 +13,7 @@ x-release-environment: &release-environment
   POOL_SIZE: ${POOL_SIZE:-10}
   K_COMMS_ROLE: all
   K_COMMS_RELEASE_REVISION: ${K_COMMS_RELEASE_REVISION:?K_COMMS_RELEASE_REVISION is required}
-  ALLOW_BOOTSTRAP: ${ALLOW_BOOTSTRAP:-true}
+  ALLOW_BOOTSTRAP: ${ALLOW_BOOTSTRAP:-false}
   INSTANT_ROOMS_ENABLED: ${INSTANT_ROOMS_ENABLED:-true}
   INSTANT_ROOM_TENANT_SLUG: ${INSTANT_ROOM_TENANT_SLUG:-k-comms-development}
   INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS: ${INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS:-3600}
@@ -149,6 +149,65 @@ services:
       LIVEKIT_SERVER_URL: ""
       LIVEKIT_API_URL: ""
     command: ["eval", "CommsCore.Release.migrate()"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bootstrap:
+    image: ${K_COMMS_RELEASE_IMAGE:?K_COMMS_RELEASE_IMAGE is required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      <<: *release-environment
+      K_COMMS_ROLE: worker
+      K_COMMS_RUNTIME_PURPOSE: one_shot
+      K_COMMS_LOCAL_RELEASE: "false"
+      ALLOW_BOOTSTRAP: "false"
+      PUBLIC_APP_URL: https://localhost
+      AUDIO_PROVIDER_MODE: disabled
+      LIVEKIT_SERVER_URL: ""
+      LIVEKIT_API_URL: ""
+      BOOTSTRAP_TENANT_NAME: ${BOOTSTRAP_TENANT_NAME:?BOOTSTRAP_TENANT_NAME is required}
+      BOOTSTRAP_TENANT_SLUG: ${BOOTSTRAP_TENANT_SLUG:?BOOTSTRAP_TENANT_SLUG is required}
+      BOOTSTRAP_OWNER_DISPLAY_NAME: ${BOOTSTRAP_OWNER_DISPLAY_NAME:?BOOTSTRAP_OWNER_DISPLAY_NAME is required}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:?BOOTSTRAP_OWNER_EMAIL is required}
+      BOOTSTRAP_OWNER_PASSWORD: ${BOOTSTRAP_OWNER_PASSWORD:?BOOTSTRAP_OWNER_PASSWORD is required}
+    command: ["eval", "CommsCore.Release.bootstrap()"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  qualification:
+    image: ${K_COMMS_RELEASE_IMAGE:?K_COMMS_RELEASE_IMAGE is required}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      <<: *release-environment
+      K_COMMS_ROLE: worker
+      K_COMMS_RUNTIME_PURPOSE: one_shot
+      K_COMMS_LOCAL_RELEASE: "false"
+      ALLOW_BOOTSTRAP: "false"
+      PUBLIC_APP_URL: https://localhost
+      AUDIO_PROVIDER_MODE: disabled
+      LIVEKIT_SERVER_URL: ""
+      LIVEKIT_API_URL: ""
+      K_COMMS_QUALIFICATION_ACTION: ${K_COMMS_QUALIFICATION_ACTION:-}
+      K_COMMS_QUALIFICATION_ID: ${K_COMMS_QUALIFICATION_ID:-}
+      K_COMMS_QUALIFICATION_PASSWORD: ${K_COMMS_QUALIFICATION_PASSWORD:-}
+      K_COMMS_QUALIFICATION_CONFIRMATION: ${K_COMMS_QUALIFICATION_CONFIRMATION:-}
+    command: ["eval", "CommsCore.Release.qualification_tenant()"]
     restart: "no"
     depends_on:
       postgres:

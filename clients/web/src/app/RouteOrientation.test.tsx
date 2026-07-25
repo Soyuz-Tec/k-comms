@@ -73,6 +73,25 @@ describe("RouteOrientation", () => {
     );
   });
 
+  it("orients the signed-out root as the instant-room task", async () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <RouteOrientation authenticated={false} />
+        <main>
+          <h1>Start an instant room</h1>
+        </main>
+      </MemoryRouter>
+    );
+
+    const start = screen.getByRole("heading", { name: "Start an instant room" });
+    await waitFor(() => expect(start).toHaveFocus());
+    expect(document.title).toBe("Instant room | K-Comms");
+    expect(screen.getByText("Instant room view")).toHaveAttribute(
+      "aria-live",
+      "polite"
+    );
+  });
+
   it("updates the document title and moves focus to the routed heading", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter initialEntries={["/app/"]}><Harness /></MemoryRouter>);

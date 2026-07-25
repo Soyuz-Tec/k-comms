@@ -9,28 +9,15 @@ process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
 const enabled =
   process.env.K_COMMS_LIVE_INSTANT_ROOM_E2E === "true" &&
   process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
-const liveStackURL =
-  process.env.K_COMMS_LIVE_INSTANT_ROOM_BASE_URL ||
-  process.env.K_COMMS_E2E_BASE_URL ||
-  "http://127.0.0.1:4188";
+const guestSessionStorageKey = "k-comms.guest-session.v1";
 
 interface StoredRoomIdentity {
   userId: string;
   accountType: string | null;
+  tenantId: string;
+  tenantSlug: string;
   roomId: string;
   conversationId: string;
-}
-
-interface StoredMemberContinuity {
-  account: {
-    userId: string;
-    accountType: string | null;
-  } | null;
-  guestSessionPresent: boolean;
-  continuity: {
-    roomId: string;
-    conversationId: string;
-  } | null;
 }
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -43,48 +30,94 @@ test.describe("real-stack instant-room acceptance", () => {
   );
   test.setTimeout(120_000);
 
-  test("auto-creates, shares, joins, communicates, converts, and restores one room", async ({
+  test("creates in isolation then communicates through the retained public app", async ({
     browser
   }, testInfo) => {
     test.skip(
       testInfo.project.name !== "chromium",
       "the bearer-safe real-stack journey runs once in Chromium"
     );
-    const hostContext = await roomContext(browser);
-    const guestContext = await roomContext(browser);
+    const {
+      clientAddress,
+      qualificationAppOrigin,
+      publicOrigin,
+      tenantSlug
+    } = sealedInstantRoomEnvironment();
+    let qualificationContext: BrowserContext | null =
+      await qualificationRoomContext(
+        browser,
+        qualificationAppOrigin,
+        clientAddress
+      );
+    let hostContext: BrowserContext | null = null;
+    let guestContext: BrowserContext | null = null;
     let createRequestCount = 0;
+    let createRequestUsedClientAddress = false;
+    let createRequestUsedQualificationOriginHeader = false;
+    let createRequestUsedQualificationOrigin = false;
+    let createRequestUsedUnexpectedOrigin = false;
+    let publicRequestUsedForwardedFor = false;
 
     try {
-      const hostPage = await hostContext.newPage();
-      const guestPage = await guestContext.newPage();
-      hostPage.on("request", (request) => {
+      const qualificationPage = await qualificationContext.newPage();
+      qualificationPage.on("request", (request) => {
         if (
           request.method() === "POST" &&
           new URL(request.url()).pathname === "/api/v1/instant-rooms"
         ) {
           createRequestCount += 1;
+          const requestOrigin = new URL(request.url()).origin;
+          createRequestUsedClientAddress =
+            request.headers()["x-forwarded-for"] === clientAddress;
+          createRequestUsedQualificationOriginHeader =
+            request.headers().origin === qualificationAppOrigin;
+          createRequestUsedQualificationOrigin =
+            requestOrigin === qualificationAppOrigin;
+          createRequestUsedUnexpectedOrigin =
+            requestOrigin !== qualificationAppOrigin;
         }
       });
 
-      await hostPage.goto(new URL("/", liveStackURL).toString());
-      await expect(
-        hostPage.getByRole("heading", { name: "Instant room" })
-      ).toBeVisible({ timeout: 30_000 });
-      await expect(hostPage.locator(".guest-connection.live")).toHaveText(
-        "live",
-        { timeout: 30_000 }
+      await qualificationPage.goto(
+        new URL("/", qualificationAppOrigin).toString()
       );
+      await expect(
+        qualificationPage.getByRole("heading", {
+          name: "Start an instant room"
+        })
+      ).toBeVisible({ timeout: 30_000 });
+      await qualificationPage
+        .getByRole("textbox", { name: "Your display name" })
+        .fill("Live Room Host");
+      await qualificationPage
+        .getByRole("button", { name: "Start instant room" })
+        .click();
+      await expect(
+        qualificationPage.getByRole("heading", { name: "Instant room" })
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(
+        qualificationPage.locator(".guest-connection.live")
+      ).toHaveText("live", { timeout: 30_000 });
       await expect.poll(() => createRequestCount).toBe(1);
+      expect(createRequestUsedClientAddress).toBe(true);
+      expect(createRequestUsedQualificationOriginHeader).toBe(true);
+      expect(createRequestUsedQualificationOrigin).toBe(true);
+      expect(createRequestUsedUnexpectedOrigin).toBe(false);
 
-      const hostBeforeConversion = await storedGuestRoomIdentity(hostPage);
-      const shareField = hostPage.getByRole("textbox", {
-        name: "Secure room link"
+      const hostIdentity = await storedGuestRoomIdentity(qualificationPage);
+      expect(hostIdentity).toMatchObject({
+        accountType: "guest",
+        tenantSlug
+      });
+      const shareField = qualificationPage.getByRole("textbox", {
+        name: /(?:Secure room|Room invite) link/
       });
       const shareURL = await shareField.inputValue();
-      assertInstantRoomShareURL(shareURL);
+      assertInstantRoomShareURL(shareURL, publicOrigin);
 
       const shareFingerprint = qrValueFingerprint(shareURL);
-      const qr = hostPage.locator(".guest-qr");
+      const qr = qualificationPage.locator(".guest-qr");
+      await redactShareField(qualificationPage);
       await expect(qr).toHaveAttribute(
         "data-qr-fingerprint",
         shareFingerprint,
@@ -94,21 +127,62 @@ test.describe("real-stack instant-room acceptance", () => {
         qr.getByRole("img", { name: "Scan to join Instant room" })
       ).toBeVisible();
 
+      const hostGuestSession =
+        await captureGuestSessionForHandoff(qualificationPage);
+      await qualificationContext.close();
+      qualificationContext = null;
+
+      hostContext = await roomContext(browser, publicOrigin);
+      await installGuestSessionHandoff(
+        hostContext,
+        publicOrigin,
+        hostGuestSession
+      );
+      guestContext = await roomContext(browser, publicOrigin);
+      const hostPage = await hostContext.newPage();
+      const guestPage = await guestContext.newPage();
+      for (const page of [hostPage, guestPage]) {
+        page.on("request", (request) => {
+          if ("x-forwarded-for" in request.headers()) {
+            publicRequestUsedForwardedFor = true;
+          }
+          if (
+            request.method() === "POST" &&
+            new URL(request.url()).pathname === "/api/v1/instant-rooms"
+          ) {
+            createRequestCount += 1;
+            createRequestUsedUnexpectedOrigin = true;
+          }
+        });
+      }
+
+      await hostPage.goto(new URL("/", publicOrigin).toString());
+      await expect(
+        hostPage.getByRole("heading", { name: "Instant room" })
+      ).toBeVisible({ timeout: 30_000 });
+      await redactShareField(hostPage);
+      await expect(hostPage.locator(".guest-connection.live")).toHaveText(
+        "live",
+        { timeout: 30_000 }
+      );
+      expect(await storedGuestRoomIdentity(hostPage)).toEqual(hostIdentity);
+      await expect.poll(() => createRequestCount).toBe(1);
+      expect(createRequestUsedUnexpectedOrigin).toBe(false);
+      expect(publicRequestUsedForwardedFor).toBe(false);
+
       await navigateToSecureRoom(guestPage, shareURL);
       await expect
         .poll(() =>
           guestPage.evaluate(() => ({
             pathname: window.location.pathname,
-            hash: window.location.hash,
-            tokenInQuery: new URL(window.location.href).searchParams.has(
-              "token"
-            )
+            fragmentCleared: window.location.hash === "",
+            queryCleared: new URL(window.location.href).search === ""
           }))
         )
         .toEqual({
           pathname: "/join",
-          hash: "",
-          tokenInQuery: false
+          fragmentCleared: true,
+          queryCleared: true
         });
 
       await expect(
@@ -120,6 +194,7 @@ test.describe("real-stack instant-room acceptance", () => {
       await guestPage
         .getByRole("button", { name: "Join conversation" })
         .click();
+      await redactShareField(guestPage);
 
       await Promise.all([
         expect(hostPage.locator(".guest-connection.live")).toHaveText("live", {
@@ -148,17 +223,19 @@ test.describe("real-stack instant-room acceptance", () => {
         }),
         expect(guestRoster.getByText("Live Room Guest", { exact: false }))
           .toContainText("Live Room Guest (you)", { timeout: 30_000 }),
-        expect(hostRoster.getByText("Guest host", { exact: false }))
-          .toContainText("Guest host (you)", { timeout: 30_000 }),
-        expect(guestRoster.getByText("Guest host")).toBeVisible({
+        expect(hostRoster.getByText("Live Room Host", { exact: false }))
+          .toContainText("Live Room Host (you)", { timeout: 30_000 }),
+        expect(guestRoster.getByText("Live Room Host")).toBeVisible({
           timeout: 30_000
         })
       ]);
 
       const guestIdentity = await storedGuestRoomIdentity(guestPage);
       expect(guestIdentity).toMatchObject({
-        roomId: hostBeforeConversion.roomId,
-        conversationId: hostBeforeConversion.conversationId,
+        tenantId: hostIdentity.tenantId,
+        tenantSlug,
+        roomId: hostIdentity.roomId,
+        conversationId: hostIdentity.conversationId,
         accountType: "guest"
       });
 
@@ -174,99 +251,67 @@ test.describe("real-stack instant-room acceptance", () => {
         guestPage.getByText(hostMessage, { exact: true })
       ).toBeVisible({ timeout: 30_000 });
 
-      const conversionEmail = `instant-owner-${shortSuffix()}@example.test`;
-      await hostPage
-        .getByRole("button", { name: "Create account" })
-        .click();
-      const accountCard = hostPage.locator("#guest-account-conversion");
-      await expect(
-        accountCard.getByRole("heading", { name: "Keep your conversation" })
-      ).toBeVisible();
-      await accountCard
-        .getByRole("textbox", { name: "Work email" })
-        .fill(conversionEmail);
-      await accountCard
-        .getByRole("textbox", { name: /Display name/ })
-        .fill("Registered Room Owner");
-      await accountCard
-        .getByLabel("Password")
-        .fill(strongPassword());
-      await accountCard
-        .getByRole("button", { name: "Create account" })
-        .click();
-
-      await expect(
-        hostPage.locator(".guest-room-heading .guest-badge")
-      ).toHaveText("Member", { timeout: 30_000 });
-      await expect(
-        hostPage.getByText(
-          "When everyone leaves, this room remains available for 24 hours."
-        )
-      ).toBeVisible({ timeout: 30_000 });
-      await expect(hostPage.locator(".guest-connection.live")).toHaveText(
-        "live",
-        { timeout: 30_000 }
-      );
-      await expect(hostPage.getByText(/2 people online/i)).toBeVisible({
-        timeout: 30_000
-      });
-      await expect(
-        hostPage.getByText(guestMessage, { exact: true })
-      ).toBeVisible();
-      await expect(
-        guestPage.getByText(hostMessage, { exact: true })
-      ).toBeVisible();
-
-      const converted = await storedMemberContinuity(hostPage);
-      expect(converted).toEqual({
-        account: {
-          userId: hostBeforeConversion.userId,
-          accountType: "human"
-        },
-        guestSessionPresent: false,
-        continuity: {
-          roomId: hostBeforeConversion.roomId,
-          conversationId: hostBeforeConversion.conversationId
-        }
-      });
-
-      await redactShareField(hostPage);
-      await hostPage.reload();
-
-      await expect(
-        hostPage.getByRole("heading", { name: "Instant room" })
-      ).toBeVisible({ timeout: 30_000 });
-      await expect(hostPage.locator(".guest-connection.live")).toHaveText(
-        "live",
-        { timeout: 30_000 }
-      );
-      await expect(hostPage.getByText(/2 people online/i)).toBeVisible({
-        timeout: 30_000
-      });
-      await expect(
-        hostPage.getByText(guestMessage, { exact: true })
-      ).toBeVisible({ timeout: 30_000 });
+      expect(await storedGuestRoomIdentity(hostPage)).toEqual(hostIdentity);
+      expect(await storedGuestRoomIdentity(guestPage)).toEqual(guestIdentity);
       await expect.poll(() => createRequestCount).toBe(1);
+      expect(createRequestUsedUnexpectedOrigin).toBe(false);
+      expect(publicRequestUsedForwardedFor).toBe(false);
 
-      const afterReload = await storedMemberContinuity(hostPage);
-      expect(afterReload).toEqual(converted);
-
-      const messageAfterReload = `After refresh ${shortSuffix()}`;
-      await sendMessage(guestPage, messageAfterReload);
-      await expect(
-        hostPage.getByText(messageAfterReload, { exact: true })
-      ).toBeVisible({ timeout: 30_000 });
-
-      await guestPage.getByRole("button", { name: "Leave" }).click();
-      await hostPage.getByRole("button", { name: "Leave" }).click();
+      await leaveAndAwaitRevocation(guestPage, publicOrigin);
+      await leaveAndAwaitRevocation(hostPage, publicOrigin);
     } finally {
-      await Promise.allSettled([hostContext.close(), guestContext.close()]);
+      const contexts = [
+        qualificationContext,
+        hostContext,
+        guestContext
+      ].filter((context): context is BrowserContext => context !== null);
+      await Promise.allSettled(contexts.map((context) => context.close()));
     }
   });
 });
 
-function roomContext(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext({ baseURL: liveStackURL });
+function roomContext(
+  browser: Browser,
+  baseURL: string
+): Promise<BrowserContext> {
+  return browser.newContext({ baseURL });
+}
+
+function qualificationRoomContext(
+  browser: Browser,
+  baseURL: string,
+  clientAddress: string
+): Promise<BrowserContext> {
+  return browser.newContext({
+    baseURL,
+    extraHTTPHeaders: { "X-Forwarded-For": clientAddress }
+  });
+}
+
+async function installGuestSessionHandoff(
+  context: BrowserContext,
+  publicOrigin: string,
+  serializedSession: string
+) {
+  try {
+    await context.addInitScript(
+      ({ expectedOrigin, storageKey, sessionValue }) => {
+        if (
+          window.location.origin === expectedOrigin &&
+          !window.sessionStorage.getItem(storageKey)
+        ) {
+          window.sessionStorage.setItem(storageKey, sessionValue);
+        }
+      },
+      {
+        expectedOrigin: publicOrigin,
+        storageKey: guestSessionStorageKey,
+        sessionValue: serializedSession
+      }
+    );
+  } catch {
+    throw new Error("the in-memory guest session handoff failed");
+  }
 }
 
 async function navigateToSecureRoom(page: Page, shareURL: string) {
@@ -286,6 +331,23 @@ async function sendMessage(page: Page, body: string) {
   });
 }
 
+async function leaveAndAwaitRevocation(page: Page, publicOrigin: string) {
+  const [response] = await Promise.all([
+    page.waitForResponse((candidate) => {
+      const request = candidate.request();
+      const url = new URL(candidate.url());
+      return (
+        request.method() === "DELETE" &&
+        url.origin === publicOrigin &&
+        url.pathname === "/api/v1/guest/sessions/current" &&
+        url.search === ""
+      );
+    }, { timeout: 30_000 }),
+    page.getByRole("button", { name: "Leave" }).click()
+  ]);
+  expect(response.status()).toBe(204);
+}
+
 async function storedGuestRoomIdentity(
   page: Page
 ): Promise<StoredRoomIdentity> {
@@ -295,13 +357,22 @@ async function storedGuestRoomIdentity(
       throw new Error("the guest room session is missing");
     }
     const session = JSON.parse(serialized) as {
-      user?: { id?: string; account_type?: string | null };
-      conversation?: { id?: string };
+      tenant?: { id?: string; slug?: string };
+      user?: {
+        id?: string;
+        tenant_id?: string;
+        account_type?: string | null;
+      };
+      conversation?: { id?: string; tenant_id?: string };
       instant_room?: { id?: string };
     };
     if (
+      !session.tenant?.id ||
+      !session.tenant.slug ||
       !session.user?.id ||
+      session.user.tenant_id !== session.tenant.id ||
       !session.conversation?.id ||
+      session.conversation.tenant_id !== session.tenant.id ||
       !session.instant_room?.id
     ) {
       throw new Error("the stored guest room identity is incomplete");
@@ -309,56 +380,39 @@ async function storedGuestRoomIdentity(
     return {
       userId: session.user.id,
       accountType: session.user.account_type || null,
+      tenantId: session.tenant.id,
+      tenantSlug: session.tenant.slug,
       roomId: session.instant_room.id,
       conversationId: session.conversation.id
     };
   });
 }
 
-async function storedMemberContinuity(
-  page: Page
-): Promise<StoredMemberContinuity> {
+async function captureGuestSessionForHandoff(page: Page): Promise<string> {
   return page.evaluate(() => {
-    const accountValue = sessionStorage.getItem("k-comms.session.v1");
-    const guestSessionPresent =
-      sessionStorage.getItem("k-comms.guest-session.v1") !== null;
-    const continuityValue = sessionStorage.getItem(
-      "k-comms.member-instant-room.v1"
-    );
-    const account = accountValue
-      ? (JSON.parse(accountValue) as {
-          user?: { id?: string; account_type?: string | null };
-        })
-      : null;
-    const continuity = continuityValue
-      ? (JSON.parse(continuityValue) as {
-          room?: { id?: string };
-          conversation?: { id?: string };
-        })
-      : null;
-
-    return {
-      account: account?.user?.id
-        ? {
-            userId: account.user.id,
-            accountType: account.user.account_type || null
-          }
-        : null,
-      guestSessionPresent,
-      continuity:
-        continuity?.room?.id && continuity.conversation?.id
-          ? {
-              roomId: continuity.room.id,
-              conversationId: continuity.conversation.id
-            }
-          : null
+    const serialized = sessionStorage.getItem("k-comms.guest-session.v1");
+    if (!serialized) {
+      throw new Error("the guest room session is missing");
+    }
+    const session = JSON.parse(serialized) as {
+      access_token?: unknown;
+      refresh_token?: unknown;
+      instant_room?: { id?: unknown };
     };
+    if (
+      typeof session.access_token !== "string" ||
+      typeof session.refresh_token !== "string" ||
+      typeof session.instant_room?.id !== "string"
+    ) {
+      throw new Error("the guest room session cannot be handed off");
+    }
+    return serialized;
   });
 }
 
 async function redactShareField(page: Page) {
   await page
-    .getByRole("textbox", { name: "Secure room link" })
+    .getByRole("textbox", { name: /(?:Secure room|Room invite) link/ })
     .evaluate((element) => {
       const input = element as HTMLInputElement;
       input.value = "[redacted secure room link]";
@@ -366,7 +420,7 @@ async function redactShareField(page: Page) {
     });
 }
 
-function assertInstantRoomShareURL(value: string) {
+function assertInstantRoomShareURL(value: string, publicOrigin: string) {
   try {
     const url = new URL(value);
     const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
@@ -376,6 +430,7 @@ function assertInstantRoomShareURL(value: string) {
       !["http:", "https:"].includes(url.protocol) ||
       url.username ||
       url.password ||
+      url.origin !== publicOrigin ||
       url.pathname !== "/join" ||
       url.search !== "" ||
       keys.length !== 1 ||
@@ -391,14 +446,80 @@ function assertInstantRoomShareURL(value: string) {
   }
 }
 
+function sealedInstantRoomEnvironment() {
+  const qualificationAppOrigin = exactOriginEnvironment(
+    "K_COMMS_LIVE_INSTANT_ROOM_QUALIFICATION_APP_ORIGIN",
+    true
+  );
+  const publicOrigin = exactOriginEnvironment(
+    "K_COMMS_LIVE_INSTANT_ROOM_PUBLIC_ORIGIN",
+    false
+  );
+  const tenantSlug = process.env.K_COMMS_LIVE_INSTANT_ROOM_TENANT_SLUG;
+  const clientAddress =
+    process.env.K_COMMS_LIVE_INSTANT_ROOM_CLIENT_ADDRESS;
+  if (
+    !tenantSlug ||
+    !/^k-comms-qualification-[0-9a-f]{32}$/.test(tenantSlug)
+  ) {
+    throw new Error(
+      "instant-room qualification requires a disposable marker-bound tenant"
+    );
+  }
+  if (
+    !clientAddress ||
+    !/^2001:db8:[0-9a-f]{1,4}:[0-9a-f]{1,4}::1$/.test(clientAddress)
+  ) {
+    throw new Error(
+      "instant-room qualification requires an isolated documentation client address"
+    );
+  }
+  if (qualificationAppOrigin === publicOrigin) {
+    throw new Error(
+      "the temporary qualification app must be isolated from the public origin"
+    );
+  }
+  return {
+    clientAddress,
+    qualificationAppOrigin,
+    publicOrigin,
+    tenantSlug
+  };
+}
+
+function exactOriginEnvironment(name: string, loopbackOnly: boolean) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`the local-release qualifier did not supply ${name}`);
+  }
+  try {
+    const url = new URL(value);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      value !== url.origin ||
+      (loopbackOnly && (url.hostname !== "127.0.0.1" || !url.port))
+    ) {
+      throw new Error();
+    }
+    return url.origin;
+  } catch {
+    throw new Error(
+      loopbackOnly
+        ? `${name} must be an exact, explicit-port 127.0.0.1 origin`
+        : `${name} must be an exact HTTP(S) origin`
+    );
+  }
+}
+
 function qrValueFingerprint(value: string) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 function shortSuffix() {
   return randomUUID().replaceAll("-", "").slice(0, 16);
-}
-
-function strongPassword() {
-  return `Kc!${randomUUID()}Aa9`;
 }

@@ -43,6 +43,8 @@ defmodule CommsWeb.StatusControllerTest do
                "audio_calls" => audio_available,
                "guest_links" => true,
                "instant_rooms" => true,
+               "secure_account_actions" => true,
+               "secure_media_actions" => true,
                "video_calls" => video_available
              }
            } = json_response(conn, 200)
@@ -153,6 +155,58 @@ defmodule CommsWeb.StatusControllerTest do
     assert response["capabilities"]["video_calls"] == false
   end
 
+  test "LAN release reports secure account and media actions unavailable on every HTTP host" do
+    previous = Application.get_env(:comms_web, :insecure_lan_release)
+    Application.put_env(:comms_web, :insecure_lan_release, true)
+
+    on_exit(fn ->
+      restore_env(:comms_web, :insecure_lan_release, previous)
+    end)
+
+    for host <- ["127.0.0.1", "localhost", "192.168.1.177"] do
+      capabilities =
+        build_conn()
+        |> Map.put(:host, host)
+        |> get("/api/v1/status")
+        |> json_response(200)
+        |> Map.fetch!("capabilities")
+
+      assert capabilities["secure_account_actions"] == false
+      assert capabilities["secure_media_actions"] == false
+    end
+  end
+
+  test "secure actions remain available for normal development HTTP and HTTPS" do
+    previous = Application.get_env(:comms_web, :insecure_lan_release)
+
+    on_exit(fn ->
+      restore_env(:comms_web, :insecure_lan_release, previous)
+    end)
+
+    Application.put_env(:comms_web, :insecure_lan_release, false)
+
+    development_capabilities =
+      build_conn()
+      |> Map.put(:host, "127.0.0.1")
+      |> get("/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert development_capabilities["secure_account_actions"] == true
+    assert development_capabilities["secure_media_actions"] == true
+
+    Application.put_env(:comms_web, :insecure_lan_release, true)
+
+    https_capabilities =
+      build_conn()
+      |> get("https://comms.example.test/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert https_capabilities["secure_account_actions"] == true
+    assert https_capabilities["secure_media_actions"] == true
+  end
+
   test "GET /metrics", %{conn: conn} do
     conn = get(conn, "/metrics")
     assert response(conn, 200) =~ "k_comms_auth_success_total"
@@ -199,6 +253,8 @@ defmodule CommsWeb.StatusControllerTest do
 
   defp eventually(_fun, 0), do: false
 
-  defp restore_env(key, nil), do: Application.delete_env(:comms_core, key)
-  defp restore_env(key, value), do: Application.put_env(:comms_core, key, value)
+  defp restore_env(key, value), do: restore_env(:comms_core, key, value)
+
+  defp restore_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_env(app, key, value), do: Application.put_env(app, key, value)
 end

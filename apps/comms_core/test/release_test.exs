@@ -69,6 +69,52 @@ defmodule CommsCore.ReleaseTest do
     end
   end
 
+  test "qualification tenant environment is one-shot, confirmed, and derived from a bounded id" do
+    qualification_id = String.duplicate("a", 32)
+
+    environment = %{
+      "K_COMMS_RUNTIME_PURPOSE" => "one_shot",
+      "K_COMMS_QUALIFICATION_CONFIRMATION" => "local-release-qualification-tenant-v1",
+      "K_COMMS_QUALIFICATION_ACTION" => "create",
+      "K_COMMS_QUALIFICATION_ID" => qualification_id,
+      "K_COMMS_QUALIFICATION_PASSWORD" => String.duplicate("Qx9!", 12)
+    }
+
+    assert {:ok, context} =
+             Release.validate_qualification_environment(&Map.get(environment, &1))
+
+    assert context.action == :create
+
+    assert context.attrs.tenant_slug ==
+             "k-comms-qualification-#{qualification_id}"
+
+    assert context.attrs.email ==
+             "k-comms-qualification-owner+#{qualification_id}@example.test"
+
+    assert {:ok, %{action: :delete}} =
+             Release.validate_qualification_environment(
+               &(environment
+                 |> Map.put("K_COMMS_QUALIFICATION_ACTION", "delete")
+                 |> Map.delete("K_COMMS_QUALIFICATION_PASSWORD")
+                 |> Map.get(&1))
+             )
+
+    for {name, value, expected_error} <- [
+          {"K_COMMS_RUNTIME_PURPOSE", "application", :one_shot_runtime_required},
+          {"K_COMMS_QUALIFICATION_CONFIRMATION", "wrong", :qualification_confirmation_required},
+          {"K_COMMS_QUALIFICATION_ACTION", "purge", :qualification_action_invalid},
+          {"K_COMMS_QUALIFICATION_ID", "not-a-bounded-id", :qualification_id_invalid},
+          {"K_COMMS_QUALIFICATION_PASSWORD", "short", :qualification_password_required}
+        ] do
+      assert {:error, ^expected_error} =
+               Release.validate_qualification_environment(
+                 &(environment
+                   |> Map.put(name, value)
+                   |> Map.get(&1))
+               )
+    end
+  end
+
   test "migration preflight proves timeout settings and database quiescence" do
     assert :ok =
              Release.assert_migration_preflight_result!(

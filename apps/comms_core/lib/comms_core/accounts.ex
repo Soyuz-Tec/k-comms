@@ -54,6 +54,34 @@ defmodule CommsCore.Accounts do
   @max_directory_limit 100
   @max_retained_sender_label_ids 200
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      users:
+        repo.all(
+          from(user in User,
+            where: user.tenant_id == ^tenant_id,
+            select: user.id
+          )
+        ),
+      sessions:
+        repo.all(
+          from(session in Session,
+            where: session.tenant_id == ^tenant_id,
+            select: session.id
+          )
+        ),
+      devices:
+        repo.all(
+          from(device in Device,
+            where: device.tenant_id == ^tenant_id,
+            select: device.id
+          )
+        )
+    }
+  end
+
   @doc """
   Resolves an active human or guest session into persistence-free
   authorization facts.
@@ -1400,6 +1428,90 @@ defmodule CommsCore.Accounts do
       end
     end
   end
+
+  @doc """
+  Deletes one release-qualification tenant after verifying its exact owner marker.
+
+  This bounded lifecycle operation is used only by the one-shot release
+  qualifier. TenantAdministration retains the tenant row and cascading-delete
+  ownership; IdentityAccess verifies that the expected active owner is the
+  tenant's only owner before requesting deletion.
+  """
+  def delete_release_qualification_tenant(attrs) when is_map(attrs) do
+    tenant_slug = value(attrs, :tenant_slug)
+    tenant_name = value(attrs, :tenant_name)
+
+    owner_email =
+      attrs
+      |> value(:email)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    qualification_id =
+      case Regex.run(
+             ~r/\Ak-comms-qualification-([0-9a-f]{32})\z/,
+             to_string(tenant_slug)
+           ) do
+        [_, id] -> id
+        _other -> nil
+      end
+
+    expected_name = "K-Comms qualification #{qualification_id}"
+
+    expected_email =
+      "k-comms-qualification-owner+#{qualification_id}@example.test"
+
+    if qualification_id && tenant_name == expected_name &&
+         owner_email == expected_email do
+      Repo.transaction(fn ->
+        case Administration.get_bootstrap_tenant_by_slug(tenant_slug) do
+          nil ->
+            %{status: :absent, tenant_slug: tenant_slug}
+
+          %{id: tenant_id, name: ^tenant_name} = tenant ->
+            matching_owner_count =
+              Repo.aggregate(
+                from(u in User,
+                  where:
+                    u.tenant_id == ^tenant_id and u.role == :owner and
+                      u.status == :active and u.email == ^owner_email
+                ),
+                :count
+              )
+
+            total_owner_count =
+              Repo.aggregate(
+                from(u in User,
+                  where: u.tenant_id == ^tenant_id and u.role == :owner
+                ),
+                :count
+              )
+
+            if matching_owner_count == 1 and total_owner_count == 1 do
+              case Administration.delete_release_qualification_tenant(tenant) do
+                {:ok, deleted} -> %{status: :deleted, tenant: deleted}
+                {:error, reason} -> Repo.rollback(reason)
+              end
+            else
+              Repo.rollback(:qualification_tenant_identity_conflict)
+            end
+
+          _tenant ->
+            Repo.rollback(:qualification_tenant_identity_conflict)
+        end
+      end)
+      |> case do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :qualification_tenant_identity_conflict}
+    end
+  end
+
+  def delete_release_qualification_tenant(_attrs),
+    do: {:error, :qualification_tenant_identity_conflict}
 
   def create_user(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)

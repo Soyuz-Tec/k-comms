@@ -613,6 +613,7 @@ def validate_instant_room_contract(openapi: dict[str, Any]) -> None:
         != {"title", "display_name", "device"}
         or "Anonymous creation requires a complete device"
         not in create_request.get("description", "")
+        or "chosen display_name" not in create_request.get("description", "")
         or device.get("additionalProperties") is not False
         or set(device.get("required", [])) != {"name", "platform"}
         or set(device.get("properties", {})) != {"name", "platform"}

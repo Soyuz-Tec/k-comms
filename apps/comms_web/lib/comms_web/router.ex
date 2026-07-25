@@ -14,6 +14,7 @@ defmodule CommsWeb.Router do
 
   pipeline :authentication_api do
     plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
     plug(CommsWeb.Plugs.RateLimit, limit: 60, window: 60, scope: :authentication_ip)
     plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :authentication)
   end
@@ -64,6 +65,7 @@ defmodule CommsWeb.Router do
 
   pipeline :guest_account_conversion_api do
     plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
 
     plug(CommsWeb.Plugs.RateLimit,
       limit: 5,
@@ -102,6 +104,7 @@ defmodule CommsWeb.Router do
 
   pipeline :password_verification_api do
     plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
     plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :password_verification_ip)
     plug(CommsWeb.Plugs.Authenticate)
 

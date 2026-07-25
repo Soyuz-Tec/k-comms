@@ -103,6 +103,48 @@ defmodule CommsCore.Administration do
   @doc false
   def any_tenant?, do: Repo.exists?(Tenant)
 
+  @doc false
+  def release_tenant_fingerprint_id(repo, tenant_slug)
+      when is_atom(repo) and is_binary(tenant_slug) do
+    repo.one(
+      from(tenant in Tenant,
+        where: tenant.slug == ^tenant_slug,
+        select: tenant.id
+      )
+    )
+  end
+
+  @doc false
+  def delete_release_qualification_tenant(%TenantView{} = expected) do
+    if Repo.in_transaction?() do
+      tenant =
+        Repo.one(
+          from(t in Tenant,
+            where:
+              t.id == ^expected.id and t.slug == ^expected.slug and
+                t.name == ^expected.name,
+            lock: "FOR UPDATE"
+          )
+        )
+
+      case tenant do
+        %Tenant{} = value ->
+          case Repo.delete(value) do
+            {:ok, deleted} -> {:ok, Projector.tenant(deleted)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        nil ->
+          {:error, :qualification_tenant_identity_conflict}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def delete_release_qualification_tenant(_expected),
+    do: {:error, :qualification_tenant_identity_conflict}
+
   @doc """
   Returns an active tenant as a stable owner projection.
 

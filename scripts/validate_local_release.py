@@ -13,7 +13,16 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPOSE = ROOT / "deploy" / "compose.local-release.yaml"
 DEFAULT_RUNNER = ROOT / "scripts" / "manage_local_release.ps1"
-REQUIRED_SERVICES = {"postgres", "minio", "minio-init", "livekit", "migrate", "app"}
+REQUIRED_SERVICES = {
+    "postgres",
+    "minio",
+    "minio-init",
+    "livekit",
+    "migrate",
+    "bootstrap",
+    "qualification",
+    "app",
+}
 IMMUTABLE_IMAGES = {"postgres", "minio", "minio-init", "livekit"}
 EXPECTED_PORTS = {
     "minio": [
@@ -113,6 +122,10 @@ def validate_local_release(
         errors.append(
             "service 'app' must use only the internal livekit:7880 API origin"
         )
+    if app_environment.get("ALLOW_BOOTSTRAP") != "${ALLOW_BOOTSTRAP:-false}":
+        errors.append(
+            "service 'app' must default the public bootstrap endpoint to disabled"
+        )
     required_network_environment = {
         "K_COMMS_PODMAN_BIND_ADDRESS": (
             "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}"
@@ -208,6 +221,84 @@ def validate_local_release(
                 "quiesced migrations"
             )
 
+    bootstrap = _mapping(services.get("bootstrap"))
+    bootstrap_environment = _mapping(bootstrap.get("environment"))
+    if bootstrap.get("image") != app.get("image"):
+        errors.append(
+            "bootstrap and application services must use the same exact image"
+        )
+    if bootstrap.get("command") != ["eval", "CommsCore.Release.bootstrap()"]:
+        errors.append(
+            "bootstrap service must run only CommsCore.Release.bootstrap()"
+        )
+    if bootstrap.get("read_only") is not True:
+        errors.append("bootstrap service root filesystem must be read-only")
+    expected_bootstrap_environment = {
+        "K_COMMS_ROLE": "worker",
+        "K_COMMS_RUNTIME_PURPOSE": "one_shot",
+        "K_COMMS_LOCAL_RELEASE": "false",
+        "ALLOW_BOOTSTRAP": "false",
+        "BOOTSTRAP_TENANT_NAME": (
+            "${BOOTSTRAP_TENANT_NAME:?BOOTSTRAP_TENANT_NAME is required}"
+        ),
+        "BOOTSTRAP_TENANT_SLUG": (
+            "${BOOTSTRAP_TENANT_SLUG:?BOOTSTRAP_TENANT_SLUG is required}"
+        ),
+        "BOOTSTRAP_OWNER_DISPLAY_NAME": (
+            "${BOOTSTRAP_OWNER_DISPLAY_NAME:"
+            "?BOOTSTRAP_OWNER_DISPLAY_NAME is required}"
+        ),
+        "BOOTSTRAP_OWNER_EMAIL": (
+            "${BOOTSTRAP_OWNER_EMAIL:?BOOTSTRAP_OWNER_EMAIL is required}"
+        ),
+        "BOOTSTRAP_OWNER_PASSWORD": (
+            "${BOOTSTRAP_OWNER_PASSWORD:?BOOTSTRAP_OWNER_PASSWORD is required}"
+        ),
+    }
+    for name, expected in expected_bootstrap_environment.items():
+        if str(bootstrap_environment.get(name, "")) != expected:
+            errors.append(
+                f"bootstrap service must set {name}={expected} for sealed "
+                "one-shot tenant provisioning"
+            )
+
+    qualification = _mapping(services.get("qualification"))
+    qualification_environment = _mapping(qualification.get("environment"))
+    if qualification.get("image") != app.get("image"):
+        errors.append(
+            "qualification and application services must use the same exact image"
+        )
+    if qualification.get("command") != [
+        "eval",
+        "CommsCore.Release.qualification_tenant()",
+    ]:
+        errors.append(
+            "qualification service must run only "
+            "CommsCore.Release.qualification_tenant()"
+        )
+    if qualification.get("read_only") is not True:
+        errors.append("qualification service root filesystem must be read-only")
+    expected_qualification_environment = {
+        "K_COMMS_ROLE": "worker",
+        "K_COMMS_RUNTIME_PURPOSE": "one_shot",
+        "K_COMMS_LOCAL_RELEASE": "false",
+        "ALLOW_BOOTSTRAP": "false",
+        "K_COMMS_QUALIFICATION_ACTION": "${K_COMMS_QUALIFICATION_ACTION:-}",
+        "K_COMMS_QUALIFICATION_ID": "${K_COMMS_QUALIFICATION_ID:-}",
+        "K_COMMS_QUALIFICATION_PASSWORD": (
+            "${K_COMMS_QUALIFICATION_PASSWORD:-}"
+        ),
+        "K_COMMS_QUALIFICATION_CONFIRMATION": (
+            "${K_COMMS_QUALIFICATION_CONFIRMATION:-}"
+        ),
+    }
+    for name, expected in expected_qualification_environment.items():
+        if str(qualification_environment.get(name, "")) != expected:
+            errors.append(
+                f"qualification service must set {name}={expected} for "
+                "bounded isolated qualification-tenant lifecycle"
+            )
+
     for name, expected in EXPECTED_PORTS.items():
         observed_ports = [
             str(value) for value in _list(_mapping(services.get(name)).get("ports"))
@@ -243,7 +334,13 @@ def validate_local_release(
             f"{unsafe_published_ports!r}"
         )
 
-    for name in ("postgres", "minio-init", "migrate"):
+    for name in (
+        "postgres",
+        "minio-init",
+        "migrate",
+        "bootstrap",
+        "qualification",
+    ):
         if _mapping(services.get(name)).get("ports"):
             errors.append(f"service {name!r} must not publish a host port")
 
@@ -383,6 +480,9 @@ def validate_local_release(
     invoke_compose_body = _compact_powershell(
         _function_body(runner_document, "Invoke-Compose")
     )
+    start_sealed_application_body = _compact_powershell(
+        _function_body(runner_document, "Start-SealedApplication")
+    )
     if (
         "[collections.generic.hashset[string]]::new("
         not in compose_interpolation_names_body
@@ -398,6 +498,8 @@ def validate_local_release(
         or "foreach ($name in $retainedenvironment.keys)"
         not in sealed_compose_environment_body
         or '$null = $names.add("k_comms_podman_bind_address")'
+        not in sealed_compose_environment_body
+        or '$null = $names.add("allow_bootstrap")'
         not in sealed_compose_environment_body
         or "[environment]::getenvironmentvariables("
         not in sealed_compose_environment_body
@@ -427,6 +529,10 @@ def validate_local_release(
         not in sealed_compose_environment_body
         or '"k_comms_podman_bind_address", $podmanbindaddress,'
         not in sealed_compose_environment_body
+        or '"allow_bootstrap", "false",'
+        not in sealed_compose_environment_body
+        or "if ($sealpublicbootstrap)"
+        not in sealed_compose_environment_body
         or "& $action" not in sealed_compose_environment_body
         or "finally { foreach ($name in $names)"
         not in sealed_compose_environment_body
@@ -438,6 +544,8 @@ def validate_local_release(
         not in invoke_compose_body
         or "-composepath $composepath"
         not in invoke_compose_body
+        or "-sealpublicbootstrap:$sealpublicbootstrap"
+        not in invoke_compose_body
         or "invoke-nativecommand" not in invoke_compose_body
     ):
         errors.append(
@@ -445,9 +553,24 @@ def validate_local_release(
             "interpolation variables against ambient process overrides, force "
             "the Podman bind to loopback, and restore the caller environment"
         )
+    if (
+        '@("up", "-d", "--no-build", "--force-recreate", "app")'
+        not in start_sealed_application_body
+        or "-sealpublicbootstrap" not in start_sealed_application_body
+        or "start-sealedapplication" not in restore_body
+    ):
+        errors.append(
+            "every application activation must force ALLOW_BOOTSTRAP=false, "
+            "including legacy retained-release restart and rollback"
+        )
 
     deploy_body = _compact(_function_body(runner_document, "Invoke-DeployLocked"))
     deploy_entry = _compact(_function_body(runner_document, "Invoke-Deploy"))
+    if "start-sealedapplication" not in deploy_body:
+        errors.append(
+            "candidate deployment must activate the application through the "
+            "sealed public-bootstrap helper"
+        )
     wait_application_body = _compact(
         _function_body(runner_document, "Wait-Application")
     )
@@ -644,6 +767,21 @@ def validate_local_release(
     ):
         errors.append(
             "release validation must exercise candidate instant-rooms capability enforcement"
+        )
+    if (
+        '$capabilities.psobject.properties["bootstrap"]'
+        not in application_capabilities_body
+        or "$bootstrap.value -ne $false" not in application_capabilities_body
+        or "public bootstrap endpoint as disabled"
+        not in application_capabilities_body
+        or "bootstrap = $false" not in capability_self_test_body
+        or "bootstrap = $true" not in capability_self_test_body
+        or "accepted an application with public bootstrap enabled"
+        not in capability_self_test_body
+    ):
+        errors.append(
+            "release health and self-tests must require the public bootstrap "
+            "endpoint to remain disabled"
         )
     migration_quiesce_position = start_release_body.find(
         "stop-applicationformigration"
@@ -1053,6 +1191,12 @@ def validate_local_release(
         not in forwarder_observation_body
         or '-name "processstarttimeutc"'
         not in forwarder_observation_body
+        or "$readyprocessstartvalue -is [datetime]"
+        not in forwarder_observation_body
+        or "$readyprocessstartvalue.touniversaltime()"
+        not in forwarder_observation_body
+        or "[datetimeoffset]::parse("
+        not in forwarder_observation_body
         or "$process.starttime.touniversaltime()"
         not in forwarder_observation_body
         or ").totalseconds ) -le 5" not in forwarder_observation_body
@@ -1308,11 +1452,20 @@ def validate_local_release(
         not in new_release_environment_body
         or '$values["instant_room_tenant_slug"] = "k-comms-development"'
         not in new_release_environment_body
+        or '$values["allow_bootstrap"] = "false"'
+        not in new_release_environment_body
+        or "allow_bootstrap = \"false\""
+        not in release_environment_topology_body
         or ensure_instant_room_tenant_body.count(
             "test-instantroomtenantexists"
         )
         < 2
-        or "/api/v1/bootstrap" not in ensure_instant_room_tenant_body
+        or '@("run", "--rm", "--no-deps", "bootstrap")'
+        not in ensure_instant_room_tenant_body
+        or "-sealpublicbootstrap" not in ensure_instant_room_tenant_body
+        or "public http bootstrap will not be used"
+        not in ensure_instant_room_tenant_body
+        or "/api/v1/bootstrap" in ensure_instant_room_tenant_body
         or "no active tenant was persisted" not in ensure_instant_room_tenant_body
         or deploy_bootstrap_position < 0
         or deploy_capability_position < 0
@@ -1322,8 +1475,9 @@ def validate_local_release(
         or restore_bootstrap_position > restore_capability_position
     ):
         errors.append(
-            "local release must bootstrap and verify the fixed instant-room tenant "
-            "before candidate or restored-release capability checks"
+            "local release must provision and verify the fixed instant-room tenant "
+            "through the sealed one-shot release command before candidate or "
+            "restored-release capability checks"
         )
     if (
         "rollbackcapabilities = @(" not in deploy_body

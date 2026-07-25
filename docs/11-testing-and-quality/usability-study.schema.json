@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://k-comms.example/schemas/usability-study-v3.json",
+  "$id": "https://k-comms.example/schemas/usability-study-v3-v4.json",
   "title": "K-Comms formal usability study evidence",
-  "description": "Privacy-preserving structural contract for the 12-session usability study and exact low-click journey receipts for the Inbox, Calls, Directory, Files, and You experience. The score_usability_study.mjs validator is authoritative for cross-field task, action-count, participant, date, and release-gate semantics.",
+  "description": "Privacy-preserving structural contract for version 3 signed-in usability evidence and version 4 evidence that also covers the public instant-room journey. The score_usability_study.mjs validator is authoritative for cross-field task, action-count, participant, date, version, and release-gate semantics.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -23,7 +23,7 @@
     "sessions"
   ],
   "properties": {
-    "schema_version": { "const": 3 },
+    "schema_version": { "enum": [3, 4] },
     "release_revision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
     "environment": { "type": "string", "minLength": 1, "maxLength": 120 },
     "study_started_on": { "type": "string", "format": "date" },
@@ -63,6 +63,26 @@
         { "contains": { "properties": { "id": { "const": "ordinary-recovery" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 }
       ]
     },
+    "instant_room_receipts": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/instantRoomReceipt" },
+      "allOf": [
+        { "contains": { "properties": { "id": { "const": "instant-room-host-start-untitled" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-host-start-titled" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-copy-link" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-system-share" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-qr" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-guest-name-join" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-roster-identity" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-first-message" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-host-reload" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-guest-rejoin" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "id": { "const": "instant-room-account-conversion-handoff" } }, "required": ["id"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
     "sessions": {
       "type": "array",
       "minItems": 12,
@@ -83,6 +103,75 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schema_version": { "const": 4 } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["instant_room_receipts"],
+        "properties": {
+          "sessions": {
+            "items": {
+              "if": {
+                "properties": { "cohort": { "const": "member" } },
+                "required": ["cohort"]
+              },
+              "then": {
+                "properties": {
+                  "tasks": {
+                    "minItems": 8,
+                    "maxItems": 8,
+                    "contains": {
+                      "properties": { "id": { "const": "instant-room-first-contact" } },
+                      "required": ["id"]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "not": { "required": ["instant_room_receipts"] },
+        "properties": {
+          "sessions": {
+            "items": {
+              "allOf": [
+                {
+                  "properties": {
+                    "tasks": {
+                      "not": {
+                        "contains": {
+                          "properties": { "id": { "const": "instant-room-first-contact" } },
+                          "required": ["id"]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": { "cohort": { "const": "member" } },
+                    "required": ["cohort"]
+                  },
+                  "then": {
+                    "properties": {
+                      "tasks": { "minItems": 7, "maxItems": 7 }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "manualAccessibility": {
       "type": "object",
@@ -226,6 +315,133 @@
         }
       ]
     },
+    "instantRoomReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "participant_id",
+        "journey_role",
+        "baseline",
+        "performed_on",
+        "task_completed",
+        "unassisted",
+        "action_count",
+        "maximum_actions",
+        "checks"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "instant-room-host-start-untitled",
+            "instant-room-host-start-titled",
+            "instant-room-copy-link",
+            "instant-room-system-share",
+            "instant-room-qr",
+            "instant-room-guest-name-join",
+            "instant-room-roster-identity",
+            "instant-room-first-message",
+            "instant-room-host-reload",
+            "instant-room-guest-rejoin",
+            "instant-room-account-conversion-handoff"
+          ]
+        },
+        "participant_id": { "type": "string", "pattern": "^P[0-9A-Za-z_-]+$" },
+        "journey_role": { "enum": ["host", "guest"] },
+        "baseline": { "enum": ["signed_out", "active_host", "invite_link", "active_room", "reentry", "active_guest"] },
+        "performed_on": { "type": "string", "format": "date" },
+        "task_completed": { "type": "boolean" },
+        "unassisted": { "type": "boolean" },
+        "action_count": { "type": "integer", "minimum": 0 },
+        "maximum_actions": { "type": "integer", "minimum": 1 },
+        "checks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "host_display_name_entered",
+              "host_name_visible_in_room",
+              "room_title_omitted_without_blocking",
+              "room_title_entered",
+              "room_title_visible_in_room",
+              "invite_link_copied",
+              "copied_target_matches_invite",
+              "system_share_or_fallback_opened",
+              "shared_target_matches_invite",
+              "qr_code_rendered",
+              "qr_target_matches_invite",
+              "guest_display_name_entered",
+              "guest_name_visible_in_room",
+              "host_and_guest_names_visible",
+              "names_match_chosen_values",
+              "host_and_guest_names_distinct",
+              "message_visible_to_other_participant",
+              "sender_name_matches_chosen_value",
+              "same_room_rejoined",
+              "host_control_restored",
+              "host_name_restored",
+              "guest_name_restored",
+              "roster_presence_restored",
+              "conversion_presented_as_optional",
+              "anonymous_room_remained_usable",
+              "workspace_address_presented",
+              "portable_sign_in_link_presented"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "enum": [
+                  "instant-room-host-start-untitled",
+                  "instant-room-host-start-titled",
+                  "instant-room-copy-link",
+                  "instant-room-system-share",
+                  "instant-room-qr",
+                  "instant-room-host-reload"
+                ]
+              }
+            },
+            "required": ["id"]
+          },
+          "then": { "properties": { "journey_role": { "const": "host" } } },
+          "else": { "properties": { "journey_role": { "const": "guest" } } }
+        },
+        {
+          "if": { "properties": { "id": { "enum": ["instant-room-host-start-untitled", "instant-room-host-start-titled"] } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "signed_out" } } }
+        },
+        {
+          "if": { "properties": { "id": { "enum": ["instant-room-copy-link", "instant-room-system-share", "instant-room-qr", "instant-room-host-reload"] } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "active_host" } } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "instant-room-guest-name-join" } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "invite_link" } } }
+        },
+        {
+          "if": { "properties": { "id": { "enum": ["instant-room-roster-identity", "instant-room-first-message"] } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "active_room" } } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "instant-room-guest-rejoin" } }, "required": ["id"] },
+          "then": { "properties": { "baseline": { "const": "reentry" } } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "instant-room-account-conversion-handoff" } }, "required": ["id"] },
+          "then": {
+            "properties": {
+              "baseline": { "const": "active_guest" },
+              "maximum_actions": { "const": 3 }
+            }
+          },
+          "else": { "properties": { "maximum_actions": { "const": 1 } } }
+        }
+      ]
+    },
     "justifiedActionException": {
       "type": "object",
       "additionalProperties": false,
@@ -305,8 +521,8 @@
       "additionalProperties": false,
       "required": ["id", "category", "critical", "outcome", "duration_seconds", "critical_errors", "backtracks", "facilitator_interventions", "seq", "unintended_destructive_action"],
       "properties": {
-        "id": { "enum": ["invite-first-message", "channel-collaboration", "attachment-safety", "history-search", "send-recovery", "notification-control", "device-revocation", "admin-access", "moderation-review", "audit-evidence", "ops-triage"] },
-        "category": { "enum": ["invite", "routine", "admin_safety", "ops_safety", "other"] },
+        "id": { "enum": ["invite-first-message", "channel-collaboration", "attachment-safety", "history-search", "send-recovery", "notification-control", "device-revocation", "instant-room-first-contact", "admin-access", "moderation-review", "audit-evidence", "ops-triage"] },
+        "category": { "enum": ["invite", "routine", "public_room", "admin_safety", "ops_safety", "other"] },
         "critical": { "type": "boolean" },
         "outcome": { "enum": ["unassisted", "assisted", "failed"] },
         "duration_seconds": { "type": "number", "minimum": 0 },
@@ -321,6 +537,7 @@
         { "if": { "properties": { "id": { "enum": ["channel-collaboration", "attachment-safety", "history-search", "send-recovery"] } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "routine" }, "critical": { "const": true } } } },
         { "if": { "properties": { "id": { "const": "notification-control" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "other" }, "critical": { "const": false } } } },
         { "if": { "properties": { "id": { "const": "device-revocation" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "other" }, "critical": { "const": true } } } },
+        { "if": { "properties": { "id": { "const": "instant-room-first-contact" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "public_room" }, "critical": { "const": true } } } },
         { "if": { "properties": { "id": { "enum": ["admin-access", "moderation-review"] } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "admin_safety" }, "critical": { "const": true } } } },
         { "if": { "properties": { "id": { "const": "audit-evidence" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "admin_safety" }, "critical": { "const": false } } } },
         { "if": { "properties": { "id": { "const": "ops-triage" } }, "required": ["id"] }, "then": { "properties": { "category": { "const": "ops_safety" }, "critical": { "const": true } } } },
@@ -333,7 +550,7 @@
         "cohort": { "const": "member" },
         "tasks": {
           "minItems": 7,
-          "maxItems": 7,
+          "maxItems": 8,
           "allOf": [
             { "contains": { "properties": { "id": { "const": "invite-first-message" } }, "required": ["id"] } },
             { "contains": { "properties": { "id": { "const": "channel-collaboration" } }, "required": ["id"] } },

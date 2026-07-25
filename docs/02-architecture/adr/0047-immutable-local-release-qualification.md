@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-24
 - **Owners:** Delivery, Operations, Architecture, and Security
-- **Related decisions:** ADR-0008, ADR-0025, ADR-0045, ADR-0046, ADR-0049
+- **Related decisions:** ADR-0008, ADR-0025, ADR-0045, ADR-0046, ADR-0049, ADR-0053
 - **Related requirements:** WP-7 in the mobile communication experience delivery plan
 
 ## Context
@@ -34,8 +34,10 @@ entry point. A deployment:
    loopback-only host ports and no Vite or source mount;
 4. runs `CommsCore.Release.migrate()` from the same candidate image before
    starting the packaged application;
-5. waits for database, object storage, media, application readiness, packaged
-   web UI, and audio/video capability checks; and
+5. provisions the fixed tenant through the exact image's idempotent one-shot
+   release command, starts the application with public bootstrap sealed off,
+   and waits for database, object storage, media, application readiness,
+   packaged web UI, and audio/video capability checks; and
 6. retains the previous image and configuration. Rollback uses that candidate's
    retained, hash-verified Compose source rather than the current checkout.
    Failed candidates and explicit rollback restore the predecessor only after
@@ -54,6 +56,13 @@ candidate container, verifies the project has no remaining containers, and
 retains named data volumes and failure evidence. Status
 distinguishes the recorded receipt from observed container health and image
 identity.
+
+Qualification uses the same release-state serialization boundary: a named
+mutex and state-root `operation.lock` cover stale-fixture cleanup, exact-image
+fixture creation, browser/API checks, and fixture deletion. The qualifier
+revalidates the active receipt, image, and topology after acquiring the lock
+and before success. Its secret-free cleanup marker is state-root-global rather
+than candidate-local so a receipt switch cannot orphan a disposable tenant.
 
 Receipts may declare rollback capabilities required to read forward-persisted
 state or execute forward-scheduled jobs. When a target lacks ADR-0049 guest

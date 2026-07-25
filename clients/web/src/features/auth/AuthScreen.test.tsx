@@ -23,15 +23,25 @@ const mocks = vi.hoisted(() => {
       login,
       bootstrap
     },
-    setSession: vi.fn()
+    setSession: vi.fn(),
+    transportPolicyReady: true,
+    accountActionsAllowed: true,
+    insecureNetworkOrigin: false
   };
 });
 
 vi.mock("../../app/session", () => ({
   useSession: () => ({
     api: mocks.api,
-    setSession: mocks.setSession
+    setSession: mocks.setSession,
+    transportPolicyReady: mocks.transportPolicyReady,
+    accountActionsAllowed:
+      mocks.accountActionsAllowed && !mocks.insecureNetworkOrigin
   })
+}));
+
+vi.mock("../../lib/transportSecurity", () => ({
+  isInsecureNonLoopbackOrigin: () => mocks.insecureNetworkOrigin
 }));
 
 const acceptedUser: User = {
@@ -63,6 +73,9 @@ describe("AuthScreen", () => {
     mocks.login.mockReset();
     mocks.bootstrap.mockReset();
     mocks.setSession.mockReset();
+    mocks.transportPolicyReady = true;
+    mocks.accountActionsAllowed = true;
+    mocks.insecureNetworkOrigin = false;
     window.history.replaceState({}, "", "/app/");
   });
 
@@ -73,6 +86,9 @@ describe("AuthScreen", () => {
 
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Start an instant room/i })
+    ).toHaveAttribute("href", "/");
 
     await user.type(screen.getByLabelText("Workspace address"), "acme");
     await user.type(screen.getByLabelText("Email address"), "taylor@example.test");
@@ -87,6 +103,61 @@ describe("AuthScreen", () => {
       device: expect.objectContaining({ platform: "web" })
     });
     await waitFor(() => expect(mocks.setSession).toHaveBeenCalledWith(session));
+  });
+
+  it("blocks credential submission on an unencrypted non-loopback origin", async () => {
+    mocks.insecureNetworkOrigin = true;
+    const user = userEvent.setup();
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+
+    expect(
+      screen.getByText("HTTPS is required for account access.")
+    ).toBeVisible();
+    expect(screen.getByLabelText("Workspace address")).toBeDisabled();
+    expect(screen.getByLabelText("Email address")).toBeDisabled();
+    expect(screen.getByLabelText("Password")).toBeDisabled();
+    const submit = screen.getByRole("button", { name: "Sign in" });
+    expect(submit).toBeDisabled();
+    await user.click(submit);
+    expect(mocks.login).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Use invitation code" }));
+    expect(screen.getByLabelText("Invitation code")).toBeDisabled();
+    expect(screen.getByLabelText("Your name")).toBeDisabled();
+    expect(screen.getByLabelText("Create password")).toBeDisabled();
+  });
+
+  it("blocks credential controls when the server denies them on loopback HTTP", () => {
+    mocks.accountActionsAllowed = false;
+
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+
+    expect(
+      screen.getByText("HTTPS is required for account access.")
+    ).toBeVisible();
+    expect(screen.getByLabelText("Email address")).toBeDisabled();
+    expect(screen.getByLabelText("Password")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+  });
+
+  it("disables every workspace-setup field on an unencrypted non-loopback origin", async () => {
+    mocks.insecureNetworkOrigin = true;
+    mocks.status.mockResolvedValue({ capabilities: { bootstrap: true } });
+    window.history.replaceState({}, "", "/sign-in?setup=workspace");
+    render(<MemoryRouter><AuthScreen /></MemoryRouter>);
+
+    expect(
+      await screen.findByRole("heading", { name: "Create your workspace" })
+    ).toBeVisible();
+    expect(screen.getByLabelText("Workspace name")).toBeDisabled();
+    expect(screen.getByLabelText("Your name")).toBeDisabled();
+    expect(screen.getByLabelText("Work email")).toBeDisabled();
+    expect(screen.getByLabelText("Create password")).toBeDisabled();
+    expect(screen.getByLabelText("Workspace address")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Create workspace" })
+    ).toBeDisabled();
+    expect(mocks.bootstrap).not.toHaveBeenCalled();
   });
 
   it("uses the remembered non-secret workspace and keeps it editable", async () => {

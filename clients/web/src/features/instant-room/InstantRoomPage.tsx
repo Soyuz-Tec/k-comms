@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import type { ApiClient } from "../../api";
 import {
@@ -9,6 +10,9 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { browserName, formatDateTime } from "../../lib/format";
+import {
+  isEncryptedUrl
+} from "../../lib/transportSecurity";
 import type {
   Conversation,
   GuestCapabilities,
@@ -52,8 +56,15 @@ export function InstantRoomPage() {
   const {
     api: memberApi,
     session: accountSession,
-    setSession: setAccountSession
+    setSession: setAccountSession,
+    transportPolicyReady,
+    accountActionsAllowed,
+    mediaActionsAllowed
   } = useSession();
+  const secureActionsUnavailable =
+    !transportPolicyReady ||
+    !accountActionsAllowed ||
+    !mediaActionsAllowed;
   const initialStateRef = useRef<{
     guest: GuestSession | null;
     member: MemberInstantRoomContinuity | null;
@@ -86,14 +97,25 @@ export function InstantRoomPage() {
     useState<MemberInstantRoomContinuity | null>(
       initialStateRef.current.member
     );
-  const [loading, setLoading] = useState(activeRoom === null);
+  const [loading, setLoading] = useState(
+    Boolean(initialStateRef.current.member)
+  );
   const [error, setError] = useState("");
   const [retryAt, setRetryAt] = useState<number | null>(null);
   const [retryVersion, setRetryVersion] = useState(0);
   const [leftRoom, setLeftRoom] = useState(false);
   const [clock, setClock] = useState(Date.now());
+  const [displayName, setDisplayName] = useState(
+    accountSession?.user.display_name || ""
+  );
+  const [roomTitle, setRoomTitle] = useState("");
   const guestApiRef = useRef<GuestApiClient | null>(null);
   const accountSessionRef = useRef(accountSession);
+  const restoredMemberSessionRef = useRef<string | null>(
+    initialStateRef.current.member && accountSession
+      ? memberSessionIdentity(accountSession)
+      : null
+  );
   accountSessionRef.current = accountSession;
 
   const updateGuestSession = useCallback((
@@ -148,6 +170,35 @@ export function InstantRoomPage() {
   }, []);
 
   useEffect(() => {
+    if (!transportPolicyReady || !accountSession) return;
+    setDisplayName(accountSession.user.display_name);
+
+    if (activeRoom?.mode === "guest" && !activeRoom.returnsToAccount) {
+      setActiveRoom({
+        ...activeRoom,
+        session: withoutGuestConversion(activeRoom.session),
+        returnsToAccount: true
+      });
+      return;
+    }
+
+    if (activeRoom || leftRoom || memberContinuity) return;
+    const identity = memberSessionIdentity(accountSession);
+    if (restoredMemberSessionRef.current === identity) return;
+    restoredMemberSessionRef.current = identity;
+    const continuity = loadMemberInstantRoomContinuity(accountSession);
+    if (!continuity) return;
+    setLoading(true);
+    setMemberContinuity(continuity);
+  }, [
+    accountSession,
+    activeRoom,
+    leftRoom,
+    memberContinuity,
+    transportPolicyReady
+  ]);
+
+  useEffect(() => {
     if (
       !activeRoom ||
       activeRoom.mode !== "member" ||
@@ -167,11 +218,19 @@ export function InstantRoomPage() {
   }, [accountSession, activeRoom]);
 
   useEffect(() => {
+    if (!accountSession) {
+      if (memberContinuity) {
+        clearMemberInstantRoomContinuity();
+        beginNewInstantRoomVisit();
+        setMemberContinuity(null);
+      }
+      setLoading(false);
+      return;
+    }
     if (
       !memberContinuity ||
       activeRoom ||
-      leftRoom ||
-      !accountSession
+      leftRoom
     ) {
       return;
     }
@@ -233,23 +292,43 @@ export function InstantRoomPage() {
   ]);
 
   useEffect(() => {
-    if (activeRoom || leftRoom || memberContinuity) return;
-    let current = true;
+    if (!retryAt) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+
+  const retrySeconds = retryAt
+    ? Math.max(0, Math.ceil((retryAt - clock) / 1_000))
+    : 0;
+
+  async function startInstantRoom(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const chosenName =
+      accountSession?.user.display_name.trim() || displayName.trim();
+    const chosenTitle = roomTitle.trim();
+    if (!chosenName || loading || retrySeconds > 0) return;
+
+    if (leftRoom || memberContinuity) {
+      clearMemberInstantRoomContinuity();
+      beginNewInstantRoomVisit();
+      setMemberContinuity(null);
+      setLeftRoom(false);
+    }
+
     const key = instantRoomIdempotencyKey();
     setLoading(true);
     setError("");
     setRetryAt(null);
 
-    void createInstantRoomOnce(memberApi, key, {
-      ...(accountSession
-        ? { display_name: accountSession.user.display_name }
-        : {}),
-      device: { name: browserName(), platform: "web" }
-    }).then(async (result) => {
-      if (!current) return;
+    try {
+      const result = await createInstantRoomOnce(memberApi, key, {
+        ...(!accountSession ? { display_name: chosenName } : {}),
+        ...(chosenTitle ? { title: chosenTitle } : {}),
+        device: { name: browserName(), platform: "web" }
+      });
       if (!result.share_url) {
         throw new Error(
-          "The server created the room but did not return its secure share link."
+          "The server created the room but did not return its invite link."
         );
       }
 
@@ -285,7 +364,6 @@ export function InstantRoomPage() {
         .me()
         .then((response) => response.capabilities)
         .catch(() => unavailableCallCapabilities);
-      if (!current) return;
       const memberSession = asRoomSession(
         accountSession,
         result.conversation,
@@ -304,8 +382,7 @@ export function InstantRoomPage() {
         room: result.room,
         shareUrl: result.share_url
       });
-    }).catch((reason: unknown) => {
-      if (!current) return;
+    } catch (reason: unknown) {
       const display = instantRoomError(reason);
       setError(display.message);
       setRetryAt(
@@ -313,32 +390,10 @@ export function InstantRoomPage() {
           ? Date.now() + display.retryAfterSeconds * 1_000
           : null
       );
-    }).finally(() => {
-      if (current) setLoading(false);
-    });
-
-    return () => {
-      current = false;
-    };
-  }, [
-    accountSession,
-    activeRoom,
-    guestApi,
-    leftRoom,
-    memberApi,
-    memberContinuity,
-    retryVersion
-  ]);
-
-  useEffect(() => {
-    if (!retryAt) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [retryAt]);
-
-  const retrySeconds = retryAt
-    ? Math.max(0, Math.ceil((retryAt - clock) / 1_000))
-    : 0;
+    } finally {
+      setLoading(false);
+    }
+  }
   const selectedRoomApi = useMemo<GuestRoomApi>(() => {
     if (!activeRoom || activeRoom.mode === "guest") return guestApi;
     return new MemberRoomApi(memberApi, activeRoom.session.conversation.id);
@@ -353,7 +408,7 @@ export function InstantRoomPage() {
           <KCommsMark />
           <span className="spinner" aria-hidden="true" />
           <h1 id="instant-room-title">Opening your room…</h1>
-          <p>Your secure link and QR code will be ready in a moment.</p>
+          <p>Your invite link and QR code will be ready in a moment.</p>
         </section>
       </main>
     );
@@ -362,39 +417,110 @@ export function InstantRoomPage() {
   if (!activeRoom || !roomApi) {
     return (
       <main className="instant-room-entry" id="main-content">
-        <section className="instant-room-error" aria-labelledby="instant-room-error-title">
+        <section
+          className="instant-room-start"
+          aria-labelledby="instant-room-start-title"
+        >
           <KCommsMark />
           <span className="instant-room-kicker">
-            {leftRoom ? "Room closed" : "Instant room"}
+            {leftRoom ? "Start again" : "No account required"}
           </span>
-          <h1 id="instant-room-error-title">
-            {leftRoom ? "Your communication session has ended" : "We could not open a room"}
+          <h1 id="instant-room-start-title" data-route-focus>
+            Start an instant room
           </h1>
-          <p role={error ? "alert" : undefined}>
-            {error ||
-              "Start another room when you are ready, or sign in to your workspace."}
+          <p>
+            {accountSession
+              ? "Start with your workspace identity, then share one link or QR code. Guests join with their own display name."
+              : "Choose the name people will see, then share one link or QR code. Guests join with their own display name."}
           </p>
-          <div className="instant-room-entry-actions">
+          {secureActionsUnavailable && (
+            <div className="transport-warning" role="alert">
+              <strong>Text-only evaluation on this HTTP address.</strong>
+              <span>
+                Use non-sensitive content only. Account actions, microphone,
+                camera, and screen sharing require trusted HTTPS.
+              </span>
+            </div>
+          )}
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <form
+            className="instant-room-start-form"
+            onSubmit={(event) => void startInstantRoom(event)}
+          >
+            {accountSession ? (
+              <p className="instant-room-account-identity">
+                <span>Starting as</span>
+                <strong>{accountSession.user.display_name}</strong>
+                <small>Managed by your workspace profile</small>
+              </p>
+            ) : (
+              <label className="field">
+                Your display name
+                <input
+                  name="display_name"
+                  type="text"
+                  minLength={1}
+                  maxLength={120}
+                  autoComplete="name"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="How people should see you"
+                  required
+                  autoFocus
+                />
+              </label>
+            )}
+            <label className="field">
+              Room name <span className="optional">(optional)</span>
+              <input
+                name="title"
+                type="text"
+                maxLength={160}
+                autoComplete="off"
+                value={roomTitle}
+                onChange={(event) => setRoomTitle(event.target.value)}
+                placeholder="For example, Daily check-in"
+                autoFocus={Boolean(accountSession)}
+              />
+            </label>
             <button
-              className="button primary"
+              className="button primary full"
+              type="submit"
+              disabled={
+                loading ||
+                retrySeconds > 0 ||
+                !(accountSession?.user.display_name || displayName).trim()
+              }
+            >
+              {loading
+                ? "Opening room…"
+                : retrySeconds > 0
+                ? `Try again in ${retrySeconds}s`
+                : error
+                  ? "Try again"
+                  : "Start instant room"}
+            </button>
+          </form>
+          {memberContinuity && error && (
+            <button
+              className="button ghost full"
               type="button"
-              disabled={retrySeconds > 0}
               onClick={() => {
-                if (leftRoom) beginNewInstantRoomVisit();
-                setClock(Date.now());
-                setRetryAt(null);
-                setLeftRoom(false);
+                setLoading(true);
                 setRetryVersion((version) => version + 1);
               }}
             >
-              {retrySeconds > 0
-                ? `Try again in ${retrySeconds}s`
-                : leftRoom
-                  ? "Start a new room"
-                  : "Try again"}
+              Retry existing room
             </button>
-            <Link className="button ghost" to="/sign-in">
-              Sign in
+          )}
+          <div className="instant-room-entry-actions">
+            <Link
+              className="button ghost"
+              to={accountSession ? "/app" : "/sign-in"}
+            >
+              {accountSession
+                ? "Return to workspace"
+                : "Already have a workspace? Sign in"}
             </Link>
           </div>
         </section>
@@ -415,6 +541,12 @@ export function InstantRoomPage() {
     <GuestShell
       api={roomApi}
       initialSession={activeRoom.session}
+      accountActionsAllowed={
+        transportPolicyReady && accountActionsAllowed
+      }
+      mediaActionsAllowed={
+        transportPolicyReady && mediaActionsAllowed
+      }
       identityLabel={activeRoom.mode === "guest" ? "Host" : "Member"}
       initialPresenceCount={1}
       roomBanner={shareBanner}
@@ -562,11 +694,17 @@ function InstantRoomSharePanel({
   title: string;
 }) {
   const [notice, setNotice] = useState("");
+  const secureLink = isEncryptedUrl(shareUrl);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   async function copyLink() {
     try {
       await copyText(shareUrl);
-      setNotice("Secure link copied.");
+      setNotice(`${secureLink ? "Secure link" : "Invite link"} copied.`);
     } catch {
       setNotice("Copy failed. Select the link and copy it manually.");
     }
@@ -598,12 +736,16 @@ function InstantRoomSharePanel({
     <section className="instant-room-share" aria-labelledby="instant-share-title">
       <div className="instant-room-share-copy">
         <span className="instant-room-kicker">Ready to share</span>
-        <h2 id="instant-share-title">Invite someone in one step</h2>
+        <h2 id="instant-share-title" ref={titleRef} tabIndex={-1}>
+          Invite someone in one step
+        </h2>
         <p>
           Send this link or ask them to scan the QR code. They can join without
           creating an account.
         </p>
-        <label htmlFor="instant-room-share-url">Secure room link</label>
+        <label htmlFor="instant-room-share-url">
+          {secureLink ? "Secure room link" : "Room invite link"}
+        </label>
         <div className="instant-room-link-row">
           <input
             id="instant-room-share-url"
@@ -626,6 +768,20 @@ function InstantRoomSharePanel({
             : room.owner_kind === "registered"
               ? "When everyone leaves, this room remains available for 24 hours."
               : "When everyone leaves, this room remains available for 1 hour."}
+        </p>
+        {!secureLink && (
+          <p className="transport-warning" role="note">
+            <strong>This invite uses unencrypted HTTP.</strong>
+            <span>
+              Share it only on a trusted test network and keep content
+              non-sensitive. Calls and account actions require HTTPS.
+            </span>
+          </p>
+        )}
+        <p className="instant-room-continuity">
+          {room.owner_kind === "registered"
+            ? "Keep this tab open while hosting. Your signed-in account can reopen this room."
+            : "Keep this tab open to manage the room. Create an account if you want to keep access across devices."}
         </p>
         <p className="sr-only" role="status" aria-live="polite">{notice}</p>
         {notice && <p className="instant-room-copy-notice" aria-hidden="true">{notice}</p>}
@@ -681,6 +837,10 @@ function withoutGuestConversion(session: GuestSession): GuestSession {
   };
 }
 
+function memberSessionIdentity(session: Session): string {
+  return `${session.tenant.id}:${session.user.id}:${session.device.id}`;
+}
+
 const unavailableCallCapabilities: GuestCapabilities = {
   allow_audio_calls: false,
   allow_video_calls: false,
@@ -699,6 +859,12 @@ function instantRoomError(reason: unknown): {
     };
   }
   if (reason instanceof ApiError) {
+    if (reason.status === 426) {
+      return {
+        message:
+          "This action requires trusted HTTPS. Open the secure K-Comms address and try again."
+      };
+    }
     if (reason.status === 429) {
       return {
         message: reason.retryAfterSeconds

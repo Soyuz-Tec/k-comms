@@ -12,10 +12,8 @@ import type { Conversation, Session, User } from "../src/types";
 
 const enabled = process.env.K_COMMS_LIVE_VIDEO_E2E === "true";
 const liveStackURL = process.env.K_COMMS_LIVE_VIDEO_BASE_URL || "http://127.0.0.1:4178";
-
-interface BootstrapResponse extends Session {
-  conversation: Conversation;
-}
+const liveProvisionURL =
+  process.env.K_COMMS_LIVE_PROVISION_BASE_URL || "http://127.0.0.1:4178";
 
 interface DataResponse<T> {
   data: T;
@@ -78,7 +76,12 @@ test.describe("real-stack video qualification", () => {
         ]
       );
     } finally {
-      await Promise.allSettled([ownerContext.close(), memberOneContext.close(), memberTwoContext.close()]);
+      await Promise.allSettled([
+        revokeOwnerSession(request, fixture.owner),
+        ownerContext.close(),
+        memberOneContext.close(),
+        memberTwoContext.close()
+      ]);
     }
   });
 });
@@ -295,13 +298,32 @@ async function allPeerConnectionsClosed(page: Page) {
 
 async function provisionVideoWorkspace(request: APIRequestContext) {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
-  const tenantSlug = `video-e2e-${suffix}`;
-  const ownerPassword = strongPassword();
+  const {
+    tenantSlug,
+    email: ownerEmail,
+    password: ownerPassword
+  } = sealedOwnerCredentials();
   const memberOnePassword = strongPassword();
   const memberTwoPassword = strongPassword();
-  const bootstrap = await request.post("/api/v1/bootstrap", { data: { tenant_name: `Video E2E ${suffix}`, tenant_slug: tenantSlug, display_name: "Video Owner", email: `video-owner-${suffix}@example.test`, password: ownerPassword } });
-  const owner = withReceivedAt(await expectJSON<BootstrapResponse>(bootstrap, 201));
-  await expectStatus(await request.post("/api/v1/me/step-up", { headers: authorization(owner), data: { current_password: ownerPassword } }), 200);
+  const signIn = await request.post(`${liveProvisionURL}/api/v1/sessions`, {
+    data: {
+      tenant_slug: tenantSlug,
+      email: ownerEmail,
+      password: ownerPassword,
+      device: {
+        name: `Sealed video qualification ${suffix}`,
+        platform: "playwright"
+      }
+    }
+  });
+  const owner = withReceivedAt(await expectJSON<Session>(signIn, 200));
+  await expectStatus(
+    await request.post(`${liveProvisionURL}/api/v1/me/step-up`, {
+      headers: authorization(owner),
+      data: { current_password: ownerPassword }
+    }),
+    200
+  );
 
   const memberOne = await inviteAndSignIn(request, owner, tenantSlug, suffix, "one", "Video Member One", memberOnePassword);
   const memberTwo = await inviteAndSignIn(request, owner, tenantSlug, suffix, "two", "Video Member Two", memberTwoPassword);
@@ -328,6 +350,26 @@ async function createConversation(request: APIRequestContext, owner: Session, ki
 function authorization(session: Session) { return { Authorization: `Bearer ${session.access_token}` }; }
 function withReceivedAt<T extends Session>(session: T): T { return { ...session, received_at: Date.now() }; }
 function strongPassword() { return `Kc!${randomUUID()}Aa9`; }
+
+function sealedOwnerCredentials() {
+  const tenantSlug = process.env.K_COMMS_LIVE_OWNER_TENANT_SLUG;
+  const email = process.env.K_COMMS_LIVE_OWNER_EMAIL;
+  const password = process.env.K_COMMS_LIVE_OWNER_PASSWORD;
+  if (!tenantSlug || !email || !password) {
+    throw new Error(
+      "sealed owner credentials were not supplied by the local-release qualifier"
+    );
+  }
+  return { tenantSlug, email, password };
+}
+
+async function revokeOwnerSession(request: APIRequestContext, owner: Session) {
+  const response = await request.delete(
+    `${liveProvisionURL}/api/v1/sessions/current`,
+    { headers: authorization(owner) }
+  );
+  await expectStatus(response, 204);
+}
 
 async function expectStatus(response: APIResponse, expectedStatus: number) {
   if (response.status() !== expectedStatus) throw new Error(`Live video setup request failed with status ${response.status()}`);

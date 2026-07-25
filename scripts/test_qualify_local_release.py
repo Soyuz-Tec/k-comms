@@ -8,7 +8,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 QUALIFIER = ROOT / "scripts" / "qualify_local_release.ps1"
+LIVE_INSTANT_ROOM_SPEC = (
+    ROOT / "clients" / "web" / "e2e" / "live-instant-room.spec.ts"
+)
 LIVE_GUEST_SPEC = ROOT / "clients" / "web" / "e2e" / "live-guest-communication.spec.ts"
+LIVE_AUDIO_SPEC = ROOT / "clients" / "web" / "e2e" / "live-audio.spec.ts"
+LIVE_VIDEO_SPEC = ROOT / "clients" / "web" / "e2e" / "live-video.spec.ts"
 
 
 class PackagedLocalReleaseQualifierTest(unittest.TestCase):
@@ -209,6 +214,11 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         )
         self.assertIn("guest_links = $true", self.document)
 
+    def test_requires_public_bootstrap_to_be_disabled(self) -> None:
+        self.assertIn('-Name "bootstrap" `', self.document)
+        self.assertIn("-Expected $false `", self.document)
+        self.assertIn("bootstrap = $false", self.document)
+
     def test_requires_and_probes_the_instant_room_capability(self) -> None:
         self.assertIn('"instant_rooms",', self.document)
         self.assertIn("instant_rooms = $true", self.document)
@@ -288,15 +298,22 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         ):
             self.assertIn(contract, self.document)
 
-    def test_runs_real_guest_then_media_specs_serially(self) -> None:
+    def test_runs_instant_room_and_gates_credential_media_specs_by_mode(
+        self,
+    ) -> None:
+        self.assertEqual(
+            self.document.count('"e2e/live-instant-room.spec.ts"'),
+            1,
+        )
         self.assertEqual(
             self.document.count('"e2e/live-guest-communication.spec.ts"'),
             1,
         )
         self.assertEqual(self.document.count('"e2e/live-audio.spec.ts"'), 1)
         self.assertEqual(self.document.count('"e2e/live-video.spec.ts"'), 1)
-        self.assertEqual(self.document.count('"--workers=1"'), 2)
+        self.assertEqual(self.document.count('"--workers=1"'), 3)
         self.assertIn('"K_COMMS_EXTERNAL_E2E_SERVER"', self.document)
+        self.assertIn('"K_COMMS_LIVE_INSTANT_ROOM_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_GUEST_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_AUDIO_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_VIDEO_E2E"', self.document)
@@ -306,11 +323,15 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             self.document,
         )
         self.assertIn(
-            "Media was NOT qualified for this release origin.",
+            "Credential and media ",
             self.document,
         )
         self.assertIn(
-            "Audio and video media were NOT qualified.",
+            "credential and media operations were NOT qualified",
+            self.document,
+        )
+        self.assertIn(
+            "Anonymous create/join/roster/text passed",
             self.document,
         )
         self.assertIn(
@@ -335,12 +356,55 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
                 self.document,
                 rf'"{base_url_variable}",\s+\$script:BaseUri,\s+"Process"',
             )
+        for variable, value in (
+            (
+                "K_COMMS_LIVE_INSTANT_ROOM_QUALIFICATION_APP_ORIGIN",
+                r"\$script:LiveQualificationAppOrigin",
+            ),
+            (
+                "K_COMMS_LIVE_INSTANT_ROOM_PUBLIC_ORIGIN",
+                r"\$script:BaseUri",
+            ),
+            (
+                "K_COMMS_LIVE_INSTANT_ROOM_TENANT_SLUG",
+                r"\$script:LiveOwnerTenantSlug",
+            ),
+            (
+                "K_COMMS_LIVE_INSTANT_ROOM_CLIENT_ADDRESS",
+                r"\$script:LiveQualificationClientAddress",
+            ),
+        ):
+            self.assertRegex(
+                self.document,
+                rf'"{variable}",\s+{value},\s+"Process"',
+            )
+        self.assertNotIn("K_COMMS_LIVE_INSTANT_ROOM_BASE_URL", self.document)
+        qualification = self.document[
+            self.document.index("function Invoke-PackagedReleaseQualification") :
+            self.document.index("function Invoke-SelfTest")
+        ]
+        self.assertIn(
+            "Invoke-InstantRoomSpec -Playwright $playwright",
+            qualification,
+        )
+        self.assertIn("Invoke-GuestSpec -Playwright $playwright", qualification)
         self.assertLess(
-            self.document.index("Invoke-GuestSpec -Playwright $playwright"),
-            self.document.index(
+            qualification.index("Invoke-InstantRoomSpec -Playwright $playwright"),
+            qualification.index("Invoke-GuestSpec -Playwright $playwright"),
+        )
+        self.assertLess(
+            qualification.index("Invoke-GuestSpec -Playwright $playwright"),
+            qualification.index(
                 'Invoke-MediaSpec -Kind "audio" -Playwright $playwright'
             ),
         )
+        self.assertRegex(
+            qualification,
+            r"\[Environment\]::SetEnvironmentVariable\(\s*"
+            r"\$name,\s*\$null,\s*\"Process\"\s*\)",
+        )
+        self.assertIn("Invoke-LanSecureTransportBoundaryCheck", qualification)
+        self.assertIn("secure_transport_required", self.document)
         for forbidden_spec in (
             "e2e/accessibility.spec.ts",
             "e2e/mobile-ui.spec.ts",
@@ -348,6 +412,54 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "e2e/smoke.spec.ts",
         ):
             self.assertNotIn(forbidden_spec, self.document)
+
+    def test_live_instant_room_uses_isolated_creation_and_public_handoff(
+        self,
+    ) -> None:
+        specification = LIVE_INSTANT_ROOM_SPEC.read_text(encoding="utf-8")
+        for forbidden in (
+            "K_COMMS_LIVE_INSTANT_ROOM_TEXT_ONLY",
+            "K_COMMS_LIVE_INSTANT_ROOM_BASE_URL",
+            "/api/v1/guest/account",
+            "Save this room",
+            "Create account",
+            "conversionEmail",
+            "storedMemberContinuity",
+            "k-comms.member-instant-room.v1",
+            'accountType: "human"',
+            ".route(",
+        ):
+            self.assertNotIn(forbidden, specification)
+        for anonymous_proof in (
+            "creates in isolation then communicates through the retained public app",
+            'accountType: "guest",',
+            "qualificationRoomContext(",
+            'extraHTTPHeaders: { "X-Forwarded-For": clientAddress }',
+            "createRequestUsedQualificationOriginHeader",
+            "captureGuestSessionForHandoff(qualificationPage)",
+            "installGuestSessionHandoff(",
+            "assertInstantRoomShareURL(shareURL, publicOrigin)",
+            "url.origin === publicOrigin",
+            "expect(publicRequestUsedForwardedFor).toBe(false)",
+            "2 people online",
+            "Host live reply",
+            "Guest live message",
+            "url.pathname === \"/api/v1/guest/sessions/current\"",
+            "expect(response.status()).toBe(204)",
+            "expect(await storedGuestRoomIdentity(hostPage)).toEqual(hostIdentity)",
+            "expect(await storedGuestRoomIdentity(guestPage)).toEqual(guestIdentity)",
+            'test.use({ trace: "off", screenshot: "off", video: "off" })',
+            'input.value = "[redacted secure room link]"',
+        ):
+            self.assertIn(anonymous_proof, specification)
+        for required_environment in (
+            "K_COMMS_LIVE_INSTANT_ROOM_QUALIFICATION_APP_ORIGIN",
+            "K_COMMS_LIVE_INSTANT_ROOM_PUBLIC_ORIGIN",
+            "K_COMMS_LIVE_INSTANT_ROOM_TENANT_SLUG",
+            "K_COMMS_LIVE_INSTANT_ROOM_CLIENT_ADDRESS",
+        ):
+            self.assertIn(required_environment, specification)
+        self.assertNotIn("K_COMMS_LIVE_INSTANT_ROOM_TEXT_ONLY", self.document)
 
     def test_live_guest_qualification_is_unmocked_and_covers_both_endings(self) -> None:
         specification = LIVE_GUEST_SPEC.read_text(encoding="utf-8")
@@ -409,6 +521,345 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "remainingTrackedActiveCount",
         ):
             self.assertIn(strict_cleanup_proof, specification)
+
+    def test_conversion_is_bound_to_the_marker_cleaned_disposable_tenant(
+        self,
+    ) -> None:
+        specification = LIVE_GUEST_SPEC.read_text(encoding="utf-8")
+        for disposable_tenant_proof in (
+            "a guest in the disposable qualification tenant converts in place",
+            "/^k-comms-qualification-[0-9a-f]{32}$/",
+            "sealed guest qualification requires a disposable marker-bound tenant",
+            "id: ownerFixture.owner.tenant.id",
+            "slug: ownerFixture.owner.tenant.slug",
+        ):
+            self.assertIn(disposable_tenant_proof, specification)
+
+        qualification = self.document[
+            self.document.index("function Invoke-PackagedReleaseQualification") :
+            self.document.index("function Invoke-SelfTest")
+        ]
+        initialize = qualification.index("Initialize-LiveQualificationResources")
+        guest = qualification.index("Invoke-GuestSpec -Playwright $playwright")
+        final_recovery = qualification.index(
+            "Recover-StaleLiveQualificationResources",
+            guest,
+        )
+        fingerprint_after = qualification.index(
+            "$fixedTenantFingerprintAfter",
+            final_recovery,
+        )
+        self.assertEqual(
+            tuple(sorted((initialize, guest, final_recovery, fingerprint_after))),
+            (initialize, guest, final_recovery, fingerprint_after),
+        )
+        cleanup = qualification[final_recovery:]
+        self.assertIn(
+            "-CleanupReceiptPath `\n"
+            "                        $script:QualificationCleanupReceiptPath",
+            cleanup,
+        )
+
+    def test_live_specs_use_the_sealed_owner_without_public_bootstrap(self) -> None:
+        for path in (LIVE_GUEST_SPEC, LIVE_AUDIO_SPEC, LIVE_VIDEO_SPEC):
+            with self.subTest(path=path.name):
+                specification = path.read_text(encoding="utf-8")
+                self.assertNotIn("/api/v1/bootstrap", specification)
+                self.assertIn("K_COMMS_LIVE_PROVISION_BASE_URL", specification)
+                self.assertIn("K_COMMS_LIVE_OWNER_TENANT_SLUG", specification)
+                self.assertIn("K_COMMS_LIVE_OWNER_EMAIL", specification)
+                self.assertIn("K_COMMS_LIVE_OWNER_PASSWORD", specification)
+                self.assertIn("/api/v1/sessions", specification)
+                self.assertIn("/api/v1/sessions/current", specification)
+
+        for name in (
+            "K_COMMS_QUALIFICATION_ACTION",
+            "K_COMMS_QUALIFICATION_ID",
+            "K_COMMS_QUALIFICATION_PASSWORD",
+            "K_COMMS_QUALIFICATION_CONFIRMATION",
+            "K_COMMS_LIVE_PROVISION_BASE_URL",
+            "K_COMMS_LIVE_OWNER_TENANT_SLUG",
+            "K_COMMS_LIVE_OWNER_EMAIL",
+            "K_COMMS_LIVE_OWNER_PASSWORD",
+        ):
+            self.assertIn(name, self.document)
+        self.assertIn(
+            '$script:LiveProvisionBaseUri = "http://127.0.0.1:$($target.AppPort)"',
+            self.document,
+        )
+        self.assertNotIn("Get-SealedEnvironmentValue", self.document)
+        self.assertIn("Initialize-LiveQualificationResources", self.document)
+        self.assertIn(
+            '-Action "create" `',
+            self.document,
+        )
+        self.assertIn(
+            '-Action "delete" `',
+            self.document,
+        )
+        self.assertIn(
+            '"k-comms-qualification-$($script:LiveQualificationId)"',
+            self.document,
+        )
+        self.assertIn(
+            "local-release-qualification-tenant-v1",
+            self.document,
+        )
+        self.assertIn("qualification-cleanup.json", self.document)
+        self.assertIn("Recover-StaleLiveQualificationResources", self.document)
+        self.assertIn("Write-QualificationCleanupReceipt", self.document)
+        self.assertIn("Remove-LiveQualificationResources", self.document)
+
+    def test_qualification_uses_the_manager_operation_lock_and_revalidates(self) -> None:
+        self.assertIn(
+            '"Local\\KComms.LocalRelease.$ComposeProject"',
+            self.document,
+        )
+        self.assertIn('[IO.FileShare]::None', self.document)
+        self.assertIn("Assert-QualificationLockAndStateSelfTest", self.document)
+
+        serialized = self.document[
+            self.document.index(
+                "function Invoke-SerializedPackagedReleaseQualification"
+            ) :
+            self.document.index(
+                "function Assert-QualificationLockAndStateSelfTest"
+            )
+        ]
+        discover = serialized.index("Assert-SealedReleaseIsRunning")
+        acquire = serialized.index("Enter-QualificationOperationLock")
+        locked_revalidation = serialized.index(
+            "Assert-SealedReleaseIsRunning",
+            acquire,
+        )
+        browser_work = serialized.index(
+            "Invoke-PackagedReleaseQualification",
+            locked_revalidation,
+        )
+        final_revalidation = serialized.index(
+            "Assert-SealedReleaseIsRunning",
+            browser_work,
+        )
+        success = serialized.index(
+            "Write-QualificationSuccess",
+            final_revalidation,
+        )
+        release = serialized.index(
+            "Exit-QualificationOperationLock",
+            success,
+        )
+        ordered_steps = (
+            discover,
+            acquire,
+            locked_revalidation,
+            browser_work,
+            final_revalidation,
+            success,
+            release,
+        )
+        self.assertEqual(tuple(sorted(ordered_steps)), ordered_steps)
+
+    def test_cleanup_receipt_is_release_state_global_across_candidate_switches(
+        self,
+    ) -> None:
+        self.assertIn(
+            "Resolve-QualificationStateRoot -ReceiptPath $receiptPath",
+            self.document,
+        )
+        self.assertIn(
+            "Join-Path `\n            $script:QualificationStateRoot `\n"
+            '            "qualification-cleanup.json"',
+            self.document,
+        )
+        self.assertIn(
+            "Self-test did not retain cleanup recovery across a receipt switch",
+            self.document,
+        )
+        self.assertIn(
+            "The retained qualification cleanup receipt belongs to another ",
+            self.document,
+        )
+        self.assertNotIn(
+            "(Split-Path -Parent $environmentFile) `\n"
+            '                "qualification-cleanup.json"',
+            self.document,
+        )
+
+    def test_cleanup_marker_is_secret_free_and_binds_origin_assets(self) -> None:
+        for binding in (
+            "schemaVersion = 3",
+            'kind = "k-comms-qualification-cleanup"',
+            "tenantSlug = $tenantSlug",
+            "qualificationAppContainerName = $AppContainerName",
+            "qualificationAppNonce = $AppNonce",
+            "qualificationAppHostPort = $AppHostPort",
+            "qualificationAppOrigin = $AppOrigin",
+            "qualificationAppTrustedProxyCidr = $AppTrustedProxyCidr",
+            "qualificationClientAddress = $ClientAddress",
+            "publicAppUrl = $PublicAppUrl",
+            "receiptPath = $ReleaseContext.ReceiptPath",
+            "receiptSha256 = $ReleaseContext.ReceiptSha256",
+            "environmentFile = $ReleaseContext.EnvironmentFile",
+            "environmentSha256 = $ReleaseContext.EnvironmentSha256",
+            "composeSourcePath = $ReleaseContext.ComposeSourcePath",
+            "composeSourceSha256 = $ReleaseContext.ComposeSourceSha256",
+            "imageReference = $ReleaseContext.ImageReference",
+            "imageId = $ReleaseContext.ImageId",
+            "revision = $ReleaseContext.Revision",
+        ):
+            self.assertIn(binding, self.document)
+        marker_writer = self.document[
+            self.document.index("function Write-QualificationCleanupReceipt") :
+            self.document.index("function Remove-LiveQualificationResources")
+        ]
+        for forbidden in (
+            "LiveOwnerPassword",
+            "K_COMMS_QUALIFICATION_PASSWORD",
+            "DATABASE_URL",
+            "SECRET_KEY_BASE",
+        ):
+            self.assertNotIn(forbidden, marker_writer)
+
+    def test_isolated_app_lifecycle_and_fixed_tenant_guard_are_ordered(self) -> None:
+        start = self.document[
+            self.document.index("function Start-LiveQualificationApp") :
+            self.document.index("function Remove-LiveQualificationApp")
+        ]
+        for proof in (
+            "run --detach --no-deps --pull never",
+            '--publish "127.0.0.1:$($CleanupContext.AppHostPort):4000"',
+            '--env "K_COMMS_ROLE=edge"',
+            '--env "ALLOW_BOOTSTRAP=false"',
+            '"INSTANT_ROOM_TENANT_SLUG="',
+            '--env "PUBLIC_APP_URL=$($CleanupContext.PublicAppUrl)"',
+            '--env "CORS_ORIGINS=$($CleanupContext.AppOrigin)"',
+            '"com.k-comms.qualification.nonce="',
+            '"com.k-comms.qualification.revision="',
+            "app 2>&1",
+            "Assert-LiveQualificationAppRuntime",
+        ):
+            self.assertIn(proof, start)
+        self.assertNotIn("run --rm", start)
+
+        removal = self.document[
+            self.document.index("function Remove-LiveQualificationApp") :
+            self.document.index("function Write-QualificationCleanupReceipt")
+        ]
+        self.assertLess(
+            removal.index("Assert-QualificationAppContainerIdentity"),
+            removal.index("podman rm --force --time 10 $inspection.Id"),
+        )
+        self.assertLess(
+            removal.index("podman rm --force --time 10 $inspection.Id"),
+            removal.index("PASS isolated qualification app removal"),
+        )
+
+        cleanup = self.document[
+            self.document.index("function Remove-LiveQualificationResources") :
+            self.document.index("function Resolve-QualificationCleanupReceipt")
+        ]
+        app = cleanup.index("Remove-LiveQualificationApp")
+        tenant = cleanup.index("Invoke-QualificationTenantOperation")
+        marker = cleanup.index(
+            "Remove-Item -LiteralPath $CleanupReceiptPath -Force"
+        )
+        self.assertEqual(tuple(sorted((app, tenant, marker))), (app, tenant, marker))
+
+        qualification = self.document[
+            self.document.index("function Invoke-PackagedReleaseQualification") :
+            self.document.index("function Write-QualificationSuccess")
+        ]
+        initial_recovery = qualification.index(
+            "Recover-StaleLiveQualificationResources"
+        )
+        fingerprint_before = qualification.index(
+            "$fixedTenantFingerprintBefore =",
+            initial_recovery,
+        )
+        initialize = qualification.index(
+            "Initialize-LiveQualificationResources",
+            fingerprint_before,
+        )
+        browser = qualification.index(
+            "Invoke-InstantRoomSpec -Playwright $playwright",
+            initialize,
+        )
+        final_recovery = qualification.index(
+            "Recover-StaleLiveQualificationResources",
+            browser,
+        )
+        fingerprint_after = qualification.index(
+            "$fixedTenantFingerprintAfter =",
+            final_recovery,
+        )
+        self.assertEqual(
+            tuple(
+                sorted(
+                    (
+                        initial_recovery,
+                        fingerprint_before,
+                        initialize,
+                        browser,
+                        final_recovery,
+                        fingerprint_after,
+                    )
+                )
+            ),
+            (
+                initial_recovery,
+                fingerprint_before,
+                initialize,
+                browser,
+                final_recovery,
+                fingerprint_after,
+            ),
+        )
+        for failure_guard in (
+            "$primaryFailure = $_.Exception",
+            "$cleanupFailure = [InvalidOperationException]::new(",
+            "$fingerprintFailure = [InvalidOperationException]::new(",
+            "throw [AggregateException]::new(",
+        ):
+            self.assertIn(failure_guard, qualification)
+
+        for fingerprint_guard in (
+            "function Get-FixedInstantRoomTenantFingerprint",
+            "K_COMMS_INSTANT_ROOM_FINGERPRINT_CONFIRMATION",
+            "fixed-instant-room-tenant-fingerprint-v1",
+            "instant_room_tenant_fingerprint()",
+        ):
+            self.assertIn(fingerprint_guard, self.document)
+
+    def test_stale_cleanup_validates_and_uses_origin_release_context(self) -> None:
+        for proof in (
+            "Resolve-CanonicalQualificationPath",
+            "Assert-QualificationPathsAreNotReparsePoints",
+            "Get-QualificationFileSha256",
+            "the exact schema-v$schemaVersion properties",
+            "its originating release",
+            "Assert-QualificationReleaseImageIdentity -ReleaseContext",
+            "--env-file $ReleaseContext.EnvironmentFile",
+            "--file $ReleaseContext.ComposeSourcePath",
+            "--project-name $ReleaseContext.ProjectName",
+            "Self-test accepted a cleanup marker switched to the current",
+            "Self-test accepted a tampered originating release",
+            "Self-test accepted an extra cleanup marker property",
+            "Self-test allowed a same-name decoy qualification app",
+            "Self-test crash recovery did not remove app, then tenant",
+            "Self-test did not preserve schema-v2 tenant-only recovery",
+            "-WithoutQualificationService",
+        ):
+            self.assertIn(proof, self.document)
+        recovery = self.document[
+            self.document.index("function Recover-StaleLiveQualificationResources") :
+            self.document.index("function Initialize-LiveQualificationResources")
+        ]
+        self.assertLess(
+            recovery.index("Resolve-QualificationCleanupReceipt"),
+            recovery.index("Remove-LiveQualificationResources"),
+        )
+        self.assertNotIn("$script:SealedReleaseEnvironmentFile", recovery)
+        self.assertNotIn("$script:SealedReleaseComposeSourcePath", recovery)
 
 
 if __name__ == "__main__":

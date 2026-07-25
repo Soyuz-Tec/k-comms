@@ -61,4 +61,18 @@ describe("QrCode", () => {
     expect(screen.queryByText("QR unavailable. Copy the secure link instead.")).not
       .toBeInTheDocument();
   });
+
+  it("does not call an HTTP invitation secure when QR generation fails", async () => {
+    qrHarness.toDataURL.mockRejectedValue(new Error("QR failed"));
+    render(
+      <QrCode
+        value="http://192.168.1.177:4188/join#guest=lan-token"
+        label="Scan to join LAN room"
+      />
+    );
+
+    expect(
+      await screen.findByText("QR unavailable. Copy the invite link instead.")
+    ).toBeVisible();
+  });
 });

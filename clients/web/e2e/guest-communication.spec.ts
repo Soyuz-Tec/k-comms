@@ -131,7 +131,9 @@ test.describe("guest communication by secure link or QR", () => {
     });
     expect(fixture.guestPhaseNormalMessageRequests).toEqual([]);
 
-    await page.getByRole("button", { name: "Create account", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Keep this conversation", exact: true })
+      .click();
     const accountCard = page.getByRole("region", { name: "Keep your conversation" });
     const accountEmail = accountCard.getByRole("textbox", { name: "Work email" });
     await expect(accountEmail).toBeFocused();
@@ -177,7 +179,9 @@ test.describe("guest communication by secure link or QR", () => {
     await join.click();
 
     await expect(page.getByRole("heading", { name: "Partner room" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Keep this conversation" })
+    ).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
     await expect(
       page.getByRole("list", { name: "Room participants" })

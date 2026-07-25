@@ -85,6 +85,7 @@ config :comms_web,
   auth_adapter: CommsWeb.Auth.Token,
   access_token_ttl_seconds: 900,
   allow_bootstrap: false,
+  insecure_lan_release: false,
   hsts: false,
   csp_connect_sources: [
     "'self'",

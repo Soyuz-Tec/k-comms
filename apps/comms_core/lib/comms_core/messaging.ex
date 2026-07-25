@@ -34,6 +34,20 @@ defmodule CommsCore.Messaging do
   @max_sender_label_refresh_message_ids 200
   @required [:tenant_id, :conversation_id, :sender_user_id, :sender_device_id, :client_message_id]
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      messages:
+        repo.all(
+          from(message in Message,
+            where: message.tenant_id == ^tenant_id,
+            select: message.id
+          )
+        )
+    }
+  end
+
   @doc """
   Returns the ConversationContent identifiers affected by a governance target.
 

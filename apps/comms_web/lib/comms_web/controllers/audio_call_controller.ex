@@ -7,6 +7,11 @@ defmodule CommsWeb.AudioCallController do
   alias CommsIntegrations.Audio.RoomService
   alias CommsWeb.{Broadcast, Presenter}
 
+  plug(
+    CommsWeb.Plugs.RequireSecureTransport
+    when action in [:create, :create_audio, :join, :join_audio]
+  )
+
   def index(conn, params) do
     with {:ok, result} <- AudioCalls.list_sessions(conn.assigns.current_subject, params) do
       json(conn, %{

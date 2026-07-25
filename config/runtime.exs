@@ -57,6 +57,11 @@ if config_env() == :prod do
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
   local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
+  allow_bootstrap? = System.get_env("ALLOW_BOOTSTRAP", "false") == "true"
+  qualification_app_origin = System.get_env("K_COMMS_QUALIFICATION_APP_ORIGIN")
+
+  qualification_app_confirmation =
+    System.get_env("K_COMMS_QUALIFICATION_APP_CONFIRMATION")
 
   local_release_host =
     case System.get_env("K_COMMS_LOCAL_RELEASE_HOST") do
@@ -268,9 +273,14 @@ if config_env() == :prod do
   CommsIntegrations.LocalReleaseGuard.validate!(
     enabled?: local_release?,
     development_adapters?: development_adapters?,
+    role: role,
     runtime_purpose: runtime_purpose,
+    allow_bootstrap?: allow_bootstrap?,
     audio_provider_mode: audio_provider_mode,
     local_release_host: local_release_host,
+    instant_room_tenant_slug: instant_room_tenant_slug,
+    qualification_app_origin: qualification_app_origin,
+    qualification_app_confirmation: qualification_app_confirmation,
     phx_host: host,
     public_app_url: public_app_url,
     livekit_server_url: livekit_server_url,
@@ -457,7 +467,10 @@ if config_env() == :prod do
     |> Enum.map(&String.trim/1)
 
   config :comms_web,
-    allow_bootstrap: System.get_env("ALLOW_BOOTSTRAP", "false") == "true",
+    allow_bootstrap: allow_bootstrap?,
+    insecure_lan_release:
+      local_release? and public_app_uri.scheme == "http" and
+        public_app_uri.host not in ["127.0.0.1", "localhost", "::1"],
     hsts: System.get_env("HSTS_ENABLED", "true") == "true",
     metrics_allow_unauthenticated: false,
     metrics_bearer_token: System.get_env("METRICS_BEARER_TOKEN"),

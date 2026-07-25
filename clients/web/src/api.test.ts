@@ -4,7 +4,8 @@ import {
   downloadUrl,
   GuestApiClient,
   isApprovedPrivateLanObjectUrl,
-  sha256
+  sha256,
+  uploadToPresignedTarget
 } from "./api";
 import type { GuestSession, Session } from "./types";
 
@@ -19,7 +20,40 @@ const session: Session = {
   device: { id: "device-1", user_id: "user-1", name: "Browser", platform: "web" }
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+function rejectWhenAborted(options?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    const signal = options?.signal;
+    if (!signal) return;
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+function resolveHeadersWithStalledJson(options?: RequestInit): Promise<Response> {
+  const signal = options?.signal;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const abort = () => controller.error(signal?.reason);
+      if (signal?.aborted) {
+        abort();
+      } else {
+        signal?.addEventListener("abort", abort, { once: true });
+      }
+    }
+  });
+  return Promise.resolve(new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  }));
+}
 
 describe("attachment checksums", () => {
   it("hashes uploads when SubtleCrypto is unavailable on plain LAN HTTP", async () => {
@@ -34,6 +68,109 @@ describe("attachment checksums", () => {
 });
 
 describe("ApiClient session refresh", () => {
+  it("bounds ordinary API requests and aborts the underlying fetch", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>((_input, options) => {
+      return rejectWhenAborted(options);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    const assertion = expect(api.status()).rejects.toMatchObject({
+      status: 408,
+      code: "request_timeout",
+      message: "K-Comms did not respond in time. Try again."
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it("keeps the deadline active while a response body is being decoded", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>((_input, options) => {
+      return resolveHeadersWithStalledJson(options);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    const assertion = expect(api.status()).rejects.toMatchObject({
+      status: 408,
+      code: "request_timeout"
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it("preserves a caller AbortSignal reason instead of reporting a timeout", async () => {
+    const fetchMock = vi.fn<typeof fetch>((_input, options) => rejectWhenAborted(options));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+    const controller = new AbortController();
+    const callerReason = new DOMException("Caller stopped the request", "AbortError");
+
+    const request = api.attachmentStatus("attachment-1", controller.signal);
+    controller.abort(callerReason);
+
+    await expect(request).rejects.toBe(callerReason);
+  });
+
+  it("bounds a stalled refresh without clearing the recoverable local session", async () => {
+    vi.useFakeTimers();
+    const onSession = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { detail: "expired" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockImplementationOnce((_input, options) => rejectWhenAborted(options));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+
+    const assertion = expect(api.me()).rejects.toMatchObject({
+      status: 408,
+      code: "request_timeout"
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
+  it("bounds a refresh whose headers arrive but JSON body stalls", async () => {
+    vi.useFakeTimers();
+    const onSession = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { detail: "expired" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockImplementationOnce((_input, options) =>
+        resolveHeadersWithStalledJson(options)
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+
+    const assertion = expect(api.me()).rejects.toMatchObject({
+      status: 408,
+      code: "request_timeout"
+    });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
   it("keeps the local session when refresh infrastructure is temporarily unavailable", async () => {
     const onSession = vi.fn();
     const fetchMock = vi
@@ -83,6 +220,200 @@ describe("ApiClient session refresh", () => {
 
     expect(onSession).toHaveBeenLastCalledWith(null);
     expect(onSession).not.toHaveBeenCalledWith(expect.objectContaining({ access_token: "new-access" }));
+  });
+
+  it("never replays a delayed 401 under a different member account", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const delayedResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(delayedResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+    const replacement: Session = {
+      ...session,
+      access_token: "replacement-access",
+      refresh_token: "replacement-refresh",
+      tenant: { ...session.tenant, id: "tenant-2", slug: "other" },
+      user: {
+        ...session.user,
+        id: "user-2",
+        tenant_id: "tenant-2",
+        email: "other@example.test"
+      },
+      device: { ...session.device, id: "device-2", user_id: "user-2" }
+    };
+
+    const request = api.me();
+    api.setSession(replacement);
+    resolveRequest?.(new Response(
+      JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(request).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_access_token"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
+  it("discards a delayed authenticated response body after a member account switch", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const delayedResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(delayedResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    const request = api.attachmentDownload("attachment-1");
+    api.setSession({
+      ...session,
+      access_token: "replacement-access",
+      refresh_token: "replacement-refresh",
+      tenant: { ...session.tenant, id: "tenant-2", slug: "other" },
+      user: { ...session.user, id: "user-2", tenant_id: "tenant-2" },
+      device: { ...session.device, id: "device-2", user_id: "user-2" }
+    });
+    resolveRequest?.(new Response(JSON.stringify({
+      data: {
+        url: "https://objects.example.test/tenant-a-secret",
+        approved_origin: "https://objects.example.test"
+      }
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    }));
+
+    await expect(request).rejects.toMatchObject({
+      status: 409,
+      code: "session_changed"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear a replacement account when an old refresh is rejected", async () => {
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockReturnValueOnce(refreshResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+    const replacement: Session = {
+      ...session,
+      access_token: "replacement-access",
+      refresh_token: "replacement-refresh",
+      tenant: { ...session.tenant, id: "tenant-2", slug: "other" },
+      user: { ...session.user, id: "user-2", tenant_id: "tenant-2" },
+      device: { ...session.device, id: "device-2", user_id: "user-2" }
+    };
+
+    const request = api.me();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    api.setSession(replacement);
+    resolveRefresh?.(new Response(
+      JSON.stringify({ error: { code: "invalid_refresh_token" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
+  it("retries a staggered old-token 401 under an already-refreshed same member session", async () => {
+    const refreshed: Session = {
+      ...session,
+      access_token: "new-access",
+      refresh_token: "new-refresh"
+    };
+    let resolveSecondRequest: ((response: Response) => void) | undefined;
+    const secondResponse = new Promise<Response>((resolve) => {
+      resolveSecondRequest = resolve;
+    });
+    let meRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>((input, options) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/sessions/refresh")) {
+        return Promise.resolve(new Response(JSON.stringify(refreshed), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }));
+      }
+      if (!url.endsWith("/api/v1/me")) {
+        return Promise.reject(new Error(`Unexpected request ${url}`));
+      }
+      meRequests += 1;
+      if (meRequests === 1) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+          { status: 401, headers: { "content-type": "application/json" } }
+        ));
+      }
+      if (meRequests === 2) return secondResponse;
+      const headers = new Headers(options?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer new-access");
+      return Promise.resolve(new Response(JSON.stringify({
+        tenant: session.tenant,
+        user: session.user,
+        device: session.device,
+        capabilities: {}
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    const first = api.me();
+    const second = api.me();
+    await expect(first).resolves.toMatchObject({ user: { id: "user-1" } });
+    resolveSecondRequest?.(new Response(
+      JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+    await expect(second).resolves.toMatchObject({ user: { id: "user-1" } });
+
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/v1/sessions/refresh")
+    );
+    expect(refreshCalls).toHaveLength(1);
+    expect(meRequests).toBe(4);
+  });
+
+  it("clears the local member session immediately and waits for durable logout revocation", async () => {
+    let resolveRevocation: ((response: Response) => void) | undefined;
+    const revocationResponse = new Promise<Response>((resolve) => {
+      resolveRevocation = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(revocationResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+
+    let settled = false;
+    const logout = api.logout().then(() => {
+      settled = true;
+    });
+    expect(onSession).toHaveBeenCalledWith(null);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true);
+
+    resolveRevocation?.(new Response(null, { status: 204 }));
+    await logout;
+    expect(settled).toBe(true);
   });
 });
 
@@ -139,6 +470,24 @@ describe("presigned URL validation", () => {
         new URL("http://203.0.113.10:4188/app")
       )
     ).toBe(false);
+  });
+
+  it("keeps large object uploads on the caller-controlled signal without an API deadline", async () => {
+    const callerController = new AbortController();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadToPresignedTarget(
+      {
+        url: "https://objects.example.test/files/report.pdf?signature=abc",
+        approved_origin: "https://objects.example.test",
+        method: "PUT"
+      },
+      new File(["report"], "report.pdf", { type: "application/pdf" }),
+      callerController.signal
+    );
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(callerController.signal);
   });
 });
 
@@ -346,6 +695,20 @@ describe("guest communication API", () => {
       email_hint: "a***@example.test"
     }
   };
+
+  it("applies the same bounded deadline to ordinary guest requests", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>((_input, options) => rejectWhenAborted(options));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    const assertion = expect(api.conversation()).rejects.toMatchObject({
+      status: 408,
+      code: "request_timeout"
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+  });
 
   it("opts guest and member history reads into retained sender labels", async () => {
     const page = {
@@ -711,6 +1074,227 @@ describe("guest communication API", () => {
     }));
   });
 
+  it("never replays a delayed 401 under a different guest conversation", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const delayedResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(delayedResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      onSession
+    );
+    const replacement: GuestSession = {
+      ...guestSession,
+      access_token: "replacement-guest-access",
+      refresh_token: "replacement-guest-refresh",
+      user: { ...guestSession.user, id: "guest-2" },
+      device: {
+        ...guestSession.device,
+        id: "guest-device-2",
+        user_id: "guest-2"
+      },
+      conversation: {
+        ...guestSession.conversation,
+        id: "conversation-2"
+      }
+    };
+
+    const request = api.conversation();
+    api.setSession(replacement);
+    resolveRequest?.(new Response(
+      JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(request).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_access_token"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
+  it("discards a delayed authenticated response body after the guest visit changes", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const delayedResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(delayedResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      vi.fn()
+    );
+
+    const request = api.conversation();
+    api.setSession({
+      ...guestSession,
+      access_token: "replacement-guest-access",
+      refresh_token: "replacement-guest-refresh",
+      user: { ...guestSession.user, id: "guest-2" },
+      device: {
+        ...guestSession.device,
+        id: "guest-device-2",
+        user_id: "guest-2"
+      },
+      conversation: { ...guestSession.conversation, id: "conversation-2" }
+    });
+    resolveRequest?.(new Response(JSON.stringify({
+      data: guestSession.conversation
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    }));
+
+    await expect(request).rejects.toMatchObject({
+      status: 409,
+      code: "session_changed"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not end a replacement guest visit when an old refresh is rejected", async () => {
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockReturnValueOnce(refreshResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      onSession
+    );
+    const replacement: GuestSession = {
+      ...guestSession,
+      access_token: "replacement-guest-access",
+      refresh_token: "replacement-guest-refresh",
+      user: { ...guestSession.user, id: "guest-2" },
+      device: {
+        ...guestSession.device,
+        id: "guest-device-2",
+        user_id: "guest-2"
+      },
+      conversation: {
+        ...guestSession.conversation,
+        id: "conversation-2"
+      }
+    };
+
+    const request = api.conversation();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    api.setSession(replacement);
+    resolveRefresh?.(new Response(
+      JSON.stringify({ error: { code: "invalid_refresh_token" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(onSession).not.toHaveBeenCalled();
+  });
+
+  it("retries a staggered old-token 401 under an already-refreshed same guest visit", async () => {
+    const refreshed = {
+      ...guestSession,
+      access_token: "new-guest-access",
+      refresh_token: "new-guest-refresh"
+    };
+    let resolveSecondRequest: ((response: Response) => void) | undefined;
+    const secondResponse = new Promise<Response>((resolve) => {
+      resolveSecondRequest = resolve;
+    });
+    let conversationRequests = 0;
+    const fetchMock = vi.fn<typeof fetch>((input, options) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/guest/sessions/refresh")) {
+        return Promise.resolve(new Response(JSON.stringify(refreshed), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }));
+      }
+      if (!url.endsWith("/api/v1/guest/conversation")) {
+        return Promise.reject(new Error(`Unexpected request ${url}`));
+      }
+      conversationRequests += 1;
+      if (conversationRequests === 1) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+          { status: 401, headers: { "content-type": "application/json" } }
+        ));
+      }
+      if (conversationRequests === 2) return secondResponse;
+      const headers = new Headers(options?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer new-guest-access");
+      return Promise.resolve(new Response(JSON.stringify({
+        data: guestSession.conversation
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      vi.fn()
+    );
+
+    const first = api.conversation();
+    const second = api.conversation();
+    await expect(first).resolves.toMatchObject({ id: "conversation-1" });
+    resolveSecondRequest?.(new Response(
+      JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+    await expect(second).resolves.toMatchObject({ id: "conversation-1" });
+
+    const refreshCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/v1/guest/sessions/refresh")
+    );
+    expect(refreshCalls).toHaveLength(1);
+    expect(conversationRequests).toBe(4);
+  });
+
+  it("clears the guest visit immediately and waits for durable logout revocation", async () => {
+    let resolveRevocation: ((response: Response) => void) | undefined;
+    const revocationResponse = new Promise<Response>((resolve) => {
+      resolveRevocation = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(revocationResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient(
+      "https://comms.test",
+      guestSession,
+      onSession
+    );
+
+    let settled = false;
+    const logout = api.logout().then(() => {
+      settled = true;
+    });
+    expect(onSession).toHaveBeenCalledWith(null, "logout");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true);
+
+    resolveRevocation?.(new Response(null, { status: 204 }));
+    await logout;
+    expect(settled).toBe(true);
+  });
+
   it("uses only conversation-scoped guest routes for audio and video call lifecycle", async () => {
     const call = {
       id: "call-audio",
@@ -1067,9 +1651,95 @@ describe("governance and audit evidence API", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://comms.test/api/v1/admin/audit-events/export");
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ q: "user.created", limit: 5_000 }));
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeUndefined();
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
     expect(headers.get("Accept")).toBe("text/csv");
     expect(headers.get("Authorization")).toBe("Bearer access-token");
+  });
+
+  it.each(["account switch", "logout"] as const)(
+    "discards an audit export body that completes after %s",
+    async (sessionChange) => {
+      let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const delayedBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller;
+        }
+      });
+      const fetchMock = vi.fn<typeof fetch>((input, options) => {
+        if (
+          String(input).endsWith("/api/v1/sessions/current") &&
+          options?.method === "DELETE"
+        ) {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        return Promise.resolve(new Response(delayedBody, {
+          status: 200,
+          headers: {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": "attachment; filename=\"audit.csv\"",
+            "x-export-row-count": "1",
+            "x-export-truncated": "false"
+          }
+        }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const api = new ApiClient("https://comms.test", session, vi.fn());
+
+      const exported = api.exportAuditEvents({ limit: 1 });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      if (sessionChange === "logout") {
+        await api.logout();
+      } else {
+        api.setSession({
+          ...session,
+          access_token: "other-access",
+          refresh_token: "other-refresh",
+          tenant: { ...session.tenant, id: "tenant-2", slug: "other" },
+          user: { ...session.user, id: "user-2", tenant_id: "tenant-2" },
+          device: { ...session.device, id: "device-2", user_id: "user-2" }
+        });
+      }
+      bodyController?.enqueue(new TextEncoder().encode("\"action\"\r\n\"secret\"\r\n"));
+      bodyController?.close();
+
+      await expect(exported).rejects.toMatchObject({
+        status: 409,
+        code: "session_changed"
+      });
+    }
+  );
+
+  it("never refreshes or replays a delayed audit-export 401 under another account", async () => {
+    let resolveRequest: ((response: Response) => void) | undefined;
+    const delayedResponse = new Promise<Response>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(delayedResponse);
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, onSession);
+
+    const exported = api.exportAuditEvents({ limit: 1 });
+    api.setSession({
+      ...session,
+      access_token: "other-access",
+      refresh_token: "other-refresh",
+      tenant: { ...session.tenant, id: "tenant-2", slug: "other" },
+      user: { ...session.user, id: "user-2", tenant_id: "tenant-2" },
+      device: { ...session.device, id: "device-2", user_id: "user-2" }
+    });
+    resolveRequest?.(new Response(
+      JSON.stringify({ error: { code: "invalid_access_token", detail: "expired" } }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    ));
+
+    await expect(exported).rejects.toMatchObject({
+      status: 401,
+      code: "invalid_access_token"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onSession).not.toHaveBeenCalled();
   });
 });
 

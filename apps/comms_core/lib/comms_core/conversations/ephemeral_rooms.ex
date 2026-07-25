@@ -1615,7 +1615,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   end
 
   defp creator_display_name(attrs, %{owner_kind: :guest}),
-    do: display_name(value(attrs, :display_name) || "Guest host")
+    do: display_name(value(attrs, :display_name))
 
   defp creator_display_name(_attrs, %{owner_kind: :registered}), do: {:ok, nil}
   defp creator_device(attrs, %{owner_kind: :guest}), do: device(value(attrs, :device))

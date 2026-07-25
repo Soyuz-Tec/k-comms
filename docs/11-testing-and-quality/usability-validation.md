@@ -32,6 +32,10 @@ until the participant study and pilot below pass. The validated target is
 No release note may call the score validated unless the evidence identifies the
 immutable application revision, environment, dates, participant mix, results,
 open defects, and approver.
+Adding automated coverage or a new evidence schema does not increase this
+score. The **84/100** baseline and **89/100** provisional cap remain in force
+until an exact-candidate version 4 study and the pilot pass with retained human
+receipts.
 
 ## Participants
 
@@ -80,6 +84,7 @@ those cohorts.
 | `send-recovery` | `member` | `routine` | Recover from a disconnect or failed send without losing the draft | Yes |
 | `notification-control` | `member` | `other` | Read a notification and change notification preferences | No |
 | `device-revocation` | `member` | `other` | Revoke a synthetic device or session and explain the effect | Yes |
+| `instant-room-first-contact` | `member` | `public_room` | Start or join a public instant room with a chosen display name, recognize both people in the roster, send a first message, and recover through reload or rejoin | Yes |
 | `admin-access` | `admin` | `admin_safety` | Invite a person, review and change a role/status with a reason, and revoke a session | Yes |
 | `moderation-review` | `moderator` | `admin_safety` | Review and resolve a synthetic report without entering an unauthorized area | Yes |
 | `audit-evidence` | `compliance` | `admin_safety` | Filter and export bounded audit evidence | No |
@@ -108,10 +113,16 @@ notes separate from the scorecard if they could contain identifying data.
 
 Start from
 [`usability-study-template.json`](usability-study-template.json) and validate
-the resulting version 3 record against
+the resulting version 4 record against
 [`usability-study.schema.json`](usability-study.schema.json). The template is
 an intentionally incomplete, non-passing example; copying it is not evidence
 that a study or human gate occurred.
+
+The schema and scorer continue to accept historical version 3 records with the
+original seven member tasks and 15 signed-in action-count receipts. Version 3
+cannot qualify a release that includes the public instant-room front door.
+Do not relabel a version 3 study as version 4 or synthesize the new receipts
+from automated tests; run the added task and journeys with the exact candidate.
 
 Each session records a unique synthetic participant code, fixed cohort,
 access method, mobile-first status, browser and version, CSS-pixel viewport,
@@ -125,7 +136,7 @@ unassisted release threshold.
 
 ### Action-count receipts for the five-destination experience
 
-Version 3 adds an exact `action_count_receipts` set for the
+Versions 3 and 4 use the exact `action_count_receipts` set for the
 **Inbox / Calls / Directory / Files / You** information architecture. These
 receipts supplement the broader task receipts above; they do not replace the
 collaboration, attachment-safety, search, recovery, administration, moderation,
@@ -136,7 +147,7 @@ activation, or submitted form. `daily_use` starts at the default signed-in
 Inbox. `end_to_end` starts at a signed-out browser or invitation link.
 `action_count` records the actions on the shortest discoverable product path,
 and the scorer compares it with the fixed `maximum_actions` for that journey.
-The maximum is authoritative in the v3 schema and scorer; evidence authors
+The maximum is authoritative in the schema and scorer; evidence authors
 cannot relax it.
 
 Every receipt references a synthetic participant code in the 12-session study
@@ -178,6 +189,47 @@ navigation. The scorer requires the subcounts to sum to `action_count`; an
 unsafe media default fails the low-click gate even when the numeric count is
 within budget.
 
+### Public instant-room receipts (version 4)
+
+Version 4 adds exactly 11 `instant_room_receipts`. These receipts supplement
+the critical `instant-room-first-contact` task and prove the shortest public
+host/guest journey without storing names, room titles, links, QR payloads,
+workspace addresses, or message content. Every receipt references a synthetic
+`member` participant and contains only fixed coded observations in `checks`.
+The scorer requires the exact check set, role, baseline, and maximum for each
+receipt.
+
+The template leaves every `checks` array empty. Add a code only after that
+observation occurred in the moderated session. A missing required check makes
+the journey gate fail; an unrelated or invented check is rejected.
+
+| Receipt ID | Role | Baseline | Maximum measured actions | Required observation |
+|---|---|---|---:|---|
+| `instant-room-host-start-untitled` | host | `signed_out` | 1 | Submit the start form with an explicit display name; omitting the optional room title does not block entry and the chosen name is visible |
+| `instant-room-host-start-titled` | host | `signed_out` | 1 | Submit the start form with a display name and room title; both are visible in the room |
+| `instant-room-copy-link` | host | `active_host` | 1 | Copy the invite link and verify the copied target matches the active invite |
+| `instant-room-system-share` | host | `active_host` | 1 | Open the platform share surface or deterministic fallback and verify it targets the active invite |
+| `instant-room-qr` | host | `active_host` | 1 | Reveal the QR code and verify its decoded target matches the active invite |
+| `instant-room-guest-name-join` | guest | `invite_link` | 1 | Submit one chosen display name and enter the room with that name visible |
+| `instant-room-roster-identity` | guest | `active_room` | 1 | Open or inspect the roster and correctly recognize the distinct chosen host and guest names |
+| `instant-room-first-message` | guest | `active_room` | 1 | Submit a first message; the other participant receives it with the chosen sender name |
+| `instant-room-host-reload` | host | `active_host` | 1 | Reload and return to the same room with host control and chosen host name restored |
+| `instant-room-guest-rejoin` | guest | `reentry` | 1 | Reopen/reload and return to the same room with guest name and roster presence restored |
+| `instant-room-account-conversion-handoff` | guest | `active_guest` | 3 | Confirm conversion is optional and anonymous use remains available; when conversion is exercised, receive a workspace address and portable sign-in link |
+
+The action definition is the same as for signed-in receipts: typing is not
+counted separately, while submitting a form, activating Copy/Share/QR,
+opening the roster, reloading/reopening, and each conversion submission are
+actions. Browser- or operating-system-owned target selection after the K-Comms
+share action is diagnostic and is not added to the product action count.
+
+`instant-room-account-conversion-handoff` does not require every participant to
+create an account. It requires the observed conversion path to remain optional,
+leave anonymous communication usable, and provide enough workspace address and
+sign-in-link information for later use on another browser or device. A release
+fails if conversion is required to chat, if the handoff is not portable, or if
+the receipt stores the actual workspace address.
+
 The release-level record also identifies the full Git revision, environment,
 study dates, security, authorization, tenant-isolation, durability, and staging
 regression status, coded accessibility findings, the manual WCAG and
@@ -190,7 +242,9 @@ are rejected.
 
 ## Accessibility matrix
 
-Automated checks run against representative login, invitation, recovery, empty,
+Automated checks run against representative public room start, share/QR,
+guest-name join, named roster, reload/rejoin and optional-conversion states,
+as well as login, invitation, recovery, empty,
 populated, error, offline/reconnecting, Inbox filters, conversation, search,
 thread, Calls/lobby, Directory people and rooms, Files/source return, You,
 notification, settings, admin, and operations states. A passing automated
@@ -232,9 +286,13 @@ All of the following must pass:
 - at least 95% unassisted success for routine messaging and search tasks;
 - at least 90% unassisted success for admin safety tasks, with zero unintended
   destructive actions;
-- every v3 action-count receipt is complete and unassisted, within its fixed
+- every signed-in action-count receipt is complete and unassisted, within its fixed
   maximum, and,
   for calls, proves the default-off lobby and explicit join/start behavior;
+- every version 4 public instant-room receipt is complete and unassisted,
+  within its fixed maximum, with its exact coded observations;
+- at least 90% unassisted success for the critical
+  `instant-room-first-contact` task;
 - median Single Ease Question at least 5.5/7;
 - mean System Usability Scale at least 80, with no role cohort below 75;
 - 100% completion of critical tasks in keyboard and screen-reader sessions;

@@ -376,6 +376,47 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-shell-actions .button {
   min-height: 44px;
   padding: .6rem .85rem;
+  font-size: .875rem;
+}
+
+.guest-transport-warning {
+  width: min(960px, calc(100% - 2rem));
+  margin: .65rem auto 0;
+}
+
+.guest-conversion-receipt {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(12rem, .65fr) auto;
+  align-items: end;
+  gap: .75rem;
+  padding: .75rem max(1rem, calc((100vw - 960px) / 2));
+  border-bottom: 1px solid #9db7a0;
+  color: #173d39;
+  background: #e5f0e1;
+}
+
+.guest-conversion-receipt > div,
+.guest-conversion-receipt label {
+  display: grid;
+  gap: .2rem;
+}
+
+.guest-conversion-receipt span,
+.guest-conversion-receipt label {
+  font-size: .875rem;
+}
+
+.guest-conversion-receipt input,
+.guest-conversion-receipt .button {
+  min-height: 44px;
+}
+
+.guest-conversion-receipt input {
+  width: 100%;
+  padding: .55rem .7rem;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: white;
 }
 
 .guest-account-card {
@@ -681,6 +722,14 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     grid-template-columns: 1fr;
   }
 
+  .guest-conversion-receipt {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .guest-conversion-receipt > div {
+    grid-column: 1 / -1;
+  }
+
   .guest-account-card form {
     grid-template-columns: 1fr 1fr;
   }
@@ -724,11 +773,23 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-shell-actions .button {
     min-width: 44px;
     padding-inline: .65rem;
-    font-size: .75rem;
+    font-size: .875rem;
   }
 
   .guest-account-card form {
     grid-template-columns: 1fr;
+  }
+
+  .guest-conversion-receipt {
+    grid-template-columns: 1fr;
+  }
+
+  .guest-conversion-receipt > div {
+    grid-column: auto;
+  }
+
+  .guest-conversion-receipt .button {
+    width: 100%;
   }
 
   .guest-account-card {

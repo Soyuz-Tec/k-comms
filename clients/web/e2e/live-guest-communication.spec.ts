@@ -18,10 +18,8 @@ const enabled =
   process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
 const liveStackURL =
   process.env.K_COMMS_LIVE_GUEST_BASE_URL || "http://127.0.0.1:4178";
-
-interface BootstrapResponse extends Session {
-  conversation: Conversation;
-}
+const liveProvisionURL =
+  process.env.K_COMMS_LIVE_PROVISION_BASE_URL || "http://127.0.0.1:4178";
 
 interface DataResponse<T> {
   data: T;
@@ -196,7 +194,10 @@ test.describe("sealed guest communication qualification", () => {
         })
       ).toBeVisible({ timeout: 20_000 });
       await expect(
-        guestPage.getByRole("link", { name: "Return to K-Comms sign in" })
+        guestPage.getByRole("link", { name: "Start new room" })
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        guestPage.getByRole("link", { name: "Sign in to a workspace" })
       ).toBeVisible({ timeout: 20_000 });
 
       const deniedConversation = await request.get("/api/v1/guest/conversation", {
@@ -212,22 +213,28 @@ test.describe("sealed guest communication qualification", () => {
       primaryTestFailed = true;
       testFailure = error;
     } finally {
-      const [linkCleanup] = await Promise.allSettled([
-        revokeCreatedGuestLinks(request, fixture, createdGuestLinkIds),
+      const cleanupResults = await Promise.allSettled([
+        cleanupOwnerJourney(request, fixture, createdGuestLinkIds),
         ownerContext.close(),
         guestContext.close()
       ]);
-      if (!primaryTestFailed && linkCleanup.status === "rejected") {
-        testFailure = linkCleanup.reason;
+      const failedCleanup = cleanupResults.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected"
+      );
+      if (!primaryTestFailed && failedCleanup) {
+        testFailure = failedCleanup.reason;
       }
     }
     if (primaryTestFailed || testFailure !== undefined) throw testFailure;
   });
 
-  test("a pre-authorized guest may convert in place while a mismatched email fails closed", async ({
+  test("a guest in the disposable qualification tenant converts in place while a mismatched email fails closed", async ({
     request
   }) => {
     const ownerFixture = await provisionOwnerJourney(request);
+    expect(ownerFixture.owner.tenant.slug).toMatch(
+      /^k-comms-qualification-[0-9a-f]{32}$/
+    );
     const createdGuestLinkIds = new Set<string>();
     let primaryTestFailed = false;
     let testFailure: unknown;
@@ -278,6 +285,10 @@ test.describe("sealed guest communication qualification", () => {
       }>(conversionResponse, 200, "guest account conversion");
       expect(conversion.authentication.user.id).toBe(fixture.guest.user.id);
       expect(conversion.authentication.user.account_type).toBe("human");
+      expect(conversion.authentication.tenant).toMatchObject({
+        id: ownerFixture.owner.tenant.id,
+        slug: ownerFixture.owner.tenant.slug
+      });
       expect(conversion.conversation.id).toBe(fixture.conversation.id);
 
       const humanAccess = await request.get("/api/v1/me", {
@@ -300,11 +311,7 @@ test.describe("sealed guest communication qualification", () => {
       testFailure = error;
     } finally {
       try {
-        await revokeCreatedGuestLinks(
-          request,
-          ownerFixture,
-          createdGuestLinkIds
-        );
+        await cleanupOwnerJourney(request, ownerFixture, createdGuestLinkIds);
       } catch (error) {
         if (!primaryTestFailed) testFailure = error;
       }
@@ -320,7 +327,7 @@ async function provisionGuestJourney(
 ) {
   const { owner, ownerPassword, conversation, conversionEmail } = fixture;
 
-  const stepUp = await request.post("/api/v1/me/step-up", {
+  const stepUp = await request.post(`${liveProvisionURL}/api/v1/me/step-up`, {
     headers: authorization(owner),
     data: { current_password: ownerPassword }
   });
@@ -397,21 +404,26 @@ async function provisionGuestJourney(
 
 async function provisionOwnerJourney(request: APIRequestContext) {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
-  const tenantSlug = `guest-e2e-${suffix}`;
-  const ownerPassword = strongPassword();
+  const {
+    tenantSlug,
+    email: ownerEmail,
+    password: ownerPassword
+  } = sealedOwnerCredentials();
   const conversionEmail = `guest-convert-${suffix}@example.test`;
 
-  const bootstrap = await request.post("/api/v1/bootstrap", {
+  const signIn = await request.post(`${liveProvisionURL}/api/v1/sessions`, {
     data: {
-      tenant_name: `Guest E2E ${suffix}`,
       tenant_slug: tenantSlug,
-      display_name: "Guest Journey Owner",
-      email: `guest-owner-${suffix}@example.test`,
-      password: ownerPassword
+      email: ownerEmail,
+      password: ownerPassword,
+      device: {
+        name: "Sealed guest qualification owner",
+        platform: "playwright"
+      }
     }
   });
   const owner = withReceivedAt(
-    await expectJSON<BootstrapResponse>(bootstrap, 201, "workspace bootstrap")
+    await expectJSON<Session>(signIn, 200, "sealed owner sign-in")
   );
 
   const conversationResponse = await request.post("/api/v1/conversations", {
@@ -595,6 +607,46 @@ function isGuestLinkSummary(
 
 function authorization(session: Pick<Session, "access_token">) {
   return { Authorization: `Bearer ${session.access_token}` };
+}
+
+function sealedOwnerCredentials() {
+  const tenantSlug = process.env.K_COMMS_LIVE_OWNER_TENANT_SLUG;
+  const email = process.env.K_COMMS_LIVE_OWNER_EMAIL;
+  const password = process.env.K_COMMS_LIVE_OWNER_PASSWORD;
+  if (!tenantSlug || !email || !password) {
+    throw new Error(
+      "sealed owner credentials were not supplied by the local-release qualifier"
+    );
+  }
+  if (!/^k-comms-qualification-[0-9a-f]{32}$/.test(tenantSlug)) {
+    throw new Error(
+      "sealed guest qualification requires a disposable marker-bound tenant"
+    );
+  }
+  return { tenantSlug, email, password };
+}
+
+async function revokeOwnerSession(
+  request: APIRequestContext,
+  owner: Pick<Session, "access_token">
+) {
+  const response = await request.delete(
+    `${liveProvisionURL}/api/v1/sessions/current`,
+    { headers: authorization(owner) }
+  );
+  await expectStatus(response, 204, "sealed owner session cleanup");
+}
+
+async function cleanupOwnerJourney(
+  request: APIRequestContext,
+  fixture: Awaited<ReturnType<typeof provisionOwnerJourney>>,
+  createdGuestLinkIds: Set<string>
+) {
+  try {
+    await revokeCreatedGuestLinks(request, fixture, createdGuestLinkIds);
+  } finally {
+    await revokeOwnerSession(request, fixture.owner);
+  }
 }
 
 function withReceivedAt<T extends Session>(session: T): T {
