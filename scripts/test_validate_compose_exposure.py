@@ -31,6 +31,28 @@ class ComposeExposurePolicyTest(unittest.TestCase):
         document = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         self.assertEqual(validate_compose_exposure(document), [])
 
+    def test_container_smoke_confirms_quiescence_for_release_migration(self) -> None:
+        script = (ROOT / "scripts" / "container_smoke.sh").read_text(
+            encoding="utf-8"
+        )
+        start = script.index(
+            '"${engine}" run --rm --network "${network}" \\\n'
+        )
+        migration_invocation = script[start : script.index("\n\n", start)]
+
+        self.assertIn(
+            '--env "K_COMMS_RUNTIME_PURPOSE=one_shot"',
+            migration_invocation,
+        )
+        self.assertIn(
+            '--env "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE=true"',
+            migration_invocation,
+        )
+        self.assertIn(
+            '"${image}" eval \'CommsCore.Release.migrate()\'',
+            migration_invocation,
+        )
+
     def test_broad_default_binding_fails(self) -> None:
         ports = {service: list(values) for service, values in EXPECTED_PORTS.items()}
         ports["app"] = [

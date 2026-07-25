@@ -144,7 +144,8 @@ application_env=(
 )
 
 "${engine}" run --rm --network "${network}" \
-  --env "K_COMMS_RUNTIME_PURPOSE=one_shot" "${common_env[@]}" \
+  --env "K_COMMS_RUNTIME_PURPOSE=one_shot" \
+  --env "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE=true" "${common_env[@]}" \
   "${image}" eval 'CommsCore.Release.migrate()'
 
 "${engine}" run --detach --name "${app}" --network "${network}" \
