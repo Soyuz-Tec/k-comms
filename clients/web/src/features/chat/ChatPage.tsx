@@ -14,6 +14,7 @@ import {
   uploadToPresignedTarget
 } from "../../api";
 import { useSession } from "../../app/session";
+import { useStepUp } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
 import {
@@ -44,6 +45,10 @@ import { MentionPicker } from "./MentionPicker";
 import { SearchPanel } from "./SearchPanel";
 import { ThreadDrawer } from "./ThreadDrawer";
 import {
+  canCreateGuestLink,
+  ConversationShareDialog
+} from "../guest/ConversationShareDialog";
+import {
   AttachmentUploadList,
   attachmentUploadBusy,
   attachmentUploadReady
@@ -69,6 +74,7 @@ type InboxFilter = "all" | "unread" | "direct" | "rooms";
 
 export function ChatPage() {
   const { api, session } = useSession();
+  const { runWithStepUp } = useStepUp();
   const { launchCall, publishRealtimeEvent } = useCallSession();
   const {
     conversations,
@@ -109,6 +115,7 @@ export function ChatPage() {
   const [showCreateConversation, setShowCreateConversation] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showGuestShare, setShowGuestShare] = useState(false);
   const [showBrowseChannels, setShowBrowseChannels] = useState(false);
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
   const [membershipVersion, setMembershipVersion] = useState(0);
@@ -612,6 +619,7 @@ export function ChatPage() {
     setSearchParams({ conversation: id });
     setShowDetails(false);
     setShowBrowseChannels(false);
+    setShowGuestShare(false);
   }
 
   function showConversationList() {
@@ -619,6 +627,7 @@ export function ChatPage() {
     setSearchParams({}, { replace: true });
     setShowDetails(false);
     setShowBrowseChannels(false);
+    setShowGuestShare(false);
   }
 
   function messageScrollChanged() {
@@ -1178,7 +1187,7 @@ export function ChatPage() {
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationTitle(activeConversation) : "Messages"}>
         {activeConversation ? <>
-          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); }}>⌕</button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} /><button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => setShowDetails((visible) => !visible)}>Details</button></div></header>
+          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">‹</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationTitle(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}>⌕</button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} />{(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}>Invite guest</button>}<button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}>Details</button></div></header>
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
             {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} sender={usersById.get(message.sender_user_id)} replyPreview={replyPreview} replySender={replyPreview ? usersById.get(replyPreview.sender_user_id) : undefined} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
@@ -1201,6 +1210,7 @@ export function ChatPage() {
       {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
+      {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
       {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>

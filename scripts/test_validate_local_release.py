@@ -114,6 +114,31 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "local release orchestration must never run down migrations", errors
         )
 
+    def test_requires_bounded_quiesced_forward_migrations(self) -> None:
+        document = copy.deepcopy(self.compose)
+        del document["services"]["migrate"]["environment"][
+            "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE"
+        ]
+        errors = validate_local_release(document, self.runner)
+        self.assertTrue(
+            any(
+                "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE=true" in error
+                for error in errors
+            )
+        )
+
+        runner = self.runner.replace(
+            "        Stop-ApplicationForMigration `",
+            '        Write-Warning "migration quiescence removed"',
+            1,
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "forward migrations must stop and verify the application before "
+            "the bounded migration runner starts",
+            errors,
+        )
+
     def test_rejects_missing_state_ownership_or_reparse_guards(self) -> None:
         runner = self.runner.replace(
             ".k-comms-local-release-state-v1.json", "removed-state-marker"
@@ -238,6 +263,183 @@ class LocalReleasePolicyTest(unittest.TestCase):
         self.assertIn(
             "release image tags must be unique per candidate so a repeated revision "
             "cannot invalidate predecessor rollback",
+            errors,
+        )
+
+    def test_requires_guest_capability_only_for_the_candidate(self) -> None:
+        candidate_without_guest_check = self.runner.replace(
+            "            -ExpectedLiveKitPort $LiveKitSignalPort `\n"
+            "            -RequireGuestLinks",
+            "            -ExpectedLiveKitPort $LiveKitSignalPort",
+        )
+        errors = validate_local_release(self.compose, candidate_without_guest_check)
+        self.assertIn(
+            "candidate deployment must require the guest-links capability before sealing",
+            errors,
+        )
+
+        restore_with_candidate_capability = self.runner.replace(
+            "        -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)",
+            "        -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal) `\n"
+            "        -RequireGuestLinks",
+        )
+        errors = validate_local_release(
+            self.compose, restore_with_candidate_capability
+        )
+        self.assertIn(
+            "predecessor restore must not require capabilities introduced by the candidate",
+            errors,
+        )
+
+        missing_runtime_self_test = self.runner.replace(
+            "        Invoke-CapabilityCompatibilitySelfTest",
+            '        Write-Host "capability compatibility self-test removed"',
+        )
+        errors = validate_local_release(self.compose, missing_runtime_self_test)
+        self.assertIn(
+            "release validation must execute predecessor and candidate capability self-tests",
+            errors,
+        )
+
+    def test_guest_migrations_are_additive(self) -> None:
+        identity_migration = (
+            ROOT
+            / "apps"
+            / "comms_core"
+            / "priv"
+            / "repo"
+            / "migrations"
+            / "20260724000160_add_guest_identity_expiry.exs"
+        ).read_text(encoding="utf-8")
+        access_migration = (
+            ROOT
+            / "apps"
+            / "comms_core"
+            / "priv"
+            / "repo"
+            / "migrations"
+            / "20260724000170_add_conversation_guest_access.exs"
+        ).read_text(encoding="utf-8")
+
+        # The forward schema keeps existing human/service rows valid, changes
+        # existing tables only with nullable or defaulted columns, and adds
+        # guest-owned tables. Persisted guest rows still require the explicit
+        # rollback-compatibility guard tested below.
+        self.assertIn(
+            'check: "account_type IN (\'human\', \'service\', \'guest\')"',
+            identity_migration,
+        )
+        self.assertIn("add(:guest_expires_at, :utc_datetime_usec)", identity_migration)
+        self.assertIn(
+            "add(:access_scope, :map, null: false, default: %{})",
+            identity_migration,
+        )
+        self.assertIn(
+            "create table(:conversation_guest_links",
+            access_migration,
+        )
+        self.assertIn(
+            "create table(:conversation_guest_admissions",
+            access_migration,
+        )
+        for migration in (identity_migration, access_migration):
+            up_body = migration.split("def up do", 1)[1].split("def down do", 1)[0]
+            self.assertNotIn("remove(", up_body)
+            self.assertNotIn("drop(table(", up_body)
+
+    def test_requires_guest_rollback_compatibility_guard(self) -> None:
+        missing_receipt_capability = self.runner.replace(
+            '                "guest_identity_v1"\n'
+            '                "guest_admission_expiry_worker_v1"',
+            '                "removed_guest_rollback_capabilities"',
+            1,
+        )
+        errors = validate_local_release(self.compose, missing_receipt_capability)
+        self.assertIn(
+            "release receipts must declare guest identity and expiry-worker "
+            "rollback compatibility",
+            errors,
+        )
+
+        missing_hazard_probe = self.runner.replace(
+            "WHERE worker = 'CommsWorkers.GuestAdmissionExpiryWorker'",
+            "WHERE worker = 'RemovedGuestExpiryWorker'",
+        )
+        errors = validate_local_release(self.compose, missing_hazard_probe)
+        self.assertIn(
+            "guest rollback preflight must query persisted guest identities and "
+            "active expiry jobs",
+            errors,
+        )
+
+        missing_manual_guard = self.runner.replace(
+            "    Assert-GuestRollbackSafe `\n"
+            "        -CurrentReceipt $current `\n"
+            "        -TargetReceipt $target `\n"
+            "        -RestoreCurrentOnFailure",
+            '    Write-Warning "guest rollback guard removed"',
+        )
+        errors = validate_local_release(self.compose, missing_manual_guard)
+        self.assertIn(
+            "manual and post-migration automatic rollback must guard legacy "
+            "predecessors before restore",
+            errors,
+        )
+
+        missing_quiescence = self.runner.replace(
+            '        -Arguments @("stop", "app") `',
+            '        -Arguments @("ps", "app") `',
+        )
+        errors = validate_local_release(self.compose, missing_quiescence)
+        self.assertIn(
+            "legacy guest rollback preflight must quiesce and verify the current "
+            "application",
+            errors,
+        )
+
+        missing_current_restart = self.runner.replace(
+            "                    Restore-Release -Receipt $CurrentReceipt "
+            "-UpdatePointer",
+            '                    Write-Warning "current restart removed"',
+        )
+        errors = validate_local_release(self.compose, missing_current_restart)
+        self.assertIn(
+            "guest rollback preflight must quiesce legacy writes, evaluate hazards, "
+            "and restore the current receipt on a manual block",
+            errors,
+        )
+
+        stale_legacy_reactivation = self.runner.replace(
+            "recorded current receipt also lacks",
+            "recorded current receipt was ignored",
+        )
+        errors = validate_local_release(self.compose, stale_legacy_reactivation)
+        self.assertIn(
+            "guest rollback preflight must quiesce legacy writes, evaluate hazards, "
+            "and restore the current receipt on a manual block",
+            errors,
+        )
+
+        missing_target_failure_recovery = self.runner.replace(
+            "function Restore-RollbackTargetOrCurrent {",
+            "function RemovedRollbackTargetRecovery {",
+        )
+        errors = validate_local_release(
+            self.compose, missing_target_failure_recovery
+        )
+        self.assertIn(
+            "manual rollback must recover the exact current receipt when target "
+            "restore fails",
+            errors,
+        )
+
+        missing_self_test = self.runner.replace(
+            "        Invoke-GuestRollbackCompatibilitySelfTest",
+            '        Write-Host "guest rollback self-test removed"',
+        )
+        errors = validate_local_release(self.compose, missing_self_test)
+        self.assertIn(
+            "release validation must exercise guest rollback compatibility self-tests",
             errors,
         )
 
@@ -385,6 +587,12 @@ class LocalReleasePolicyTest(unittest.TestCase):
             "            -RunMigration `\n            -UpdatePointer",
             "            -UpdatePointer",
         )
+        runner = runner.replace(
+            "        Assert-GuestRollbackSafe `\n"
+            "            -CurrentReceipt $current `\n"
+            "            -TargetReceipt $current\n",
+            "",
+        )
         errors = validate_local_release(self.compose, runner)
         self.assertIn(
             "local release actions must expose the supported Start lifecycle action",
@@ -393,6 +601,10 @@ class LocalReleasePolicyTest(unittest.TestCase):
         self.assertIn(
             "Start must restart the current retained receipt with forward migration "
             "and health checks",
+            errors,
+        )
+        self.assertIn(
+            "Start must fail closed before activating a guest-incompatible retained receipt",
             errors,
         )
         self.assertIn(
@@ -415,6 +627,12 @@ class LocalReleasePolicyTest(unittest.TestCase):
         self.assertIn("six candidate ports are unique and available", runbook)
         self.assertIn("does not require a clean", runbook)
         self.assertIn("source.archive.tar", runbook)
+        self.assertIn("quiesces the current application before the final probe", runbook)
+        self.assertIn("guest-compatible bridge release", runbook)
+        self.assertIn(
+            "this compatible current release is restarted even if it was stopped before Rollback",
+            runbook,
+        )
 
 
 if __name__ == "__main__":

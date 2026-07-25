@@ -94,6 +94,115 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_rejects_blind_or_unbounded_migration_execution(self) -> None:
+        documents = valid_documents()
+        migration = next(
+            document
+            for document in documents
+            if document.get("kind") == "Job"
+            and document.get("metadata", {}).get("name") == "k-comms-migrate"
+        )
+        migration["spec"]["backoffLimit"] = 1
+        container = migration["spec"]["template"]["spec"]["containers"][0]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_MIGRATION_REQUIRE_QUIESCENCE"]["value"] = "false"
+        environment["K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"]["value"] = "30001"
+        environment["K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS"]["value"] = "900000"
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
+        self.assertTrue(
+            any("REQUIRE_QUIESCENCE must be true" in error for error in errors)
+        )
+        self.assertTrue(
+            any("LOCK_TIMEOUT_MS must be 1..30000" in error for error in errors)
+        )
+        self.assertTrue(
+            any("leave at least 30 seconds" in error for error in errors)
+        )
+
+    def test_rejects_unreviewed_migration_runner(self) -> None:
+        documents = valid_documents()
+        migration = next(
+            document
+            for document in documents
+            if document.get("kind") == "Job"
+            and document.get("metadata", {}).get("name") == "k-comms-migrate"
+        )
+        migration["spec"]["template"]["spec"]["containers"][0]["args"] = [
+            "eval",
+            "System.halt(0)",
+        ]
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any("reviewed CommsCore.Release.migrate()" in error for error in errors)
+        )
+
+    def test_requires_identical_guest_rollback_capability_annotations(self) -> None:
+        documents = valid_documents()
+        worker = next(
+            document
+            for document in documents
+            if document.get("kind") == "Deployment"
+            and document.get("metadata", {}).get("name") == "k-comms-worker"
+        )
+        worker["spec"]["template"]["metadata"]["annotations"] = {}
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "k-comms-worker: pod template rollback-capabilities annotation"
+                in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "edge/worker rollback-capabilities annotations must be identical"
+                in error
+                for error in errors
+            )
+        )
+
+    def test_accepts_rendered_guest_rollback_preflight_operation(self) -> None:
+        documents = valid_documents()
+        documents.append(guest_rollback_operation())
+
+        self.assertEqual(validate_documents(documents), [])
+
+    def test_rejects_unapproved_guest_rollback_preflight_inputs(self) -> None:
+        documents = valid_documents()
+        operation = guest_rollback_operation()
+        operation["spec"].update(
+            {"backoffLimit": 1, "activeDeadlineSeconds": 301}
+        )
+        container = operation["spec"]["template"]["spec"]["containers"][0]
+        container["args"] = ["eval", "System.halt(0)"]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = (
+            "guest_identity_v1"
+        )
+        environment["K_COMMS_ROLLBACK_TARGET_REVISION"]["value"] = (
+            "REPLACE_WITH_TARGET_REVISION"
+        )
+        environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "false"
+        documents.append(operation)
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
+        self.assertTrue(any("activeDeadlineSeconds must be 1..300" in error for error in errors))
+        self.assertTrue(
+            any("assert_guest_rollback_compatible!()" in error for error in errors)
+        )
+        self.assertTrue(any("WRITES_QUIESCED must be true" in error for error in errors))
+        self.assertTrue(any("must identify the exact target" in error for error in errors))
+        self.assertTrue(any("exact guest-compatible capability pair" in error for error in errors))
+
     def test_rejects_development_identity_modes_and_invalid_oidc_issuer(self) -> None:
         documents = valid_documents()
         config = documents[0]["data"]
@@ -971,6 +1080,23 @@ def workload(kind: str, name: str) -> dict:
     container_name = name.removeprefix("k-comms-")
     if kind == "Job":
         environment.append({"name": "K_COMMS_RUNTIME_PURPOSE", "value": "one_shot"})
+        if name == "k-comms-migrate":
+            environment.extend(
+                [
+                    {
+                        "name": "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS",
+                        "value": "5000",
+                    },
+                    {
+                        "name": "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS",
+                        "value": "840000",
+                    },
+                    {
+                        "name": "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE",
+                        "value": "true",
+                    },
+                ]
+            )
     else:
         env_from.append(
             {
@@ -992,7 +1118,13 @@ def workload(kind: str, name: str) -> dict:
         "spec": {
             "template": {
                 "metadata": {
-                    "labels": {"app.kubernetes.io/name": "k-comms"}
+                    "labels": {"app.kubernetes.io/name": "k-comms"},
+                    "annotations": {
+                        "k-comms.soyuz-tec.io/rollback-capabilities": (
+                            "guest_identity_v1,"
+                            "guest_admission_expiry_worker_v1"
+                        )
+                    },
                 },
                 "spec": {
                     "serviceAccountName": "k-comms",
@@ -1065,7 +1197,39 @@ def workload(kind: str, name: str) -> dict:
                 }
     else:
         document["spec"]["template"]["spec"]["restartPolicy"] = "Never"
+        if name == "k-comms-migrate":
+            document["spec"]["backoffLimit"] = 0
+            document["spec"]["activeDeadlineSeconds"] = 900
+            container = document["spec"]["template"]["spec"]["containers"][0]
+            container["command"] = ["/app/bin/k_comms"]
+            container["args"] = ["eval", "CommsCore.Release.migrate()"]
     return document
+
+
+def guest_rollback_operation() -> dict:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "deploy"
+        / "k8s"
+        / "operations"
+        / "guest-rollback-preflight"
+        / "guest-rollback-preflight-job.yaml"
+    )
+    operation = yaml.safe_load(path.read_text(encoding="utf-8"))
+    operation["metadata"]["namespace"] = PRODUCTION_NAMESPACE
+    container = operation["spec"]["template"]["spec"]["containers"][0]
+    container["image"] = DIGEST_IMAGE
+    environment = {item["name"]: item for item in container["env"]}
+    environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = None
+    environment["K_COMMS_ROLLBACK_TARGET_REVISION"]["value"] = "legacy-revision"
+    environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "true"
+    database_ca = next(
+        volume
+        for volume in operation["spec"]["template"]["spec"]["volumes"]
+        if volume["name"] == "database-ca"
+    )
+    database_ca["configMap"]["optional"] = False
+    return operation
 
 
 def autoscaler(name: str, minimum: int) -> dict:

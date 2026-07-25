@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { ProductShell } from "./app/ProductShell";
 import { RouteOrientation } from "./app/RouteOrientation";
 import { SessionProvider, useSession } from "./app/session";
@@ -7,6 +7,7 @@ import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
 import { AuthScreen } from "./features/auth/AuthScreen";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
+import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import "./mobile-experience.css";
 
 const AdminPage = lazy(() =>
@@ -43,6 +44,18 @@ export default function App() {
 
 function ApplicationRoutes() {
   const { session } = useSession();
+  const location = useLocation();
+  if (location.pathname === "/join") {
+    return (
+      <>
+        <RouteOrientation authenticated={false} />
+        <Routes>
+          <Route path="/join" element={<GuestAccessPage />} />
+        </Routes>
+      </>
+    );
+  }
+
   if (!session) {
     return (
       <Routes>

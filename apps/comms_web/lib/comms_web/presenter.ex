@@ -17,7 +17,13 @@ defmodule CommsWeb.Presenter do
   alias CommsCore.Attachments.{AttachmentView, FileView}
   alias CommsCore.AudioCalls.{CallSessionView, CallView}
   alias CommsCore.Audit.Event
-  alias CommsCore.Conversations.{ConversationView, MembershipView}
+
+  alias CommsCore.Conversations.{
+    ConversationView,
+    GuestLinkPreviewView,
+    MembershipView
+  }
+
   alias CommsCore.Governance.{DeletionRequestView, LegalHoldView, RetentionPolicyView}
   alias CommsCore.Messaging.{MessageView, ReactionView}
   alias CommsCore.Moderation.{ActionView, CaseView}
@@ -31,7 +37,7 @@ defmodule CommsWeb.Presenter do
       id: user.id,
       tenant_id: user.tenant_id,
       display_name: user.display_name,
-      email: user.email,
+      email: if(user.account_type == :guest, do: nil, else: user.email),
       account_type: user.account_type,
       role: user.role,
       status: user.status,
@@ -57,6 +63,18 @@ defmodule CommsWeb.Presenter do
       platform_role: user.platform_role,
       platform_role_expires_at: user.platform_role_expires_at
     })
+  end
+
+  def guest_identity(%UserView{} = user) do
+    %{
+      id: user.id,
+      tenant_id: user.tenant_id,
+      display_name: user.display_name,
+      account_type: user.account_type,
+      role: user.role,
+      status: user.status,
+      guest_expires_at: user.guest_expires_at
+    }
   end
 
   def admin_user(%UserView{} = user), do: identity_user(user)
@@ -193,6 +211,107 @@ defmodule CommsWeb.Presenter do
   end
 
   def membership(nil), do: nil
+
+  def guest_membership(%MembershipView{} = membership) do
+    %{
+      id: membership.id,
+      role: membership.role,
+      joined_at: membership.joined_at,
+      left_at: membership.left_at,
+      last_read_sequence: membership.last_read_sequence,
+      version: membership.version
+    }
+    |> maybe_put_guest_user(membership.user)
+  end
+
+  def guest_link(guest_link) when is_map(guest_link) do
+    guest_link
+    |> Map.take([
+      :id,
+      :tenant_id,
+      :conversation_id,
+      :created_by_user_id,
+      :expires_at,
+      :max_uses,
+      :use_count,
+      :remaining_uses,
+      :conversion_enabled,
+      :email_hint,
+      :revoked_at,
+      :status,
+      :version,
+      :inserted_at
+    ])
+  end
+
+  def guest_admission(admission) when is_map(admission) do
+    admission
+    |> Map.take([
+      :id,
+      :conversation_id,
+      :guest_link_id,
+      :admitted_at,
+      :expires_at,
+      :history_from_sequence,
+      :converted_at
+    ])
+  end
+
+  def guest_preview(%GuestLinkPreviewView{} = preview) do
+    %{
+      room_title: preview.room_title,
+      expires_at: preview.expires_at,
+      conversion_enabled: preview.conversion_enabled,
+      email_hint: preview.email_hint
+    }
+  end
+
+  def guest_capabilities(capabilities) when is_map(capabilities) do
+    %{
+      allow_audio_calls:
+        Map.get(
+          capabilities,
+          :allow_audio_calls,
+          Map.get(capabilities, "allow_audio_calls", false)
+        ),
+      allow_video_calls:
+        Map.get(
+          capabilities,
+          :allow_video_calls,
+          Map.get(capabilities, "allow_video_calls", false)
+        ),
+      conversion_enabled:
+        Map.get(
+          capabilities,
+          :conversion_enabled,
+          Map.get(capabilities, "conversion_enabled", false)
+        ),
+      email_hint:
+        Map.get(
+          capabilities,
+          :email_hint,
+          Map.get(capabilities, "email_hint")
+        )
+    }
+  end
+
+  def guest_capabilities(capabilities) when is_list(capabilities) do
+    %{
+      allow_audio_calls: :audio_calls in capabilities or "audio_calls" in capabilities,
+      allow_video_calls: :video_calls in capabilities or "video_calls" in capabilities,
+      conversion_enabled: false,
+      email_hint: nil
+    }
+  end
+
+  def guest_capabilities(_) do
+    %{
+      allow_audio_calls: false,
+      allow_video_calls: false,
+      conversion_enabled: false,
+      email_hint: nil
+    }
+  end
 
   def tenant_settings(%TenantSettingsView{} = settings) do
     %{
@@ -407,4 +526,16 @@ defmodule CommsWeb.Presenter do
 
   defp maybe_put_user(map, %UserView{} = user), do: Map.put(map, :user, user(user))
   defp maybe_put_user(map, _), do: map
+
+  defp maybe_put_guest_user(map, %UserView{} = user) do
+    Map.put(map, :user, %{
+      id: user.id,
+      display_name: user.display_name,
+      account_type: user.account_type,
+      role: user.role,
+      status: user.status
+    })
+  end
+
+  defp maybe_put_guest_user(map, _), do: map
 end

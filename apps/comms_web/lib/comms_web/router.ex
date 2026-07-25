@@ -18,6 +18,36 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :authentication)
   end
 
+  pipeline :guest_admission_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RateLimit, limit: 30, window: 60, scope: :guest_admission_ip)
+    plug(CommsWeb.Plugs.RateLimit, limit: 10, window: 60, scope: :guest_admission_token)
+  end
+
+  pipeline :guest_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.AuthenticateGuest)
+    plug(CommsWeb.Plugs.RateLimit, limit: 300, window: 60, scope: :identity)
+  end
+
+  pipeline :guest_account_conversion_api do
+    plug(:accepts, ["json"])
+
+    plug(CommsWeb.Plugs.RateLimit,
+      limit: 5,
+      window: 60,
+      scope: :guest_account_conversion_ip
+    )
+
+    plug(CommsWeb.Plugs.AuthenticateGuest)
+
+    plug(CommsWeb.Plugs.RateLimit,
+      limit: 5,
+      window: 60,
+      scope: :guest_account_conversion_identity
+    )
+  end
+
   pipeline :service_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :service_authentication_ip)
@@ -69,6 +99,34 @@ defmodule CommsWeb.Router do
   end
 
   scope "/api/v1", CommsWeb do
+    pipe_through(:guest_admission_api)
+    post("/guest-links/preview", GuestSessionController, :preview)
+    post("/guest-sessions", GuestSessionController, :create)
+    post("/guest/sessions/refresh", GuestSessionController, :refresh)
+  end
+
+  scope "/api/v1/guest", CommsWeb do
+    pipe_through(:guest_api)
+
+    get("/conversation", GuestCommunicationController, :show_conversation)
+    get("/conversation/members", GuestCommunicationController, :members)
+    get("/conversation/messages", GuestCommunicationController, :messages)
+    post("/conversation/messages", GuestCommunicationController, :create_message)
+    put("/conversation/read-cursor", GuestCommunicationController, :update_read_cursor)
+    post("/socket-tickets", GuestCommunicationController, :socket_ticket)
+    get("/conversation/call", GuestCommunicationController, :show_call)
+    post("/conversation/calls", GuestCommunicationController, :create_call)
+    post("/conversation/calls/:call_id/join", GuestCommunicationController, :join_call)
+    post("/conversation/calls/:call_id/end", GuestCommunicationController, :end_call)
+    delete("/sessions/current", GuestSessionController, :delete)
+  end
+
+  scope "/api/v1/guest", CommsWeb do
+    pipe_through(:guest_account_conversion_api)
+    post("/account", GuestSessionController, :convert_account)
+  end
+
+  scope "/api/v1", CommsWeb do
     pipe_through(:authenticated_api)
 
     get("/me", MeController, :show)
@@ -103,6 +161,9 @@ defmodule CommsWeb.Router do
 
     resources "/conversations", ConversationController, only: [:index, :create, :show, :update] do
       post("/archive", ConversationController, :archive)
+      get("/guest-links", GuestLinkController, :index)
+      post("/guest-links", GuestLinkController, :create)
+      delete("/guest-links/:link_id", GuestLinkController, :revoke)
       get("/call", AudioCallController, :show)
       post("/calls", AudioCallController, :create)
       post("/calls/:call_id/join", AudioCallController, :join)

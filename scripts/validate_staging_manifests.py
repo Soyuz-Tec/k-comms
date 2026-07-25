@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 STAGING_MINIO_MANIFEST = Path(
     "deploy/k8s/overlays/staging/minio-statefulset.yaml"
 )
+STAGING_MIGRATION_MANIFEST = Path(
+    "deploy/k8s/overlays/staging/migration-job.yaml"
+)
 MIN_MINIO_TMP_BYTES = 2 * 1024**3
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 _BINARY_QUANTITY = re.compile(r"^(?P<value>[1-9][0-9]*)(?P<unit>Ki|Mi|Gi|Ti)?$")
@@ -54,6 +57,18 @@ def _named_items(value: Any, name: str) -> list[dict[str, Any]]:
 
 def validate_documents(documents: Sequence[Any]) -> list[str]:
     errors: list[str] = []
+    migration_jobs = [
+        document
+        for document in documents
+        if isinstance(document, dict)
+        and document.get("kind") == "Job"
+        and document.get("metadata", {}).get("name") == "k-comms-migrate"
+    ]
+    if len(migration_jobs) != 1:
+        errors.append("staging bundle must contain exactly one Job named k-comms-migrate")
+    else:
+        errors.extend(validate_migration_job(migration_jobs[0]))
+
     statefulsets = [
         document
         for document in documents
@@ -62,7 +77,8 @@ def validate_documents(documents: Sequence[Any]) -> list[str]:
         and document.get("metadata", {}).get("name") == "minio"
     ]
     if len(statefulsets) != 1:
-        return ["staging bundle must contain exactly one StatefulSet named minio"]
+        errors.append("staging bundle must contain exactly one StatefulSet named minio")
+        return errors
 
     pod_spec = (
         statefulsets[0]
@@ -107,6 +123,77 @@ def validate_documents(documents: Sequence[Any]) -> list[str]:
     return errors
 
 
+def validate_migration_job(document: dict[str, Any]) -> list[str]:
+    """Validate the fail-closed, bounded staging migration contract."""
+
+    errors: list[str] = []
+    spec = document.get("spec")
+    if not isinstance(spec, dict):
+        return ["Job k-comms-migrate must define a spec"]
+    if spec.get("backoffLimit") != 0:
+        errors.append("Job k-comms-migrate backoffLimit must be 0")
+
+    deadline = spec.get("activeDeadlineSeconds")
+    if not isinstance(deadline, int) or isinstance(deadline, bool) or deadline <= 0:
+        errors.append("Job k-comms-migrate activeDeadlineSeconds must be positive")
+        deadline = None
+
+    pod_spec = spec.get("template", {}).get("spec", {})
+    if not isinstance(pod_spec, dict):
+        return errors + ["Job k-comms-migrate must define a pod spec"]
+    if pod_spec.get("restartPolicy") != "Never":
+        errors.append("Job k-comms-migrate restartPolicy must be Never")
+
+    containers = _named_items(pod_spec.get("containers"), "migrate")
+    if len(containers) != 1:
+        return errors + ["Job k-comms-migrate must contain exactly one migrate container"]
+    container = containers[0]
+    if container.get("command") != ["/app/bin/k_comms"] or container.get("args") != [
+        "eval",
+        "CommsCore.Release.migrate()",
+    ]:
+        errors.append(
+            "Job k-comms-migrate must use the reviewed CommsCore.Release.migrate() runner"
+        )
+
+    environment = {
+        item.get("name"): item.get("value")
+        for item in container.get("env", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    if environment.get("K_COMMS_MIGRATION_REQUIRE_QUIESCENCE") != "true":
+        errors.append(
+            "Job k-comms-migrate K_COMMS_MIGRATION_REQUIRE_QUIESCENCE must be true"
+        )
+
+    lock_timeout = _positive_decimal(
+        environment.get("K_COMMS_MIGRATION_LOCK_TIMEOUT_MS")
+    )
+    if lock_timeout is None or lock_timeout > 30_000:
+        errors.append(
+            "Job k-comms-migrate K_COMMS_MIGRATION_LOCK_TIMEOUT_MS must be 1..30000"
+        )
+    statement_timeout = _positive_decimal(
+        environment.get("K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS")
+    )
+    if statement_timeout is None:
+        errors.append(
+            "Job k-comms-migrate K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must be positive"
+        )
+    elif deadline is not None and statement_timeout > (deadline - 30) * 1000:
+        errors.append(
+            "Job k-comms-migrate statement timeout must leave at least 30 seconds "
+            "before activeDeadlineSeconds"
+        )
+    return errors
+
+
+def _positive_decimal(value: Any) -> int | None:
+    if not isinstance(value, str) or re.fullmatch(r"[1-9][0-9]*", value) is None:
+        return None
+    return int(value)
+
+
 def read_documents(path: Path) -> list[Any]:
     try:
         metadata = path.lstat()
@@ -128,9 +215,19 @@ def read_documents(path: Path) -> list[Any]:
         raise ValueError(f"{path} is not valid UTF-8 YAML") from error
 
 
-def validate(path: Path = ROOT / STAGING_MINIO_MANIFEST) -> list[str]:
+def validate(path: Path | None = None) -> list[str]:
+    documents: list[Any] = []
+    paths = (
+        [path]
+        if path is not None
+        else [
+            ROOT / STAGING_MINIO_MANIFEST,
+            ROOT / STAGING_MIGRATION_MANIFEST,
+        ]
+    )
     try:
-        documents = read_documents(path)
+        for manifest_path in paths:
+            documents.extend(read_documents(manifest_path))
     except ValueError as error:
         return [str(error)]
     return validate_documents(documents)
@@ -144,21 +241,24 @@ def build_parser() -> argparse.ArgumentParser:
         "manifest",
         nargs="?",
         type=Path,
-        default=ROOT / STAGING_MINIO_MANIFEST,
-        help="MinIO StatefulSet or rendered staging bundle",
+        default=None,
+        help=(
+            "rendered staging bundle; when omitted, validates the repository "
+            "MinIO StatefulSet and migration Job"
+        ),
     )
     return parser
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
     options = build_parser().parse_args(arguments)
-    errors = validate(options.manifest.resolve())
+    errors = validate(options.manifest.resolve() if options.manifest else None)
     if errors:
         print("staging manifest validation failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("Staging manifest capacity contracts are valid.")
+    print("Staging manifest capacity and migration contracts are valid.")
     return 0
 
 

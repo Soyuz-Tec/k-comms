@@ -17,6 +17,8 @@ spec:
       app.kubernetes.io/component: worker
   template:
     metadata:
+      annotations:
+        k-comms.soyuz-tec.io/rollback-capabilities: guest_identity_v1,guest_admission_expiry_worker_v1
       labels:
         app.kubernetes.io/component: worker
     spec:

@@ -7,6 +7,7 @@ defmodule CommsCore.Accounts.SocketTicket do
     belongs_to(:device, CommsCore.Accounts.Device)
     belongs_to(:session, CommsCore.Accounts.Session)
     field(:token_hash, :binary, redact: true)
+    field(:access_scope, :map, default: %{})
     field(:expires_at, :utc_datetime_usec)
     field(:consumed_at, :utc_datetime_usec)
     timestamps(updated_at: false)
@@ -20,6 +21,7 @@ defmodule CommsCore.Accounts.SocketTicket do
       :device_id,
       :session_id,
       :token_hash,
+      :access_scope,
       :expires_at,
       :consumed_at
     ])

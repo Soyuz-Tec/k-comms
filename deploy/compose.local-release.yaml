@@ -130,6 +130,9 @@ services:
       <<: *release-environment
       K_COMMS_RUNTIME_PURPOSE: one_shot
       K_COMMS_LOCAL_RELEASE: "false"
+      K_COMMS_MIGRATION_LOCK_TIMEOUT_MS: "5000"
+      K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS: "480000"
+      K_COMMS_MIGRATION_REQUIRE_QUIESCENCE: "true"
       PUBLIC_APP_URL: https://localhost
       AUDIO_PROVIDER_MODE: disabled
       LIVEKIT_SERVER_URL: ""

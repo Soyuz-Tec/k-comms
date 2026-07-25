@@ -27,6 +27,7 @@ defmodule CommsWeb.StatusControllerTest do
              "service" => "k-comms",
              "capabilities" => %{
                "audio_calls" => audio_available,
+               "guest_links" => true,
                "video_calls" => video_available
              }
            } = json_response(conn, 200)

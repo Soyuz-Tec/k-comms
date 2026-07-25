@@ -1,26 +1,98 @@
 defmodule CommsCore.Release do
   @app :comms_core
 
-  alias CommsCore.{Accounts, Attachments, Repo}
+  alias CommsCore.{Accounts, Attachments, Repo, RuntimePorts}
   alias CommsCore.Attachments.{RestoreCandidate, RestoreContext, RestoredObjectIdentity}
 
   @restore_remap_confirmation "remap-restored-attachment-versions"
+  @guest_rollback_capabilities MapSet.new([
+                                 "guest_identity_v1",
+                                 "guest_admission_expiry_worker_v1"
+                               ])
+  @migration_lock_timeout_default_ms 5_000
+  @migration_lock_timeout_range 1_000..30_000
+  @migration_statement_timeout_default_ms 300_000
+  @migration_statement_timeout_range 60_000..900_000
+  @one_shot_database_client_prefix "k_comms/one_shot/"
+  @release_target_identifier ~r/\A[A-Za-z0-9][A-Za-z0-9._:@+\/-]{0,254}\z/
 
   def migrate do
-    load_app()
+    with {:ok, settings} <- validate_migration_environment(&System.get_env/1) do
+      load_app()
 
-    for repo <- Application.fetch_env!(@app, :ecto_repos) do
-      {:ok, _, _} =
-        Ecto.Migrator.with_repo(repo, fn repo ->
-          Ecto.Migrator.run(repo, :up, all: true)
-        end)
+      for repo <- Application.fetch_env!(@app, :ecto_repos) do
+        {:ok, _, _} =
+          Ecto.Migrator.with_repo(repo, fn repo ->
+            assert_migration_preflight!(repo, settings)
+            Ecto.Migrator.run(repo, :up, all: true)
+          end)
+      end
+    else
+      {:error, reason} -> raise "release migration refused: #{migration_error(reason)}"
     end
   end
 
-  def rollback(repo, version) do
-    load_app()
-    {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))
+  @doc """
+  Refuses release-driven schema down-migrations.
+
+  Application rollback restores a previously qualified image only after its
+  compatibility preflight. Database recovery uses a verified backup or an
+  explicitly reviewed forward repair; a down migration cannot reconstruct
+  deleted or transformed business data.
+  """
+  @spec rollback(module(), integer()) :: no_return()
+  def rollback(_repo, _version) do
+    raise "release schema rollback refused: down migrations are unsupported; " <>
+            "restore a verified backup or apply an explicitly reviewed forward repair"
   end
+
+  @doc """
+  Refuses activation of a guest-incompatible rollback target while guest state
+  or runnable guest-expiry work remains.
+
+  The operation is one-shot only. A target that declares both guest rollback
+  capabilities is accepted without a database probe. Every other target is
+  accepted only after all other database clients have stopped and PostgreSQL
+  reports zero persisted guest users and zero active guest-expiry jobs.
+  """
+  @spec assert_guest_rollback_compatible!() :: :ok
+  def assert_guest_rollback_compatible! do
+    with {:ok, context} <-
+           validate_guest_rollback_environment(&System.get_env/1) do
+      if guest_rollback_capable?(context.capabilities) do
+        IO.puts(
+          "Guest rollback target #{context.target_revision} " <>
+            "declares the required compatibility capabilities"
+        )
+
+        :ok
+      else
+        load_app()
+
+        {:ok, hazards, _started_apps} =
+          Ecto.Migrator.with_repo(Repo, fn repo ->
+            assert_database_quiesced!(repo)
+
+            guest_rollback_hazards(repo)
+            |> assert_guest_rollback_hazards!(context)
+          end)
+
+        IO.puts(
+          "Guest rollback preflight passed for #{context.target_revision}: " <>
+            "guest_users=#{hazards.guest_users} " <>
+            "active_guest_expiry_jobs=#{hazards.active_guest_expiry_jobs}"
+        )
+
+        :ok
+      end
+    else
+      {:error, reason} ->
+        raise "guest rollback compatibility check refused: #{migration_error(reason)}"
+    end
+  end
+
+  @doc false
+  def assert_guest_rollback_compatible, do: assert_guest_rollback_compatible!()
 
   def bootstrap do
     load_app()
@@ -127,6 +199,159 @@ defmodule CommsCore.Release do
     end
   end
 
+  @doc false
+  def validate_migration_environment(get_env) when is_function(get_env, 1) do
+    with :ok <- require_one_shot(get_env),
+         :ok <- require_migration_quiescence(get_env),
+         {:ok, lock_timeout_ms} <-
+           parse_bounded_timeout(
+             get_env.("K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"),
+             @migration_lock_timeout_default_ms,
+             @migration_lock_timeout_range,
+             :migration_lock_timeout_invalid
+           ),
+         {:ok, statement_timeout_ms} <-
+           parse_bounded_timeout(
+             get_env.("K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS"),
+             @migration_statement_timeout_default_ms,
+             @migration_statement_timeout_range,
+             :migration_statement_timeout_invalid
+           ),
+         :ok <- validate_timeout_order(lock_timeout_ms, statement_timeout_ms) do
+      {:ok,
+       %{
+         lock_timeout_ms: lock_timeout_ms,
+         statement_timeout_ms: statement_timeout_ms
+       }}
+    end
+  end
+
+  @doc false
+  def validate_guest_rollback_environment(get_env) when is_function(get_env, 1) do
+    with :ok <- require_one_shot(get_env) do
+      capabilities =
+        get_env.("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
+        |> to_string()
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> MapSet.new()
+
+      target_revision = get_env.("K_COMMS_ROLLBACK_TARGET_REVISION")
+
+      cond do
+        not valid_release_target_identifier?(target_revision) ->
+          {:error, :rollback_target_revision_required}
+
+        not guest_rollback_capable?(capabilities) and
+            get_env.("K_COMMS_ROLLBACK_WRITES_QUIESCED") != "true" ->
+          {:error, :rollback_writes_quiescence_confirmation_required}
+
+        true ->
+          {:ok,
+           %{
+             capabilities: capabilities,
+             target_revision: target_revision
+           }}
+      end
+    end
+  end
+
+  @doc false
+  def assert_migration_preflight!(repo, settings) when is_atom(repo) and is_map(settings) do
+    rows = repo.release_migration_preflight!()
+
+    assert_migration_preflight_result!(rows, settings)
+  end
+
+  @doc false
+  def assert_migration_preflight_result!(
+        [
+          [
+            application_name,
+            actual_lock_timeout_ms,
+            actual_statement_timeout_ms,
+            peer_count
+          ]
+        ],
+        %{
+          lock_timeout_ms: expected_lock_timeout_ms,
+          statement_timeout_ms: expected_statement_timeout_ms
+        }
+      )
+      when is_binary(application_name) and is_integer(actual_lock_timeout_ms) and
+             is_integer(actual_statement_timeout_ms) and is_integer(peer_count) do
+    assert_one_shot_database_client!(application_name)
+
+    if actual_lock_timeout_ms != expected_lock_timeout_ms do
+      raise "migration preflight failed: PostgreSQL lock_timeout is not the configured bounded value"
+    end
+
+    if actual_statement_timeout_ms != expected_statement_timeout_ms do
+      raise "migration preflight failed: PostgreSQL statement_timeout is not the configured bounded value"
+    end
+
+    assert_peer_count_quiesced!(peer_count)
+  end
+
+  def assert_migration_preflight_result!(_rows, _settings) do
+    raise "migration preflight failed: PostgreSQL returned an invalid session snapshot"
+  end
+
+  @doc false
+  def assert_database_quiesced!(repo \\ Repo) when is_atom(repo) do
+    rows = repo.release_migration_preflight!()
+
+    assert_database_quiescence_result!(rows)
+  end
+
+  @doc false
+  def assert_database_quiescence_result!([
+        [application_name, _lock_timeout_ms, _statement_timeout_ms, peer_count]
+      ])
+      when is_binary(application_name) and is_integer(peer_count) do
+    assert_one_shot_database_client!(application_name)
+    assert_peer_count_quiesced!(peer_count)
+  end
+
+  def assert_database_quiescence_result!(_rows) do
+    raise "database quiescence check failed: PostgreSQL returned an invalid session snapshot"
+  end
+
+  @doc false
+  def assert_guest_rollback_hazards!(
+        %{
+          guest_users: guest_users,
+          active_guest_expiry_jobs: active_guest_expiry_jobs
+        },
+        %{
+          capabilities: %MapSet{} = capabilities,
+          target_revision: target_revision
+        }
+      )
+      when is_integer(guest_users) and guest_users >= 0 and
+             is_integer(active_guest_expiry_jobs) and active_guest_expiry_jobs >= 0 and
+             is_binary(target_revision) do
+    if guest_rollback_capable?(capabilities) or
+         (guest_users == 0 and active_guest_expiry_jobs == 0) do
+      %{
+        guest_users: guest_users,
+        active_guest_expiry_jobs: active_guest_expiry_jobs
+      }
+    else
+      raise "guest rollback compatibility check blocked: " <>
+              "target #{target_revision} lacks guest_identity_v1 and " <>
+              "guest_admission_expiry_worker_v1 while PostgreSQL contains " <>
+              "#{guest_users} persisted guest user row(s) and " <>
+              "#{active_guest_expiry_jobs} active guest expiry job(s); " <>
+              "retain or deploy a guest-compatible bridge release, or roll forward"
+    end
+  end
+
+  def assert_guest_rollback_hazards!(_rows, _capabilities) do
+    raise "guest rollback compatibility check failed: PostgreSQL returned an invalid hazard snapshot"
+  end
+
   @doc """
   Grants or revokes a platform role through the release console boundary.
 
@@ -186,6 +411,68 @@ defmodule CommsCore.Release do
     end
   end
 
+  defp require_one_shot(get_env) do
+    if get_env.("K_COMMS_RUNTIME_PURPOSE") == "one_shot",
+      do: :ok,
+      else: {:error, :one_shot_runtime_required}
+  end
+
+  defp require_migration_quiescence(get_env) do
+    if get_env.("K_COMMS_MIGRATION_REQUIRE_QUIESCENCE") == "true",
+      do: :ok,
+      else: {:error, :migration_quiescence_confirmation_required}
+  end
+
+  defp parse_bounded_timeout(nil, default, _range, _error), do: {:ok, default}
+  defp parse_bounded_timeout("", default, _range, _error), do: {:ok, default}
+
+  defp parse_bounded_timeout(value, _default, range, error) when is_binary(value) do
+    case Integer.parse(value) do
+      {timeout, ""} -> if(timeout in range, do: {:ok, timeout}, else: {:error, error})
+      _ -> {:error, error}
+    end
+  end
+
+  defp parse_bounded_timeout(_value, _default, _range, error), do: {:error, error}
+
+  defp validate_timeout_order(lock_timeout_ms, statement_timeout_ms)
+       when statement_timeout_ms > lock_timeout_ms,
+       do: :ok
+
+  defp validate_timeout_order(_lock_timeout_ms, _statement_timeout_ms),
+    do: {:error, :migration_statement_timeout_must_exceed_lock_timeout}
+
+  defp assert_one_shot_database_client!(application_name) do
+    unless String.starts_with?(application_name, @one_shot_database_client_prefix) do
+      raise "database quiescence check failed: the connection is not an identified one-shot runtime"
+    end
+  end
+
+  defp assert_peer_count_quiesced!(0), do: :ok
+
+  defp assert_peer_count_quiesced!(peer_count) when peer_count > 0 do
+    raise "database quiescence check failed: " <>
+            "#{peer_count} other client session(s) remain connected; " <>
+            "stop edge, worker, application, and other administrative runtimes before continuing"
+  end
+
+  defp guest_rollback_capable?(capabilities) do
+    MapSet.subset?(@guest_rollback_capabilities, capabilities)
+  end
+
+  defp guest_rollback_hazards(repo) when is_atom(repo) do
+    %{
+      guest_users: Accounts.persisted_guest_identity_count(),
+      active_guest_expiry_jobs:
+        repo.active_oban_job_count!(RuntimePorts.job_worker_name!(:guest_admission_expiry))
+    }
+  end
+
+  defp valid_release_target_identifier?(value) when is_binary(value),
+    do: Regex.match?(@release_target_identifier, value)
+
+  defp valid_release_target_identifier?(_value), do: false
+
   defp load_app do
     Application.load(@app)
   end
@@ -237,4 +524,26 @@ defmodule CommsCore.Release do
     do: "missing_s3_config_#{key}"
 
   defp restore_error(_reason), do: "restore_operation_failed"
+
+  defp migration_error(:one_shot_runtime_required), do: "one_shot_runtime_required"
+
+  defp migration_error(:migration_quiescence_confirmation_required),
+    do: "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE must be true"
+
+  defp migration_error(:migration_lock_timeout_invalid),
+    do: "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS must be an integer from 1000 through 30000"
+
+  defp migration_error(:migration_statement_timeout_invalid),
+    do: "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must be an integer from 60000 through 900000"
+
+  defp migration_error(:migration_statement_timeout_must_exceed_lock_timeout),
+    do: "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must exceed K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"
+
+  defp migration_error(:rollback_target_revision_required),
+    do: "K_COMMS_ROLLBACK_TARGET_REVISION must contain a safe target revision identifier"
+
+  defp migration_error(:rollback_writes_quiescence_confirmation_required),
+    do: "K_COMMS_ROLLBACK_WRITES_QUIESCED must be true for a guest-incompatible target"
+
+  defp migration_error(reason) when is_atom(reason), do: Atom.to_string(reason)
 end

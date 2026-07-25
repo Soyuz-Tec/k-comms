@@ -19,6 +19,7 @@ config :comms_core,
     attachment_abandon_reconciler: CommsWorkers.AttachmentCleanupReconcilerWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     deletion: CommsWorkers.DeletionWorker,
+    guest_admission_expiry: CommsWorkers.GuestAdmissionExpiryWorker,
     notification_delivery: CommsWorkers.NotificationWorker,
     outbox_publication: CommsWorkers.OutboxWorker,
     retention: CommsWorkers.RetentionWorker,
@@ -81,6 +82,20 @@ config :comms_web, CommsWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
   render_errors: [formats: [json: CommsWeb.ErrorJSON], layout: false],
   pubsub_server: CommsWeb.PubSub
+
+config :phoenix, :filter_parameters, [
+  "access_token",
+  "authorization",
+  "conversion_verification_code",
+  "current_password",
+  "new_password",
+  "password",
+  "refresh_token",
+  "secret",
+  "socket_ticket",
+  "token",
+  "verification_code"
+]
 
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",

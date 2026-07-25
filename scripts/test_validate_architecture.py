@@ -590,6 +590,97 @@ class ValidateArchitectureTest(unittest.TestCase):
             ],
         )
 
+    def test_repository_keeps_guest_access_owner_pure_and_one_way(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        schemas = discover_schemas(root)
+        identity = manifest["contexts"]["identity_access"]
+        conversations = manifest["contexts"]["conversations"]
+
+        self.assertIn("CommsCore.Accounts.AccessGrant", identity["public_contracts"])
+        self.assertNotIn(
+            "CommsCore.Accounts.GuestAccessGrant",
+            identity["public_contracts"],
+        )
+        self.assertTrue(
+            {
+                "CommsCore.Conversations.GuestLinkView",
+                "CommsCore.Conversations.GuestLinkPreviewView",
+                "CommsCore.Conversations.GuestAdmissionView",
+            }.issubset(set(conversations["public_contracts"]))
+        )
+        self.assertNotIn("conversations", identity["allowed_dependencies"])
+        self.assertIn("identity_access", conversations["allowed_dependencies"])
+
+        expected_tables = {
+            "conversation_guest_links": {
+                "owner": "conversations",
+                "canonical_schema": "CommsCore.Conversations.GuestLink",
+                "role": "source",
+            },
+            "conversation_guest_admissions": {
+                "owner": "conversations",
+                "canonical_schema": "CommsCore.Conversations.GuestAdmission",
+                "role": "source",
+            },
+        }
+        for table, declaration in expected_tables.items():
+            with self.subTest(table=table):
+                self.assertEqual(manifest["tables"][table], declaration)
+                self.assertEqual(
+                    schemas[table],
+                    [
+                        (
+                            declaration["canonical_schema"],
+                            "apps/comms_core/lib/comms_core/conversations/"
+                            + (
+                                "guest_link.ex"
+                                if table == "conversation_guest_links"
+                                else "guest_admission.ex"
+                            ),
+                        )
+                    ],
+                )
+
+        accounts_rule = next(
+            rule
+            for rule in manifest["namespace_dependency_rules"]
+            if rule["id"] == "accounts-do-not-depend-on-conversations"
+        )
+        self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
+        self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
+
+        transition = manifest["enforcement"]["reviewed_manifest_transitions"]
+        self.assertEqual(len(transition), 1)
+        self.assertEqual(
+            transition[0]["adr"],
+            "docs/02-architecture/adr/"
+            "0049-conversation-guest-links-and-convertible-guest-identities.md",
+        )
+        self.assertEqual(
+            set(transition[0]["approved_changes"]),
+            {
+                "context:calls:public_contracts:add:"
+                "CommsCore.AudioCalls.CallSessionView",
+                "context:conversation_content:public_contracts:add:"
+                "CommsCore.Attachments.FileView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestAdmissionView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestLinkPreviewView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestLinkView",
+                "context:identity_access:public_contracts:add:"
+                "CommsCore.Accounts.DirectoryPersonView",
+                "table:conversation_guest_admissions:add:"
+                '{"canonical_schema":"CommsCore.Conversations.GuestAdmission",'
+                '"owner":"conversations","role":"source"}',
+                "table:conversation_guest_links:add:"
+                '{"canonical_schema":"CommsCore.Conversations.GuestLink",'
+                '"owner":"conversations","role":"source"}',
+            },
+        )
+
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")

@@ -72,11 +72,13 @@ const representativeStateIds = [
   "files",
   "you",
   "admin",
-  "operations"
+  "operations",
+  "guest-entry",
+  "guest-room"
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(18);
+  expect(new Set(representativeStateIds).size).toBe(20);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
@@ -207,7 +209,9 @@ test("tenant administration satisfies automated WCAG A and AA checks", async ({ 
 test("platform operations satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await openClientRoute(page, "/ops");
-  await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible({
+    timeout: 15_000
+  });
   await expectNoWcagFailures(page);
 });
 

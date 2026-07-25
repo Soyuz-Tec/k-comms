@@ -14,6 +14,7 @@ defmodule CommsCore.RuntimePorts do
     :attachment_abandon_reconciler,
     :attachment_scan,
     :deletion,
+    :guest_admission_expiry,
     :notification_delivery,
     :outbox_publication,
     :retention,

@@ -97,6 +97,12 @@ OPERATION_WORKLOADS = (
     ("Job", "k-comms-platform-role", "platform-role", False),
     (
         "Job",
+        "k-comms-guest-rollback-preflight",
+        "guest-rollback-preflight",
+        False,
+    ),
+    (
+        "Job",
         "k-comms-attachment-restore-remap",
         "restore-remap",
         False,
@@ -223,6 +229,9 @@ def validate_documents(documents: list[dict]) -> list[str]:
 
     validate_images(documents, errors)
     validate_runtime_purposes(documents, errors)
+    validate_migration_contract(documents, errors)
+    validate_rollback_capability_annotations(documents, errors)
+    validate_guest_rollback_preflight(documents, errors)
     validate_workload_contracts(documents, errors)
     validate_provider_secret_refs(documents, errors)
     validate_external_data_plane(documents, errors)
@@ -691,6 +700,187 @@ def validate_runtime_purposes(documents: list[dict], errors: list[str]) -> None:
             errors.append(
                 f"{kind} {name}: long-lived workload must not use K_COMMS_RUNTIME_PURPOSE=one_shot"
             )
+
+
+def validate_migration_contract(
+    documents: list[dict], errors: list[str]
+) -> None:
+    migration = named_document(documents, "Job", "k-comms-migrate")
+    if not migration:
+        return
+
+    spec = migration.get("spec")
+    if not isinstance(spec, dict):
+        errors.append("Job k-comms-migrate: must define a spec")
+        return
+    if spec.get("backoffLimit") != 0:
+        errors.append("Job k-comms-migrate: backoffLimit must be 0")
+
+    deadline = spec.get("activeDeadlineSeconds")
+    if not isinstance(deadline, int) or isinstance(deadline, bool) or deadline <= 0:
+        errors.append(
+            "Job k-comms-migrate: activeDeadlineSeconds must be positive"
+        )
+        deadline = None
+
+    containers = _pod_spec(migration).get("containers", [])
+    if len(containers) != 1 or not isinstance(containers[0], dict):
+        return
+    container = containers[0]
+    if container.get("command") != ["/app/bin/k_comms"] or container.get("args") != [
+        "eval",
+        "CommsCore.Release.migrate()",
+    ]:
+        errors.append(
+            "Job k-comms-migrate: must use the reviewed "
+            "CommsCore.Release.migrate() runner"
+        )
+
+    environment = {
+        item.get("name"): item.get("value")
+        for item in container.get("env", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    if environment.get("K_COMMS_MIGRATION_REQUIRE_QUIESCENCE") != "true":
+        errors.append(
+            "Job k-comms-migrate: "
+            "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE must be true"
+        )
+
+    lock_timeout = _positive_decimal(
+        environment.get("K_COMMS_MIGRATION_LOCK_TIMEOUT_MS")
+    )
+    if lock_timeout is None or lock_timeout > 30_000:
+        errors.append(
+            "Job k-comms-migrate: K_COMMS_MIGRATION_LOCK_TIMEOUT_MS "
+            "must be 1..30000"
+        )
+    statement_timeout = _positive_decimal(
+        environment.get("K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS")
+    )
+    if statement_timeout is None:
+        errors.append(
+            "Job k-comms-migrate: "
+            "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must be positive"
+        )
+    elif deadline is not None and statement_timeout > (deadline - 30) * 1000:
+        errors.append(
+            "Job k-comms-migrate: statement timeout must leave at least "
+            "30 seconds before activeDeadlineSeconds"
+        )
+
+
+def _positive_decimal(value: object) -> int | None:
+    if not isinstance(value, str) or re.fullmatch(r"[1-9][0-9]*", value) is None:
+        return None
+    return int(value)
+
+
+def validate_rollback_capability_annotations(
+    documents: list[dict], errors: list[str]
+) -> None:
+    expected = "guest_identity_v1,guest_admission_expiry_worker_v1"
+    capabilities: dict[str, object] = {}
+    for name in ("k-comms-edge", "k-comms-worker"):
+        deployment = named_document(documents, "Deployment", name)
+        if not deployment:
+            continue
+        value = (
+            deployment.get("spec", {})
+            .get("template", {})
+            .get("metadata", {})
+            .get("annotations", {})
+            .get("k-comms.soyuz-tec.io/rollback-capabilities")
+        )
+        capabilities[name] = value
+        if value != expected:
+            errors.append(
+                f"Deployment {name}: pod template rollback-capabilities annotation "
+                f"must be {expected}"
+            )
+
+    if len(capabilities) == 2 and len(set(capabilities.values())) != 1:
+        errors.append(
+            "Deployment edge/worker rollback-capabilities annotations must be identical"
+        )
+
+
+def validate_guest_rollback_preflight(
+    documents: list[dict], errors: list[str]
+) -> None:
+    operation = named_document(
+        documents, "Job", "k-comms-guest-rollback-preflight"
+    )
+    if not operation:
+        return
+
+    spec = operation.get("spec", {})
+    if spec.get("backoffLimit") != 0:
+        errors.append(
+            "Job k-comms-guest-rollback-preflight: backoffLimit must be 0"
+        )
+    deadline = spec.get("activeDeadlineSeconds")
+    if (
+        not isinstance(deadline, int)
+        or isinstance(deadline, bool)
+        or deadline <= 0
+        or deadline > 300
+    ):
+        errors.append(
+            "Job k-comms-guest-rollback-preflight: "
+            "activeDeadlineSeconds must be 1..300"
+        )
+
+    containers = _pod_spec(operation).get("containers", [])
+    if len(containers) != 1 or not isinstance(containers[0], dict):
+        return
+    container = containers[0]
+    if container.get("command") != ["/app/bin/k_comms"] or container.get("args") != [
+        "eval",
+        "CommsCore.Release.assert_guest_rollback_compatible!()",
+    ]:
+        errors.append(
+            "Job k-comms-guest-rollback-preflight: must use the reviewed "
+            "CommsCore.Release.assert_guest_rollback_compatible!() runner"
+        )
+
+    environment = {
+        item.get("name"): item.get("value")
+        for item in container.get("env", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    required_values = {
+        "K_COMMS_RUNTIME_PURPOSE": "one_shot",
+        "K_COMMS_ROLLBACK_WRITES_QUIESCED": "true",
+    }
+    for name, expected in required_values.items():
+        if environment.get(name) != expected:
+            errors.append(
+                f"Job k-comms-guest-rollback-preflight: {name} must be {expected}"
+            )
+
+    revision = environment.get("K_COMMS_ROLLBACK_TARGET_REVISION")
+    if (
+        not isinstance(revision, str)
+        or not revision.strip()
+        or PLACEHOLDER.search(revision)
+    ):
+        errors.append(
+            "Job k-comms-guest-rollback-preflight: "
+            "K_COMMS_ROLLBACK_TARGET_REVISION must identify the exact target"
+        )
+
+    capability_value = environment.get("K_COMMS_ROLLBACK_TARGET_CAPABILITIES")
+    allowed_capabilities = {
+        None,
+        "",
+        "guest_identity_v1,guest_admission_expiry_worker_v1",
+    }
+    if capability_value not in allowed_capabilities:
+        errors.append(
+            "Job k-comms-guest-rollback-preflight: target capabilities must be "
+            "empty for a legacy target or the exact guest-compatible capability pair"
+        )
 
 
 def validate_workload_contracts(documents: list[dict], errors: list[str]) -> None:

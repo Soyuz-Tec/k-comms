@@ -125,6 +125,7 @@ function Assert-StatusPayload {
         "administration",
         "audio_calls",
         "video_calls",
+        "guest_links",
         "realtime"
     )) {
         Assert-PropertyValue `
@@ -256,6 +257,32 @@ function Assert-PackagedApp {
     Write-Host "PASS /app/ packaged assets and strict Content-Security-Policy"
 }
 
+function Invoke-GuestSpec {
+    param([Parameter(Mandatory)][string]$Playwright)
+
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_GUEST_E2E",
+        "true",
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_GUEST_BASE_URL",
+        $script:BaseUri,
+        "Process"
+    )
+
+    Write-Host "Running sealed guest communication qualification..."
+    & $Playwright `
+        "test" `
+        "e2e/live-guest-communication.spec.ts" `
+        "--project=chromium" `
+        "--workers=1"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Sealed guest communication qualification failed with exit code $LASTEXITCODE"
+    }
+    Write-Host "PASS sealed guest communication qualification"
+}
+
 function Invoke-MediaSpec {
     param(
         [Parameter(Mandatory)][ValidateSet("audio", "video")][string]$Kind,
@@ -330,6 +357,8 @@ function Invoke-PackagedReleaseQualification {
     $environmentNames = @(
         "K_COMMS_EXTERNAL_E2E_SERVER",
         "K_COMMS_E2E_BASE_URL",
+        "K_COMMS_LIVE_GUEST_E2E",
+        "K_COMMS_LIVE_GUEST_BASE_URL",
         "K_COMMS_LIVE_AUDIO_E2E",
         "K_COMMS_LIVE_AUDIO_BASE_URL",
         "K_COMMS_LIVE_VIDEO_E2E",
@@ -354,6 +383,7 @@ function Invoke-PackagedReleaseQualification {
         )
         Push-Location $webRoot
         try {
+            Invoke-GuestSpec -Playwright $playwright
             Invoke-MediaSpec -Kind "audio" -Playwright $playwright
             Invoke-MediaSpec -Kind "video" -Playwright $playwright
         }
@@ -394,6 +424,7 @@ function Invoke-SelfTest {
             administration = $true
             audio_calls = $true
             video_calls = $true
+            guest_links = $true
             realtime = $true
         }
     })

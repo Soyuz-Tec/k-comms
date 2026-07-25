@@ -20,7 +20,7 @@ export interface User {
   tenant_id: string;
   display_name: string;
   email?: string | null;
-  account_type?: "human" | "service";
+  account_type?: "human" | "service" | "guest";
   role: UserRole;
   platform_role?: PlatformRole | null;
   platform_role_expires_at?: string | null;
@@ -63,6 +63,49 @@ export interface Session {
   tenant: Tenant;
   user: User;
   device: Device;
+}
+
+export interface GuestLink {
+  id: string;
+  conversation_id: string;
+  expires_at: string;
+  max_uses: number;
+  use_count: number;
+  conversion_enabled?: boolean;
+  email_hint?: string | null;
+  status: "active" | "expired" | "revoked" | "exhausted";
+  revoked_at?: string | null;
+  version?: number;
+  share_url?: string;
+}
+
+export interface GuestCapabilities {
+  allow_audio_calls: boolean;
+  allow_video_calls: boolean;
+  /**
+   * Missing during a rolling upgrade is treated as disabled by the client.
+   * Account conversion is available only on a host-preauthorized, single-use
+   * link and still requires the separately delivered one-time code.
+   */
+  conversion_enabled?: boolean;
+  /** Masked display hint only; the guest must enter the full authorized email. */
+  email_hint?: string | null;
+}
+
+export interface GuestLinkPreview {
+  room_title: string;
+  expires_at: string;
+  conversion_enabled: boolean;
+  email_hint: string | null;
+}
+
+export interface GuestSession extends Session {
+  conversation: Conversation;
+  capabilities: GuestCapabilities;
+  admission?: {
+    guest_link_id: string;
+    expires_at: string;
+  };
 }
 
 export interface Conversation {

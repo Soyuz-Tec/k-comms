@@ -123,7 +123,8 @@ try {
                 $readyResponse.StatusCode -eq 200 -and
                 $webResponse.StatusCode -eq 200 -and
                 $liveKitResponse.StatusCode -eq 200 -and
-                $statusResponse.capabilities.audio_calls -eq $true
+                $statusResponse.capabilities.audio_calls -eq $true -and
+                $statusResponse.capabilities.guest_links -eq $true
             ) {
                 Write-Host "K-Comms is ready: $readyUri"
                 Write-Host "K-Comms web client is reachable: $webUri"

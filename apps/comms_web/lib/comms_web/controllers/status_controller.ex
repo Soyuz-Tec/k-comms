@@ -18,6 +18,7 @@ defmodule CommsWeb.StatusController do
         video_calls: calls_available,
         attachment_scanning: available?(Scanner.status()),
         bootstrap: Application.get_env(:comms_web, :allow_bootstrap, false),
+        guest_links: true,
         notifications: available?(Notifications.status()),
         push_notifications: available?(NotificationDelivery.push_status()),
         realtime: true,

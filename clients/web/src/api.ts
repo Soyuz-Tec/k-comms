@@ -35,6 +35,9 @@ import type {
   OperationsSnapshot,
   FilesPageResponse,
   FilesQueryOptions,
+  GuestLink,
+  GuestLinkPreview,
+  GuestSession,
   PublicChannelDiscoveryPage,
   PublicChannelMembershipResponse,
   PushSubscriptionConfig,
@@ -55,6 +58,7 @@ import type {
 } from "./types";
 
 const sessionKey = "k-comms.session.v1";
+const guestSessionKey = "k-comms.guest-session.v1";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -85,6 +89,34 @@ export function storeSession(session: Session | null): void {
     window.sessionStorage.setItem(sessionKey, JSON.stringify(session));
   } else {
     window.sessionStorage.removeItem(sessionKey);
+  }
+}
+
+export function loadStoredGuestSession(): GuestSession | null {
+  try {
+    const value = window.sessionStorage.getItem(guestSessionKey);
+    if (!value) return null;
+    const session = JSON.parse(value) as GuestSession;
+    if (
+      !session.access_token ||
+      !session.refresh_token ||
+      session.user?.account_type !== "guest" ||
+      !session.conversation?.id
+    ) {
+      throw new Error("Invalid guest session");
+    }
+    return session;
+  } catch {
+    window.sessionStorage.removeItem(guestSessionKey);
+    return null;
+  }
+}
+
+export function storeGuestSession(session: GuestSession | null): void {
+  if (session) {
+    window.sessionStorage.setItem(guestSessionKey, JSON.stringify(session));
+  } else {
+    window.sessionStorage.removeItem(guestSessionKey);
   }
 }
 
@@ -665,6 +697,73 @@ export class ApiClient {
     );
   }
 
+  createGuestLink(
+    conversationId: string,
+    input: {
+      expires_in_seconds: number;
+      max_uses: number;
+      conversion_email?: string;
+    }
+  ): Promise<{
+    guestLink: GuestLink;
+    token: string;
+    url: string;
+    conversionVerificationCode?: string;
+  }> {
+    return this.request<{
+      data?: GuestLink;
+      guest_link?: GuestLink;
+      token?: string;
+      guest_link_token?: string;
+      conversion_verification_code?: string;
+    }>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links`, {
+      method: "POST",
+      headers: { "Idempotency-Key": operationId() },
+      body: JSON.stringify(input)
+    }).then((response) => {
+      const guestLink = response.data || response.guest_link;
+      const token = response.token || response.guest_link_token;
+      const conversionVerificationCode = response.conversion_verification_code;
+      const conversionRequested = Boolean(input.conversion_email);
+      const validConversionCode =
+        typeof conversionVerificationCode === "string" &&
+        /^[A-Za-z0-9_-]{43}$/.test(conversionVerificationCode);
+      if (
+        !guestLink ||
+        !token ||
+        !guestLink.share_url ||
+        (conversionRequested && !validConversionCode) ||
+        (!conversionRequested && conversionVerificationCode !== undefined)
+      ) {
+        throw new Error("The server did not return a complete guest link.");
+      }
+      return {
+        guestLink,
+        token,
+        url: guestLink.share_url,
+        ...(validConversionCode
+          ? { conversionVerificationCode }
+          : {})
+      };
+    });
+  }
+
+  guestLinks(conversationId: string): Promise<GuestLink[]> {
+    return this.request<ListResponse<GuestLink>>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links`
+    ).then((response) => response.data);
+  }
+
+  revokeGuestLink(
+    conversationId: string,
+    guestLinkId: string
+  ): Promise<GuestLink> {
+    return this.request<DataResponse<GuestLink>>(
+      `/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links/${encodeURIComponent(guestLinkId)}`,
+      { method: "DELETE" }
+    ).then((response) => response.data);
+  }
+
   calls(options: CallsQueryOptions = {}): Promise<CallsPageResponse> {
     const query = new URLSearchParams({
       scope: options.scope ?? "recent",
@@ -1106,6 +1205,327 @@ export class ApiClient {
   private url(path: string): string {
     return `${this.baseUrl.replace(/\/$/, "")}${path}`;
   }
+}
+
+export class GuestApiClient {
+  private session: GuestSession | null;
+  private refreshPromise: Promise<GuestSession | null> | null = null;
+
+  constructor(
+    private readonly baseUrl: string,
+    initialSession: GuestSession | null,
+    private readonly onSession: (
+      session: GuestSession | null,
+      reason?: "access_ended" | "logout"
+    ) => void
+  ) {
+    this.session = initialSession;
+  }
+
+  setSession(session: GuestSession | null): void {
+    this.session = session;
+  }
+
+  previewGuestLink(token: string): Promise<GuestLinkPreview> {
+    return this.request<DataResponse<GuestLinkPreview> | GuestLinkPreview>(
+      "/api/v1/guest-links/preview",
+      {
+        method: "POST",
+        body: JSON.stringify({ token }),
+        retryAuthentication: false
+      }
+    ).then(unwrapData);
+  }
+
+  joinGuest(input: {
+    token: string;
+    display_name: string;
+    device: { name: string; platform: "web" };
+  }): Promise<GuestSession> {
+    return this.request<unknown>("/api/v1/guest-sessions", {
+      method: "POST",
+      body: JSON.stringify(input),
+      retryAuthentication: false
+    }).then((payload) => {
+      const session = normalizeGuestSession(payload);
+      this.updateSession(session);
+      return session;
+    });
+  }
+
+  conversation(): Promise<Conversation> {
+    return this.request<DataResponse<Conversation> | Conversation>(
+      "/api/v1/guest/conversation"
+    ).then(unwrapData);
+  }
+
+  conversationMembers(): Promise<ConversationMembership[]> {
+    return this.request<ListResponse<ConversationMembership> | ConversationMembership[]>(
+      "/api/v1/guest/conversation/members"
+    ).then(unwrapList);
+  }
+
+  messages(afterSequence = 0, limit = 200): Promise<MessagePage> {
+    const query = new URLSearchParams({
+      after_sequence: String(afterSequence),
+      limit: String(limit)
+    });
+    return this.request(`/api/v1/guest/conversation/messages?${query.toString()}`);
+  }
+
+  sendMessage(input: SendMessageInput): Promise<Message> {
+    const { client_message_id: idempotencyKey, ...body } = input;
+    return this.request<DataResponse<Message> | Message>(
+      "/api/v1/guest/conversation/messages",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(body)
+      }
+    ).then(unwrapData);
+  }
+
+  markRead(sequence: number): Promise<void> {
+    return this.request("/api/v1/guest/conversation/read-cursor", {
+      method: "PUT",
+      body: JSON.stringify({ sequence })
+    });
+  }
+
+  socketTicket(): Promise<{ ticket: string; expires_in: number }> {
+    return this.request<
+      DataResponse<{ ticket: string; expires_in: number }> |
+      { ticket: string; expires_in: number }
+    >("/api/v1/guest/socket-tickets", { method: "POST" }).then(unwrapData);
+  }
+
+  call(): Promise<Call | null> {
+    return this.request<DataResponse<Call | null> | Call | null>(
+      "/api/v1/guest/conversation/call"
+    ).then(unwrapNullableData);
+  }
+
+  startCall(_conversationId: string, mediaKind: CallMediaKind): Promise<CallSessionResponse> {
+    return this.request("/api/v1/guest/conversation/calls", {
+      method: "POST",
+      body: JSON.stringify({ media_kind: mediaKind })
+    });
+  }
+
+  joinCall(_conversationId: string, callId: string): Promise<CallSessionResponse> {
+    return this.request(
+      `/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/join`,
+      { method: "POST" }
+    );
+  }
+
+  endCall(_conversationId: string, callId: string): Promise<Call> {
+    return this.request<DataResponse<Call> | Call>(
+      `/api/v1/guest/conversation/calls/${encodeURIComponent(callId)}/end`,
+      { method: "POST" }
+    ).then(unwrapData);
+  }
+
+  convertAccount(input: {
+    email: string;
+    verification_code: string;
+    password: string;
+  }): Promise<{ session: Session; conversation: Conversation }> {
+    return this.request<unknown>("/api/v1/guest/account", {
+      method: "POST",
+      body: JSON.stringify(input)
+    }).then(normalizeAccountConversion);
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request("/api/v1/guest/sessions/current", {
+        method: "DELETE",
+        retryAuthentication: false
+      });
+    } finally {
+      this.updateSession(null, "logout");
+    }
+  }
+
+  private async request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
+    const headers = new Headers(options.headers);
+    headers.set("Accept", "application/json");
+    if (options.body && !(options.body instanceof FormData)) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (this.session?.access_token) {
+      headers.set("Authorization", `Bearer ${this.session.access_token}`);
+    }
+
+    const response = await fetch(this.url(path), { ...options, headers });
+    const shouldRetry = options.retryAuthentication !== false;
+    if (response.status === 401 && shouldRetry && this.session?.refresh_token) {
+      const refreshed = await this.refresh();
+      if (refreshed) {
+        return this.request<T>(path, { ...options, retryAuthentication: false });
+      }
+    }
+    if (response.status === 204) return undefined as T;
+
+    const contentType = response.headers.get("content-type") || "";
+    const payload: unknown = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
+    if (!response.ok) {
+      const envelope = typeof payload === "object" && payload ? (payload as ErrorEnvelope) : {};
+      throw new ApiError(
+        response.status,
+        envelope.error?.code || "request_failed",
+        envelope.error?.detail || `Request failed with status ${response.status}`,
+        envelope.error?.meta
+      );
+    }
+    return payload as T;
+  }
+
+  private refresh(): Promise<GuestSession | null> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.performRefresh().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
+  }
+
+  private async performRefresh(): Promise<GuestSession | null> {
+    const refreshToken = this.session?.refresh_token;
+    if (!refreshToken) return null;
+    const response = await fetch(this.url("/api/v1/guest/sessions/refresh"), {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+    if (!response.ok) {
+      if ([400, 401, 403].includes(response.status)) {
+        this.updateSession(null, "access_ended");
+        return null;
+      }
+      throw new Error(`Guest session refresh is temporarily unavailable (${response.status})`);
+    }
+
+    const previous = this.session;
+    if (!previous || previous.refresh_token !== refreshToken) return null;
+    const payload = await response.json();
+    const refreshed = normalizeGuestSession({
+      ...payload,
+      conversation: readObject(payload)?.conversation || previous.conversation,
+      capabilities: readObject(payload)?.capabilities || previous.capabilities,
+      admission: readObject(payload)?.admission || previous.admission
+    });
+    this.updateSession(refreshed);
+    return refreshed;
+  }
+
+  private updateSession(
+    session: GuestSession | null,
+    reason?: "access_ended" | "logout"
+  ): void {
+    this.session = session;
+    if (reason) {
+      this.onSession(session, reason);
+    } else {
+      this.onSession(session);
+    }
+  }
+
+  private url(path: string): string {
+    return `${this.baseUrl.replace(/\/$/, "")}${path}`;
+  }
+}
+
+function unwrapData<T>(payload: DataResponse<T> | T): T {
+  if (payload && typeof payload === "object" && "data" in payload) {
+    return (payload as DataResponse<T>).data;
+  }
+  return payload as T;
+}
+
+function unwrapNullableData<T>(payload: DataResponse<T | null> | T | null): T | null {
+  return payload === null ? null : unwrapData(payload);
+}
+
+function unwrapList<T>(payload: ListResponse<T> | T[]): T[] {
+  return Array.isArray(payload) ? payload : payload.data;
+}
+
+function normalizeGuestSession(payload: unknown): GuestSession {
+  const root = readObject(unwrapUnknownData(payload));
+  const authentication =
+    readObject(root?.authentication) ||
+    readObject(root?.auth) ||
+    readObject(root?.session) ||
+    root;
+  const conversation = readObject(root?.conversation || authentication?.conversation);
+  const capabilities = readObject(root?.capabilities || authentication?.capabilities);
+  if (
+    !authentication ||
+    typeof authentication.access_token !== "string" ||
+    typeof authentication.refresh_token !== "string" ||
+    !readObject(authentication.tenant) ||
+    !readObject(authentication.user) ||
+    !readObject(authentication.device) ||
+    !conversation ||
+    !capabilities
+  ) {
+    throw new Error("The server did not return a complete guest session.");
+  }
+  return withReceivedAt({
+    ...(authentication as unknown as Session),
+    conversation: conversation as unknown as Conversation,
+    capabilities: {
+      allow_audio_calls: capabilities.allow_audio_calls === true,
+      allow_video_calls: capabilities.allow_video_calls === true,
+      conversion_enabled: capabilities.conversion_enabled === true,
+      email_hint:
+        typeof capabilities.email_hint === "string"
+          ? capabilities.email_hint
+          : null
+    },
+    admission: readObject(root?.admission) as unknown as GuestSession["admission"]
+  });
+}
+
+function normalizeAccountConversion(payload: unknown): {
+  session: Session;
+  conversation: Conversation;
+} {
+  const root = readObject(unwrapUnknownData(payload));
+  const authentication =
+    readObject(root?.authentication) ||
+    readObject(root?.auth) ||
+    readObject(root?.session) ||
+    root;
+  const conversation = readObject(root?.conversation);
+  if (
+    !authentication ||
+    typeof authentication.access_token !== "string" ||
+    typeof authentication.refresh_token !== "string" ||
+    !conversation
+  ) {
+    throw new Error("The server did not return a complete account session.");
+  }
+  return {
+    session: withReceivedAt(authentication as unknown as Session),
+    conversation: conversation as unknown as Conversation
+  };
+}
+
+function unwrapUnknownData(payload: unknown): unknown {
+  const object = readObject(payload);
+  return object && "data" in object ? object.data : payload;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function attachmentFilename(contentDisposition: string | null): string {

@@ -140,6 +140,17 @@ def validate_local_release(
         errors.append("migration service must use the one-shot runtime purpose")
     if migrate_environment.get("K_COMMS_LOCAL_RELEASE") != "false":
         errors.append("migration service must not enable the application exception")
+    required_migration_environment = {
+        "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS": "5000",
+        "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS": "480000",
+        "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE": "true",
+    }
+    for name, expected in required_migration_environment.items():
+        if str(migrate_environment.get(name, "")) != expected:
+            errors.append(
+                f"migration service must set {name}={expected} for bounded, "
+                "quiesced migrations"
+            )
 
     for name, expected in EXPECTED_PORTS.items():
         observed_ports = [
@@ -277,6 +288,173 @@ def validate_local_release(
             )
 
     deploy_body = _compact(_function_body(runner_document, "Invoke-DeployLocked"))
+    wait_application_body = _compact(
+        _function_body(runner_document, "Wait-Application")
+    )
+    application_capabilities_body = _compact(
+        _function_body(runner_document, "Assert-ApplicationCapabilities")
+    )
+    capability_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-CapabilityCompatibilitySelfTest")
+    )
+    guest_rollback_probe_body = _compact(
+        _function_body(runner_document, "Get-GuestRollbackHazards")
+    )
+    guest_rollback_quiesce_body = _compact(
+        _function_body(runner_document, "Stop-ApplicationForGuestRollbackProbe")
+    )
+    guest_rollback_safe_body = _compact(
+        _function_body(runner_document, "Assert-GuestRollbackSafe")
+    )
+    guest_rollback_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-GuestRollbackCompatibilitySelfTest")
+    )
+    rollback_restore_body = _compact(
+        _function_body(runner_document, "Restore-RollbackTargetOrCurrent")
+    )
+    migration_quiesce_body = _compact(
+        _function_body(runner_document, "Stop-ApplicationForMigration")
+    )
+    start_release_body = _compact(
+        _function_body(runner_document, "Start-ReleaseServices")
+    )
+    validate_body = _compact(_function_body(runner_document, "Invoke-Validate"))
+    restore_body = _compact(_function_body(runner_document, "Restore-Release"))
+    rollback_body = _compact(_function_body(runner_document, "Invoke-RollbackLocked"))
+    if (
+        "[switch]$requireguestlinks" not in wait_application_body
+        or "assert-applicationcapabilities" not in wait_application_body
+        or "[switch]$requireguestlinks" not in application_capabilities_body
+        or '$capabilities.psobject.properties["guest_links"]'
+        not in application_capabilities_body
+    ):
+        errors.append(
+            "candidate health checks must support explicit guest-links capability enforcement"
+        )
+    if (
+        "invoke-capabilitycompatibilityselftest" not in validate_body
+        or "assert-applicationcapabilities -status $predecessor"
+        not in capability_self_test_body
+        or "-status $predecessor ` -requireguestlinks"
+        not in capability_self_test_body
+        or "assert-applicationcapabilities -status $candidate -requireguestlinks"
+        not in capability_self_test_body
+    ):
+        errors.append(
+            "release validation must execute predecessor and candidate capability self-tests"
+        )
+    migration_quiesce_position = start_release_body.find(
+        "stop-applicationformigration"
+    )
+    migration_run_position = start_release_body.find(
+        '@("run", "--rm", "--no-deps", "migrate")'
+    )
+    if (
+        '-arguments @("stop", "app")' not in migration_quiesce_body
+        or '"ps", "--services", "--status", "running"'
+        not in migration_quiesce_body
+        or '$runningservices -contains "app"' not in migration_quiesce_body
+        or migration_quiesce_position < 0
+        or migration_run_position < 0
+        or migration_quiesce_position > migration_run_position
+    ):
+        errors.append(
+            "forward migrations must stop and verify the application before "
+            "the bounded migration runner starts"
+        )
+    if "-requireguestlinks" not in deploy_body:
+        errors.append(
+            "candidate deployment must require the guest-links capability before sealing"
+        )
+    if "-requireguestlinks" in restore_body:
+        errors.append(
+            "predecessor restore must not require capabilities introduced by the candidate"
+        )
+    if (
+        "rollbackcapabilities = @(" not in deploy_body
+        or '"guest_identity_v1"' not in deploy_body
+        or '"guest_admission_expiry_worker_v1"' not in deploy_body
+    ):
+        errors.append(
+            "release receipts must declare guest identity and expiry-worker rollback compatibility"
+        )
+    if (
+        '-arguments @("stop", "app")' not in guest_rollback_quiesce_body
+        or '"ps", "--services", "--status", "running"'
+        not in guest_rollback_quiesce_body
+        or '$runningservices -contains "app"' not in guest_rollback_quiesce_body
+    ):
+        errors.append(
+            "legacy guest rollback preflight must quiesce and verify the current application"
+        )
+    if (
+        "account_type = 'guest'" not in guest_rollback_probe_body
+        or "commsworkers.guestadmissionexpiryworker" not in guest_rollback_probe_body
+        or "('available', 'scheduled', 'executing', 'retryable')"
+        not in guest_rollback_probe_body
+        or '"psql"' not in guest_rollback_probe_body
+    ):
+        errors.append(
+            "guest rollback preflight must query persisted guest identities and active expiry jobs"
+        )
+    if (
+        "test-receiptsupportsguestrollback" not in guest_rollback_safe_body
+        or "stop-applicationforguestrollbackprobe" not in guest_rollback_safe_body
+        or "get-guestrollbackhazards" not in guest_rollback_safe_body
+        or "assert-guestrollbackcompatibility" not in guest_rollback_safe_body
+        or "restore-release -receipt $currentreceipt -updatepointer"
+        not in guest_rollback_safe_body
+        or "[switch]$restorecurrentonfailure" not in guest_rollback_safe_body
+        or "currentcompatible" not in guest_rollback_safe_body
+        or "recorded current receipt also lacks" not in guest_rollback_safe_body
+        or "remains quiesced" not in guest_rollback_safe_body
+    ):
+        errors.append(
+            "guest rollback preflight must quiesce legacy writes, evaluate hazards, and restore the current receipt on a manual block"
+        )
+    rollback_guard_position = rollback_body.find("assert-guestrollbacksafe")
+    rollback_restore_position = rollback_body.find(
+        "restore-rollbacktargetorcurrent"
+    )
+    if (
+        rollback_guard_position < 0
+        or rollback_restore_position < 0
+        or rollback_guard_position > rollback_restore_position
+        or "assert-retainedreleaseassets -receipt $current" not in rollback_body
+        or "-restorecurrentonfailure" not in rollback_body
+        or "assert-guestrollbacksafe" not in deploy_body
+        or "$migrationsucceeded" not in deploy_body
+    ):
+        errors.append(
+            "manual and post-migration automatic rollback must guard legacy predecessors before restore"
+        )
+    if (
+        "restore-release -receipt $targetreceipt -updatepointer"
+        not in rollback_restore_body
+        or "restore-release -receipt $currentreceipt -updatepointer"
+        not in rollback_restore_body
+        or "target restore failed" not in rollback_restore_body
+        or "restored and passed health checks" not in rollback_restore_body
+    ):
+        errors.append(
+            "manual rollback must recover the exact current receipt when target restore fails"
+        )
+    if (
+        "invoke-guestrollbackcompatibilityselftest" not in validate_body
+        or "assert-guestrollbackcompatibility" not in guest_rollback_self_test_body
+        or "legacyhazardrejected" not in guest_rollback_self_test_body
+        or "synthetic guest rollback probe failure" not in guest_rollback_self_test_body
+        or "synthetic current release restart failure"
+        not in guest_rollback_self_test_body
+        or "synthetic target restore failure" not in guest_rollback_self_test_body
+        or "synthetic current recovery failure" not in guest_rollback_self_test_body
+        or "stalelegacyremainedquiesced" not in guest_rollback_self_test_body
+        or "stalelegacyrestorestate.restores -ne 0"
+        not in guest_rollback_self_test_body
+    ):
+        errors.append(
+            "release validation must exercise guest rollback compatibility self-tests"
+        )
     if "-workingdirectory $source.contextpath" not in deploy_body:
         errors.append(
             "release image build must use the isolated immutable source context"
@@ -441,7 +619,6 @@ def validate_local_release(
     cleanup_self_test_body = _compact(
         _function_body(runner_document, "Invoke-FailedCandidateCleanupSelfTest")
     )
-    validate_body = _compact(_function_body(runner_document, "Invoke-Validate"))
     if "invoke-failedcandidatecleanupselftest" not in validate_body:
         errors.append(
             "local release validation must execute first-candidate cleanup self-tests"
@@ -477,7 +654,6 @@ def validate_local_release(
 
     start_entry = _compact(_function_body(runner_document, "Invoke-Start"))
     start_body = _compact(_function_body(runner_document, "Invoke-StartLocked"))
-    restore_body = _compact(_function_body(runner_document, "Restore-Release"))
     compact_runner = _compact(runner_document)
     if (
         '"start"' not in compact_runner.split("[validateset(", 1)[-1].split(")]", 1)[0]
@@ -503,6 +679,18 @@ def validate_local_release(
     ):
         errors.append(
             "Start must restart the current retained receipt with forward migration and health checks"
+        )
+    start_guard_position = start_body.find("assert-guestrollbacksafe")
+    start_restore_position = start_body.find("restore-release")
+    if (
+        start_guard_position < 0
+        or start_restore_position < 0
+        or start_guard_position > start_restore_position
+        or "-currentreceipt $current" not in start_body
+        or "-targetreceipt $current" not in start_body
+    ):
+        errors.append(
+            "Start must fail closed before activating a guest-incompatible retained receipt"
         )
     if (
         '"build",' in start_entry

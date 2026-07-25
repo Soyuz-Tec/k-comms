@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-24
 - **Owners:** Delivery, Operations, Architecture, and Security
-- **Related decisions:** ADR-0008, ADR-0025, ADR-0045, ADR-0046
+- **Related decisions:** ADR-0008, ADR-0025, ADR-0045, ADR-0046, ADR-0049
 - **Related requirements:** WP-7 in the mobile communication experience delivery plan
 
 ## Context
@@ -37,9 +37,10 @@ entry point. A deployment:
 5. waits for database, object storage, media, application readiness, packaged
    web UI, and audio/video capability checks; and
 6. retains the previous image and configuration. Rollback uses that candidate's
-   retained, hash-verified Compose source rather than the current checkout. A
-   failed candidate restores the previous application automatically, and
-   explicit rollback never runs a down migration.
+   retained, hash-verified Compose source rather than the current checkout.
+   Failed candidates and explicit rollback restore the predecessor only after
+   any feature-specific forward-schema compatibility guard passes, and neither
+   path ever runs a down migration.
 
 The state directory is never adopted implicitly. The operator creates a
 canonical-path and Compose-project ownership marker before applying its
@@ -53,6 +54,17 @@ candidate container, verifies the project has no remaining containers, and
 retains named data volumes and failure evidence. Status
 distinguishes the recorded receipt from observed container health and image
 identity.
+
+Receipts may declare rollback capabilities required to read forward-persisted
+state or execute forward-scheduled jobs. When a target lacks ADR-0049 guest
+compatibility, the manager quiesces the current application before querying for
+persisted guest users and active guest-expiry jobs. A clear probe permits the
+legacy restore. A hazard or inconclusive probe prevents the incompatible
+restore. Operator-requested rollback restarts and health-checks the exact
+current receipt only when that receipt declares guest compatibility. If a
+migrated failed candidate left the pointer on a legacy receipt, both `Start` and
+`Rollback` fail closed and leave the application quiesced for bridge or
+roll-forward recovery.
 
 The production runtime gains one fail-closed exception,
 `K_COMMS_LOCAL_RELEASE=true`. It is valid only when
@@ -102,8 +114,9 @@ attestation, and approval controls.
 
 - Release state lives under `%LOCALAPPDATA%\K-Comms\local-release` with a
   current-user-only ACL.
-- Schema changes must remain one-release backward compatible. Rollback restores
-  code and configuration only.
+- Schema changes must remain one-release backward compatible or declare and
+  enforce an explicit compatibility boundary. Rollback restores code and
+  configuration only; it never rewrites forward-persisted business data.
 - Operators use one script for validate, deploy, status, rollback, and stop.
 
 ### Security and privacy consequences
@@ -128,6 +141,9 @@ attestation, and approval controls.
   revalidation, and concurrent operations
 - Executable first-candidate failure cleanup tests covering all services and a
   fail-closed remaining-container observation
+- Executable guest rollback tests covering guest-only and job-only hazards,
+  absent legacy capability metadata, compatible-target bypass, probe failure,
+  exact-current restart, and combined restart-failure reporting
 - A deployment receipt showing successful forward migration, healthy packaged
   application, revision-matching image labels, retained predecessor, and a
   rollback rehearsal without down migrations

@@ -42,10 +42,13 @@ The command performs the complete local release transaction:
    renders and hashes the exact release configuration from that retained copy;
 6. starts isolated data and media services;
 7. initializes the versioned object bucket;
-8. runs the candidate image's forward migrations;
+8. stops and verifies the packaged application is quiesced, then runs the
+   candidate image's forward migrations through the isolated Ecto migration
+   pool with a 5-second PostgreSQL lock timeout and an 8-minute statement
+   timeout;
 9. starts the packaged application with no source mount; and
-10. waits for readiness, the packaged `/app/`, MinIO, LiveKit, and both call
-   capabilities.
+10. waits for readiness, the packaged `/app/`, MinIO, LiveKit, both call
+    capabilities, and guest-link availability.
 
 Open `http://127.0.0.1:4188/app/?setup=workspace` to land directly on the
 local **Create development workspace** flow. The server still decides whether
@@ -76,7 +79,7 @@ release receipt. It then checks:
 2. `/health/ready` reports ready database/runtime checks and configured object
    storage;
 3. `/api/v1/status` reports an operational service with administration,
-   realtime, audio-call, and video-call capabilities available;
+   realtime, audio-call, video-call, and guest-link capabilities available;
 4. `/app/` is packaged HTML that references built `/app/assets/` files rather
    than Vite/source assets; and
 5. `/app/` returns the exact strict local-release Content Security Policy,
@@ -101,6 +104,34 @@ The packaged qualifier does not run the mocked navigation, UI, or Axe suites.
 Those remain source-client gates (`npm run test:e2e`) because their API route
 mocks and style injection are deliberately incompatible with validating a
 real packaged server and its enforced CSP.
+
+The guest-link browser contract is covered by the deterministic
+`e2e/guest-communication.spec.ts` source-client gate. It proves that a host can
+create one exact fragment link and QR code, the anonymous entry route scrubs
+the secret from browser-visible navigation, a guest joins with only a display
+name, messaging stays on the guest-scoped API, account creation remains
+optional, and the flow fits a 320 px viewport. Run the focused check with:
+
+```powershell
+Set-Location clients/web
+npx playwright test e2e/guest-communication.spec.ts --project=chromium
+Set-Location ../..
+```
+
+This deterministic test remains a fast source-client gate. The sealed-release
+qualifier separately runs `e2e/live-guest-communication.spec.ts` against the
+exact packaged runtime. Its first case provisions a disposable workspace, uses
+the owner browser UI to create a communication-only link and QR code, proves
+the QR contains the exact displayed link, opens that link in a clean browser,
+proves the fragment secret is scrubbed, joins with only a display name, delivers
+a realtime message, and verifies revocation ends both API and socket access.
+Tokens and disposable credentials remain in test process memory and are not
+printed. A second isolated live case uses the API to create and redeem the
+preauthorized single-use fixture, proves a mismatched conversion email fails
+closed, converts the same user in place with the exact email, reaches
+`/api/v1/me` as a human, and denies the old guest credential.
+Real audio and video packet coverage remains in the two live media
+specifications described above.
 
 ## Evidence and secret handling
 
@@ -160,7 +191,11 @@ Compose and environment, reruns the same forward-only migration command
 application, and repeats all health checks. It does not require a clean
 checkout, read the checkout Compose file, or rebuild an image. `Start` accepts
 only schema-v3 receipts that bind the retained source archive; deploy a clean
-candidate once before using it with a legacy receipt.
+candidate once before using it with a legacy receipt. Before activating a
+receipt that lacks guest rollback capabilities, `Start` runs the same quiesced
+PostgreSQL hazard probe. This fails closed when a migrated failed candidate left
+guest rows or jobs while `current.json` still names its legacy predecessor; use
+a guest-compatible bridge or roll-forward recovery instead.
 
 `Status` reports both the recorded receipt and the observed application
 container state, health, image ID, and image-match result. A recorded receipt
@@ -171,15 +206,55 @@ unhealthy, unavailable, or running another image.
 rendered-configuration hashes plus the image ID, recreates the application from
 the previous candidate's retained Compose source, and repeats health checks. It
 never depends on the current checkout's Compose file and never runs a down migration.
-If a new candidate fails after migration or startup, Deploy automatically
-attempts the same previous-application restore. When the first-ever candidate
-fails, Deploy stops and removes every candidate service and verifies no
-candidate container remains while retaining named volumes and failure
-evidence.
+The new candidate must report `guest_links: true` before its receipt is sealed,
+but restore and rollback intentionally apply only the predecessor's historical
+health contract.
+
+Guest identity persistence is an explicit rollback boundary. Every new receipt
+declares `guest_identity_v1` and `guest_admission_expiry_worker_v1`. Before
+restoring a retained predecessor that lacks either declaration, the release
+manager quiesces the current application before the final probe, verifies it is
+stopped, and then queries PostgreSQL for `account_type = 'guest'` rows and active
+`CommsWorkers.GuestAdmissionExpiryWorker` jobs. No guest transaction can commit
+between that probe and predecessor startup. Rollback is blocked when either
+exists, because that predecessor cannot safely decode the persisted enum or
+execute the scheduled worker. The error reports both counts and directs the
+operator to retain or deploy a guest-compatible bridge release, or roll forward;
+it never deletes or rewrites guest data.
+
+When an operator-requested rollback is blocked or the probe fails, the manager
+restarts and health-checks the exact current receipt only when that receipt
+declares guest compatibility. `Rollback` is an activating recovery operation,
+so this compatible current release is restarted even if it was stopped before Rollback;
+run `Stop` again after reviewing the failure if it should remain stopped. If the
+recorded current receipt is itself legacy—possible after a migrated candidate
+failed before its receipt was sealed—the manager must not start it and leaves
+the application quiesced for bridge or roll-forward recovery. If predecessor
+startup itself fails after a clear zero-hazard probe, the manager can safely
+restore and health-check the exact current receipt and reports both outcomes.
+When a newly deployed candidate has already migrated but fails
+qualification, an unsafe or inconclusive legacy-predecessor probe intentionally
+leaves that failed candidate quiesced and preserves all data for roll-forward
+recovery instead of starting incompatible code.
+
+The `Validate` action executes both health-capability shapes and the rollback
+compatibility matrix: it accepts an otherwise healthy predecessor without
+`guest_links`, rejects the same payload as a candidate, accepts a candidate only
+when the capability is explicitly true, permits a legacy predecessor only when
+no guest state exists, and permits persisted guest state only for a
+guest-compatible predecessor.
+If a new candidate fails after migration or startup, Deploy applies the same
+quiesced hazard guard before attempting the previous-application restore. When
+the first-ever candidate fails, Deploy stops and removes every candidate service
+and verifies no candidate container remains while retaining named volumes and
+failure evidence.
 
 Because rollback retains the forward schema, every migration must follow the
 expand-contract and one-release compatibility rules in
 [`release-strategy.md`](release-strategy.md).
+Migration failure is not retried blindly: the retained application is restored
+when safe, while the failure receipt and migration output remain available for
+investigation before a deliberate rerun.
 
 ## Qualification boundary
 

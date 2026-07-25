@@ -28,6 +28,20 @@ parse_keyring = fn value, environment_name ->
   end
 end
 
+parse_bounded_integer = fn value, environment_name, allowed_range ->
+  case Integer.parse(value) do
+    {parsed, ""} ->
+      unless parsed in allowed_range do
+        raise "#{environment_name} must be between #{allowed_range.first} and #{allowed_range.last}"
+      end
+
+      parsed
+
+    _ ->
+      raise "#{environment_name} must be an integer"
+  end
+end
+
 if config_env() == :prod do
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
@@ -75,6 +89,66 @@ if config_env() == :prod do
   unless runtime_purpose in ["application", "one_shot"] do
     raise "K_COMMS_RUNTIME_PURPOSE must be application or one_shot"
   end
+
+  instance_id =
+    System.get_env("K_COMMS_INSTANCE_ID") ||
+      System.get_env("HOSTNAME") ||
+      System.get_env("COMPUTERNAME")
+
+  unless is_binary(instance_id) and String.trim(instance_id) != "" do
+    raise "K_COMMS_INSTANCE_ID or the platform hostname must identify this runtime"
+  end
+
+  instance_digest =
+    :sha256
+    |> :crypto.hash(instance_id)
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 12)
+
+  role_label =
+    role
+    |> String.replace(~r/[^A-Za-z0-9_.-]/, "_")
+    |> String.slice(0, 12)
+
+  # Runtime configuration is evaluated once per BEAM boot. Every Repo pool
+  # connection in this runtime therefore shares this cryptographically random
+  # nonce, while a concurrent boot on the same host receives a different one.
+  boot_nonce =
+    12
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64(padding: false)
+
+  database_application_name =
+    "k_comms/#{runtime_purpose}/#{role_label}/#{boot_nonce}/#{instance_digest}"
+
+  unless byte_size(database_application_name) <= 63 do
+    raise "PostgreSQL application_name must not exceed 63 bytes"
+  end
+
+  {migration_lock_timeout_ms, migration_statement_timeout_ms} =
+    if runtime_purpose == "one_shot" do
+      lock_timeout_ms =
+        parse_bounded_integer.(
+          System.get_env("K_COMMS_MIGRATION_LOCK_TIMEOUT_MS", "5000"),
+          "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS",
+          1_000..30_000
+        )
+
+      statement_timeout_ms =
+        parse_bounded_integer.(
+          System.get_env("K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS", "300000"),
+          "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS",
+          60_000..900_000
+        )
+
+      if statement_timeout_ms <= lock_timeout_ms do
+        raise "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must exceed K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"
+      end
+
+      {lock_timeout_ms, statement_timeout_ms}
+    else
+      {nil, nil}
+    end
 
   unless audio_provider_mode in ["disabled", "livekit"] do
     raise "AUDIO_PROVIDER_MODE must be disabled or livekit"
@@ -238,7 +312,18 @@ if config_env() == :prod do
   database_options =
     [
       url: database_url,
-      pool_size: String.to_integer(System.get_env("POOL_SIZE", "20"))
+      pool_size: String.to_integer(System.get_env("POOL_SIZE", "20")),
+      parameters:
+        [
+          application_name: database_application_name
+        ] ++
+          if(runtime_purpose == "one_shot",
+            do: [
+              lock_timeout: "#{migration_lock_timeout_ms}ms",
+              statement_timeout: "#{migration_statement_timeout_ms}ms"
+            ],
+            else: []
+          )
     ] ++ database_tls_options
 
   config :comms_core, CommsCore.Repo, database_options

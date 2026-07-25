@@ -65,6 +65,62 @@ single-node password-hashing budget. The in-process limiter is a node-local
 backstop; production ingress or API-gateway limits remain required for a
 distributed deployment.
 
+## Guest-link authentication
+
+Conversation guest links use a separate credential and route purpose. The raw
+link token is a canonical UUID v4 plus 32 random bytes and is disclosed with its
+complete `/join#guest=...` share URL only when an owner or moderator creates the
+link. Only its SHA-256 digest is stored. The joining browser removes the
+fragment after reading it and exchanges the token through a rate-limited POST
+body. The secret and digest are prohibited from URLs sent to the server, logs,
+audit metadata, events, WebSocket payloads, and list/revoke responses.
+
+Preview and admission intentionally return the same `guest_link_unavailable`
+result for unknown, malformed, expired, exhausted, and revoked values.
+The unauthenticated preview is a closed four-field projection: room display
+title, expiry, conversion eligibility, and masked email hint. Tenant and
+conversation identifiers, kind, visibility, message/activity metadata,
+capabilities, versions, and internal timestamps are withheld until admission.
+Admission locks and consumes the link in the same PostgreSQL transaction that
+creates the guest identity, device, session, membership, and admission record.
+Existing active-user and conversation-member quotas remain authoritative.
+Guest history begins at the admission sequence.
+
+Guest access tokens have a distinct signing purpose and are accepted only by
+the `/api/v1/guest/*` pipeline. Their subject binds tenant, user, device,
+session, conversation admission, account type, and immutable guest expiry.
+Their refresh tokens rotate independently and cannot extend the earlier of the
+link, admission, session, or account expiry. Human and service pipelines reject
+guest tokens; the guest pipeline rejects human and service credentials.
+
+One-time guest socket tickets carry the same one-conversation restriction.
+Guests cannot join a human user-inbox topic or use directory, files, search,
+notifications, administration, governance, integration, operations, or service
+APIs. Link revocation invalidates further exchanges and revokes derived active
+guest admissions and sessions, disconnects derived sockets, frees quota, ends
+the membership, and schedules durable call eviction. Redemption also schedules
+an idempotent expiry job at the admission deadline so the same cleanup occurs
+without another request. Per-member removal can revoke one guest without
+affecting unrelated admissions.
+
+Links are communication-only by default. Optional account conversion is
+available only on a single-use link whose exact normalized email was
+preauthorized by a tenant owner or administrator with a recent step-up. The
+creation response returns a second independent 256-bit conversion verification
+code once to that authenticated creator. PostgreSQL stores only its domain-bound
+32-byte digest on the exact link row. The code is kept separate from the share
+URL and QR and is absent from preview, admission, guest credentials, list
+responses, audit evidence, and logs. Link and preview projections expose only a
+masked email hint. Conversion updates the same guest user to `human` only after
+the supplied email matches, the supplied verification code passes a
+constant-time digest comparison within the locked tenant/link/admission/email
+transaction, and normal email uniqueness and password policy checks pass.
+Missing, malformed, and wrong codes fail identically. Conversion revokes the
+guest session and device and issues a fresh human session; it never promotes the
+guest token or extends its deadline. The stable user ID preserves authorized
+conversation authorship and audit attribution. Conversion has an independent
+five-per-minute per-IP and per-identity limit to bound password-hashing work.
+
 ## Service-account authentication
 
 Service credentials use `kcsa_<uuid>.<secret>` and are shown only once on

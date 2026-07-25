@@ -4,6 +4,55 @@ defmodule CommsCore.Repo do
   alias Ecto.Adapters.SQL
 
   @index_name ~r/\A[a-z][a-z0-9_]*\z/
+
+  @doc false
+  @spec release_migration_preflight!() :: [[term()]]
+  def release_migration_preflight! do
+    SQL.query!(
+      __MODULE__,
+      """
+      SELECT
+        current_setting('application_name'),
+        (SELECT setting::bigint FROM pg_settings WHERE name = 'lock_timeout'),
+        (SELECT setting::bigint FROM pg_settings WHERE name = 'statement_timeout'),
+        (
+          SELECT count(*)::bigint
+          FROM pg_stat_activity AS activity
+          WHERE activity.datname = current_database()
+            AND activity.backend_type = 'client backend'
+            AND activity.application_name
+                IS DISTINCT FROM current_setting('application_name')
+        )
+      """,
+      []
+    ).rows
+  end
+
+  @doc false
+  @spec active_oban_job_count!(String.t()) :: non_neg_integer()
+  def active_oban_job_count!(worker_name)
+      when is_binary(worker_name) and worker_name != "" do
+    rows =
+      SQL.query!(
+        __MODULE__,
+        """
+        SELECT count(*)::bigint
+        FROM oban_jobs
+        WHERE worker = $1
+          AND state::text = ANY($2::text[])
+        """,
+        [
+          worker_name,
+          ["available", "scheduled", "executing", "retryable"]
+        ]
+      ).rows
+
+    case rows do
+      [[count]] when is_integer(count) and count >= 0 -> count
+      _ -> raise "active Oban job count returned an invalid result"
+    end
+  end
+
   @doc false
   @spec ensure_valid_concurrent_index!(String.t(), (-> term()), (-> term())) :: :ok
   def ensure_valid_concurrent_index!(index_name, drop_invalid, create_index)

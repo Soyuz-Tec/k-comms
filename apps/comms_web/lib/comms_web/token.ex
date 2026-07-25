@@ -26,7 +26,8 @@ defmodule CommsWeb.Token do
 
     with {:ok, %{"session_id" => session_id}} <-
            Phoenix.Token.verify(CommsWeb.Endpoint, @salt, token, max_age: ttl),
-         {:ok, context} <- Accounts.access_context(session_id, request_id) do
+         {:ok, context} <- Accounts.access_context(session_id, request_id),
+         true <- context.user.account_type == :human do
       {:ok, context}
     else
       _ ->

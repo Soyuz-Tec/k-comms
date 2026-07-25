@@ -111,6 +111,40 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
            }
   end
 
+  test "caps a guest participant token at the exact authorization deadline" do
+    deadline = DateTime.utc_now() |> DateTime.add(30, :second)
+    issued_at = System.system_time(:second)
+
+    assert {:ok, credential} =
+             LiveKitToken.issue(
+               "kc_guest_exact_room",
+               :video,
+               "kc_guest_provider_identity",
+               "Guest Member",
+               deadline
+             )
+
+    [_header, encoded_claims, _signature] = String.split(credential.participant_token, ".")
+    claims = decode(encoded_claims)
+
+    assert credential.expires_in in 29..30
+    assert (claims["exp"] - credential.expires_in) in issued_at..System.system_time(:second)
+    assert claims["exp"] <= DateTime.to_unix(deadline, :second)
+  end
+
+  test "fails closed when guest authority has no remaining whole-second lifetime" do
+    expired_at = DateTime.utc_now() |> DateTime.add(-1, :second)
+
+    assert {:error, :call_authorization_expired} =
+             LiveKitToken.issue(
+               "kc_guest_expired_room",
+               :audio,
+               "kc_guest_expired_identity",
+               "Expired Guest",
+               expired_at
+             )
+  end
+
   test "fails closed for disabled, overlong TTL, or non-origin provider URLs" do
     input = ["kc_audio_room", :audio, "kc_test_provider_identity", "A"]
 

@@ -54,6 +54,7 @@ validation-deps:
 	$(PYTHON) -m pip install -r requirements-validation.txt
 
 contracts:
+	$(PYTHON) scripts/test_validate_contracts.py
 	$(PYTHON) scripts/validate_contracts.py
 
 docs-check:

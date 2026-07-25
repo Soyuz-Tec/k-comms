@@ -4,21 +4,33 @@ defmodule CommsWeb.ConversationChannel do
   alias CommsCore.{Conversations, Messaging}
   alias CommsWeb.Presenter
 
-  @authorized_events [
-    "conversation.updated.v1",
-    "conversation.archived.v1",
+  @message_events [
     "message.created.v1",
     "message.updated.v1",
     "message.deleted.v1",
     "message.reaction_added.v1",
-    "message.reaction_removed.v1",
-    "membership.changed.v1",
-    "conversation.read.v1",
-    "presence_diff",
-    "typing.v1",
-    "typing.start",
-    "typing.stop"
+    "message.reaction_removed.v1"
   ]
+
+  @call_events [
+    "call.started.v1",
+    "call.ended.v1",
+    "audio_call.started.v1",
+    "audio_call.ended.v1"
+  ]
+
+  @authorized_events @message_events ++
+                       @call_events ++
+                       [
+                         "conversation.updated.v1",
+                         "conversation.archived.v1",
+                         "membership.changed.v1",
+                         "conversation.read.v1",
+                         "presence_diff",
+                         "typing.v1",
+                         "typing.start",
+                         "typing.stop"
+                       ]
 
   intercept(@authorized_events)
 
@@ -27,7 +39,8 @@ defmodule CommsWeb.ConversationChannel do
     subject = subject(socket)
     after_sequence = integer(payload["after_sequence"] || payload[:after_sequence], 0)
 
-    with {:ok, _conversation} <- Conversations.get_for_user_view(conversation_id, subject),
+    with :ok <- guest_conversation_allowed(socket, conversation_id),
+         {:ok, _conversation} <- Conversations.get_for_user_view(conversation_id, subject),
          {:ok, replay_messages} <-
            Messaging.list_history(conversation_id, subject,
              after_sequence: after_sequence,
@@ -35,7 +48,12 @@ defmodule CommsWeb.ConversationChannel do
              probe_more: true
            ) do
       {messages, has_more, next_after_sequence} = replay_page(replay_messages, after_sequence)
-      socket = assign(socket, :conversation_id, conversation_id)
+
+      socket =
+        socket
+        |> assign(:conversation_id, conversation_id)
+        |> schedule_guest_expiry()
+
       send(self(), :after_join)
 
       {:ok,
@@ -66,6 +84,9 @@ defmodule CommsWeb.ConversationChannel do
         {:stop, :unauthorized, socket}
     end
   end
+
+  def handle_info(:guest_access_expired, socket),
+    do: {:stop, :unauthorized, socket}
 
   @impl true
   def handle_in(
@@ -145,9 +166,12 @@ defmodule CommsWeb.ConversationChannel do
 
   @impl true
   def handle_out(event, payload, socket) when event in @authorized_events do
-    case authorize_read(socket) do
-      :ok ->
-        push(socket, event, payload)
+    with :ok <- authorize_read(socket),
+         :ok <- authorize_event_visibility(event, payload, socket) do
+      push(socket, event, payload)
+      {:noreply, socket}
+    else
+      {:error, :hidden} ->
         {:noreply, socket}
 
       {:error, _reason} ->
@@ -156,13 +180,29 @@ defmodule CommsWeb.ConversationChannel do
   end
 
   defp authorize_read(socket),
-    do: Conversations.authorize_read(socket.assigns.conversation_id, subject(socket))
+    do:
+      with(
+        :ok <- guest_conversation_allowed(socket, socket.assigns.conversation_id),
+        do: Conversations.authorize_read(socket.assigns.conversation_id, subject(socket))
+      )
 
   defp authorize_send_message(socket),
-    do: Conversations.authorize_send_message(socket.assigns.conversation_id, subject(socket))
+    do:
+      with(
+        :ok <- guest_conversation_allowed(socket, socket.assigns.conversation_id),
+        do:
+          Conversations.authorize_send_message(
+            socket.assigns.conversation_id,
+            subject(socket)
+          )
+      )
 
   defp authorize_mark_read(socket),
-    do: Conversations.authorize_mark_read(socket.assigns.conversation_id, subject(socket))
+    do:
+      with(
+        :ok <- guest_conversation_allowed(socket, socket.assigns.conversation_id),
+        do: Conversations.authorize_mark_read(socket.assigns.conversation_id, subject(socket))
+      )
 
   defp dispatch_command("message.send.v1", command_id, payload, socket) do
     handle_in("message.send", Map.put(payload, "client_message_id", command_id), socket)
@@ -219,7 +259,125 @@ defmodule CommsWeb.ConversationChannel do
   end
 
   defp subject(socket) do
-    Map.take(socket.assigns, [:tenant_id, :user_id, :device_id, :session_id, :role])
+    Map.take(socket.assigns, [
+      :tenant_id,
+      :user_id,
+      :device_id,
+      :session_id,
+      :role,
+      :account_type,
+      :guest_conversation_id,
+      :guest_admission_id,
+      :guest_history_from_sequence,
+      :guest_expires_at
+    ])
+  end
+
+  defp guest_conversation_allowed(socket, conversation_id) do
+    case socket.assigns[:account_type] do
+      account_type when account_type in [:guest, "guest"] ->
+        with true <- socket.assigns[:guest_conversation_id] == conversation_id,
+             %DateTime{} = expires_at <- socket.assigns[:guest_expires_at],
+             :gt <- DateTime.compare(expires_at, DateTime.utc_now()) do
+          :ok
+        else
+          _ -> {:error, :forbidden}
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp authorize_event_visibility(event, payload, socket) when event in @message_events do
+    case socket.assigns[:account_type] do
+      account_type when account_type in [:guest, "guest"] ->
+        authorize_guest_message_event(payload, socket)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp authorize_event_visibility(_event, _payload, _socket), do: :ok
+
+  defp authorize_guest_message_event(payload, socket) when is_map(payload) do
+    with history_from_sequence
+         when is_integer(history_from_sequence) and history_from_sequence > 0 <-
+           socket.assigns[:guest_history_from_sequence] do
+      case event_sequence(payload) do
+        sequence when is_integer(sequence) ->
+          if sequence >= history_from_sequence, do: :ok, else: {:error, :hidden}
+
+        nil ->
+          authorize_guest_message_id(payload, socket)
+
+        _invalid_sequence ->
+          {:error, :hidden}
+      end
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_guest_message_event(_payload, _socket), do: {:error, :hidden}
+
+  defp authorize_guest_message_id(payload, socket) do
+    case event_message_id(payload) do
+      message_id when is_binary(message_id) ->
+        case Messaging.message_event_visible?(
+               socket.assigns.conversation_id,
+               message_id,
+               subject(socket)
+             ) do
+          {:ok, true} -> :ok
+          {:ok, false} -> {:error, :hidden}
+          {:error, _reason} -> {:error, :forbidden}
+        end
+
+      _ ->
+        {:error, :hidden}
+    end
+  end
+
+  defp event_sequence(payload) do
+    case Map.get(payload, :conversation_sequence) || Map.get(payload, "conversation_sequence") do
+      sequence when is_integer(sequence) ->
+        sequence
+
+      sequence when is_binary(sequence) ->
+        case Integer.parse(sequence) do
+          {parsed, ""} -> parsed
+          _ -> :invalid
+        end
+
+      nil ->
+        nil
+
+      _ ->
+        :invalid
+    end
+  end
+
+  defp event_message_id(payload) do
+    Map.get(payload, :message_id) || Map.get(payload, "message_id") ||
+      Map.get(payload, :id) || Map.get(payload, "id")
+  end
+
+  defp schedule_guest_expiry(socket) do
+    case {socket.assigns[:account_type], socket.assigns[:guest_expires_at]} do
+      {account_type, %DateTime{} = expires_at} when account_type in [:guest, "guest"] ->
+        delay_ms =
+          expires_at
+          |> DateTime.diff(DateTime.utc_now(), :millisecond)
+          |> max(0)
+
+        Process.send_after(self(), :guest_access_expired, delay_ms)
+        socket
+
+      _ ->
+        socket
+    end
   end
 
   defp integer(value, _) when is_integer(value), do: value

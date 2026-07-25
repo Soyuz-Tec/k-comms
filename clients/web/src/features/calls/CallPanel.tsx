@@ -13,7 +13,6 @@ import type {
   RemoteTrack,
   RemoteVideoTrack
 } from "livekit-client";
-import type { ApiClient } from "../../api";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText } from "../../lib/format";
 import type {
@@ -69,7 +68,7 @@ export interface CallPanelSessionState {
 }
 
 interface CallPanelProps {
-  api: ApiClient;
+  api: CallApi;
   conversation: Conversation;
   audioEnabled: boolean;
   videoEnabled: boolean;
@@ -85,6 +84,26 @@ interface CallPanelProps {
   renderActions?: boolean;
   onNavigate?: (path: string) => void;
   onSessionStateChange?: (state: CallPanelSessionState) => void;
+}
+
+export interface CallApi {
+  call?: (conversationId: string) => Promise<Call | null>;
+  startCall?: (
+    conversationId: string,
+    mediaKind: CallMediaKind
+  ) => Promise<CallSessionResponse>;
+  joinCall?: (
+    conversationId: string,
+    callId: string
+  ) => Promise<CallSessionResponse>;
+  endCall?: (conversationId: string, callId: string) => Promise<Call>;
+  audioCall?: (conversationId: string) => Promise<Call | null>;
+  startAudioCall?: (conversationId: string) => Promise<CallSessionResponse>;
+  joinAudioCall?: (
+    conversationId: string,
+    callId: string
+  ) => Promise<CallSessionResponse>;
+  endAudioCall?: (conversationId: string, callId: string) => Promise<Call>;
 }
 
 export function CallPanel({
@@ -1460,12 +1479,7 @@ function stopRoomLocalTracks(room: Room) {
   }
 }
 
-type CompatibilityApi = ApiClient & Partial<{
-  audioCall: (conversationId: string) => Promise<Call | null>;
-  startAudioCall: (conversationId: string) => Promise<CallSessionResponse>;
-  joinAudioCall: (conversationId: string, callId: string) => Promise<CallSessionResponse>;
-  endAudioCall: (conversationId: string, callId: string) => Promise<Call>;
-}>;
+type CompatibilityApi = CallApi;
 
 function getCall(api: CompatibilityApi, conversationId: string) {
   if (typeof api.call === "function") return api.call(conversationId);

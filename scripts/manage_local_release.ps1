@@ -881,7 +881,8 @@ function Wait-Application {
     param(
         [Parameter(Mandatory)][int]$ExpectedAppPort,
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
-        [Parameter(Mandatory)][int]$ExpectedLiveKitPort
+        [Parameter(Mandatory)][int]$ExpectedLiveKitPort,
+        [switch]$RequireGuestLinks
     )
 
     $baseUri = "http://127.0.0.1:$ExpectedAppPort"
@@ -895,11 +896,502 @@ function Wait-Application {
         -Description "LiveKit"
 
     $status = Invoke-RestMethod -Uri "$baseUri/api/v1/status" -TimeoutSec 10
-    if (
-        $status.capabilities.audio_calls -ne $true -or
-        $status.capabilities.video_calls -ne $true
-    ) {
-        throw "K-Comms status does not report audio and video calls as available"
+    Assert-ApplicationCapabilities `
+        -Status $status `
+        -RequireGuestLinks:$RequireGuestLinks
+}
+
+function Assert-ApplicationCapabilities {
+    param(
+        [Parameter(Mandatory)]$Status,
+        [switch]$RequireGuestLinks
+    )
+
+    $capabilitiesProperty = $Status.PSObject.Properties["capabilities"]
+    if ($null -eq $capabilitiesProperty) {
+        throw "K-Comms status is missing capabilities"
+    }
+    $capabilities = $capabilitiesProperty.Value
+
+    foreach ($name in @("audio_calls", "video_calls")) {
+        $property = $capabilities.PSObject.Properties[$name]
+        if ($null -eq $property -or $property.Value -ne $true) {
+            throw "K-Comms status does not report audio and video calls as available"
+        }
+    }
+
+    if ($RequireGuestLinks) {
+        $guestLinks = $capabilities.PSObject.Properties["guest_links"]
+        if ($null -eq $guestLinks -or $guestLinks.Value -ne $true) {
+            throw "Candidate K-Comms status does not report guest links as available"
+        }
+    }
+}
+
+function Invoke-CapabilityCompatibilitySelfTest {
+    $predecessor = [PSCustomObject]@{
+        capabilities = [PSCustomObject]@{
+            audio_calls = $true
+            video_calls = $true
+        }
+    }
+    Assert-ApplicationCapabilities -Status $predecessor
+
+    $candidateRequirementRejected = $false
+    try {
+        Assert-ApplicationCapabilities `
+            -Status $predecessor `
+            -RequireGuestLinks
+    }
+    catch {
+        $candidateRequirementRejected = $true
+    }
+    if (-not $candidateRequirementRejected) {
+        throw "Capability self-test accepted a predecessor as a guest-links candidate"
+    }
+
+    $candidate = [PSCustomObject]@{
+        capabilities = [PSCustomObject]@{
+            audio_calls = $true
+            video_calls = $true
+            guest_links = $true
+        }
+    }
+    Assert-ApplicationCapabilities -Status $candidate -RequireGuestLinks
+}
+
+function Test-ReceiptSupportsGuestRollback {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $property = $Receipt.PSObject.Properties["rollbackCapabilities"]
+    if ($null -eq $property) {
+        return $false
+    }
+
+    $capabilities = @($property.Value | ForEach-Object { [string]$_ })
+    (
+        $capabilities -contains "guest_identity_v1" -and
+        $capabilities -contains "guest_admission_expiry_worker_v1"
+    )
+}
+
+function Assert-GuestRollbackCompatibility {
+    param(
+        [Parameter(Mandatory)]$TargetReceipt,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$GuestUsers,
+        [ValidateRange(0, [long]::MaxValue)]
+        [long]$ActiveGuestExpiryJobs
+    )
+
+    $targetCompatible =
+        Test-ReceiptSupportsGuestRollback -Receipt $TargetReceipt
+    if ($targetCompatible -or ($GuestUsers -eq 0 -and $ActiveGuestExpiryJobs -eq 0)) {
+        return
+    }
+
+    $revisionProperty = $TargetReceipt.PSObject.Properties["revision"]
+    $revision = if ($revisionProperty) {
+        [string]$revisionProperty.Value
+    }
+    else {
+        "unknown"
+    }
+    throw (
+        "Legacy release activation blocked after quiescing the current application. " +
+        "Retained revision $revision " +
+        "does not declare guest identity and guest expiry-worker compatibility, while " +
+        "PostgreSQL contains $GuestUsers persisted guest user row(s) and " +
+        "$ActiveGuestExpiryJobs active guest expiry job(s). Retain or deploy a " +
+        "guest-compatible bridge release, or roll forward. No guest data was changed."
+    )
+}
+
+function Stop-ApplicationForGuestRollbackProbe {
+    param([Parameter(Mandatory)]$CurrentReceipt)
+
+    $stop = Invoke-Compose `
+        -EnvironmentFile $CurrentReceipt.environmentFile `
+        -ComposeProject $CurrentReceipt.projectName `
+        -ComposePath $CurrentReceipt.composeSourcePath `
+        -Arguments @("stop", "app") `
+        -AllowFailure
+    if ($stop.ExitCode -ne 0) {
+        throw "Could not quiesce the current application before the guest rollback probe"
+    }
+
+    $running = Invoke-Compose `
+        -EnvironmentFile $CurrentReceipt.environmentFile `
+        -ComposeProject $CurrentReceipt.projectName `
+        -ComposePath $CurrentReceipt.composeSourcePath `
+        -Arguments @("ps", "--services", "--status", "running") `
+        -AllowFailure
+    if ($running.ExitCode -ne 0) {
+        throw "Could not verify application quiescence before the guest rollback probe"
+    }
+    $runningServices = @(
+        $running.Output -split "\r?\n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    if ($runningServices -contains "app") {
+        throw "The current application remained active before the guest rollback probe"
+    }
+}
+
+function Get-GuestRollbackHazards {
+    param([Parameter(Mandatory)]$CurrentReceipt)
+
+    $environment = Read-EnvironmentFile -Path $CurrentReceipt.environmentFile
+    $query = (
+        "SELECT (SELECT count(*) FROM users WHERE account_type = 'guest')::text " +
+        "|| '|' || (SELECT count(*) FROM oban_jobs " +
+        "WHERE worker = 'CommsWorkers.GuestAdmissionExpiryWorker' " +
+        "AND state IN ('available', 'scheduled', 'executing', 'retryable'))::text;"
+    )
+
+    Invoke-Compose `
+        -EnvironmentFile $CurrentReceipt.environmentFile `
+        -ComposeProject $CurrentReceipt.projectName `
+        -ComposePath $CurrentReceipt.composeSourcePath `
+        -Arguments @("up", "-d", "--no-build", "postgres") | Out-Null
+    Wait-ContainerHealth `
+        -EnvironmentFile $CurrentReceipt.environmentFile `
+        -ComposeProject $CurrentReceipt.projectName `
+        -ComposePath $CurrentReceipt.composeSourcePath `
+        -Service "postgres"
+    $probe = Invoke-Compose `
+        -EnvironmentFile $CurrentReceipt.environmentFile `
+        -ComposeProject $CurrentReceipt.projectName `
+        -ComposePath $CurrentReceipt.composeSourcePath `
+        -Arguments @(
+            "exec", "-T", "postgres",
+            "psql", "-X", "-v", "ON_ERROR_STOP=1",
+            "-U", [string]$environment["POSTGRES_USER"],
+            "-d", [string]$environment["POSTGRES_DB"],
+            "-Atqc", $query
+        )
+
+    $match = [Regex]::Match(
+        $probe.Output,
+        "(?m)^\s*(?<guestUsers>\d+)\|(?<guestJobs>\d+)\s*$"
+    )
+    if (-not $match.Success) {
+        throw "Could not parse the guest rollback compatibility probe"
+    }
+
+    [PSCustomObject]@{
+        GuestUsers = [long]$match.Groups["guestUsers"].Value
+        ActiveGuestExpiryJobs = [long]$match.Groups["guestJobs"].Value
+    }
+}
+
+function Assert-GuestRollbackSafe {
+    param(
+        [Parameter(Mandatory)]$CurrentReceipt,
+        [Parameter(Mandatory)]$TargetReceipt,
+        [switch]$RestoreCurrentOnFailure,
+        [scriptblock]$QuiesceAction = $null,
+        [scriptblock]$HazardProbe = $null,
+        [scriptblock]$RestoreAction = $null
+    )
+
+    $targetCompatible =
+        Test-ReceiptSupportsGuestRollback -Receipt $TargetReceipt
+    if ($targetCompatible) {
+        return
+    }
+
+    try {
+        if ($QuiesceAction) {
+            & $QuiesceAction
+        }
+        else {
+            Stop-ApplicationForGuestRollbackProbe -CurrentReceipt $CurrentReceipt
+        }
+        $hazards = if ($HazardProbe) {
+            & $HazardProbe
+        }
+        else {
+            Get-GuestRollbackHazards -CurrentReceipt $CurrentReceipt
+        }
+        Assert-GuestRollbackCompatibility `
+            -TargetReceipt $TargetReceipt `
+            -GuestUsers $hazards.GuestUsers `
+            -ActiveGuestExpiryJobs $hazards.ActiveGuestExpiryJobs
+    }
+    catch {
+        $preflightError = $_
+        if ($RestoreCurrentOnFailure) {
+            $currentCompatible =
+                Test-ReceiptSupportsGuestRollback -Receipt $CurrentReceipt
+            if (-not $currentCompatible) {
+                throw (
+                    "Guest rollback preflight did not permit the predecessor, and the " +
+                    "recorded current receipt also lacks guest rollback compatibility. " +
+                    "The application remains quiesced for a guest-compatible bridge or " +
+                    "roll-forward recovery. Preflight: $($preflightError.Exception.Message)"
+                )
+            }
+            try {
+                if ($RestoreAction) {
+                    & $RestoreAction
+                }
+                else {
+                    Restore-Release -Receipt $CurrentReceipt -UpdatePointer
+                }
+            }
+            catch {
+                throw (
+                    "Guest rollback preflight failed and the exact current release could not " +
+                    "be restored. Preflight: $($preflightError.Exception.Message) " +
+                    "Current release restart: $($_.Exception.Message)"
+                )
+            }
+            $currentRevisionProperty =
+                $CurrentReceipt.PSObject.Properties["revision"]
+            $currentRevision = if ($currentRevisionProperty) {
+                [string]$currentRevisionProperty.Value
+            }
+            else {
+                "unknown"
+            }
+            throw (
+                "Guest rollback preflight did not permit the predecessor. Exact current " +
+                "revision $currentRevision was restored and passed health checks. " +
+                "Preflight: $($preflightError.Exception.Message)"
+            )
+        }
+        throw $preflightError
+    }
+}
+
+function Restore-RollbackTargetOrCurrent {
+    param(
+        [Parameter(Mandatory)]$CurrentReceipt,
+        [Parameter(Mandatory)]$TargetReceipt,
+        [scriptblock]$TargetRestoreAction = $null,
+        [scriptblock]$CurrentRestoreAction = $null
+    )
+
+    try {
+        if ($TargetRestoreAction) {
+            & $TargetRestoreAction
+        }
+        else {
+            Restore-Release -Receipt $TargetReceipt -UpdatePointer
+        }
+    }
+    catch {
+        $targetError = $_
+        try {
+            if ($CurrentRestoreAction) {
+                & $CurrentRestoreAction
+            }
+            else {
+                Restore-Release -Receipt $CurrentReceipt -UpdatePointer
+            }
+        }
+        catch {
+            throw (
+                "Rollback target restore failed and the exact current release could not be " +
+                "recovered. Target: $($targetError.Exception.Message) " +
+                "Current release recovery: $($_.Exception.Message)"
+            )
+        }
+
+        throw (
+            "Rollback target restore failed. Exact current revision " +
+            "$($CurrentReceipt.revision) was restored and passed health checks. " +
+            "Target: $($targetError.Exception.Message)"
+        )
+    }
+}
+
+function Invoke-GuestRollbackCompatibilitySelfTest {
+    $legacy = [PSCustomObject]@{
+        revision = "legacy"
+    }
+    $compatible = [PSCustomObject]@{
+        revision = "compatible"
+        rollbackCapabilities = @(
+            "guest_identity_v1",
+            "guest_admission_expiry_worker_v1"
+        )
+    }
+
+    Assert-GuestRollbackCompatibility `
+        -TargetReceipt $legacy `
+        -GuestUsers 0 `
+        -ActiveGuestExpiryJobs 0
+    Assert-GuestRollbackCompatibility `
+        -TargetReceipt $compatible `
+        -GuestUsers 1 `
+        -ActiveGuestExpiryJobs 1
+
+    foreach ($hazard in @(
+        [PSCustomObject]@{ GuestUsers = 1; ActiveGuestExpiryJobs = 0 },
+        [PSCustomObject]@{ GuestUsers = 0; ActiveGuestExpiryJobs = 1 }
+    )) {
+        $legacyHazardRejected = $false
+        try {
+            Assert-GuestRollbackCompatibility `
+                -TargetReceipt $legacy `
+                -GuestUsers $hazard.GuestUsers `
+                -ActiveGuestExpiryJobs $hazard.ActiveGuestExpiryJobs
+        }
+        catch {
+            $legacyHazardRejected = $true
+        }
+        if (-not $legacyHazardRejected) {
+            throw "Guest rollback self-test accepted persisted guest state for a legacy predecessor"
+        }
+    }
+
+    $compatibleBypassedProbe = $false
+    Assert-GuestRollbackSafe `
+        -CurrentReceipt ([PSCustomObject]@{}) `
+        -TargetReceipt $compatible `
+        -QuiesceAction { throw "compatible target attempted quiescence" } `
+        -HazardProbe { throw "compatible target attempted a hazard probe" }
+    $compatibleBypassedProbe = $true
+    if (-not $compatibleBypassedProbe) {
+        throw "Guest rollback self-test did not accept a compatible predecessor"
+    }
+
+    $probeFailureState = [PSCustomObject]@{ Restores = 0 }
+    $probeFailureReported = $false
+    try {
+        Assert-GuestRollbackSafe `
+            -CurrentReceipt $compatible `
+            -TargetReceipt $legacy `
+            -RestoreCurrentOnFailure `
+            -QuiesceAction {} `
+            -HazardProbe { throw "synthetic guest rollback probe failure" } `
+            -RestoreAction { $probeFailureState.Restores++ }
+    }
+    catch {
+        $probeFailureReported =
+            $_.Exception.Message -match "synthetic guest rollback probe failure"
+    }
+    if (-not $probeFailureReported -or $probeFailureState.Restores -ne 1) {
+        throw "Guest rollback self-test did not restore current release after a probe failure"
+    }
+
+    $restartFailureReported = $false
+    try {
+        Assert-GuestRollbackSafe `
+            -CurrentReceipt $compatible `
+            -TargetReceipt $legacy `
+            -RestoreCurrentOnFailure `
+            -QuiesceAction {} `
+            -HazardProbe { throw "synthetic guest rollback probe failure" } `
+            -RestoreAction { throw "synthetic current release restart failure" }
+    }
+    catch {
+        $restartFailureReported =
+            $_.Exception.Message -match "synthetic guest rollback probe failure" -and
+            $_.Exception.Message -match "synthetic current release restart failure"
+    }
+    if (-not $restartFailureReported) {
+        throw "Guest rollback self-test did not report probe and current-release restart failures"
+    }
+
+    $staleLegacyRestoreState = [PSCustomObject]@{ Restores = 0 }
+    $staleLegacyRemainedQuiesced = $false
+    try {
+        Assert-GuestRollbackSafe `
+            -CurrentReceipt $legacy `
+            -TargetReceipt $legacy `
+            -RestoreCurrentOnFailure `
+            -QuiesceAction {} `
+            -HazardProbe {
+                [PSCustomObject]@{
+                    GuestUsers = 1
+                    ActiveGuestExpiryJobs = 0
+                }
+            } `
+            -RestoreAction { $staleLegacyRestoreState.Restores++ }
+    }
+    catch {
+        $staleLegacyRemainedQuiesced =
+            $_.Exception.Message -match "recorded current receipt also lacks" -and
+            $_.Exception.Message -match "remains quiesced"
+    }
+    if (-not $staleLegacyRemainedQuiesced -or $staleLegacyRestoreState.Restores -ne 0) {
+        throw "Guest rollback self-test reactivated a stale legacy current receipt"
+    }
+
+    $targetFailureState = [PSCustomObject]@{ CurrentRestores = 0 }
+    $targetFailureRecovered = $false
+    try {
+        Restore-RollbackTargetOrCurrent `
+            -CurrentReceipt ([PSCustomObject]@{ revision = "current" }) `
+            -TargetReceipt ([PSCustomObject]@{ revision = "target" }) `
+            -TargetRestoreAction { throw "synthetic target restore failure" } `
+            -CurrentRestoreAction { $targetFailureState.CurrentRestores++ }
+    }
+    catch {
+        $targetFailureRecovered =
+            $_.Exception.Message -match "synthetic target restore failure" -and
+            $_.Exception.Message -match "restored and passed health checks"
+    }
+    if (-not $targetFailureRecovered -or $targetFailureState.CurrentRestores -ne 1) {
+        throw "Guest rollback self-test did not recover the current release after target failure"
+    }
+
+    $targetAndCurrentFailuresReported = $false
+    try {
+        Restore-RollbackTargetOrCurrent `
+            -CurrentReceipt ([PSCustomObject]@{ revision = "current" }) `
+            -TargetReceipt ([PSCustomObject]@{ revision = "target" }) `
+            -TargetRestoreAction { throw "synthetic target restore failure" } `
+            -CurrentRestoreAction { throw "synthetic current recovery failure" }
+    }
+    catch {
+        $targetAndCurrentFailuresReported =
+            $_.Exception.Message -match "synthetic target restore failure" -and
+            $_.Exception.Message -match "synthetic current recovery failure"
+    }
+    if (-not $targetAndCurrentFailuresReported) {
+        throw "Guest rollback self-test did not report target and current restore failures"
+    }
+}
+
+function Stop-ApplicationForMigration {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath
+    )
+
+    $stop = Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @("stop", "app") `
+        -AllowFailure
+    if ($stop.ExitCode -ne 0) {
+        throw "Could not quiesce the application before the forward migration"
+    }
+
+    $running = Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @("ps", "--services", "--status", "running") `
+        -AllowFailure
+    if ($running.ExitCode -ne 0) {
+        throw "Could not verify application quiescence before the forward migration"
+    }
+
+    $runningServices = @(
+        $running.Output -split "\r?\n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    if ($runningServices -contains "app") {
+        throw "The application remained active before the forward migration"
     }
 }
 
@@ -936,6 +1428,10 @@ function Start-ReleaseServices {
         -EchoOutput | Out-Null
 
     if ($RunMigration) {
+        Stop-ApplicationForMigration `
+            -EnvironmentFile $EnvironmentFile `
+            -ComposeProject $ComposeProject `
+            -ComposePath $ComposePath
         $migration = Invoke-Compose `
             -EnvironmentFile $EnvironmentFile `
             -ComposeProject $ComposeProject `
@@ -1553,6 +2049,8 @@ function Invoke-Validate {
             -Arguments @("config", "--quiet") | Out-Null
         Invoke-StateRootSafetySelfTest
         Invoke-PortPreflightSelfTest
+        Invoke-CapabilityCompatibilitySelfTest
+        Invoke-GuestRollbackCompatibilitySelfTest
         Invoke-FailedCandidateCleanupSelfTest
     }
     finally {
@@ -1770,6 +2268,7 @@ function Invoke-DeployLocked {
     $stableEnvironment = $null
     $rendered = $null
     $image = $null
+    $migrationSucceeded = $false
     try {
         $source = New-ImmutableSourceContext `
             -ExpectedRevision $Revision `
@@ -1822,6 +2321,7 @@ function Invoke-DeployLocked {
             -ComposeProject $ProjectName `
             -ComposePath $composeSourcePath `
             -RunMigration
+        $migrationSucceeded = $true
         [IO.File]::WriteAllText(
             $migrationLogPath,
             [string]$migrationOutput,
@@ -1841,7 +2341,8 @@ function Invoke-DeployLocked {
         Wait-Application `
             -ExpectedAppPort $AppPort `
             -ExpectedMinioPort $MinioPort `
-            -ExpectedLiveKitPort $LiveKitSignalPort
+            -ExpectedLiveKitPort $LiveKitSignalPort `
+            -RequireGuestLinks
 
         $receipt = [ordered]@{
             schemaVersion = 3
@@ -1872,6 +2373,10 @@ function Invoke-DeployLocked {
                 status = "succeeded"
                 logPath = $migrationLogPath
             }
+            rollbackCapabilities = @(
+                "guest_identity_v1"
+                "guest_admission_expiry_worker_v1"
+            )
             ports = [ordered]@{
                 app = $AppPort
                 minio = $MinioPort
@@ -1914,6 +2419,15 @@ function Invoke-DeployLocked {
         if ($previousReceipt -and $candidateTouchedRuntime) {
             Write-Warning "Candidate failed; restoring the retained application image without down migrations."
             try {
+                if ($migrationSucceeded) {
+                    Assert-GuestRollbackSafe `
+                        -CurrentReceipt ([PSCustomObject]@{
+                            environmentFile = $environmentFile
+                            projectName = $ProjectName
+                            composeSourcePath = $composeSourcePath
+                        }) `
+                        -TargetReceipt $previousReceipt
+                }
                 Restore-Release -Receipt $previousReceipt -UpdatePointer
             }
             catch {
@@ -1990,7 +2504,14 @@ function Invoke-RollbackLocked {
         throw "The current local release has no retained predecessor"
     }
     $target = Read-JsonFile -Path $current.previousReceiptPath
-    Restore-Release -Receipt $target -UpdatePointer
+    Assert-RetainedReleaseAssets -Receipt $current
+    Assert-GuestRollbackSafe `
+        -CurrentReceipt $current `
+        -TargetReceipt $target `
+        -RestoreCurrentOnFailure
+    Restore-RollbackTargetOrCurrent `
+        -CurrentReceipt $current `
+        -TargetReceipt $target
 
     $eventPath = Join-Path `
         (Split-Path -Parent $current.receiptPath) `
@@ -2170,6 +2691,9 @@ function Invoke-StartLocked {
     $eventPath = Join-Path $eventDirectory "start-$eventId.json"
 
     try {
+        Assert-GuestRollbackSafe `
+            -CurrentReceipt $current `
+            -TargetReceipt $current
         $migrationOutput = Restore-Release `
             -Receipt $current `
             -RunMigration `

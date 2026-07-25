@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiClient, downloadUrl } from "./api";
-import type { Session } from "./types";
+import { ApiClient, downloadUrl, GuestApiClient } from "./api";
+import type { GuestSession, Session } from "./types";
 
 const session: Session = {
   access_token: "access-token",
@@ -115,6 +115,294 @@ describe("conversation membership concurrency", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://comms.test/api/v1/conversations/conversation-1/members/user-2");
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("DELETE");
     expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ version: 7 }));
+  });
+});
+
+describe("guest communication API", () => {
+  const guestSession: GuestSession = {
+    ...session,
+    access_token: "guest-access",
+    refresh_token: "guest-refresh",
+    user: {
+      ...session.user,
+      id: "guest-1",
+      account_type: "guest",
+      email: null
+    },
+    conversation: {
+      id: "conversation-1",
+      tenant_id: "tenant-1",
+      kind: "group",
+      title: "Launch room",
+      counterpart_display_name: null,
+      visibility: "private",
+      latest_sequence: 0,
+      inserted_at: "2026-07-24T12:00:00Z",
+      updated_at: "2026-07-24T12:00:00Z"
+    },
+    capabilities: {
+      allow_audio_calls: true,
+      allow_video_calls: true,
+      conversion_enabled: true,
+      email_hint: "a***@example.test"
+    }
+  };
+
+  it("creates and revokes a host link through canonical resources", async () => {
+    const link = {
+      id: "link-1",
+      conversation_id: "conversation-1",
+      expires_at: "2026-07-25T12:00:00Z",
+      max_uses: 10,
+      use_count: 0,
+      status: "active" as const,
+      share_url: "https://public.example.test/join#guest=one-token"
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: link, token: "one-token", share_url: link.share_url }),
+        { status: 201, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: { ...link, revoked_at: "2026-07-24T13:00:00Z" } }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.createGuestLink("conversation-1", {
+      expires_in_seconds: 86_400,
+      max_uses: 10
+    })).resolves.toMatchObject({ token: "one-token", url: link.share_url });
+    await api.revokeGuestLink("conversation-1", "link-1");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://comms.test/api/v1/conversations/conversation-1/guest-links"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://comms.test/api/v1/conversations/conversation-1/guest-links/link-1"
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("DELETE");
+  });
+
+  it("keeps the one-time conversion code separate from the guest link", async () => {
+    const verificationCode = "V".repeat(43);
+    const link = {
+      id: "link-convert",
+      conversation_id: "conversation-1",
+      expires_at: "2026-07-25T12:00:00Z",
+      max_uses: 1,
+      use_count: 0,
+      conversion_enabled: true,
+      email_hint: "a***@example.test",
+      status: "active" as const,
+      share_url: "https://public.example.test/join#guest=one-token"
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      JSON.stringify({
+        data: link,
+        token: "one-token",
+        share_url: link.share_url,
+        conversion_verification_code: verificationCode
+      }),
+      { status: 201, headers: { "content-type": "application/json" } }
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new ApiClient("https://comms.test", session, vi.fn());
+
+    await expect(api.createGuestLink("conversation-1", {
+      expires_in_seconds: 86_400,
+      max_uses: 1,
+      conversion_email: "ada@example.test"
+    })).resolves.toMatchObject({
+      token: "one-token",
+      url: link.share_url,
+      conversionVerificationCode: verificationCode
+    });
+    expect(link.share_url).not.toContain(verificationCode);
+  });
+
+  it("previews without credentials and keeps guest credentials isolated", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          room_title: "Operations room",
+          expires_at: "2026-07-25T12:00:00Z",
+          conversion_enabled: true,
+          email_hint: "g***@example.test"
+        }
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: guestSession.conversation }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const publicApi = new GuestApiClient("https://comms.test", null, vi.fn());
+    const guestApi = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    await publicApi.previewGuestLink("one-token");
+    await guestApi.conversation();
+
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("Authorization")).toBe(false);
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("Authorization")).toBe(
+      "Bearer guest-access"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://comms.test/api/v1/guest/conversation"
+    );
+  });
+
+  it("normalizes account conversion while preserving the room", async () => {
+    const accountSession = {
+      ...session,
+      access_token: "member-access",
+      refresh_token: "member-refresh"
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      JSON.stringify({
+        authentication: accountSession,
+        conversation: guestSession.conversation
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    await expect(api.convertAccount({
+      email: "ada@example.test",
+      verification_code: "A".repeat(43),
+      password: "correct horse battery staple"
+    })).resolves.toMatchObject({
+      session: { access_token: "member-access" },
+      conversation: { id: "conversation-1" }
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://comms.test/api/v1/guest/account");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      email: "ada@example.test",
+      verification_code: "A".repeat(43)
+    });
+  });
+
+  it("normalizes host-authorized account conversion capabilities on admission", async () => {
+    const onSession = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(
+      JSON.stringify(guestSession),
+      { status: 201, headers: { "content-type": "application/json" } }
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", null, onSession);
+
+    await expect(api.joinGuest({
+      token: "one-token",
+      display_name: "Ada Guest",
+      device: { name: "Guest browser", platform: "web" }
+    })).resolves.toMatchObject({
+      capabilities: {
+        allow_audio_calls: true,
+        allow_video_calls: true,
+        conversion_enabled: true,
+        email_hint: "a***@example.test"
+      }
+    });
+
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({
+      capabilities: expect.objectContaining({
+        conversion_enabled: true,
+        email_hint: "a***@example.test"
+      })
+    }));
+  });
+
+  it("reports when a restored guest session is no longer valid", async () => {
+    const onSession = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "invalid_access_token" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "guest_session_unavailable" } }),
+        { status: 401, headers: { "content-type": "application/json" } }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, onSession);
+
+    await expect(api.conversation()).rejects.toMatchObject({ status: 401 });
+
+    expect(onSession).toHaveBeenCalledWith(null, "access_ended");
+  });
+
+  it("uses only conversation-scoped guest routes for audio and video call lifecycle", async () => {
+    const call = {
+      id: "call-audio",
+      conversation_id: "conversation-1",
+      started_by_user_id: "guest-1",
+      media_kind: "audio" as const,
+      status: "active" as const,
+      started_at: "2026-07-24T12:00:00Z",
+      expires_at: "2026-07-24T13:00:00Z",
+      can_end: true
+    };
+    const credential = {
+      server_url: "wss://media.example.test",
+      participant_token: "short-lived-token",
+      expires_in: 120
+    };
+    const sessionResponse = { data: call, credential };
+    const videoCall = { ...call, id: "call-video", media_kind: "video" as const };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify(sessionResponse),
+        { status: 201, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify(sessionResponse),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: { ...call, status: "ended" } }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: videoCall, credential }),
+        { status: 201, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: videoCall, credential }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: { ...videoCall, status: "ended" } }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    await api.startCall("caller-controlled-room", "audio");
+    await api.joinCall("caller-controlled-room", "call-audio");
+    await api.endCall("caller-controlled-room", "call-audio");
+    await api.startCall("caller-controlled-room", "video");
+    await api.joinCall("caller-controlled-room", "call-video");
+    await api.endCall("caller-controlled-room", "call-video");
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://comms.test/api/v1/guest/conversation/calls",
+      "https://comms.test/api/v1/guest/conversation/calls/call-audio/join",
+      "https://comms.test/api/v1/guest/conversation/calls/call-audio/end",
+      "https://comms.test/api/v1/guest/conversation/calls",
+      "https://comms.test/api/v1/guest/conversation/calls/call-video/join",
+      "https://comms.test/api/v1/guest/conversation/calls/call-video/end"
+    ]);
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ media_kind: "audio" }));
+    expect(fetchMock.mock.calls[3]?.[1]?.body).toBe(JSON.stringify({ media_kind: "video" }));
+    expect(fetchMock.mock.calls.every(([, options]) =>
+      new Headers(options?.headers).get("Authorization") === "Bearer guest-access"
+    )).toBe(true);
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("caller-controlled-room");
   });
 });
 

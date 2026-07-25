@@ -36,6 +36,26 @@ defmodule CommsWeb.Plugs.RateLimit do
 
   defp client_key(conn, :authentication_ip), do: {:authentication_ip, peer(conn)}
 
+  defp client_key(conn, :guest_admission_ip), do: {:guest_admission_ip, peer(conn)}
+
+  defp client_key(conn, :guest_admission_token) do
+    params = if match?(%Plug.Conn.Unfetched{}, conn.params), do: %{}, else: conn.params
+
+    token =
+      Map.get(params, "token") || Map.get(params, "code") || Map.get(params, "refresh_token")
+
+    digest = :crypto.hash(:sha256, to_string(token || "missing"))
+    {:guest_admission_token, peer(conn), digest}
+  end
+
+  defp client_key(conn, :guest_account_conversion_ip),
+    do: {:guest_account_conversion_ip, peer(conn)}
+
+  defp client_key(conn, :guest_account_conversion_identity) do
+    user_id = conn.assigns[:current_subject] && conn.assigns.current_subject.user_id
+    {:guest_account_conversion_identity, user_id || peer(conn)}
+  end
+
   defp client_key(conn, :service_authentication_ip),
     do: {:service_authentication_ip, peer(conn)}
 

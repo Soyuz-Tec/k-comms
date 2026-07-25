@@ -53,7 +53,8 @@ defmodule CommsCore.Accounts do
   @max_directory_limit 100
 
   @doc """
-  Resolves an active human session into persistence-free authorization facts.
+  Resolves an active human or guest session into persistence-free
+  authorization facts.
 
   The tenant, user, device, and session identifiers must describe the same
   active identity. A platform grant is returned as verified only when the
@@ -76,12 +77,14 @@ defmodule CommsCore.Accounts do
             left_join: g in PlatformRoleGrant,
             on:
               g.user_id == u.id and g.tenant_id == u.tenant_id and
-                g.expires_at > ^timestamp,
+                g.expires_at > ^timestamp and u.account_type == :human,
             where:
               s.id == ^session_id and s.tenant_id == ^tenant_id and s.user_id == ^user_id and
                 s.device_id == ^device_id and u.id == ^user_id and
                 u.tenant_id == ^tenant_id and u.status == :active and
-                u.account_type == :human and d.id == ^device_id and
+                (u.account_type == :human or
+                   (u.account_type == :guest and not is_nil(u.guest_expires_at) and
+                      u.guest_expires_at > ^timestamp)) and d.id == ^device_id and
                 d.tenant_id == ^tenant_id and d.user_id == ^user_id and
                 is_nil(d.revoked_at) and is_nil(s.revoked_at) and
                 s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp,
@@ -90,6 +93,8 @@ defmodule CommsCore.Accounts do
               user_id: s.user_id,
               device_id: s.device_id,
               session_id: s.id,
+              account_type: u.account_type,
+              guest_expires_at: u.guest_expires_at,
               role: u.role,
               step_up_at: s.step_up_at,
               platform_role_grant_id: g.id,
@@ -122,7 +127,7 @@ defmodule CommsCore.Accounts do
   The caller must already own a transaction and must acquire the tenant and
   conversation locks first. The shared session lock serializes credential
   issuance with session revocation while the normal access-grant query
-  revalidates the active human user and unrevoked device.
+  revalidates the active human or unexpired guest user and unrevoked device.
   """
   @spec lock_access_grant(map()) ::
           {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
@@ -194,8 +199,30 @@ defmodule CommsCore.Accounts do
   """
   @spec active_user_count(Ecto.UUID.t()) :: non_neg_integer()
   def active_user_count(tenant_id) when is_binary(tenant_id) do
+    timestamp = now()
+
     User
-    |> where([user], user.tenant_id == ^tenant_id and user.status == :active)
+    |> where(
+      [user],
+      user.tenant_id == ^tenant_id and user.status == :active and
+        (user.account_type != :guest or
+           (not is_nil(user.guest_expires_at) and user.guest_expires_at > ^timestamp))
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  @doc """
+  Counts every persisted guest identity for release rollback safety.
+
+  This intentionally includes expired, revoked, suspended, and deleted guest
+  rows. Code predating guest identities cannot safely decode any of them, so
+  the release boundary must not treat lifecycle state as evidence that a row is
+  rollback-compatible.
+  """
+  @spec persisted_guest_identity_count() :: non_neg_integer()
+  def persisted_guest_identity_count do
+    User
+    |> where([user], user.account_type == :guest)
     |> Repo.aggregate(:count)
   end
 
@@ -224,15 +251,24 @@ defmodule CommsCore.Accounts do
   @doc """
   Resolves requested tenant users into stable identity projections.
 
-  Existing identities are returned regardless of lifecycle status so owner
-  contexts can display suspended or erased members without receiving User
-  persistence. Results are ordered by display name and then user ID.
+  Existing permanent identities are returned regardless of lifecycle status so
+  owner contexts can display suspended or erased members without receiving User
+  persistence. Expired guest identities fail closed even if asynchronous
+  membership cleanup has not completed. Results are ordered by display name and
+  then user ID.
   """
   @spec resolve_user_views(String.t(), [String.t()]) :: [CommsCore.Accounts.UserView.t()]
   def resolve_user_views(tenant_id, user_ids)
       when is_binary(tenant_id) and is_list(user_ids) do
+    timestamp = now()
+
     User
-    |> where([user], user.tenant_id == ^tenant_id and user.id in ^user_ids)
+    |> where(
+      [user],
+      user.tenant_id == ^tenant_id and user.id in ^user_ids and
+        (user.account_type != :guest or
+           (not is_nil(user.guest_expires_at) and user.guest_expires_at > ^timestamp))
+    )
     |> order_by([user], asc: user.display_name, asc: user.id)
     |> Repo.all()
     |> Enum.map(&CommsCore.Accounts.Projector.user/1)
@@ -687,6 +723,15 @@ defmodule CommsCore.Accounts do
     refresh_session(token) |> project_result(&CommsCore.Accounts.Projector.authentication/1)
   end
 
+  @doc """
+  Rotates an unexpired guest refresh token without widening the normal human
+  refresh path.
+  """
+  def refresh_guest_session_view(token) do
+    refresh_guest_session(token)
+    |> project_result(&CommsCore.Accounts.Projector.authentication/1)
+  end
+
   def access_context(session_id, request_id \\ nil) do
     with {:ok, session, tenant} <- active_session_with_tenant(session_id) do
       {:ok,
@@ -697,6 +742,100 @@ defmodule CommsCore.Accounts do
        )}
     end
   end
+
+  @doc """
+  Resolves a guest-only session context.
+
+  Normal human sessions are deliberately rejected so the web adapter can use a
+  separate token salt and route allowlist for guests.
+  """
+  def guest_access_context(session_id, request_id \\ nil) do
+    with {:ok, session, tenant} <- active_guest_session_with_tenant(session_id) do
+      {:ok,
+       CommsCore.Accounts.Projector.access_context(
+         session,
+         tenant,
+         guest_subject_for_session(session, request_id)
+       )}
+    end
+  end
+
+  @doc """
+  Provisions one expiring guest identity inside a caller-owned transaction.
+
+  The transaction requirement lets the guest-link owner compose identity
+  creation with a single conversation admission without exposing persistence.
+  """
+  @spec provision_guest_identity(map()) ::
+          {:ok, CommsCore.Accounts.AuthenticationResult.t()}
+          | {:error,
+             :transaction_required
+             | :tenant_unavailable
+             | :invalid_guest_expiry
+             | :active_user_quota_exceeded
+             | :invalid_guest_identity}
+  def provision_guest_identity(attrs) when is_map(attrs) do
+    if Repo.in_transaction?() do
+      attrs
+      |> provision_guest_identity_in_transaction()
+      |> normalize_guest_identity_result()
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def provision_guest_identity(_attrs), do: {:error, :transaction_required}
+
+  @doc """
+  Atomically converts a guest into a normal human account without changing the
+  user id.
+
+  It can participate in an existing guest-admission transaction or open its own
+  transaction when invoked directly.
+  """
+  @spec convert_guest_account(map(), map(), String.t()) ::
+          {:ok, CommsCore.Accounts.AuthenticationResult.t()}
+          | {:error,
+             :forbidden
+             | :guest_account_conversion_email_mismatch
+             | :session_expired
+             | :tenant_unavailable
+             | :weak_password
+             | :invalid_guest_account}
+  def convert_guest_account(attrs, guest_subject, preauthorized_email)
+      when is_map(attrs) and is_map(guest_subject) and is_binary(preauthorized_email) do
+    expected_email = normalize_email(preauthorized_email)
+
+    if expected_email != "" and normalize_email(value(attrs, :email)) == expected_email do
+      fn -> convert_guest_account_in_transaction(attrs, guest_subject, expected_email) end
+      |> run_transaction_aware()
+      |> normalize_guest_account_result()
+    else
+      {:error, :guest_account_conversion_email_mismatch}
+    end
+  end
+
+  def convert_guest_account(_attrs, _guest_subject, _preauthorized_email),
+    do: {:error, :forbidden}
+
+  @doc """
+  Revokes an expiring guest session and propagates the revocation to active
+  calls. The operation is safe both standalone and inside a caller transaction.
+  """
+  @spec revoke_guest_session(Ecto.UUID.t(), String.t()) ::
+          :ok | {:error, :not_found | :invalid_reason | term()}
+  def revoke_guest_session(session_id, reason)
+      when is_binary(session_id) and is_binary(reason) do
+    reason = String.trim(reason)
+
+    if reason == "" or String.length(reason) > 160 do
+      {:error, :invalid_reason}
+    else
+      run_transaction_aware(fn -> revoke_guest_session_in_transaction(session_id, reason) end)
+    end
+  end
+
+  def revoke_guest_session(_session_id, _reason), do: {:error, :invalid_reason}
 
   def list_tenant_user_views(subject),
     do: subject |> list_tenant_users() |> Enum.map(&CommsCore.Accounts.Projector.user/1)
@@ -1061,6 +1200,226 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp provision_guest_identity_in_transaction(attrs) do
+    created_at = now()
+    tenant_id = value(attrs, :tenant_id)
+
+    with {:ok, _uuid} <- Ecto.UUID.cast(tenant_id),
+         {:ok, guest_expires_at} <-
+           normalize_guest_expiry(value(attrs, :expires_at), created_at),
+         {:ok, tenant} <- Administration.active_tenant(tenant_id),
+         {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
+         :ok <- ensure_active_user_capacity(tenant_id, policy),
+         {:ok, user_id} <- guest_user_id(value(attrs, :user_id)) do
+      device_attrs = value(attrs, :device) || %{}
+
+      user_changeset =
+        User.guest_changeset(%User{id: user_id}, %{
+          tenant_id: tenant_id,
+          external_subject: "guest:#{user_id}",
+          display_name: value(attrs, :display_name),
+          guest_expires_at: guest_expires_at
+        })
+
+      case Repo.insert(user_changeset) do
+        {:ok, user} ->
+          device =
+            %Device{id: Ecto.UUID.generate()}
+            |> Device.changeset(%{
+              tenant_id: tenant_id,
+              user_id: user.id,
+              name:
+                value(device_attrs, :name) || value(attrs, :device_name) ||
+                  "Guest browser",
+              platform: value(device_attrs, :platform) || value(attrs, :device_platform) || "web",
+              last_seen_at: created_at
+            })
+            |> insert_or_rollback()
+
+          {session, refresh_token} =
+            create_guest_session_or_rollback(user, device, guest_expires_at, created_at)
+
+          Audit.record(%{
+            tenant_id: tenant_id,
+            actor_user_id: user.id,
+            action: "guest_identity.provision",
+            resource_type: "user",
+            resource_id: user.id,
+            metadata: %{
+              guest_expires_at: DateTime.to_iso8601(guest_expires_at),
+              device_id: device.id
+            },
+            request_id: optional_request_id(value(attrs, :request_id))
+          })
+          |> audit_or_rollback()
+
+          {:ok,
+           CommsCore.Accounts.Projector.authentication(%{
+             tenant: tenant,
+             user: user,
+             device: device,
+             session: session,
+             refresh_token: refresh_token,
+             conversation: nil
+           })}
+
+        {:error, changeset} ->
+          {:error, changeset}
+      end
+    else
+      :error -> {:error, :tenant_unavailable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp convert_guest_account_in_transaction(attrs, guest_subject, preauthorized_email) do
+    password = value(attrs, :password)
+    email = normalize_email(value(attrs, :email))
+
+    with true <- email == preauthorized_email,
+         :ok <- validate_password(password),
+         {:ok, session, tenant} <- lock_active_guest_session(guest_subject) do
+      changes = %{
+        external_subject: "local:#{email}",
+        display_name: value(attrs, :display_name) || session.user.display_name,
+        email: email,
+        password_hash: Password.hash(password)
+      }
+
+      with :ok <-
+             session.user
+             |> User.guest_conversion_changeset(changes)
+             |> valid_changeset() do
+        converted_user =
+          session.user
+          |> User.guest_conversion_changeset(changes)
+          |> update_or_validation_error()
+
+        revoked_at = now()
+
+        session
+        |> Session.changeset(%{revoked_at: revoked_at})
+        |> update_or_rollback()
+
+        session.device
+        |> Device.changeset(%{revoked_at: revoked_at})
+        |> update_or_rollback()
+
+        CallLifecycleCommand.sessions_revoked(
+          session.tenant_id,
+          [session.id],
+          "guest_converted"
+        )
+        |> CallLifecyclePort.revoke_identity_access()
+        |> call_lifecycle_ok!()
+
+        device_attrs = value(attrs, :device) || %{}
+
+        device =
+          %Device{id: Ecto.UUID.generate()}
+          |> Device.changeset(%{
+            tenant_id: converted_user.tenant_id,
+            user_id: converted_user.id,
+            name:
+              value(device_attrs, :name) || value(attrs, :device_name) ||
+                "Account browser",
+            platform: value(device_attrs, :platform) || value(attrs, :device_platform) || "web",
+            last_seen_at: revoked_at
+          })
+          |> insert_or_rollback()
+
+        {session, refresh_token} = create_session_or_rollback(converted_user, device)
+
+        Audit.record(%{
+          tenant_id: converted_user.tenant_id,
+          actor_user_id: converted_user.id,
+          action: "guest_identity.convert",
+          resource_type: "user",
+          resource_id: converted_user.id,
+          metadata: %{
+            previous_session_id: value(guest_subject, :session_id),
+            replacement_session_id: session.id
+          },
+          request_id: optional_request_id(value(guest_subject, :request_id))
+        })
+        |> audit_or_rollback()
+
+        {:ok,
+         CommsCore.Accounts.Projector.authentication(%{
+           tenant: tenant,
+           user: converted_user,
+           device: device,
+           session: session,
+           refresh_token: refresh_token,
+           conversation: nil
+         })}
+      end
+    else
+      false -> {:error, :guest_account_conversion_email_mismatch}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp revoke_guest_session_in_transaction(session_id, reason) do
+    session =
+      Repo.one(
+        from(session in Session,
+          join: user in User,
+          on: user.id == session.user_id and user.tenant_id == session.tenant_id,
+          where: session.id == ^session_id and user.account_type == :guest,
+          preload: [user: user],
+          lock: "FOR UPDATE"
+        )
+      )
+
+    case session do
+      nil ->
+        {:error, :not_found}
+
+      %Session{revoked_at: %DateTime{}} = revoked_session ->
+        expire_guest_user!(revoked_session.user, now())
+        :ok
+
+      %Session{} = active_session ->
+        revoked_at = now()
+        expire_guest_user!(active_session.user, revoked_at)
+
+        active_session
+        |> Session.changeset(%{revoked_at: revoked_at})
+        |> update_or_rollback()
+
+        CallLifecycleCommand.sessions_revoked(
+          active_session.tenant_id,
+          [active_session.id],
+          reason
+        )
+        |> CallLifecyclePort.revoke_identity_access()
+        |> call_lifecycle_ok!()
+
+        Audit.record(%{
+          tenant_id: active_session.tenant_id,
+          actor_user_id: nil,
+          action: "guest_session.revoke",
+          resource_type: "session",
+          resource_id: active_session.id,
+          metadata: %{reason: reason}
+        })
+        |> audit_or_rollback()
+
+        :ok
+    end
+  end
+
+  defp expire_guest_user!(%User{account_type: :guest} = user, timestamp) do
+    if DateTime.compare(user.guest_expires_at, timestamp) == :gt do
+      user
+      |> User.guest_expiration_changeset(timestamp)
+      |> update_or_rollback()
+    else
+      user
+    end
+  end
+
   defp authenticate(tenant_slug, email, password, device_attrs) do
     normalized_email = email |> to_string() |> String.trim() |> String.downcase()
 
@@ -1112,6 +1471,27 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp refresh_guest_session(token) when is_binary(token) do
+    with {:ok, session_id, secret} <- parse_refresh_token(token) do
+      case Repo.transaction(fn ->
+             session =
+               Repo.one(
+                 from(s in Session,
+                   where: s.id == ^session_id,
+                   lock: "FOR UPDATE"
+                 )
+               )
+
+             rotate_guest_refresh_session(session, secret)
+           end) do
+        {:ok, result} -> result
+        {:error, _reason} -> {:error, :invalid_refresh_token}
+      end
+    else
+      _ -> {:error, :invalid_refresh_token}
+    end
+  end
+
   def get_active_session(id) when is_binary(id) do
     with {:ok, session, _tenant} <- active_session_with_tenant(id) do
       {:ok, session}
@@ -1138,6 +1518,44 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp active_guest_session_with_tenant(id) when is_binary(id) do
+    timestamp = now()
+
+    query =
+      from(s in Session,
+        join: u in assoc(s, :user),
+        join: d in assoc(s, :device),
+        where:
+          s.id == ^id and s.tenant_id == u.tenant_id and s.user_id == u.id and
+            s.tenant_id == d.tenant_id and s.user_id == d.user_id and
+            s.device_id == d.id and is_nil(s.revoked_at) and
+            s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
+            u.status == :active and u.account_type == :guest and
+            not is_nil(u.guest_expires_at) and u.guest_expires_at > ^timestamp and
+            is_nil(d.revoked_at),
+        preload: [user: u, device: d]
+      )
+
+    with %Session{} = session <- Repo.one(query),
+         {:ok, tenant} <- Administration.active_tenant(session.tenant_id) do
+      {:ok, session, tenant}
+    else
+      _ -> {:error, :session_expired}
+    end
+  end
+
+  defp active_guest_session_with_tenant(_id), do: {:error, :session_expired}
+
+  defp active_socket_session(id) do
+    case active_session_with_tenant(id) do
+      {:ok, session, _tenant} -> {:ok, session}
+      _ -> active_guest_session_with_tenant(id) |> socket_session_result()
+    end
+  end
+
+  defp socket_session_result({:ok, session, _tenant}), do: {:ok, session}
+  defp socket_session_result(_result), do: {:error, :session_expired}
+
   def issue_socket_ticket(subject) when is_map(subject) do
     session_id = value(subject, :session_id)
 
@@ -1145,39 +1563,34 @@ defmodule CommsCore.Accounts do
          true <- session.tenant_id == value(subject, :tenant_id),
          true <- session.user_id == value(subject, :user_id),
          true <- session.device_id == value(subject, :device_id) do
-      ticket_id = Ecto.UUID.generate()
-      secret = :crypto.strong_rand_bytes(@session_bytes)
-      ticket = "#{ticket_id}.#{Base.url_encode64(secret, padding: false)}"
-
-      ttl =
-        Application.get_env(:comms_core, :socket_ticket_ttl_seconds, 60) |> min(120) |> max(10)
-
-      Repo.transaction(fn ->
-        prune_socket_tickets!()
-
-        %SocketTicket{id: ticket_id}
-        |> SocketTicket.changeset(%{
-          tenant_id: session.tenant_id,
-          user_id: session.user_id,
-          device_id: session.device_id,
-          session_id: session.id,
-          token_hash: :crypto.hash(:sha256, secret),
-          expires_at: DateTime.add(now(), ttl, :second)
-        })
-        |> insert_or_rollback()
-
-        insert_audit!(subject, "socket_ticket.issue", "session", session.id, %{
-          ticket_id: ticket_id,
-          expires_in: ttl
-        })
-
-        %{ticket: ticket, expires_in: ttl}
-      end)
-      |> transaction_result()
+      issue_socket_ticket_for(session, subject, %{})
     else
       _ -> {:error, :invalid_access_token}
     end
   end
+
+  @doc """
+  Issues a guest-scoped one-time socket ticket.
+
+  Conversation and admission ids originate from the already verified guest
+  access token and are persisted as opaque ticket scope so websocket
+  consumption cannot widen the guest to another conversation.
+  """
+  def issue_guest_socket_ticket(subject) when is_map(subject) do
+    session_id = value(subject, :session_id)
+
+    with {:ok, session, _tenant} <- active_guest_session_with_tenant(session_id),
+         true <- session.tenant_id == value(subject, :tenant_id),
+         true <- session.user_id == value(subject, :user_id),
+         true <- session.device_id == value(subject, :device_id),
+         {:ok, access_scope} <- guest_socket_access_scope(subject, session) do
+      issue_socket_ticket_for(session, subject, access_scope)
+    else
+      _ -> {:error, :invalid_access_token}
+    end
+  end
+
+  def issue_guest_socket_ticket(_subject), do: {:error, :invalid_access_token}
 
   def consume_socket_ticket(ticket) when is_binary(ticket) do
     with {:ok, ticket_id, secret} <- parse_socket_ticket(ticket) do
@@ -1191,7 +1604,7 @@ defmodule CommsCore.Accounts do
                do: Repo.rollback(:invalid_socket_ticket)
 
         session =
-          case get_active_session(record.session_id) do
+          case active_socket_session(record.session_id) do
             {:ok, %Session{} = session} -> session
             _ -> Repo.rollback(:invalid_socket_ticket)
           end
@@ -1204,7 +1617,7 @@ defmodule CommsCore.Accounts do
         |> SocketTicket.changeset(%{consumed_at: now()})
         |> update_or_rollback()
 
-        subject = subject_for_session(session, "socket-connect")
+        subject = socket_subject(session, record.access_scope, "socket-connect")
 
         insert_audit!(subject, "socket_ticket.consume", "session", session.id, %{
           ticket_id: record.id
@@ -1723,12 +2136,190 @@ defmodule CommsCore.Accounts do
         device_id: session.device_id,
         session_id: session.id,
         request_id: request_id,
+        account_type: session.user.account_type,
+        guest_expires_at: session.user.guest_expires_at,
         role: session.user.role,
         step_up_at: session.step_up_at
       },
       platform_access
     )
   end
+
+  defp guest_subject_for_session(
+         %Session{user: %User{account_type: :guest}} = session,
+         request_id
+       ),
+       do: subject_for_session(session, request_id)
+
+  defp lock_active_guest_session(subject) do
+    timestamp = now()
+
+    case subject_identity(subject) do
+      {tenant_id, user_id, device_id, session_id}
+      when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
+             is_binary(session_id) ->
+        session =
+          Repo.one(
+            from(s in Session,
+              join: u in User,
+              on: u.id == s.user_id and u.tenant_id == s.tenant_id,
+              join: d in Device,
+              on:
+                d.id == s.device_id and d.user_id == s.user_id and
+                  d.tenant_id == s.tenant_id,
+              where:
+                s.id == ^session_id and s.tenant_id == ^tenant_id and
+                  s.user_id == ^user_id and s.device_id == ^device_id and
+                  is_nil(s.revoked_at) and s.expires_at > ^timestamp and
+                  s.absolute_expires_at > ^timestamp and u.status == :active and
+                  u.account_type == :guest and not is_nil(u.guest_expires_at) and
+                  u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
+              preload: [user: u, device: d],
+              lock: "FOR UPDATE"
+            )
+          )
+
+        with %Session{} = session <- session,
+             {:ok, tenant} <- Administration.active_tenant(tenant_id) do
+          {:ok, session, tenant}
+        else
+          nil -> {:error, :session_expired}
+          {:error, _reason} = error -> error
+        end
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
+  defp issue_socket_ticket_for(%Session{} = session, subject, access_scope) do
+    ticket_id = Ecto.UUID.generate()
+    secret = :crypto.strong_rand_bytes(@session_bytes)
+    ticket = "#{ticket_id}.#{Base.url_encode64(secret, padding: false)}"
+    issued_at = now()
+
+    configured_ttl =
+      Application.get_env(:comms_core, :socket_ticket_ttl_seconds, 60) |> min(120) |> max(10)
+
+    ticket_expires_at =
+      DateTime.add(issued_at, configured_ttl, :second)
+      |> earlier_deadline(session.expires_at)
+      |> earlier_deadline(session.absolute_expires_at)
+      |> earlier_optional_deadline(socket_scope_deadline(access_scope))
+
+    expires_in = max(DateTime.diff(ticket_expires_at, issued_at, :second), 1)
+
+    Repo.transaction(fn ->
+      prune_socket_tickets!()
+
+      %SocketTicket{id: ticket_id}
+      |> SocketTicket.changeset(%{
+        tenant_id: session.tenant_id,
+        user_id: session.user_id,
+        device_id: session.device_id,
+        session_id: session.id,
+        token_hash: :crypto.hash(:sha256, secret),
+        access_scope: access_scope,
+        expires_at: ticket_expires_at
+      })
+      |> insert_or_rollback()
+
+      insert_audit!(subject, "socket_ticket.issue", "session", session.id, %{
+        ticket_id: ticket_id,
+        expires_in: expires_in,
+        guest_scoped: map_size(access_scope) > 0
+      })
+
+      %{ticket: ticket, expires_in: expires_in}
+    end)
+    |> transaction_result()
+  end
+
+  defp guest_socket_access_scope(subject, %Session{user: %User{} = user} = session) do
+    conversation_id = value(subject, :guest_conversation_id)
+    admission_id = value(subject, :guest_admission_id)
+    history_from_sequence = value(subject, :guest_history_from_sequence)
+    claimed_expiry = value(subject, :guest_expires_at)
+
+    with {:ok, _conversation_uuid} <- Ecto.UUID.cast(conversation_id),
+         {:ok, _admission_uuid} <- Ecto.UUID.cast(admission_id),
+         true <- is_integer(history_from_sequence) and history_from_sequence >= 0,
+         {:ok, expiry} <- cast_datetime(claimed_expiry),
+         true <- user.account_type == :guest,
+         true <- DateTime.compare(expiry, now()) == :gt,
+         true <- deadline_not_after?(expiry, user.guest_expires_at),
+         true <- deadline_not_after?(expiry, session.expires_at),
+         true <- deadline_not_after?(expiry, session.absolute_expires_at) do
+      {:ok,
+       %{
+         "account_type" => "guest",
+         "guest_admission_id" => admission_id,
+         "guest_conversation_id" => conversation_id,
+         "guest_history_from_sequence" => history_from_sequence,
+         "guest_expires_at" => DateTime.to_iso8601(expiry)
+       }}
+    else
+      _ -> {:error, :invalid_guest_scope}
+    end
+  end
+
+  defp socket_subject(
+         %Session{user: %User{account_type: :human}} = session,
+         scope,
+         request_id
+       )
+       when scope == %{} or is_nil(scope),
+       do: subject_for_session(session, request_id)
+
+  defp socket_subject(
+         %Session{user: %User{account_type: :guest} = user} = session,
+         %{
+           "account_type" => "guest",
+           "guest_admission_id" => admission_id,
+           "guest_conversation_id" => conversation_id,
+           "guest_history_from_sequence" => history_from_sequence,
+           "guest_expires_at" => expiry_text
+         },
+         request_id
+       ) do
+    with {:ok, _conversation_uuid} <- Ecto.UUID.cast(conversation_id),
+         {:ok, _admission_uuid} <- Ecto.UUID.cast(admission_id),
+         true <- is_integer(history_from_sequence) and history_from_sequence >= 0,
+         {:ok, expiry} <- cast_datetime(expiry_text),
+         true <- DateTime.compare(expiry, now()) == :gt,
+         true <- deadline_not_after?(expiry, user.guest_expires_at),
+         true <- deadline_not_after?(expiry, session.expires_at),
+         true <- deadline_not_after?(expiry, session.absolute_expires_at) do
+      session
+      |> guest_subject_for_session(request_id)
+      |> Map.merge(%{
+        account_type: :guest,
+        guest_admission_id: admission_id,
+        guest_conversation_id: conversation_id,
+        guest_history_from_sequence: history_from_sequence,
+        guest_expires_at: expiry
+      })
+    else
+      _ -> Repo.rollback(:invalid_socket_ticket)
+    end
+  end
+
+  defp socket_subject(_session, _scope, _request_id),
+    do: Repo.rollback(:invalid_socket_ticket)
+
+  defp socket_scope_deadline(%{"account_type" => "guest", "guest_expires_at" => expiry}) do
+    case cast_datetime(expiry) do
+      {:ok, deadline} -> deadline
+      _ -> nil
+    end
+  end
+
+  defp socket_scope_deadline(_scope), do: nil
+
+  defp deadline_not_after?(%DateTime{} = deadline, %DateTime{} = authority_deadline),
+    do: DateTime.compare(deadline, authority_deadline) in [:lt, :eq]
+
+  defp deadline_not_after?(_deadline, _authority_deadline), do: false
 
   defp upsert_device(user, attrs) do
     requested_id = value(attrs, :id)
@@ -1776,6 +2367,39 @@ defmodule CommsCore.Accounts do
     end
   end
 
+  defp create_session_or_rollback(user, device) do
+    case create_session(user, device) do
+      {:ok, session, refresh_token} -> {session, refresh_token}
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp create_guest_session_or_rollback(user, device, guest_expires_at, created_at) do
+    id = Ecto.UUID.generate()
+    {refresh_token, refresh_hash} = refresh_token(id)
+
+    expires_at =
+      earlier_deadline(
+        DateTime.add(created_at, session_ttl_seconds(), :second),
+        guest_expires_at
+      )
+
+    session =
+      %Session{id: id}
+      |> Session.changeset(%{
+        tenant_id: user.tenant_id,
+        user_id: user.id,
+        device_id: device.id,
+        refresh_token_hash: refresh_hash,
+        expires_at: expires_at,
+        absolute_expires_at: guest_expires_at,
+        last_used_at: created_at
+      })
+      |> insert_or_rollback()
+
+    {session, refresh_token}
+  end
+
   defp rotate_refresh_session(%Session{} = session, secret) do
     with true <- active_session?(session),
          true <- secure_hash_equals(session.refresh_token_hash, secret),
@@ -1817,6 +2441,54 @@ defmodule CommsCore.Accounts do
   end
 
   defp rotate_refresh_session(nil, _secret), do: {:error, :invalid_refresh_token}
+
+  defp rotate_guest_refresh_session(%Session{} = session, secret) do
+    timestamp = now()
+
+    with true <- active_session?(session),
+         true <- secure_hash_equals(session.refresh_token_hash, secret),
+         %User{status: :active, account_type: :guest, guest_expires_at: %DateTime{} = expiry} =
+           user <- Repo.get_by(User, id: session.user_id, tenant_id: session.tenant_id),
+         true <- DateTime.compare(expiry, timestamp) == :gt,
+         %Device{} = device <-
+           Repo.get_by(Device,
+             id: session.device_id,
+             tenant_id: session.tenant_id,
+             user_id: session.user_id
+           ),
+         true <- is_nil(device.revoked_at),
+         {:ok, tenant} <- Administration.active_tenant(session.tenant_id) do
+      {new_token, new_hash} = refresh_token(session.id)
+
+      case session
+           |> Session.changeset(%{
+             refresh_token_hash: new_hash,
+             last_used_at: timestamp,
+             expires_at:
+               session.absolute_expires_at
+               |> earlier_deadline(expiry)
+               |> rotated_session_expires_at()
+           })
+           |> Repo.update() do
+        {:ok, updated} ->
+          {:ok,
+           %{
+             tenant: tenant,
+             user: user,
+             device: device,
+             session: updated,
+             refresh_token: new_token
+           }}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      _ -> {:error, :invalid_refresh_token}
+    end
+  end
+
+  defp rotate_guest_refresh_session(nil, _secret), do: {:error, :invalid_refresh_token}
 
   defp refresh_token(session_id) do
     secret = :crypto.strong_rand_bytes(@session_bytes)
@@ -1905,6 +2577,11 @@ defmodule CommsCore.Accounts do
   defp earlier_deadline(first, second) do
     if DateTime.compare(first, second) == :gt, do: second, else: first
   end
+
+  defp earlier_optional_deadline(first, %DateTime{} = second),
+    do: earlier_deadline(first, second)
+
+  defp earlier_optional_deadline(first, _second), do: first
 
   defp session_ttl_seconds,
     do: Application.get_env(:comms_core, :session_ttl_seconds, 2_592_000) |> max(0)
@@ -2702,6 +3379,84 @@ defmodule CommsCore.Accounts do
 
   defp normalize_email(_email), do: ""
 
+  defp normalize_guest_expiry(value, timestamp) do
+    with {:ok, expiry} <- cast_datetime(value),
+         true <- DateTime.compare(expiry, timestamp) == :gt,
+         true <- DateTime.diff(expiry, timestamp, :second) <= guest_session_max_ttl_seconds() do
+      {:ok, expiry}
+    else
+      _ -> {:error, :invalid_guest_expiry}
+    end
+  end
+
+  defp cast_datetime(%DateTime{} = value),
+    do: {:ok, DateTime.truncate(value, :microsecond)}
+
+  defp cast_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, DateTime.truncate(datetime, :microsecond)}
+      _ -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp cast_datetime(_value), do: {:error, :invalid_datetime}
+
+  defp guest_user_id(nil), do: {:ok, Ecto.UUID.generate()}
+
+  defp guest_user_id(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_guest_identity}
+    end
+  end
+
+  defp guest_user_id(_value), do: {:error, :invalid_guest_identity}
+
+  defp guest_session_max_ttl_seconds do
+    Application.get_env(:comms_core, :guest_session_max_ttl_seconds, 86_400)
+    |> max(900)
+    |> min(86_400)
+  end
+
+  defp valid_changeset(%Ecto.Changeset{valid?: true}), do: :ok
+  defp valid_changeset(%Ecto.Changeset{} = changeset), do: {:error, changeset}
+
+  defp normalize_guest_identity_result({:error, %Ecto.Changeset{}}),
+    do: {:error, :invalid_guest_identity}
+
+  defp normalize_guest_identity_result(result), do: result
+
+  defp normalize_guest_account_result({:error, %Ecto.Changeset{}}),
+    do: {:error, :invalid_guest_account}
+
+  defp normalize_guest_account_result({:error, %ValidationError{}}),
+    do: {:error, :invalid_guest_account}
+
+  defp normalize_guest_account_result(result), do: result
+
+  defp optional_request_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value != "" and String.length(value) <= 200, do: value, else: nil
+  end
+
+  defp optional_request_id(_value), do: nil
+
+  defp run_transaction_aware(fun) when is_function(fun, 0) do
+    if Repo.in_transaction?() do
+      fun.()
+    else
+      case Repo.transaction(fn ->
+             case fun.() do
+               {:error, reason} -> Repo.rollback(reason)
+               result -> result
+             end
+           end) do
+        {:ok, result} -> result
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
   defp authorize_session_target(%User{role: :owner}, _target), do: :ok
 
   defp authorize_session_target(
@@ -2783,6 +3538,8 @@ defmodule CommsCore.Accounts do
       device_id: facts.device_id,
       session_id: facts.session_id,
       request_id: value(subject, :request_id),
+      account_type: facts.account_type,
+      guest_expires_at: facts.guest_expires_at,
       role: facts.role,
       step_up_at: facts.step_up_at,
       step_up_recent?: recent_step_up_at?(facts.step_up_at, timestamp),

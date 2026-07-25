@@ -52,6 +52,46 @@ defmodule CommsWeb.RateLimitTest do
            ).halted
   end
 
+  test "guest account conversion enforces independent five-per-minute IP and identity limits" do
+    remote_ip = {198, 51, 100, 203}
+
+    for attempt <- 1..5 do
+      conn =
+        remote_ip
+        |> guest_conversion_conn("guest-ip-#{attempt}")
+        |> RateLimit.call(limit: 5, window: 60, scope: :guest_account_conversion_ip)
+
+      refute conn.halted
+    end
+
+    assert remote_ip
+           |> guest_conversion_conn("guest-ip-6")
+           |> RateLimit.call(limit: 5, window: 60, scope: :guest_account_conversion_ip)
+           |> Map.fetch!(:halted)
+
+    for attempt <- 1..5 do
+      conn =
+        {203, 0, 113, attempt}
+        |> guest_conversion_conn("same-guest")
+        |> RateLimit.call(
+          limit: 5,
+          window: 60,
+          scope: :guest_account_conversion_identity
+        )
+
+      refute conn.halted
+    end
+
+    assert {203, 0, 113, 6}
+           |> guest_conversion_conn("same-guest")
+           |> RateLimit.call(
+             limit: 5,
+             window: 60,
+             scope: :guest_account_conversion_identity
+           )
+           |> Map.fetch!(:halted)
+  end
+
   test "password verification stops a credential-guessing burst after five attempts" do
     suffix = System.unique_integer([:positive, :monotonic])
 
@@ -112,6 +152,11 @@ defmodule CommsWeb.RateLimitTest do
 
   defp authenticated_conn(token),
     do: build_conn() |> put_req_header("authorization", "Bearer #{token}")
+
+  defp guest_conversion_conn(remote_ip, user_id) do
+    conn = build_conn() |> Plug.Conn.assign(:current_subject, %{user_id: user_id})
+    %{conn | remote_ip: remote_ip}
+  end
 
   defp service_conn(remote_ip, credential) do
     conn = build_conn() |> put_req_header("authorization", "Bearer #{credential}")

@@ -10,6 +10,7 @@ defmodule CommsCore.Conversations do
     AdmissionQuotas,
     Outbox,
     Repo,
+    RuntimePorts,
     ServiceAccounts
   }
 
@@ -324,6 +325,91 @@ defmodule CommsCore.Conversations do
   @spec authorize_manage_ownership(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
   def authorize_manage_ownership(conversation_id, subject),
     do: authorize_management(:manage_conversation_ownership, conversation_id, subject)
+
+  @doc """
+  Creates a revocable, expiring guest link for a group or channel.
+
+  The returned token is deliberately available only in this creation result;
+  persisted and subsequently listed projections contain only its digest-free
+  metadata.
+  """
+  def create_guest_link_view(conversation_id, attrs, subject),
+    do: CommsCore.Conversations.GuestAccess.create_link(conversation_id, attrs, subject)
+
+  @doc "Lists secret-free guest-link projections for a managed conversation."
+  def list_guest_link_views(conversation_id, subject),
+    do: CommsCore.Conversations.GuestAccess.list_links(conversation_id, subject)
+
+  @doc "Revokes a guest link and all temporary admissions derived from it."
+  def revoke_guest_link_view(conversation_id, link_id, subject),
+    do:
+      CommsCore.Conversations.GuestAccess.revoke_link(
+        conversation_id,
+        link_id,
+        subject,
+        &revoke_guest_membership_call_access/4
+      )
+
+  @doc "Returns the non-sensitive preview for an available guest link."
+  def preview_guest_link(token),
+    do: CommsCore.Conversations.GuestAccess.preview_link(token)
+
+  @doc "Atomically redeems a guest link into a bounded identity and membership."
+  def redeem_guest_link(token, attrs),
+    do: CommsCore.Conversations.GuestAccess.redeem_link(token, attrs)
+
+  @doc "Resolves an active guest admission without granting ordinary account access."
+  def resolve_guest_access(subject, conversation_id),
+    do: CommsCore.Conversations.GuestAccess.resolve_access(subject, conversation_id)
+
+  @doc "Rehydrates the active conversation scope for a refreshed guest session."
+  def guest_scope_for_session(session_id),
+    do: CommsCore.Conversations.GuestAccess.scope_for_session(session_id)
+
+  @doc "Converts an active guest into a normal account while preserving membership."
+  def convert_guest_account(attrs, guest_subject),
+    do: CommsCore.Conversations.GuestAccess.convert_account(attrs, guest_subject)
+
+  @doc false
+  @spec expire_guest_admission(Ecto.UUID.t(), module()) ::
+          {:ok, :expired | :already_terminal | {:not_due, pos_integer()}}
+          | {:error, :forbidden | :guest_admission_not_found | term()}
+  def expire_guest_admission(admission_id, caller) when is_binary(admission_id) do
+    if RuntimePorts.authorized_job_worker?(:guest_admission_expiry, caller) do
+      CommsCore.Conversations.GuestAccess.expire_admission(
+        admission_id,
+        &revoke_guest_membership_call_access/4
+      )
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def expire_guest_admission(_admission_id, _caller), do: {:error, :forbidden}
+
+  @doc false
+  def revoke_guest_membership_call_access(tenant_id, conversation_id, user_id, reason)
+      when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) and
+             is_binary(reason) do
+    if Repo.in_transaction?() do
+      case tenant_id
+           |> CallLifecycleCommand.membership_revoked(conversation_id, user_id, reason)
+           |> CallLifecyclePort.revoke_conversation_access() do
+        {:ok, %CallLifecycleReceipt{}} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def revoke_guest_membership_call_access(
+        _tenant_id,
+        _conversation_id,
+        _user_id,
+        _reason
+      ),
+      do: {:error, :forbidden}
 
   @doc """
   Returns conversation-owned capacity counts for approved read-model composition.
@@ -1997,15 +2083,33 @@ defmodule CommsCore.Conversations do
   end
 
   defp admission_usage_counts(tenant_id) do
+    timestamp = now()
+
+    admitted_member_counts =
+      from(membership in Membership,
+        left_join: guest_admission in CommsCore.Conversations.GuestAdmission,
+        on:
+          guest_admission.tenant_id == membership.tenant_id and
+            guest_admission.membership_id == membership.id and
+            is_nil(guest_admission.converted_at),
+        where:
+          membership.tenant_id == ^tenant_id and is_nil(membership.left_at) and
+            (is_nil(guest_admission.id) or
+               (is_nil(guest_admission.revoked_at) and
+                  guest_admission.expires_at > ^timestamp)),
+        group_by: membership.conversation_id,
+        select: %{
+          conversation_id: membership.conversation_id,
+          member_count: count(membership.id)
+        }
+      )
+
     active_member_counts =
       from(conversation in Conversation,
-        left_join: membership in Membership,
-        on:
-          membership.tenant_id == conversation.tenant_id and
-            membership.conversation_id == conversation.id and is_nil(membership.left_at),
+        left_join: counts in subquery(admitted_member_counts),
+        on: counts.conversation_id == conversation.id,
         where: conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at),
-        group_by: conversation.id,
-        select: %{member_count: count(membership.id)}
+        select: %{member_count: fragment("COALESCE(?, 0)", counts.member_count)}
       )
 
     from(counts in subquery(active_member_counts),
@@ -2015,6 +2119,8 @@ defmodule CommsCore.Conversations do
   end
 
   defp ensure_conversation_member_capacity(policy, %Conversation{} = conversation) do
+    timestamp = now()
+
     current_active_members =
       Membership
       |> join(:inner, [membership], joined_conversation in Conversation,
@@ -2022,12 +2128,23 @@ defmodule CommsCore.Conversations do
           joined_conversation.id == membership.conversation_id and
             joined_conversation.tenant_id == membership.tenant_id
       )
+      |> join(
+        :left,
+        [membership, _joined_conversation],
+        guest_admission in CommsCore.Conversations.GuestAdmission,
+        on:
+          guest_admission.tenant_id == membership.tenant_id and
+            guest_admission.membership_id == membership.id and
+            is_nil(guest_admission.converted_at)
+      )
       |> where(
-        [membership, joined_conversation],
+        [membership, joined_conversation, guest_admission],
         membership.tenant_id == ^conversation.tenant_id and
           membership.conversation_id == ^conversation.id and
           joined_conversation.tenant_id == ^conversation.tenant_id and
-          is_nil(joined_conversation.archived_at) and is_nil(membership.left_at)
+          is_nil(joined_conversation.archived_at) and is_nil(membership.left_at) and
+          (is_nil(guest_admission.id) or
+             (is_nil(guest_admission.revoked_at) and guest_admission.expires_at > ^timestamp))
       )
       |> Repo.aggregate(:count)
 

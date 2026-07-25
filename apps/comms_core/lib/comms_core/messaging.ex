@@ -268,8 +268,11 @@ defmodule CommsCore.Messaging do
   def list_history(conversation_id, subject, opts \\ []) do
     authorize = Keyword.get(opts, :authorize, &authorize_conversation/3)
 
-    with :ok <- authorize.(:read_conversation, subject, %{id: conversation_id}) do
-      after_sequence = integer(Keyword.get(opts, :after_sequence, 0), 0)
+    requested_after_sequence = integer(Keyword.get(opts, :after_sequence, 0), 0)
+
+    with :ok <- authorize.(:read_conversation, subject, %{id: conversation_id}),
+         {:ok, after_sequence} <-
+           scoped_history_after_sequence(subject, requested_after_sequence) do
       before_sequence = Keyword.get(opts, :before_sequence)
       max_limit = if Keyword.get(opts, :probe_more, false), do: 501, else: 500
       limit_count = clamp_limit(Keyword.get(opts, :limit, 100), max_limit)
@@ -289,6 +292,43 @@ defmodule CommsCore.Messaging do
       {:ok, query |> Repo.all() |> hydrate_messages()}
     end
   end
+
+  @doc """
+  Checks whether a realtime message event is inside the caller's durable
+  history scope.
+
+  Realtime adapters use this when an event contains only a message identifier
+  (for example, reaction events). The authoritative message row supplies the
+  conversation sequence, so a guest can never infer or receive activity for a
+  message created before their admission.
+  """
+  @spec message_event_visible?(Ecto.UUID.t(), Ecto.UUID.t(), map()) ::
+          {:ok, boolean()} | {:error, :forbidden}
+  def message_event_visible?(conversation_id, message_id, subject)
+      when is_binary(conversation_id) and is_binary(message_id) and is_map(subject) do
+    if valid_uuid?(conversation_id) and valid_uuid?(message_id) do
+      with :ok <- Conversations.authorize_read(conversation_id, subject),
+           {:ok, after_sequence} <- scoped_history_after_sequence(subject, 0) do
+        visible? =
+          Repo.exists?(
+            from(message in Message,
+              where:
+                message.id == ^message_id and
+                  message.tenant_id == ^value(subject, :tenant_id) and
+                  message.conversation_id == ^conversation_id and
+                  message.conversation_sequence > ^after_sequence
+            )
+          )
+
+        {:ok, visible?}
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def message_event_visible?(_conversation_id, _message_id, _subject),
+    do: {:error, :forbidden}
 
   def get_thread(conversation_id, message_id, subject, opts \\ []) do
     target =
@@ -1087,6 +1127,25 @@ defmodule CommsCore.Messaging do
 
   defp integer(_, default), do: default
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  # Guest admission intentionally begins at the conversation sequence captured
+  # when the link is redeemed. Enforce that floor in the data owner so every
+  # adapter (REST and websocket replay) inherits the same no-prior-history rule.
+  # A malformed guest subject fails closed instead of falling back to sequence 0.
+  defp scoped_history_after_sequence(subject, requested_after_sequence) do
+    case {value(subject, :account_type), value(subject, :guest_history_from_sequence)} do
+      {account_type, history_from_sequence}
+      when account_type in [:guest, "guest"] and is_integer(history_from_sequence) and
+             history_from_sequence > 0 ->
+        {:ok, max(requested_after_sequence, history_from_sequence - 1)}
+
+      {account_type, _history_from_sequence} when account_type in [:guest, "guest"] ->
+        {:error, :forbidden}
+
+      _ ->
+        {:ok, requested_after_sequence}
+    end
+  end
 
   defp governance_target(query, :user, target_id),
     do: where(query, [message], message.sender_user_id == ^target_id)

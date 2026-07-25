@@ -277,7 +277,7 @@ export function AuthScreen() {
 
           {mode === "login" ? (
             <>
-              <form className="auth-form" onSubmit={(event) => void submitLogin(event)}>
+              <form key="login" className="auth-form" onSubmit={(event) => void submitLogin(event)}>
                 {editingWorkspace || !loginWorkspaceSlug ? (
                   <Field
                     id="login-workspace"
@@ -346,7 +346,7 @@ export function AuthScreen() {
                   <strong>{invitationContext.tenantSlug}</strong>
                 </div>
               )}
-              <form className="auth-form" onSubmit={(event) => void acceptInvitation(event)}>
+              <form key="invite" className="auth-form" onSubmit={(event) => void acceptInvitation(event)}>
                 {manualInvitation && (
                   <>
                     <Field
@@ -397,7 +397,7 @@ export function AuthScreen() {
             </div>
           ) : bootstrapAvailability === "enabled" ? (
             <>
-              <form className="auth-form" onSubmit={(event) => void submitBootstrap(event)}>
+              <form key="bootstrap" className="auth-form" onSubmit={(event) => void submitBootstrap(event)}>
                 <Field
                   label="Workspace name"
                   name="tenant_name"

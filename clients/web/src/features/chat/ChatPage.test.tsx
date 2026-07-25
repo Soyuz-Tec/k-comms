@@ -17,6 +17,13 @@ vi.mock("../../api", async (importOriginal) => ({
   uploadToPresignedTarget: uploadHarness.upload
 }));
 
+vi.mock("../../app/step-up", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useStepUp: () => ({
+    runWithStepUp: <T,>(action: () => Promise<T>) => action()
+  })
+}));
+
 const harness = vi.hoisted(() => ({
   callbacks: null as RealtimeCallbacks | null,
   markRead: vi.fn<(sequence: number) => Promise<unknown>>(),

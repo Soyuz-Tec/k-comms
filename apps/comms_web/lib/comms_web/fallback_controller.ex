@@ -32,6 +32,22 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:not_found), do: {404, "not_found", "The requested resource was not found"}
 
+  defp error(reason)
+       when reason in [
+              :invalid_guest_link,
+              :guest_link_unavailable,
+              :guest_link_not_found,
+              :guest_link_expired,
+              :guest_link_revoked,
+              :guest_link_exhausted,
+              :guest_admission_expired
+            ],
+       do: {404, "guest_link_unavailable", "This guest communication link is unavailable"}
+
+  defp error(reason)
+       when reason in [:invalid_guest_access_token, :guest_session_expired],
+       do: {401, "unauthenticated", "Guest authentication failed"}
+
   defp error(:invalid_password_recovery_token),
     do: {400, "invalid_recovery_token", "The recovery token is invalid or expired"}
 
@@ -57,6 +73,37 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:video_calls_disabled),
     do: {403, "video_calls_disabled", "Video calls are disabled for this tenant"}
+
+  defp error(:call_authorization_expired),
+    do: {403, "call_authorization_expired", "Call access is no longer authorized"}
+
+  defp error(:guest_account_conversion_not_enabled),
+    do:
+      {403, "guest_account_conversion_not_enabled",
+       "Account creation is not permitted for this guest link"}
+
+  defp error(:guest_account_conversion_forbidden),
+    do:
+      {403, "guest_account_conversion_forbidden",
+       "Account creation is not permitted for this guest link"}
+
+  defp error(:guest_account_conversion_email_mismatch),
+    do:
+      {403, "guest_account_conversion_email_mismatch",
+       "Account creation is not permitted for the supplied email"}
+
+  defp error(:guest_account_conversion_verification_failed),
+    do:
+      {403, "guest_account_conversion_verification_failed",
+       "Account conversion verification failed"}
+
+  defp error(:invalid_guest_conversion_email),
+    do: {422, "invalid_guest_conversion_email", "The account conversion email is invalid"}
+
+  defp error(:guest_account_conversion_requires_single_use),
+    do:
+      {422, "guest_account_conversion_requires_single_use",
+       "Account-enabled guest links must allow exactly one use"}
 
   defp error(reason)
        when reason in [
@@ -84,7 +131,9 @@ defmodule CommsWeb.FallbackController do
               :audio_call_ending,
               :audio_call_expired,
               :call_media_kind_conflict,
-              :direct_conversation_unavailable
+              :direct_conversation_unavailable,
+              :guest_link_already_revoked,
+              :guest_account_already_converted
             ],
        do:
          {409, Atom.to_string(reason), "The operation conflicts with the current resource state"}
@@ -210,7 +259,16 @@ defmodule CommsWeb.FallbackController do
               :unsupported_operation,
               :invalid_end_reason,
               :invalid_media_kind,
-              :audio_identity_invalid
+              :audio_identity_invalid,
+              :invalid_guest_scope,
+              :invalid_guest_expiry,
+              :invalid_guest_identity,
+              :invalid_guest_account,
+              :invalid_guest_display_name,
+              :invalid_guest_link_expiry,
+              :invalid_guest_link_max_uses,
+              :invalid_guest_device,
+              :guest_links_not_supported
             ],
        do: {422, Atom.to_string(reason), "The request could not be processed"}
 

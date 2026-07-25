@@ -7,7 +7,9 @@ metadata:
     app.kubernetes.io/part-of: k-comms
     app.kubernetes.io/component: migration
 spec:
-  backoffLimit: 3
+  # A migration attempt is an operator-observed change, not retryable work.
+  # Delete and recreate this Job only after the failure has been investigated.
+  backoffLimit: 0
   activeDeadlineSeconds: 600
   ttlSecondsAfterFinished: 86400
   template:
@@ -41,6 +43,12 @@ spec:
               value: worker
             - name: K_COMMS_RUNTIME_PURPOSE
               value: one_shot
+            - name: K_COMMS_MIGRATION_LOCK_TIMEOUT_MS
+              value: "5000"
+            - name: K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS
+              value: "540000"
+            - name: K_COMMS_MIGRATION_REQUIRE_QUIESCENCE
+              value: "true"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

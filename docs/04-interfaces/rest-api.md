@@ -7,6 +7,8 @@
 - `/api/v1/conversations`
 - `/api/v1/channels/discover`, `/api/v1/channels/{channel_id}/join`, and `/api/v1/channels/{channel_id}/membership`
 - `/api/v1/conversations/{conversation_id}/members`
+- `/api/v1/conversations/{conversation_id}/guest-links` for owner/moderator
+  creation, redacted listing, and revocation
 - `/api/v1/conversations/{conversation_id}/messages`
 - `/api/v1/conversations/{conversation_id}/messages/{message_id}/thread`
 - `/api/v1/conversations/{conversation_id}/call` and
@@ -25,6 +27,9 @@
   both snapshots include the validated immutable `release_revision` used for
   revision-bound operational runbook links
 - `/api/v1/service/conversations`, `/api/v1/service/conversations/{conversation_id}/messages`, and `/api/v1/service/search` for scope-bound automation
+- `/api/v1/guest-links/preview` and `/api/v1/guest-sessions` for the
+  unauthenticated link exchange, followed by the allow-listed
+  `/api/v1/guest/*` conversation session surface
 
 ## Mutation input and replay rules
 
@@ -169,6 +174,74 @@ prevents removal of the last active owner, and is replay-safe after a successful
 leave. Direct, group, private, archived, and cross-tenant resources cannot use
 these self-service routes. Disabling tenant public channels blocks discovery and
 new joins while still permitting existing members to leave.
+
+## Conversation guest links
+
+An active conversation owner or moderator may create a bounded,
+communication-only link with `POST
+/api/v1/conversations/{conversation_id}/guest-links`. Direct conversations are
+not shareable. The optional request fields are `expires_in_seconds`
+(900–86,400, default 86,400) and `max_uses` (1–25, default 10). A tenant owner
+or administrator with a recent step-up may also provide `conversion_email`;
+that makes the link account-enabled, forces `max_uses` to exactly one, and
+allows conversion only to that normalized email. Creation and subsequent
+redacted projections expose only `conversion_enabled` and a masked
+`email_hint`, never the stored email. Creation returns the raw 80-character
+`<uuid-v4>.<32-random-byte-base64url>` token and complete
+`/join#guest=<token>` share URL exactly once. For an account-enabled link, the
+same authenticated creation response also returns a separate 43-character
+`conversion_verification_code` exactly once. That code is delivered to the
+intended guest out of band and is never included in the share URL, QR, public
+preview, guest session, list response, audit event, or log.
+`GET` on the collection and `DELETE
+/api/v1/conversations/{conversation_id}/guest-links/{guest_link_id}` return only
+redacted link state. They never return the token, token digest, or a server-built
+QR artifact.
+
+The member client generates a QR code locally from the returned URL and offers
+native share and copy actions. The joining client reads the fragment once,
+clears it from browser history, and sends the token only in a POST body. It may
+call `POST /api/v1/guest-links/preview` to show the
+room display title, expiry, conversion eligibility, and masked email hint,
+then calls `POST
+/api/v1/guest-sessions` with the token and one display name. Unknown, malformed,
+expired, exhausted, and revoked values all return the same
+`guest_link_unavailable` response; no public response identifies which state
+was observed. The unauthenticated preview never returns tenant or conversation
+identifiers, kind, visibility, message sequence or activity metadata,
+capabilities, versions, or internal timestamps.
+
+Redemption atomically creates the scoped guest identity, device, session,
+conversation membership, and guest admission and consumes one use. The
+admission records an immutable starting sequence, so REST history before the
+admission is not returned. Guest access counts toward the existing active-user
+and conversation-member limits. Link revocation prevents new redemptions,
+disconnects derived guest sockets, and revokes active admissions, sessions,
+membership, quota use, and call access. Redemption schedules the same
+idempotent cleanup at the admission deadline.
+
+Guest bearer tokens are accepted only on the allow-listed guest routes:
+
+- the one admitted conversation, its sanitized active members, post-admission
+  messages, and read cursor;
+- one-time `/api/v1/guest/socket-tickets` restricted to that conversation;
+- that conversation's canonical audio/video call lookup, start, join, and end
+  operations;
+- `/api/v1/guest/sessions/refresh`, which rotates credentials without extending
+  the immutable guest deadline;
+- `/api/v1/guest/sessions/current` for logout; and
+- `/api/v1/guest/account` for optional in-place conversion to a permanent human
+  account when the single-use link preauthorized the exact email.
+
+Guest tokens are invalid on normal member, directory, file, search,
+notification, administration, governance, integrations, operations, and
+service routes. Conversion requires the exact preauthorized normalized recovery
+email, the separately delivered `verification_code`, uniqueness, and a
+compliant password; preserves the same user and membership IDs; revokes the
+guest session/device; and returns a fresh normal human session. Missing,
+malformed, and incorrect verification codes share the same
+`guest_account_conversion_verification_failed` response. Conversion attempts
+have separate five-per-minute per-IP and per-identity limits.
 
 ## Browser push subscriptions
 

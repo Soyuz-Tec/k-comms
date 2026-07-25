@@ -7,14 +7,19 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-    - id: add-mobile-member-read-projections
+    - id: add-mobile-read-and-conversation-guest-access
       previous_manifest_sha256: 3a85243b735584c066d79891947ac0a5b8f8780bc71463b0e97bd8177faef1c2
       approved_changes:
         - context:calls:public_contracts:add:CommsCore.AudioCalls.CallSessionView
         - context:conversation_content:public_contracts:add:CommsCore.Attachments.FileView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestAdmissionView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkPreviewView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkView
         - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
-      adr: docs/02-architecture/adr/0046-mobile-member-read-contracts.md
-      removal_condition: Remove after ADR-0046 projections and released adapters are present on the protected branch; this declaration may not authorize later manifest changes.
+        - 'table:conversation_guest_admissions:add:{"canonical_schema":"CommsCore.Conversations.GuestAdmission","owner":"conversations","role":"source"}'
+        - 'table:conversation_guest_links:add:{"canonical_schema":"CommsCore.Conversations.GuestLink","owner":"conversations","role":"source"}'
+      adr: docs/02-architecture/adr/0049-conversation-guest-links-and-convertible-guest-identities.md
+      removal_condition: Remove after the cumulative ADR-0046 mobile projections and ADR-0049 guest-access contracts and tables are present on the protected branch; this declaration may not authorize later manifest changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -232,7 +237,7 @@ enforcement:
 contexts:
   identity_access:
     kind: business
-    responsibility: Human and service identity, credentials, sessions, devices, recovery, and platform grants.
+    responsibility: Human, guest, and service identity, credentials, sessions, devices, recovery, conversion, and platform grants.
     current_contexts: [Accounts, PasswordRecovery, ServiceAccounts]
     fold_in: [PasswordRecovery, ServiceAccounts]
     public_facades: [CommsCore.Accounts, CommsCore.PasswordRecovery, CommsCore.ServiceAccounts]
@@ -293,7 +298,7 @@ contexts:
     consumes: []
   conversations:
     kind: business
-    responsibility: Conversation lifecycle, membership, discovery, and read cursors.
+    responsibility: Conversation lifecycle, membership, discovery, guest links and admission, and read cursors.
     current_contexts: [Conversations]
     fold_in: []
     public_facades: [CommsCore.Conversations]
@@ -305,6 +310,9 @@ contexts:
       - CommsCore.Conversations.CallLifecycleReceipt
       - CommsCore.Conversations.CallMembership
       - CommsCore.Conversations.ConversationView
+      - CommsCore.Conversations.GuestAdmissionView
+      - CommsCore.Conversations.GuestLinkPreviewView
+      - CommsCore.Conversations.GuestLinkView
       - CommsCore.Conversations.MessageWriteSlot
       - CommsCore.Conversations.MembershipView
     internal_namespaces: [CommsCore.Conversations]
@@ -763,6 +771,8 @@ tables:
   service_accounts: {owner: identity_access, canonical_schema: CommsCore.ServiceAccounts.ServiceAccount, role: source}
   conversations: {owner: conversations, canonical_schema: CommsCore.Conversations.Conversation, role: source}
   conversation_memberships: {owner: conversations, canonical_schema: CommsCore.Conversations.Membership, role: source}
+  conversation_guest_links: {owner: conversations, canonical_schema: CommsCore.Conversations.GuestLink, role: source}
+  conversation_guest_admissions: {owner: conversations, canonical_schema: CommsCore.Conversations.GuestAdmission, role: source}
   messages: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Message, role: source}
   message_mentions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageMention, role: source}
   message_reactions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Reaction, role: source}

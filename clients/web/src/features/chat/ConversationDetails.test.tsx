@@ -20,6 +20,7 @@ const conversation: Conversation = {
 
 const currentUser: User = { id: "user-1", tenant_id: "tenant-1", display_name: "Ada", email: "ada@example.test", role: "member", status: "active" };
 const teammate: User = { id: "user-2", tenant_id: "tenant-1", display_name: "Grace", email: "grace@example.test", role: "member", status: "active" };
+const guest: User = { id: "guest-1", tenant_id: "tenant-1", display_name: "Jordan", email: null, account_type: "guest", role: "member", status: "active" };
 
 function membership(id: string, user: User, role: ConversationMembership["role"], version: number): ConversationMembership {
   return { id, user, role, version, joined_at: "2026-07-12T10:00:00Z", last_read_sequence: 0 };
@@ -88,5 +89,26 @@ describe("ConversationDetails confirmations", () => {
 
     await waitFor(() => expect(api.leavePublicChannel).toHaveBeenCalledWith("conversation-1", 11));
     expect(onLeft).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels guest members without rendering a blank email identity", async () => {
+    const members = [
+      membership("member-current", currentUser, "owner", 3),
+      membership("member-guest", guest, "member", 2)
+    ];
+    render(
+      <ConversationDetails
+        api={apiFor(members) as unknown as ApiClient}
+        conversation={conversation}
+        currentUserId={currentUser.id}
+        users={[currentUser]}
+        onClose={vi.fn()}
+        onLeft={vi.fn()}
+        onUpdated={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText("Temporary guest")).toBeVisible();
+    expect(screen.getByText("Guest", { selector: ".role-chip" })).toBeVisible();
   });
 });

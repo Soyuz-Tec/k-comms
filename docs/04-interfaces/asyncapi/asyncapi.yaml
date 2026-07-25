@@ -2,14 +2,14 @@ asyncapi: 3.0.0
 info:
   title: K-Comms Realtime Protocol
   version: 0.3.0
-  description: Phoenix Channel commands and tenant-authorized events connected with a short-lived, one-time socket ticket minted over authenticated HTTPS.
+  description: Phoenix Channel commands and tenant-authorized events connected with a short-lived, one-time socket ticket minted over authenticated HTTPS. Human tickets may join authorized member topics; guest tickets may join only the conversation fixed by their active guest admission.
 defaultContentType: application/json
 channels:
   conversation:
     address: conversation:{conversationId}
     parameters:
       conversationId:
-        description: Conversation UUID authorized at join and for every command
+        description: Conversation UUID authorized at join and for every command; a guest ticket must match its one admitted conversation.
     messages:
       command:
         $ref: '#/components/messages/Command'
@@ -29,9 +29,17 @@ channels:
         $ref: '#/components/messages/MembershipChanged'
       typing:
         $ref: '#/components/messages/Typing'
+      callStarted:
+        $ref: '#/components/messages/CallStarted'
+      callEnded:
+        $ref: '#/components/messages/CallEnded'
+      audioCallStarted:
+        $ref: '#/components/messages/AudioCallStarted'
+      audioCallEnded:
+        $ref: '#/components/messages/AudioCallEnded'
   userInbox:
     address: user:{userId}
-    description: Content-free conversation-list, membership, and notification-availability events; a socket may join only its own user id.
+    description: Human-account-only content-free conversation-list, membership, and notification-availability events; guest sockets cannot join this channel and a human socket may join only its own user id.
     parameters:
       userId:
         description: Authenticated user UUID, equal to the socket identity
@@ -60,6 +68,10 @@ operations:
       - {$ref: '#/channels/conversation/messages/readCursor'}
       - {$ref: '#/channels/conversation/messages/membershipChanged'}
       - {$ref: '#/channels/conversation/messages/typing'}
+      - {$ref: '#/channels/conversation/messages/callStarted'}
+      - {$ref: '#/channels/conversation/messages/callEnded'}
+      - {$ref: '#/channels/conversation/messages/audioCallStarted'}
+      - {$ref: '#/channels/conversation/messages/audioCallEnded'}
   receiveUserInboxEvent:
     action: receive
     channel: {$ref: '#/channels/userInbox'}
@@ -121,7 +133,7 @@ components:
           sequence: {type: integer, minimum: 0}
     MembershipChanged:
       name: membership.changed.v1
-      description: Content-free membership delta emitted after committed administrative or self-service public-channel membership changes.
+      description: Content-free membership delta emitted after committed administrative, self-service public-channel, or guest-link admission changes; no link token or digest is present.
       payload:
         type: object
         additionalProperties: false
@@ -131,7 +143,7 @@ components:
           action: {enum: [added, removed, role_changed]}
           role: {enum: [member, moderator, owner]}
           version: {type: integer, minimum: 1}
-          source: {enum: [administrative, self_service]}
+          source: {enum: [administrative, self_service, guest_link]}
     Typing:
       name: typing.v1
       payload:
@@ -140,6 +152,26 @@ components:
         properties:
           user_id: {type: string, format: uuid}
           state: {enum: [started, stopped]}
+    CallStarted:
+      name: call.started.v1
+      description: Canonical audio/video call-start signal emitted on the authorized conversation topic. Active guest admissions receive the same event after per-event authorization.
+      payload:
+        $ref: '#/components/schemas/CallStartedPayload'
+    CallEnded:
+      name: call.ended.v1
+      description: Canonical audio/video call-end signal emitted on the authorized conversation topic. Active guest admissions receive the same event after per-event authorization.
+      payload:
+        $ref: '#/components/schemas/CallEndedPayload'
+    AudioCallStarted:
+      name: audio_call.started.v1
+      description: Audio-only compatibility alias emitted alongside call.started.v1; new clients should consume the canonical call event.
+      payload:
+        $ref: '#/components/schemas/AudioCallStartedPayload'
+    AudioCallEnded:
+      name: audio_call.ended.v1
+      description: Audio-only compatibility alias emitted alongside call.ended.v1; new clients should consume the canonical call event.
+      payload:
+        $ref: '#/components/schemas/AudioCallEndedPayload'
     ConversationActivity:
       name: conversation.activity.v1
       payload:
@@ -174,3 +206,46 @@ components:
           conversation_id: {type: [string, 'null'], format: uuid}
           message_id: {type: [string, 'null'], format: uuid}
           unread_count: {type: integer, minimum: 0}
+  schemas:
+    CallStartedPayload:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, media_kind, started_by_user_id, status, started_at, expires_at, ended_by_user_id, ended_at, end_reason]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        media_kind: {enum: [audio, video]}
+        started_by_user_id: {type: string, format: uuid}
+        status: {const: active}
+        started_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        ended_by_user_id: {type: 'null'}
+        ended_at: {type: 'null'}
+        end_reason: {type: 'null'}
+    CallEndedPayload:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, media_kind, started_by_user_id, status, started_at, expires_at, ended_by_user_id, ended_at, end_reason]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        media_kind: {enum: [audio, video]}
+        started_by_user_id: {type: string, format: uuid}
+        status: {const: ended}
+        started_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        ended_by_user_id: {type: [string, 'null'], format: uuid}
+        ended_at: {type: string, format: date-time}
+        end_reason: {type: string, minLength: 3, maxLength: 120}
+    AudioCallStartedPayload:
+      allOf:
+        - {$ref: '#/components/schemas/CallStartedPayload'}
+        - type: object
+          properties:
+            media_kind: {const: audio}
+    AudioCallEndedPayload:
+      allOf:
+        - {$ref: '#/components/schemas/CallEndedPayload'}
+        - type: object
+          properties:
+            media_kind: {const: audio}

@@ -130,6 +130,15 @@ test.describe("authenticated mobile web acceptance", () => {
   }
 
   test("all onboarding paths remain visible in the first 320px phone view", async ({ page }) => {
+    const controlledInputErrors: string[] = [];
+    page.on("console", (message) => {
+      if (
+        message.type() === "error"
+        && message.text().includes("controlled input to be uncontrolled")
+      ) {
+        controlledInputErrors.push(message.text());
+      }
+    });
     await page.setViewportSize({ width: 320, height: 720 });
     await page.route("**/api/v1/status", (route) => json(route, {
       service: "k-comms",
@@ -153,6 +162,7 @@ test.describe("authenticated mobile web acceptance", () => {
     await setup.click();
     await expect(page.getByRole("heading", { name: "Create your workspace" })).toBeVisible();
     await expect(page.getByLabel("Workspace name")).toBeVisible();
+    expect(controlledInputErrors).toEqual([]);
   });
 
   test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }) => {

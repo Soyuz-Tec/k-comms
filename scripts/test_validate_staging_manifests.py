@@ -7,6 +7,7 @@ import unittest
 
 from validate_staging_manifests import (
     ROOT,
+    STAGING_MIGRATION_MANIFEST,
     STAGING_MINIO_MANIFEST,
     parse_binary_quantity,
     read_documents,
@@ -18,7 +19,10 @@ from validate_staging_manifests import (
 class StagingManifestValidationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.documents = read_documents(ROOT / STAGING_MINIO_MANIFEST)
+        cls.documents = [
+            *read_documents(ROOT / STAGING_MINIO_MANIFEST),
+            *read_documents(ROOT / STAGING_MIGRATION_MANIFEST),
+        ]
 
     def test_repository_manifest_passes(self) -> None:
         self.assertEqual(validate(), [])
@@ -79,6 +83,40 @@ class StagingManifestValidationTest(unittest.TestCase):
 
         self.assertTrue(any("exactly once at /tmp" in error for error in errors))
 
+    def test_rejects_blind_migration_retries(self) -> None:
+        documents = copy.deepcopy(self.documents)
+        self._migration_job(documents)["spec"]["backoffLimit"] = 1
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
+
+    def test_rejects_unbounded_or_non_quiescent_migration(self) -> None:
+        documents = copy.deepcopy(self.documents)
+        job = self._migration_job(documents)
+        container = job["spec"]["template"]["spec"]["containers"][0]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_MIGRATION_REQUIRE_QUIESCENCE"]["value"] = "false"
+        environment["K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"]["value"] = "30001"
+        environment["K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS"]["value"] = "600000"
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("REQUIRE_QUIESCENCE must be true" in error for error in errors))
+        self.assertTrue(any("LOCK_TIMEOUT_MS must be 1..30000" in error for error in errors))
+        self.assertTrue(any("leave at least 30 seconds" in error for error in errors))
+
+    def test_rejects_unreviewed_migration_runner(self) -> None:
+        documents = copy.deepcopy(self.documents)
+        container = self._migration_job(documents)["spec"]["template"]["spec"][
+            "containers"
+        ][0]
+        container["args"] = ["eval", "System.halt(0)"]
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("reviewed CommsCore.Release.migrate()" in error for error in errors))
+
     @staticmethod
     def _statefulset(documents: list[object]) -> dict:
         return next(
@@ -87,6 +125,16 @@ class StagingManifestValidationTest(unittest.TestCase):
             if isinstance(document, dict)
             and document.get("kind") == "StatefulSet"
             and document.get("metadata", {}).get("name") == "minio"
+        )
+
+    @staticmethod
+    def _migration_job(documents: list[object]) -> dict:
+        return next(
+            document
+            for document in documents
+            if isinstance(document, dict)
+            and document.get("kind") == "Job"
+            and document.get("metadata", {}).get("name") == "k-comms-migrate"
         )
 
     @classmethod
