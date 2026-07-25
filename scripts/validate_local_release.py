@@ -10,7 +10,6 @@ from typing import Any
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPOSE = ROOT / "deploy" / "compose.local-release.yaml"
 DEFAULT_RUNNER = ROOT / "scripts" / "manage_local_release.ps1"
@@ -330,6 +329,18 @@ def validate_local_release(
     new_stable_environment_body = _compact(
         _function_body(runner_document, "New-StableEnvironment")
     )
+    new_encryption_key_body = _compact(
+        _function_body(runner_document, "New-EncryptionKey")
+    )
+    test_encryption_key_body = _compact(
+        _function_body(runner_document, "Test-EncryptionKey")
+    )
+    resolve_stable_encryption_key_body = _compact(
+        _function_body(runner_document, "Resolve-StableEncryptionKey")
+    )
+    stable_encryption_self_test_body = _compact(
+        _function_body(runner_document, "Invoke-StableEncryptionKeySelfTest")
+    )
     get_stable_environment_body = _compact(
         _function_body(runner_document, "Get-StableEnvironment")
     )
@@ -448,6 +459,25 @@ def validate_local_release(
     deploy_capability_position = deploy_body.find("wait-application")
     restore_bootstrap_position = restore_body.find("ensure-instantroomtenant")
     restore_capability_position = restore_body.find("wait-application")
+    if (
+        "[convert]::tobase64string($bytes)" not in new_encryption_key_body
+        or "$decoded.length -eq 32" not in test_encryption_key_body
+        or "webhook_secret_encryption_key = new-encryptionkey"
+        not in new_stable_environment_body
+        or "push_subscription_encryption_key = new-encryptionkey"
+        not in new_stable_environment_body
+        or "resolve-stableencryptionkey" not in get_stable_environment_body
+        or "^[a-za-z0-9_-]{64}$" not in resolve_stable_encryption_key_body
+        or "restore the correct 32-byte key before deployment"
+        not in resolve_stable_encryption_key_body
+        or "resolve-stableencryptionkey" not in stable_encryption_self_test_body
+        or "invoke-stableencryptionkeyselftest" not in validate_body
+    ):
+        errors.append(
+            "local release must generate valid AES-256 keys, repair only the "
+            "known never-valid legacy format, reject unknown retained corruption, "
+            "and exercise that policy during validation"
+        )
     if (
         "bootstrap_owner_password = new-urlsafesecret 48"
         not in new_stable_environment_body

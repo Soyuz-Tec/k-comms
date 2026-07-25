@@ -412,6 +412,61 @@ function New-UrlSafeSecret {
     [Convert]::ToBase64String($bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
 }
 
+function New-EncryptionKey {
+    $bytes = New-Object byte[] 32
+    $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $random.GetBytes($bytes)
+    }
+    finally {
+        $random.Dispose()
+    }
+    [Convert]::ToBase64String($bytes)
+}
+
+function Test-EncryptionKey {
+    param([AllowEmptyString()][string]$Value)
+
+    if ([Text.Encoding]::UTF8.GetByteCount($Value) -eq 32) {
+        return $true
+    }
+
+    try {
+        $decoded = [Convert]::FromBase64String($Value)
+        $decoded.Length -eq 32
+    }
+    catch {
+        $false
+    }
+}
+
+function Resolve-StableEncryptionKey {
+    param(
+        [AllowNull()][AllowEmptyString()][string]$Value,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return New-EncryptionKey
+    }
+    if (Test-EncryptionKey -Value $Value) {
+        return $Value
+    }
+
+    # Releases before instant-room qualification generated these two values
+    # as 48 random bytes encoded with unpadded Base64URL. The application has
+    # never accepted that 64-character representation as an AES-256 key, so it
+    # cannot have produced decryptable ciphertext and is safe to replace.
+    if ($Value -match "^[A-Za-z0-9_-]{64}$") {
+        return New-EncryptionKey
+    }
+
+    throw (
+        "Retained $Name is invalid and does not match the known legacy " +
+        "local-release format; restore the correct 32-byte key before deployment"
+    )
+}
+
 function Read-EnvironmentFile {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -510,8 +565,8 @@ function New-StableEnvironment {
         LIVEKIT_API_SECRET = New-UrlSafeSecret 48
         SECRET_KEY_BASE = New-UrlSafeSecret 72
         PASSWORD_RECOVERY_SIGNING_KEY = New-UrlSafeSecret 48
-        WEBHOOK_SECRET_ENCRYPTION_KEY = New-UrlSafeSecret 48
-        PUSH_SUBSCRIPTION_ENCRYPTION_KEY = New-UrlSafeSecret 48
+        WEBHOOK_SECRET_ENCRYPTION_KEY = New-EncryptionKey
+        PUSH_SUBSCRIPTION_ENCRYPTION_KEY = New-EncryptionKey
         METRICS_BEARER_TOKEN = New-UrlSafeSecret 36
         BOOTSTRAP_OWNER_PASSWORD = New-UrlSafeSecret 48
         WEB_PUSH_VAPID_PUBLIC_KEY = "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
@@ -524,8 +579,28 @@ function Get-StableEnvironment {
         Write-EnvironmentFile -Path $path -Values (New-StableEnvironment)
     }
     $values = Read-EnvironmentFile -Path $path
+    $changed = $false
     if (-not $values.Contains("BOOTSTRAP_OWNER_PASSWORD")) {
         $values["BOOTSTRAP_OWNER_PASSWORD"] = New-UrlSafeSecret 48
+        $changed = $true
+    }
+    foreach ($name in @(
+        "WEBHOOK_SECRET_ENCRYPTION_KEY",
+        "PUSH_SUBSCRIPTION_ENCRYPTION_KEY"
+    )) {
+        $existing = if ($values.Contains($name)) {
+            [string]$values[$name]
+        }
+        else {
+            $null
+        }
+        $resolved = Resolve-StableEncryptionKey -Value $existing -Name $name
+        if ($resolved -cne $existing) {
+            $values[$name] = $resolved
+            $changed = $true
+        }
+    }
+    if ($changed) {
         Write-EnvironmentFile -Path $path -Values $values
     }
     $values
@@ -2391,6 +2466,44 @@ function Invoke-PortPreflightSelfTest {
     }
 }
 
+function Invoke-StableEncryptionKeySelfTest {
+    $generated = New-EncryptionKey
+    if (-not (Test-EncryptionKey -Value $generated)) {
+        throw "Stable encryption-key self-test rejected a generated AES-256 key"
+    }
+
+    $legacy = New-UrlSafeSecret 48
+    if (Test-EncryptionKey -Value $legacy) {
+        throw "Stable encryption-key self-test accepted the legacy 48-byte format"
+    }
+    $rotated = Resolve-StableEncryptionKey `
+        -Value $legacy `
+        -Name "SELF_TEST_ENCRYPTION_KEY"
+    if (-not (Test-EncryptionKey -Value $rotated) -or $rotated -ceq $legacy) {
+        throw "Stable encryption-key self-test did not rotate the known legacy format"
+    }
+
+    $preserved = Resolve-StableEncryptionKey `
+        -Value $generated `
+        -Name "SELF_TEST_ENCRYPTION_KEY"
+    if ($preserved -cne $generated) {
+        throw "Stable encryption-key self-test replaced a valid retained key"
+    }
+
+    $corruptionRejected = $false
+    try {
+        $null = Resolve-StableEncryptionKey `
+            -Value "invalid-retained-key" `
+            -Name "SELF_TEST_ENCRYPTION_KEY"
+    }
+    catch {
+        $corruptionRejected = $true
+    }
+    if (-not $corruptionRejected) {
+        throw "Stable encryption-key self-test accepted unknown retained corruption"
+    }
+}
+
 function Invoke-Validate {
     Assert-RequiredTools -Commands @("podman", "python", "icacls.exe")
     Invoke-NativeCommand `
@@ -2417,6 +2530,7 @@ function Invoke-Validate {
             -Arguments @("config", "--quiet") | Out-Null
         Invoke-StateRootSafetySelfTest
         Invoke-PortPreflightSelfTest
+        Invoke-StableEncryptionKeySelfTest
         Invoke-CapabilityCompatibilitySelfTest
         Invoke-GuestRollbackCompatibilitySelfTest
         Invoke-FailedCandidateCleanupSelfTest

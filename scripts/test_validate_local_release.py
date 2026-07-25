@@ -107,6 +107,31 @@ class LocalReleasePolicyTest(unittest.TestCase):
             errors,
         )
 
+    def test_requires_valid_repairable_stable_encryption_keys(self) -> None:
+        invalid_generator = self.runner.replace(
+            "WEBHOOK_SECRET_ENCRYPTION_KEY = New-EncryptionKey",
+            "WEBHOOK_SECRET_ENCRYPTION_KEY = New-UrlSafeSecret 48",
+        )
+        errors = validate_local_release(self.compose, invalid_generator)
+        self.assertIn(
+            "local release must generate valid AES-256 keys, repair only the "
+            "known never-valid legacy format, reject unknown retained corruption, "
+            "and exercise that policy during validation",
+            errors,
+        )
+
+        missing_self_test = self.runner.replace(
+            "        Invoke-StableEncryptionKeySelfTest",
+            '        Write-Host "stable encryption-key self-test removed"',
+        )
+        errors = validate_local_release(self.compose, missing_self_test)
+        self.assertIn(
+            "local release must generate valid AES-256 keys, repair only the "
+            "known never-valid legacy format, reject unknown retained corruption, "
+            "and exercise that policy during validation",
+            errors,
+        )
+
     def test_rejects_incomplete_livekit_media_port_configuration(self) -> None:
         document = copy.deepcopy(self.compose)
         document["services"]["livekit"]["command"] = [
