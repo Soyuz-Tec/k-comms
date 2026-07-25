@@ -168,9 +168,25 @@ function Get-HttpFailureResponse {
         throw "HTTP request failed without a response: $($ErrorRecord.Exception.Message)"
     }
 
+    # Windows PowerShell consumes and closes the response stream while building
+    # ErrorDetails. Prefer that preserved body; PowerShell 7 may otherwise
+    # expose only a disposed HttpContent instance here.
     $content = $null
+    $errorDetailsProperty = $ErrorRecord.PSObject.Properties["ErrorDetails"]
+    if (
+        $null -ne $errorDetailsProperty -and
+        $null -ne $errorDetailsProperty.Value -and
+        -not [string]::IsNullOrWhiteSpace($errorDetailsProperty.Value.Message)
+    ) {
+        $content = $errorDetailsProperty.Value.Message
+    }
+
     $contentProperty = $response.PSObject.Properties["Content"]
-    if ($null -ne $contentProperty -and $null -ne $contentProperty.Value) {
+    if (
+        [string]::IsNullOrWhiteSpace($content) -and
+        $null -ne $contentProperty -and
+        $null -ne $contentProperty.Value
+    ) {
         $httpContent = $contentProperty.Value
         if ($httpContent -is [string]) {
             $content = $httpContent
@@ -179,7 +195,7 @@ function Get-HttpFailureResponse {
             $content = $httpContent.ReadAsStringAsync().GetAwaiter().GetResult()
         }
     }
-    if ($null -eq $content) {
+    if ([string]::IsNullOrWhiteSpace($content)) {
         $stream = $response.GetResponseStream()
         $reader = New-Object System.IO.StreamReader($stream)
         try {
@@ -538,6 +554,23 @@ function Invoke-SelfTest {
                 detail = "This instant communication room is unavailable"
             }
         })
+    $failureResponse = Get-HttpFailureResponse `
+        -ErrorRecord ([PSCustomObject]@{
+            Exception = [PSCustomObject]@{
+                Response = [PSCustomObject]@{
+                    StatusCode = 404
+                }
+            }
+            ErrorDetails = [PSCustomObject]@{
+                Message = (
+                    '{"error":{"code":"instant_room_unavailable",' +
+                    '"detail":"This instant communication room is unavailable"}}'
+                )
+            }
+        })
+    Assert-InstantRoomUnavailablePayload `
+        -StatusCode $failureResponse.StatusCode `
+        -Payload ($failureResponse.Content | ConvertFrom-Json)
     Assert-AppContract `
         -StatusCode 200 `
         -ContentType "text/html; charset=utf-8" `

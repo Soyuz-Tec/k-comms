@@ -192,7 +192,7 @@ test.describe("sealed guest communication qualification", () => {
       ).toBeVisible({ timeout: 20_000 });
       await expect(
         guestPage.getByRole("alert").filter({
-          hasText: "This guest communication link is unavailable"
+          hasText: "This communication link is unavailable"
         })
       ).toBeVisible({ timeout: 20_000 });
       await expect(
