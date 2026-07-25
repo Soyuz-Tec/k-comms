@@ -60,21 +60,28 @@ test.describe("real-stack instant-room acceptance", () => {
 
     try {
       const qualificationPage = await qualificationContext.newPage();
-      qualificationPage.on("request", (request) => {
+      qualificationPage.on("request", async (request) => {
         if (
           request.method() === "POST" &&
           new URL(request.url()).pathname === "/api/v1/instant-rooms"
         ) {
-          createRequestCount += 1;
+          // Playwright intentionally omits security-related headers such as
+          // Origin from request.headers(). Read only the two headers this
+          // isolation proof needs, without materializing cookies or tokens.
+          const [forwardedFor, originHeader] = await Promise.all([
+            request.headerValue("x-forwarded-for"),
+            request.headerValue("origin")
+          ]);
           const requestOrigin = new URL(request.url()).origin;
           createRequestUsedClientAddress =
-            request.headers()["x-forwarded-for"] === clientAddress;
+            forwardedFor === clientAddress;
           createRequestUsedQualificationOriginHeader =
-            request.headers().origin === qualificationAppOrigin;
+            originHeader === qualificationAppOrigin;
           createRequestUsedQualificationOrigin =
             requestOrigin === qualificationAppOrigin;
           createRequestUsedUnexpectedOrigin =
             requestOrigin !== qualificationAppOrigin;
+          createRequestCount += 1;
         }
       });
 
@@ -194,7 +201,6 @@ test.describe("real-stack instant-room acceptance", () => {
       await guestPage
         .getByRole("button", { name: "Join conversation" })
         .click();
-      await redactShareField(guestPage);
 
       await Promise.all([
         expect(hostPage.locator(".guest-connection.live")).toHaveText("live", {
@@ -210,6 +216,11 @@ test.describe("real-stack instant-room acceptance", () => {
           timeout: 30_000
         })
       ]);
+      await expect(
+        guestPage.getByRole("textbox", {
+          name: /(?:Secure room|Room invite) link/
+        })
+      ).toHaveCount(0);
 
       const hostRoster = hostPage.getByRole("list", {
         name: "Room participants"

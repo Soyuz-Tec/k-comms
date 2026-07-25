@@ -159,7 +159,18 @@ function Read-SealedEnvironmentValues {
         Assert-Condition `
             -Condition (-not $values.ContainsKey($name)) `
             -Message "The sealed release environment defines $name more than once"
-        $values[$name] = $match.Groups["value"].Value
+        $value = $match.Groups["value"].Value
+        if (
+            $value.Length -ge 2 -and
+            (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+             ($value.StartsWith("'") -and $value.EndsWith("'")))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        # Keep this decoding aligned with manage_local_release.ps1. Compose
+        # strips matching outer quotes from --env-file values, while process
+        # environment variables take precedence over that file.
+        $values[$name] = $value.Replace('\"', '"')
     }
     $values
 }
@@ -1879,6 +1890,25 @@ function Get-QualificationContainerEnvironmentValue {
     ([string]$matches[0]).Substring($prefix.Length)
 }
 
+function Get-QualificationRequiredCapabilityDrops {
+    # Podman expands cap_drop: ALL into its default Linux capability set in
+    # container inspect output. Requiring the complete known set keeps stopped
+    # containers fail-closed when Podman cannot report EffectiveCaps.
+    @(
+        "CAP_CHOWN",
+        "CAP_DAC_OVERRIDE",
+        "CAP_FOWNER",
+        "CAP_FSETID",
+        "CAP_KILL",
+        "CAP_NET_BIND_SERVICE",
+        "CAP_SETFCAP",
+        "CAP_SETGID",
+        "CAP_SETPCAP",
+        "CAP_SETUID",
+        "CAP_SYS_CHROOT"
+    )
+}
+
 function Assert-QualificationAppContainerIdentity {
     param(
         [Parameter(Mandatory)]$Inspection,
@@ -2036,11 +2066,43 @@ function Assert-QualificationAppContainerIdentity {
             "exact loopback marker"
         )
 
+    $effectiveCaps = Get-RequiredProperty `
+        -Object $Inspection `
+        -Name "EffectiveCaps" `
+        -Context "isolated qualification app inspection"
+    $capAdd = Get-RequiredProperty `
+        -Object $Inspection.HostConfig `
+        -Name "CapAdd" `
+        -Context "isolated qualification app host configuration"
+    $capDrop = Get-RequiredProperty `
+        -Object $Inspection.HostConfig `
+        -Name "CapDrop" `
+        -Context "isolated qualification app host configuration"
+    $privileged = Get-RequiredProperty `
+        -Object $Inspection.HostConfig `
+        -Name "Privileged" `
+        -Context "isolated qualification app host configuration"
+    $hasNoEffectiveCaps =
+        [object]::ReferenceEquals($null, $effectiveCaps) -or
+        @($effectiveCaps).Count -eq 0
+    $hasNoAddedCaps =
+        [object]::ReferenceEquals($null, $capAdd) -or
+        @($capAdd).Count -eq 0
+    $capDropValues = @($capDrop)
+    $hasCompleteCapabilityDrop =
+        $capDropValues -ccontains "ALL" -or
+        @(
+            Get-QualificationRequiredCapabilityDrops |
+                Where-Object { $capDropValues -cnotcontains $_ }
+        ).Count -eq 0
     Assert-Condition `
         -Condition (
             [bool]$Inspection.HostConfig.ReadonlyRootfs -and
             [string]$Inspection.Config.User -ceq "10001:10001" -and
-            @($Inspection.EffectiveCaps).Count -eq 0 -and
+            $hasNoEffectiveCaps -and
+            $hasNoAddedCaps -and
+            $hasCompleteCapabilityDrop -and
+            -not [bool]$privileged -and
             @($Inspection.HostConfig.SecurityOpt) -ccontains
                 "no-new-privileges" -and
             $null -ne
@@ -2436,6 +2498,73 @@ function Remove-LiveQualificationResources {
     }
 }
 
+function ConvertTo-QualificationMarkerInt32 {
+    param(
+        [Parameter(Mandatory)]$Value,
+        [Parameter(Mandatory)][int]$Minimum,
+        [Parameter(Mandatory)][int]$Maximum,
+        [Parameter(Mandatory)][string]$ErrorMessage
+    )
+
+    Assert-Condition `
+        -Condition (
+            $Value -is [int] -or
+            $Value -is [long]
+        ) `
+        -Message $ErrorMessage
+    $int64Value = [long]$Value
+    Assert-Condition `
+        -Condition (
+            $int64Value -ge [long]$Minimum -and
+            $int64Value -le [long]$Maximum
+        ) `
+        -Message $ErrorMessage
+    [int]$int64Value
+}
+
+function Resolve-QualificationMarkerUtcTimestamp {
+    param(
+        [Parameter(Mandatory)]$Value
+    )
+
+    $errorMessage =
+        "The retained qualification cleanup receipt timestamp is invalid"
+    if ($Value -is [DateTime]) {
+        $createdAt = [DateTime]$Value
+    }
+    elseif ($Value -is [string]) {
+        try {
+            $createdAt = [DateTime]::ParseExact(
+                [string]$Value,
+                "o",
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind
+            )
+        }
+        catch {
+            throw $errorMessage
+        }
+        Assert-Condition `
+            -Condition (
+                [string]$Value -ceq
+                    $createdAt.ToString(
+                        "o",
+                        [Globalization.CultureInfo]::InvariantCulture
+                    )
+            ) `
+            -Message $errorMessage
+    }
+    else {
+        throw $errorMessage
+    }
+    Assert-Condition `
+        -Condition ($createdAt.Kind -eq [DateTimeKind]::Utc) `
+        -Message (
+            "The retained qualification cleanup receipt timestamp must be UTC"
+        )
+    $createdAt
+}
+
 function Resolve-QualificationCleanupReceipt {
     param(
         [Parameter(Mandatory)][string]$CleanupReceiptPath,
@@ -2456,12 +2585,19 @@ function Resolve-QualificationCleanupReceipt {
     Assert-Condition `
         -Condition (
             $null -ne $schemaVersionProperty -and
-            $schemaVersionProperty.Value -is [int] -and
-            [int]$schemaVersionProperty.Value -in @(2, 3) -and
             [string]$receipt.kind -ceq "k-comms-qualification-cleanup"
         ) `
         -Message "The retained qualification cleanup receipt schema is invalid"
-    $schemaVersion = [int]$schemaVersionProperty.Value
+    $schemaVersion = ConvertTo-QualificationMarkerInt32 `
+        -Value $schemaVersionProperty.Value `
+        -Minimum 2 `
+        -Maximum 3 `
+        -ErrorMessage (
+            "The retained qualification cleanup receipt schema is invalid"
+        )
+    Assert-Condition `
+        -Condition ($schemaVersion -in @(2, 3)) `
+        -Message "The retained qualification cleanup receipt schema is invalid"
     $expectedProperties = @(
         "schemaVersion",
         "kind",
@@ -2511,22 +2647,8 @@ function Resolve-QualificationCleanupReceipt {
     Assert-Condition `
         -Condition ($qualificationId -cmatch "^[0-9a-f]{32}$") `
         -Message "The retained qualification cleanup receipt id is invalid"
-    try {
-        $createdAt = [DateTime]::ParseExact(
-            [string]$receipt.createdAt,
-            "o",
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind
-        )
-    }
-    catch {
-        throw "The retained qualification cleanup receipt timestamp is invalid"
-    }
-    Assert-Condition `
-        -Condition ($createdAt.Kind -eq [DateTimeKind]::Utc) `
-        -Message (
-            "The retained qualification cleanup receipt timestamp must be UTC"
-        )
+    $createdAt = Resolve-QualificationMarkerUtcTimestamp `
+        -Value $receipt.createdAt
 
     $releaseContext = Resolve-QualificationReleaseContext `
         -ReceiptPath ([string]$receipt.receiptPath) `
@@ -2584,6 +2706,14 @@ function Resolve-QualificationCleanupReceipt {
         $publicAppUrl = [string]$receipt.publicAppUrl
         $proxyParts = $appTrustedProxyCidr.Split("/")
         $proxyAddress = $null
+        $appHostPort = ConvertTo-QualificationMarkerInt32 `
+            -Value $appHostPortValue `
+            -Minimum 1024 `
+            -Maximum 65535 `
+            -ErrorMessage (
+                "The retained qualification cleanup receipt app identity " +
+                "is invalid"
+            )
         Assert-Condition `
             -Condition (
                 $tenantSlug -ceq
@@ -2592,11 +2722,8 @@ function Resolve-QualificationCleanupReceipt {
                     (Get-QualificationAppContainerName `
                         -QualificationId $qualificationId) -and
                 $appNonce -cmatch "^[0-9a-f]{32}$" -and
-                $appHostPortValue -is [int] -and
-                [int]$appHostPortValue -ge 1024 -and
-                [int]$appHostPortValue -le 65535 -and
                 $appOrigin -ceq
-                    "http://127.0.0.1:$appHostPortValue" -and
+                    "http://127.0.0.1:$appHostPort" -and
                 $proxyParts.Count -eq 2 -and
                 $proxyParts[1] -ceq "32" -and
                 [Net.IPAddress]::TryParse(
@@ -2614,7 +2741,6 @@ function Resolve-QualificationCleanupReceipt {
                 "The retained qualification cleanup receipt app identity " +
                 "is invalid"
             )
-        $appHostPort = [int]$appHostPortValue
         $sealedAppOrigin = Resolve-SealedBaseUri -Value $appOrigin
         $sealedPublicAppUrl =
             Resolve-SealedBaseUri -Value $publicAppUrl
@@ -3116,7 +3242,8 @@ function New-QualificationReleaseContextSelfTestFixture {
             "K_COMMS_RELEASE_PROJECT=$ProjectName`n" +
             "K_COMMS_RELEASE_IMAGE=$imageReference`n" +
             "K_COMMS_RELEASE_REVISION=$revision`n" +
-            "PUBLIC_APP_URL=http://127.0.0.1:4188`n"
+            "PUBLIC_APP_URL=http://127.0.0.1:4188`n" +
+            "CSP_CONNECT_SOURCES=`"'self' http://127.0.0.1:4188`"`n"
         ),
         [Text.UTF8Encoding]::new($false)
     )
@@ -3204,6 +3331,16 @@ function Assert-QualificationLockAndStateSelfTest {
                 -ProjectName $project `
                 -RevisionCharacter "a" `
                 -ImageCharacter "b"
+        $expectedCspConnectSources =
+            "'self' http://127.0.0.1:4188"
+        Assert-Condition `
+            -Condition (
+                [string]$originContext.Environment["CSP_CONNECT_SOURCES"] -ceq
+                    $expectedCspConnectSources
+            ) `
+            -Message (
+                "Self-test did not decode the sealed quoted environment value"
+            )
         $currentContext =
             New-QualificationReleaseContextSelfTestFixture `
                 -StateRoot $stateRoot `
@@ -3240,6 +3377,56 @@ function Assert-QualificationLockAndStateSelfTest {
                 "Self-test sealed Compose environment names were enumerated " +
                 "or could not accept an override"
             )
+        $ambientCspConnectSources =
+            [Environment]::GetEnvironmentVariable(
+                "CSP_CONNECT_SOURCES",
+                "Process"
+            )
+        $ambientSentinel = "ambient-self-test-csp"
+        try {
+            [Environment]::SetEnvironmentVariable(
+                "CSP_CONNECT_SOURCES",
+                $ambientSentinel,
+                "Process"
+            )
+            $observedCspConnectSources =
+                Invoke-WithSealedQualificationEnvironment `
+                    -ReleaseContext $originContext `
+                    -Overrides @{} `
+                    -Command {
+                        [Environment]::GetEnvironmentVariable(
+                            "CSP_CONNECT_SOURCES",
+                            "Process"
+                        )
+                    }
+            Assert-Condition `
+                -Condition (
+                    [string]$observedCspConnectSources -ceq
+                        $expectedCspConnectSources
+                ) `
+                -Message (
+                    "Self-test did not expose the decoded sealed environment " +
+                    "value to Compose"
+                )
+        }
+        finally {
+            $restoredCspConnectSources =
+                [Environment]::GetEnvironmentVariable(
+                    "CSP_CONNECT_SOURCES",
+                    "Process"
+                )
+            [Environment]::SetEnvironmentVariable(
+                "CSP_CONNECT_SOURCES",
+                $ambientCspConnectSources,
+                "Process"
+            )
+        }
+        Assert-Condition `
+            -Condition ($restoredCspConnectSources -ceq $ambientSentinel) `
+            -Message (
+                "Self-test sealed environment wrapper did not restore the " +
+                "ambient process value"
+            )
         Write-QualificationCleanupReceipt `
             -ReleaseContext $originContext `
             -QualificationId $qualificationId `
@@ -3253,17 +3440,32 @@ function Assert-QualificationLockAndStateSelfTest {
             -CleanupReceiptPath $cleanupReceiptPath
         $cleanupText =
             Get-Content -Raw -LiteralPath $cleanupReceiptPath
+        $diskRoundTripMarker =
+            Get-Content -Raw -LiteralPath $cleanupReceiptPath |
+                ConvertFrom-Json
         Assert-Condition `
             -Condition (
                 $cleanupText -notmatch
                     "(?i)password|secret_key_base|database_url" -and
                 $cleanupText -notmatch [Regex]::Escape(
                     $currentContext.ReceiptPath
+                ) -and
+                (
+                    $diskRoundTripMarker.schemaVersion -is [int] -or
+                    $diskRoundTripMarker.schemaVersion -is [long]
+                ) -and
+                (
+                    $diskRoundTripMarker.qualificationAppHostPort -is [int] -or
+                    $diskRoundTripMarker.qualificationAppHostPort -is [long]
+                ) -and
+                (
+                    $diskRoundTripMarker.createdAt -is [string] -or
+                    $diskRoundTripMarker.createdAt -is [DateTime]
                 )
             ) `
             -Message (
-                "Self-test cleanup receipt retained secrets or current-release " +
-                "identity"
+                "Self-test cleanup receipt retained secrets, current-release " +
+                "identity, or unsupported disk JSON types"
             )
         $recovery = Resolve-QualificationCleanupReceipt `
             -CleanupReceiptPath $cleanupReceiptPath `
@@ -3296,6 +3498,82 @@ function Assert-QualificationLockAndStateSelfTest {
                 "Self-test stale cleanup did not remain bound to the " +
                 "originating retained release"
             )
+
+        $assertCleanupMarkerRejected = {
+            param(
+                [Parameter(Mandatory)][string]$MarkerText,
+                [Parameter(Mandatory)][string]$CaseName
+            )
+
+            [IO.File]::WriteAllText(
+                $cleanupReceiptPath,
+                $MarkerText,
+                [Text.UTF8Encoding]::new($false)
+            )
+            $markerRejected = $false
+            try {
+                $null = Resolve-QualificationCleanupReceipt `
+                    -CleanupReceiptPath $cleanupReceiptPath `
+                    -StateRoot $stateRoot `
+                    -ExpectedProjectName $project
+            }
+            catch {
+                $markerRejected = $true
+            }
+            finally {
+                [IO.File]::WriteAllText(
+                    $cleanupReceiptPath,
+                    $cleanupText,
+                    [Text.UTF8Encoding]::new($false)
+                )
+            }
+            Assert-Condition `
+                -Condition $markerRejected `
+                -Message (
+                    "Self-test accepted a $CaseName cleanup marker after a " +
+                    "disk JSON round-trip"
+                )
+        }.GetNewClosure()
+        $nonIntegralSchemaText = [Regex]::Replace(
+            $cleanupText,
+            '("schemaVersion"\s*:\s*)3(?=\s*,)',
+            '${1}3.0'
+        )
+        Assert-Condition `
+            -Condition ($nonIntegralSchemaText -cne $cleanupText) `
+            -Message "Self-test could not build a non-integral schema marker"
+        & $assertCleanupMarkerRejected `
+            -MarkerText $nonIntegralSchemaText `
+            -CaseName "non-integral schema"
+
+        $nonIntegralPortText = [Regex]::Replace(
+            $cleanupText,
+            '("qualificationAppHostPort"\s*:\s*)49152(?=\s*,)',
+            '${1}49152.0'
+        )
+        Assert-Condition `
+            -Condition ($nonIntegralPortText -cne $cleanupText) `
+            -Message "Self-test could not build a non-integral host-port marker"
+        & $assertCleanupMarkerRejected `
+            -MarkerText $nonIntegralPortText `
+            -CaseName "non-integral host-port"
+
+        $outOfRangePortMarker = $cleanupText | ConvertFrom-Json
+        $outOfRangePortMarker.qualificationAppHostPort = [long]65536
+        & $assertCleanupMarkerRejected `
+            -MarkerText (
+                $outOfRangePortMarker | ConvertTo-Json -Depth 4
+            ) `
+            -CaseName "out-of-range host-port"
+
+        $nonUtcTimestampMarker = $cleanupText | ConvertFrom-Json
+        $nonUtcTimestampMarker.createdAt =
+            "2026-07-25T12:34:56.0000000"
+        & $assertCleanupMarkerRejected `
+            -MarkerText (
+                $nonUtcTimestampMarker | ConvertTo-Json -Depth 4
+            ) `
+            -CaseName "non-UTC timestamp"
 
         $fakeLabels = [ordered]@{
             "com.docker.compose.project" = $originContext.ProjectName
@@ -3359,6 +3637,11 @@ function Assert-QualificationLockAndStateSelfTest {
             }
             HostConfig = [PSCustomObject]@{
                 ReadonlyRootfs = $true
+                Privileged = $false
+                CapAdd = @()
+                CapDrop = @(
+                    Get-QualificationRequiredCapabilityDrops
+                )
                 SecurityOpt = @("no-new-privileges")
                 Tmpfs = [PSCustomObject]@{
                     "/tmp" = "rw,nosuid,nodev,noexec"
@@ -3373,6 +3656,84 @@ function Assert-QualificationLockAndStateSelfTest {
         Assert-QualificationAppContainerIdentity `
             -Inspection $fakeInspection `
             -CleanupContext $recovery
+        $nullCapsInspection =
+            ($fakeInspection | ConvertTo-Json -Depth 12) |
+                ConvertFrom-Json
+        $nullCapsInspection.EffectiveCaps = $null
+        Assert-QualificationAppContainerIdentity `
+            -Inspection $nullCapsInspection `
+            -CleanupContext $recovery
+        $nonEmptyCapsInspection =
+            ($fakeInspection | ConvertTo-Json -Depth 12) |
+                ConvertFrom-Json
+        $nonEmptyCapsInspection.EffectiveCaps = @("CAP_CHOWN")
+        $nonEmptyCapsRejected = $false
+        try {
+            Assert-QualificationAppContainerIdentity `
+                -Inspection $nonEmptyCapsInspection `
+                -CleanupContext $recovery
+        }
+        catch {
+            $nonEmptyCapsRejected =
+                $_.Exception.Message -clike "*hardened non-restarting*"
+        }
+        Assert-Condition `
+            -Condition $nonEmptyCapsRejected `
+            -Message (
+                "Self-test accepted a qualification app with effective " +
+                "capabilities"
+            )
+        $stoppedDefaultCapsInspection =
+            ($fakeInspection | ConvertTo-Json -Depth 12) |
+                ConvertFrom-Json
+        $stoppedDefaultCapsInspection.EffectiveCaps = $null
+        $stoppedDefaultCapsInspection.HostConfig.CapDrop = @()
+        $stoppedDefaultCapsInspection.State.Running = $false
+        $stoppedDefaultCapsRejected = $false
+        try {
+            Assert-QualificationAppContainerIdentity `
+                -Inspection $stoppedDefaultCapsInspection `
+                -CleanupContext $recovery
+        }
+        catch {
+            $stoppedDefaultCapsRejected =
+                $_.Exception.Message -clike "*hardened non-restarting*"
+        }
+        Assert-Condition `
+            -Condition $stoppedDefaultCapsRejected `
+            -Message (
+                "Self-test accepted a stopped qualification app with default " +
+                "capabilities"
+            )
+        $stoppedHardenedInspection =
+            ($fakeInspection | ConvertTo-Json -Depth 12) |
+                ConvertFrom-Json
+        $stoppedHardenedInspection.EffectiveCaps = $null
+        $stoppedHardenedInspection.State.Running = $false
+        Assert-QualificationAppContainerIdentity `
+            -Inspection $stoppedHardenedInspection `
+            -CleanupContext $recovery
+        $missingCapsInspection =
+            ($fakeInspection | ConvertTo-Json -Depth 12) |
+                ConvertFrom-Json
+        $missingCapsInspection.PSObject.Properties.Remove("EffectiveCaps")
+        $missingCapsRejected = $false
+        try {
+            Assert-QualificationAppContainerIdentity `
+                -Inspection $missingCapsInspection `
+                -CleanupContext $recovery
+        }
+        catch {
+            $missingCapsRejected =
+                $_.Exception.Message -clike
+                    "*missing required property 'EffectiveCaps'*"
+        }
+        Assert-Condition `
+            -Condition $missingCapsRejected `
+            -Message (
+                "Self-test accepted a qualification app without an effective " +
+                "capability observation"
+            )
         $decoyInspection =
             ($fakeInspection | ConvertTo-Json -Depth 12) |
                 ConvertFrom-Json

@@ -436,11 +436,15 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "qualificationRoomContext(",
             'extraHTTPHeaders: { "X-Forwarded-For": clientAddress }',
             "createRequestUsedQualificationOriginHeader",
+            'request.headerValue("x-forwarded-for")',
+            'request.headerValue("origin")',
             "captureGuestSessionForHandoff(qualificationPage)",
             "installGuestSessionHandoff(",
             "assertInstantRoomShareURL(shareURL, publicOrigin)",
             "url.origin === publicOrigin",
             "expect(publicRequestUsedForwardedFor).toBe(false)",
+            "guestPage.getByRole(\"textbox\", {",
+            ").toHaveCount(0)",
             "2 people online",
             "Host live reply",
             "Guest live message",
@@ -452,6 +456,7 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             'input.value = "[redacted secure room link]"',
         ):
             self.assertIn(anonymous_proof, specification)
+        self.assertNotIn("request.headers().origin", specification)
         for required_environment in (
             "K_COMMS_LIVE_INSTANT_ROOM_QUALIFICATION_APP_ORIGIN",
             "K_COMMS_LIVE_INSTANT_ROOM_PUBLIC_ORIGIN",
