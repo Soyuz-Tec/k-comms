@@ -3,6 +3,45 @@ defmodule CommsWeb.RateLimitTest do
 
   alias CommsWeb.Plugs.RateLimit
 
+  test "a credential burst cannot cross an epoch-aligned window boundary" do
+    key = {:password_verification_identity, "boundary-user"}
+
+    for _attempt <- 1..5 do
+      assert CommsWeb.RateLimiter.allow_at?(key, 5, 60, 59)
+    end
+
+    refute CommsWeb.RateLimiter.allow_at?(key, 5, 60, 60)
+    assert CommsWeb.RateLimiter.allow_at?(key, 5, 60, 119)
+  end
+
+  test "concurrent requests cannot admit more than the configured limit" do
+    key = {:password_verification_identity, "concurrent-user"}
+    parent = self()
+
+    tasks =
+      for _request <- 1..32 do
+        Task.async(fn ->
+          send(parent, {:ready, self()})
+
+          receive do
+            :start -> CommsWeb.RateLimiter.allow_at?(key, 5, 60, 1_000)
+          end
+        end)
+      end
+
+    task_pids =
+      for _request <- 1..32 do
+        assert_receive {:ready, task_pid}, 1_000
+        task_pid
+      end
+
+    Enum.each(task_pids, &send(&1, :start))
+
+    assert tasks
+           |> Task.await_many()
+           |> Enum.count(& &1) == 5
+  end
+
   test "IP-wide authentication limit cannot be bypassed by rotating account identifiers" do
     suffix = rem(System.unique_integer([:positive, :monotonic]), 200) + 20
     remote_ip = {198, 51, 100, suffix}

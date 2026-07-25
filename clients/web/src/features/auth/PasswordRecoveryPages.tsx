@@ -40,7 +40,7 @@ export function ForgotPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Check your email</h2>
           <p>{genericRequestMessage}</p>
-          <Link className="button primary full" to="/app">Return to sign in</Link>
+          <Link className="button primary full" to="/sign-in">Return to sign in</Link>
         </div>
       ) : (
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
@@ -48,7 +48,7 @@ export function ForgotPasswordPage() {
           <Field label="Workspace slug" name="tenant_slug" autoComplete="organization" autoFocus required />
           <Field label="Email address" name="email" type="email" autoComplete="email" required />
           <button className="button primary full" type="submit" disabled={busy}>{busy ? "Requesting…" : "Send reset instructions"}</button>
-          <Link className="recovery-back-link" to="/app">Back to sign in</Link>
+          <Link className="recovery-back-link" to="/sign-in">Back to sign in</Link>
         </form>
       )}
     </RecoveryLayout>
@@ -112,7 +112,7 @@ export function ResetPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Password updated</h2>
           <p>Your password has been reset. Sign in again on each device you want to use.</p>
-          <Link className="button primary full" to="/app">Sign in</Link>
+          <Link className="button primary full" to="/sign-in">Sign in</Link>
         </div>
       ) : !hasToken ? (
         <div className="recovery-result" role="alert">

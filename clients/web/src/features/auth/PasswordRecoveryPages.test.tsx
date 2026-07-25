@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api";
 import { ForgotPasswordPage, ResetPasswordPage } from "./PasswordRecoveryPages";
@@ -10,6 +10,10 @@ const api = vi.hoisted(() => ({
   resetPassword: vi.fn()
 }));
 vi.mock("../../app/session", () => ({ useSession: () => ({ api }) }));
+
+function LocationProbe() {
+  return <output data-testid="location">{useLocation().pathname}</output>;
+}
 
 describe("password recovery pages", () => {
   beforeEach(() => {
@@ -24,6 +28,7 @@ describe("password recovery pages", () => {
     api.requestPasswordRecovery.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/sign-in");
     await user.type(screen.getByLabelText("Workspace slug"), "acme");
     await user.type(screen.getByLabelText("Email address"), "missing@example.test");
     await user.click(screen.getByRole("button", { name: "Send reset instructions" }));
@@ -31,13 +36,19 @@ describe("password recovery pages", () => {
     expect(await screen.findByRole("heading", { name: "Check your email" })).toBeVisible();
     expect(screen.getByText(/If an account matches those details/)).toBeVisible();
     expect(screen.queryByText("missing@example.test")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Return to sign in" })).toHaveAttribute("href", "/sign-in");
   });
 
   it("scrubs the token immediately, keeps it out of storage, and clears it after a successful reset", async () => {
     api.resetPassword.mockResolvedValue(undefined);
     window.history.replaceState({}, "", "/reset-password?utm_source=email#token=top-secret-token&campaign=spring");
     const user = userEvent.setup();
-    render(<MemoryRouter><ResetPasswordPage /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <ResetPasswordPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
 
     expect(window.location.search).toBe("?utm_source=email");
     expect(window.location.hash).toBe("#campaign=spring");
@@ -50,6 +61,10 @@ describe("password recovery pages", () => {
     expect(api.resetPassword).toHaveBeenCalledWith({ token: "top-secret-token", new_password: "correct horse battery staple" });
     expect(await screen.findByRole("heading", { name: "Password updated" })).toBeVisible();
     expect(screen.queryByLabelText(/^New password/)).not.toBeInTheDocument();
+    const signIn = screen.getByRole("link", { name: "Sign in" });
+    expect(signIn).toHaveAttribute("href", "/sign-in");
+    await user.click(signIn);
+    expect(screen.getByTestId("location")).toHaveTextContent("/sign-in");
   });
 
   it("renders a safe server-policy error without exposing the reset token", async () => {

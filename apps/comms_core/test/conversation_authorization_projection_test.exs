@@ -77,44 +77,53 @@ defmodule CommsCore.ConversationAuthorizationProjectionTest do
     refute Conversations.active_conversation_member?(grant, "not-a-uuid")
   end
 
-  test "active membership authorization index is valid and selected by the planner" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-    assert {:ok, grant} = Accounts.access_grant(subject)
-
-    assert %{rows: [[true]]} =
+  test "active membership authorization index is live and matches the query shape" do
+    assert %{
+             rows: [
+               [
+                 true,
+                 true,
+                 true,
+                 false,
+                 "btree",
+                 ["tenant_id", "user_id", "conversation_id"],
+                 "(left_at IS NULL)"
+               ]
+             ]
+           } =
              SQL.query!(
                Repo,
                """
-               SELECT index_record.indisvalid
+               SELECT
+                 index_record.indisvalid,
+                 index_record.indisready,
+                 index_record.indislive,
+                 index_record.indisunique,
+                 access_method.amname,
+                 ARRAY(
+                   SELECT attribute.attname
+                   FROM unnest(index_record.indkey)
+                     WITH ORDINALITY AS indexed_column(attnum, position)
+                   JOIN pg_catalog.pg_attribute AS attribute
+                     ON attribute.attrelid = index_record.indrelid
+                    AND attribute.attnum = indexed_column.attnum
+                   ORDER BY indexed_column.position
+                 ),
+                 pg_catalog.pg_get_expr(
+                   index_record.indpred,
+                   index_record.indrelid
+                 )
                FROM pg_catalog.pg_index AS index_record
                JOIN pg_catalog.pg_class AS index_relation
                  ON index_relation.oid = index_record.indexrelid
                JOIN pg_catalog.pg_namespace AS index_namespace
                  ON index_namespace.oid = index_relation.relnamespace
+               JOIN pg_catalog.pg_am AS access_method
+                 ON access_method.oid = index_relation.relam
                WHERE index_namespace.nspname = current_schema()
                  AND index_relation.relname = 'conversation_memberships_active_user_index'
                """,
                []
              )
-
-    SQL.query!(Repo, "SET LOCAL enable_seqscan = off", [])
-
-    assert %{rows: plan_rows} =
-             SQL.query!(
-               Repo,
-               """
-               EXPLAIN (COSTS OFF)
-               SELECT conversation_id
-               FROM conversation_memberships
-               WHERE tenant_id = $1
-                 AND user_id = $2
-                 AND left_at IS NULL
-               """,
-               [Ecto.UUID.dump!(grant.tenant_id), Ecto.UUID.dump!(grant.user_id)]
-             )
-
-    plan = Enum.map_join(plan_rows, "\n", &List.first/1)
-    assert plan =~ "conversation_memberships_active_user_index"
   end
 end

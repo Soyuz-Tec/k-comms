@@ -7,40 +7,35 @@ enforcement:
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
   reviewed_manifest_transitions:
-    - id: add-self-service-instant-rooms
-      previous_manifest_sha256: 67d21dbc10a668613a5bd750c4b78fd1b635c1b17f895a681b4ddee361839853
+    - id: add-mobile-read-guest-access-and-instant-rooms
+      previous_manifest_sha256: 3a85243b735584c066d79891947ac0a5b8f8780bc71463b0e97bd8177faef1c2
       approved_changes:
+        - context:calls:public_contracts:add:CommsCore.AudioCalls.CallSessionView
+        - context:conversation_content:public_contracts:add:CommsCore.Attachments.FileView
         - context:conversations:public_contracts:add:CommsCore.Conversations.EphemeralRoomView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestAdmissionView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkPreviewView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkView
         - context:conversations:publishes:add:ephemeral_room.created.v1
         - context:conversations:publishes:add:ephemeral_room.expired.v1
         - context:conversations:publishes:add:ephemeral_room.idle.v1
         - context:conversations:publishes:add:ephemeral_room.owner_upgraded.v1
         - context:conversations:publishes:add:ephemeral_room.reactivated.v1
+        - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
         - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits
-        - context:platform_runtime:public_facades:add:CommsCore.PlatformRateLimits
-        - 'table:conversation_ephemeral_presence_leases:add:{"canonical_schema":"CommsCore.Conversations.EphemeralPresenceLease","owner":"conversations","role":"source"}'
-        - 'table:conversation_ephemeral_join_receipts:add:{"canonical_schema":"CommsCore.Conversations.EphemeralJoinReceipt","owner":"conversations","role":"source"}'
-        - 'table:conversation_ephemeral_rooms:add:{"canonical_schema":"CommsCore.Conversations.EphemeralRoom","owner":"conversations","role":"source"}'
         - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits.Bucket
         - context:platform_runtime:public_contracts:add:CommsCore.PlatformRateLimits.Decision
-        - 'table:public_rate_limit_buckets:add:{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket","owner":"platform_runtime","role":"technical"}'
+        - context:platform_runtime:public_facades:add:CommsCore.PlatformRateLimits
         - 'runtime_collaborations:conversation-call-lifecycle:callers:add:"CommsCore.Conversations.EphemeralRooms"'
-        - 'technical_interfaces:web-distributed-public-rate-limit:add:{"callers":["CommsWeb.InstantRoomMessageRateLimit","CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.","contracts":["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct","id":"web-distributed-public-rate-limit","interface":"CommsCore.PlatformRateLimits","operations":[{"arity":4,"name":"allow?"}],"owner":"platform_runtime","transaction":"independent"}'
-      adr: docs/02-architecture/adr/0050-add-self-service-instant-rooms.md
-      removal_condition: Remove after the exact ADR-0050 instant-room ownership, rate-limit boundary, tables, public contract, durable lifecycle event declarations, and worker adapter dependencies are present on the protected branch; this declaration may not authorize later manifest changes.
-    - id: add-mobile-read-and-conversation-guest-access
-      previous_manifest_sha256: 3a85243b735584c066d79891947ac0a5b8f8780bc71463b0e97bd8177faef1c2
-      approved_changes:
-        - context:calls:public_contracts:add:CommsCore.AudioCalls.CallSessionView
-        - context:conversation_content:public_contracts:add:CommsCore.Attachments.FileView
-        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestAdmissionView
-        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkPreviewView
-        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkView
-        - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
+        - 'table:conversation_ephemeral_join_receipts:add:{"canonical_schema":"CommsCore.Conversations.EphemeralJoinReceipt","owner":"conversations","role":"source"}'
+        - 'table:conversation_ephemeral_presence_leases:add:{"canonical_schema":"CommsCore.Conversations.EphemeralPresenceLease","owner":"conversations","role":"source"}'
+        - 'table:conversation_ephemeral_rooms:add:{"canonical_schema":"CommsCore.Conversations.EphemeralRoom","owner":"conversations","role":"source"}'
         - 'table:conversation_guest_admissions:add:{"canonical_schema":"CommsCore.Conversations.GuestAdmission","owner":"conversations","role":"source"}'
         - 'table:conversation_guest_links:add:{"canonical_schema":"CommsCore.Conversations.GuestLink","owner":"conversations","role":"source"}'
-      adr: docs/02-architecture/adr/0049-conversation-guest-links-and-convertible-guest-identities.md
-      removal_condition: Remove after the cumulative ADR-0046 mobile projections and ADR-0049 guest-access contracts and tables are present on the protected branch; this declaration may not authorize later manifest changes.
+        - 'table:public_rate_limit_buckets:add:{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket","owner":"platform_runtime","role":"technical"}'
+        - 'technical_interfaces:web-distributed-public-rate-limit:add:{"callers":["CommsWeb.InstantRoomMessageRateLimit","CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.","contracts":["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct","id":"web-distributed-public-rate-limit","interface":"CommsCore.PlatformRateLimits","operations":[{"arity":4,"name":"allow?"}],"owner":"platform_runtime","transaction":"independent"}'
+      adr: docs/02-architecture/adr/0050-add-self-service-instant-rooms.md
+      removal_condition: Remove after the cumulative ADR-0046 mobile projections, ADR-0049 guest-access contracts and tables, and exact ADR-0050 instant-room ownership, rate-limit boundary, tables, public contract, durable lifecycle event declarations, and worker adapter dependencies are present on the protected branch; this declaration may not authorize later manifest changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff

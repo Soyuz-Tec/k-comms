@@ -1,11 +1,13 @@
 # ADR-0050: Add self-service instant rooms
 
-- **Status:** Accepted for implementation; production enablement gated
+- **Status:** Accepted
+- **Production enablement:** Gated until the prerequisites in this decision
+  are implemented, qualified, and approved
 - **Date:** 2026-07-24
 - **Owners:** Architecture, Conversations, IdentityAccess, ConversationContent,
   Calls, Web, Workers, Security, Privacy, and Operations
 - **Related decisions:** ADR-0001, ADR-0004, ADR-0017, ADR-0018, ADR-0025,
-  ADR-0033, ADR-0034, ADR-0035, ADR-0043, ADR-0049
+  ADR-0033, ADR-0034, ADR-0035, ADR-0043, ADR-0046, ADR-0049
 
 ## Context
 
@@ -33,6 +35,13 @@ review, and operating evidence are present.
 
 Keep instant rooms inside the existing modular monolith, release, PostgreSQL
 database, and media-plane boundary.
+
+The delivery branch accumulates the accepted ADR-0046 mobile projections and
+ADR-0049 guest-access boundary changes on the protected base. Its one-time
+reviewed manifest transition therefore declares that exact cumulative delta
+alongside this decision's instant-room changes. It grants no authority beyond
+those accepted decisions and must be removed after the cumulative declaration
+lands on the protected branch.
 
 ### Ownership and transaction boundaries
 
