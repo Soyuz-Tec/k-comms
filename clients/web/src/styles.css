@@ -955,7 +955,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 .video-participant-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-participant-caption span { flex: 0 0 auto; }
 .call-workspace-sheet { margin: .75rem 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: white; }
-.call-collaboration-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.call-collaboration-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
 .call-collaboration-links button { min-height: 44px; border: 0; border-bottom: 3px solid transparent; color: var(--ink-soft); background: transparent; font: inherit; font-size: var(--text-sm); font-weight: 750; }
 .call-collaboration-links button[aria-pressed="true"] { border-bottom-color: var(--forest); color: var(--forest); }
 .call-workspace-body { min-height: 84px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: .2rem .75rem; padding: .75rem; color: var(--ink); }
@@ -2304,7 +2304,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   .video-call-dock:not(.minimized) .call-collaboration-links {
     flex: 0 0 auto;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: .3rem;
     margin: 0;
     padding: .45rem;

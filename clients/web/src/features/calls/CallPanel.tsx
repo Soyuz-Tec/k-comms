@@ -88,6 +88,8 @@ interface CallPanelProps {
   /** Allows the app shell to own media while feature routes render launchers. */
   renderActions?: boolean;
   onNavigate?: (path: string) => void;
+  /** Returns an instant-room guest to the composer without ending the call. */
+  onOpenChat?: () => void;
   onSessionStateChange?: (state: CallPanelSessionState) => void;
 }
 
@@ -124,6 +126,7 @@ export function CallPanel({
   onLaunchRequestConsumed,
   renderActions = true,
   onNavigate,
+  onOpenChat,
   onSessionStateChange
 }: CallPanelProps) {
   const available = audioEnabled || videoEnabled;
@@ -177,6 +180,16 @@ export function CallPanel({
     mobileCallLayout || joinedKind === "video"
   );
   const callDockRef = useModalDialog(() => setMinimized(true), expandedCallModal);
+
+  function openConversationChat() {
+    setCallWorkspaceTab("chat");
+    setMinimized(true);
+    if (onNavigate) {
+      onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`);
+    } else {
+      onOpenChat?.();
+    }
+  }
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -1188,10 +1201,10 @@ export function CallPanel({
             >
               <nav className="call-collaboration-links" aria-label="Call workspace">
                 <button type="button" aria-pressed={callWorkspaceTab === "chat"} onClick={() => {
-                  setCallWorkspaceTab("chat");
-                  if (onNavigate) {
-                    setMinimized(true);
-                    onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`);
+                  if (onNavigate || onOpenChat) {
+                    openConversationChat();
+                  } else {
+                    setCallWorkspaceTab("chat");
                   }
                 }}>Chat</button>
                 <button type="button" aria-label="Directory" aria-pressed={callWorkspaceTab === "people"} onClick={() => {
@@ -1201,20 +1214,28 @@ export function CallPanel({
                     onNavigate("/app/directory");
                   }
                 }}>People ({participants.length})</button>
-                <button type="button" aria-pressed={callWorkspaceTab === "files"} onClick={() => {
-                  setCallWorkspaceTab("files");
-                  if (onNavigate) {
+                {onNavigate && (
+                  <button type="button" aria-pressed={callWorkspaceTab === "files"} onClick={() => {
+                    setCallWorkspaceTab("files");
                     setMinimized(true);
                     onNavigate("/app/files");
-                  }
-                }}>Files</button>
+                  }}>Files</button>
+                )}
               </nav>
               <div className="call-workspace-body">
                 {callWorkspaceTab === "chat" && (
                   <>
                     <strong>{conversation.title || "Conversation"}</strong>
-                    <span>Continue messaging while the call stays connected.</span>
-                    {onNavigate && <button type="button" onClick={() => { setMinimized(true); onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`); }}>Open chat</button>}
+                    <span>
+                      {onOpenChat
+                        ? "Open the room conversation without ending the call."
+                        : "Continue messaging while the call stays connected."}
+                    </span>
+                    {(onNavigate || onOpenChat) && (
+                      <button type="button" onClick={openConversationChat}>
+                        {onOpenChat && !onNavigate ? "Open room chat" : "Open chat"}
+                      </button>
+                    )}
                   </>
                 )}
                 {callWorkspaceTab === "people" && (
@@ -1228,11 +1249,11 @@ export function CallPanel({
                     ))}
                   </ul>
                 )}
-                {callWorkspaceTab === "files" && (
+                {callWorkspaceTab === "files" && onNavigate && (
                   <>
                     <strong>Shared files</strong>
                     <span>Open authorized conversation files without ending the call.</span>
-                    {onNavigate && <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/files"); }}>Open files</button>}
+                    <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/files"); }}>Open files</button>
                   </>
                 )}
               </div>

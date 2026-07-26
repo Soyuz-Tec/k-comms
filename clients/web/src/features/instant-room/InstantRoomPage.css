@@ -145,6 +145,17 @@
   gap: .55rem;
 }
 
+.instant-room-share-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.instant-room-share-heading .button {
+  flex: 0 0 auto;
+}
+
 .instant-room-share h2 {
   font-size: clamp(1.2rem, 3vw, 1.55rem);
 }
@@ -158,7 +169,7 @@
 .instant-room-link-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: .5rem;
 }
 
@@ -191,6 +202,40 @@
 .instant-room-copy-notice {
   color: #216452 !important;
   font-weight: 750;
+}
+
+.instant-room-share.collapsed {
+  min-height: 76px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding-block: .65rem;
+}
+
+.instant-room-share-compact-copy {
+  min-width: 0;
+  display: grid;
+  gap: .12rem;
+}
+
+.instant-room-share-compact-copy > strong,
+.instant-room-share-compact-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instant-room-share-compact-copy > span:not(.instant-room-kicker, .instant-room-copy-notice) {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.instant-room-share-actions {
+  display: flex;
+  gap: .5rem;
+}
+
+.instant-room-share-actions .button {
+  min-height: 44px;
 }
 
 .instant-room-share .transport-warning {
@@ -302,7 +347,7 @@
   }
 
   .instant-room-link-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: .38rem;
   }
 
@@ -319,6 +364,21 @@
     padding: .45rem .5rem;
     border-radius: 11px;
     font-size: .76rem;
+  }
+
+  .instant-room-share-heading {
+    align-items: flex-start;
+  }
+
+  .instant-room-share.collapsed {
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    overflow: visible;
+  }
+
+  .instant-room-share-actions {
+    display: grid;
   }
 
   .instant-room-share .guest-qr {
@@ -342,6 +402,14 @@
 @media (max-width: 360px) {
   .instant-room-share {
     grid-template-columns: minmax(0, 1fr) 82px;
+  }
+
+  .instant-room-share.collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instant-room-share-actions {
+    grid-template-columns: 1fr 1fr;
   }
 
   .instant-room-share .guest-qr {

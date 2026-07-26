@@ -428,6 +428,45 @@ describe("CallPanel video calls", () => {
     );
   });
 
+  it("returns instant-room guests to chat and omits unsupported files", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const onOpenChat = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeVideoCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        onOpenChat={onOpenChat}
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the video call" }))
+        .getByRole("button", { name: "Join video call" })
+    );
+
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    expect(within(activeCall).queryByRole("button", { name: "Files" }))
+      .not.toBeInTheDocument();
+    await user.click(
+      within(activeCall).getByRole("button", { name: "Open room chat" })
+    );
+
+    expect(onOpenChat).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("region", { name: "Design group" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Show call" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
   it("isolates the covered mobile workspace until an expanded call is minimized", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,

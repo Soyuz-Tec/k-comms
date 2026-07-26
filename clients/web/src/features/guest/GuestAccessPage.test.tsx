@@ -57,6 +57,7 @@ const callPanelHarness = vi.hoisted(() => ({
   props: null as null | {
     audioEnabled: boolean;
     videoEnabled: boolean;
+    onOpenChat?: () => void;
   }
 }));
 
@@ -65,9 +66,20 @@ vi.mock("../../lib/transportSecurity", () => ({
 }));
 
 vi.mock("../calls/CallPanel", () => ({
-  CallPanel: (props: { audioEnabled: boolean; videoEnabled: boolean }) => {
+  CallPanel: (props: {
+    audioEnabled: boolean;
+    videoEnabled: boolean;
+    onOpenChat?: () => void;
+  }) => {
     callPanelHarness.props = props;
-    return <div aria-label="Guest call controls">Audio and video controls</div>;
+    return (
+      <div aria-label="Guest call controls">
+        Audio and video controls
+        <button type="button" onClick={props.onOpenChat}>
+          Open mocked room chat
+        </button>
+      </div>
+    );
   }
 }));
 
@@ -279,8 +291,13 @@ describe("GuestAccessPage", () => {
     }));
     expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
     expect(screen.getByText("Guest", { selector: ".guest-badge" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Room call" })).toBeVisible();
     expect(screen.getByLabelText("Guest call controls")).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Open mocked room chat" }));
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus()
+    );
   });
 
   it("blocks account conversion and media controls on unencrypted non-loopback HTTP", async () => {

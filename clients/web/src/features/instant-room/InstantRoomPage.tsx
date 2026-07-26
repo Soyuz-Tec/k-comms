@@ -530,11 +530,14 @@ export function InstantRoomPage() {
 
   const shareBanner =
     activeRoom.room && activeRoom.shareUrl ? (
-      <InstantRoomSharePanel
-        room={activeRoom.room}
-        shareUrl={activeRoom.shareUrl}
-        title={activeRoom.session.conversation.title || "Instant room"}
-      />
+      (participantCount: number) => (
+        <InstantRoomSharePanel
+          room={activeRoom.room!}
+          shareUrl={activeRoom.shareUrl!}
+          title={activeRoom.session.conversation.title || "Instant room"}
+          participantCount={participantCount}
+        />
+      )
     ) : undefined;
 
   return (
@@ -687,26 +690,38 @@ function wait(milliseconds: number): Promise<void> {
 function InstantRoomSharePanel({
   room,
   shareUrl,
-  title
+  title,
+  participantCount
 }: {
   room: InstantRoom;
   shareUrl: string;
   title: string;
+  participantCount: number;
 }) {
   const [notice, setNotice] = useState("");
+  const [expanded, setExpanded] = useState(true);
+  const [linkRevealed, setLinkRevealed] = useState(false);
   const secureLink = isEncryptedUrl(shareUrl);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const lifetime = instantRoomLifetime(room);
 
   useEffect(() => {
-    titleRef.current?.focus();
-  }, []);
+    if (expanded) titleRef.current?.focus();
+  }, [expanded]);
+
+  useEffect(() => {
+    if (participantCount > 1) setExpanded(false);
+  }, [participantCount]);
 
   async function copyLink() {
     try {
       await copyText(shareUrl);
       setNotice(`${secureLink ? "Secure link" : "Invite link"} copied.`);
+      setExpanded(false);
     } catch {
-      setNotice("Copy failed. Select the link and copy it manually.");
+      setLinkRevealed(true);
+      setExpanded(true);
+      setNotice("Copy failed. The full link is visible so you can copy it manually.");
     }
   }
 
@@ -722,6 +737,7 @@ function InstantRoomSharePanel({
         url: shareUrl
       });
       setNotice("Share sheet opened.");
+      setExpanded(false);
     } catch (reason: unknown) {
       if (
         !(reason instanceof DOMException) ||
@@ -732,13 +748,39 @@ function InstantRoomSharePanel({
     }
   }
 
+  if (!expanded) {
+    return (
+      <section className="instant-room-share collapsed" aria-label="Invite people">
+        <div className="instant-room-share-compact-copy">
+          <span className="instant-room-kicker">Room ready</span>
+          <strong>Invite people when you need them</strong>
+          <span>{participantCount} {participantCount === 1 ? "participant" : "participants"} · {lifetime}</span>
+          {notice && <span className="instant-room-copy-notice" role="status">{notice}</span>}
+        </div>
+        <div className="instant-room-share-actions">
+          <button className="button primary" type="button" onClick={() => setExpanded(true)}>
+            Invite people
+          </button>
+          <button className="button ghost" type="button" onClick={() => void copyLink()}>
+            Copy link
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="instant-room-share" aria-labelledby="instant-share-title">
       <div className="instant-room-share-copy">
         <span className="instant-room-kicker">Ready to share</span>
-        <h2 id="instant-share-title" ref={titleRef} tabIndex={-1}>
-          Invite someone in one step
-        </h2>
+        <div className="instant-room-share-heading">
+          <h2 id="instant-share-title" ref={titleRef} tabIndex={-1}>
+            Invite someone in one step
+          </h2>
+          <button className="button ghost compact" type="button" onClick={() => setExpanded(false)}>
+            Hide invite details
+          </button>
+        </div>
         <p>
           Send this link or ask them to scan the QR code. They can join without
           creating an account.
@@ -749,12 +791,20 @@ function InstantRoomSharePanel({
         <div className="instant-room-link-row">
           <input
             id="instant-room-share-url"
-            type="url"
-            value={shareUrl}
+            type="text"
+            value={linkRevealed ? shareUrl : maskedShareUrl(shareUrl)}
             readOnly
             spellCheck={false}
             onFocus={(event) => event.currentTarget.select()}
           />
+          <button
+            className="button ghost"
+            type="button"
+            aria-pressed={linkRevealed}
+            onClick={() => setLinkRevealed((current) => !current)}
+          >
+            {linkRevealed ? "Hide" : "Reveal"}
+          </button>
           <button className="button primary" type="button" onClick={() => void copyLink()}>
             Copy
           </button>
@@ -763,11 +813,7 @@ function InstantRoomSharePanel({
           </button>
         </div>
         <p className="instant-room-lifetime">
-          {room.expires_at
-            ? `This idle room is available until ${formatDateTime(room.expires_at)}.`
-            : room.owner_kind === "registered"
-              ? "When everyone leaves, this room remains available for 24 hours."
-              : "When everyone leaves, this room remains available for 1 hour."}
+          {lifetime}
         </p>
         {!secureLink && (
           <p className="transport-warning" role="note">
@@ -789,6 +835,20 @@ function InstantRoomSharePanel({
       <QrCode value={shareUrl} label={`Scan to join ${title}`} />
     </section>
   );
+}
+
+function instantRoomLifetime(room: InstantRoom): string {
+  return room.expires_at
+    ? `Available until ${formatDateTime(room.expires_at)}.`
+    : room.owner_kind === "registered"
+      ? "Available for 24 hours after everyone leaves."
+      : "Available for 1 hour after everyone leaves.";
+}
+
+function maskedShareUrl(shareUrl: string): string {
+  const fragmentIndex = shareUrl.indexOf("#");
+  if (fragmentIndex < 0) return shareUrl;
+  return `${shareUrl.slice(0, fragmentIndex)}#guest=••••••••••••`;
 }
 
 async function copyText(value: string): Promise<void> {
