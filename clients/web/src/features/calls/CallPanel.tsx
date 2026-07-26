@@ -189,6 +189,16 @@ export function CallPanel({
     }
   }
 
+  function openConversationChat() {
+    setCallWorkspaceTab("chat");
+    setMinimized(true);
+    if (onNavigate) {
+      onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`);
+    } else {
+      onOpenChat?.();
+    }
+  }
+
   useEffect(() => {
     if (!window.matchMedia) return;
     const query = window.matchMedia("(max-width: 760px)");
