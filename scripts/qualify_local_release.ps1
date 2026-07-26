@@ -2281,14 +2281,14 @@ function Invoke-QualificationObjectPurge {
         'cond do verified -> {:ok, %{verified_empty?: true, ' +
         'deleted_versions: next_versions, deleted_markers: next_markers}}; ' +
         'remaining > 1 -> ' +
-        'delay_ms = if remaining == 3, do: 500, else: 1_000; ' +
+        'delay_ms = min((9 - remaining) * 1_000, 5_000); ' +
         'Process.sleep(delay_ms); ' +
         'purge.(purge, remaining - 1, next_versions, next_markers); ' +
         'true -> {:ok, %{verified_empty?: false, ' +
         'deleted_versions: next_versions, deleted_markers: next_markers}} end; ' +
         '{:error, reason} -> {:error, reason}; ' +
         '_ -> {:error, :unclassified} end end; ' +
-        'case purge.(purge, 3, 0, 0) do ' +
+        'case purge.(purge, 8, 0, 0) do ' +
         '{:ok, %{verified_empty?: true, deleted_versions: versions, ' +
         'deleted_markers: markers}} -> ' +
         'IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true ' +
