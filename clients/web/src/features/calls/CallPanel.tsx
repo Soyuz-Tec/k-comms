@@ -179,7 +179,6 @@ export function CallPanel({
     mobileCallLayout || joinedKind === "video"
   );
   const callDockRef = useModalDialog(() => setMinimized(true), expandedCallModal);
-
   function openConversationChat() {
     setCallWorkspaceTab("chat");
     setMinimized(true);
