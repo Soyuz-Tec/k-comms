@@ -9,25 +9,47 @@ defmodule CommsIntegrations.LocalReleaseGuard do
   release host may select one exact RFC1918 IPv4 address for controlled
   private-LAN evaluation. A separately confirmed, disposable qualification
   application may use one exact loopback browser origin without changing the
-  retained release host or its content-security policy.
+  retained release host or its content-security policy. A distinct,
+  operator-confirmed Cloudflare Tunnel profile permits only exact HTTPS/WSS
+  public origins behind one narrowly trusted ingress network.
   """
 
   @loopback_hosts ["127.0.0.1", "::1", "localhost"]
   @qualification_app_confirmation "local-release-qualification-app-v1"
   @qualification_tenant_slug ~r/\Ak-comms-qualification-[0-9a-f]{32}\z/
   @qualification_app_port_range 1_024..65_535
+  @trusted_edge_exposure_mode "cloudflare_trusted_edge"
+  @trusted_edge_confirmation "cloudflare-tunnel-v1"
 
   @spec validate!(keyword()) :: :ok
   def validate!(options) do
     enabled? = Keyword.fetch!(options, :enabled?)
+    exposure_mode = Keyword.get(options, :exposure_mode)
+    trusted_edge_confirmation = Keyword.get(options, :trusted_edge_confirmation)
+
+    unless exposure_mode in [nil, "", @trusted_edge_exposure_mode] do
+      raise ArgumentError,
+            "K_COMMS_RELEASE_EXPOSURE_MODE must be unset or exactly " <>
+              @trusted_edge_exposure_mode
+    end
 
     cond do
+      exposure_mode == @trusted_edge_exposure_mode and not enabled? ->
+        raise ArgumentError,
+              "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode} requires " <>
+                "K_COMMS_LOCAL_RELEASE=true"
+
       enabled? ->
-        validate_enabled!(options)
+        validate_enabled!(options, exposure_mode, trusted_edge_confirmation)
 
       qualification_app_requested?(options) ->
         raise ArgumentError,
               "K_COMMS_QUALIFICATION_APP_ORIGIN requires K_COMMS_LOCAL_RELEASE=true"
+
+      trusted_edge_confirmation not in [nil, ""] ->
+        raise ArgumentError,
+              "K_COMMS_TRUSTED_EDGE_CONFIRMATION is valid only when " <>
+                "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
 
       true ->
         :ok
@@ -36,7 +58,7 @@ defmodule CommsIntegrations.LocalReleaseGuard do
     :ok
   end
 
-  defp validate_enabled!(options) do
+  defp validate_enabled!(options, exposure_mode, trusted_edge_confirmation) do
     unless Keyword.fetch!(options, :development_adapters?) do
       raise ArgumentError,
             "K_COMMS_LOCAL_RELEASE=true requires ALLOW_DEVELOPMENT_ADAPTERS=true"
@@ -52,6 +74,20 @@ defmodule CommsIntegrations.LocalReleaseGuard do
             "K_COMMS_LOCAL_RELEASE=true requires AUDIO_PROVIDER_MODE=livekit"
     end
 
+    if exposure_mode == @trusted_edge_exposure_mode do
+      validate_trusted_edge!(options, trusted_edge_confirmation)
+    else
+      unless trusted_edge_confirmation in [nil, ""] do
+        raise ArgumentError,
+              "K_COMMS_TRUSTED_EDGE_CONFIRMATION is valid only when " <>
+                "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
+      end
+
+      validate_direct_release!(options)
+    end
+  end
+
+  defp validate_direct_release!(options) do
     qualification_app_origin = qualification_app_origin!(options)
     public_hosts = release_hosts!(Keyword.fetch!(options, :local_release_host))
 
@@ -106,6 +142,202 @@ defmodule CommsIntegrations.LocalReleaseGuard do
       public_hosts
     )
   end
+
+  defp validate_trusted_edge!(options, confirmation) do
+    unless confirmation == @trusted_edge_confirmation do
+      raise ArgumentError,
+            "K_COMMS_TRUSTED_EDGE_CONFIRMATION must exactly equal " <>
+              @trusted_edge_confirmation
+    end
+
+    if qualification_app_requested?(options) do
+      raise ArgumentError,
+            "K_COMMS_QUALIFICATION_APP_ORIGIN is not valid with " <>
+              "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
+    end
+
+    public_app_url = Keyword.fetch!(options, :public_app_url)
+
+    public_app_origin =
+      require_public_origin!(
+        public_app_url,
+        "PUBLIC_APP_URL",
+        "https"
+      )
+
+    phx_host =
+      options
+      |> Keyword.fetch!(:phx_host)
+      |> normalize_hostname!("PHX_HOST")
+
+    unless elem(public_app_origin, 1) == phx_host do
+      raise ArgumentError,
+            "PHX_HOST must exactly match the PUBLIC_APP_URL host in trusted-edge mode"
+    end
+
+    livekit_origin =
+      require_public_origin!(
+        Keyword.fetch!(options, :livekit_server_url),
+        "LIVEKIT_SERVER_URL",
+        "wss"
+      )
+
+    require_origin!(
+      Keyword.fetch!(options, :livekit_api_url),
+      "LIVEKIT_API_URL",
+      ["http"],
+      ["livekit"],
+      required_port: 7880
+    )
+
+    object_origin =
+      require_public_origin!(
+        Keyword.fetch!(options, :s3_public_endpoint),
+        "S3_PUBLIC_ENDPOINT",
+        "https"
+      )
+
+    require_exact_cors!(
+      Keyword.fetch!(options, :cors_origins),
+      public_app_url
+    )
+
+    require_exact_csp!(
+      Keyword.fetch!(options, :csp_connect_sources),
+      livekit_origin,
+      object_origin
+    )
+
+    unless Keyword.get(options, :hsts?, false) do
+      raise ArgumentError,
+            "HSTS_ENABLED must be true when " <>
+              "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
+    end
+
+    require_exact_trusted_proxy_cidr!(Keyword.get(options, :trusted_proxy_cidrs, []))
+  end
+
+  defp require_public_origin!(value, name, scheme) do
+    uri = URI.parse(value || "")
+    host = normalize_hostname(uri.host, name)
+
+    valid? =
+      is_binary(value) and value == String.trim(value) and uri.scheme == scheme and
+        is_binary(host) and uri.port == 443 and uri.path in [nil, "", "/"] and
+        is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment) and
+        public_dns_hostname?(host) and value == "#{scheme}://#{host}"
+
+    unless valid? do
+      raise ArgumentError,
+            "#{name} must be an exact public #{String.upcase(scheme)} origin on port 443 " <>
+              "when K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
+    end
+
+    {scheme, host, 443}
+  end
+
+  defp normalize_hostname!(value, name) do
+    case normalize_hostname(value, name) do
+      nil ->
+        raise ArgumentError,
+              "#{name} must be one canonical DNS hostname in trusted-edge mode"
+
+      host ->
+        host
+    end
+  end
+
+  defp normalize_hostname(value, _name) when is_binary(value) do
+    normalized = String.downcase(value)
+
+    if value == normalized and value == String.trim(value) and
+         normalized == String.trim_trailing(normalized, ".") do
+      normalized
+    end
+  end
+
+  defp normalize_hostname(_value, _name), do: nil
+
+  defp public_dns_hostname?(host) do
+    byte_size(host) in 1..253 and
+      not String.ends_with?(host, ".invalid") and
+      not String.ends_with?(host, ".localhost") and
+      host != "localhost" and
+      match?({:error, _}, :inet.parse_address(String.to_charlist(host))) and
+      host
+      |> String.split(".")
+      |> then(
+        &(length(&1) >= 2 and
+            Enum.all?(&1, fn label ->
+              byte_size(label) in 1..63 and
+                Regex.match?(~r/\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z/, label)
+            end))
+      )
+  end
+
+  defp require_exact_cors!(values, public_app_url) do
+    unless values == [public_app_url] do
+      raise ArgumentError,
+            "CORS_ORIGINS must contain exactly PUBLIC_APP_URL in trusted-edge mode"
+    end
+  end
+
+  defp require_exact_csp!(values, livekit_origin, object_origin) do
+    valid? =
+      case values do
+        ["'self'", livekit, object] ->
+          origin_identity(livekit, "wss") == {:ok, livekit_origin} and
+            origin_identity(object, "https") == {:ok, object_origin}
+
+        _ ->
+          false
+      end
+
+    unless valid? do
+      raise ArgumentError,
+            "CSP_CONNECT_SOURCES must contain exactly 'self', LIVEKIT_SERVER_URL, " <>
+              "and S3_PUBLIC_ENDPOINT in trusted-edge mode"
+    end
+  end
+
+  defp origin_identity(value, expected_scheme) do
+    uri = URI.parse(value || "")
+    host = normalize_hostname(uri.host, "origin")
+
+    if is_binary(value) and value == String.trim(value) and uri.scheme == expected_scheme and
+         is_binary(host) and uri.port == 443 and uri.path in [nil, "", "/"] and
+         is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment) do
+      {:ok, {expected_scheme, host, 443}}
+    else
+      :error
+    end
+  end
+
+  defp require_exact_trusted_proxy_cidr!([value]) do
+    unless canonical_private_ipv4_host_cidr?(value) do
+      raise ArgumentError,
+            "TRUSTED_PROXY_CIDRS must contain exactly one canonical private IPv4 /32 " <>
+              "in trusted-edge mode"
+    end
+  end
+
+  defp require_exact_trusted_proxy_cidr!(_values) do
+    raise ArgumentError,
+          "TRUSTED_PROXY_CIDRS must contain exactly one canonical private IPv4 /32 " <>
+            "in trusted-edge mode"
+  end
+
+  defp canonical_private_ipv4_host_cidr?(value) when is_binary(value) do
+    case String.split(value, "/", parts: 2) do
+      [address, "32"] ->
+        value == String.trim(value) and private_rfc1918_ipv4?(address)
+
+      _ ->
+        false
+    end
+  end
+
+  defp canonical_private_ipv4_host_cidr?(_value), do: false
 
   defp qualification_app_requested?(options) do
     not is_nil(Keyword.get(options, :qualification_app_origin)) or

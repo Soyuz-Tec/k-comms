@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import shutil
 import subprocess
 import tempfile
@@ -1005,11 +1007,17 @@ Write-Output "strict forwarder command identity runtime self-test passed"
             (
                 (
                     "    Assert-RetainedReleaseAssets -Receipt $current\n"
+                    "    Unregister-LanForwarderSupervisor `\n"
+                    "        -Receipt $current `\n"
+                    "        -AllowNotRegistered\n"
                     "    Stop-LanForwarder -Receipt $current -AllowNotRunning\n"
                     "    Ensure-PodmanReady"
                 ),
                 (
                     "    Assert-RetainedReleaseAssets -Receipt $current\n"
+                    "    Unregister-LanForwarderSupervisor `\n"
+                    "        -Receipt $current `\n"
+                    "        -AllowNotRegistered\n"
                     "    Write-Warning 'forwarder left running'\n"
                     "    Ensure-PodmanReady"
                 ),
@@ -1188,6 +1196,28 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 for error in errors
             )
         )
+
+    def test_one_shot_services_clear_trusted_edge_application_context(self) -> None:
+        for service_name in ("migrate", "bootstrap", "qualification"):
+            for environment_name in (
+                "K_COMMS_RELEASE_EXPOSURE_MODE",
+                "K_COMMS_TRUSTED_EDGE_CONFIRMATION",
+            ):
+                with self.subTest(
+                    service=service_name,
+                    environment=environment_name,
+                ):
+                    document = copy.deepcopy(self.compose)
+                    document["services"][service_name]["environment"][
+                        environment_name
+                    ] = f"${{{environment_name}:-inherited}}"
+
+                    errors = validate_local_release(document, self.runner)
+
+                    self.assertTrue(
+                        any(environment_name in error for error in errors),
+                        errors,
+                    )
 
         runner = self.runner.replace(
             "        Stop-ApplicationForMigration `",
@@ -1726,6 +1756,576 @@ Write-Output "strict forwarder command identity runtime self-test passed"
             errors,
         )
 
+    def test_requires_trusted_edge_compose_interpolation(self) -> None:
+        document = copy.deepcopy(self.compose)
+        document["services"]["app"]["environment"].pop(
+            "K_COMMS_RELEASE_EXPOSURE_MODE"
+        )
+        document["services"]["app"]["environment"].pop("HSTS_ENABLED")
+        document["services"]["app"]["environment"].pop("TRUSTED_PROXY_CIDRS")
+        document["services"]["livekit"]["command"] = [
+            (
+                "${K_COMMS_RELEASE_HOST:-127.0.0.1}"
+                if value == "${K_COMMS_LIVEKIT_NODE_IP:-127.0.0.1}"
+                else value
+            )
+            for value in document["services"]["livekit"]["command"]
+        ]
+        errors = validate_local_release(document, self.runner)
+        self.assertTrue(
+            any(
+                "K_COMMS_RELEASE_EXPOSURE_MODE="
+                "${K_COMMS_RELEASE_EXPOSURE_MODE:-}" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "${K_COMMS_LIVEKIT_NODE_IP:-127.0.0.1}" in error
+                for error in errors
+            )
+        )
+        for variable in ("HSTS_ENABLED", "TRUSTED_PROXY_CIDRS"):
+            self.assertTrue(
+                any(variable in error for error in errors),
+                f"{variable} interpolation was not enforced",
+            )
+
+    def test_rejects_incomplete_cloudflare_trusted_edge_contract(self) -> None:
+        mutations = {
+            "CLI profile": (
+                '[ValidateSet("auto", "cloudflare_trusted_edge")]',
+                '[ValidateSet("auto")]',
+            ),
+            "canonical HTTPS app origin": (
+                'PublicAppUrl = "https://$resolvedAppHostname"',
+                'PublicAppUrl = "http://$resolvedAppHostname"',
+            ),
+            "exact trusted-edge confirmation": (
+                "if ($TrustedEdgeConfirmation -cne "
+                "$cloudflareTrustedEdgeConfirmation) {",
+                "if ($false) {",
+            ),
+            "canonical lowercase hostname": (
+                "$Value -cne $Value.ToLowerInvariant() -or",
+                "$false -or",
+            ),
+            "non-loopback media node": (
+                "if ($observation.BindAddress -ceq $podmanBindAddress) {",
+                "if ($false) {",
+            ),
+            "RFC1918 proxy requirement": (
+                "-not (Test-Rfc1918IPv4 -Address $parsed)",
+                "$false",
+            ),
+            "observed Podman gateway": (
+                '$attachments[0].Value.PSObject.Properties["Gateway"]',
+                '$attachments[0].Value.PSObject.Properties["RemovedGateway"]',
+            ),
+            "schema-v6 receipt": (
+                "schemaVersion = 6",
+                "schemaVersion = 5",
+            ),
+            "sealed application hostname": (
+                '$record["appHostname"] = [string]$Observation.PublicHost',
+                '$record["removedAppHostname"] = [string]$Observation.PublicHost',
+            ),
+            "trusted exposure replay": (
+                "if ($recordedExposureMode -cne "
+                "$cloudflareTrustedEdgeProfile) {",
+                "if ($false) {",
+            ),
+            "trusted media-only replay": (
+                "if (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt) {",
+                "if ($false) {",
+            ),
+            "trusted-edge rollback gate": (
+                "Assert-RollbackExposureTopologyCompatible `",
+                "Removed-RollbackExposureTopologyCompatible `",
+            ),
+            "rollback topology comparison": (
+                "if ($comparison[1] -cne $comparison[2]) {",
+                "if ($false) {",
+            ),
+        }
+        expected = (
+            "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
+            "origins, one RFC1918 Podman gateway /32, schema-v6 media-only "
+            "forwarding, public health probes, and rollback-compatible topology"
+        )
+        for description, (before, after) in mutations.items():
+            with self.subTest(description=description):
+                self.assertIn(before, self.runner)
+                errors = validate_local_release(
+                    self.compose,
+                    self.runner.replace(before, after),
+                )
+                self.assertIn(expected, errors)
+
+    def test_rejects_missing_media_supervision_or_strict_health(self) -> None:
+        expected = (
+            "trusted-edge media forwarding must use receipt-bound scheduled "
+            "supervision, exact crash recovery, strict health checks, and "
+            "fail-closed receipt schema compatibility"
+        )
+        mutations = (
+            (
+                "$schemaVersion -gt $supportedReceiptSchemaVersion",
+                "$schemaVersion -lt 0",
+            ),
+            (
+                '$retainedSupervisorManagerName = "manage_local_release.supervisor.ps1"',
+                '$retainedSupervisorManagerName = "manage_local_release.ps1"',
+            ),
+            ("Register-ScheduledTask `", "Removed-ScheduledTaskRegistration `"),
+            (
+                "        $after = Repair-LanForwarderIfNeeded -Receipt $current",
+                "        $after = Get-LanForwarderObservation -Receipt $current",
+            ),
+            (
+                '"HealthCheck" { Invoke-HealthCheck }',
+                '"HealthCheck" { Invoke-Status }',
+            ),
+            (
+                "        Invoke-LanForwarderSupervisionSelfTest `",
+                "        Write-Host 'supervision self-test removed' `",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                self.assertIn(original, self.runner)
+                errors = validate_local_release(
+                    self.compose,
+                    self.runner.replace(original, replacement),
+                )
+                self.assertIn(expected, errors)
+
+    def test_rejects_supervisor_bootstrap_task_or_publication_regression(
+        self,
+    ) -> None:
+        expected = (
+            "trusted-edge supervisor must bootstrap from receipt-only state, "
+            "seal immutable manager and PowerShell assets, enforce exact task "
+            "identity/schedule/readiness, and publish current only after "
+            "registration"
+        )
+        mutations = (
+            (
+                "        $ImmutableSourceRoot `\n"
+                '        "scripts\\manage_local_release.ps1"',
+                "        $repositoryRoot `\n"
+                '        "scripts\\manage_local_release.ps1"',
+            ),
+            (
+                "powerShellExecutablePath = Get-CurrentPowerShellExecutablePath",
+                'powerShellExecutablePath = Join-Path $PSHOME "powershell.exe"',
+            ),
+            (
+                "    $trigger.Repetition.StopAtDurationEnd = $true",
+                "    $trigger.Repetition.StopAtDurationEnd = $false",
+            ),
+            (
+                "        -At $taskStartBoundary.LocalDateTime `",
+                "        -At ([DateTime]::Parse('2099-01-01')) `",
+            ),
+            (
+                "            -Value $trigger.StartBoundary",
+                "            -Value $Supervisor.taskStartBoundaryUtc",
+            ),
+            (
+                "            $taskInfo = Get-ScheduledTaskInfo `",
+                "            $taskInfo = $null # runtime info query removed `",
+            ),
+            (
+                '$TaskInfo.PSObject.Properties["NextRunTime"]',
+                '$TaskInfo.PSObject.Properties["LastRunTime"]',
+            ),
+            (
+                "            Set-LanForwarderSupervisorScheduleRecord `",
+                "            Write-Host 'schedule sealing removed' `",
+            ),
+            (
+                "            -Value $settings.Enabled `",
+                "            -Value $true `",
+            ),
+            (
+                "        Enter-SupervisorOperationLock `",
+                "        Enter-ReleaseOperationLock `",
+            ),
+            (
+                "        $current = Get-SupervisorCurrentReceipt `",
+                "        $current = Get-CurrentReceipt `",
+            ),
+            (
+                "    if (-not $observation.IdentityMatchesReceipt) {",
+                "    if (-not $observation.MatchesReceipt) {",
+            ),
+            (
+                "        $null = Register-LanForwarderSupervisor -Receipt $receipt",
+                "        Write-Host 'supervisor registration removed'",
+            ),
+        )
+        for original, replacement in mutations:
+            with self.subTest(original=original):
+                self.assertIn(original, self.runner)
+                errors = validate_local_release(
+                    self.compose,
+                    self.runner.replace(original, replacement, 1),
+                )
+                self.assertIn(expected, errors)
+
+    @unittest.skipUnless(
+        WINDOWS_POWERSHELL,
+        "Windows PowerShell is required for this runtime self-test",
+    )
+    def test_retained_supervisor_copy_bootstraps_without_repository_context(
+        self,
+    ) -> None:
+        candidate_id = "20260725T000000Z-0123456789ab-01234567"
+        config_sha256 = "a" * 64
+        project_name = "k-comms-supervisor-child-test"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            state_root = Path(temporary_directory) / "receipt state"
+            candidate_directory = state_root / "history" / candidate_id
+            candidate_directory.mkdir(parents=True)
+            retained_manager = (
+                candidate_directory / "manage_local_release.supervisor.ps1"
+            )
+            shutil.copyfile(DEFAULT_RUNNER, retained_manager)
+            receipt_path = candidate_directory / "deployment.json"
+            manager_sha256 = hashlib.sha256(
+                retained_manager.read_bytes()
+            ).hexdigest()
+            receipt = {
+                "schemaVersion": 6,
+                "candidateId": candidate_id,
+                "receiptPath": str(receipt_path),
+                "projectName": project_name,
+                "network": {"exposureProfile": "private_lan"},
+                "forwarder": {
+                    "required": True,
+                    "configSha256": config_sha256,
+                    "supervisor": {
+                        "managerScriptPath": str(retained_manager),
+                        "managerScriptSha256": manager_sha256,
+                        "expectedReceiptPath": str(receipt_path),
+                        "expectedCandidateId": candidate_id,
+                        "expectedForwarderConfigSha256": config_sha256,
+                    },
+                },
+            }
+            receipt_path.write_text(
+                json.dumps(receipt),
+                encoding="utf-8",
+            )
+            (state_root / "current.json").write_text(
+                json.dumps({"receiptPath": str(receipt_path)}),
+                encoding="utf-8",
+            )
+            (state_root / ".k-comms-local-release-state-v1.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "kind": "k-comms-local-release-state",
+                        "canonicalPath": str(state_root.resolve()),
+                        "projectName": project_name,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    WINDOWS_POWERSHELL,
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(retained_manager),
+                    "-Action",
+                    "Supervise",
+                    "-StateRoot",
+                    str(state_root),
+                    "-ProjectName",
+                    project_name,
+                    "-ExpectedReceiptPath",
+                    str(receipt_path),
+                    "-ExpectedCandidateId",
+                    candidate_id,
+                    "-ExpectedForwarderConfigSha256",
+                    config_sha256,
+                    "-ReadyTimeoutSeconds",
+                    "30",
+                ],
+                cwd=Path(temporary_directory),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0, output)
+            self.assertIn(
+                "receipt-bound media supervisor requires trusted-edge mode",
+                output,
+            )
+            for forbidden in (
+                "Compose source is missing",
+                "Required command is unavailable",
+                "dangerous local-release state root",
+                "must remain outside the repository",
+            ):
+                self.assertNotIn(forbidden, output)
+
+    @unittest.skipUnless(
+        WINDOWS_POWERSHELL,
+        "Windows PowerShell is required for this runtime self-test",
+    )
+    def test_supervisor_task_contract_rejects_disabled_and_schedule_drift(
+        self,
+    ) -> None:
+        function_sources = "\n".join(
+            f"function {name} {{{_function_body(self.runner, name)}"
+            for name in (
+                "Get-RequiredForwarderProperty",
+                "Get-LanForwarderSupervisorTaskArguments",
+                "Test-ScheduledTaskDurationEquals",
+                "ConvertTo-ScheduledTaskUtcDateTimeOffset",
+                "Test-ScheduledTaskNamedValue",
+                "Test-ScheduledTaskBoolean",
+                "Get-LanForwarderSupervisorTaskContractObservation",
+            )
+        )
+        driver = r"""
+$ErrorActionPreference = "Stop"
+$now = [DateTimeOffset]::Parse(
+    "2026-07-25T00:00:30Z",
+    [Globalization.CultureInfo]::InvariantCulture
+)
+$supervisor = [PSCustomObject]@{
+    managerScriptPath = "C:\State\history\candidate\manager.ps1"
+    powerShellExecutablePath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    stateRoot = "C:\State"
+    projectName = "k-comms-task-contract-test"
+    expectedReceiptPath = "C:\State\history\candidate\deployment.json"
+    expectedCandidateId = "20260725T000000Z-0123456789ab-01234567"
+    expectedForwarderConfigSha256 = ("a" * 64)
+    readyTimeoutSeconds = 30
+    intervalSeconds = 60
+    scheduleSealedAtUtc = "2026-07-25T00:00:00Z"
+    taskStartBoundaryUtc = "2026-07-25T00:00:15Z"
+    startDelaySeconds = 15
+    repetitionDurationDays = 3650
+    nextRunGraceSeconds = 120
+    taskDescription = "receipt-bound task"
+    principal = "EXAMPLE\operator"
+}
+function New-TaskFixture {
+    $arguments =
+        Get-LanForwarderSupervisorTaskArguments -Supervisor $supervisor
+    [PSCustomObject]@{
+        TaskPath = "\"
+        State = "Ready"
+        Description = $supervisor.taskDescription
+        Actions = @([PSCustomObject]@{
+            Execute = $supervisor.powerShellExecutablePath
+            Arguments = $arguments
+            WorkingDirectory = ""
+        })
+        Principal = [PSCustomObject]@{
+            UserId = $supervisor.principal
+            LogonType = "Interactive"
+            RunLevel = "Limited"
+        }
+        Triggers = @([PSCustomObject]@{
+            CimClass = [PSCustomObject]@{
+                CimClassName = "MSFT_TaskTimeTrigger"
+            }
+            Enabled = $true
+            StartBoundary = $supervisor.taskStartBoundaryUtc
+            EndBoundary = ""
+            Repetition = [PSCustomObject]@{
+                Interval = "PT1M"
+                Duration = "P3650D"
+                StopAtDurationEnd = $true
+            }
+        })
+        Settings = [PSCustomObject]@{
+            Enabled = $true
+            MultipleInstances = "IgnoreNew"
+            RestartCount = 3
+            RestartInterval = "PT30S"
+            ExecutionTimeLimit = "PT2M"
+            StartWhenAvailable = $true
+            AllowDemandStart = $true
+            DisallowStartIfOnBatteries = $false
+            StopIfGoingOnBatteries = $false
+        }
+    }
+}
+$validTaskInfo = [PSCustomObject]@{
+    NextRunTime = $now.AddSeconds(45)
+}
+$valid = Get-LanForwarderSupervisorTaskContractObservation `
+    -Task (New-TaskFixture) `
+    -Supervisor $supervisor `
+    -TaskInfo $validTaskInfo `
+    -NowUtc $now
+if (-not $valid.MatchesReceipt -or $valid.Status -cne "ready") {
+    throw "valid supervisor task contract was rejected: $($valid.Detail)"
+}
+$disabled = New-TaskFixture
+$disabled.State = "Disabled"
+$disabledObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $disabled `
+        -Supervisor $supervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+if (
+    $disabledObservation.MatchesReceipt -or
+    -not $disabledObservation.IdentityMatchesReceipt -or
+    -not $disabledObservation.ScheduleMatchesReceipt -or
+    $disabledObservation.OperationalStateReady
+) {
+    throw "disabled task did not fail only its operational-state contract"
+}
+foreach ($drift in @("settings-disabled", "trigger-disabled", "interval", "restart")) {
+    $task = New-TaskFixture
+    switch ($drift) {
+        "settings-disabled" { $task.Settings.Enabled = $false }
+        "trigger-disabled" { $task.Triggers[0].Enabled = $false }
+        "interval" { $task.Triggers[0].Repetition.Interval = "PT5M" }
+        "restart" { $task.Settings.RestartCount = 2 }
+    }
+    $observation =
+        Get-LanForwarderSupervisorTaskContractObservation `
+            -Task $task `
+            -Supervisor $supervisor `
+            -TaskInfo $validTaskInfo `
+            -NowUtc $now
+    if (
+        $observation.MatchesReceipt -or
+        -not $observation.IdentityMatchesReceipt -or
+        $observation.ScheduleMatchesReceipt -or
+        -not $observation.OperationalStateReady
+    ) {
+        throw "schedule drift '$drift' was not isolated correctly"
+    }
+}
+$foreign = New-TaskFixture
+$foreign.Actions[0].Execute = "C:\Windows\System32\cmd.exe"
+$foreignObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $foreign `
+        -Supervisor $supervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+if ($foreignObservation.IdentityMatchesReceipt) {
+    throw "foreign task action was treated as receipt-owned"
+}
+$futureTask = New-TaskFixture
+$futureTask.Triggers[0].StartBoundary = "2099-01-01T00:00:00Z"
+$futureObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $futureTask `
+        -Supervisor $supervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+if (
+    $futureObservation.ScheduleMatchesReceipt -or
+    -not $futureObservation.IdentityMatchesReceipt
+) {
+    throw "far-future trigger boundary was accepted"
+}
+$expiredSupervisor =
+    $supervisor | ConvertTo-Json -Depth 5 | ConvertFrom-Json
+$expiredSupervisor.scheduleSealedAtUtc = "2000-01-01T00:00:00Z"
+$expiredSupervisor.taskStartBoundaryUtc = "2000-01-01T00:00:15Z"
+$expiredTask = New-TaskFixture
+$expiredTask.Triggers[0].StartBoundary =
+    $expiredSupervisor.taskStartBoundaryUtc
+$expiredObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $expiredTask `
+        -Supervisor $expiredSupervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+if (
+    $expiredObservation.ScheduleMatchesReceipt -or
+    -not $expiredObservation.IdentityMatchesReceipt
+) {
+    throw "expired repeating trigger window was accepted"
+}
+$missingInfoObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task (New-TaskFixture) `
+        -Supervisor $supervisor `
+        -TaskInfo $null `
+        -NowUtc $now
+if (
+    $missingInfoObservation.ScheduleMatchesReceipt -or
+    -not $missingInfoObservation.IdentityMatchesReceipt
+) {
+    throw "missing scheduled-task runtime info was accepted"
+}
+foreach ($nextRunDrift in @(
+    $now.AddMinutes(-10),
+    $now.AddDays(1)
+)) {
+    $driftedTaskInfo = [PSCustomObject]@{
+        NextRunTime = $nextRunDrift
+    }
+    $nextRunObservation =
+        Get-LanForwarderSupervisorTaskContractObservation `
+            -Task (New-TaskFixture) `
+            -Supervisor $supervisor `
+            -TaskInfo $driftedTaskInfo `
+            -NowUtc $now
+    if (
+        $nextRunObservation.ScheduleMatchesReceipt -or
+        -not $nextRunObservation.IdentityMatchesReceipt
+    ) {
+        throw "stale or far-future next run was accepted: $nextRunDrift"
+    }
+}
+Write-Output "strict supervisor task contract runtime self-test passed"
+"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            test_script_path = (
+                Path(temporary_directory)
+                / "supervisor-task-contract-self-test.ps1"
+            )
+            test_script_path.write_text(
+                function_sources + driver,
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    WINDOWS_POWERSHELL,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(test_script_path),
+                ],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+            )
+            self.assertIn(
+                "strict supervisor task contract runtime self-test passed",
+                result.stdout,
+            )
+
     def test_runbook_documents_source_free_start_and_port_preflight(self) -> None:
         runbook = (
             ROOT
@@ -1763,8 +2363,10 @@ Write-Output "strict forwarder command identity runtime self-test passed"
         self.assertIn("local probes alone must not be reported as LAN", runbook)
         self.assertIn("HTTPS/WSS ingress", runbook)
         self.assertIn("reserving it in DHCP/router policy", runbook)
-        self.assertIn("does not continuously supervise it", runbook)
-        self.assertIn("Automatic crash restart remains an operations gap", runbook)
+        self.assertIn("Windows Scheduled Task", runbook)
+        self.assertIn("checks once per minute", runbook)
+        self.assertIn("unexpectedly exited media-only forwarder", runbook)
+        self.assertIn("-Action HealthCheck", runbook)
         self.assertIn("authentication, session, and join tokens", runbook)
         self.assertIn("Trusted HTTPS/WSS is mandatory", runbook)
         self.assertIn("internal-production use", runbook)

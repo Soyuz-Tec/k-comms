@@ -63,6 +63,7 @@ docs-check:
 qualification-script-tests:
 	$(PYTHON) scripts/test_instant_room_deployment_contracts.py
 	$(PYTHON) scripts/test_validate_local_release.py
+	$(PYTHON) scripts/test_qualify_local_release.py
 	$(PYTHON) scripts/validate_local_release.py
 	$(PYTHON) scripts/test_validate_staging_secrets.py
 	$(PYTHON) scripts/test_validate_production_bundle.py
@@ -78,7 +79,8 @@ qualification-script-tests:
 		scripts/staging_product_acceptance.test.mjs \
 		scripts/staging_load.test.mjs \
 		scripts/score_usability_study.test.mjs \
-		scripts/score_usability_pilot.test.mjs
+		scripts/score_usability_pilot.test.mjs \
+		scripts/lan_release_forwarder.test.mjs
 
 build:
 	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime \

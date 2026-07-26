@@ -204,6 +204,7 @@ jobs:
       - run: python scripts/test_validate_compose_exposure.py
       - run: python scripts/validate_compose_exposure.py
       - run: python scripts/test_validate_local_release.py
+      - run: python scripts/test_qualify_local_release.py
       - run: python scripts/validate_local_release.py
       - run: python scripts/test_validate_ops_assets.py
       - run: python scripts/validate_ops_assets.py
@@ -245,7 +246,10 @@ jobs:
                   throw "PowerShell parser rejected $script"
               }
           }
+      - name: Run packaged qualifier self-test
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\qualify_local_release.ps1 -SelfTest -BaseUri https://comms.avayaworks.com
       - run: python scripts/test_validate_local_release.py
+      - run: python scripts/test_qualify_local_release.py
       - run: python scripts/validate_local_release.py
 
   qualification-scripts:
@@ -256,7 +260,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs scripts/score_usability_pilot.test.mjs
+      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs scripts/score_usability_pilot.test.mjs scripts/lan_release_forwarder.test.mjs
 
   manifests:
     runs-on: ubuntu-24.04

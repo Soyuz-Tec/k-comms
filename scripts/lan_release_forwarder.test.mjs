@@ -193,6 +193,22 @@ function makeConfig({ bindAddress, readyFile, ports }) {
   };
 }
 
+function makeMediaOnlyConfig({ bindAddress, readyFile, ports }) {
+  const legacy = makeConfig({ bindAddress, readyFile, ports });
+  return {
+    schemaVersion: 2,
+    profile: "media-only",
+    bindAddress: legacy.bindAddress,
+    readinessToken: legacy.readinessToken,
+    readyFile: legacy.readyFile,
+    listeners: [
+      structuredClone(legacy.listeners[3]),
+      structuredClone(legacy.listeners[4])
+    ],
+    limits: structuredClone(legacy.limits)
+  };
+}
+
 async function writeConfig(path, config) {
   const bytes = Buffer.from(`${JSON.stringify(config, null, 2)}\n`, "utf8");
   await writeFile(path, bytes, { flag: "wx" });
@@ -476,6 +492,136 @@ test(
       );
     });
 
+    await t.test("accepts only the exact schema/profile listener contracts", () => {
+      const normalizedLegacy = validateForwarderConfig(baseConfig);
+      assert.equal(normalizedLegacy.schemaVersion, 1);
+      assert.equal("profile" in normalizedLegacy, false);
+      assert.deepEqual(
+        normalizedLegacy.listeners.map(({ name, protocol }) => ({
+          name,
+          protocol
+        })),
+        [
+          { name: "app", protocol: "tcp" },
+          { name: "minio", protocol: "tcp" },
+          { name: "livekitSignal", protocol: "tcp" },
+          { name: "livekitTcp", protocol: "tcp" },
+          { name: "livekitUdp", protocol: "udp" }
+        ]
+      );
+
+      const mediaOnly = makeMediaOnlyConfig({
+        bindAddress,
+        readyFile: join(temporaryDirectory, "media-only-contract.ready.json"),
+        ports
+      });
+      const normalizedMediaOnly = validateForwarderConfig(mediaOnly);
+      assert.equal(normalizedMediaOnly.schemaVersion, 2);
+      assert.equal(normalizedMediaOnly.profile, "media-only");
+      assert.deepEqual(
+        normalizedMediaOnly.listeners.map(({ name, protocol }) => ({
+          name,
+          protocol
+        })),
+        [
+          { name: "livekitTcp", protocol: "tcp" },
+          { name: "livekitUdp", protocol: "udp" }
+        ]
+      );
+
+      const legacyWithProfile = structuredClone(baseConfig);
+      legacyWithProfile.profile = "media-only";
+      assert.throws(
+        () => validateForwarderConfig(legacyWithProfile),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /config must contain exactly/.test(error.message)
+      );
+
+      const legacyWithMediaOnlyListeners = structuredClone(baseConfig);
+      legacyWithMediaOnlyListeners.listeners =
+        legacyWithMediaOnlyListeners.listeners.slice(3);
+      assert.throws(
+        () => validateForwarderConfig(legacyWithMediaOnlyListeners),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /exactly 5 entries/.test(error.message)
+      );
+
+      const missingProfile = structuredClone(mediaOnly);
+      delete missingProfile.profile;
+      assert.throws(
+        () => validateForwarderConfig(missingProfile),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /config must contain exactly/.test(error.message)
+      );
+
+      for (const invalidProfile of [
+        "",
+        "full",
+        "media",
+        "MEDIA-ONLY",
+        null
+      ]) {
+        const candidate = structuredClone(mediaOnly);
+        candidate.profile = invalidProfile;
+        assert.throws(
+          () => validateForwarderConfig(candidate),
+          (error) =>
+            error?.code === "CONFIG_INVALID" &&
+            /profile must be exactly media-only/.test(error.message)
+        );
+      }
+
+      const mixedListeners = structuredClone(mediaOnly);
+      mixedListeners.listeners[0] = structuredClone(baseConfig.listeners[2]);
+      assert.throws(
+        () => validateForwarderConfig(mixedListeners),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /listeners\[0\]\.name must be livekitTcp/.test(error.message)
+      );
+
+      const reversedListeners = structuredClone(mediaOnly);
+      reversedListeners.listeners.reverse();
+      assert.throws(
+        () => validateForwarderConfig(reversedListeners),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /listeners\[0\]\.name must be livekitTcp/.test(error.message)
+      );
+
+      const missingListener = structuredClone(mediaOnly);
+      missingListener.listeners.pop();
+      assert.throws(
+        () => validateForwarderConfig(missingListener),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /exactly 2 entries/.test(error.message)
+      );
+
+      const extraListener = structuredClone(mediaOnly);
+      extraListener.listeners.push(structuredClone(baseConfig.listeners[2]));
+      assert.throws(
+        () => validateForwarderConfig(extraListener),
+        (error) =>
+          error?.code === "CONFIG_INVALID" &&
+          /exactly 2 entries/.test(error.message)
+      );
+
+      for (const invalidSchemaVersion of [0, 3, "2", null]) {
+        const candidate = structuredClone(mediaOnly);
+        candidate.schemaVersion = invalidSchemaVersion;
+        assert.throws(
+          () => validateForwarderConfig(candidate),
+          (error) =>
+            error?.code === "CONFIG_INVALID" &&
+            /schemaVersion must be 1 or 2/.test(error.message)
+        );
+      }
+    });
+
     await t.test("CLI reports invalid config as machine-readable fatal evidence", async () => {
       const invalidPath = join(temporaryDirectory, "invalid.json");
       const invalid = structuredClone(baseConfig);
@@ -536,6 +682,93 @@ test(
       await assertUdpPortCanBind(bindAddress, ports[4]);
     });
 
+    await t.test("media-only profile binds and forwards only LiveKit ICE", async () => {
+      const readyFile = join(
+        temporaryDirectory,
+        "media-only-success.ready.json"
+      );
+      const configPath = join(
+        temporaryDirectory,
+        "media-only-success.config.json"
+      );
+      const config = makeMediaOnlyConfig({
+        bindAddress,
+        readyFile,
+        ports
+      });
+      const configBytes = await writeConfig(configPath, config);
+      const stdout = [];
+      const stderr = [];
+      const forwarder = await startLanReleaseForwarder(configPath, {
+        emitStdout(line) {
+          stdout.push(line);
+        },
+        emitStderr(line) {
+          stderr.push(line);
+        }
+      });
+
+      const readyLine = await readFile(readyFile, "utf8");
+      assert.equal(stdout[0], readyLine);
+      const ready = JSON.parse(readyLine);
+      assert.equal(ready.event, "lan_release_forwarder_ready");
+      assert.equal(ready.schemaVersion, 2);
+      assert.equal(ready.profile, "media-only");
+      assert.equal(ready.configSha256, sha256Hex(configBytes));
+      assert.deepEqual(ready.listeners, config.listeners);
+      assert.deepEqual(
+        forwarder.listenerEntries.map(({ kind, listener }) => ({
+          kind,
+          name: listener.name
+        })),
+        [
+          { kind: "tcp", name: "livekitTcp" },
+          { kind: "udp", name: "livekitUdp" }
+        ]
+      );
+
+      for (let index = 0; index < 3; index += 1) {
+        await assertTcpPortCanBind(bindAddress, ports[index]);
+      }
+
+      const tcpPayload = Buffer.from("media-only-livekit-tcp");
+      assert.deepEqual(
+        await tcpRoundTrip({
+          bindAddress,
+          listener: config.listeners[0],
+          greeting: tcpTargets[3].greeting,
+          payload: tcpPayload
+        }),
+        Buffer.concat([tcpTargets[3].greeting, tcpPayload])
+      );
+
+      const udpClient = await createUdpClient(bindAddress);
+      t.after(() => closeUdpSocket(udpClient));
+      const udpPayload = Buffer.from("media-only-livekit-udp");
+      assert.deepEqual(
+        await udpRoundTrip(
+          udpClient,
+          bindAddress,
+          config.listeners[1].publicPort,
+          udpPayload
+        ),
+        udpPayload
+      );
+
+      assert.deepEqual(await forwarder.stop("media_only_self_test", 0), {
+        exitCode: 0,
+        reason: "media_only_self_test"
+      });
+      assert.equal(stderr.length, 0);
+      const stopped = JSON.parse(stdout.at(-1));
+      assert.equal(stopped.event, "lan_release_forwarder_stopped");
+      assert.equal(stopped.schemaVersion, 2);
+      assert.equal(stopped.profile, "media-only");
+      await assertPathMissing(readyFile);
+      await assertTcpPortCanBind(bindAddress, ports[3]);
+      await assertUdpPortCanBind(bindAddress, ports[4]);
+    });
+
     await t.test("forwards all transports with bounded UDP NAT and owned readiness", async () => {
       const readyFile = join(temporaryDirectory, "success.ready.json");
       const configPath = join(temporaryDirectory, "success.config.json");
@@ -558,6 +791,7 @@ test(
       const ready = JSON.parse(readyLine);
       assert.equal(ready.event, "lan_release_forwarder_ready");
       assert.equal(ready.schemaVersion, 1);
+      assert.equal("profile" in ready, false);
       assert.equal(ready.pid, process.pid);
       assert.equal(ready.bindAddress, bindAddress);
       assert.equal(ready.readinessToken, config.readinessToken);
@@ -694,6 +928,7 @@ test(
         JSON.parse(stdout.at(-1)).event,
         "lan_release_forwarder_stopped"
       );
+      assert.equal("profile" in JSON.parse(stdout.at(-1)), false);
       await assertPathMissing(readyFile);
 
       for (let index = 0; index < 4; index += 1) {

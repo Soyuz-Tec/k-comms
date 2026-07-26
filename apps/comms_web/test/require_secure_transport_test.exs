@@ -6,12 +6,23 @@ defmodule CommsWeb.RequireSecureTransportTest do
   alias CommsWeb.Plugs.RequireSecureTransport
 
   setup do
-    previous = Application.get_env(:comms_web, :insecure_lan_release)
+    previous_insecure_lan = Application.get_env(:comms_web, :insecure_lan_release)
+    previous_secure_required = Application.get_env(:comms_web, :secure_transport_required)
+    previous_proxies = Application.get_env(:comms_web, :trusted_proxy_cidrs)
 
     on_exit(fn ->
-      if is_nil(previous),
+      if is_nil(previous_insecure_lan),
         do: Application.delete_env(:comms_web, :insecure_lan_release),
-        else: Application.put_env(:comms_web, :insecure_lan_release, previous)
+        else: Application.put_env(:comms_web, :insecure_lan_release, previous_insecure_lan)
+
+      if is_nil(previous_secure_required),
+        do: Application.delete_env(:comms_web, :secure_transport_required),
+        else:
+          Application.put_env(:comms_web, :secure_transport_required, previous_secure_required)
+
+      if is_nil(previous_proxies),
+        do: Application.delete_env(:comms_web, :trusted_proxy_cidrs),
+        else: Application.put_env(:comms_web, :trusted_proxy_cidrs, previous_proxies)
     end)
   end
 
@@ -111,5 +122,68 @@ defmodule CommsWeb.RequireSecureTransportTest do
 
     assert json_response(response, 426)["error"]["code"] ==
              "secure_transport_required"
+  end
+
+  test "trusted-edge mode requires effective HTTPS and accepts only its trusted proxy" do
+    Application.put_env(:comms_web, :insecure_lan_release, false)
+    Application.put_env(:comms_web, :secure_transport_required, true)
+    Application.put_env(:comms_web, :trusted_proxy_cidrs, ["10.89.0.12/32"])
+
+    direct_http =
+      conn(:post, "http://comms.avayaworks.com/api/v1/sessions")
+      |> RequireSecureTransport.call([])
+
+    assert direct_http.halted
+    assert direct_http.status == 426
+
+    trusted_https =
+      conn(:post, "http://comms.avayaworks.com/api/v1/sessions")
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> CommsWeb.Plugs.TrustedProxy.call([])
+      |> RequireSecureTransport.call([])
+
+    refute trusted_https.halted
+    assert trusted_https.scheme == :https
+
+    untrusted_spoof =
+      conn(:post, "http://comms.avayaworks.com/api/v1/sessions")
+      |> Map.put(:remote_ip, {10, 89, 0, 13})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> CommsWeb.Plugs.TrustedProxy.call([])
+      |> RequireSecureTransport.call([])
+
+    assert untrusted_spoof.halted
+    assert untrusted_spoof.status == 426
+  end
+
+  test "authentication routes see trusted-edge scheme before the transport guard" do
+    Application.put_env(:comms_web, :insecure_lan_release, false)
+    Application.put_env(:comms_web, :secure_transport_required, true)
+    Application.put_env(:comms_web, :trusted_proxy_cidrs, ["10.89.0.12/32"])
+
+    direct_response =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> post("/api/v1/sessions", %{
+        tenant_slug: "must-not-be-read",
+        email: "must-not-be-read@example.test",
+        password: "must-not-be-read"
+      })
+
+    assert json_response(direct_response, 426)["error"]["code"] ==
+             "secure_transport_required"
+
+    response =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> post("/api/v1/sessions", %{
+        tenant_slug: "unknown",
+        email: "unknown@example.test",
+        password: "not-a-real-password"
+      })
+
+    refute response.status == 426
   end
 end

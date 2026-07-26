@@ -2,13 +2,32 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet("Deploy", "Start", "Rollback", "Status", "Stop", "Validate")]
+    [ValidateSet(
+        "Deploy",
+        "Start",
+        "Rollback",
+        "Status",
+        "Stop",
+        "Validate",
+        "HealthCheck",
+        "Supervise"
+    )]
     [string]$Action = "Deploy",
     [string]$StateRoot = "",
     [ValidatePattern("^[a-z0-9][a-z0-9_-]*$")]
     [string]$ProjectName = "k-comms-release",
     [string]$BindAddress = "127.0.0.1",
     [switch]$AllowPublicNetworkProfile,
+    [ValidateSet("auto", "cloudflare_trusted_edge")]
+    [string]$ExposureProfile = "auto",
+    [string]$AppHostname = "",
+    [string]$MediaHostname = "",
+    [string]$ObjectHostname = "",
+    [string]$MediaNodeAddress = "",
+    [string]$TrustedEdgeConfirmation = "",
+    [string]$ExpectedReceiptPath = "",
+    [string]$ExpectedCandidateId = "",
+    [string]$ExpectedForwarderConfigSha256 = "",
     [ValidateRange(1024, 65535)]
     [int]$AppPort = 4188,
     [ValidateRange(1024, 65535)]
@@ -36,6 +55,15 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repositoryRoot "deploy\compose.local-release.yaml"
 $lanForwarderSourceRelativePath = "scripts\lan_release_forwarder.mjs"
 $podmanBindAddress = "127.0.0.1"
+$cloudflareTrustedEdgeProfile = "cloudflare_trusted_edge"
+$cloudflareTrustedEdgeConfirmation = "cloudflare-tunnel-v1"
+$supportedReceiptSchemaVersion = 6
+$lanForwarderSupervisorKind = "windows-scheduled-task-poll-v1"
+$lanForwarderSupervisorIntervalSeconds = 60
+$lanForwarderSupervisorStartDelaySeconds = 15
+$lanForwarderSupervisorRepetitionDurationDays = 3650
+$lanForwarderSupervisorNextRunGraceSeconds = 120
+$retainedSupervisorManagerName = "manage_local_release.supervisor.ps1"
 $currentPointerPath = $null
 $stateOwnershipMarkerName = ".k-comms-local-release-state-v1.json"
 $customStateRootRequested = -not [string]::IsNullOrWhiteSpace($StateRoot)
@@ -680,23 +708,307 @@ function Get-CurrentReceipt {
     if (-not (Test-Path -LiteralPath $pointer.receiptPath -PathType Leaf)) {
         throw "Current local-release receipt is missing: $($pointer.receiptPath)"
     }
-    Read-JsonFile -Path $pointer.receiptPath
+    $receipt = Read-JsonFile -Path $pointer.receiptPath
+    $null = Assert-SupportedReceiptSchemaVersion -Receipt $receipt
+    return $receipt
+}
+
+function Assert-SupervisorBootstrapRegularPath {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateSet("Container", "Leaf")]
+        [string]$PathType = "Leaf",
+        [Parameter(Mandatory)][string]$Description
+    )
+
+    $canonicalPath = [IO.Path]::GetFullPath($Path)
+    if (-not (Test-Path -LiteralPath $canonicalPath -PathType $PathType)) {
+        throw "$Description is missing: $canonicalPath"
+    }
+    $item = Get-Item -LiteralPath $canonicalPath -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Description must not be a reparse point: $canonicalPath"
+    }
+    return $canonicalPath
+}
+
+function Assert-SupervisorOwnedStateDirectory {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ExpectedProject
+    )
+
+    $canonicalPath = Assert-SupervisorBootstrapRegularPath `
+        -Path $Path `
+        -PathType Container `
+        -Description "The receipt-bound supervisor state directory"
+    Assert-NoReparsePointAncestors -Path $canonicalPath
+    $markerPath = Assert-SupervisorBootstrapRegularPath `
+        -Path (Join-Path $canonicalPath $stateOwnershipMarkerName) `
+        -PathType Leaf `
+        -Description "The receipt-bound supervisor state ownership marker"
+    try {
+        $marker = Read-JsonFile -Path $markerPath
+    }
+    catch {
+        throw (
+            "The receipt-bound supervisor state ownership marker is invalid: " +
+            $markerPath
+        )
+    }
+    foreach ($property in @(
+        "schemaVersion",
+        "kind",
+        "canonicalPath",
+        "projectName"
+    )) {
+        if (-not $marker.PSObject.Properties[$property]) {
+            throw (
+                "The receipt-bound supervisor state ownership marker is missing " +
+                "$property`: $markerPath"
+            )
+        }
+    }
+    $markedPath =
+        [IO.Path]::GetFullPath([string]$marker.canonicalPath).TrimEnd("\", "/")
+    if (
+        [int]$marker.schemaVersion -ne 1 -or
+        [string]$marker.kind -cne "k-comms-local-release-state" -or
+        -not $markedPath.Equals(
+            $canonicalPath.TrimEnd("\", "/"),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        [string]$marker.projectName -cne $ExpectedProject
+    ) {
+        throw (
+            "The receipt-bound supervisor state ownership marker does not " +
+            "match this path and project"
+        )
+    }
+    return $canonicalPath
+}
+
+function Enter-SupervisorOperationLock {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ComposeProject
+    )
+
+    $canonicalPath = Assert-SupervisorOwnedStateDirectory `
+        -Path $Path `
+        -ExpectedProject $ComposeProject
+    $mutex = New-Object Threading.Mutex(
+        $false,
+        "Local\KComms.LocalRelease.$ComposeProject"
+    )
+    $mutexOwned = $false
+    try {
+        try {
+            $mutexOwned = $mutex.WaitOne(0)
+        }
+        catch [Threading.AbandonedMutexException] {
+            $mutexOwned = $true
+        }
+        if (-not $mutexOwned) {
+            throw (
+                "Another local-release operation is already using Compose " +
+                "project $ComposeProject"
+            )
+        }
+
+        try {
+            $stream = [IO.File]::Open(
+                (Join-Path $canonicalPath "operation.lock"),
+                [IO.FileMode]::OpenOrCreate,
+                [IO.FileAccess]::ReadWrite,
+                [IO.FileShare]::None
+            )
+        }
+        catch {
+            throw (
+                "Another local-release operation is already using state " +
+                "directory $canonicalPath"
+            )
+        }
+        $payload = [Text.Encoding]::UTF8.GetBytes(
+            "pid=$PID`nproject=$ComposeProject`nstarted=$([DateTime]::UtcNow.ToString('o'))`n"
+        )
+        $stream.SetLength(0)
+        $stream.Write($payload, 0, $payload.Length)
+        $stream.Flush()
+        return [PSCustomObject]@{
+            Stream = $stream
+            Mutex = $mutex
+            MutexOwned = $mutexOwned
+        }
+    }
+    catch {
+        if ($mutexOwned) {
+            $mutex.ReleaseMutex()
+        }
+        $mutex.Dispose()
+        throw
+    }
+}
+
+function Get-SupervisorCurrentReceipt {
+    param(
+        [Parameter(Mandatory)][string]$ReceiptPath,
+        [Parameter(Mandatory)][string]$CandidateId
+    )
+
+    $canonicalStateRoot = Assert-SupervisorOwnedStateDirectory `
+        -Path $StateRoot `
+        -ExpectedProject $ProjectName
+    $historyPath = Assert-SupervisorBootstrapRegularPath `
+        -Path (Join-Path $canonicalStateRoot "history") `
+        -PathType Container `
+        -Description "The receipt-bound supervisor history directory"
+    $candidatePath = Assert-SupervisorBootstrapRegularPath `
+        -Path (Join-Path $historyPath $CandidateId) `
+        -PathType Container `
+        -Description "The receipt-bound supervisor candidate directory"
+    $expectedReceiptPath =
+        [IO.Path]::GetFullPath((Join-Path $candidatePath "deployment.json"))
+    if (
+        -not [IO.Path]::GetFullPath($ReceiptPath).Equals(
+            $expectedReceiptPath,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        throw (
+            "The receipt-bound supervisor receipt path is outside its exact " +
+            "state history candidate"
+        )
+    }
+    $pointerPath = Assert-SupervisorBootstrapRegularPath `
+        -Path (Join-Path $canonicalStateRoot "current.json") `
+        -PathType Leaf `
+        -Description "The receipt-bound supervisor current pointer"
+    try {
+        $pointer = Read-JsonFile -Path $pointerPath
+    }
+    catch {
+        throw "The receipt-bound supervisor current pointer is invalid"
+    }
+    if (
+        -not $pointer.PSObject.Properties["receiptPath"] -or
+        -not [IO.Path]::GetFullPath([string]$pointer.receiptPath).Equals(
+            $expectedReceiptPath,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        throw (
+            "The receipt-bound supervisor current pointer does not match its " +
+            "exact expected receipt"
+        )
+    }
+    $canonicalReceiptPath = Assert-SupervisorBootstrapRegularPath `
+        -Path $expectedReceiptPath `
+        -PathType Leaf `
+        -Description "The receipt-bound supervisor deployment receipt"
+    try {
+        $receipt = Read-JsonFile -Path $canonicalReceiptPath
+    }
+    catch {
+        throw "The receipt-bound supervisor deployment receipt is invalid"
+    }
+    $null = Assert-SupportedReceiptSchemaVersion -Receipt $receipt
+    foreach ($comparison in @(
+        @(
+            "receipt path",
+            [IO.Path]::GetFullPath([string]$receipt.receiptPath),
+            $canonicalReceiptPath
+        ),
+        @("candidate identity", [string]$receipt.candidateId, $CandidateId),
+        @("Compose project", [string]$receipt.projectName, $ProjectName)
+    )) {
+        if (
+            -not [string]$comparison[1] -or
+            -not ([string]$comparison[1]).Equals(
+                [string]$comparison[2],
+                [StringComparison]::OrdinalIgnoreCase
+            )
+        ) {
+            throw (
+                "The receipt-bound supervisor deployment receipt has a " +
+                "mismatched $($comparison[0])"
+            )
+        }
+    }
+    return $receipt
 }
 
 function Get-ReceiptSchemaVersion {
     param([Parameter(Mandatory)]$Receipt)
 
+    $value = $null
     if ($Receipt -is [Collections.IDictionary]) {
         if ($Receipt.Contains("schemaVersion")) {
-            return [int]$Receipt["schemaVersion"]
+            $value = $Receipt["schemaVersion"]
         }
-        return 1
+        else {
+            return 1
+        }
     }
-    $schemaVersionProperty = $Receipt.PSObject.Properties["schemaVersion"]
-    if ($schemaVersionProperty) {
-        return [int]$schemaVersionProperty.Value
+    else {
+        $schemaVersionProperty = $Receipt.PSObject.Properties["schemaVersion"]
+        if (-not $schemaVersionProperty) {
+            return 1
+        }
+        $value = $schemaVersionProperty.Value
     }
-    return 1
+    if ($value -isnot [int] -and $value -isnot [long]) {
+        throw "Local-release receipt schema version must be an integer"
+    }
+    return [int]$value
+}
+
+function Assert-SupportedReceiptSchemaVersion {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $schemaVersion = Get-ReceiptSchemaVersion -Receipt $Receipt
+    if ($schemaVersion -lt 1) {
+        throw "Local-release receipt schema version must be a positive integer"
+    }
+    if ($schemaVersion -gt $supportedReceiptSchemaVersion) {
+        throw (
+            "Local-release receipt schema version $schemaVersion is newer than " +
+            "this manager's supported maximum $supportedReceiptSchemaVersion"
+        )
+    }
+    return $schemaVersion
+}
+
+function Get-ReceiptExposureProfile {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $profile = [string](Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "exposureProfile" `
+        -DefaultValue "")
+    if (-not [string]::IsNullOrWhiteSpace($profile)) {
+        return $profile
+    }
+
+    $exposureMode = [string](Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "exposureMode" `
+        -DefaultValue "")
+    if ($exposureMode -ceq $cloudflareTrustedEdgeProfile) {
+        return $cloudflareTrustedEdgeProfile
+    }
+    if ((Get-ReceiptBindAddress -Receipt $Receipt) -ceq $podmanBindAddress) {
+        return "loopback"
+    }
+    return "private_lan"
+}
+
+function Test-ReceiptIsCloudflareTrustedEdge {
+    param([Parameter(Mandatory)]$Receipt)
+
+    (Get-ReceiptExposureProfile -Receipt $Receipt) -ceq
+        $cloudflareTrustedEdgeProfile
 }
 
 function Get-ReceiptPodmanBindAddress {
@@ -715,7 +1027,8 @@ function Get-ReceiptPodmanBindAddress {
 function Test-ReceiptRequiresLanForwarder {
     param([Parameter(Mandatory)]$Receipt)
 
-    (Get-ReceiptBindAddress -Receipt $Receipt) -cne $podmanBindAddress
+    (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt) -or
+        (Get-ReceiptBindAddress -Receipt $Receipt) -cne $podmanBindAddress
 }
 
 function Test-Rfc1918IPv4 {
@@ -898,6 +1211,149 @@ function Resolve-ReleaseNetworkObservation {
     }
 }
 
+function Resolve-CanonicalDnsHostname {
+    param(
+        [Parameter(Mandatory)][string]$Value,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if (
+        [string]::IsNullOrWhiteSpace($Value) -or
+        $Value -cne $Value.Trim() -or
+        $Value -cne $Value.ToLowerInvariant() -or
+        $Value.Length -gt 253 -or
+        $Value -notmatch "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])$" -or
+        $Value -notmatch "\."
+    ) {
+        throw "$Name must be a canonical lowercase DNS hostname"
+    }
+    foreach ($label in $Value.Split(".")) {
+        if (
+            $label.Length -lt 1 -or
+            $label.Length -gt 63 -or
+            $label.StartsWith("-") -or
+            $label.EndsWith("-")
+        ) {
+            throw "$Name contains an invalid DNS label"
+        }
+    }
+    return $Value
+}
+
+function Resolve-RequestedReleaseTopology {
+    param(
+        [Parameter(Mandatory)][string]$RequestedExposureProfile,
+        [Parameter(Mandatory)][string]$RequestedBindAddress,
+        [switch]$AllowPublicNetworkProfile
+    )
+
+    if ($RequestedExposureProfile -cne $cloudflareTrustedEdgeProfile) {
+        foreach ($entry in ([ordered]@{
+            AppHostname = $AppHostname
+            MediaHostname = $MediaHostname
+            ObjectHostname = $ObjectHostname
+            MediaNodeAddress = $MediaNodeAddress
+            TrustedEdgeConfirmation = $TrustedEdgeConfirmation
+        }).GetEnumerator()) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$entry.Value)) {
+                throw (
+                    "-$($entry.Key) is valid only with " +
+                    "-ExposureProfile $cloudflareTrustedEdgeProfile"
+                )
+            }
+        }
+        $observation = Resolve-ReleaseNetworkObservation `
+            -Value $RequestedBindAddress `
+            -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+        $appOrigin = "http://$($observation.BindAddress)`:$AppPort"
+        return [PSCustomObject]@{
+            BindAddress = $observation.BindAddress
+            InterfaceIndex = $observation.InterfaceIndex
+            InterfaceAlias = $observation.InterfaceAlias
+            NetworkName = $observation.NetworkName
+            NetworkCategory = $observation.NetworkCategory
+            AllowPublicNetworkProfile = $observation.AllowPublicNetworkProfile
+            PublicNetworkProfileOverrideUsed =
+                $observation.PublicNetworkProfileOverrideUsed
+            ExposureProfile =
+                if ($observation.BindAddress -ceq $podmanBindAddress) {
+                    "loopback"
+                }
+                else {
+                    "private_lan"
+                }
+            PublicHost = $observation.BindAddress
+            PublicAppUrl = $appOrigin
+            AppWebSocketOrigin =
+                "ws://$($observation.BindAddress)`:$AppPort"
+            LiveKitOrigin =
+                "ws://$($observation.BindAddress)`:$LiveKitSignalPort"
+            ObjectOrigin =
+                "http://$($observation.BindAddress)`:$MinioPort"
+            MediaNodeAddress = $observation.BindAddress
+            TrustedProxyCidr = ""
+            TrustedEdgeConfirmation = ""
+        }
+    }
+
+    if ($RequestedBindAddress -cne $podmanBindAddress) {
+        throw (
+            "-BindAddress must remain $podmanBindAddress with the Cloudflare " +
+            "trusted-edge profile; use -MediaNodeAddress for direct media exposure"
+        )
+    }
+    if ($TrustedEdgeConfirmation -cne $cloudflareTrustedEdgeConfirmation) {
+        throw (
+            "Cloudflare trusted-edge deployment requires " +
+            "-TrustedEdgeConfirmation $cloudflareTrustedEdgeConfirmation"
+        )
+    }
+    $resolvedAppHostname =
+        Resolve-CanonicalDnsHostname -Value $AppHostname -Name "AppHostname"
+    $resolvedMediaHostname =
+        Resolve-CanonicalDnsHostname -Value $MediaHostname -Name "MediaHostname"
+    $resolvedObjectHostname =
+        Resolve-CanonicalDnsHostname -Value $ObjectHostname -Name "ObjectHostname"
+    if (@(
+        $resolvedAppHostname,
+        $resolvedMediaHostname,
+        $resolvedObjectHostname
+    ) | Group-Object | Where-Object { $_.Count -ne 1 }) {
+        throw "Cloudflare application, media, and object hostnames must be distinct"
+    }
+    if ([string]::IsNullOrWhiteSpace($MediaNodeAddress)) {
+        throw "Cloudflare trusted-edge deployment requires -MediaNodeAddress"
+    }
+    $observation = Resolve-ReleaseNetworkObservation `
+        -Value $MediaNodeAddress `
+        -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+    if ($observation.BindAddress -ceq $podmanBindAddress) {
+        throw "MediaNodeAddress must be an explicit non-loopback RFC1918 address"
+    }
+
+    [PSCustomObject]@{
+        BindAddress = $observation.BindAddress
+        InterfaceIndex = $observation.InterfaceIndex
+        InterfaceAlias = $observation.InterfaceAlias
+        NetworkName = $observation.NetworkName
+        NetworkCategory = $observation.NetworkCategory
+        AllowPublicNetworkProfile = $observation.AllowPublicNetworkProfile
+        PublicNetworkProfileOverrideUsed =
+            $observation.PublicNetworkProfileOverrideUsed
+        ExposureProfile = $cloudflareTrustedEdgeProfile
+        PublicHost = $resolvedAppHostname
+        PublicAppUrl = "https://$resolvedAppHostname"
+        AppWebSocketOrigin = "wss://$resolvedAppHostname"
+        LiveKitOrigin = "wss://$resolvedMediaHostname"
+        ObjectOrigin = "https://$resolvedObjectHostname"
+        MediaNodeAddress = $observation.BindAddress
+        # Deployment resolves and seals the exact application-network gateway
+        # /32 before any application container starts.
+        TrustedProxyCidr = ""
+        TrustedEdgeConfirmation = $cloudflareTrustedEdgeConfirmation
+    }
+}
+
 function Assert-ReleaseNetworkObservationMatches {
     param(
         [Parameter(Mandatory)]$Expected,
@@ -935,7 +1391,25 @@ function Assert-ReleaseNetworkObservationCurrent {
         -Expected $Expected `
         -Observed $current `
         -Context "Selected release network profile"
-    return $current
+    return [PSCustomObject]@{
+        BindAddress = $current.BindAddress
+        InterfaceIndex = $current.InterfaceIndex
+        InterfaceAlias = $current.InterfaceAlias
+        NetworkName = $current.NetworkName
+        NetworkCategory = $current.NetworkCategory
+        AllowPublicNetworkProfile = $current.AllowPublicNetworkProfile
+        PublicNetworkProfileOverrideUsed =
+            $current.PublicNetworkProfileOverrideUsed
+        ExposureProfile = [string]$Expected.ExposureProfile
+        PublicHost = [string]$Expected.PublicHost
+        PublicAppUrl = [string]$Expected.PublicAppUrl
+        AppWebSocketOrigin = [string]$Expected.AppWebSocketOrigin
+        LiveKitOrigin = [string]$Expected.LiveKitOrigin
+        ObjectOrigin = [string]$Expected.ObjectOrigin
+        MediaNodeAddress = [string]$Expected.MediaNodeAddress
+        TrustedProxyCidr = [string]$Expected.TrustedProxyCidr
+        TrustedEdgeConfirmation = [string]$Expected.TrustedEdgeConfirmation
+    }
 }
 
 function Get-ReceiptNetworkProperty {
@@ -1074,13 +1548,25 @@ function New-ReceiptNetworkRecord {
         [Parameter(Mandatory)][string]$PublicAppUrl
     )
 
-    [ordered]@{
+    $profile = [string]$Observation.ExposureProfile
+    $isTrustedEdge = $profile -ceq $cloudflareTrustedEdgeProfile
+    $record = [ordered]@{
         bindAddress = $Observation.BindAddress
         podmanBindAddress = $podmanBindAddress
-        publicHost = $Observation.BindAddress
+        publicHost =
+            if ($isTrustedEdge) {
+                [string]$Observation.PublicHost
+            }
+            else {
+                [string]$Observation.BindAddress
+            }
         publicAppUrl = $PublicAppUrl
+        exposureProfile = $profile
         exposureMode =
-            if ($Observation.BindAddress -ceq $podmanBindAddress) {
+            if ($isTrustedEdge) {
+                $cloudflareTrustedEdgeProfile
+            }
+            elseif ($Observation.BindAddress -ceq $podmanBindAddress) {
                 "loopback"
             }
             else {
@@ -1094,6 +1580,82 @@ function New-ReceiptNetworkRecord {
         publicNetworkProfileOverrideUsed =
             $Observation.PublicNetworkProfileOverrideUsed
     }
+    if ($isTrustedEdge) {
+        $record["mediaNodeAddress"] = [string]$Observation.MediaNodeAddress
+        $record["trustedProxyCidr"] = [string]$Observation.TrustedProxyCidr
+        $record["trustedEdgeConfirmation"] =
+            [string]$Observation.TrustedEdgeConfirmation
+        $record["appHostname"] = [string]$Observation.PublicHost
+        $record["mediaHostname"] =
+            ([Uri][string]$Observation.LiveKitOrigin).Host
+        $record["objectHostname"] =
+            ([Uri][string]$Observation.ObjectOrigin).Host
+    }
+    $record
+}
+
+function New-ReceiptPublicOriginsRecord {
+    param([Parameter(Mandatory)]$Topology)
+
+    [ordered]@{
+        application = [string]$Topology.PublicAppUrl
+        applicationWebSocket = [string]$Topology.AppWebSocketOrigin
+        media = [string]$Topology.LiveKitOrigin
+        objectStorage = [string]$Topology.ObjectOrigin
+    }
+}
+
+function Get-ReceiptTopLevelProperty {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [Parameter(Mandatory)][string]$Name,
+        $DefaultValue = $null
+    )
+
+    if ($Receipt -is [Collections.IDictionary]) {
+        if ($Receipt.Contains($Name)) {
+            return $Receipt[$Name]
+        }
+        return $DefaultValue
+    }
+    $property = $Receipt.PSObject.Properties[$Name]
+    if ($property) {
+        return $property.Value
+    }
+    return $DefaultValue
+}
+
+function Get-ReceiptPublicOriginsRecord {
+    param([Parameter(Mandatory)]$Receipt)
+
+    Get-ReceiptTopLevelProperty `
+        -Receipt $Receipt `
+        -Name "publicOrigins" `
+        -DefaultValue $null
+}
+
+function Assert-ExactTrustedProxyCidr {
+    param([Parameter(Mandatory)][string]$Value)
+
+    $match = [Regex]::Match(
+        $Value,
+        "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/32$"
+    )
+    if (-not $match.Success) {
+        throw "Trusted proxy CIDR must be one exact canonical IPv4 /32"
+    }
+    $parsed = $null
+    if (
+        -not [Net.IPAddress]::TryParse($match.Groups["address"].Value, [ref]$parsed) -or
+        $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
+        $parsed.ToString() -cne $match.Groups["address"].Value -or
+        [Net.IPAddress]::IsLoopback($parsed) -or
+        $parsed.ToString() -ceq "0.0.0.0" -or
+        -not (Test-Rfc1918IPv4 -Address $parsed)
+    ) {
+        throw "Trusted proxy CIDR must contain one canonical non-loopback IPv4 address"
+    }
+    return "$($parsed.ToString())/32"
 }
 
 function Resolve-ReceiptNetworkTopology {
@@ -1116,12 +1678,130 @@ function Resolve-ReceiptNetworkTopology {
         -Value $recordedBindAddress `
         -AllowPublicNetworkProfile:$record.AllowPublicNetworkProfile
     $resolvedBindAddress = $observation.BindAddress
+    $exposureProfile = Get-ReceiptExposureProfile -Receipt $Receipt
     $publicHost = Get-ReceiptPublicHost -Receipt $Receipt
+    $publicAppUrl = Get-ReceiptPublicAppUrl -Receipt $Receipt
+
+    if ($exposureProfile -ceq $cloudflareTrustedEdgeProfile) {
+        if ($schemaVersion -lt 6) {
+            throw "Cloudflare trusted-edge releases require a schema-v6 receipt"
+        }
+        $recordedExposureMode = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "exposureMode")
+        if ($recordedExposureMode -cne $cloudflareTrustedEdgeProfile) {
+            throw "Retained trusted-edge exposure mode does not match its profile"
+        }
+        $appHostname = Resolve-CanonicalDnsHostname `
+            -Value ([string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "appHostname")) `
+            -Name "receipt appHostname"
+        $mediaHostname = Resolve-CanonicalDnsHostname `
+            -Value ([string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "mediaHostname")) `
+            -Name "receipt mediaHostname"
+        $objectHostname = Resolve-CanonicalDnsHostname `
+            -Value ([string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "objectHostname")) `
+            -Name "receipt objectHostname"
+        if (@(
+            $appHostname,
+            $mediaHostname,
+            $objectHostname
+        ) | Group-Object | Where-Object { $_.Count -ne 1 }) {
+            throw (
+                "Retained trusted-edge application, media, and object " +
+                "hostnames must remain distinct"
+            )
+        }
+        $mediaNodeAddress = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "mediaNodeAddress")
+        if (
+            $mediaNodeAddress -cne $resolvedBindAddress -or
+            $publicHost -cne $appHostname
+        ) {
+            throw (
+                "Retained trusted-edge public host or media node does not match " +
+                "its sealed network topology"
+            )
+        }
+        $trustedEdgeConfirmation = [string](Get-ReceiptNetworkProperty `
+            -Receipt $Receipt `
+            -Name "trustedEdgeConfirmation")
+        if ($trustedEdgeConfirmation -cne $cloudflareTrustedEdgeConfirmation) {
+            throw "Retained trusted-edge receipt lacks its exact confirmation"
+        }
+        $trustedProxyCidr = Assert-ExactTrustedProxyCidr `
+            -Value ([string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "trustedProxyCidr"))
+        $expectedOrigins = [ordered]@{
+            application = "https://$appHostname"
+            applicationWebSocket = "wss://$appHostname"
+            media = "wss://$mediaHostname"
+            objectStorage = "https://$objectHostname"
+        }
+        $publicOrigins = Get-ReceiptPublicOriginsRecord -Receipt $Receipt
+        if (-not $publicOrigins) {
+            throw "Schema-v6 trusted-edge receipt is missing sealed public origins"
+        }
+        foreach ($entry in $expectedOrigins.GetEnumerator()) {
+            $actual = Get-ReceiptTopLevelProperty `
+                -Receipt $publicOrigins `
+                -Name $entry.Key `
+                -DefaultValue ""
+            if ([string]$actual -cne [string]$entry.Value) {
+                throw (
+                    "Retained trusted-edge public origin '$($entry.Key)' does not " +
+                    "match its sealed hostname"
+                )
+            }
+        }
+        if (
+            $publicAppUrl -cne [string]$expectedOrigins.application -or
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "publicAppUrl") -cne [string]$expectedOrigins.application
+        ) {
+            throw (
+                "Retained release public application URL does not match its " +
+                "recorded trusted-edge topology"
+            )
+        }
+        Assert-ReleaseNetworkObservationMatches `
+            -Expected $record `
+            -Observed $observation `
+            -Context "Retained trusted-edge media network profile"
+        return [PSCustomObject]@{
+            BindAddress = $resolvedBindAddress
+            PodmanBindAddress = $recordedPodmanBindAddress
+            PublicHost = $publicHost
+            PublicAppUrl = $publicAppUrl
+            AppWebSocketOrigin = [string]$expectedOrigins.applicationWebSocket
+            LiveKitOrigin = [string]$expectedOrigins.media
+            ObjectOrigin = [string]$expectedOrigins.objectStorage
+            MediaNodeAddress = $mediaNodeAddress
+            TrustedProxyCidr = $trustedProxyCidr
+            TrustedEdgeConfirmation = $trustedEdgeConfirmation
+            ExposureProfile = $exposureProfile
+            InterfaceIndex = $observation.InterfaceIndex
+            InterfaceAlias = $observation.InterfaceAlias
+            NetworkName = $observation.NetworkName
+            NetworkCategory = $observation.NetworkCategory
+            AllowPublicNetworkProfile = $observation.AllowPublicNetworkProfile
+            PublicNetworkProfileOverrideUsed =
+                $observation.PublicNetworkProfileOverrideUsed
+        }
+    }
+
     if ($publicHost -cne $resolvedBindAddress) {
         throw "Retained release public host must match its explicit bind address"
     }
     $expectedPublicAppUrl = "http://$publicHost`:$($Receipt.ports.app)"
-    $publicAppUrl = Get-ReceiptPublicAppUrl -Receipt $Receipt
     if ($publicAppUrl -cne $expectedPublicAppUrl) {
         throw "Retained release public application URL does not match its recorded topology"
     }
@@ -1140,6 +1820,40 @@ function Resolve-ReceiptNetworkTopology {
             throw "Retained release exposure mode does not match its recorded topology"
         }
     }
+    $appWebSocketOrigin = "ws://$publicHost`:$($Receipt.ports.app)"
+    $liveKitOrigin =
+        "ws://$publicHost`:$($Receipt.ports.livekitSignal)"
+    $objectOrigin = "http://$publicHost`:$($Receipt.ports.minio)"
+    if ($schemaVersion -ge 6) {
+        $expectedProfile =
+            if ($resolvedBindAddress -ceq $podmanBindAddress) {
+                "loopback"
+            }
+            else {
+                "private_lan"
+            }
+        if ($exposureProfile -cne $expectedProfile) {
+            throw "Schema-v6 release exposure profile does not match its topology"
+        }
+        $publicOrigins = Get-ReceiptPublicOriginsRecord -Receipt $Receipt
+        $expectedOrigins = [ordered]@{
+            application = $publicAppUrl
+            applicationWebSocket = $appWebSocketOrigin
+            media = $liveKitOrigin
+            objectStorage = $objectOrigin
+        }
+        foreach ($entry in $expectedOrigins.GetEnumerator()) {
+            if (
+                -not $publicOrigins -or
+                [string](Get-ReceiptTopLevelProperty `
+                    -Receipt $publicOrigins `
+                    -Name $entry.Key `
+                    -DefaultValue "") -cne [string]$entry.Value
+            ) {
+                throw "Schema-v6 release public origins do not match its topology"
+            }
+        }
+    }
     if ($resolvedBindAddress -cne "127.0.0.1") {
         Assert-ReleaseNetworkObservationMatches `
             -Expected $record `
@@ -1151,6 +1865,13 @@ function Resolve-ReceiptNetworkTopology {
         PodmanBindAddress = $recordedPodmanBindAddress
         PublicHost = $publicHost
         PublicAppUrl = $publicAppUrl
+        AppWebSocketOrigin = $appWebSocketOrigin
+        LiveKitOrigin = $liveKitOrigin
+        ObjectOrigin = $objectOrigin
+        MediaNodeAddress = $resolvedBindAddress
+        TrustedProxyCidr = ""
+        TrustedEdgeConfirmation = ""
+        ExposureProfile = $exposureProfile
         InterfaceIndex = $observation.InterfaceIndex
         InterfaceAlias = $observation.InterfaceAlias
         NetworkName = $observation.NetworkName
@@ -1216,7 +1937,8 @@ function New-ReleaseEnvironment {
     param(
         [Parameter(Mandatory)][Collections.IDictionary]$Stable,
         [Parameter(Mandatory)][string]$Revision,
-        [Parameter(Mandatory)][string]$ImageReference
+        [Parameter(Mandatory)][string]$ImageReference,
+        [Parameter(Mandatory)]$Topology
     )
 
     $values = [ordered]@{}
@@ -1228,9 +1950,38 @@ function New-ReleaseEnvironment {
     $values["K_COMMS_RELEASE_REVISION"] = $Revision
     $values["K_COMMS_RELEASE_VERSION"] = "sha-$Revision"
     $values["K_COMMS_PODMAN_BIND_ADDRESS"] = $podmanBindAddress
-    $values["K_COMMS_RELEASE_HOST"] = $BindAddress
+    $isTrustedEdge =
+        [string]$Topology.ExposureProfile -ceq $cloudflareTrustedEdgeProfile
+    $values["K_COMMS_RELEASE_HOST"] =
+        if ($isTrustedEdge) {
+            [string]$Topology.PublicHost
+        }
+        else {
+            $BindAddress
+        }
+    $values["K_COMMS_LIVEKIT_NODE_IP"] =
+        if ($isTrustedEdge) {
+            [string]$Topology.MediaNodeAddress
+        }
+        else {
+            $BindAddress
+        }
     $values["K_COMMS_LOCAL_RELEASE_HOST"] =
-        if ($BindAddress -eq "127.0.0.1") { "" } else { $BindAddress }
+        if ($BindAddress -eq "127.0.0.1") {
+            if ($isTrustedEdge) { [string]$Topology.MediaNodeAddress } else { "" }
+        }
+        else {
+            $BindAddress
+        }
+    $values["K_COMMS_RELEASE_EXPOSURE_MODE"] =
+        if ($isTrustedEdge) { $cloudflareTrustedEdgeProfile } else { "" }
+    $values["K_COMMS_TRUSTED_EDGE_CONFIRMATION"] =
+        if ($isTrustedEdge) {
+            $cloudflareTrustedEdgeConfirmation
+        }
+        else {
+            ""
+        }
     $values["K_COMMS_RELEASE_APP_PORT"] = "$AppPort"
     $values["K_COMMS_RELEASE_MINIO_PORT"] = "$MinioPort"
     $values["K_COMMS_RELEASE_MINIO_CONSOLE_PORT"] = "$MinioConsolePort"
@@ -1240,22 +1991,39 @@ function New-ReleaseEnvironment {
     $values["POSTGRES_DB"] = "k_comms_release"
     $values["DATABASE_URL"] =
         "ecto://$($Stable.POSTGRES_USER):$($Stable.POSTGRES_PASSWORD)@postgres:5432/k_comms_release"
-    $values["PHX_HOST"] = $BindAddress
-    $values["PUBLIC_APP_URL"] = "http://$BindAddress`:$AppPort"
-    $browserOrigins =
-        if ($BindAddress -eq "127.0.0.1") {
-            "http://127.0.0.1:$AppPort,http://localhost:$AppPort"
-        }
-        else {
-            "http://$BindAddress`:$AppPort"
-        }
-    $values["CORS_ORIGINS"] = $browserOrigins
-    $values["LIVEKIT_SERVER_URL"] = "ws://$BindAddress`:$LiveKitSignalPort"
-    $values["S3_PUBLIC_ENDPOINT"] = "http://$BindAddress`:$MinioPort"
-    $values["MINIO_API_CORS_ALLOW_ORIGIN"] = $browserOrigins
-    $values["CSP_CONNECT_SOURCES"] =
-        "'self' http://$BindAddress`:$AppPort ws://$BindAddress`:$AppPort " +
-        "ws://$BindAddress`:$LiveKitSignalPort http://$BindAddress`:$MinioPort"
+    if ($isTrustedEdge) {
+        $values["PHX_HOST"] = [string]$Topology.PublicHost
+        $values["PUBLIC_APP_URL"] = [string]$Topology.PublicAppUrl
+        $values["CORS_ORIGINS"] = [string]$Topology.PublicAppUrl
+        $values["HSTS_ENABLED"] = "true"
+        $values["LIVEKIT_SERVER_URL"] = [string]$Topology.LiveKitOrigin
+        $values["S3_PUBLIC_ENDPOINT"] = [string]$Topology.ObjectOrigin
+        $values["MINIO_API_CORS_ALLOW_ORIGIN"] =
+            [string]$Topology.PublicAppUrl
+        $values["CSP_CONNECT_SOURCES"] =
+            "'self' $($Topology.LiveKitOrigin) $($Topology.ObjectOrigin)"
+        $values["TRUSTED_PROXY_CIDRS"] = [string]$Topology.TrustedProxyCidr
+    }
+    else {
+        $values["PHX_HOST"] = $BindAddress
+        $values["PUBLIC_APP_URL"] = "http://$BindAddress`:$AppPort"
+        $browserOrigins =
+            if ($BindAddress -eq "127.0.0.1") {
+                "http://127.0.0.1:$AppPort,http://localhost:$AppPort"
+            }
+            else {
+                "http://$BindAddress`:$AppPort"
+            }
+        $values["CORS_ORIGINS"] = $browserOrigins
+        $values["HSTS_ENABLED"] = "false"
+        $values["LIVEKIT_SERVER_URL"] = "ws://$BindAddress`:$LiveKitSignalPort"
+        $values["S3_PUBLIC_ENDPOINT"] = "http://$BindAddress`:$MinioPort"
+        $values["MINIO_API_CORS_ALLOW_ORIGIN"] = $browserOrigins
+        $values["CSP_CONNECT_SOURCES"] =
+            "'self' http://$BindAddress`:$AppPort ws://$BindAddress`:$AppPort " +
+            "ws://$BindAddress`:$LiveKitSignalPort http://$BindAddress`:$MinioPort"
+        $values["TRUSTED_PROXY_CIDRS"] = ""
+    }
     $values["S3_BUCKET"] = "k-comms-release"
     $values["ALLOW_BOOTSTRAP"] = "false"
     $values["INSTANT_ROOMS_ENABLED"] = "true"
@@ -1276,8 +2044,54 @@ function New-ReleaseEnvironment {
 function Assert-ReleaseEnvironmentTopology {
     param(
         [Parameter(Mandatory)][Collections.IDictionary]$Values,
-        [Parameter(Mandatory)][string]$ExpectedBindAddress
+        [Parameter(Mandatory)][string]$ExpectedBindAddress,
+        [Parameter(Mandatory)]$ExpectedTopology
     )
+
+    $isTrustedEdge =
+        [string]$ExpectedTopology.ExposureProfile -ceq
+            $cloudflareTrustedEdgeProfile
+    if ($isTrustedEdge) {
+        $expectedValues = [ordered]@{
+            ALLOW_BOOTSTRAP = "false"
+            K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+            K_COMMS_RELEASE_HOST = [string]$ExpectedTopology.PublicHost
+            K_COMMS_LIVEKIT_NODE_IP =
+                [string]$ExpectedTopology.MediaNodeAddress
+            K_COMMS_LOCAL_RELEASE_HOST =
+                [string]$ExpectedTopology.MediaNodeAddress
+            K_COMMS_RELEASE_EXPOSURE_MODE =
+                $cloudflareTrustedEdgeProfile
+            K_COMMS_TRUSTED_EDGE_CONFIRMATION =
+                $cloudflareTrustedEdgeConfirmation
+            PHX_HOST = [string]$ExpectedTopology.PublicHost
+            PUBLIC_APP_URL = [string]$ExpectedTopology.PublicAppUrl
+            CORS_ORIGINS = [string]$ExpectedTopology.PublicAppUrl
+            HSTS_ENABLED = "true"
+            LIVEKIT_SERVER_URL = [string]$ExpectedTopology.LiveKitOrigin
+            S3_PUBLIC_ENDPOINT = [string]$ExpectedTopology.ObjectOrigin
+            MINIO_API_CORS_ALLOW_ORIGIN =
+                [string]$ExpectedTopology.PublicAppUrl
+            CSP_CONNECT_SOURCES =
+                "'self' $($ExpectedTopology.LiveKitOrigin) " +
+                "$($ExpectedTopology.ObjectOrigin)"
+            TRUSTED_PROXY_CIDRS =
+                Assert-ExactTrustedProxyCidr `
+                    -Value ([string]$ExpectedTopology.TrustedProxyCidr)
+        }
+        foreach ($entry in $expectedValues.GetEnumerator()) {
+            if (
+                -not $Values.Contains($entry.Key) -or
+                [string]$Values[$entry.Key] -cne [string]$entry.Value
+            ) {
+                throw (
+                    "Trusted-edge release environment topology is inconsistent " +
+                    "for $($entry.Key)"
+                )
+            }
+        }
+        return
+    }
 
     $appOrigin = "http://$ExpectedBindAddress`:$AppPort"
     $expectedRuntimeHost =
@@ -1298,13 +2112,18 @@ function Assert-ReleaseEnvironmentTopology {
         ALLOW_BOOTSTRAP = "false"
         K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
         K_COMMS_RELEASE_HOST = $ExpectedBindAddress
+        K_COMMS_LIVEKIT_NODE_IP = $ExpectedBindAddress
         K_COMMS_LOCAL_RELEASE_HOST = $expectedRuntimeHost
+        K_COMMS_RELEASE_EXPOSURE_MODE = ""
+        K_COMMS_TRUSTED_EDGE_CONFIRMATION = ""
         PHX_HOST = $ExpectedBindAddress
         PUBLIC_APP_URL = $appOrigin
         CORS_ORIGINS = $expectedBrowserOrigins
         LIVEKIT_SERVER_URL = "ws://$ExpectedBindAddress`:$LiveKitSignalPort"
         S3_PUBLIC_ENDPOINT = "http://$ExpectedBindAddress`:$MinioPort"
         MINIO_API_CORS_ALLOW_ORIGIN = $expectedBrowserOrigins
+        HSTS_ENABLED = "false"
+        TRUSTED_PROXY_CIDRS = ""
         CSP_CONNECT_SOURCES =
             "'self' $appOrigin ws://$ExpectedBindAddress`:$AppPort " +
             "ws://$ExpectedBindAddress`:$LiveKitSignalPort " +
@@ -1659,6 +2478,42 @@ function Wait-Application {
         -RequireInstantRooms:$RequireInstantRooms
 }
 
+function Wait-TrustedEdgeApplication {
+    param(
+        [Parameter(Mandatory)]$Topology,
+        [switch]$RequireGuestLinks,
+        [switch]$RequireInstantRooms
+    )
+
+    if (
+        [string]$Topology.ExposureProfile -cne
+            $cloudflareTrustedEdgeProfile
+    ) {
+        throw "Trusted-edge health checks require the Cloudflare exposure profile"
+    }
+    Wait-HttpEndpoint `
+        -Uri "$($Topology.PublicAppUrl)/health/ready" `
+        -Description "Cloudflare-routed K-Comms readiness"
+    Wait-HttpEndpoint `
+        -Uri "$($Topology.PublicAppUrl)/app/" `
+        -Description "Cloudflare-routed packaged K-Comms web client"
+    Wait-HttpEndpoint `
+        -Uri "$($Topology.ObjectOrigin)/minio/health/ready" `
+        -Description "Cloudflare-routed MinIO"
+    Wait-HttpEndpoint `
+        -Uri "$($Topology.LiveKitOrigin.Replace('wss://', 'https://'))/" `
+        -Description "Cloudflare-routed LiveKit signaling"
+
+    $status = Invoke-RestMethod `
+        -Uri "$($Topology.PublicAppUrl)/api/v1/status" `
+        -TimeoutSec 10
+    Assert-ApplicationCapabilities `
+        -Status $status `
+        -RequireGuestLinks:$RequireGuestLinks `
+        -RequireInstantRooms:$RequireInstantRooms `
+        -RequireSecureActions
+}
+
 function Test-InstantRoomTenantExists {
     param(
         [Parameter(Mandatory)][string]$EnvironmentFile,
@@ -1767,7 +2622,8 @@ function Assert-ApplicationCapabilities {
     param(
         [Parameter(Mandatory)]$Status,
         [switch]$RequireGuestLinks,
-        [switch]$RequireInstantRooms
+        [switch]$RequireInstantRooms,
+        [switch]$RequireSecureActions
     )
 
     $capabilitiesProperty = $Status.PSObject.Properties["capabilities"]
@@ -1799,6 +2655,21 @@ function Assert-ApplicationCapabilities {
         $instantRooms = $capabilities.PSObject.Properties["instant_rooms"]
         if ($null -eq $instantRooms -or $instantRooms.Value -ne $true) {
             throw "Candidate K-Comms status does not report instant rooms as available"
+        }
+    }
+
+    if ($RequireSecureActions) {
+        foreach ($name in @(
+            "secure_account_actions",
+            "secure_media_actions"
+        )) {
+            $property = $capabilities.PSObject.Properties[$name]
+            if ($null -eq $property -or $property.Value -ne $true) {
+                throw (
+                    "Trusted-edge K-Comms status does not report secure account " +
+                    "and media actions as available"
+                )
+            }
         }
     }
 }
@@ -2595,6 +3466,74 @@ function Start-ReleaseServices {
     }
 }
 
+function Resolve-ComposeTrustedProxyCidr {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath
+    )
+
+    $containerId = (Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @("ps", "-q", "postgres")).Output.Trim()
+    if (-not $containerId) {
+        throw "Cannot resolve the Podman gateway before PostgreSQL is running"
+    }
+    $inspection = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "inspect",
+            "--format",
+            "{{json .NetworkSettings.Networks}}",
+            $containerId
+        )
+    try {
+        $networks = $inspection.Output | ConvertFrom-Json
+    }
+    catch {
+        throw "Podman returned invalid application-network inspection JSON"
+    }
+    $attachments = @($networks.PSObject.Properties)
+    if ($attachments.Count -ne 1) {
+        throw (
+            "The local release must attach PostgreSQL to exactly one isolated " +
+            "Compose network before deriving trusted proxies"
+        )
+    }
+    $gatewayProperty = $attachments[0].Value.PSObject.Properties["Gateway"]
+    if (
+        -not $gatewayProperty -or
+        [string]::IsNullOrWhiteSpace([string]$gatewayProperty.Value)
+    ) {
+        throw "The isolated Compose network has no observable IPv4 gateway"
+    }
+    Assert-ExactTrustedProxyCidr `
+        -Value "$([string]$gatewayProperty.Value)/32"
+}
+
+function Assert-ReceiptTrustedProxyGatewayCurrent {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        return
+    }
+    $recorded = [string](Get-ReceiptNetworkProperty `
+        -Receipt $Receipt `
+        -Name "trustedProxyCidr")
+    $observed = Resolve-ComposeTrustedProxyCidr `
+        -EnvironmentFile ([string]$Receipt.environmentFile) `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ComposePath ([string]$Receipt.composeSourcePath)
+    if ($observed -cne $recorded) {
+        throw (
+            "Observed Podman application-network gateway '$observed' does not " +
+            "match the sealed trusted proxy CIDR '$recorded'"
+        )
+    }
+}
+
 function Get-RequiredForwarderProperty {
     param(
         [Parameter(Mandatory)]$Object,
@@ -2621,8 +3560,29 @@ function New-LanForwarderListeners {
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
-        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort,
+        [ValidateSet("full", "media-only")]
+        [string]$Profile = "full"
     )
+
+    if ($Profile -ceq "media-only") {
+        return @(
+            [ordered]@{
+                name = "livekitTcp"
+                protocol = "tcp"
+                publicPort = $ExpectedLiveKitTcpPort
+                targetHost = $podmanBindAddress
+                targetPort = $ExpectedLiveKitTcpPort
+            }
+            [ordered]@{
+                name = "livekitUdp"
+                protocol = "udp"
+                publicPort = $ExpectedLiveKitUdpPort
+                targetHost = $podmanBindAddress
+                targetPort = $ExpectedLiveKitUdpPort
+            }
+        )
+    }
 
     @(
         [ordered]@{
@@ -2752,6 +3712,324 @@ function Assert-PathEquals {
     }
 }
 
+function Get-Sha256Text {
+    param([Parameter(Mandatory)][string]$Value)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
+        return (
+            [BitConverter]::ToString($algorithm.ComputeHash($bytes)).
+                Replace("-", "").
+                ToLowerInvariant()
+        )
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Get-LanForwarderSupervisorTaskName {
+    param(
+        [Parameter(Mandatory)][string]$StateDirectory,
+        [Parameter(Mandatory)][string]$ComposeProject
+    )
+
+    $identity = Get-Sha256Text -Value (
+        ([IO.Path]::GetFullPath($StateDirectory).ToLowerInvariant()) +
+        "|" +
+        $ComposeProject.ToLowerInvariant()
+    )
+    return "K-Comms Media $ComposeProject-$($identity.Substring(0, 12))"
+}
+
+function Get-CurrentPowerShellExecutablePath {
+    $path = [string](Get-Process -Id $PID -ErrorAction Stop).Path
+    if (
+        [string]::IsNullOrWhiteSpace($path) -or
+        -not (Test-Path -LiteralPath $path -PathType Leaf)
+    ) {
+        throw "Could not resolve the current PowerShell executable"
+    }
+    return [IO.Path]::GetFullPath($path)
+}
+
+function New-LanForwarderSupervisorScheduleRecord {
+    param([DateTimeOffset]$NowUtc = [DateTimeOffset]::UtcNow)
+
+    $observed = $NowUtc.ToUniversalTime()
+    $sealedAt = [DateTimeOffset]::new(
+        $observed.Year,
+        $observed.Month,
+        $observed.Day,
+        $observed.Hour,
+        $observed.Minute,
+        $observed.Second,
+        [TimeSpan]::Zero
+    )
+    $startBoundary =
+        $sealedAt.AddSeconds($lanForwarderSupervisorStartDelaySeconds)
+    return [ordered]@{
+        scheduleSealedAtUtc =
+            $sealedAt.ToString(
+                "yyyy-MM-ddTHH:mm:ss'Z'",
+                [Globalization.CultureInfo]::InvariantCulture
+            )
+        taskStartBoundaryUtc =
+            $startBoundary.ToString(
+                "yyyy-MM-ddTHH:mm:ss'Z'",
+                [Globalization.CultureInfo]::InvariantCulture
+            )
+        startDelaySeconds = $lanForwarderSupervisorStartDelaySeconds
+        repetitionDurationDays =
+            $lanForwarderSupervisorRepetitionDurationDays
+        nextRunGraceSeconds = $lanForwarderSupervisorNextRunGraceSeconds
+    }
+}
+
+function Set-LanForwarderSupervisorScheduleRecord {
+    param(
+        [Parameter(Mandatory)]$Forwarder,
+        [DateTimeOffset]$NowUtc = [DateTimeOffset]::UtcNow
+    )
+
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $Forwarder
+    if (-not $supervisor) {
+        throw "Media-only LAN forwarder is missing its supervisor schedule"
+    }
+    $schedule = New-LanForwarderSupervisorScheduleRecord -NowUtc $NowUtc
+    foreach ($entry in $schedule.GetEnumerator()) {
+        if ($supervisor -is [Collections.IDictionary]) {
+            $supervisor[$entry.Key] = $entry.Value
+        }
+        else {
+            $property = $supervisor.PSObject.Properties[$entry.Key]
+            if ($property) {
+                $property.Value = $entry.Value
+            }
+            else {
+                $supervisor |
+                    Add-Member `
+                        -NotePropertyName $entry.Key `
+                        -NotePropertyValue $entry.Value
+            }
+        }
+    }
+}
+
+function New-LanForwarderSupervisorRecord {
+    param(
+        [Parameter(Mandatory)][string]$ImmutableSourceRoot,
+        [Parameter(Mandatory)][string]$ReceiptPath,
+        [Parameter(Mandatory)][string]$CandidateId,
+        [Parameter(Mandatory)][string]$ForwarderConfigSha256
+    )
+
+    if ($CandidateId -notmatch "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}-[0-9a-f]{8}$") {
+        throw "LAN forwarder supervisor candidate identity is malformed"
+    }
+    if ($ForwarderConfigSha256 -notmatch "^[0-9a-f]{64}$") {
+        throw "LAN forwarder supervisor configuration hash is malformed"
+    }
+    $principal = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    if ([string]::IsNullOrWhiteSpace($principal)) {
+        throw "LAN forwarder supervisor could not resolve the current Windows identity"
+    }
+    $candidateDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($ReceiptPath))
+    $retainedManagerScriptPath =
+        Join-Path $candidateDirectory $retainedSupervisorManagerName
+    if (Test-Path -LiteralPath $retainedManagerScriptPath) {
+        throw "Retained LAN forwarder supervisor manager already exists"
+    }
+    $sourceManagerScriptPath = Join-Path `
+        $ImmutableSourceRoot `
+        "scripts\manage_local_release.ps1"
+    if (-not (Test-Path -LiteralPath $sourceManagerScriptPath -PathType Leaf)) {
+        throw (
+            "Immutable LAN forwarder supervisor manager source is missing: " +
+            $sourceManagerScriptPath
+        )
+    }
+    $sourceManagerHash = (
+        Get-FileHash -LiteralPath $sourceManagerScriptPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    [IO.File]::Copy(
+        $sourceManagerScriptPath,
+        $retainedManagerScriptPath,
+        $false
+    )
+    $retainedManagerHash = (
+        Get-FileHash -LiteralPath $retainedManagerScriptPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($retainedManagerHash -cne $sourceManagerHash) {
+        throw "Retained LAN forwarder supervisor manager copy is not exact"
+    }
+    $schedule = New-LanForwarderSupervisorScheduleRecord
+    return [ordered]@{
+        required = $true
+        kind = $lanForwarderSupervisorKind
+        taskName = Get-LanForwarderSupervisorTaskName `
+            -StateDirectory $StateRoot `
+            -ComposeProject $ProjectName
+        taskDescription = (
+            "K-Comms receipt-bound media forwarder supervisor for " +
+            "$ProjectName; state=" +
+            (Get-Sha256Text -Value $StateRoot).Substring(0, 16)
+        )
+        principal = $principal
+        managerScriptPath = $retainedManagerScriptPath
+        managerScriptSha256 = $retainedManagerHash
+        powerShellExecutablePath = Get-CurrentPowerShellExecutablePath
+        stateRoot = $StateRoot
+        projectName = $ProjectName
+        expectedReceiptPath = [IO.Path]::GetFullPath($ReceiptPath)
+        expectedCandidateId = $CandidateId
+        expectedForwarderConfigSha256 = $ForwarderConfigSha256
+        intervalSeconds = $lanForwarderSupervisorIntervalSeconds
+        scheduleSealedAtUtc = $schedule.scheduleSealedAtUtc
+        taskStartBoundaryUtc = $schedule.taskStartBoundaryUtc
+        startDelaySeconds = $schedule.startDelaySeconds
+        repetitionDurationDays = $schedule.repetitionDurationDays
+        nextRunGraceSeconds = $schedule.nextRunGraceSeconds
+        readyTimeoutSeconds = 30
+    }
+}
+
+function Get-LanForwarderSupervisor {
+    param([Parameter(Mandatory)]$Forwarder)
+
+    if ($Forwarder -is [Collections.IDictionary]) {
+        if ($Forwarder.Contains("supervisor")) {
+            return $Forwarder["supervisor"]
+        }
+        return $null
+    }
+    $property = $Forwarder.PSObject.Properties["supervisor"]
+    if (-not $property) {
+        return $null
+    }
+    return $property.Value
+}
+
+function Assert-LanForwarderSupervisorRecord {
+    param(
+        [Parameter(Mandatory)]$Supervisor,
+        [Parameter(Mandatory)]$Forwarder,
+        [Parameter(Mandatory)][string]$CandidateDirectory
+    )
+
+    $expectedReceiptPath = Join-Path $CandidateDirectory "deployment.json"
+    $expectedTaskName = Get-LanForwarderSupervisorTaskName `
+        -StateDirectory $StateRoot `
+        -ComposeProject $ProjectName
+    $expectedDescription = (
+        "K-Comms receipt-bound media forwarder supervisor for " +
+        "$ProjectName; state=" +
+        (Get-Sha256Text -Value $StateRoot).Substring(0, 16)
+    )
+    $expectedManagerScriptPath =
+        Join-Path $CandidateDirectory $retainedSupervisorManagerName
+    foreach ($expectation in @(
+        @("required", $true),
+        @("kind", $lanForwarderSupervisorKind),
+        @("taskName", $expectedTaskName),
+        @("taskDescription", $expectedDescription),
+        @("principal", [Security.Principal.WindowsIdentity]::GetCurrent().Name),
+        @("managerScriptPath", $expectedManagerScriptPath),
+        @("stateRoot", $StateRoot),
+        @("projectName", $ProjectName),
+        @("expectedReceiptPath", $expectedReceiptPath),
+        @("expectedForwarderConfigSha256", [string]$Forwarder.configSha256),
+        @("intervalSeconds", $lanForwarderSupervisorIntervalSeconds),
+        @("startDelaySeconds", $lanForwarderSupervisorStartDelaySeconds),
+        @(
+            "repetitionDurationDays",
+            $lanForwarderSupervisorRepetitionDurationDays
+        ),
+        @("nextRunGraceSeconds", $lanForwarderSupervisorNextRunGraceSeconds),
+        @("readyTimeoutSeconds", 30)
+    )) {
+        Assert-ForwarderValue `
+            -Object $Supervisor `
+            -Name $expectation[0] `
+            -Expected $expectation[1] `
+            -Context "LAN forwarder supervisor receipt"
+    }
+    $candidateId = [string](Get-RequiredForwarderProperty `
+        -Object $Supervisor `
+        -Name "expectedCandidateId" `
+        -Context "LAN forwarder supervisor receipt")
+    if ($candidateId -notmatch "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}-[0-9a-f]{8}$") {
+        throw "LAN forwarder supervisor receipt candidate identity is malformed"
+    }
+    $recordedManagerHash = [string](Get-RequiredForwarderProperty `
+        -Object $Supervisor `
+        -Name "managerScriptSha256" `
+        -Context "LAN forwarder supervisor receipt")
+    if (
+        -not (Test-Path `
+            -LiteralPath $expectedManagerScriptPath `
+            -PathType Leaf)
+    ) {
+        throw "Retained LAN forwarder supervisor manager is missing"
+    }
+    $observedManagerHash = (
+        Get-FileHash `
+            -LiteralPath $expectedManagerScriptPath `
+            -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if (
+        $recordedManagerHash -notmatch "^[0-9a-f]{64}$" -or
+        $recordedManagerHash -cne $observedManagerHash
+    ) {
+        throw "LAN forwarder supervisor manager script hash does not match its receipt"
+    }
+    $powerShellExecutablePath = [string](Get-RequiredForwarderProperty `
+        -Object $Supervisor `
+        -Name "powerShellExecutablePath" `
+        -Context "LAN forwarder supervisor receipt")
+    if (
+        -not [IO.Path]::IsPathRooted($powerShellExecutablePath) -or
+        -not (Test-Path `
+            -LiteralPath $powerShellExecutablePath `
+            -PathType Leaf)
+    ) {
+        throw (
+            "LAN forwarder supervisor PowerShell executable is not an existing " +
+            "absolute file"
+        )
+    }
+    $scheduleSealedAt = ConvertTo-ScheduledTaskUtcDateTimeOffset `
+        -Value ([string](Get-RequiredForwarderProperty `
+            -Object $Supervisor `
+            -Name "scheduleSealedAtUtc" `
+            -Context "LAN forwarder supervisor receipt"))
+    $taskStartBoundary = ConvertTo-ScheduledTaskUtcDateTimeOffset `
+        -Value ([string](Get-RequiredForwarderProperty `
+            -Object $Supervisor `
+            -Name "taskStartBoundaryUtc" `
+            -Context "LAN forwarder supervisor receipt"))
+    $now = [DateTimeOffset]::UtcNow
+    if (
+        $null -eq $scheduleSealedAt -or
+        $null -eq $taskStartBoundary -or
+        ($taskStartBoundary - $scheduleSealedAt).TotalSeconds -ne
+            $lanForwarderSupervisorStartDelaySeconds -or
+        $scheduleSealedAt -gt
+            $now.AddSeconds($lanForwarderSupervisorNextRunGraceSeconds) -or
+        $taskStartBoundary -gt
+            $now.AddSeconds($lanForwarderSupervisorNextRunGraceSeconds) -or
+        $taskStartBoundary.AddDays(
+            $lanForwarderSupervisorRepetitionDurationDays
+        ) -le $now
+    ) {
+        throw (
+            "LAN forwarder supervisor receipt schedule is future-dated, " +
+            "expired, or inconsistent"
+        )
+    }
+}
+
 function New-LanForwarderReceiptRecord {
     param(
         [Parameter(Mandatory)][string]$ImmutableSourceRoot,
@@ -2761,7 +4039,11 @@ function New-LanForwarderReceiptRecord {
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
-        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort,
+        [string]$ReceiptPath = "",
+        [string]$CandidateId = "",
+        [ValidateSet("full", "media-only")]
+        [string]$Profile = "full"
     )
 
     $sourcePath = Join-Path `
@@ -2792,23 +4074,44 @@ function New-LanForwarderReceiptRecord {
         -ExpectedMinioPort $ExpectedMinioPort `
         -ExpectedLiveKitSignalPort $ExpectedLiveKitSignalPort `
         -ExpectedLiveKitTcpPort $ExpectedLiveKitTcpPort `
-        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort
+        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort `
+        -Profile $Profile
     $readinessToken = New-UrlSafeSecret 32
-    $configuration = [ordered]@{
-        schemaVersion = 1
-        bindAddress = $ExpectedBindAddress
-        readinessToken = $readinessToken
-        readyFile = $statusPath
-        listeners = $listeners
-        limits = New-LanForwarderLimits
-    }
+    $configuration =
+        if ($Profile -ceq "media-only") {
+            [ordered]@{
+                schemaVersion = 2
+                profile = "media-only"
+                bindAddress = $ExpectedBindAddress
+                readinessToken = $readinessToken
+                readyFile = $statusPath
+                listeners = $listeners
+                limits = New-LanForwarderLimits
+            }
+        }
+        else {
+            [ordered]@{
+                schemaVersion = 1
+                bindAddress = $ExpectedBindAddress
+                readinessToken = $readinessToken
+                readyFile = $statusPath
+                listeners = $listeners
+                limits = New-LanForwarderLimits
+            }
+        }
     Write-JsonAtomic -Path $configPath -Value $configuration
     $configSha256 =
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    [ordered]@{
+    $record = [ordered]@{
         required = $true
-        kind = "node-lan-forwarder-v1"
+        kind =
+            if ($Profile -ceq "media-only") {
+                "node-lan-forwarder-v2"
+            }
+            else {
+                "node-lan-forwarder-v1"
+            }
         nodeExecutablePath = $nodeExecutablePath
         sourceRelativePath = $lanForwarderSourceRelativePath
         sourceSha256 = $sourceSha256
@@ -2822,6 +4125,24 @@ function New-LanForwarderReceiptRecord {
         readinessToken = $readinessToken
         listeners = $listeners
     }
+    if ($Profile -ceq "media-only") {
+        $record["profile"] = "media-only"
+        if (
+            [string]::IsNullOrWhiteSpace($ReceiptPath) -or
+            [string]::IsNullOrWhiteSpace($CandidateId)
+        ) {
+            throw (
+                "Media-only LAN forwarding requires a receipt path and candidate " +
+                "identity for durable supervision"
+            )
+        }
+        $record["supervisor"] = New-LanForwarderSupervisorRecord `
+            -ImmutableSourceRoot $ImmutableSourceRoot `
+            -ReceiptPath $ReceiptPath `
+            -CandidateId $CandidateId `
+            -ForwarderConfigSha256 $configSha256
+    }
+    $record
 }
 
 function Assert-LanForwarderRecordAssets {
@@ -2833,7 +4154,9 @@ function Assert-LanForwarderRecordAssets {
         [Parameter(Mandatory)][int]$ExpectedMinioPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitSignalPort,
         [Parameter(Mandatory)][int]$ExpectedLiveKitTcpPort,
-        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort
+        [Parameter(Mandatory)][int]$ExpectedLiveKitUdpPort,
+        [ValidateSet("full", "media-only")]
+        [string]$Profile = "full"
     )
 
     Assert-ForwarderValue `
@@ -2844,8 +4167,19 @@ function Assert-LanForwarderRecordAssets {
     Assert-ForwarderValue `
         -Object $Forwarder `
         -Name "kind" `
-        -Expected "node-lan-forwarder-v1" `
+        -Expected $(if ($Profile -ceq "media-only") {
+            "node-lan-forwarder-v2"
+        } else {
+            "node-lan-forwarder-v1"
+        }) `
         -Context "LAN forwarder receipt"
+    if ($Profile -ceq "media-only") {
+        Assert-ForwarderValue `
+            -Object $Forwarder `
+            -Name "profile" `
+            -Expected "media-only" `
+            -Context "LAN forwarder receipt"
+    }
     Assert-ForwarderValue `
         -Object $Forwarder `
         -Name "sourceRelativePath" `
@@ -2907,8 +4241,15 @@ function Assert-LanForwarderRecordAssets {
     Assert-ForwarderValue `
         -Object $config `
         -Name "schemaVersion" `
-        -Expected 1 `
+        -Expected $(if ($Profile -ceq "media-only") { 2 } else { 1 }) `
         -Context "LAN forwarder configuration"
+    if ($Profile -ceq "media-only") {
+        Assert-ForwarderValue `
+            -Object $config `
+            -Name "profile" `
+            -Expected "media-only" `
+            -Context "LAN forwarder configuration"
+    }
     Assert-ForwarderValue `
         -Object $config `
         -Name "bindAddress" `
@@ -2929,7 +4270,8 @@ function Assert-LanForwarderRecordAssets {
         -ExpectedMinioPort $ExpectedMinioPort `
         -ExpectedLiveKitSignalPort $ExpectedLiveKitSignalPort `
         -ExpectedLiveKitTcpPort $ExpectedLiveKitTcpPort `
-        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort
+        -ExpectedLiveKitUdpPort $ExpectedLiveKitUdpPort `
+        -Profile $Profile
     Assert-LanForwarderListeners `
         -Actual $config.listeners `
         -Expected $expectedListeners `
@@ -2945,6 +4287,16 @@ function Assert-LanForwarderRecordAssets {
             -Name $entry.Key `
             -Expected $entry.Value `
             -Context "LAN forwarder configuration limits"
+    }
+    if ($Profile -ceq "media-only") {
+        $supervisor = Get-LanForwarderSupervisor -Forwarder $Forwarder
+        if (-not $supervisor) {
+            throw "Media-only LAN forwarder receipt is missing durable supervision"
+        }
+        Assert-LanForwarderSupervisorRecord `
+            -Supervisor $supervisor `
+            -Forwarder $Forwarder `
+            -CandidateDirectory $CandidateDirectory
     }
 }
 
@@ -2988,6 +4340,13 @@ function Assert-LanForwarderAssets {
         return
     }
 
+    $forwarderProfile =
+        if (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt) {
+            "media-only"
+        }
+        else {
+            "full"
+        }
     Assert-LanForwarderRecordAssets `
         -Forwarder $forwarder `
         -CandidateDirectory (Split-Path -Parent ([string]$Receipt.receiptPath)) `
@@ -2996,7 +4355,8 @@ function Assert-LanForwarderAssets {
         -ExpectedMinioPort ([int]$Receipt.ports.minio) `
         -ExpectedLiveKitSignalPort ([int]$Receipt.ports.livekitSignal) `
         -ExpectedLiveKitTcpPort ([int]$Receipt.ports.livekitTcp) `
-        -ExpectedLiveKitUdpPort ([int]$Receipt.ports.livekitUdp)
+        -ExpectedLiveKitUdpPort ([int]$Receipt.ports.livekitUdp) `
+        -Profile $forwarderProfile
 }
 
 function Get-ExactCommandLineValuePattern {
@@ -3139,9 +4499,36 @@ function Get-LanForwarderObservation {
             )
         }
 
+        $forwarderProfileValue = Get-ReceiptTopLevelProperty `
+            -Receipt $forwarder `
+            -Name "profile" `
+            -DefaultValue ""
+        $forwarderProfile =
+            if ([string]$forwarderProfileValue -ceq "media-only") {
+                "media-only"
+            }
+            else {
+                "full"
+            }
+        $expectedReadySchemaVersion =
+            if ($forwarderProfile -ceq "media-only") { 2 } else { 1 }
+        $readyProfileMatches =
+            if ($forwarderProfile -ceq "media-only") {
+                [string](Get-ReceiptTopLevelProperty `
+                    -Receipt $ready `
+                    -Name "profile" `
+                    -DefaultValue "") -ceq "media-only"
+            }
+            else {
+                [string]::IsNullOrEmpty([string](Get-ReceiptTopLevelProperty `
+                    -Receipt $ready `
+                    -Name "profile" `
+                    -DefaultValue ""))
+            }
         $readyIdentityMatches = (
             [string]$ready.event -ceq "lan_release_forwarder_ready" -and
-            [int]$ready.schemaVersion -eq 1 -and
+            [int]$ready.schemaVersion -eq $expectedReadySchemaVersion -and
+            $readyProfileMatches -and
             [string]$ready.bindAddress -ceq
                 (Get-ReceiptBindAddress -Receipt $Receipt) -and
             [string]$ready.configSha256 -ceq
@@ -3262,6 +4649,652 @@ function Assert-LanForwarderReady {
         throw "LAN forwarder is not ready and receipt-bound: $($observation.Detail)"
     }
     return $observation
+}
+
+function Get-LanForwarderSupervisorTaskArguments {
+    param([Parameter(Mandatory)]$Supervisor)
+
+    foreach ($propertyName in @(
+        "managerScriptPath",
+        "stateRoot",
+        "projectName",
+        "expectedReceiptPath",
+        "expectedCandidateId",
+        "expectedForwarderConfigSha256",
+        "readyTimeoutSeconds"
+    )) {
+        $value = [string](Get-RequiredForwarderProperty `
+            -Object $Supervisor `
+            -Name $propertyName `
+            -Context "LAN forwarder supervisor receipt")
+        if ($value.Contains('"')) {
+            throw (
+                "LAN forwarder supervisor property '$propertyName' contains an " +
+                "unsupported quote character"
+            )
+        }
+    }
+    @(
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle", "Hidden",
+        "-ExecutionPolicy", "Bypass",
+        "-File", ('"{0}"' -f [string]$Supervisor.managerScriptPath),
+        "-Action", "Supervise",
+        "-StateRoot", ('"{0}"' -f [string]$Supervisor.stateRoot),
+        "-ProjectName", [string]$Supervisor.projectName,
+        "-ExpectedReceiptPath",
+            ('"{0}"' -f [string]$Supervisor.expectedReceiptPath),
+        "-ExpectedCandidateId", [string]$Supervisor.expectedCandidateId,
+        "-ExpectedForwarderConfigSha256",
+            [string]$Supervisor.expectedForwarderConfigSha256,
+        "-ReadyTimeoutSeconds", [string]$Supervisor.readyTimeoutSeconds
+    ) -join " "
+}
+
+function Test-ScheduledTaskDurationEquals {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory)][TimeSpan]$Expected
+    )
+
+    if (
+        $null -eq $Value -or
+        [string]::IsNullOrWhiteSpace([string]$Value)
+    ) {
+        return $false
+    }
+    try {
+        $observed =
+            if ($Value -is [TimeSpan]) {
+                [TimeSpan]$Value
+            }
+            else {
+                [Xml.XmlConvert]::ToTimeSpan([string]$Value)
+            }
+        return $observed.Ticks -eq $Expected.Ticks
+    }
+    catch {
+        return $false
+    }
+}
+
+function ConvertTo-ScheduledTaskUtcDateTimeOffset {
+    param([AllowNull()]$Value)
+
+    if (
+        $null -eq $Value -or
+        [string]::IsNullOrWhiteSpace([string]$Value)
+    ) {
+        return $null
+    }
+    try {
+        $observed =
+            if ($Value -is [DateTimeOffset]) {
+                ([DateTimeOffset]$Value).ToUniversalTime()
+            }
+            elseif ($Value -is [DateTime]) {
+                $dateTime = [DateTime]$Value
+                if ($dateTime.Kind -eq [DateTimeKind]::Unspecified) {
+                    $dateTime = [DateTime]::SpecifyKind(
+                        $dateTime,
+                        [DateTimeKind]::Local
+                    )
+                }
+                [DateTimeOffset]::new($dateTime).ToUniversalTime()
+            }
+            else {
+                $parsed = [DateTimeOffset]::MinValue
+                $styles =
+                    [Globalization.DateTimeStyles]::AllowWhiteSpaces -bor
+                    [Globalization.DateTimeStyles]::AssumeLocal
+                if (
+                    -not [DateTimeOffset]::TryParse(
+                        [string]$Value,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        $styles,
+                        [ref]$parsed
+                    )
+                ) {
+                    return $null
+                }
+                $parsed.ToUniversalTime()
+            }
+        if ($observed.Year -le 1900) {
+            return $null
+        }
+        return $observed
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-ScheduledTaskNamedValue {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory)][string]$ExpectedName,
+        [Parameter(Mandatory)][int]$ExpectedNumber
+    )
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    $text = [string]$Value
+    if ($text -ceq $ExpectedName) {
+        return $true
+    }
+    $number = 0
+    return (
+        [int]::TryParse(
+            $text,
+            [Globalization.NumberStyles]::Integer,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$number
+        ) -and
+        $number -eq $ExpectedNumber
+    )
+}
+
+function Test-ScheduledTaskBoolean {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory)][bool]$Expected
+    )
+
+    return $Value -is [bool] -and [bool]$Value -eq $Expected
+}
+
+function Get-LanForwarderSupervisorTaskContractObservation {
+    param(
+        [Parameter(Mandatory)]$Task,
+        [Parameter(Mandatory)]$Supervisor,
+        [AllowNull()]$TaskInfo,
+        [DateTimeOffset]$NowUtc = [DateTimeOffset]::UtcNow
+    )
+
+    $now = $NowUtc.ToUniversalTime()
+    $identityFailures = [Collections.Generic.List[string]]::new()
+    $scheduleFailures = [Collections.Generic.List[string]]::new()
+    $operationalFailures = [Collections.Generic.List[string]]::new()
+    $actions = @($Task.Actions)
+    $expectedPowerShell =
+        [IO.Path]::GetFullPath([string]$Supervisor.powerShellExecutablePath)
+    $actionMatches = $false
+    if ($actions.Count -eq 1) {
+        $observedExecutable = [string]$actions[0].Execute
+        try {
+            $actionMatches = (
+                -not [string]::IsNullOrWhiteSpace($observedExecutable) -and
+                [IO.Path]::GetFullPath($observedExecutable).Equals(
+                    $expectedPowerShell,
+                    [StringComparison]::OrdinalIgnoreCase
+                ) -and
+                [string]$actions[0].Arguments -ceq
+                    (Get-LanForwarderSupervisorTaskArguments `
+                        -Supervisor $Supervisor) -and
+                [string]::IsNullOrWhiteSpace(
+                    [string]$actions[0].WorkingDirectory
+                )
+            )
+        }
+        catch {
+            $actionMatches = $false
+        }
+    }
+    if (-not $actionMatches) {
+        $identityFailures.Add("action") | Out-Null
+    }
+    if ([string]$Task.TaskPath -cne "\") {
+        $identityFailures.Add("task path") | Out-Null
+    }
+    if (
+        [string]$Task.Description -cne
+            [string]$Supervisor.taskDescription
+    ) {
+        $identityFailures.Add("description") | Out-Null
+    }
+    if (
+        [string]$Task.Principal.UserId -cne
+            [string]$Supervisor.principal -or
+        -not (Test-ScheduledTaskNamedValue `
+            -Value $Task.Principal.LogonType `
+            -ExpectedName "Interactive" `
+            -ExpectedNumber 3) -or
+        -not (Test-ScheduledTaskNamedValue `
+            -Value $Task.Principal.RunLevel `
+            -ExpectedName "Limited" `
+            -ExpectedNumber 0)
+    ) {
+        $identityFailures.Add("principal") | Out-Null
+    }
+
+    $triggers = @($Task.Triggers)
+    $triggerMatches = $false
+    if ($triggers.Count -eq 1) {
+        $trigger = $triggers[0]
+        $expectedStartBoundary =
+            ConvertTo-ScheduledTaskUtcDateTimeOffset `
+                -Value $Supervisor.taskStartBoundaryUtc
+        $observedStartBoundary =
+            ConvertTo-ScheduledTaskUtcDateTimeOffset `
+                -Value $trigger.StartBoundary
+        $scheduleSealedAt =
+            ConvertTo-ScheduledTaskUtcDateTimeOffset `
+                -Value $Supervisor.scheduleSealedAtUtc
+        $startBoundaryMatches = (
+            $null -ne $expectedStartBoundary -and
+            $null -ne $observedStartBoundary -and
+            $null -ne $scheduleSealedAt -and
+            $observedStartBoundary.UtcDateTime.Ticks -eq
+                $expectedStartBoundary.UtcDateTime.Ticks -and
+            (
+                $expectedStartBoundary - $scheduleSealedAt
+            ).TotalSeconds -eq [int]$Supervisor.startDelaySeconds -and
+            $scheduleSealedAt -le
+                $now.AddSeconds([int]$Supervisor.nextRunGraceSeconds) -and
+            $expectedStartBoundary -le
+                $now.AddSeconds([int]$Supervisor.nextRunGraceSeconds) -and
+            $expectedStartBoundary.AddDays(
+                [int]$Supervisor.repetitionDurationDays
+            ) -gt $now
+        )
+        $triggerMatches = (
+            [string]$trigger.CimClass.CimClassName -ceq
+                "MSFT_TaskTimeTrigger" -and
+            (Test-ScheduledTaskBoolean `
+                -Value $trigger.Enabled `
+                -Expected $true) -and
+            $startBoundaryMatches -and
+            [string]::IsNullOrWhiteSpace([string]$trigger.EndBoundary) -and
+            (Test-ScheduledTaskDurationEquals `
+                -Value $trigger.Repetition.Interval `
+                -Expected (
+                    New-TimeSpan -Seconds (
+                        [int]$Supervisor.intervalSeconds
+                    )
+                )) -and
+            (Test-ScheduledTaskDurationEquals `
+                -Value $trigger.Repetition.Duration `
+                -Expected (
+                    New-TimeSpan -Days (
+                        [int]$Supervisor.repetitionDurationDays
+                    )
+                )) -and
+            (Test-ScheduledTaskBoolean `
+                -Value $trigger.Repetition.StopAtDurationEnd `
+                -Expected $true)
+        )
+    }
+    if (-not $triggerMatches) {
+        $scheduleFailures.Add(
+            "enabled active receipt-bound repeating time trigger"
+        ) | Out-Null
+    }
+    $settings = $Task.Settings
+    $settingsMatch = (
+        (Test-ScheduledTaskBoolean `
+            -Value $settings.Enabled `
+            -Expected $true) -and
+        (Test-ScheduledTaskNamedValue `
+            -Value $settings.MultipleInstances `
+            -ExpectedName "IgnoreNew" `
+            -ExpectedNumber 2) -and
+        [int]$settings.RestartCount -eq 3 -and
+        (Test-ScheduledTaskDurationEquals `
+            -Value $settings.RestartInterval `
+            -Expected (New-TimeSpan -Seconds 30)) -and
+        (Test-ScheduledTaskDurationEquals `
+            -Value $settings.ExecutionTimeLimit `
+            -Expected (New-TimeSpan -Minutes 2)) -and
+        (Test-ScheduledTaskBoolean `
+            -Value $settings.StartWhenAvailable `
+            -Expected $true) -and
+        (Test-ScheduledTaskBoolean `
+            -Value $settings.AllowDemandStart `
+            -Expected $true) -and
+        (Test-ScheduledTaskBoolean `
+            -Value $settings.DisallowStartIfOnBatteries `
+            -Expected $false) -and
+        (Test-ScheduledTaskBoolean `
+            -Value $settings.StopIfGoingOnBatteries `
+            -Expected $false)
+    )
+    if (-not $settingsMatch) {
+        $scheduleFailures.Add("enabled restart and execution settings") |
+            Out-Null
+    }
+    $nextRunTime =
+        if (
+            $null -ne $TaskInfo -and
+            $TaskInfo.PSObject.Properties["NextRunTime"]
+        ) {
+            ConvertTo-ScheduledTaskUtcDateTimeOffset `
+                -Value $TaskInfo.NextRunTime
+        }
+        else {
+            $null
+        }
+    $nextRunMatches = (
+        $null -ne $nextRunTime -and
+        $nextRunTime -ge
+            $now.AddSeconds(-[int]$Supervisor.nextRunGraceSeconds) -and
+        $nextRunTime -le $now.AddSeconds(
+            [int]$Supervisor.intervalSeconds +
+            [int]$Supervisor.nextRunGraceSeconds
+        )
+    )
+    if (-not $nextRunMatches) {
+        $scheduleFailures.Add("bounded next run") | Out-Null
+    }
+    $operationalStateReady = (
+        (Test-ScheduledTaskNamedValue `
+            -Value $Task.State `
+            -ExpectedName "Ready" `
+            -ExpectedNumber 3) -or
+        (Test-ScheduledTaskNamedValue `
+            -Value $Task.State `
+            -ExpectedName "Running" `
+            -ExpectedNumber 4)
+    )
+    if (-not $operationalStateReady) {
+        $operationalFailures.Add("operational state") | Out-Null
+    }
+    $identityMatches = $identityFailures.Count -eq 0
+    $scheduleMatches = $scheduleFailures.Count -eq 0
+    $matches =
+        $identityMatches -and $scheduleMatches -and $operationalStateReady
+    $failures = @(
+        @($identityFailures) +
+        @($scheduleFailures) +
+        @($operationalFailures)
+    )
+    return [PSCustomObject]@{
+        Required = $true
+        Status = if ($matches) { "ready" } else { "not-ready" }
+        MatchesReceipt = $matches
+        IdentityMatchesReceipt = $identityMatches
+        ScheduleMatchesReceipt = $scheduleMatches
+        OperationalStateReady = $operationalStateReady
+        Detail =
+            if ($matches) {
+                "verified"
+            }
+            else {
+                "scheduled supervisor task mismatch: " + ($failures -join ", ")
+            }
+    }
+}
+
+function Get-LanForwarderSupervisorTaskObservation {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        return [PSCustomObject]@{
+            Required = $false
+            Status = "not-required"
+            MatchesReceipt = $true
+            IdentityMatchesReceipt = $true
+            ScheduleMatchesReceipt = $true
+            OperationalStateReady = $true
+            Detail = "non-trusted-edge release"
+        }
+    }
+    try {
+        Assert-LanForwarderAssets -Receipt $Receipt
+        $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+        $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+        $task = Get-ScheduledTask `
+            -TaskPath "\" `
+            -TaskName ([string]$supervisor.taskName) `
+            -ErrorAction SilentlyContinue
+        if (-not $task) {
+            return [PSCustomObject]@{
+                Required = $true
+                Status = "not-ready"
+                MatchesReceipt = $false
+                IdentityMatchesReceipt = $false
+                ScheduleMatchesReceipt = $false
+                OperationalStateReady = $false
+                Detail = "scheduled supervisor task is missing"
+            }
+        }
+        $taskInfo = $null
+        try {
+            $taskInfo = Get-ScheduledTaskInfo `
+                -TaskPath "\" `
+                -TaskName ([string]$supervisor.taskName) `
+                -ErrorAction Stop
+        }
+        catch {
+            # The pure contract treats missing runtime information as schedule
+            # drift while retaining independently proven task ownership.
+            $taskInfo = $null
+        }
+        return (Get-LanForwarderSupervisorTaskContractObservation `
+            -Task $task `
+            -Supervisor $supervisor `
+            -TaskInfo $taskInfo `
+            -NowUtc ([DateTimeOffset]::UtcNow))
+    }
+    catch {
+        return [PSCustomObject]@{
+            Required = $true
+            Status = "not-ready"
+            MatchesReceipt = $false
+            IdentityMatchesReceipt = $false
+            ScheduleMatchesReceipt = $false
+            OperationalStateReady = $false
+            Detail = $_.Exception.Message
+        }
+    }
+}
+
+function Assert-LanForwarderSupervisorTaskReady {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $observation =
+        Get-LanForwarderSupervisorTaskObservation -Receipt $Receipt
+    if (
+        $observation.Required -and
+        (
+            $observation.Status -cne "ready" -or
+            -not $observation.MatchesReceipt
+        )
+    ) {
+        throw (
+            "LAN forwarder supervisor task is not receipt-bound and ready: " +
+            $observation.Detail
+        )
+    }
+    return $observation
+}
+
+function Unregister-LanForwarderSupervisor {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [switch]$AllowNotRegistered
+    )
+
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        return
+    }
+    Assert-LanForwarderAssets -Receipt $Receipt
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    $task = Get-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -ErrorAction SilentlyContinue
+    if (-not $task) {
+        if ($AllowNotRegistered) {
+            return
+        }
+        throw "LAN forwarder supervisor task is missing"
+    }
+    $observation =
+        Get-LanForwarderSupervisorTaskObservation -Receipt $Receipt
+    if (-not $observation.IdentityMatchesReceipt) {
+        throw (
+            "Refusing to remove a LAN forwarder supervisor task that does not " +
+            "match the retained receipt: $($observation.Detail)"
+        )
+    }
+    Stop-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -Confirm:$false `
+        -ErrorAction Stop
+}
+
+function Register-LanForwarderSupervisor {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        return (
+            Get-LanForwarderSupervisorTaskObservation -Receipt $Receipt
+        )
+    }
+    Assert-LanForwarderAssets -Receipt $Receipt
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    $existing = Get-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -ErrorAction SilentlyContinue
+    if ($existing) {
+        $observation =
+            Get-LanForwarderSupervisorTaskObservation -Receipt $Receipt
+        if (-not $observation.IdentityMatchesReceipt) {
+            throw (
+                "Refusing to replace a same-name Windows Scheduled Task that is " +
+                "not owned by this exact K-Comms receipt"
+            )
+        }
+        Unregister-LanForwarderSupervisor `
+            -Receipt $Receipt `
+            -AllowNotRegistered
+    }
+
+    $powerShell = [string]$supervisor.powerShellExecutablePath
+    if (
+        -not [IO.Path]::IsPathRooted($powerShell) -or
+        -not (Test-Path -LiteralPath $powerShell -PathType Leaf)
+    ) {
+        throw (
+            "LAN forwarder supervisor PowerShell executable is missing: " +
+            $powerShell
+        )
+    }
+    $action = New-ScheduledTaskAction `
+        -Execute $powerShell `
+        -Argument (
+            Get-LanForwarderSupervisorTaskArguments -Supervisor $supervisor
+        )
+    $taskStartBoundary =
+        ConvertTo-ScheduledTaskUtcDateTimeOffset `
+            -Value $supervisor.taskStartBoundaryUtc
+    if ($null -eq $taskStartBoundary) {
+        throw "LAN forwarder supervisor task start boundary is invalid"
+    }
+    $trigger = New-ScheduledTaskTrigger `
+        -Once `
+        -At $taskStartBoundary.LocalDateTime `
+        -RepetitionInterval (
+            New-TimeSpan -Seconds ([int]$supervisor.intervalSeconds)
+        ) `
+        -RepetitionDuration (
+            New-TimeSpan -Days ([int]$supervisor.repetitionDurationDays)
+        )
+    $trigger.Repetition.StopAtDurationEnd = $true
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -RestartCount 3 `
+        -RestartInterval (New-TimeSpan -Seconds 30) `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+    $principal = New-ScheduledTaskPrincipal `
+        -UserId ([string]$supervisor.principal) `
+        -LogonType Interactive `
+        -RunLevel Limited
+    Register-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -Action $action `
+        -Trigger $trigger `
+        -Settings $settings `
+        -Principal $principal `
+        -Description ([string]$supervisor.taskDescription) `
+        -Force | Out-Null
+    return (Assert-LanForwarderSupervisorTaskReady -Receipt $Receipt)
+}
+
+function Assert-LanForwarderSupervisorInvocation {
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [Parameter(Mandatory)][string]$ReceiptPath,
+        [Parameter(Mandatory)][string]$CandidateId,
+        [Parameter(Mandatory)][string]$ForwarderConfigSha256
+    )
+
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    foreach ($comparison in @(
+        @(
+            "receipt path",
+            [IO.Path]::GetFullPath($ReceiptPath),
+            [IO.Path]::GetFullPath([string]$supervisor.expectedReceiptPath)
+        ),
+        @(
+            "candidate identity",
+            $CandidateId,
+            [string]$supervisor.expectedCandidateId
+        ),
+        @(
+            "forwarder configuration hash",
+            $ForwarderConfigSha256,
+            [string]$supervisor.expectedForwarderConfigSha256
+        ),
+        @(
+            "receipt forwarder configuration hash",
+            [string]$forwarder.configSha256,
+            [string]$supervisor.expectedForwarderConfigSha256
+        ),
+        @(
+            "receipt candidate identity",
+            [string]$Receipt.candidateId,
+            [string]$supervisor.expectedCandidateId
+        )
+    )) {
+        if ($comparison[1] -cne $comparison[2]) {
+            throw (
+                "LAN forwarder supervisor invocation does not match the sealed " +
+                "$($comparison[0])"
+            )
+        }
+    }
+}
+
+function Repair-LanForwarderIfNeeded {
+    param([Parameter(Mandatory)]$Receipt)
+
+    Assert-LanForwarderAssets -Receipt $Receipt
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        throw "Durable LAN forwarder supervision is limited to trusted-edge media"
+    }
+    $observation = Get-LanForwarderObservation -Receipt $Receipt
+    if ($observation.Status -ceq "ready") {
+        return $observation
+    }
+    $null = Start-LanForwarder -Receipt $Receipt
+    return (Assert-LanForwarderReady -Receipt $Receipt)
 }
 
 function Stop-OwnedLanForwarderProcess {
@@ -3659,7 +5692,7 @@ function Start-LanForwarder {
 function Assert-RetainedReleaseAssets {
     param([Parameter(Mandatory)]$Receipt)
 
-    $schemaVersion = Get-ReceiptSchemaVersion -Receipt $Receipt
+    $schemaVersion = Assert-SupportedReceiptSchemaVersion -Receipt $Receipt
     if (-not (Test-Path -LiteralPath $Receipt.environmentFile -PathType Leaf)) {
         throw "Retained release environment is missing: $($Receipt.environmentFile)"
     }
@@ -3691,7 +5724,45 @@ function Assert-RetainedReleaseAssets {
             "variable K_COMMS_RELEASE_BIND_ADDRESS"
         )
     }
-    if ($schemaVersion -ge 5) {
+    if (
+        $schemaVersion -ge 6 -and
+        (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)
+    ) {
+        $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+        $expectedTopologyEnvironment = [ordered]@{
+            K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+            K_COMMS_RELEASE_HOST = $topology.PublicHost
+            K_COMMS_LIVEKIT_NODE_IP = $topology.MediaNodeAddress
+            K_COMMS_LOCAL_RELEASE_HOST = $topology.MediaNodeAddress
+            K_COMMS_RELEASE_EXPOSURE_MODE =
+                $cloudflareTrustedEdgeProfile
+            K_COMMS_TRUSTED_EDGE_CONFIRMATION =
+                $cloudflareTrustedEdgeConfirmation
+            PHX_HOST = $topology.PublicHost
+            PUBLIC_APP_URL = $topology.PublicAppUrl
+            CORS_ORIGINS = $topology.PublicAppUrl
+            HSTS_ENABLED = "true"
+            LIVEKIT_SERVER_URL = $topology.LiveKitOrigin
+            S3_PUBLIC_ENDPOINT = $topology.ObjectOrigin
+            MINIO_API_CORS_ALLOW_ORIGIN = $topology.PublicAppUrl
+            CSP_CONNECT_SOURCES =
+                "'self' $($topology.LiveKitOrigin) $($topology.ObjectOrigin)"
+            TRUSTED_PROXY_CIDRS = $topology.TrustedProxyCidr
+        }
+        foreach ($entry in $expectedTopologyEnvironment.GetEnumerator()) {
+            if (
+                -not $retainedEnvironment.Contains($entry.Key) -or
+                [string]$retainedEnvironment[$entry.Key] -cne
+                    [string]$entry.Value
+            ) {
+                throw (
+                    "Retained schema-v6 trusted-edge environment topology does " +
+                    "not match its receipt for $($entry.Key)"
+                )
+            }
+        }
+    }
+    elseif ($schemaVersion -ge 5) {
         $recordedBindAddress = Get-ReceiptBindAddress -Receipt $Receipt
         $recordedPublicHost = Get-ReceiptPublicHost -Receipt $Receipt
         $expectedRuntimeHost =
@@ -3966,7 +6037,9 @@ function Assert-CandidatePorts {
         [Parameter(Mandatory)][int]$CandidateLiveKitSignalPort,
         [Parameter(Mandatory)][int]$CandidateLiveKitTcpPort,
         [Parameter(Mandatory)][int]$CandidateLiveKitUdpPort,
-        $PreviousReceipt = $null
+        $PreviousReceipt = $null,
+        [ValidateSet("full", "media-only")]
+        [string]$ForwarderProfile = "full"
     )
 
     $specifications = @(
@@ -4087,7 +6160,23 @@ function Assert-CandidatePorts {
     if ($CandidateBindAddress -ceq $podmanBindAddress) {
         return
     }
-    foreach ($publicSpecification in @(
+    $publicSpecifications =
+        if ($ForwarderProfile -ceq "media-only") {
+            @(
+                [PSCustomObject]@{
+                    Name = "LiveKit media TCP forwarder"
+                    Protocol = "tcp"
+                    Port = $CandidateLiveKitTcpPort
+                },
+                [PSCustomObject]@{
+                    Name = "LiveKit media UDP forwarder"
+                    Protocol = "udp"
+                    Port = $CandidateLiveKitUdpPort
+                }
+            )
+        }
+        else {
+            @(
         [PSCustomObject]@{
             Name = "application forwarder"
             Protocol = "tcp"
@@ -4113,7 +6202,9 @@ function Assert-CandidatePorts {
             Protocol = "udp"
             Port = $CandidateLiveKitUdpPort
         }
-    )) {
+            )
+        }
+    foreach ($publicSpecification in $publicSpecifications) {
         $ownedByRetainedForwarder =
             $PreviousReceipt -and
             (Test-RetainedForwarderOwnsPort `
@@ -4168,6 +6259,9 @@ function Restore-Release {
 
     $targetForwarderStarted = $false
     if ($activeReceipt) {
+        Unregister-LanForwarderSupervisor `
+            -Receipt $activeReceipt `
+            -AllowNotRegistered
         Stop-LanForwarder -Receipt $activeReceipt -AllowNotRunning
     }
     try {
@@ -4176,6 +6270,7 @@ function Restore-Release {
             -ComposeProject $Receipt.projectName `
             -ComposePath $Receipt.composeSourcePath `
             -RunMigration:$RunMigration
+        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $Receipt
         Ensure-InstantRoomTenant `
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
@@ -4201,11 +6296,16 @@ function Restore-Release {
             $null = Start-LanForwarder -Receipt $Receipt
             $targetForwarderStarted = $true
             $null = Assert-LanForwarderReady -Receipt $Receipt
-            Wait-Application `
-                -ExpectedBindAddress $topology.BindAddress `
-                -ExpectedAppPort ([int]$Receipt.ports.app) `
-                -ExpectedMinioPort ([int]$Receipt.ports.minio) `
-                -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)
+            if (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt) {
+                Wait-TrustedEdgeApplication -Topology $topology
+            }
+            else {
+                Wait-Application `
+                    -ExpectedBindAddress $topology.BindAddress `
+                    -ExpectedAppPort ([int]$Receipt.ports.app) `
+                    -ExpectedMinioPort ([int]$Receipt.ports.minio) `
+                    -ExpectedLiveKitPort ([int]$Receipt.ports.livekitSignal)
+            }
         }
     }
     catch {
@@ -4227,14 +6327,28 @@ function Restore-Release {
     }
 
     if ($UpdatePointer) {
-        Write-JsonAtomic -Path $currentPointerPath -Value ([ordered]@{
-            receiptPath = $Receipt.receiptPath
-            revision = $Receipt.revision
-            imageReference = $Receipt.imageReference
-            imageId = $Receipt.imageId
-            publicAppUrl = $topology.PublicAppUrl
-            updatedAt = [DateTime]::UtcNow.ToString("o")
-        })
+        $supervisorRegistered = $false
+        try {
+            $null = Register-LanForwarderSupervisor -Receipt $Receipt
+            $supervisorRegistered = $true
+            Write-JsonAtomic -Path $currentPointerPath -Value ([ordered]@{
+                receiptPath = $Receipt.receiptPath
+                revision = $Receipt.revision
+                imageReference = $Receipt.imageReference
+                imageId = $Receipt.imageId
+                publicAppUrl = $topology.PublicAppUrl
+                updatedAt = [DateTime]::UtcNow.ToString("o")
+            })
+        }
+        catch {
+            $publishError = $_
+            if ($supervisorRegistered) {
+                Unregister-LanForwarderSupervisor `
+                    -Receipt $Receipt `
+                    -AllowNotRegistered
+            }
+            throw $publishError
+        }
     }
 
     $migrationOutput
@@ -4661,14 +6775,42 @@ function Invoke-BindAddressSelfTest {
 
     $selfTestOrigin =
         "http://$($script:ReleaseNetworkObservation.BindAddress):4188"
+    $selfTestObservation = [PSCustomObject]@{
+        BindAddress = $script:ReleaseNetworkObservation.BindAddress
+        InterfaceIndex = $script:ReleaseNetworkObservation.InterfaceIndex
+        InterfaceAlias = $script:ReleaseNetworkObservation.InterfaceAlias
+        NetworkName = $script:ReleaseNetworkObservation.NetworkName
+        NetworkCategory = $script:ReleaseNetworkObservation.NetworkCategory
+        AllowPublicNetworkProfile =
+            $script:ReleaseNetworkObservation.AllowPublicNetworkProfile
+        PublicNetworkProfileOverrideUsed =
+            $script:ReleaseNetworkObservation.PublicNetworkProfileOverrideUsed
+        ExposureProfile =
+            if (
+                $script:ReleaseNetworkObservation.BindAddress -ceq
+                    $podmanBindAddress
+            ) {
+                "loopback"
+            }
+            else {
+                "private_lan"
+            }
+        PublicHost = $script:ReleaseNetworkObservation.BindAddress
+    }
     $selfTestReceipt = (
         [ordered]@{
             schemaVersion = 5
             publicAppUrl = $selfTestOrigin
             network = New-ReceiptNetworkRecord `
-                -Observation $script:ReleaseNetworkObservation `
+                -Observation $selfTestObservation `
                 -PublicAppUrl $selfTestOrigin
-            ports = [ordered]@{app = 4188}
+            ports = [ordered]@{
+                app = 4188
+                livekitSignal = 7980
+                livekitTcp = 7981
+                livekitUdp = 7982
+                minio = 5900
+            }
         } |
             ConvertTo-Json -Depth 8 |
             ConvertFrom-Json
@@ -4742,9 +6884,13 @@ function New-LanForwarderSelfTestReceipt {
     param(
         [Parameter(Mandatory)][string]$CandidateDirectory,
         [Parameter(Mandatory)][string]$ExpectedBindAddress,
-        [Parameter(Mandatory)][int[]]$Ports
+        [Parameter(Mandatory)][int[]]$Ports,
+        [ValidateSet("full", "media-only")]
+        [string]$Profile = "full",
+        [string]$CandidateId = "20260725T000000Z-0123456789ab-01234567"
     )
 
+    $receiptPath = Join-Path $CandidateDirectory "deployment.json"
     $forwarder = New-LanForwarderReceiptRecord `
         -ImmutableSourceRoot $repositoryRoot `
         -CandidateDirectory $CandidateDirectory `
@@ -4753,17 +6899,52 @@ function New-LanForwarderSelfTestReceipt {
         -ExpectedMinioPort $Ports[1] `
         -ExpectedLiveKitSignalPort $Ports[2] `
         -ExpectedLiveKitTcpPort $Ports[3] `
-        -ExpectedLiveKitUdpPort $Ports[4]
+        -ExpectedLiveKitUdpPort $Ports[4] `
+        -ReceiptPath $receiptPath `
+        -CandidateId $CandidateId `
+        -Profile $Profile
     [PSCustomObject]@{
-        schemaVersion = 5
-        receiptPath = Join-Path $CandidateDirectory "deployment.json"
-        publicAppUrl = "http://$ExpectedBindAddress`:$($Ports[0])"
+        schemaVersion = if ($Profile -ceq "media-only") { 6 } else { 5 }
+        candidateId = $CandidateId
+        receiptPath = $receiptPath
+        publicAppUrl =
+            if ($Profile -ceq "media-only") {
+                "https://comms.self-test.invalid"
+            }
+            else {
+                "http://$ExpectedBindAddress`:$($Ports[0])"
+            }
         network = [PSCustomObject]@{
             bindAddress = $ExpectedBindAddress
             podmanBindAddress = $podmanBindAddress
-            publicHost = $ExpectedBindAddress
-            publicAppUrl = "http://$ExpectedBindAddress`:$($Ports[0])"
-            exposureMode = "lan-forwarder"
+            publicHost =
+                if ($Profile -ceq "media-only") {
+                    "comms.self-test.invalid"
+                }
+                else {
+                    $ExpectedBindAddress
+                }
+            publicAppUrl =
+                if ($Profile -ceq "media-only") {
+                    "https://comms.self-test.invalid"
+                }
+                else {
+                    "http://$ExpectedBindAddress`:$($Ports[0])"
+                }
+            exposureMode =
+                if ($Profile -ceq "media-only") {
+                    $cloudflareTrustedEdgeProfile
+                }
+                else {
+                    "lan-forwarder"
+                }
+            exposureProfile =
+                if ($Profile -ceq "media-only") {
+                    $cloudflareTrustedEdgeProfile
+                }
+                else {
+                    "private_lan"
+                }
         }
         ports = [PSCustomObject]@{
             app = $Ports[0]
@@ -5078,6 +7259,110 @@ function Invoke-LanForwarderSelfTest {
     }
 }
 
+function Invoke-LanForwarderSupervisionSelfTest {
+    param([Parameter(Mandatory)][string]$TemporaryDirectory)
+
+    if ($BindAddress -ceq $podmanBindAddress) {
+        return
+    }
+    $testPorts = New-LanForwarderSelfTestPorts `
+        -PublicBindAddress $BindAddress
+    $candidateDirectory =
+        Join-Path $TemporaryDirectory "forwarder-supervision-self-test"
+    New-Item -ItemType Directory -Path $candidateDirectory | Out-Null
+    $receipt = New-LanForwarderSelfTestReceipt `
+        -CandidateDirectory $candidateDirectory `
+        -ExpectedBindAddress $BindAddress `
+        -Ports $testPorts `
+        -Profile "media-only"
+    $forwarder = Get-ReceiptForwarder -Receipt $receipt
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    Assert-LanForwarderAssets -Receipt $receipt
+    if (
+        @($forwarder.listeners).Count -ne 2 -or
+        @($forwarder.listeners | ForEach-Object { [string]$_.name }) -join "," -cne
+            "livekitTcp,livekitUdp"
+    ) {
+        throw (
+            "LAN forwarder supervision self-test widened the media-only " +
+            "listener contract"
+        )
+    }
+    Assert-LanForwarderSupervisorInvocation `
+        -Receipt $receipt `
+        -ReceiptPath ([string]$receipt.receiptPath) `
+        -CandidateId ([string]$receipt.candidateId) `
+        -ForwarderConfigSha256 ([string]$forwarder.configSha256)
+    Assert-LanForwarderSelfTestRejected `
+        -Description "a stale supervisor candidate identity" `
+        -Action {
+            Assert-LanForwarderSupervisorInvocation `
+                -Receipt $receipt `
+                -ReceiptPath ([string]$receipt.receiptPath) `
+                -CandidateId "20260725T000000Z-ffffffffffff-ffffffff" `
+                -ForwarderConfigSha256 ([string]$forwarder.configSha256)
+        }
+    $arguments =
+        Get-LanForwarderSupervisorTaskArguments -Supervisor $supervisor
+    foreach ($required in @(
+        "-Action Supervise",
+        "-ExpectedReceiptPath",
+        "-ExpectedCandidateId",
+        "-ExpectedForwarderConfigSha256",
+        "-ReadyTimeoutSeconds 30"
+    )) {
+        if (-not $arguments.Contains($required)) {
+            throw (
+                "LAN forwarder supervision self-test task action omitted " +
+                "'$required'"
+            )
+        }
+    }
+
+    try {
+        $first = Start-LanForwarder -Receipt $receipt
+        $firstProcess = Get-Process -Id $first.ProcessId -ErrorAction Stop
+        $firstProcess.Kill()
+        $null = $firstProcess.WaitForExit(10000)
+        $firstProcess.Dispose()
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            if (-not (Get-Process -Id $first.ProcessId -ErrorAction SilentlyContinue)) {
+                break
+            }
+            if ([DateTime]::UtcNow -ge $deadline) {
+                throw "LAN forwarder supervision self-test crash did not terminate"
+            }
+            Start-Sleep -Milliseconds 100
+        } while ($true)
+
+        $repaired = Repair-LanForwarderIfNeeded -Receipt $receipt
+        if (
+            $repaired.Status -cne "ready" -or
+            $repaired.ProcessId -eq $first.ProcessId
+        ) {
+            throw (
+                "LAN forwarder supervision self-test did not replace the " +
+                "unexpectedly exited media-only process"
+            )
+        }
+        $owned = @(Get-LanForwarderOwnedEndpoints -Receipt $receipt)
+        if (
+            $owned.Count -ne 2 -or
+            @($owned | ForEach-Object { [string]$_.Name }) -join "," -cne
+                "livekitTcp,livekitUdp"
+        ) {
+            throw (
+                "LAN forwarder supervision self-test recovery exposed a " +
+                "non-media listener"
+            )
+        }
+    }
+    finally {
+        Stop-LanForwarder -Receipt $receipt -AllowNotRunning
+    }
+}
+
 function Invoke-StableEncryptionKeySelfTest {
     $generated = New-EncryptionKey
     if (-not (Test-EncryptionKey -Value $generated)) {
@@ -5117,9 +7402,18 @@ function Invoke-StableEncryptionKeySelfTest {
 }
 
 function Invoke-Validate {
-    $script:ReleaseNetworkObservation = Resolve-ReleaseNetworkObservation `
-        -Value $BindAddress `
+    $script:ReleaseNetworkObservation = Resolve-RequestedReleaseTopology `
+        -RequestedExposureProfile $ExposureProfile `
+        -RequestedBindAddress $BindAddress `
         -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
+    if (
+        $script:ReleaseNetworkObservation.ExposureProfile -ceq
+            $cloudflareTrustedEdgeProfile
+    ) {
+        # Validate is non-mutating and therefore has no Compose network to
+        # inspect. Use one narrow RFC1918 /32 only for rendering/self-tests.
+        $script:ReleaseNetworkObservation.TrustedProxyCidr = "10.0.0.1/32"
+    }
     $script:BindAddress = $script:ReleaseNetworkObservation.BindAddress
     $requiredCommands = @("podman", "python", "icacls.exe")
     if ($script:BindAddress -cne $podmanBindAddress) {
@@ -5138,10 +7432,12 @@ function Invoke-Validate {
         $sample = New-ReleaseEnvironment `
             -Stable (New-StableEnvironment) `
             -Revision ("0" * 40) `
-            -ImageReference ("localhost/k-comms:sha-" + ("0" * 40))
+            -ImageReference ("localhost/k-comms:sha-" + ("0" * 40)) `
+            -Topology $script:ReleaseNetworkObservation
         Assert-ReleaseEnvironmentTopology `
             -Values $sample `
-            -ExpectedBindAddress $BindAddress
+            -ExpectedBindAddress $script:BindAddress `
+            -ExpectedTopology $script:ReleaseNetworkObservation
         $samplePath = Join-Path $temporaryDirectory "release.env"
         Write-EnvironmentFile -Path $samplePath -Values $sample
         $sampleComposePath = Join-Path $temporaryDirectory "compose.source.yaml"
@@ -5155,6 +7451,8 @@ function Invoke-Validate {
         Invoke-BindAddressSelfTest
         Invoke-PortPreflightSelfTest
         Invoke-LanForwarderSelfTest -TemporaryDirectory $temporaryDirectory
+        Invoke-LanForwarderSupervisionSelfTest `
+            -TemporaryDirectory $temporaryDirectory
         Invoke-StableEncryptionKeySelfTest
         Invoke-CapabilityCompatibilitySelfTest
         Invoke-GuestRollbackCompatibilitySelfTest
@@ -5323,8 +7621,9 @@ function Invoke-FailedCandidateCleanupSelfTest {
 }
 
 function Invoke-Deploy {
-    $script:ReleaseNetworkObservation = Resolve-ReleaseNetworkObservation `
-        -Value $BindAddress `
+    $script:ReleaseNetworkObservation = Resolve-RequestedReleaseTopology `
+        -RequestedExposureProfile $ExposureProfile `
+        -RequestedBindAddress $BindAddress `
         -AllowPublicNetworkProfile:$AllowPublicNetworkProfile
     $script:BindAddress = $script:ReleaseNetworkObservation.BindAddress
     $requiredCommands = @("git", "podman", "tar", "icacls.exe")
@@ -5367,7 +7666,15 @@ function Invoke-DeployLocked {
         -CandidateLiveKitSignalPort $LiveKitSignalPort `
         -CandidateLiveKitTcpPort $LiveKitTcpPort `
         -CandidateLiveKitUdpPort $LiveKitUdpPort `
-        -PreviousReceipt $previousReceipt
+        -PreviousReceipt $previousReceipt `
+        -ForwarderProfile $(if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile
+        ) {
+            "media-only"
+        } else {
+            "full"
+        })
 
     $shortRevision = $Revision.Substring(0, 12)
     $stamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
@@ -5407,7 +7714,11 @@ function Invoke-DeployLocked {
         [IO.File]::Copy($snapshotComposePath, $composeSourcePath, $false)
         $composeSourceSha256 =
             (Get-FileHash -LiteralPath $composeSourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($BindAddress -cne $podmanBindAddress) {
+        if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile -or
+            $BindAddress -cne $podmanBindAddress
+        ) {
             $forwarderRecord = New-LanForwarderReceiptRecord `
                 -ImmutableSourceRoot $source.contextPath `
                 -CandidateDirectory $candidateDirectory `
@@ -5416,17 +7727,34 @@ function Invoke-DeployLocked {
                 -ExpectedMinioPort $MinioPort `
                 -ExpectedLiveKitSignalPort $LiveKitSignalPort `
                 -ExpectedLiveKitTcpPort $LiveKitTcpPort `
-                -ExpectedLiveKitUdpPort $LiveKitUdpPort
+                -ExpectedLiveKitUdpPort $LiveKitUdpPort `
+                -ReceiptPath $receiptPath `
+                -CandidateId $candidateId `
+                -Profile $(if (
+                    $releaseNetworkObservation.ExposureProfile -ceq
+                        $cloudflareTrustedEdgeProfile
+                ) {
+                    "media-only"
+                } else {
+                    "full"
+                })
         }
 
         $stableEnvironment = Get-StableEnvironment
         $releaseEnvironment = New-ReleaseEnvironment `
             -Stable $stableEnvironment `
             -Revision $Revision `
-            -ImageReference $imageReference
-        Assert-ReleaseEnvironmentTopology `
-            -Values $releaseEnvironment `
-            -ExpectedBindAddress $BindAddress
+            -ImageReference $imageReference `
+            -Topology $releaseNetworkObservation
+        if (
+            $releaseNetworkObservation.ExposureProfile -cne
+                $cloudflareTrustedEdgeProfile
+        ) {
+            Assert-ReleaseEnvironmentTopology `
+                -Values $releaseEnvironment `
+                -ExpectedBindAddress $BindAddress `
+                -ExpectedTopology $releaseNetworkObservation
+        }
         Write-EnvironmentFile -Path $environmentFile -Values $releaseEnvironment
         $environmentSha256 =
             (Get-FileHash -LiteralPath $environmentFile -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -5457,13 +7785,66 @@ function Invoke-DeployLocked {
             -ExpectedRevision $Revision `
             -Phase "after building the immutable candidate image"
         $image = Get-ImageEvidence -ImageReference $imageReference -ExpectedRevision $Revision
+        if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile
+        ) {
+            # Compose creates the isolated application network. Only after it
+            # exists can the manager seal the one exact host-side gateway /32
+            # that is allowed to supply Cloudflare's forwarded scheme.
+            $candidateTouchedRuntime = $true
+            Invoke-Compose `
+                -EnvironmentFile $environmentFile `
+                -ComposeProject $ProjectName `
+                -ComposePath $composeSourcePath `
+                -Arguments @(
+                    "up",
+                    "-d",
+                    "--no-build",
+                    "postgres",
+                    "minio",
+                    "livekit"
+                ) `
+                -EchoOutput | Out-Null
+            $releaseNetworkObservation.TrustedProxyCidr =
+                Resolve-ComposeTrustedProxyCidr `
+                    -EnvironmentFile $environmentFile `
+                    -ComposeProject $ProjectName `
+                    -ComposePath $composeSourcePath
+            $releaseEnvironment = New-ReleaseEnvironment `
+                -Stable $stableEnvironment `
+                -Revision $Revision `
+                -ImageReference $imageReference `
+                -Topology $releaseNetworkObservation
+            Assert-ReleaseEnvironmentTopology `
+                -Values $releaseEnvironment `
+                -ExpectedBindAddress $BindAddress `
+                -ExpectedTopology $releaseNetworkObservation
+            Write-EnvironmentFile `
+                -Path $environmentFile `
+                -Values $releaseEnvironment
+            $environmentSha256 =
+                (Get-FileHash `
+                    -LiteralPath $environmentFile `
+                    -Algorithm SHA256).Hash.ToLowerInvariant()
+            $rendered = Write-RenderedConfiguration `
+                -EnvironmentFile $environmentFile `
+                -ComposeProject $ProjectName `
+                -ComposePath $composeSourcePath `
+                -DestinationDirectory $candidateDirectory `
+                -Secrets $stableEnvironment
+        }
         $candidateForwarderReceipt = [PSCustomObject]@{
-            schemaVersion = 5
+            schemaVersion = 6
+            candidateId = $candidateId
             receiptPath = $receiptPath
-            publicAppUrl = "http://$BindAddress`:$AppPort"
+            publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
+            publicOrigins =
+                New-ReceiptPublicOriginsRecord `
+                    -Topology $releaseNetworkObservation
             network = New-ReceiptNetworkRecord `
                 -Observation $releaseNetworkObservation `
-                -PublicAppUrl "http://$BindAddress`:$AppPort"
+                -PublicAppUrl ([string]$releaseNetworkObservation.PublicAppUrl)
             ports = [PSCustomObject]@{
                 app = $AppPort
                 minio = $MinioPort
@@ -5479,6 +7860,9 @@ function Invoke-DeployLocked {
             Assert-ReleaseNetworkObservationCurrent `
                 -Expected $releaseNetworkObservation
         if ($previousReceipt) {
+            Unregister-LanForwarderSupervisor `
+                -Receipt $previousReceipt `
+                -AllowNotRegistered
             Stop-LanForwarder -Receipt $previousReceipt -AllowNotRunning
         }
         $candidateTouchedRuntime = $true
@@ -5487,6 +7871,24 @@ function Invoke-DeployLocked {
             -ComposeProject $ProjectName `
             -ComposePath $composeSourcePath `
             -RunMigration
+        if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile
+        ) {
+            $currentTrustedProxyCidr = Resolve-ComposeTrustedProxyCidr `
+                -EnvironmentFile $environmentFile `
+                -ComposeProject $ProjectName `
+                -ComposePath $composeSourcePath
+            if (
+                $currentTrustedProxyCidr -cne
+                    [string]$releaseNetworkObservation.TrustedProxyCidr
+            ) {
+                throw (
+                    "Podman application-network gateway changed before trusted " +
+                    "edge activation"
+                )
+            }
+        }
         $migrationSucceeded = $true
         [IO.File]::WriteAllText(
             $migrationLogPath,
@@ -5516,25 +7918,47 @@ function Invoke-DeployLocked {
             -ExpectedLiveKitPort $LiveKitSignalPort `
             -RequireGuestLinks `
             -RequireInstantRooms
-        if ($BindAddress -cne $podmanBindAddress) {
+        if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile -or
+            $BindAddress -cne $podmanBindAddress
+        ) {
             $null = Start-LanForwarder -Receipt $candidateForwarderReceipt
             $candidateForwarderStarted = $true
             $null = Assert-LanForwarderReady `
                 -Receipt $candidateForwarderReceipt
-            Wait-Application `
-                -ExpectedBindAddress $BindAddress `
-                -ExpectedAppPort $AppPort `
-                -ExpectedMinioPort $MinioPort `
-                -ExpectedLiveKitPort $LiveKitSignalPort `
-                -RequireGuestLinks `
-                -RequireInstantRooms
+            if (
+                $releaseNetworkObservation.ExposureProfile -ceq
+                    $cloudflareTrustedEdgeProfile
+            ) {
+                Wait-TrustedEdgeApplication `
+                    -Topology $releaseNetworkObservation `
+                    -RequireGuestLinks `
+                    -RequireInstantRooms
+            }
+            else {
+                Wait-Application `
+                    -ExpectedBindAddress $BindAddress `
+                    -ExpectedAppPort $AppPort `
+                    -ExpectedMinioPort $MinioPort `
+                    -ExpectedLiveKitPort $LiveKitSignalPort `
+                    -RequireGuestLinks `
+                    -RequireInstantRooms
+            }
         }
         $releaseNetworkObservation =
             Assert-ReleaseNetworkObservationCurrent `
                 -Expected $releaseNetworkObservation
 
+        if (
+            $releaseNetworkObservation.ExposureProfile -ceq
+                $cloudflareTrustedEdgeProfile
+        ) {
+            Set-LanForwarderSupervisorScheduleRecord `
+                -Forwarder $forwarderRecord
+        }
         $receipt = [ordered]@{
-            schemaVersion = 5
+            schemaVersion = 6
             status = "healthy"
             receiptPath = $receiptPath
             deployedAt = [DateTime]::UtcNow.ToString("o")
@@ -5556,10 +7980,13 @@ function Invoke-DeployLocked {
             renderedConfigPath = $rendered.path
             redactedConfigPath = $rendered.redactedPath
             renderedConfigSha256 = $rendered.sha256
-            publicAppUrl = "http://$BindAddress`:$AppPort"
+            publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
+            publicOrigins =
+                New-ReceiptPublicOriginsRecord `
+                    -Topology $releaseNetworkObservation
             network = New-ReceiptNetworkRecord `
                 -Observation $releaseNetworkObservation `
-                -PublicAppUrl "http://$BindAddress`:$AppPort"
+                -PublicAppUrl ([string]$releaseNetworkObservation.PublicAppUrl)
             forwarder = $forwarderRecord
             migration = [ordered]@{
                 command = "CommsCore.Release.migrate()"
@@ -5586,17 +8013,33 @@ function Invoke-DeployLocked {
             previousReceiptPath = if ($previousReceipt) { $previousReceipt.receiptPath } else { $null }
         }
         Write-JsonAtomic -Path $receiptPath -Value $receipt
+        $null = Register-LanForwarderSupervisor -Receipt $receipt
         Write-JsonAtomic -Path $currentPointerPath -Value ([ordered]@{
             receiptPath = $receiptPath
             revision = $Revision
             imageReference = $imageReference
             imageId = $image.imageId
-            publicAppUrl = "http://$BindAddress`:$AppPort"
+            publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
             updatedAt = [DateTime]::UtcNow.ToString("o")
         })
     }
     catch {
         $deploymentError = $_
+        if ($candidateForwarderReceipt) {
+            try {
+                Unregister-LanForwarderSupervisor `
+                    -Receipt $candidateForwarderReceipt `
+                    -AllowNotRegistered
+            }
+            catch {
+                throw (
+                    "Candidate deployment failed and its supervisor task could " +
+                    "not be removed safely. Candidate: " +
+                    "$($deploymentError.Exception.Message) Supervisor cleanup: " +
+                    "$($_.Exception.Message)"
+                )
+            }
+        }
         if ($candidateForwarderReceipt -and $candidateForwarderStarted) {
             try {
                 Stop-LanForwarder `
@@ -5619,10 +8062,13 @@ function Invoke-DeployLocked {
                 revision = $Revision
                 candidateId = $candidateId
                 imageReference = $imageReference
-                publicAppUrl = "http://$BindAddress`:$AppPort"
+                publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
+                publicOrigins =
+                    New-ReceiptPublicOriginsRecord `
+                        -Topology $releaseNetworkObservation
                 network = New-ReceiptNetworkRecord `
                     -Observation $releaseNetworkObservation `
-                    -PublicAppUrl "http://$BindAddress`:$AppPort"
+                    -PublicAppUrl ([string]$releaseNetworkObservation.PublicAppUrl)
                 environmentSha256 = $environmentSha256
                 composeSourcePath = $composeSourcePath
                 composeSourceSha256 = $composeSourceSha256
@@ -5690,9 +8136,13 @@ function Invoke-DeployLocked {
         }
     }
 
-    Write-Host "K-Comms local release is healthy at http://$BindAddress`:$AppPort/app/"
+    Write-Host (
+        "K-Comms local release is healthy at " +
+        "$($releaseNetworkObservation.PublicAppUrl)/app/"
+    )
     Write-Host "Bind address: $BindAddress"
-    Write-Host "Public host: $BindAddress"
+    Write-Host "Public host: $($releaseNetworkObservation.PublicHost)"
+    Write-Host "Exposure profile: $($releaseNetworkObservation.ExposureProfile)"
     Write-Host (
         "Network interface: $($releaseNetworkObservation.InterfaceAlias) " +
         "(index $($releaseNetworkObservation.InterfaceIndex))"
@@ -5733,6 +8183,116 @@ function Invoke-Rollback {
     }
 }
 
+function Assert-RollbackExposureTopologyCompatible {
+    param(
+        [Parameter(Mandatory)]$CurrentReceipt,
+        [Parameter(Mandatory)]$CurrentTopology,
+        [Parameter(Mandatory)]$TargetReceipt,
+        [Parameter(Mandatory)]$TargetTopology
+    )
+
+    $currentProfile = Get-ReceiptExposureProfile -Receipt $CurrentReceipt
+    $targetProfile = Get-ReceiptExposureProfile -Receipt $TargetReceipt
+    $trustedEdgeInvolved = (
+        $currentProfile -ceq $cloudflareTrustedEdgeProfile -or
+        $targetProfile -ceq $cloudflareTrustedEdgeProfile
+    )
+    if (-not $trustedEdgeInvolved) {
+        return
+    }
+    if (
+        $currentProfile -cne $cloudflareTrustedEdgeProfile -or
+        $targetProfile -cne $cloudflareTrustedEdgeProfile
+    ) {
+        throw (
+            "Rollback cannot change between the Cloudflare trusted-edge profile " +
+            "and a loopback or private-LAN exposure profile. Deploy the intended " +
+            "profile explicitly instead."
+        )
+    }
+
+    foreach ($comparison in @(
+        @(
+            "public application origin",
+            [string]$CurrentTopology.PublicAppUrl,
+            [string]$TargetTopology.PublicAppUrl
+        ),
+        @(
+            "application WebSocket origin",
+            [string]$CurrentTopology.AppWebSocketOrigin,
+            [string]$TargetTopology.AppWebSocketOrigin
+        ),
+        @(
+            "media origin",
+            [string]$CurrentTopology.LiveKitOrigin,
+            [string]$TargetTopology.LiveKitOrigin
+        ),
+        @(
+            "object-storage origin",
+            [string]$CurrentTopology.ObjectOrigin,
+            [string]$TargetTopology.ObjectOrigin
+        ),
+        @(
+            "media node address",
+            [string]$CurrentTopology.MediaNodeAddress,
+            [string]$TargetTopology.MediaNodeAddress
+        ),
+        @(
+            "trusted proxy CIDR",
+            [string]$CurrentTopology.TrustedProxyCidr,
+            [string]$TargetTopology.TrustedProxyCidr
+        ),
+        @(
+            "trusted-edge confirmation",
+            [string]$CurrentTopology.TrustedEdgeConfirmation,
+            [string]$TargetTopology.TrustedEdgeConfirmation
+        )
+    )) {
+        if ($comparison[1] -cne $comparison[2]) {
+            throw (
+                "Rollback target changes the sealed trusted-edge " +
+                "$($comparison[0]); deploy that topology explicitly instead"
+            )
+        }
+    }
+    foreach ($portName in @(
+        "app",
+        "minio",
+        "livekitSignal",
+        "livekitTcp",
+        "livekitUdp"
+    )) {
+        if (
+            [int]$CurrentReceipt.ports.$portName -ne
+                [int]$TargetReceipt.ports.$portName
+        ) {
+            throw (
+                "Rollback target changes sealed trusted-edge port '$portName'; " +
+                "deploy that topology explicitly instead"
+            )
+        }
+    }
+
+    foreach ($receiptPair in @(
+        @("current", $CurrentReceipt),
+        @("target", $TargetReceipt)
+    )) {
+        $forwarder = Get-ReceiptForwarder -Receipt $receiptPair[1]
+        if (
+            -not $forwarder -or
+            [string](Get-ReceiptTopLevelProperty `
+                -Receipt $forwarder `
+                -Name "profile" `
+                -DefaultValue "") -cne "media-only"
+        ) {
+            throw (
+                "Trusted-edge rollback $($receiptPair[0]) receipt must seal the " +
+                "media-only forwarder profile"
+            )
+        }
+    }
+}
+
 function Invoke-RollbackLocked {
     $current = Get-CurrentReceipt
     if (-not $current) {
@@ -5744,14 +8304,22 @@ function Invoke-RollbackLocked {
     $target = Read-JsonFile -Path $current.previousReceiptPath
     Assert-RetainedReleaseAssets -Receipt $current
     Assert-RetainedReleaseAssets -Receipt $target
-    $null = Resolve-ReceiptNetworkTopology -Receipt $current
+    $currentTopology = Resolve-ReceiptNetworkTopology -Receipt $current
     $targetTopology = Resolve-ReceiptNetworkTopology -Receipt $target
+    Assert-RollbackExposureTopologyCompatible `
+        -CurrentReceipt $current `
+        -CurrentTopology $currentTopology `
+        -TargetReceipt $target `
+        -TargetTopology $targetTopology
     if (
         (Test-ReceiptRequiresLanForwarder -Receipt $current) -or
         (Test-ReceiptRequiresLanForwarder -Receipt $target)
     ) {
         Assert-RequiredTools -Commands @("node")
     }
+    Unregister-LanForwarderSupervisor `
+        -Receipt $current `
+        -AllowNotRegistered
     Stop-LanForwarder -Receipt $current -AllowNotRunning
     Assert-GuestRollbackSafe `
         -CurrentReceipt $current `
@@ -5874,11 +8442,117 @@ function Get-AppRuntimeObservation {
     }
 }
 
+function Assert-ReceiptRuntimeHealthy {
+    param([Parameter(Mandatory)]$Receipt)
+
+    Assert-RetainedReleaseAssets -Receipt $Receipt
+    $null = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+    Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $Receipt
+    $application = Get-AppRuntimeObservation -Receipt $Receipt
+    if (
+        $application.Status -cne "running" -or
+        $application.Health -cne "healthy" -or
+        -not $application.ImageMatchesReceipt
+    ) {
+        throw (
+            "Retained application is not running healthy on its exact receipt " +
+            "image: state=$($application.Status), " +
+            "health=$($application.Health), " +
+            "image_match=$($application.ImageMatchesReceipt)"
+        )
+    }
+    $forwarder = Assert-LanForwarderReady -Receipt $Receipt
+    $supervisor =
+        Assert-LanForwarderSupervisorTaskReady -Receipt $Receipt
+    [PSCustomObject]@{
+        Application = $application
+        Forwarder = $forwarder
+        Supervisor = $supervisor
+    }
+}
+
+function Invoke-HealthCheck {
+    $current = Get-CurrentReceipt
+    if (-not $current) {
+        throw "No successful K-Comms local release is recorded"
+    }
+    $health = Assert-ReceiptRuntimeHealthy -Receipt $current
+    Write-Host (
+        "K-Comms local release is healthy: revision=$($current.revision), " +
+        "image_match=$($health.Application.ImageMatchesReceipt), " +
+        "forwarder=$($health.Forwarder.Status), " +
+        "supervisor=$($health.Supervisor.Status)"
+    )
+}
+
+function Invoke-Supervise {
+    foreach ($required in @(
+        @("ExpectedReceiptPath", $ExpectedReceiptPath),
+        @("ExpectedCandidateId", $ExpectedCandidateId),
+        @("ExpectedForwarderConfigSha256", $ExpectedForwarderConfigSha256)
+    )) {
+        if ([string]::IsNullOrWhiteSpace([string]$required[1])) {
+            throw "Supervise requires -$($required[0])"
+        }
+    }
+    if (
+        $ExpectedCandidateId -notmatch
+            "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}-[0-9a-f]{8}$"
+    ) {
+        throw "Supervise expected candidate identity is malformed"
+    }
+    if ($ExpectedForwarderConfigSha256 -notmatch "^[0-9a-f]{64}$") {
+        throw "Supervise expected forwarder configuration hash is malformed"
+    }
+    $operationLock =
+        Enter-SupervisorOperationLock `
+            -Path $StateRoot `
+            -ComposeProject $ProjectName
+    try {
+        $current = Get-SupervisorCurrentReceipt `
+            -ReceiptPath $ExpectedReceiptPath `
+            -CandidateId $ExpectedCandidateId
+        Assert-LanForwarderSupervisorInvocation `
+            -Receipt $current `
+            -ReceiptPath $ExpectedReceiptPath `
+            -CandidateId $ExpectedCandidateId `
+            -ForwarderConfigSha256 $ExpectedForwarderConfigSha256
+        if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $current)) {
+            throw "The receipt-bound media supervisor requires trusted-edge mode"
+        }
+        Assert-RetainedReleaseAssets -Receipt $current
+        $null = Assert-LanForwarderSupervisorTaskReady -Receipt $current
+        $null = Resolve-ReceiptNetworkTopology -Receipt $current
+        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $current
+        $application = Get-AppRuntimeObservation -Receipt $current
+        if (
+            $application.Status -cne "running" -or
+            $application.Health -cne "healthy" -or
+            -not $application.ImageMatchesReceipt
+        ) {
+            throw (
+                "Supervisor will not start media forwarding while the exact " +
+                "retained application is unhealthy"
+            )
+        }
+        $before = Get-LanForwarderObservation -Receipt $current
+        $after = Repair-LanForwarderIfNeeded -Receipt $current
+        if ($before.Status -cne "ready") {
+            Write-Host (
+                "Recovered receipt-bound media forwarder: " +
+                "pid=$($after.ProcessId)"
+            )
+        }
+    }
+    finally {
+        Exit-ReleaseOperationLock -Lock $operationLock
+    }
+}
+
 function Invoke-Status {
     $current = Get-CurrentReceipt
     if (-not $current) {
-        Write-Host "No successful K-Comms local release is recorded."
-        return
+        throw "No successful K-Comms local release is recorded"
     }
     Assert-RetainedReleaseAssets -Receipt $current
     $networkTopologyMatchesReceipt = $false
@@ -5886,6 +8560,7 @@ function Invoke-Status {
     try {
         $observedNetworkTopology =
             Resolve-ReceiptNetworkTopology -Receipt $current
+        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $current
         $networkTopologyMatchesReceipt = $true
         $networkTopologyDetail = (
             "$($observedNetworkTopology.InterfaceAlias) " +
@@ -5899,6 +8574,8 @@ function Invoke-Status {
     }
     $observation = Get-AppRuntimeObservation -Receipt $current
     $forwarderObservation = Get-LanForwarderObservation -Receipt $current
+    $supervisorObservation =
+        Get-LanForwarderSupervisorTaskObservation -Receipt $current
     $recordedBindAddress = Get-ReceiptBindAddress -Receipt $current
     $recordedPublicHost = Get-ReceiptPublicHost -Receipt $current
     $recordedPublicAppUrl = Get-ReceiptPublicAppUrl -Receipt $current
@@ -5909,6 +8586,40 @@ function Invoke-Status {
     Write-Host "Image digest: $($current.imageDigest)"
     Write-Host "Bind address: $recordedBindAddress"
     Write-Host "Public host: $recordedPublicHost"
+    Write-Host "Exposure profile: $(Get-ReceiptExposureProfile -Receipt $current)"
+    if (Test-ReceiptIsCloudflareTrustedEdge -Receipt $current) {
+        $trustedPublicOrigins = Get-ReceiptPublicOriginsRecord -Receipt $current
+        Write-Host (
+            "Media node address: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "mediaNodeAddress" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Trusted proxy CIDR: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "trustedProxyCidr" `
+                -DefaultValue "")
+        )
+        if ($trustedPublicOrigins) {
+            Write-Host (
+                "Media origin: " +
+                [string](Get-ReceiptTopLevelProperty `
+                    -Receipt $trustedPublicOrigins `
+                    -Name "media" `
+                    -DefaultValue "")
+            )
+            Write-Host (
+                "Object origin: " +
+                [string](Get-ReceiptTopLevelProperty `
+                    -Receipt $trustedPublicOrigins `
+                    -Name "objectStorage" `
+                    -DefaultValue "")
+            )
+        }
+    }
     Write-Host (
         "Recorded network interface: $($recordedNetworkProfile.InterfaceAlias) " +
         "(index $($recordedNetworkProfile.InterfaceIndex))"
@@ -5955,16 +8666,30 @@ function Invoke-Status {
         Write-Host "Observed forwarder process ID: $($forwarderObservation.ProcessId)"
         Write-Host "Observed forwarder detail: $($forwarderObservation.Detail)"
     }
-    if (
+    Write-Host "Forwarder supervisor: $($supervisorObservation.Status)"
+    if ($supervisorObservation.Required) {
+        Write-Host (
+            "Observed supervisor matches receipt: " +
+            "$($supervisorObservation.MatchesReceipt)"
+        )
+        Write-Host (
+            "Observed supervisor detail: " +
+            "$($supervisorObservation.Detail)"
+        )
+    }
+    $unhealthy = (
         -not $networkTopologyMatchesReceipt -or
         $observation.Status -ne "running" -or
         $observation.Health -ne "healthy" -or
         -not $observation.ImageMatchesReceipt -or
-        $forwarderObservation.Status -notin @("ready", "not-required")
-    ) {
+        $forwarderObservation.Status -notin @("ready", "not-required") -or
+        $supervisorObservation.Status -notin @("ready", "not-required")
+    )
+    if ($unhealthy) {
         Write-Warning (
             "Recorded release is not currently observed with its sealed network " +
-            "topology, healthy application state, and recorded image."
+            "topology, healthy application state, recorded image, and " +
+            "receipt-bound forwarder supervision."
         )
     }
     if (Get-Command podman -ErrorAction SilentlyContinue) {
@@ -5975,6 +8700,9 @@ function Invoke-Status {
             -Arguments @("ps") `
             -EchoOutput `
             -AllowFailure | Out-Null
+    }
+    if ($unhealthy) {
+        throw "K-Comms local release health check failed"
     }
 }
 
@@ -6017,6 +8745,9 @@ function Invoke-StartLocked {
     ) {
         throw "Retained image digest no longer matches the recorded image digest"
     }
+    Unregister-LanForwarderSupervisor `
+        -Receipt $current `
+        -AllowNotRegistered
     Stop-LanForwarder -Receipt $current -AllowNotRunning
 
     Assert-CandidatePorts `
@@ -6027,7 +8758,14 @@ function Invoke-StartLocked {
         -CandidateLiveKitSignalPort ([int]$current.ports.livekitSignal) `
         -CandidateLiveKitTcpPort ([int]$current.ports.livekitTcp) `
         -CandidateLiveKitUdpPort ([int]$current.ports.livekitUdp) `
-        -PreviousReceipt $current
+        -PreviousReceipt $current `
+        -ForwarderProfile $(if (
+            Test-ReceiptIsCloudflareTrustedEdge -Receipt $current
+        ) {
+            "media-only"
+        } else {
+            "full"
+        })
 
     $eventId =
         [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfffZ") +
@@ -6129,6 +8867,9 @@ function Invoke-StopLocked {
         return
     }
     Assert-RetainedReleaseAssets -Receipt $current
+    Unregister-LanForwarderSupervisor `
+        -Receipt $current `
+        -AllowNotRegistered
     Stop-LanForwarder -Receipt $current -AllowNotRunning
     Ensure-PodmanReady
     Invoke-Compose `
@@ -6147,4 +8888,6 @@ switch ($Action) {
     "Status" { Invoke-Status }
     "Stop" { Invoke-Stop }
     "Validate" { Invoke-Validate }
+    "HealthCheck" { Invoke-HealthCheck }
+    "Supervise" { Invoke-Supervise }
 }

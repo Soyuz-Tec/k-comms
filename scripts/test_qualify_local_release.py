@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -21,11 +22,16 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.document = QUALIFIER.read_text(encoding="utf-8")
 
+    @unittest.skipUnless(
+        os.name == "nt",
+        "packaged PowerShell execution is covered by the Windows CI job",
+    )
     def test_powershell_contract_self_test_passes(self) -> None:
         for base_uri in (
             "http://127.0.0.1:4188",
             "http://192.168.50.12:4188",
             "http://192.168.50.12:4288",
+            "https://comms.avayaworks.com",
         ):
             with self.subTest(base_uri=base_uri):
                 arguments = [
@@ -39,7 +45,7 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
                     "-BaseUri",
                     base_uri,
                 ]
-                if not base_uri.startswith("http://127."):
+                if base_uri.startswith("http://192.168."):
                     arguments.append("-LanTextOnly")
                 result = subprocess.run(
                     arguments,
@@ -59,6 +65,10 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
                     result.stdout,
                 )
 
+    @unittest.skipUnless(
+        os.name == "nt",
+        "packaged PowerShell execution is covered by the Windows CI job",
+    )
     def test_lan_text_only_mode_is_explicit_and_never_allowed_on_loopback(
         self,
     ) -> None:
@@ -282,6 +292,158 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "$ContentSecurityPolicy -ceq $script:ExpectedContentSecurityPolicy",
             self.document,
         )
+
+    def test_trusted_edge_receipt_and_https_media_path_are_qualified(self) -> None:
+        for proof in (
+            "function Assert-TrustedEdgeQualificationSelfTest",
+            "Assert-TrustedEdgeQualificationSelfTest",
+            "schemaVersion = 6",
+            'exposureProfile = "cloudflare_trusted_edge"',
+            'trustedEdgeConfirmation = "cloudflare-tunnel-v1"',
+            'trustedProxyCidr = "10.89.0.1/32"',
+            'profile = "media-only"',
+            "Trusted-edge forwarder must contain exactly two media listeners",
+            "Test-QualificationRfc1918IPv4",
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+            '"secure_account_actions"',
+            '"secure_media_actions"',
+            "Self-test accepted trusted-edge tamper",
+            "Invoke-LanSecureTransportBoundaryCheck",
+            "$script:LiveProvisionBaseUri",
+        ):
+            self.assertIn(proof, self.document)
+
+        isolated_environment = self.document[
+            self.document.index("function New-LiveQualificationAppEnvironment") :
+            self.document.index("function Get-LiveQualificationAppInspection")
+        ]
+        for exact_clear in (
+            'K_COMMS_RELEASE_EXPOSURE_MODE = ""',
+            'K_COMMS_TRUSTED_EDGE_CONFIRMATION = ""',
+            'K_COMMS_RELEASE_HOST = "127.0.0.1"',
+            "PUBLIC_APP_URL = $appOrigin",
+        ):
+            self.assertIn(exact_clear, isolated_environment)
+
+        qualification = self.document[
+            self.document.index("function Invoke-PackagedReleaseQualification") :
+            self.document.index("function Write-QualificationSuccess")
+        ]
+        live_resource_start = qualification.index(
+            "Initialize-LiveQualificationResources"
+        )
+        provision_start = qualification.index(
+            '"K_COMMS_LIVE_PROVISION_BASE_URL"',
+            live_resource_start,
+        )
+        provision_setting = qualification[
+            provision_start :
+            qualification.index(
+                '"K_COMMS_LIVE_OWNER_TENANT_SLUG"',
+                provision_start,
+            )
+        ]
+        self.assertIn("$script:LiveQualificationAppOrigin", provision_setting)
+        self.assertNotIn("$script:LiveProvisionBaseUri", provision_setting)
+
+    def test_trusted_edge_qualifies_public_object_transfer_and_cleanup(
+        self,
+    ) -> None:
+        for proof in (
+            "function Invoke-PublicObjectStorageQualification",
+            "function Resolve-PublicObjectRequestDescriptor",
+            "function Invoke-PublicObjectHttpRequest",
+            "function Invoke-QualificationObjectPurge",
+            "function Assert-QualificationObjectPurgeEvidence",
+            "function Assert-PublicObjectStorageQualificationSelfTest",
+            "function Assert-PublicObjectStorageTransportSelfTest",
+            "Assert-PublicObjectStorageQualificationSelfTest",
+            "Assert-PublicObjectStorageTransportSelfTest",
+            "Get-QualificationBytesSha256",
+            "Get-QualificationBytesSha256Base64",
+            '"x-amz-checksum-sha256"',
+            '"x-amz-meta-sha256"',
+            "AllowAutoRedirect = $false",
+            "Timeout = [TimeSpan]::FromSeconds(30)",
+            "Public attachment scan did not become clean within 60 seconds",
+            "Public attachment browser CORS preflight failed",
+            "Access-Control-Request-Method",
+            "Access-Control-Request-Headers",
+            "AccessControlAllowOrigin",
+            "K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true",
+            "Public object remained downloadable after its ",
+            "verified purge",
+            "PASS disposable public attachment and object cleanup",
+            "${function:Invoke-QualificationApiRequest}",
+            "${function:Invoke-PublicObjectHttpRequest}",
+            "${function:Invoke-QualificationObjectPurge}",
+            "Self-test accepted cleanup without the exact purge marker",
+            "Self-test did not prove the exact PUT/GET byte-hash roundtrip",
+            "Self-test did not reject OPTIONS CORS failure before PUT",
+            "Self-test did not aggregate the primary failure with all ",
+            "$aggregateFailure.InnerExceptions.Count -eq 4",
+        ):
+            self.assertIn(proof, self.document)
+
+        qualification = self.document[
+            self.document.index("function Invoke-PackagedReleaseQualification") :
+            self.document.index("function Write-QualificationSuccess")
+        ]
+        instant_room = qualification.index(
+            "Invoke-InstantRoomSpec -Playwright $playwright"
+        )
+        public_object = qualification.index(
+            "Invoke-PublicObjectStorageQualification",
+            instant_room,
+        )
+        guest = qualification.index(
+            "Invoke-GuestSpec -Playwright $playwright",
+            public_object,
+        )
+        self.assertEqual(
+            tuple(sorted((instant_room, public_object, guest))),
+            (instant_room, public_object, guest),
+        )
+        object_gate = self.document[
+            self.document.index("function Invoke-PublicObjectStorageQualification") :
+            self.document.index("function Invoke-InstantRoomEndpointCheck")
+        ]
+        self.assertIn(
+            "if (-not $script:QualificationMode.TrustedEdge)",
+            object_gate,
+        )
+        abandon = object_gate.index(
+            '-Method "DELETE" `\n'
+            '                    -ExpectedStatus 204 `\n'
+            '                    -Context "Disposable attachment abandonment"'
+        )
+        purge = object_gate.index(
+            "& $PurgeAction",
+            abandon,
+        )
+        public_absence = object_gate.index(
+            "$deletedResponse = & $ObjectRequestAction",
+            purge,
+        )
+        session_cleanup = object_gate.index(
+            '-Path "/api/v1/sessions/current"',
+            public_absence,
+        )
+        self.assertEqual(
+            tuple(sorted((abandon, purge, public_absence, session_cleanup))),
+            (abandon, purge, public_absence, session_cleanup),
+        )
+        for forbidden_output in (
+            "Write-Host $accessToken",
+            "Write-Output $accessToken",
+            "Write-Host $uploadRequest",
+            "Write-Output $uploadRequest",
+            "Write-Host $downloadRequest",
+            "Write-Output $downloadRequest",
+            "$($result.Output -join",
+        ):
+            self.assertNotIn(forbidden_output, object_gate)
 
     def test_self_test_covers_receipt_port_overrides(self) -> None:
         for contract in (
@@ -736,7 +898,9 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             '--env "K_COMMS_ROLE=edge"',
             '--env "ALLOW_BOOTSTRAP=false"',
             '"INSTANT_ROOM_TENANT_SLUG="',
-            '--env "PUBLIC_APP_URL=$($CleanupContext.PublicAppUrl)"',
+            '--env "PUBLIC_APP_URL=$($CleanupContext.AppOrigin)"',
+            '--env "K_COMMS_RELEASE_EXPOSURE_MODE="',
+            '--env "K_COMMS_TRUSTED_EDGE_CONFIRMATION="',
             '--env "CORS_ORIGINS=$($CleanupContext.AppOrigin)"',
             '"com.k-comms.qualification.nonce="',
             '"com.k-comms.qualification.revision="',

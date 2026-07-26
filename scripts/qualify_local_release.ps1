@@ -18,6 +18,32 @@ function Resolve-SealedBaseUri {
         throw "BaseUri must not contain leading or trailing whitespace"
     }
 
+    $trustedOriginPattern =
+        "^(?i:https)://" +
+        "(?<host>[a-z0-9](?:[a-z0-9.-]*[a-z0-9]))/?$"
+    $trustedOriginMatch = [regex]::Match($Value, $trustedOriginPattern)
+    if ($trustedOriginMatch.Success) {
+        $hostname = $trustedOriginMatch.Groups["host"].Value
+        if (
+            $hostname -cne $hostname.ToLowerInvariant() -or
+            $hostname.Length -gt 253 -or
+            $hostname -notmatch "\."
+        ) {
+            throw "HTTPS BaseUri must use a canonical lowercase DNS hostname"
+        }
+        foreach ($label in $hostname.Split(".")) {
+            if (
+                $label.Length -lt 1 -or
+                $label.Length -gt 63 -or
+                $label.StartsWith("-") -or
+                $label.EndsWith("-")
+            ) {
+                throw "HTTPS BaseUri contains an invalid DNS label"
+            }
+        }
+        return "https://$hostname"
+    }
+
     $originPattern =
         "^(?i:http)://" +
         "(?<host>(?:[0-9]{1,3}\.){3}[0-9]{1,3})" +
@@ -25,8 +51,9 @@ function Resolve-SealedBaseUri {
     $originMatch = [regex]::Match($Value, $originPattern)
     if (-not $originMatch.Success) {
         throw (
-            "BaseUri must be an HTTP origin containing only an IPv4 address " +
-            "and optional port, with no credentials, path, query, or fragment"
+            "BaseUri must be either an HTTPS canonical DNS origin or an HTTP " +
+            "origin containing only an IPv4 address and optional port, " +
+            "with no credentials, path, query, or fragment"
         )
     }
 
@@ -74,14 +101,21 @@ function New-ExpectedContentSecurityPolicy {
         [Parameter(Mandatory)][string]$AppOrigin,
         [Parameter(Mandatory)][string]$AppWebSocketOrigin,
         [Parameter(Mandatory)][string]$LiveKitOrigin,
-        [Parameter(Mandatory)][string]$MinioOrigin
+        [Parameter(Mandatory)][string]$MinioOrigin,
+        [switch]$TrustedEdge
     )
 
+    $connectSources =
+        if ($TrustedEdge) {
+            "'self' $LiveKitOrigin $MinioOrigin"
+        }
+        else {
+            "'self' $AppOrigin $AppWebSocketOrigin $LiveKitOrigin $MinioOrigin"
+        }
     "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; " +
         "form-action 'self'; object-src 'none'; script-src 'self'; " +
         "style-src 'self'; img-src 'self' data: blob:; font-src 'self'; " +
-        "connect-src 'self' $AppOrigin $AppWebSocketOrigin " +
-        "$LiveKitOrigin $MinioOrigin"
+        "connect-src $connectSources"
 }
 
 function Resolve-QualificationMode {
@@ -89,6 +123,17 @@ function Resolve-QualificationMode {
         [Parameter(Mandatory)][Uri]$Origin,
         [switch]$LanTextOnly
     )
+
+    if ($Origin.Scheme -ceq "https") {
+        if ($LanTextOnly) {
+            throw "-LanTextOnly cannot be combined with trusted HTTPS qualification"
+        }
+        return [PSCustomObject]@{
+            IsLoopback = $false
+            LanTextOnly = $false
+            TrustedEdge = $true
+        }
+    }
 
     $hostAddress = [Net.IPAddress]::Parse($Origin.Host)
     $isLoopback = [Net.IPAddress]::IsLoopback($hostAddress)
@@ -107,7 +152,22 @@ function Resolve-QualificationMode {
     [PSCustomObject]@{
         IsLoopback = $isLoopback
         LanTextOnly = [bool]$LanTextOnly
+        TrustedEdge = $false
     }
+}
+
+function Test-QualificationRfc1918IPv4 {
+    param([Parameter(Mandatory)][Net.IPAddress]$Address)
+
+    if ($Address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+        return $false
+    }
+    $octets = $Address.GetAddressBytes()
+    return (
+        $octets[0] -eq 10 -or
+        ($octets[0] -eq 172 -and $octets[1] -ge 16 -and $octets[1] -le 31) -or
+        ($octets[0] -eq 192 -and $octets[1] -eq 168)
+    )
 }
 
 $script:RequestedBaseUri = Resolve-SealedBaseUri -Value $BaseUri
@@ -461,6 +521,32 @@ function Get-QualificationFileSha256 {
     ([BitConverter]::ToString($digest)).Replace("-", "").ToLowerInvariant()
 }
 
+function Get-QualificationBytesSha256 {
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash($Bytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    ([BitConverter]::ToString($digest)).Replace("-", "").ToLowerInvariant()
+}
+
+function Get-QualificationBytesSha256Base64 {
+    param([Parameter(Mandatory)][byte[]]$Bytes)
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash($Bytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    [Convert]::ToBase64String($digest)
+}
+
 function Resolve-QualificationReleaseContext {
     param(
         [Parameter(Mandatory)][string]$ReceiptPath,
@@ -753,6 +839,8 @@ function Resolve-SealedReceiptQualificationTarget {
     $networkPublicAppUrl = $null
     $podmanBindAddress = "127.0.0.1"
     $exposureMode = "loopback"
+    $exposureProfile = ""
+    $network = $null
     if ($null -ne $networkProperty) {
         $network = $networkProperty.Value
         $bindAddress = [string](Get-RequiredProperty `
@@ -767,12 +855,6 @@ function Resolve-SealedReceiptQualificationTarget {
             -Object $network `
             -Name "publicAppUrl" `
             -Context "sealed release receipt network")
-        if ($bindAddress -cne $publicHost) {
-            throw (
-                "sealed release receipt network bindAddress must equal publicHost; " +
-                "observed '$bindAddress' and '$publicHost'"
-            )
-        }
         if ($schemaVersion -ge 5) {
             $podmanBindAddress = [string](Get-RequiredProperty `
                 -Object $network `
@@ -782,6 +864,228 @@ function Resolve-SealedReceiptQualificationTarget {
                 -Object $network `
                 -Name "exposureMode" `
                 -Context "sealed release receipt network")
+            $exposureProfileProperty =
+                if ($network -is [Collections.IDictionary]) {
+                    if ($network.Contains("exposureProfile")) {
+                        $network["exposureProfile"]
+                    }
+                    else {
+                        $null
+                    }
+                }
+                else {
+                    $property = $network.PSObject.Properties["exposureProfile"]
+                    if ($property) { $property.Value } else { $null }
+                }
+            if ($null -ne $exposureProfileProperty) {
+                $exposureProfile = [string]$exposureProfileProperty
+            }
+        }
+        if (
+            $exposureProfile -cne "cloudflare_trusted_edge" -and
+            $bindAddress -cne $publicHost
+        ) {
+            throw (
+                "sealed release receipt network bindAddress must equal publicHost; " +
+                "observed '$bindAddress' and '$publicHost'"
+            )
+        }
+    }
+
+    if (
+        $schemaVersion -ge 6 -and
+        $exposureProfile -ceq "cloudflare_trusted_edge"
+    ) {
+        if (
+            $podmanBindAddress -cne "127.0.0.1" -or
+            $exposureMode -cne "cloudflare_trusted_edge"
+        ) {
+            throw (
+                "schema-v6 trusted-edge receipt must keep Podman on loopback and " +
+                "declare exposureMode cloudflare_trusted_edge"
+            )
+        }
+        $mediaNodeAddress = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "mediaNodeAddress" `
+            -Context "sealed release receipt network")
+        if ($bindAddress -cne $mediaNodeAddress) {
+            throw "Trusted-edge bindAddress must equal its sealed media node address"
+        }
+        $mediaNodeParsed = $null
+        if (
+            -not [Net.IPAddress]::TryParse(
+                $mediaNodeAddress,
+                [ref]$mediaNodeParsed
+            ) -or
+            $mediaNodeParsed.AddressFamily -ne
+                [Net.Sockets.AddressFamily]::InterNetwork -or
+            $mediaNodeParsed.ToString() -cne $mediaNodeAddress -or
+            -not (Test-QualificationRfc1918IPv4 -Address $mediaNodeParsed)
+        ) {
+            throw "Trusted-edge media node must be one canonical RFC1918 IPv4 address"
+        }
+        Assert-PropertyValue `
+            -Object $network `
+            -Name "trustedEdgeConfirmation" `
+            -Expected "cloudflare-tunnel-v1" `
+            -Context "sealed release receipt network"
+        $trustedProxyCidr = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "trustedProxyCidr" `
+            -Context "sealed release receipt network")
+        $trustedProxyMatch = [Regex]::Match(
+            $trustedProxyCidr,
+            "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/32$"
+        )
+        $trustedProxyAddress = $null
+        if (
+            -not $trustedProxyMatch.Success -or
+            -not [Net.IPAddress]::TryParse(
+                $trustedProxyMatch.Groups["address"].Value,
+                [ref]$trustedProxyAddress
+            ) -or
+            $trustedProxyAddress.ToString() -cne
+                $trustedProxyMatch.Groups["address"].Value -or
+            -not (Test-QualificationRfc1918IPv4 `
+                -Address $trustedProxyAddress)
+        ) {
+            throw (
+                "Trusted-edge trustedProxyCidr must be one exact canonical " +
+                "RFC1918 IPv4 /32"
+            )
+        }
+
+        $publicOrigins = Get-RequiredProperty `
+            -Object $Receipt `
+            -Name "publicOrigins" `
+            -Context "schema-v6 sealed release receipt"
+        $appOrigin = [string](Get-RequiredProperty `
+            -Object $publicOrigins `
+            -Name "application" `
+            -Context "sealed release receipt public origins")
+        $appWebSocketOrigin = [string](Get-RequiredProperty `
+            -Object $publicOrigins `
+            -Name "applicationWebSocket" `
+            -Context "sealed release receipt public origins")
+        $liveKitOrigin = [string](Get-RequiredProperty `
+            -Object $publicOrigins `
+            -Name "media" `
+            -Context "sealed release receipt public origins")
+        $minioOrigin = [string](Get-RequiredProperty `
+            -Object $publicOrigins `
+            -Name "objectStorage" `
+            -Context "sealed release receipt public origins")
+        $expectedAppOrigin = Resolve-SealedBaseUri -Value "https://$publicHost"
+        if (
+            $appOrigin -cne $expectedAppOrigin -or
+            $appWebSocketOrigin -cne
+                "wss://$publicHost" -or
+            $networkPublicAppUrl -cne $expectedAppOrigin -or
+            $RequestedBaseUri -cne $expectedAppOrigin
+        ) {
+            throw "Trusted-edge requested and sealed application origins do not match"
+        }
+        foreach ($origin in @($liveKitOrigin, $minioOrigin)) {
+            if (
+                $origin -notmatch "^(?:wss|https)://[a-z0-9.-]+$" -or
+                $origin -cne $origin.ToLowerInvariant()
+            ) {
+                throw "Trusted-edge media and object origins must be canonical TLS origins"
+            }
+        }
+        if (
+            $liveKitOrigin -notmatch "^wss://" -or
+            $minioOrigin -notmatch "^https://"
+        ) {
+            throw "Trusted-edge media must use WSS and object storage must use HTTPS"
+        }
+        $mediaHostname = ([Uri]$liveKitOrigin).Host
+        $objectHostname = ([Uri]$minioOrigin).Host
+        if (@(
+            $publicHost,
+            $mediaHostname,
+            $objectHostname
+        ) | Group-Object | Where-Object { $_.Count -ne 1 }) {
+            throw (
+                "Trusted-edge application, media, and object hostnames must " +
+                "remain distinct"
+            )
+        }
+
+        $forwarder = Get-RequiredProperty `
+            -Object $Receipt `
+            -Name "forwarder" `
+            -Context "schema-v6 sealed release receipt"
+        Assert-PropertyValue `
+            -Object $forwarder `
+            -Name "required" `
+            -Expected $true `
+            -Context "sealed release receipt forwarder"
+        Assert-PropertyValue `
+            -Object $forwarder `
+            -Name "profile" `
+            -Expected "media-only" `
+            -Context "sealed release receipt forwarder"
+        $forwarderListeners = @((Get-RequiredProperty `
+            -Object $forwarder `
+            -Name "listeners" `
+            -Context "sealed release receipt forwarder"))
+        $expectedForwarderListeners = @(
+            [PSCustomObject]@{
+                name = "livekitTcp"
+                protocol = "tcp"
+                publicPort = $liveKitTcpPort
+                targetHost = "127.0.0.1"
+                targetPort = $liveKitTcpPort
+            },
+            [PSCustomObject]@{
+                name = "livekitUdp"
+                protocol = "udp"
+                publicPort = $liveKitUdpPort
+                targetHost = "127.0.0.1"
+                targetPort = $liveKitUdpPort
+            }
+        )
+        if ($forwarderListeners.Count -ne 2) {
+            throw "Trusted-edge forwarder must contain exactly two media listeners"
+        }
+        for ($index = 0; $index -lt 2; $index++) {
+            foreach ($propertyName in @(
+                "name",
+                "protocol",
+                "publicPort",
+                "targetHost",
+                "targetPort"
+            )) {
+                Assert-PropertyValue `
+                    -Object $forwarderListeners[$index] `
+                    -Name $propertyName `
+                    -Expected $expectedForwarderListeners[$index].$propertyName `
+                    -Context "trusted-edge forwarder listener $index"
+            }
+        }
+        $topLevelPublicAppUrl = [string](Get-RequiredProperty `
+            -Object $Receipt `
+            -Name "publicAppUrl" `
+            -Context "schema-v6 sealed release receipt")
+        if ($topLevelPublicAppUrl -cne $expectedAppOrigin) {
+            throw "Trusted-edge top-level public application origin does not match"
+        }
+        return [PSCustomObject]@{
+            AppOrigin = $appOrigin
+            AppWebSocketOrigin = $appWebSocketOrigin
+            LiveKitOrigin = $liveKitOrigin
+            MinioOrigin = $minioOrigin
+            DirectHttpOrigin = "http://127.0.0.1:$appPort"
+            AppPort = $appPort
+            LiveKitSignalPort = $liveKitSignalPort
+            MinioPort = $minioPort
+            SchemaVersion = $schemaVersion
+            IsLoopback = $false
+            TrustedEdge = $true
+            ExposureMode = $exposureMode
+            ForwarderRequired = $true
         }
     }
 
@@ -1012,6 +1316,7 @@ function Resolve-SealedReceiptQualificationTarget {
         MinioPort = $minioPort
         SchemaVersion = $schemaVersion
         IsLoopback = $isLoopback
+        TrustedEdge = $false
         ExposureMode = $exposureMode
         ForwarderRequired = $forwarderRequired
     }
@@ -1116,6 +1421,18 @@ function Assert-StatusPayload {
         -Name "bootstrap" `
         -Expected $false `
         -Context "/api/v1/status capabilities"
+    if ($script:QualificationMode.TrustedEdge) {
+        foreach ($capability in @(
+            "secure_account_actions",
+            "secure_media_actions"
+        )) {
+            Assert-PropertyValue `
+                -Object $capabilities `
+                -Name $capability `
+                -Expected $true `
+                -Context "/api/v1/status trusted-edge capabilities"
+        }
+    }
 }
 
 function Assert-InstantRoomUnavailablePayload {
@@ -1217,6 +1534,885 @@ function Get-HttpFailureResponse {
     }
 }
 
+function Invoke-QualificationApiRequest {
+    param(
+        [Parameter(Mandatory)][string]$Origin,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)]
+        [ValidateSet("GET", "POST", "DELETE")]
+        [string]$Method,
+        [Parameter(Mandatory)][int]$ExpectedStatus,
+        [Parameter(Mandatory)][string]$Context,
+        [string]$AccessToken = "",
+        $Body = $null
+    )
+
+    Assert-Condition `
+        -Condition (
+            $Path.StartsWith("/") -and
+            -not $Path.Contains("?") -and
+            -not $Path.Contains("#") -and
+            $Path -notmatch "\s"
+        ) `
+        -Message "$Context uses an invalid API path"
+    if (
+        -not [string]::IsNullOrEmpty($AccessToken) -and
+        (
+            $AccessToken.Length -gt 8192 -or
+            $AccessToken -match "[\r\n]"
+        )
+    ) {
+        throw "$Context received an invalid in-memory access token"
+    }
+
+    $parameters = @{
+        UseBasicParsing = $true
+        Uri = "$Origin$Path"
+        Method = $Method
+        Headers = @{Origin = $Origin}
+        TimeoutSec = 20
+    }
+    if (-not [string]::IsNullOrEmpty($AccessToken)) {
+        $parameters.Headers["Authorization"] = "Bearer $AccessToken"
+    }
+    if ($null -ne $Body) {
+        $parameters["ContentType"] = "application/json"
+        $parameters["Body"] = $Body | ConvertTo-Json -Compress -Depth 8
+    }
+
+    try {
+        $response = Invoke-WebRequest @parameters
+        $statusCode = [int]$response.StatusCode
+        $content = [string]$response.Content
+    }
+    catch {
+        $errorResponse = $_.Exception.Response
+        if ($null -eq $errorResponse) {
+            throw "$Context did not return a valid HTTP response"
+        }
+        throw "$Context failed with HTTP $([int]$errorResponse.StatusCode)"
+    }
+
+    Assert-Condition `
+        -Condition ($statusCode -eq $ExpectedStatus) `
+        -Message "$Context failed with HTTP $statusCode"
+    if ($ExpectedStatus -eq 204) {
+        return $null
+    }
+    Assert-Condition `
+        -Condition (
+            -not [string]::IsNullOrWhiteSpace($content) -and
+            $content.Length -le 262144
+        ) `
+        -Message "$Context returned an empty or oversized JSON response"
+    try {
+        $content | ConvertFrom-Json
+    }
+    catch {
+        throw "$Context did not return valid JSON"
+    }
+}
+
+function Resolve-PublicObjectRequestDescriptor {
+    param(
+        [Parameter(Mandatory)]$Descriptor,
+        [Parameter(Mandatory)]
+        [ValidateSet("GET", "PUT")]
+        [string]$ExpectedMethod,
+        [Parameter(Mandatory)][string]$ExpectedOrigin,
+        [Parameter(Mandatory)][hashtable]$ExpectedHeaders
+    )
+
+    $method = [string](Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "method" `
+        -Context "public object request descriptor")
+    $url = [string](Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "url" `
+        -Context "public object request descriptor")
+    $approvedOrigin = [string](Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "approved_origin" `
+        -Context "public object request descriptor")
+    $developmentHttp = Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "development_http" `
+        -Context "public object request descriptor"
+    $expiresIn = Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "expires_in" `
+        -Context "public object request descriptor"
+    $expiresAtValue = [string](Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "expires_at" `
+        -Context "public object request descriptor")
+    $headersValue = Get-RequiredProperty `
+        -Object $Descriptor `
+        -Name "headers" `
+        -Context "public object request descriptor"
+
+    Assert-Condition `
+        -Condition (
+            $method -ceq $ExpectedMethod -and
+            $approvedOrigin -ceq $ExpectedOrigin -and
+            $developmentHttp -is [bool] -and
+            -not [bool]$developmentHttp -and
+            $expiresIn -is [int] -and
+            [int]$expiresIn -ge 1 -and
+            [int]$expiresIn -le 3600
+        ) `
+        -Message (
+            "Public object request descriptor method, origin, transport, " +
+            "or expiry contract is invalid"
+        )
+
+    $expiresAt = [DateTimeOffset]::MinValue
+    Assert-Condition `
+        -Condition (
+            [DateTimeOffset]::TryParse($expiresAtValue, [ref]$expiresAt) -and
+            $expiresAt.Offset -eq [TimeSpan]::Zero -and
+            $expiresAt -gt [DateTimeOffset]::UtcNow.AddSeconds(-5) -and
+            $expiresAt -le [DateTimeOffset]::UtcNow.AddSeconds(3660)
+        ) `
+        -Message "Public object request descriptor expiry is invalid"
+
+    $expectedOriginUri = $null
+    $requestUri = $null
+    Assert-Condition `
+        -Condition (
+            [Uri]::TryCreate(
+                $ExpectedOrigin,
+                [UriKind]::Absolute,
+                [ref]$expectedOriginUri
+            ) -and
+            $expectedOriginUri.Scheme -ceq "https" -and
+            $expectedOriginUri.UserInfo -ceq "" -and
+            $expectedOriginUri.Query -ceq "" -and
+            $expectedOriginUri.Fragment -ceq "" -and
+            $expectedOriginUri.AbsolutePath -ceq "/" -and
+            $ExpectedOrigin -ceq
+                $expectedOriginUri.GetLeftPart([UriPartial]::Authority) -and
+            $url.Length -le 8192 -and
+            [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$requestUri) -and
+            $requestUri.Scheme -ceq "https" -and
+            $requestUri.UserInfo -ceq "" -and
+            $requestUri.Fragment -ceq "" -and
+            $requestUri.GetLeftPart([UriPartial]::Authority) -ceq
+                $ExpectedOrigin -and
+            $requestUri.AbsolutePath -ne "/" -and
+            $requestUri.Query -cmatch
+                "(?:^\?|&)X-Amz-Signature=[0-9a-f]{64}(?:&|$)"
+        ) `
+        -Message (
+            "Public object request descriptor does not bind one signed " +
+            "HTTPS request to the sealed object origin"
+        )
+
+    $headers = @{}
+    $headerProperties =
+        if ($headersValue -is [Collections.IDictionary]) {
+            @(
+                $headersValue.GetEnumerator() |
+                    ForEach-Object {
+                        [PSCustomObject]@{
+                            Name = [string]$_.Key
+                            Value = [string]$_.Value
+                        }
+                    }
+            )
+        }
+        else {
+            @(
+                $headersValue.PSObject.Properties |
+                    ForEach-Object {
+                        [PSCustomObject]@{
+                            Name = [string]$_.Name
+                            Value = [string]$_.Value
+                        }
+                    }
+            )
+        }
+    foreach ($header in $headerProperties) {
+        $name = $header.Name.ToLowerInvariant()
+        Assert-Condition `
+            -Condition (
+                $header.Name -ceq $name -and
+                $name -cmatch "^[a-z0-9-]+$" -and
+                -not $headers.ContainsKey($name) -and
+                $header.Value -cnotmatch "[\r\n]" -and
+                $header.Value -ceq $header.Value.Trim()
+            ) `
+            -Message "Public object request descriptor contains an invalid header"
+        $headers[$name] = $header.Value
+    }
+    Assert-Condition `
+        -Condition ($headers.Count -eq $ExpectedHeaders.Count) `
+        -Message "Public object request descriptor has an unexpected header set"
+    foreach ($expected in $ExpectedHeaders.GetEnumerator()) {
+        Assert-Condition `
+            -Condition (
+                $headers.ContainsKey([string]$expected.Key) -and
+                [string]$headers[[string]$expected.Key] -ceq
+                    [string]$expected.Value
+            ) `
+            -Message "Public object request descriptor header contract is invalid"
+    }
+
+    [PSCustomObject]@{
+        Method = $method
+        Uri = $requestUri
+        Headers = $headers
+    }
+}
+
+function Invoke-PublicObjectHttpRequest {
+    param(
+        [Parameter(Mandatory)]$Request,
+        [Parameter(Mandatory)][string]$Origin,
+        [byte[]]$Body = $null,
+        [int]$MaxResponseBytes = 65536,
+        [switch]$Preflight
+    )
+
+    Assert-Condition `
+        -Condition (
+            $MaxResponseBytes -ge 1 -and
+            $MaxResponseBytes -le 1048576 -and
+            $Origin -ceq $script:BaseUri
+        ) `
+        -Message "Public object request response limit is invalid"
+    if ($Preflight) {
+        Assert-Condition `
+            -Condition (
+                $Request.Method -ceq "PUT" -and
+                $null -eq $Body -and
+                $Request.Headers.Count -ge 1
+            ) `
+            -Message "Public object CORS preflight contract is invalid"
+    }
+    elseif ($Request.Method -ceq "PUT") {
+        Assert-Condition `
+            -Condition ($null -ne $Body -and $Body.Length -ge 1) `
+            -Message "Public object upload requires a bounded body"
+    }
+    else {
+        Assert-Condition `
+            -Condition ($null -eq $Body) `
+            -Message "Public object download must not send a body"
+    }
+
+    if (-not ("System.Net.Http.HttpClient" -as [type])) {
+        Add-Type -AssemblyName System.Net.Http
+    }
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseCookies = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds(30)
+    $effectiveMethod =
+        if ($Preflight) {
+            "OPTIONS"
+        }
+        else {
+            [string]$Request.Method
+        }
+    $message = [Net.Http.HttpRequestMessage]::new(
+        [Net.Http.HttpMethod]::new($effectiveMethod),
+        $Request.Uri
+    )
+    $response = $null
+    try {
+        if (-not $message.Headers.TryAddWithoutValidation("Origin", $Origin)) {
+            throw "Public object request Origin header could not be applied"
+        }
+        if ($Preflight) {
+            if (
+                -not $message.Headers.TryAddWithoutValidation(
+                    "Access-Control-Request-Method",
+                    [string]$Request.Method
+                )
+            ) {
+                throw "Public object CORS method header could not be applied"
+            }
+            $requestedHeaders = @(
+                $Request.Headers.Keys |
+                    ForEach-Object { [string]$_ } |
+                    Sort-Object
+            )
+            if (
+                -not $message.Headers.TryAddWithoutValidation(
+                    "Access-Control-Request-Headers",
+                    ($requestedHeaders -join ",")
+                )
+            ) {
+                throw "Public object CORS request headers could not be applied"
+            }
+        }
+        elseif ($Request.Method -ceq "PUT") {
+            $message.Content = [Net.Http.ByteArrayContent]::new($Body)
+        }
+        foreach ($header in @(
+            if ($Preflight) {
+                @()
+            }
+            else {
+                $Request.Headers.GetEnumerator()
+            }
+        )) {
+            $added =
+                if ($null -ne $message.Content) {
+                    $message.Content.Headers.TryAddWithoutValidation(
+                        [string]$header.Key,
+                        [string]$header.Value
+                    )
+                }
+                else {
+                    $message.Headers.TryAddWithoutValidation(
+                        [string]$header.Key,
+                        [string]$header.Value
+                    )
+                }
+            Assert-Condition `
+                -Condition $added `
+                -Message "Public object request header could not be applied"
+        }
+
+        try {
+            $response = $client.SendAsync($message).GetAwaiter().GetResult()
+        }
+        catch {
+            throw "Public object request failed before a valid HTTP response"
+        }
+        $contentLength = $response.Content.Headers.ContentLength
+        Assert-Condition `
+            -Condition (
+                $null -eq $contentLength -or
+                [long]$contentLength -le $MaxResponseBytes
+            ) `
+            -Message "Public object response exceeded its bounded size"
+        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $buffer = New-Object byte[] 8192
+        $memory = [IO.MemoryStream]::new()
+        try {
+            while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                Assert-Condition `
+                    -Condition (
+                        $memory.Length + $read -le $MaxResponseBytes
+                    ) `
+                    -Message "Public object response exceeded its bounded size"
+                $memory.Write($buffer, 0, $read)
+            }
+            $responseBytes = $memory.ToArray()
+        }
+        finally {
+            $memory.Dispose()
+            $stream.Dispose()
+        }
+        $allowOrigin =
+            if ($response.Headers.Contains("Access-Control-Allow-Origin")) {
+                [string]::Join(
+                    ",",
+                    @($response.Headers.GetValues("Access-Control-Allow-Origin"))
+                )
+            }
+            else {
+                ""
+            }
+        $allowMethods =
+            if ($response.Headers.Contains("Access-Control-Allow-Methods")) {
+                [string]::Join(
+                    ",",
+                    @($response.Headers.GetValues("Access-Control-Allow-Methods"))
+                )
+            }
+            else {
+                ""
+            }
+        $allowHeaders =
+            if ($response.Headers.Contains("Access-Control-Allow-Headers")) {
+                [string]::Join(
+                    ",",
+                    @($response.Headers.GetValues("Access-Control-Allow-Headers"))
+                )
+            }
+            else {
+                ""
+            }
+        [PSCustomObject]@{
+            StatusCode = [int]$response.StatusCode
+            Body = $responseBytes
+            AccessControlAllowOrigin = $allowOrigin
+            AccessControlAllowMethods = $allowMethods
+            AccessControlAllowHeaders = $allowHeaders
+        }
+    }
+    finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        $message.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
+function Assert-QualificationObjectPurgeEvidence {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Output,
+        [switch]$RequireDeletedVersion
+    )
+
+    $markers = @(
+        $Output |
+            ForEach-Object { [string]$_ } |
+            Where-Object {
+                $_ -cmatch
+                    "^K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true " +
+                    "deleted_versions=[0-9]+ deleted_markers=[0-9]+$"
+            }
+    )
+    Assert-Condition `
+        -Condition ($markers.Count -eq 1) `
+        -Message "Disposable public object purge evidence was missing or ambiguous"
+    if ($RequireDeletedVersion) {
+        $match = [Regex]::Match(
+            $markers[0],
+            "deleted_versions=(?<count>[0-9]+)"
+        )
+        Assert-Condition `
+            -Condition (
+                $match.Success -and
+                [int]$match.Groups["count"].Value -ge 1
+            ) `
+            -Message "Disposable public object purge removed no uploaded version"
+    }
+}
+
+function Invoke-QualificationObjectPurge {
+    param(
+        [Parameter(Mandatory)]$ReleaseContext,
+        [Parameter(Mandatory)][string]$TenantId,
+        [Parameter(Mandatory)][string]$AttachmentId,
+        [Parameter(Mandatory)][string]$FileName,
+        [switch]$RequireDeletedVersion
+    )
+
+    $tenantGuid = [Guid]::Empty
+    $attachmentGuid = [Guid]::Empty
+    Assert-Condition `
+        -Condition (
+            [Guid]::TryParse($TenantId, [ref]$tenantGuid) -and
+            [Guid]::TryParse($AttachmentId, [ref]$attachmentGuid) -and
+            $tenantGuid.ToString() -ceq $TenantId -and
+            $attachmentGuid.ToString() -ceq $AttachmentId -and
+            $FileName -ceq "trusted-edge-object-qualification.txt"
+        ) `
+        -Message "Disposable public object cleanup identity is invalid"
+    $objectKey = "$TenantId/$AttachmentId/$FileName"
+    Assert-Condition `
+        -Condition (
+            $objectKey -cmatch
+                "^[0-9a-f-]{36}/[0-9a-f-]{36}/" +
+                "trusted-edge-object-qualification\.txt$"
+        ) `
+        -Message "Disposable public object cleanup key is invalid"
+
+    Assert-QualificationReleaseImageIdentity -ReleaseContext $ReleaseContext
+    $expression =
+        'tenant_id = System.fetch_env!("K_COMMS_QUALIFICATION_OBJECT_TENANT_ID"); ' +
+        'object_key = System.fetch_env!("K_COMMS_QUALIFICATION_OBJECT_KEY"); ' +
+        'case CommsIntegrations.ObjectStorage.purge_object_versions(' +
+        '%{tenant_id: tenant_id, object_key: object_key}) do ' +
+        '{:ok, %{verified_empty?: true, deleted_versions: versions, ' +
+        'deleted_markers: markers}} -> ' +
+        'IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true ' +
+        'deleted_versions=#{versions} deleted_markers=#{markers}"); ' +
+        '_ -> raise "public object purge failed" end'
+    $overrides = @{PODMAN_COMPOSE_WARNING_LOGS = "false"}
+    $result = Invoke-WithSealedQualificationEnvironment `
+        -ReleaseContext $ReleaseContext `
+        -Overrides $overrides `
+        -Command {
+            $output = @(
+                & podman compose `
+                    --env-file $ReleaseContext.EnvironmentFile `
+                    --file $ReleaseContext.ComposeSourcePath `
+                    --project-name $ReleaseContext.ProjectName `
+                    run --rm --no-deps --pull never `
+                    --env (
+                        "K_COMMS_QUALIFICATION_OBJECT_TENANT_ID=" +
+                        $TenantId
+                    ) `
+                    --env (
+                        "K_COMMS_QUALIFICATION_OBJECT_KEY=" +
+                        $objectKey
+                    ) `
+                    qualification eval $expression 2>&1
+            )
+            [PSCustomObject]@{
+                ExitCode = $LASTEXITCODE
+                Output = $output
+            }
+        }
+    Assert-Condition `
+        -Condition ($result.ExitCode -eq 0) `
+        -Message "Disposable public object purge failed"
+    Assert-QualificationObjectPurgeEvidence `
+        -Output @($result.Output) `
+        -RequireDeletedVersion:$RequireDeletedVersion
+}
+
+function Invoke-PublicObjectStorageQualification {
+    param(
+        [scriptblock]$ApiRequestAction =
+            ${function:Invoke-QualificationApiRequest},
+        [scriptblock]$ObjectRequestAction =
+            ${function:Invoke-PublicObjectHttpRequest},
+        [scriptblock]$PurgeAction =
+            ${function:Invoke-QualificationObjectPurge},
+        [string]$ApplicationOrigin = $script:BaseUri,
+        [string]$PublicObjectOrigin = $script:SealedPublicObjectOrigin,
+        [string]$QualificationApplicationOrigin =
+            $script:LiveQualificationAppOrigin,
+        [string]$OwnerTenantSlug = $script:LiveOwnerTenantSlug,
+        [string]$OwnerEmail = $script:LiveOwnerEmail,
+        [string]$OwnerPassword = $script:LiveOwnerPassword,
+        $ReleaseContext = $script:SealedReleaseContext,
+        [byte[]]$QualificationContentBytes = $null
+    )
+
+    if (-not $script:QualificationMode.TrustedEdge) {
+        return
+    }
+
+    $fileName = "trusted-edge-object-qualification.txt"
+    $contentBytes =
+        if ($null -eq $QualificationContentBytes) {
+            [Text.Encoding]::UTF8.GetBytes(
+                "K-Comms trusted-edge object qualification " +
+                [Guid]::NewGuid().ToString("N")
+            )
+        }
+        else {
+            Assert-Condition `
+                -Condition (
+                    $QualificationContentBytes.Length -ge 1 -and
+                    $QualificationContentBytes.Length -le 65536
+                ) `
+                -Message "Public object qualification content is invalid"
+            [byte[]]$QualificationContentBytes.Clone()
+        }
+    $checksum = Get-QualificationBytesSha256 -Bytes $contentBytes
+    $checksumBase64 =
+        Get-QualificationBytesSha256Base64 -Bytes $contentBytes
+    $accessToken = $null
+    $tenantId = $null
+    $attachmentId = $null
+    $uploadRequest = $null
+    $downloadRequest = $null
+    $objectUploaded = $false
+    $primaryFailure = $null
+    $cleanupFailures = [Collections.Generic.List[Exception]]::new()
+
+    try {
+        try {
+            $session = & $ApiRequestAction `
+                -Origin $QualificationApplicationOrigin `
+                -Path "/api/v1/sessions" `
+                -Method "POST" `
+                -ExpectedStatus 200 `
+                -Context "Disposable object qualification sign-in" `
+                -Body @{
+                    tenant_slug = $OwnerTenantSlug
+                    email = $OwnerEmail
+                    password = $OwnerPassword
+                    device = @{
+                        name = "Trusted-edge object qualification"
+                        platform = "powershell"
+                    }
+                }
+            $accessToken = [string](Get-RequiredProperty `
+                -Object $session `
+                -Name "access_token" `
+                -Context "Disposable object qualification session")
+            $tenant = Get-RequiredProperty `
+                -Object $session `
+                -Name "tenant" `
+                -Context "Disposable object qualification session"
+            $tenantId = [string](Get-RequiredProperty `
+                -Object $tenant `
+                -Name "id" `
+                -Context "Disposable object qualification tenant")
+
+            $intent = & $ApiRequestAction `
+                -Origin $ApplicationOrigin `
+                -Path "/api/v1/attachments" `
+                -Method "POST" `
+                -ExpectedStatus 201 `
+                -Context "Public attachment intent" `
+                -AccessToken $accessToken `
+                -Body @{
+                    file_name = $fileName
+                    content_type = "text/plain"
+                    byte_size = $contentBytes.Length
+                    checksum_sha256 = $checksum
+                }
+            $attachment = Get-RequiredProperty `
+                -Object $intent `
+                -Name "data" `
+                -Context "Public attachment intent"
+            $attachmentId = [string](Get-RequiredProperty `
+                -Object $attachment `
+                -Name "id" `
+                -Context "Public attachment intent data")
+            Assert-PropertyValue `
+                -Object $attachment `
+                -Name "file_name" `
+                -Expected $fileName `
+                -Context "Public attachment intent data"
+            $uploadRequest = Resolve-PublicObjectRequestDescriptor `
+                -Descriptor (Get-RequiredProperty `
+                    -Object $intent `
+                    -Name "upload" `
+                    -Context "Public attachment intent") `
+                -ExpectedMethod "PUT" `
+                -ExpectedOrigin $PublicObjectOrigin `
+                -ExpectedHeaders @{
+                    "content-type" = "text/plain"
+                    "x-amz-checksum-sha256" = $checksumBase64
+                    "x-amz-meta-sha256" = $checksum
+                }
+            $preflightResponse = & $ObjectRequestAction `
+                -Request $uploadRequest `
+                -Origin $ApplicationOrigin `
+                -Preflight
+            $allowedMethods = @(
+                $preflightResponse.AccessControlAllowMethods.Split(",") |
+                    ForEach-Object { $_.Trim().ToUpperInvariant() }
+            )
+            $allowedHeaders = @(
+                $preflightResponse.AccessControlAllowHeaders.Split(",") |
+                    ForEach-Object { $_.Trim().ToLowerInvariant() }
+            )
+            Assert-Condition `
+                -Condition (
+                    $preflightResponse.StatusCode -in @(200, 204) -and
+                    $preflightResponse.AccessControlAllowOrigin -ceq
+                        $ApplicationOrigin -and
+                    $allowedMethods -ccontains "PUT" -and
+                    (
+                        $allowedHeaders -contains "*" -or
+                        @(
+                            $uploadRequest.Headers.Keys |
+                                Where-Object {
+                                    [string]$_ -notin $allowedHeaders
+                                }
+                        ).Count -eq 0
+                    )
+                ) `
+                -Message "Public attachment browser CORS preflight failed"
+            $uploadResponse = & $ObjectRequestAction `
+                -Request $uploadRequest `
+                -Origin $ApplicationOrigin `
+                -Body $contentBytes
+            Assert-Condition `
+                -Condition (
+                    $uploadResponse.StatusCode -ge 200 -and
+                    $uploadResponse.StatusCode -le 299 -and
+                    $uploadResponse.AccessControlAllowOrigin -ceq
+                        $ApplicationOrigin
+                ) `
+                -Message "Public attachment upload failed"
+            $objectUploaded = $true
+
+            $null = & $ApiRequestAction `
+                -Origin $ApplicationOrigin `
+                -Path "/api/v1/attachments/$attachmentId/complete" `
+                -Method "POST" `
+                -ExpectedStatus 200 `
+                -Context "Public attachment completion" `
+                -AccessToken $accessToken `
+                -Body @{checksum_sha256 = $checksum}
+
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            do {
+                $current = & $ApiRequestAction `
+                    -Origin $ApplicationOrigin `
+                    -Path "/api/v1/attachments/$attachmentId" `
+                    -Method "GET" `
+                    -ExpectedStatus 200 `
+                    -Context "Public attachment scan polling" `
+                    -AccessToken $accessToken
+                $currentData = Get-RequiredProperty `
+                    -Object $current `
+                    -Name "data" `
+                    -Context "Public attachment scan polling"
+                $status = [string](Get-RequiredProperty `
+                    -Object $currentData `
+                    -Name "status" `
+                    -Context "Public attachment scan polling data")
+                $scanStatus = [string](Get-RequiredProperty `
+                    -Object $currentData `
+                    -Name "scan_status" `
+                    -Context "Public attachment scan polling data")
+                if ($status -ceq "ready" -and $scanStatus -ceq "clean") {
+                    $downloadRequest =
+                        Resolve-PublicObjectRequestDescriptor `
+                            -Descriptor (Get-RequiredProperty `
+                                -Object $current `
+                                -Name "download" `
+                                -Context "Public attachment download") `
+                            -ExpectedMethod "GET" `
+                            -ExpectedOrigin $PublicObjectOrigin `
+                            -ExpectedHeaders @{}
+                    break
+                }
+                Assert-Condition `
+                    -Condition (
+                        $status -in @("uploaded", "ready") -and
+                        $scanStatus -in @("pending", "scanning")
+                    ) `
+                    -Message "Public attachment did not remain in a cleanable scan state"
+                Start-Sleep -Milliseconds 500
+            } while ([DateTime]::UtcNow -lt $deadline)
+            Assert-Condition `
+                -Condition ($null -ne $downloadRequest) `
+                -Message "Public attachment scan did not become clean within 60 seconds"
+
+            $downloadResponse = & $ObjectRequestAction `
+                -Request $downloadRequest `
+                -Origin $ApplicationOrigin `
+                -MaxResponseBytes ($contentBytes.Length + 1)
+            Assert-Condition `
+                -Condition (
+                    $downloadResponse.StatusCode -eq 200 -and
+                    $downloadResponse.AccessControlAllowOrigin -ceq
+                        $ApplicationOrigin -and
+                    $downloadResponse.Body.Length -eq $contentBytes.Length -and
+                    (Get-QualificationBytesSha256 `
+                        -Bytes $downloadResponse.Body) -ceq $checksum
+                ) `
+                -Message "Public attachment download content verification failed"
+            Write-Host (
+                "PASS trusted-edge public attachment upload/download " +
+                "content hash"
+            )
+        }
+        catch {
+            $primaryFailure = $_.Exception
+        }
+
+        if (
+            -not [string]::IsNullOrEmpty($accessToken) -and
+            -not [string]::IsNullOrEmpty($attachmentId)
+        ) {
+            try {
+                $null = & $ApiRequestAction `
+                    -Origin $ApplicationOrigin `
+                    -Path "/api/v1/attachments/$attachmentId" `
+                    -Method "DELETE" `
+                    -ExpectedStatus 204 `
+                    -Context "Disposable attachment abandonment" `
+                    -AccessToken $accessToken
+            }
+            catch {
+                $cleanupFailures.Add(
+                    [InvalidOperationException]::new(
+                        "Disposable attachment abandonment failed",
+                        $_.Exception
+                    )
+                )
+            }
+        }
+
+        if (
+            -not [string]::IsNullOrEmpty($tenantId) -and
+            -not [string]::IsNullOrEmpty($attachmentId)
+        ) {
+            try {
+                & $PurgeAction `
+                    -ReleaseContext $ReleaseContext `
+                    -TenantId $tenantId `
+                    -AttachmentId $attachmentId `
+                    -FileName $fileName `
+                    -RequireDeletedVersion:$objectUploaded
+                if ($null -ne $downloadRequest) {
+                    $deletedResponse = & $ObjectRequestAction `
+                        -Request $downloadRequest `
+                        -Origin $ApplicationOrigin `
+                        -MaxResponseBytes 65536
+                    Assert-Condition `
+                        -Condition ($deletedResponse.StatusCode -eq 404) `
+                        -Message (
+                            "Public object remained downloadable after its " +
+                            "verified purge"
+                        )
+                }
+                Write-Host (
+                    "PASS disposable public attachment and object cleanup"
+                )
+            }
+            catch {
+                $cleanupFailures.Add(
+                    [InvalidOperationException]::new(
+                        "Disposable public object cleanup failed",
+                        $_.Exception
+                    )
+                )
+            }
+        }
+
+        if (-not [string]::IsNullOrEmpty($accessToken)) {
+            try {
+                $null = & $ApiRequestAction `
+                    -Origin $QualificationApplicationOrigin `
+                    -Path "/api/v1/sessions/current" `
+                    -Method "DELETE" `
+                    -ExpectedStatus 204 `
+                    -Context "Disposable object qualification session cleanup" `
+                    -AccessToken $accessToken
+            }
+            catch {
+                $cleanupFailures.Add(
+                    [InvalidOperationException]::new(
+                        "Disposable object qualification session cleanup failed",
+                        $_.Exception
+                    )
+                )
+            }
+        }
+    }
+    finally {
+        if ($null -ne $contentBytes) {
+            [Array]::Clear($contentBytes, 0, $contentBytes.Length)
+        }
+        $accessToken = $null
+        $uploadRequest = $null
+        $downloadRequest = $null
+    }
+
+    $failures = [Collections.Generic.List[Exception]]::new()
+    if ($null -ne $primaryFailure) {
+        $failures.Add($primaryFailure)
+    }
+    foreach ($failure in $cleanupFailures) {
+        $failures.Add($failure)
+    }
+    if ($failures.Count -eq 1) {
+        throw $failures[0]
+    }
+    if ($failures.Count -gt 1) {
+        throw [AggregateException]::new(
+            (
+                "Trusted-edge public object qualification failed and one " +
+                "or more mandatory cleanup checks also failed"
+            ),
+            $failures.ToArray()
+        )
+    }
+}
+
 function Invoke-InstantRoomEndpointCheck {
     $path = "/api/v1/instant-rooms/preview"
     $uri = "$script:BaseUri$path"
@@ -1257,12 +2453,22 @@ function Invoke-InstantRoomEndpointCheck {
 }
 
 function Invoke-LanSecureTransportBoundaryCheck {
-    if (-not $script:QualificationMode.LanTextOnly) {
+    if (
+        -not $script:QualificationMode.LanTextOnly -and
+        -not $script:QualificationMode.TrustedEdge
+    ) {
         return
     }
 
     $path = "/api/v1/sessions"
-    $uri = "$script:BaseUri$path"
+    $boundaryOrigin =
+        if ($script:QualificationMode.TrustedEdge) {
+            $script:LiveProvisionBaseUri
+        }
+        else {
+            $script:BaseUri
+        }
+    $uri = "$boundaryOrigin$path"
     $body = @{
         tenant_slug = "qualification-only"
         email = "qualification@example.invalid"
@@ -1295,7 +2501,7 @@ function Invoke-LanSecureTransportBoundaryCheck {
     Assert-SecureTransportRequiredPayload `
         -StatusCode $observed.StatusCode `
         -Payload $payload
-    Write-Host "PASS $path secure-transport boundary"
+    Write-Host "PASS direct HTTP $path secure-transport boundary"
 }
 
 function Assert-AppContract {
@@ -1433,7 +2639,7 @@ function Assert-SealedReleaseIsRunning {
     $statusOutput = (& $manager -Action Status *>&1 | Out-String)
     $applicationMatch = [regex]::Match(
         $statusOutput,
-        "(?m)^Application:\s+(?<uri>http://[^\r\n]+/app/)\s*$"
+        "(?m)^Application:\s+(?<uri>https?://[^\r\n]+/app/)\s*$"
     )
     Assert-Condition `
         -Condition $applicationMatch.Success `
@@ -1491,7 +2697,8 @@ function Assert-SealedReleaseIsRunning {
             -AppOrigin $target.AppOrigin `
             -AppWebSocketOrigin $target.AppWebSocketOrigin `
             -LiveKitOrigin $target.LiveKitOrigin `
-            -MinioOrigin $target.MinioOrigin
+            -MinioOrigin $target.MinioOrigin `
+            -TrustedEdge:$target.TrustedEdge
 
     $expectedApplicationUri = "$($target.AppOrigin)/app/"
     Assert-Condition `
@@ -1534,6 +2741,7 @@ function Assert-SealedReleaseIsRunning {
     $script:SealedReleaseProjectName = $releaseContext.ProjectName
     $script:SealedReleaseReceiptPath = $releaseContext.ReceiptPath
     $script:SealedReleaseImageId = $releaseContext.ImageId
+    $script:SealedPublicObjectOrigin = $target.MinioOrigin
     $script:QualificationStateRoot = $releaseContext.StateRoot
     $script:QualificationCleanupReceiptPath =
         Join-Path `
@@ -1563,6 +2771,19 @@ function Assert-PackagedApp {
         -ContentType $contentType `
         -Content $response.Content `
         -ContentSecurityPolicy $contentSecurityPolicy
+    if ($script:QualificationMode.TrustedEdge) {
+        $strictTransportSecurity =
+            @($response.Headers["Strict-Transport-Security"]) -join ", "
+        Assert-Condition `
+            -Condition (
+                $strictTransportSecurity -ceq
+                    "max-age=31536000; includeSubDomains"
+            ) `
+            -Message (
+                "Trusted-edge /app/ must return the exact sealed " +
+                "Strict-Transport-Security policy"
+            )
+    }
     Write-Host "PASS /app/ packaged assets and strict Content-Security-Policy"
 }
 
@@ -1839,6 +3060,60 @@ function Get-OriginReleaseAppProxyCidr {
     "$gateway/32"
 }
 
+function New-LiveQualificationAppEnvironment {
+    param([Parameter(Mandatory)]$CleanupContext)
+
+    $releaseEnvironment = $CleanupContext.ReleaseContext.Environment
+    foreach ($name in @(
+        "K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT",
+        "K_COMMS_RELEASE_MINIO_PORT"
+    )) {
+        Assert-Condition `
+            -Condition (
+                $releaseEnvironment.ContainsKey($name) -and
+                [string]$releaseEnvironment[$name] -cmatch "^[0-9]{1,5}$"
+            ) `
+            -Message "The sealed release environment is missing valid $name"
+    }
+    $liveKitSignalPort =
+        [int]$releaseEnvironment["K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT"]
+    $minioPort = [int]$releaseEnvironment["K_COMMS_RELEASE_MINIO_PORT"]
+    Assert-Condition `
+        -Condition (
+            $liveKitSignalPort -ge 1 -and $liveKitSignalPort -le 65535 -and
+            $minioPort -ge 1 -and $minioPort -le 65535
+        ) `
+        -Message "The sealed release media or object-storage port is invalid"
+
+    $appOrigin = [string]$CleanupContext.AppOrigin
+    $appWebSocketOrigin = $appOrigin.Replace("http://", "ws://")
+    $liveKitOrigin = "ws://127.0.0.1:$liveKitSignalPort"
+    $objectOrigin = "http://127.0.0.1:$minioPort"
+    @{
+        K_COMMS_ROLE = "edge"
+        K_COMMS_RUNTIME_PURPOSE = "application"
+        K_COMMS_LOCAL_RELEASE = "true"
+        K_COMMS_RELEASE_HOST = "127.0.0.1"
+        K_COMMS_LOCAL_RELEASE_HOST = "127.0.0.1"
+        K_COMMS_RELEASE_EXPOSURE_MODE = ""
+        K_COMMS_TRUSTED_EDGE_CONFIRMATION = ""
+        ALLOW_BOOTSTRAP = "false"
+        INSTANT_ROOM_TENANT_SLUG =
+            "k-comms-qualification-$($CleanupContext.QualificationId)"
+        PUBLIC_APP_URL = $appOrigin
+        CORS_ORIGINS = $appOrigin
+        HSTS_ENABLED = "false"
+        LIVEKIT_SERVER_URL = $liveKitOrigin
+        S3_PUBLIC_ENDPOINT = $objectOrigin
+        CSP_CONNECT_SOURCES =
+            "'self' $appOrigin $appWebSocketOrigin $liveKitOrigin $objectOrigin"
+        TRUSTED_PROXY_CIDRS = $CleanupContext.AppTrustedProxyCidr
+        K_COMMS_QUALIFICATION_APP_ORIGIN = $appOrigin
+        K_COMMS_QUALIFICATION_APP_CONFIRMATION =
+            "local-release-qualification-app-v1"
+    }
+}
+
 function Get-LiveQualificationAppInspection {
     param([Parameter(Mandatory)][string]$ContainerName)
 
@@ -2015,20 +3290,8 @@ function Assert-QualificationAppContainerIdentity {
             "match its marker"
         )
 
-    $expectedEnvironment = [ordered]@{
-        K_COMMS_ROLE = "edge"
-        K_COMMS_RUNTIME_PURPOSE = "application"
-        K_COMMS_LOCAL_RELEASE = "true"
-        ALLOW_BOOTSTRAP = "false"
-        INSTANT_ROOM_TENANT_SLUG =
-            "k-comms-qualification-$($CleanupContext.QualificationId)"
-        PUBLIC_APP_URL = $CleanupContext.PublicAppUrl
-        CORS_ORIGINS = $CleanupContext.AppOrigin
-        TRUSTED_PROXY_CIDRS = $CleanupContext.AppTrustedProxyCidr
-        K_COMMS_QUALIFICATION_APP_ORIGIN = $CleanupContext.AppOrigin
-        K_COMMS_QUALIFICATION_APP_CONFIRMATION =
-            "local-release-qualification-app-v1"
-    }
+    $expectedEnvironment =
+        New-LiveQualificationAppEnvironment -CleanupContext $CleanupContext
     $containerEnvironment = @($Inspection.Config.Env)
     foreach ($expected in $expectedEnvironment.GetEnumerator()) {
         $observed = Get-QualificationContainerEnvironmentValue `
@@ -2214,21 +3477,9 @@ function Start-LiveQualificationApp {
             "container"
         )
 
-    $overrides = @{
-        PODMAN_COMPOSE_WARNING_LOGS = "false"
-        K_COMMS_ROLE = "edge"
-        K_COMMS_RUNTIME_PURPOSE = "application"
-        K_COMMS_LOCAL_RELEASE = "true"
-        ALLOW_BOOTSTRAP = "false"
-        INSTANT_ROOM_TENANT_SLUG =
-            "k-comms-qualification-$($CleanupContext.QualificationId)"
-        PUBLIC_APP_URL = $CleanupContext.PublicAppUrl
-        CORS_ORIGINS = $CleanupContext.AppOrigin
-        TRUSTED_PROXY_CIDRS = $CleanupContext.AppTrustedProxyCidr
-        K_COMMS_QUALIFICATION_APP_ORIGIN = $CleanupContext.AppOrigin
-        K_COMMS_QUALIFICATION_APP_CONFIRMATION =
-            "local-release-qualification-app-v1"
-    }
+    $overrides =
+        New-LiveQualificationAppEnvironment -CleanupContext $CleanupContext
+    $overrides["PODMAN_COMPOSE_WARNING_LOGS"] = "false"
     $result = Invoke-WithSealedQualificationEnvironment `
         -ReleaseContext $CleanupContext.ReleaseContext `
         -Overrides $overrides `
@@ -2244,12 +3495,16 @@ function Start-LiveQualificationApp {
                     --env "K_COMMS_ROLE=edge" `
                     --env "K_COMMS_RUNTIME_PURPOSE=application" `
                     --env "K_COMMS_LOCAL_RELEASE=true" `
+                    --env "K_COMMS_RELEASE_HOST=127.0.0.1" `
+                    --env "K_COMMS_LOCAL_RELEASE_HOST=127.0.0.1" `
+                    --env "K_COMMS_RELEASE_EXPOSURE_MODE=" `
+                    --env "K_COMMS_TRUSTED_EDGE_CONFIRMATION=" `
                     --env "ALLOW_BOOTSTRAP=false" `
                     --env (
                         "INSTANT_ROOM_TENANT_SLUG=" +
                         "k-comms-qualification-$($CleanupContext.QualificationId)"
                     ) `
-                    --env "PUBLIC_APP_URL=$($CleanupContext.PublicAppUrl)" `
+                    --env "PUBLIC_APP_URL=$($CleanupContext.AppOrigin)" `
                     --env "CORS_ORIGINS=$($CleanupContext.AppOrigin)" `
                     --env (
                         "TRUSTED_PROXY_CIDRS=" +
@@ -3020,7 +4275,7 @@ function Invoke-PackagedReleaseQualification {
             if (-not $script:QualificationMode.LanTextOnly) {
                 [Environment]::SetEnvironmentVariable(
                     "K_COMMS_LIVE_PROVISION_BASE_URL",
-                    $script:LiveProvisionBaseUri,
+                    $script:LiveQualificationAppOrigin,
                     "Process"
                 )
                 [Environment]::SetEnvironmentVariable(
@@ -3056,6 +4311,9 @@ function Invoke-PackagedReleaseQualification {
             Push-Location $webRoot
             try {
                 Invoke-InstantRoomSpec -Playwright $playwright
+                if ($script:QualificationMode.TrustedEdge) {
+                    Invoke-PublicObjectStorageQualification
+                }
                 if ($script:QualificationMode.LanTextOnly) {
                     Write-Warning (
                         "LAN text-only qualification intentionally skipped " +
@@ -3161,6 +4419,14 @@ function Write-QualificationSuccess {
             "credential and media operations were NOT qualified."
         )
     }
+    elseif ($script:QualificationMode.TrustedEdge) {
+        Write-Host (
+            "Packaged Cloudflare trusted-edge qualification passed at " +
+            "$script:BaseUri/app/, including authentication, audio, video, " +
+            "screen sharing, public attachment transfer, cleanup, and the " +
+            "direct-HTTP fail-closed boundary."
+        )
+    }
     else {
         Write-Host (
             "Packaged local release qualification passed at " +
@@ -3242,6 +4508,8 @@ function New-QualificationReleaseContextSelfTestFixture {
             "K_COMMS_RELEASE_PROJECT=$ProjectName`n" +
             "K_COMMS_RELEASE_IMAGE=$imageReference`n" +
             "K_COMMS_RELEASE_REVISION=$revision`n" +
+            "K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT=7980`n" +
+            "K_COMMS_RELEASE_MINIO_PORT=5900`n" +
             "PUBLIC_APP_URL=http://127.0.0.1:4188`n" +
             "CSP_CONNECT_SOURCES=`"'self' http://127.0.0.1:4188`"`n"
         ),
@@ -3607,22 +4875,13 @@ function Assert-QualificationLockAndStateSelfTest {
                 User = "10001:10001"
                 Labels = [PSCustomObject]$fakeLabels
                 Env = @(
-                    "K_COMMS_ROLE=edge",
-                    "K_COMMS_RUNTIME_PURPOSE=application",
-                    "K_COMMS_LOCAL_RELEASE=true",
-                    "ALLOW_BOOTSTRAP=false",
                     (
-                        "INSTANT_ROOM_TENANT_SLUG=" +
-                        "k-comms-qualification-$qualificationId"
-                    ),
-                    "PUBLIC_APP_URL=$publicAppUrl",
-                    "CORS_ORIGINS=$appOrigin",
-                    "TRUSTED_PROXY_CIDRS=$appTrustedProxyCidr",
-                    "K_COMMS_QUALIFICATION_APP_ORIGIN=$appOrigin",
-                    (
-                        "K_COMMS_QUALIFICATION_APP_CONFIRMATION=" +
-                        "local-release-qualification-app-v1"
-                    )
+                        New-LiveQualificationAppEnvironment `
+                            -CleanupContext $recovery
+                    ).GetEnumerator() |
+                        ForEach-Object {
+                            "$($_.Key)=$([string]$_.Value)"
+                        }
                 )
             }
             NetworkSettings = [PSCustomObject]@{
@@ -3969,8 +5228,690 @@ function Assert-QualificationLockAndStateSelfTest {
     }
 }
 
+function Assert-TrustedEdgeQualificationSelfTest {
+    $ports = [PSCustomObject]@{
+        app = 4188
+        livekitSignal = 7980
+        livekitTcp = 7981
+        livekitUdp = 7982
+        minio = 5900
+    }
+    $receipt = [PSCustomObject]@{
+        schemaVersion = 6
+        publicAppUrl = "https://comms.avayaworks.com"
+        publicOrigins = [PSCustomObject]@{
+            application = "https://comms.avayaworks.com"
+            applicationWebSocket = "wss://comms.avayaworks.com"
+            media = "wss://media.avayaworks.com"
+            objectStorage = "https://kcomms-files.avayaworks.com"
+        }
+        ports = $ports
+        network = [PSCustomObject]@{
+            bindAddress = "192.168.1.177"
+            podmanBindAddress = "127.0.0.1"
+            publicHost = "comms.avayaworks.com"
+            publicAppUrl = "https://comms.avayaworks.com"
+            exposureMode = "cloudflare_trusted_edge"
+            exposureProfile = "cloudflare_trusted_edge"
+            appHostname = "comms.avayaworks.com"
+            mediaHostname = "media.avayaworks.com"
+            objectHostname = "kcomms-files.avayaworks.com"
+            mediaNodeAddress = "192.168.1.177"
+            trustedProxyCidr = "10.89.0.1/32"
+            trustedEdgeConfirmation = "cloudflare-tunnel-v1"
+        }
+        forwarder = [PSCustomObject]@{
+            required = $true
+            profile = "media-only"
+            listeners = @(
+                [PSCustomObject]@{
+                    name = "livekitTcp"
+                    protocol = "tcp"
+                    publicPort = 7981
+                    targetHost = "127.0.0.1"
+                    targetPort = 7981
+                },
+                [PSCustomObject]@{
+                    name = "livekitUdp"
+                    protocol = "udp"
+                    publicPort = 7982
+                    targetHost = "127.0.0.1"
+                    targetPort = 7982
+                }
+            )
+        }
+    }
+    $target = Resolve-SealedReceiptQualificationTarget `
+        -Receipt $receipt `
+        -RequestedBaseUri "https://comms.avayaworks.com"
+    Assert-Condition `
+        -Condition (
+            $target.TrustedEdge -and
+            $target.AppOrigin -ceq "https://comms.avayaworks.com" -and
+            $target.LiveKitOrigin -ceq "wss://media.avayaworks.com" -and
+            $target.MinioOrigin -ceq
+                "https://kcomms-files.avayaworks.com" -and
+            $target.DirectHttpOrigin -ceq "http://127.0.0.1:4188" -and
+            $target.ForwarderRequired
+        ) `
+        -Message "Self-test rejected the canonical schema-v6 trusted-edge receipt"
+    $trustedPolicy = New-ExpectedContentSecurityPolicy `
+        -AppOrigin $target.AppOrigin `
+        -AppWebSocketOrigin $target.AppWebSocketOrigin `
+        -LiveKitOrigin $target.LiveKitOrigin `
+        -MinioOrigin $target.MinioOrigin `
+        -TrustedEdge
+    Assert-Condition `
+        -Condition (
+            $trustedPolicy -clike (
+                "*connect-src 'self' wss://media.avayaworks.com " +
+                "https://kcomms-files.avayaworks.com"
+            )
+        ) `
+        -Message "Self-test did not produce the exact trusted-edge CSP"
+
+    $tamperCases = @(
+        [PSCustomObject]@{
+            Name = "broad trusted proxy"
+            Mutate = {
+                param($candidate)
+                $candidate.network.trustedProxyCidr = "10.89.0.0/24"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "public media node"
+            Mutate = {
+                param($candidate)
+                $candidate.network.bindAddress = "203.0.113.10"
+                $candidate.network.mediaNodeAddress = "203.0.113.10"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "non-canonical application origin"
+            Mutate = {
+                param($candidate)
+                $candidate.publicAppUrl =
+                    "https://comms.avayaworks.com:443"
+                $candidate.publicOrigins.application =
+                    "https://comms.avayaworks.com:443"
+                $candidate.network.publicAppUrl =
+                    "https://comms.avayaworks.com:443"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "extra forwarder listener"
+            Mutate = {
+                param($candidate)
+                $candidate.forwarder.listeners += [PSCustomObject]@{
+                    name = "app"
+                    protocol = "tcp"
+                    publicPort = 4188
+                    targetHost = "127.0.0.1"
+                    targetPort = 4188
+                }
+            }
+        },
+        [PSCustomObject]@{
+            Name = "shared media hostname"
+            Mutate = {
+                param($candidate)
+                $candidate.publicOrigins.media =
+                    "wss://comms.avayaworks.com"
+            }
+        }
+    )
+    foreach ($case in $tamperCases) {
+        $candidate =
+            ($receipt | ConvertTo-Json -Depth 8) |
+                ConvertFrom-Json
+        & $case.Mutate $candidate
+        $rejected = $false
+        try {
+            $null = Resolve-SealedReceiptQualificationTarget `
+                -Receipt $candidate `
+                -RequestedBaseUri "https://comms.avayaworks.com"
+        }
+        catch {
+            $rejected = $true
+        }
+        Assert-Condition `
+            -Condition $rejected `
+            -Message "Self-test accepted trusted-edge tamper: $($case.Name)"
+    }
+
+    $qualificationEnvironment =
+        New-LiveQualificationAppEnvironment `
+            -CleanupContext ([PSCustomObject]@{
+                QualificationId = "a" * 32
+                AppOrigin = "http://127.0.0.1:49152"
+                AppTrustedProxyCidr = "10.89.0.1/32"
+                ReleaseContext = [PSCustomObject]@{
+                    Environment = @{
+                        K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT = "7980"
+                        K_COMMS_RELEASE_MINIO_PORT = "5900"
+                    }
+                }
+            })
+    Assert-Condition `
+        -Condition (
+            [string]$qualificationEnvironment[
+                "K_COMMS_RELEASE_EXPOSURE_MODE"
+            ] -ceq "" -and
+            [string]$qualificationEnvironment[
+                "K_COMMS_TRUSTED_EDGE_CONFIRMATION"
+            ] -ceq "" -and
+            [string]$qualificationEnvironment["PUBLIC_APP_URL"] -ceq
+                "http://127.0.0.1:49152" -and
+            [string]$qualificationEnvironment["K_COMMS_RELEASE_HOST"] -ceq
+                "127.0.0.1"
+        ) `
+        -Message (
+            "Self-test allowed the isolated qualification app to inherit the " +
+            "trusted-edge release guard"
+        )
+}
+
+function New-PublicObjectStorageQualificationSelfTestFixture {
+    param(
+        [Parameter(Mandatory)][byte[]]$ContentBytes,
+        [switch]$RejectPreflight,
+        [switch]$FailCleanup
+    )
+
+    $applicationOrigin = "https://comms.avayaworks.com"
+    $objectOrigin = "https://kcomms-files.avayaworks.com"
+    $tenantId = "11111111-1111-4111-8111-111111111111"
+    $attachmentId = "22222222-2222-4222-8222-222222222222"
+    $checksum = Get-QualificationBytesSha256 -Bytes $ContentBytes
+    $checksumBase64 =
+        Get-QualificationBytesSha256Base64 -Bytes $ContentBytes
+    $state = [PSCustomObject]@{
+        ApplicationOrigin = $applicationOrigin
+        ObjectOrigin = $objectOrigin
+        TenantId = $tenantId
+        AttachmentId = $attachmentId
+        Checksum = $checksum
+        ChecksumBase64 = $checksumBase64
+        RejectPreflight = [bool]$RejectPreflight
+        FailCleanup = [bool]$FailCleanup
+        UploadedBytes = $null
+        PreflightCalls = 0
+        PutCalls = 0
+        GetCalls = 0
+        AbandonCalls = 0
+        PurgeCalls = 0
+        SessionCleanupCalls = 0
+        Purged = $false
+    }
+
+    $apiRequestAction = {
+        param(
+            [string]$Origin,
+            [string]$Path,
+            [string]$Method,
+            [int]$ExpectedStatus,
+            [string]$Context,
+            [string]$AccessToken = "",
+            $Body = $null
+        )
+
+        if ($Method -ceq "POST" -and $Path -ceq "/api/v1/sessions") {
+            Assert-Condition `
+                -Condition ($ExpectedStatus -eq 200) `
+                -Message "Self-test sign-in status contract changed"
+            return [PSCustomObject]@{
+                access_token = "self-test-access-token"
+                tenant = [PSCustomObject]@{id = $state.TenantId}
+            }
+        }
+        if ($Method -ceq "POST" -and $Path -ceq "/api/v1/attachments") {
+            Assert-Condition `
+                -Condition (
+                    $Origin -ceq $state.ApplicationOrigin -and
+                    $ExpectedStatus -eq 201 -and
+                    [string]$Body.checksum_sha256 -ceq $state.Checksum
+                ) `
+                -Message "Self-test attachment intent contract changed"
+            return [PSCustomObject]@{
+                data = [PSCustomObject]@{
+                    id = $state.AttachmentId
+                    file_name = "trusted-edge-object-qualification.txt"
+                }
+                upload = [PSCustomObject]@{
+                    method = "PUT"
+                    url = (
+                        "$($state.ObjectOrigin)/$($state.TenantId)/" +
+                        "$($state.AttachmentId)/" +
+                        "trusted-edge-object-qualification.txt?" +
+                        "X-Amz-Signature=" + ("a" * 64)
+                    )
+                    approved_origin = $state.ObjectOrigin
+                    development_http = $false
+                    headers = [PSCustomObject]@{
+                        "content-type" = "text/plain"
+                        "x-amz-checksum-sha256" = $state.ChecksumBase64
+                        "x-amz-meta-sha256" = $state.Checksum
+                    }
+                    expires_in = 300
+                    expires_at =
+                        [DateTimeOffset]::UtcNow.AddMinutes(5).ToString("o")
+                }
+            }
+        }
+        if (
+            $Method -ceq "POST" -and
+            $Path -ceq "/api/v1/attachments/$($state.AttachmentId)/complete"
+        ) {
+            Assert-Condition `
+                -Condition (
+                    $ExpectedStatus -eq 200 -and
+                    [string]$Body.checksum_sha256 -ceq $state.Checksum
+                ) `
+                -Message "Self-test attachment completion contract changed"
+            return [PSCustomObject]@{data = [PSCustomObject]@{status = "uploaded"}}
+        }
+        if (
+            $Method -ceq "GET" -and
+            $Path -ceq "/api/v1/attachments/$($state.AttachmentId)"
+        ) {
+            return [PSCustomObject]@{
+                data = [PSCustomObject]@{
+                    status = "ready"
+                    scan_status = "clean"
+                }
+                download = [PSCustomObject]@{
+                    method = "GET"
+                    url = (
+                        "$($state.ObjectOrigin)/$($state.TenantId)/" +
+                        "$($state.AttachmentId)/" +
+                        "trusted-edge-object-qualification.txt?" +
+                        "X-Amz-Signature=" + ("b" * 64)
+                    )
+                    approved_origin = $state.ObjectOrigin
+                    development_http = $false
+                    headers = [PSCustomObject]@{}
+                    expires_in = 300
+                    expires_at =
+                        [DateTimeOffset]::UtcNow.AddMinutes(5).ToString("o")
+                }
+            }
+        }
+        if (
+            $Method -ceq "DELETE" -and
+            $Path -ceq "/api/v1/attachments/$($state.AttachmentId)"
+        ) {
+            $state.AbandonCalls += 1
+            if ($state.FailCleanup) {
+                throw "self-test attachment abandonment failure"
+            }
+            return $null
+        }
+        if (
+            $Method -ceq "DELETE" -and
+            $Path -ceq "/api/v1/sessions/current"
+        ) {
+            $state.SessionCleanupCalls += 1
+            if ($state.FailCleanup) {
+                throw "self-test session cleanup failure"
+            }
+            return $null
+        }
+        throw "Unexpected self-test API request: $Method $Path ($Context)"
+    }.GetNewClosure()
+
+    $objectRequestAction = {
+        param(
+            $Request,
+            [string]$Origin,
+            [byte[]]$Body = $null,
+            [int]$MaxResponseBytes = 65536,
+            [switch]$Preflight
+        )
+
+        Assert-Condition `
+            -Condition (
+                $Origin -ceq $state.ApplicationOrigin -and
+                $MaxResponseBytes -ge 1
+            ) `
+            -Message "Self-test public object request contract changed"
+        if ($Preflight) {
+            $state.PreflightCalls += 1
+            return [PSCustomObject]@{
+                StatusCode = 204
+                Body = [byte[]]@()
+                AccessControlAllowOrigin =
+                    if ($state.RejectPreflight) {
+                        "https://wrong.avayaworks.com"
+                    }
+                    else {
+                        $state.ApplicationOrigin
+                    }
+                AccessControlAllowMethods = "PUT"
+                AccessControlAllowHeaders = (
+                    "content-type,x-amz-checksum-sha256," +
+                    "x-amz-meta-sha256"
+                )
+            }
+        }
+        if ([string]$Request.Method -ceq "PUT") {
+            $state.PutCalls += 1
+            Assert-Condition `
+                -Condition (
+                    $null -ne $Body -and
+                    $Body.Length -eq $ContentBytes.Length -and
+                    (Get-QualificationBytesSha256 -Bytes $Body) -ceq
+                        $state.Checksum
+                ) `
+                -Message "Self-test PUT body did not preserve exact bytes"
+            $state.UploadedBytes = [byte[]]$Body.Clone()
+            return [PSCustomObject]@{
+                StatusCode = 200
+                Body = [byte[]]@()
+                AccessControlAllowOrigin = $state.ApplicationOrigin
+                AccessControlAllowMethods = ""
+                AccessControlAllowHeaders = ""
+            }
+        }
+        if ([string]$Request.Method -ceq "GET") {
+            $state.GetCalls += 1
+            if ($state.Purged) {
+                return [PSCustomObject]@{
+                    StatusCode = 404
+                    Body = [byte[]]@()
+                    AccessControlAllowOrigin = $state.ApplicationOrigin
+                    AccessControlAllowMethods = ""
+                    AccessControlAllowHeaders = ""
+                }
+            }
+            Assert-Condition `
+                -Condition ($null -ne $state.UploadedBytes) `
+                -Message "Self-test GET ran before the exact PUT body was retained"
+            return [PSCustomObject]@{
+                StatusCode = 200
+                Body = [byte[]]$state.UploadedBytes.Clone()
+                AccessControlAllowOrigin = $state.ApplicationOrigin
+                AccessControlAllowMethods = ""
+                AccessControlAllowHeaders = ""
+            }
+        }
+        throw "Unexpected self-test public object request"
+    }.GetNewClosure()
+
+    $purgeAction = {
+        param(
+            $ReleaseContext,
+            [string]$TenantId,
+            [string]$AttachmentId,
+            [string]$FileName,
+            [switch]$RequireDeletedVersion
+        )
+
+        $state.PurgeCalls += 1
+        if ($state.FailCleanup) {
+            throw "self-test purge failure"
+        }
+        Assert-Condition `
+            -Condition (
+                $TenantId -ceq $state.TenantId -and
+                $AttachmentId -ceq $state.AttachmentId -and
+                $FileName -ceq "trusted-edge-object-qualification.txt" -and
+                [bool]$RequireDeletedVersion -eq ($state.PutCalls -eq 1)
+            ) `
+            -Message "Self-test purge identity or upload binding changed"
+        $state.Purged = $true
+    }.GetNewClosure()
+
+    [PSCustomObject]@{
+        State = $state
+        ContentBytes = [byte[]]$ContentBytes.Clone()
+        ApiRequestAction = $apiRequestAction
+        ObjectRequestAction = $objectRequestAction
+        PurgeAction = $purgeAction
+        ApplicationOrigin = $applicationOrigin
+        PublicObjectOrigin = $objectOrigin
+        QualificationApplicationOrigin = "http://127.0.0.1:49152"
+    }
+}
+
+function Invoke-PublicObjectStorageQualificationSelfTestFixture {
+    param([Parameter(Mandatory)]$Fixture)
+
+    Invoke-PublicObjectStorageQualification `
+        -ApiRequestAction $Fixture.ApiRequestAction `
+        -ObjectRequestAction $Fixture.ObjectRequestAction `
+        -PurgeAction $Fixture.PurgeAction `
+        -ApplicationOrigin $Fixture.ApplicationOrigin `
+        -PublicObjectOrigin $Fixture.PublicObjectOrigin `
+        -QualificationApplicationOrigin $Fixture.QualificationApplicationOrigin `
+        -OwnerTenantSlug "self-test" `
+        -OwnerEmail "self-test@example.invalid" `
+        -OwnerPassword "self-test-password" `
+        -ReleaseContext ([PSCustomObject]@{SelfTest = $true}) `
+        -QualificationContentBytes $Fixture.ContentBytes
+}
+
+function Assert-PublicObjectStorageTransportSelfTest {
+    Assert-QualificationObjectPurgeEvidence `
+        -Output @(
+            "diagnostic noise",
+            (
+                "K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true " +
+                "deleted_versions=1 deleted_markers=0"
+            )
+        ) `
+        -RequireDeletedVersion
+
+    $missingPurgeMarkerRejected = $false
+    try {
+        Assert-QualificationObjectPurgeEvidence `
+            -Output @("diagnostic noise") `
+            -RequireDeletedVersion
+    }
+    catch {
+        $missingPurgeMarkerRejected =
+            $_.Exception.Message -ceq
+                "Disposable public object purge evidence was missing or ambiguous"
+    }
+    Assert-Condition `
+        -Condition $missingPurgeMarkerRejected `
+        -Message "Self-test accepted cleanup without the exact purge marker"
+
+    $originalQualificationMode = $script:QualificationMode
+    try {
+        $script:QualificationMode = [PSCustomObject]@{
+            IsLoopback = $false
+            LanTextOnly = $false
+            TrustedEdge = $true
+        }
+        $contentBytes =
+            [Text.Encoding]::UTF8.GetBytes("exact object roundtrip bytes")
+        $roundtrip =
+            New-PublicObjectStorageQualificationSelfTestFixture `
+                -ContentBytes $contentBytes
+        Invoke-PublicObjectStorageQualificationSelfTestFixture `
+            -Fixture $roundtrip
+        Assert-Condition `
+            -Condition (
+                $roundtrip.State.PreflightCalls -eq 1 -and
+                $roundtrip.State.PutCalls -eq 1 -and
+                $roundtrip.State.GetCalls -eq 2 -and
+                $roundtrip.State.AbandonCalls -eq 1 -and
+                $roundtrip.State.PurgeCalls -eq 1 -and
+                $roundtrip.State.SessionCleanupCalls -eq 1 -and
+                $roundtrip.State.Purged -and
+                $roundtrip.State.UploadedBytes.Length -eq
+                    $contentBytes.Length -and
+                (Get-QualificationBytesSha256 `
+                    -Bytes $roundtrip.State.UploadedBytes) -ceq
+                    (Get-QualificationBytesSha256 -Bytes $contentBytes)
+            ) `
+            -Message "Self-test did not prove the exact PUT/GET byte-hash roundtrip"
+
+        $preflight =
+            New-PublicObjectStorageQualificationSelfTestFixture `
+                -ContentBytes $contentBytes `
+                -RejectPreflight
+        $preflightRejected = $false
+        try {
+            Invoke-PublicObjectStorageQualificationSelfTestFixture `
+                -Fixture $preflight
+        }
+        catch {
+            $preflightRejected =
+                $_.Exception.Message -ceq
+                    "Public attachment browser CORS preflight failed"
+        }
+        Assert-Condition `
+            -Condition (
+                $preflightRejected -and
+                $preflight.State.PreflightCalls -eq 1 -and
+                $preflight.State.PutCalls -eq 0 -and
+                $preflight.State.AbandonCalls -eq 1 -and
+                $preflight.State.PurgeCalls -eq 1 -and
+                $preflight.State.SessionCleanupCalls -eq 1
+            ) `
+            -Message (
+                "Self-test did not reject OPTIONS CORS failure before PUT " +
+                "while retaining cleanup"
+            )
+
+        $aggregate =
+            New-PublicObjectStorageQualificationSelfTestFixture `
+                -ContentBytes $contentBytes `
+                -RejectPreflight `
+                -FailCleanup
+        $aggregateFailure = $null
+        try {
+            Invoke-PublicObjectStorageQualificationSelfTestFixture `
+                -Fixture $aggregate
+        }
+        catch {
+            $aggregateFailure = $_.Exception
+        }
+        Assert-Condition `
+            -Condition (
+                $aggregateFailure -is [AggregateException] -and
+                $aggregateFailure.InnerExceptions.Count -eq 4 -and
+                $aggregateFailure.InnerExceptions[0].Message -ceq
+                    "Public attachment browser CORS preflight failed" -and
+                $aggregateFailure.InnerExceptions[1].Message -ceq
+                    "Disposable attachment abandonment failed" -and
+                $aggregateFailure.InnerExceptions[2].Message -ceq
+                    "Disposable public object cleanup failed" -and
+                $aggregateFailure.InnerExceptions[3].Message -ceq
+                    "Disposable object qualification session cleanup failed" -and
+                $aggregate.State.AbandonCalls -eq 1 -and
+                $aggregate.State.PurgeCalls -eq 1 -and
+                $aggregate.State.SessionCleanupCalls -eq 1
+            ) `
+            -Message (
+                "Self-test did not aggregate the primary failure with all " +
+                "mandatory cleanup failures"
+            )
+    }
+    finally {
+        $script:QualificationMode = $originalQualificationMode
+    }
+}
+
+function Assert-PublicObjectStorageQualificationSelfTest {
+    $origin = "https://kcomms-files.avayaworks.com"
+    $bytes = [Text.Encoding]::UTF8.GetBytes("object qualification self-test")
+    $checksum = Get-QualificationBytesSha256 -Bytes $bytes
+    $checksumBase64 =
+        Get-QualificationBytesSha256Base64 -Bytes $bytes
+    $expectedHeaders = @{
+        "content-type" = "text/plain"
+        "x-amz-checksum-sha256" = $checksumBase64
+        "x-amz-meta-sha256" = $checksum
+    }
+    $descriptor = [PSCustomObject]@{
+        method = "PUT"
+        url = (
+            "$origin/k-comms-release/self-test.txt?" +
+            "X-Amz-Signature=" + ("a" * 64)
+        )
+        approved_origin = $origin
+        development_http = $false
+        headers = [PSCustomObject]$expectedHeaders
+        expires_in = 300
+        expires_at = [DateTimeOffset]::UtcNow.AddMinutes(5).ToString("o")
+    }
+    $resolved = Resolve-PublicObjectRequestDescriptor `
+        -Descriptor $descriptor `
+        -ExpectedMethod "PUT" `
+        -ExpectedOrigin $origin `
+        -ExpectedHeaders $expectedHeaders
+    Assert-Condition `
+        -Condition (
+            $resolved.Method -ceq "PUT" -and
+            $resolved.Uri.Host -ceq "kcomms-files.avayaworks.com" -and
+            $resolved.Headers.Count -eq 3
+        ) `
+        -Message "Self-test did not resolve the public object descriptor"
+
+    foreach ($case in @(
+        [PSCustomObject]@{
+            Name = "method"
+            Mutate = {
+                param($candidate)
+                $candidate.method = "GET"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "origin"
+            Mutate = {
+                param($candidate)
+                $candidate.url =
+                    "https://other.avayaworks.com/object?" +
+                    "X-Amz-Signature=" + ("b" * 64)
+            }
+        },
+        [PSCustomObject]@{
+            Name = "header"
+            Mutate = {
+                param($candidate)
+                $candidate.headers."x-amz-meta-sha256" = "f" * 64
+            }
+        },
+        [PSCustomObject]@{
+            Name = "transport"
+            Mutate = {
+                param($candidate)
+                $candidate.development_http = $true
+            }
+        }
+    )) {
+        $candidate =
+            $descriptor |
+                ConvertTo-Json -Depth 6 |
+                ConvertFrom-Json
+        & $case.Mutate $candidate
+        $rejected = $false
+        try {
+            $null = Resolve-PublicObjectRequestDescriptor `
+                -Descriptor $candidate `
+                -ExpectedMethod "PUT" `
+                -ExpectedOrigin $origin `
+                -ExpectedHeaders $expectedHeaders
+        }
+        catch {
+            $rejected = $true
+        }
+        Assert-Condition `
+            -Condition $rejected `
+            -Message (
+                "Self-test accepted public object descriptor tamper: " +
+                $case.Name
+            )
+    }
+}
+
 function Invoke-SelfTest {
     Assert-QualificationLockAndStateSelfTest
+    Assert-TrustedEdgeQualificationSelfTest
+    Assert-PublicObjectStorageQualificationSelfTest
+    Assert-PublicObjectStorageTransportSelfTest
     Assert-Condition `
         -Condition (
             (Resolve-SealedBaseUri -Value "http://127.0.0.1:4188") -ceq
@@ -4338,6 +6279,8 @@ function Invoke-SelfTest {
             guest_links = $true
             instant_rooms = $true
             realtime = $true
+            secure_account_actions = $true
+            secure_media_actions = $true
         }
     })
     Assert-InstantRoomUnavailablePayload `

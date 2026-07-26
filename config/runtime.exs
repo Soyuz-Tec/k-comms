@@ -57,6 +57,18 @@ if config_env() == :prod do
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
   local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
+  release_exposure_mode = System.get_env("K_COMMS_RELEASE_EXPOSURE_MODE")
+
+  trusted_edge_confirmation =
+    case System.get_env("K_COMMS_TRUSTED_EDGE_CONFIRMATION") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+
+  trusted_edge_release? =
+    local_release? and release_exposure_mode == "cloudflare_trusted_edge"
+
   allow_bootstrap? = System.get_env("ALLOW_BOOTSTRAP", "false") == "true"
   qualification_app_origin = System.get_env("K_COMMS_QUALIFICATION_APP_ORIGIN")
 
@@ -270,9 +282,18 @@ if config_env() == :prod do
 
   s3_public_endpoint = System.get_env("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
 
+  hsts? = System.get_env("HSTS_ENABLED", "true") == "true"
+
+  trusted_proxy_cidrs =
+    System.get_env("TRUSTED_PROXY_CIDRS", "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+
   CommsIntegrations.LocalReleaseGuard.validate!(
     enabled?: local_release?,
     development_adapters?: development_adapters?,
+    exposure_mode: release_exposure_mode,
+    trusted_edge_confirmation: trusted_edge_confirmation,
     role: role,
     runtime_purpose: runtime_purpose,
     allow_bootstrap?: allow_bootstrap?,
@@ -287,7 +308,9 @@ if config_env() == :prod do
     livekit_api_url: livekit_api_url,
     s3_public_endpoint: s3_public_endpoint,
     cors_origins: cors_origins,
-    csp_connect_sources: csp_connect_sources
+    csp_connect_sources: csp_connect_sources,
+    hsts?: hsts?,
+    trusted_proxy_cidrs: trusted_proxy_cidrs
   )
 
   if runtime_purpose == "application" and audio_provider_mode == "disabled" and
@@ -340,7 +363,7 @@ if config_env() == :prod do
       raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be greater than or equal to AUDIO_TOKEN_TTL_SECONDS"
     end
 
-    unless livekit_server_url in csp_connect_sources do
+    unless trusted_edge_release? or livekit_server_url in csp_connect_sources do
       raise "CSP_CONNECT_SOURCES must contain the exact LIVEKIT_SERVER_URL origin"
     end
   end
@@ -461,17 +484,13 @@ if config_env() == :prod do
         ]
       )
 
-  trusted_proxy_cidrs =
-    System.get_env("TRUSTED_PROXY_CIDRS", "")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-
   config :comms_web,
     allow_bootstrap: allow_bootstrap?,
     insecure_lan_release:
       local_release? and public_app_uri.scheme == "http" and
         public_app_uri.host not in ["127.0.0.1", "localhost", "::1"],
-    hsts: System.get_env("HSTS_ENABLED", "true") == "true",
+    secure_transport_required: trusted_edge_release?,
+    hsts: hsts?,
     metrics_allow_unauthenticated: false,
     metrics_bearer_token: System.get_env("METRICS_BEARER_TOKEN"),
     csp_connect_sources: csp_connect_sources,

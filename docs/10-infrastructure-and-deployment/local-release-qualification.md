@@ -10,7 +10,11 @@ forwarder on one exact locally assigned RFC1918 IPv4 address. Neither mode
 permits Podman publication on `0.0.0.0` or directly on an RFC1918 address. A
 LAN address on a Windows network profile other than **Private** fails closed
 unless the operator supplies the explicit audited
-`-AllowPublicNetworkProfile` override.
+`-AllowPublicNetworkProfile` override. The separate
+`cloudflare_trusted_edge` profile can terminate public HTTPS/WSS at Cloudflare
+Tunnel while keeping application, signaling, and object origins on loopback.
+It exposes only LiveKit ICE media on the selected LAN address and is a
+same-LAN qualification profile, not a remote-media or production profile.
 
 ## Prerequisites
 
@@ -26,6 +30,18 @@ unless the operator supplies the explicit audited
   selected RFC1918 address for the host forwarder
 - a Windows **Private** network profile for LAN mode, or an explicit risk
   acceptance using `-AllowPublicNetworkProfile`
+- for the trusted-edge profile:
+  - `cloudflared` 2025.4.0 or newer, which supports `--token-file`, installed
+    as a separately administered Windows service;
+  - control of the `avayaworks.com` Cloudflare zone and one named tunnel;
+  - published routes for the three exact hostnames documented below;
+  - valid Cloudflare edge certificates and working public DNS for those names;
+  - an elevated operator session for the dedicated Windows service and
+    separately administered firewall rules;
+  - free `7981/TCP` and `7982/UDP` listeners on the exact media-node address;
+    and
+  - a stable DHCP reservation or administered fixed assignment for
+    `192.168.1.177`
 
 Validate the static policy and rendered Compose contract without deploying:
 
@@ -46,7 +62,8 @@ The command performs the complete local release transaction:
 1. proves the worktree is clean, resolves the full Git SHA, and checks that all
    six candidate ports are unique and available on loopback unless the
    currently recorded release owns them; LAN mode separately preflights its
-   five selected-address forwarder ports;
+   five selected-address forwarder ports, while trusted-edge mode preflights
+   only `7981/TCP` and `7982/UDP` on its selected media address;
 2. creates and hashes a retained `git archive`, verifies `HEAD` before and
    after capture, and extracts an isolated build context;
 3. builds `Dockerfile` target `runtime` from that immutable context once as
@@ -73,7 +90,10 @@ The command performs the complete local release transaction:
 11. waits for readiness, the packaged `/app/`, MinIO, LiveKit, both call
     capabilities, and guest-link availability through loopback; LAN mode then
     starts the retained forwarder, validates its ready identity/configuration
-    hash/listeners, and probes the selected public address.
+    hash/listeners, and probes the selected public address. Trusted-edge mode
+    starts and verifies only the two-listener LAN media forwarder, then probes
+    the exact public application, signaling, and object origins through the
+    already-running, independently administered Cloudflare tunnel.
 
 The local workspace is already provisioned before the application starts.
 Open `http://127.0.0.1:4188/sign-in` to sign in on the host, or use `/` to
@@ -172,14 +192,14 @@ powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
   -Action Deploy -BindAddress 192.168.1.25 -AllowPublicNetworkProfile
 ```
 
-The schema-v5 receipt records the observed interface, network name/category,
-override authorization, whether it was needed, the fixed Podman bind, exposure
-mode, retained forwarder script/config hashes and paths, readiness token, ready
-and log paths, and exact listener contract. `Start` and `Rollback` reuse the
-audited authorization but still re-observe and compare the exact interface and
-profile before activating containers. The override does not make a Public
-network trusted and does not expand this clear-text evaluation into a
-production profile.
+The network record introduced in schema v5 and retained by current schema v6
+records the observed interface, network name/category, override authorization,
+whether it was needed, the fixed Podman bind, exposure mode, retained forwarder
+script/config hashes and paths, readiness token, ready and log paths, and exact
+listener contract. `Start` and `Rollback` reuse the audited authorization but
+still re-observe and compare the exact interface and profile before activating
+containers. The override does not make a Public network trusted and does not
+expand this clear-text evaluation into a production profile.
 
 Only the forwarder's application (`4188` TCP), browser-facing MinIO API
 (`5900` TCP), and LiveKit signaling/media ports (`7980` TCP, `7981` TCP,
@@ -234,6 +254,441 @@ powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
   -LiveKitSignalPort 8980 -LiveKitTcpPort 8981 -LiveKitUdpPort 8982
 ```
 
+## Trusted HTTPS/WSS with Cloudflare and same-LAN media
+
+Use this profile when the pilot browser needs a trusted HTTPS origin for
+microphone, camera, or screen capture and all media participants are on the
+same trusted LAN. The split topology is intentional:
+
+| Browser endpoint | Cloudflare Tunnel loopback origin | Function |
+|---|---|---|
+| `https://comms.avayaworks.com` | `http://127.0.0.1:4188` | UI, REST API, and Phoenix WebSocket |
+| `wss://media.avayaworks.com` | `http://127.0.0.1:7980` | LiveKit API/signaling only |
+| `https://kcomms-files.avayaworks.com` | `http://127.0.0.1:5900` | browser object upload/download |
+
+Cloudflare documents this public-hostname-to-local-service model and supports
+multiple public hostnames on one tunnel
+([published-application routing](https://developers.cloudflare.com/tunnel/routing/#published-applications)).
+The public `wss://` URL is carried through the HTTP route to LiveKit's
+loopback signaling listener; do not create a raw TCP route for browsers.
+Cloudflare supports proxied WebSocket upgrades, but may terminate connections
+during edge-code releases, so existing K-Comms reconnect behavior remains
+required
+([Cloudflare WebSockets](https://developers.cloudflare.com/network/websockets/)).
+
+WebRTC media does **not** traverse the Cloudflare routes. LiveKit advertises
+direct same-LAN candidates on:
+
+| Listener | Scope |
+|---|---|
+| `192.168.1.177:7981/TCP` | LiveKit ICE/TCP fallback, trusted LAN only |
+| `192.168.1.177:7982/UDP` | LiveKit single-port ICE/UDP mux, trusted LAN only |
+
+LiveKit identifies these as the ICE/TCP fallback and optional single-port UDP
+mux ([LiveKit ports and firewall](https://docs.livekit.io/transport/self-hosting/ports-firewall/)).
+Cloudflare's standard published-application route is an HTTP/HTTPS path;
+non-HTTP routes require a client-side connector or separate products
+([Cloudflare supported protocols](https://developers.cloudflare.com/tunnel/routing/#supported-protocols)).
+Do not configure or describe the tunnel as a UDP media relay.
+The release manager does not create or remove Windows Firewall rules. An
+administrator must scope the two inbound media rules to the exact local
+address/interface, active Windows profile, and trusted remote subnet; never
+open them on every interface or remote address.
+
+### Cloudflare control-plane configuration
+
+In the **Cloudflare One** dashboard, open **Networks > Connectors > Cloudflare
+Tunnel**, create or select one K-Comms-dedicated named tunnel, and add exactly
+these three published-application routes:
+
+```text
+comms.avayaworks.com         -> http://127.0.0.1:4188
+media.avayaworks.com         -> http://127.0.0.1:7980
+kcomms-files.avayaworks.com  -> http://127.0.0.1:5900
+```
+
+The dashboard creates proxied DNS records for routes added there. If DNS is
+managed separately, point each proxied CNAME to the same
+`<TUNNEL-UUID>.cfargotunnel.com`; never place the UUID or a tunnel token in
+source files. Cloudflare's route documentation describes both dashboard-managed
+and explicit CNAME setup
+([Cloudflare Tunnel DNS records](https://developers.cloudflare.com/tunnel/routing/#dns-records)).
+
+Apply these edge rules before qualification:
+
+1. Confirm from the zone's DNS and application inventory that
+   `avayaworks.com` remains dedicated solely to K-Comms. Only after that
+   inventory passes, enable zone-wide **Always Use HTTPS** so every visitor
+   HTTP request is redirected at the edge. Cloudflare documents that this
+   applies to all subdomains and hosts in the zone
+   ([Cloudflare Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)).
+   If an unrelated HTTP service is later added, replace the zone-wide setting
+   with hostname-scoped redirect rules for the three K-Comms names before
+   enabling that service.
+   In **SSL/TLS > Edge Certificates**, also set **Minimum TLS Version** to
+   **TLS 1.2**. Cloudflare documents that this rejects visitor connections
+   using older protocol versions
+   ([Cloudflare minimum TLS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/minimum-tls/)).
+2. In the zone's **Network** settings, set **WebSockets** to **On** and keep
+   **Argo Smart Routing** disabled. Phoenix and LiveKit both require WebSocket
+   upgrades in this topology, and Cloudflare documents that Argo is not
+   compatible with WebSockets
+   ([Cloudflare WebSockets](https://developers.cloudflare.com/network/websockets/)).
+3. **No Cloudflare Access login or challenge** may cover
+   `comms.avayaworks.com`, the anonymous `/join` journey, its REST calls, its
+   Phoenix WebSocket, `media.avayaworks.com` signaling, or signed requests to
+   `kcomms-files.avayaworks.com`. If account-wide **Require Access protection**
+   is enabled, exempt all three hostnames. An Access prompt would defeat the
+   intentionally account-optional invitation flow, and the supporting browser
+   SDK requests cannot complete an interactive Access login. Use K-Comms
+   guest-link expiry, application authorization, rate limits, WAF, and audit
+   controls instead. Put any future Access-protected operations UI on a
+   different hostname.
+4. Set a hostname-scoped **Bypass cache** rule only for
+   `kcomms-files.avayaworks.com`, including its health and signed object
+   requests. Keep normal Cloudflare dynamic-content behavior on
+   `comms.avayaworks.com` and `media.avayaworks.com`: do not add a
+   cache-everything rule for HTML, API/session, bearer invitation, Phoenix
+   socket, or LiveKit signaling traffic. Content-hashed `/app/assets/` may use
+   normal cache behavior. Cloudflare recommends keeping login and application
+   API responses out of cache
+   ([Cloudflare dynamic-content guidance](https://developers.cloudflare.com/cache/troubleshooting/dynamic-content-and-login-issues/)).
+5. Do not apply an interactive challenge to WebSocket, signed-upload, sign-in,
+   or guest-join traffic. Narrow WAF and rate-limit rules so they do not replay
+   state-changing requests or break protocol upgrades.
+6. Keep each tenant's `max_attachment_bytes` at or below the zone's configured
+   maximum upload size. The reference tenant default is `26,214,400` bytes
+   (25 MiB). Cloudflare currently documents plan ceilings of 100 MB for
+   Free/Pro, 200 MB for Business, and 500+ MB for Enterprise, and notes that
+   the zone setting can reduce that ceiling
+   ([Cloudflare 413 guidance](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/)).
+   A tenant setting above the effective edge ceiling is not qualified: lower
+   the K-Comms setting or increase the administered zone limit before allowing
+   uploads.
+7. Keep the MinIO console (`5901`) and PostgreSQL private. They are not DNS
+   records, tunnel routes, or LAN listeners.
+
+The reference-zone check on 2026-07-25 observed **Always Use HTTPS** on,
+**Minimum TLS Version** set to **TLS 1.2**, **WebSockets** on, **Argo Smart
+Routing** off, and the cache-bypass rule scoped only to
+`kcomms-files.avayaworks.com`. A TLS 1.2 public probe succeeded. The apex and
+`www` redirect to `https://comms.avayaworks.com` while preserving path and
+query. This is a timestamped observation, not durable evidence; repeat the
+dashboard and non-secret endpoint checks for every qualification.
+
+Configure the dashboard-generated remotely managed tunnel as a Windows service
+using Cloudflare's current service guidance, but make an ACL-protected token
+file the normative credential source for this reference host. The final service
+definition must use `--token-file <protected-path-outside-the-repository>` and
+must not contain an inline `--token` value. The provider-generated credential
+is represented here only as `<TUNNEL_TOKEN_FROM_CLOUDFLARE>`; neither a
+token-bearing installer command nor the protected path is reproduced.
+
+Run provider credential steps only in an elevated private console. Do not paste
+the real command or token into this repository, a persisted shell history,
+chat, ticket, deployment receipt, or test output. Keep any token file or
+service configuration in an ACL-protected operating-system location outside
+the checkout and local-release evidence tree. When invoking current
+`cloudflared` outside the service installer, prefer `--token-file`. Cloudflare
+documents both the Windows service model and token-file support
+([run as a service](https://developers.cloudflare.com/tunnel/advanced/local-management/as-a-service/),
+[tunnel token parameters](https://developers.cloudflare.com/tunnel/advanced/run-parameters/#token-file)).
+The release manager never creates, updates, starts, stops, or authenticates the
+Cloudflare tunnel. Keep this connector dedicated to K-Comms so its availability
+and incident decisions do not affect unrelated published applications. A
+trusted administrator must privately inspect the service configuration after
+installation or recovery and record only that token-file use and ACL posture
+passed; never print or copy the command line into qualification evidence.
+
+The `avayaworks.com` reference routes are administered as a dedicated
+connector, and its Windows service is configured for automatic startup and
+restart on failure. Verify that posture without printing its command line or
+registry image path:
+
+```powershell
+Get-CimInstance Win32_Service -Filter "Name='cloudflared'" |
+  Select-Object Name, State, StartMode
+sc.exe qfailure cloudflared
+```
+
+The expected service state is `Running`, start mode `Auto`, with a configured
+failure-restart action. These checks intentionally do not display the service
+command because a remotely managed tunnel token can be present there.
+
+The Cloudflare zone administrator owns the tunnel credential lifecycle. Rotate
+the remotely managed tunnel token on the organization's normal secret-rotation
+cadence and immediately after suspected disclosure. Because this pilot has one
+connector, perform planned rotation in a maintenance window: rotate the token
+in Cloudflare, replace the service credential from an elevated private console,
+restart the connector, confirm the dashboard reports the expected connector,
+and repeat the non-secret service and public-origin probes below. Cloudflare
+notes that an old token cannot create new connections after rotation, although
+existing connections remain until restarted
+([Cloudflare tunnel-token lifecycle](https://developers.cloudflare.com/tunnel/advanced/tunnel-tokens/)).
+
+For suspected compromise, rotate first, force-disconnect the tunnel's existing
+connections using the provider's documented dashboard/API recovery path,
+replace the local service credential, and rerun the full qualification. For
+host recovery, obtain a fresh token from Cloudflare and reinstall the service;
+never restore a credential from source control, deployment evidence, chat, or
+an operator's command history. Record only the approval, rotation timestamp,
+non-secret tunnel name, and verification outcome in the operations log—never
+the token, credential file, provider API credential, or service command line.
+
+### Deploy
+
+With the three tunnel routes already configured, deploy the exact clean
+revision:
+
+```powershell
+$cloudflared = Get-Service cloudflared
+if ($cloudflared.Status -ne "Running") {
+  Start-Service cloudflared
+}
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
+  -Action Deploy `
+  -ExposureProfile cloudflare_trusted_edge `
+  -AppHostname comms.avayaworks.com `
+  -MediaHostname media.avayaworks.com `
+  -ObjectHostname kcomms-files.avayaworks.com `
+  -MediaNodeAddress 192.168.1.177 `
+  -TrustedEdgeConfirmation cloudflare-tunnel-v1 `
+  -AllowPublicNetworkProfile
+if ($LASTEXITCODE -ne 0) {
+  throw "K-Comms trusted-edge Deploy failed"
+}
+```
+
+The CLI accepts reusable operator-supplied canonical hostnames and
+receipt-sealed port overrides. This runbook qualifies only the exact three
+`avayaworks.com` names above and `7981/TCP` plus `7982/UDP`. Different values
+require a new clean deployment and the full automated and second-device gates;
+they are not covered by this reference result.
+
+The confirmation string records deliberate selection of the split topology; it
+is not a secret. Windows currently reports this host's media interface as
+**Public**, so the command includes the same explicit audited override as LAN
+mode. That override is a risk acceptance, not a claim that the network is
+trusted. It is valid only with separately administered firewall rules scoped
+to the exact local address, trusted remote subnet, Public profile, `7981/TCP`,
+and `7982/UDP`. Omit the override on a future host only when Windows reports
+the exact intended interface as **Private**.
+
+The release manager configures:
+
+```text
+PUBLIC_APP_URL=https://comms.avayaworks.com
+LIVEKIT_SERVER_URL=wss://media.avayaworks.com
+S3_PUBLIC_ENDPOINT=https://kcomms-files.avayaworks.com
+```
+
+It also seals the corresponding Phoenix host/origin, CORS, CSP, LiveKit node
+address, two-listener media-forwarder contract, and loopback Podman
+publications. The application accepts Cloudflare client/proto forwarding
+headers only from the exact observed application-network gateway `/32` sealed
+in the receipt; it does not trust an arbitrary forwarded header or broad
+private subnet. The manager's public HTTPS probes require a browser-trusted
+edge certificate and reachable routes, but they do not inspect Cloudflare
+Access, Cache Rules, DNS ownership, certificate lifecycle, or provider
+availability settings. Manager success alone is therefore not complete
+trusted-edge qualification.
+
+### Start, stop, status, and rollback
+
+Treat the immutable release and Cloudflare connector as two independent
+lifecycle units. The manager does not change `cloudflared`, but its
+trusted-edge actions intentionally probe the live public routes after local
+health succeeds. Keep the connector running during `Deploy`, `Start`, and
+`Rollback`:
+
+```powershell
+$cloudflared = Get-Service cloudflared
+if ($cloudflared.Status -ne "Running") {
+  Start-Service cloudflared
+}
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Start
+if ($LASTEXITCODE -ne 0) {
+  throw "K-Comms trusted-edge Start failed"
+}
+```
+
+`Stop` affects only the immutable local release and its media forwarder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Stop
+if ($LASTEXITCODE -ne 0) {
+  throw "K-Comms Stop failed"
+}
+```
+
+The automatic `cloudflared` connector remains running and the public routes
+report an origin failure while K-Comms is stopped. Stop the connector
+independently only for an approved tunnel incident or maintenance window;
+doing so is not part of the release-manager lifecycle.
+
+Inspect both units:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Status
+Get-Service cloudflared
+```
+
+A healthy manager status must match the retained image, configuration,
+`cloudflare_trusted_edge` profile, three hostnames, media-node address,
+loopback Podman publications, and exact `7981/TCP` plus `7982/UDP` forwarder
+listeners. `Get-Service` must report the independently managed tunnel service
+as `Running`. Neither result substitutes for public HTTPS/WSS probes.
+
+Rollback preserves the stable public names and requires the live tunnel for its
+post-restore public probes:
+
+```powershell
+$cloudflared = Get-Service cloudflared
+if ($cloudflared.Status -ne "Running") {
+  Start-Service cloudflared
+}
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Rollback
+if ($LASTEXITCODE -ne 0) {
+  throw "K-Comms trusted-edge Rollback failed"
+}
+```
+
+The predecessor must carry a compatible retained trusted-edge profile and
+media contract. After rollback, repeat all status, public-origin, anonymous
+guest, and same-LAN media gates. If the independent tunnel is unavailable,
+trusted-edge activation fails its public probes; restore the connector or use a
+deliberate loopback recovery path without claiming trusted-edge health.
+
+### Qualification
+
+Install the committed web dependencies and Playwright Chromium as described in
+the next section. Then run the sealed trusted-edge qualifier from the K-Comms
+host while it is attached to the same LAN as the media node:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts/qualify_local_release.ps1 `
+  -BaseUri https://comms.avayaworks.com
+```
+
+The base URI must match the receipt exactly. A passing automated result must
+prove the retained image/receipt and trusted-edge topology; HTTPS health,
+packaged assets, strict CSP, exact
+`Strict-Transport-Security: max-age=31536000; includeSubDomains`, CORS and
+Origin behavior; real WSS LiveKit signaling; object readiness; anonymous
+QR/link join and username roster; two-way text; real microphone and camera RTP;
+screen sharing; device controls; access revocation; a real presigned attachment
+upload and hash-verified download through the sealed public object hostname;
+verified attachment/object cleanup; and clean teardown. It must not print
+invitation, session, credential, signed-object, file-content, or tunnel-token
+material.
+
+Cloudflare Access and Cache Rule configuration are provider state outside the
+sealed receipt. Check the three non-secret endpoints twice and emit only the
+status, redirect target, and cache metadata:
+
+```powershell
+$targets = @(
+  "https://comms.avayaworks.com/",
+  "https://media.avayaworks.com/",
+  "https://kcomms-files.avayaworks.com/minio/health/ready"
+)
+foreach ($target in $targets) {
+  1..2 | ForEach-Object {
+    curl.exe --silent --show-error --output NUL --max-redirs 0 `
+      --write-out '%{http_code} redirect=%{redirect_url} cache=%header{cf-cache-status} age=%header{age}\n' `
+      $target
+    if ($LASTEXITCODE -ne 0) {
+      throw "Trusted-edge probe failed for $target"
+    }
+  }
+}
+```
+
+Also prove that the public application endpoint accepts TLS 1.2:
+
+```powershell
+curl.exe --silent --show-error --fail --output NUL `
+  --tlsv1.2 --tls-max 1.2 `
+  https://comms.avayaworks.com/health/ready
+if ($LASTEXITCODE -ne 0) {
+  throw "Trusted-edge TLS 1.2 probe failed"
+}
+```
+
+Each probe must return its expected success status with an empty redirect
+target. None of these dynamic/health endpoints may report `HIT`, `STALE`, or
+`EXPIRED` on the second response, and `Age` must be absent or zero. A
+Cloudflare Access login/challenge, external redirect, or cache hit on these
+endpoints fails qualification. Inspect the dashboard rule scope as well: it
+must show a hostname-scoped bypass for
+`kcomms-files.avayaworks.com`, no catch-all bypass on the application or media
+host, and no cache-everything rule covering their dynamic paths. Content-hashed
+`/app/assets/` is intentionally outside this dynamic-response probe. Confirm
+the dashboard still reports TLS 1.2 as the minimum; a legacy-protocol negative
+probe is valid only from a test client that can itself negotiate that legacy
+protocol. These public checks do not exercise a bearer invitation or signed
+object URL, and those secrets must never be added to a diagnostic command.
+
+Also perform a second-device same-LAN browser gate against
+`https://comms.avayaworks.com`:
+
+1. create a disposable room and open its QR/link in a second physical browser;
+2. prove both usernames appear in both rosters;
+3. exchange text in both directions;
+4. grant microphone and camera only when prompted, then prove two-way audible
+   audio and visible video;
+5. start and stop screen sharing and verify the remote participant sees it;
+6. switch or mute devices, leave the call, revoke/close the invitation, and
+   verify cleanup; and
+7. record browser/OS versions and pass/fail evidence without recording media,
+   bearer URLs, credentials, or participant content.
+
+Before calling the gate successful, verify that `4188/TCP`, `5900/TCP`, and
+`7980/TCP` are not reachable on `192.168.1.177`, while `7981/TCP` and
+`7982/UDP` are permitted only from the trusted LAN scope. UDP requires an
+actual LiveKit/browser media test; a TCP listener probe cannot prove it.
+
+### Exact limitations
+
+- Trusted HTTPS/WSS enables the browser permission APIs but does not prove that
+  WebRTC packets can reach LiveKit.
+- Media is qualified only for clients on the same trusted LAN that can reach
+  `192.168.1.177:7981/TCP` or `192.168.1.177:7982/UDP`.
+- There is no remote/Internet media claim, TURN/UDP, TURN/TLS, NAT traversal,
+  corporate-firewall traversal, Spectrum media path, or WARP dependency.
+- Off-LAN media requires a separately deployed and qualified managed or
+  Internet-reachable SFU/media plane; the Cloudflare control-plane routes do
+  not make this host's RFC1918 ICE candidates remotely reachable.
+- `media.avayaworks.com` carries API/signaling only. It is not an ICE media
+  proxy.
+- The three Cloudflare hostnames may be reachable from the Internet even though
+  media is LAN-only. Do not distribute invitations outside the controlled
+  pilot. If an approved source-network WAF policy restricts control-plane
+  access, allowlist the pilot site's **public NAT egress IP/CIDR observed at
+  Cloudflare**, not the RFC1918 media subnet. A dynamic WAN address can lock
+  every pilot browser out when it changes, so pair that policy with an
+  administered update/recovery procedure. The separate Windows Firewall rules
+  still use the trusted LAN source subnet for direct ICE media.
+- Cloudflare Tunnel, DNS, certificate, and Internet outages can break the
+  browser control plane for devices on the same LAN.
+- Same-LAN browsers still need working public DNS and outbound Internet access
+  to reach the Cloudflare edge; only their ICE media packets stay on the LAN.
+- Cloudflare can terminate WebSockets during edge changes; successful initial
+  connection is not a no-disconnect guarantee.
+- One `cloudflared` connector and one K-Comms host are not highly available.
+- Cloudflare service status, edge policy, and DNS/certificate evidence are
+  outside the immutable application receipt and must be checked separately.
+- This profile does not satisfy managed-state, multi-zone recovery, capacity,
+  privacy, independent security, accessibility-study, support/on-call, or
+  production-approval gates.
+
+The broader secure LiveKit target requires a trusted certificate plus
+HTTPS/WSS termination, and restrictive networks normally require TURN
+([LiveKit secure deployment](https://docs.livekit.io/transport/self-hosting/deployment/)).
+Move to an approved managed/public SFU design and qualify its Internet ICE and
+TURN/TLS paths before making any remote-media or production claim.
+
 ## One-command packaged browser and media qualification
 
 After a default loopback `Deploy` or `Start` succeeds, qualify the sealed
@@ -243,16 +698,20 @@ release and its real media plane with:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/qualify_local_release.ps1
 ```
 
-The default qualifier targets `http://127.0.0.1:4188`. It first
-proves that the running application image matches the retained immutable
-release receipt and that the current address/interface/profile still matches
-that receipt. Loopback additionally requires `Forwarder: not-required`. LAN
-requires a schema-v5 receipt and the current forwarder ready, identity-match,
-and configuration-hash-match status lines shown above. The supplied `-BaseUri`
-is an expected origin only: it must equal the receipt's exact public
+The default qualifier targets `http://127.0.0.1:4188`. It first proves that the
+running application image matches the retained immutable release receipt and
+that the current exposure profile and address/interface/profile still match
+that receipt. Loopback additionally requires `Forwarder: not-required`.
+Clear-text LAN requires its current forwarder ready, identity-match, and
+configuration-hash-match status lines shown above. The trusted-edge profile
+requires the retained two-listener media forwarder and exact HTTPS/WSS origins;
+public tunnel, DNS, and certificate behavior is proved by the later network
+and browser probes rather than inferred from manager status. The supplied
+`-BaseUri` is an expected origin only: it must equal the receipt's exact public
 application origin. The qualifier reads the app, LiveKit signaling, and MinIO
-API ports from `deployment.json` and builds its expected CSP origins from those
-sealed values, including when non-default ports were deployed. It then checks:
+API ports and public origins from `deployment.json` and builds its expected CSP
+from those sealed values, including when non-default ports were deployed. It
+then checks:
 
 1. `/health/live` reports `ok`;
 2. `/health/ready` reports ready database/runtime checks and configured object
@@ -268,19 +727,19 @@ sealed values, including when non-default ports were deployed. It then checks:
 
 Before creating any disposable resource, the qualifier records a read-only,
 content-free fingerprint of the fixed instant-room tenant graph through the
-exact release image. Both default loopback and plain-HTTP LAN text-only
-qualification then write a schema-v3 cleanup marker and create a random
+exact release image. Every supported qualification profile then writes a
+schema-v3 cleanup marker and creates a random
 `k-comms-qualification-<id>` tenant through the exact image's one-shot
 qualification command. They also start a temporary, non-restarting instance of
 the originating Compose `app` service from the marker-bound receipt, Compose
 source, and environment. That application uses the exact image and revision,
 the `edge` role, the disposable tenant slug, and a random
-`127.0.0.1:<high-port>` publication. Its `PUBLIC_APP_URL` remains the retained
-release's public origin; the temporary loopback origin is a narrowly admitted
-qualification origin, not a replacement public URL. The qualifier verifies the
-temporary container's deterministic name, ownership labels, image,
-revision, environment, hardening, loopback-only listener, readiness, and
-runtime role before the browser gate begins.
+`127.0.0.1:<high-port>` publication. Its `PUBLIC_APP_URL` is that isolated
+loopback origin, while the retained public origin remains a separate,
+receipt-bound browser handoff target. The qualifier verifies the temporary
+container's deterministic name, ownership labels, image, revision,
+environment, hardening, loopback-only listener, readiness, and runtime role
+before the browser gate begins.
 
 `e2e/live-instant-room.spec.ts` opens the temporary origin first and creates the
 host's room there. Only this temporary browser context sends the
@@ -293,13 +752,14 @@ closes that browser context, and installs the session into a new
 public-origin context before the retained public page boots. The guest then
 opens the exact public share URL. Host and guest send no forwarded-address
 header through the public path and prove username-based roster presence plus
-two-way text through the retained application and, in LAN mode, its retained
-forwarder. Playwright traces, screenshots, video, and AI failure-copy are
-disabled for this bearer-bearing journey, and the captured share field is
-redacted before later assertions.
+two-way text through the retained application and, in clear-text LAN mode, its
+retained forwarder. Trusted-edge browser control traffic instead traverses the
+independently administered Cloudflare route. Playwright traces, screenshots,
+video, and AI failure-copy are disabled for this bearer-bearing journey, and
+the captured share field is redacted before later assertions.
 
 The instant-room journey remains anonymous-only and never converts either
-browser identity. Default loopback qualification then runs
+browser identity. Default loopback and trusted-edge qualification then run
 `e2e/live-guest-communication.spec.ts`, `e2e/live-audio.spec.ts`, and
 `e2e/live-video.spec.ts`, in that order, against the same disposable tenant
 with one Playwright worker. Optional account conversion remains isolated in
@@ -307,6 +767,28 @@ the live guest specification; that specification verifies the converted
 identity remains in the disposable tenant. The media tests prove real
 microphone RTP, camera RTP, group calls, screen sharing, access revocation,
 and clean call teardown.
+
+Trusted-edge qualification additionally creates one unclaimed text attachment
+inside the same disposable tenant. It signs in only through the isolated
+qualification application, creates and completes the attachment through
+`https://comms.avayaworks.com`, sends the exact signed `PUT` headers to the
+receipt-sealed `https://kcomms-files.avayaworks.com` origin, and first verifies
+the browser-equivalent CORS preflight plus exact application-origin response
+header. It waits at most 60 seconds for the configured scanner to mark the
+object clean and downloads it through that same public object origin. The gate
+requires an exact byte count and SHA-256 match. Redirects, another object
+hostname, insecure transport, a missing CORS grant, unexpected signed headers,
+an oversized response, scan failure, or timeout fails qualification.
+
+Cleanup is mandatory even when a transfer step fails. The qualifier abandons
+the unclaimed attachment through its authenticated API, runs the originating
+exact image's tenant-bound object-version purge against the internal storage
+path, and requires the still-valid public signed download to return `404`
+before the disposable tenant is removed. It also revokes the temporary owner
+session. Signed URLs, bearer tokens, credentials, and file bytes remain
+in-memory only; failure output contains only the named phase and status, never
+those values. Do not enable PowerShell HTTP debugging or transcript capture
+around this gate.
 
 Plain-HTTP LAN text-only qualification stops after the anonymous instant-room
 roster/text journey and also proves that sign-in is rejected with HTTP 426
@@ -427,14 +909,18 @@ The protected state contains:
 - the exact `compose.rendered.yaml`;
 - a safe-to-review `compose.rendered.redacted.yaml`;
 - for LAN mode, the retained forwarder script, its exact JSON configuration,
-  SHA-256 hashes, atomic ready record, and stdout/stderr logs; and
+  SHA-256 hashes, atomic ready record, and stdout/stderr logs;
+- for trusted-edge mode, the three public hostnames, loopback origins,
+  media-node address, explicit non-secret confirmation, and retained
+  two-listener media-forwarder evidence—but no Cloudflare token, account/zone
+  identifier, credential-bearing tunnel configuration, or provider secret; and
 - migration/failure/rollback receipts.
 
 Do not copy the unredacted environment or rendered configuration into the
 repository, tickets, chat, or CI artifacts. The script rejects a state path
 inside the repository.
 
-Both qualification modes derive the random qualification id, application
+Every qualification profile derives the random qualification id, application
 nonce, documentation client address, and any required password in process
 memory. Passwords and bearer sessions are never written to the cleanup marker
 or printed. The permanent bootstrap owner and fixed instant-room tenant are
@@ -477,14 +963,17 @@ ids, slugs, message content, credentials, or bearer material.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Status
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action HealthCheck
 powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Start
 powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Stop
 powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 -Action Rollback
 ```
 
-`Stop` stops the exact receipt-matching LAN forwarder before the Compose
-runtime, then retains images, receipts, PostgreSQL data, MinIO data, forwarder
-evidence, and configuration. It never kills an unrelated Node process.
+`Stop` stops the exact receipt-matching LAN or trusted-edge media forwarder
+before the Compose runtime, then retains images, receipts, PostgreSQL data,
+MinIO data, forwarder evidence, and configuration. It never kills an unrelated
+Node process. It does not stop the independently administered `cloudflared`
+service.
 
 `Start` verifies the recorded environment, Compose, rendered configuration,
 source-archive hashes, image revision label, image ID, image digest, and any
@@ -495,12 +984,22 @@ for an already-current database), recreates the packaged application, and
 repeats loopback health checks. For LAN mode it safely replaces the managed
 forwarder, verifies its current ready identity/hash/listeners, and only then
 probes the public address. It does not require a clean checkout, read the
-checkout Compose file, or rebuild an image.
+checkout Compose file, or rebuild an image. For trusted-edge mode it safely
+replaces and verifies only the two-listener media forwarder; it does not start
+or validate the independent Cloudflare connector.
 
 `Start` accepts schema-v3 and schema-v4 receipts only for loopback
-compatibility. Current deployments write schema v5 with the audited
-network-profile, loopback Podman bind, exposure mode, and forwarder record.
-Deploy a clean candidate once before using LAN mode with a legacy receipt.
+compatibility. Existing schema-v5 receipts remain valid for status, start, and
+rollback. Every new deployment writes schema v6, a format-wide bump that adds
+the explicit exposure profile and sealed public-origin record while retaining
+the audited network profile, loopback Podman bind, exposure mode, and forwarder
+record. Trusted-edge schema-v6 receipts additionally require the three public
+origins, trusted-proxy `/32`, media-node address, exact confirmation, and
+media-only forwarder profile. Deploy a clean schema-v6 candidate before first
+selecting trusted-edge mode; older receipts remain restartable only under
+their own compatible sealed profile.
+The manager rejects receipt schema versions newer than v6 instead of
+interpreting them with stale lifecycle logic.
 Before activating a receipt that lacks guest rollback capabilities, `Start`
 runs the same quiesced PostgreSQL hazard probe. This fails closed when a
 migrated failed candidate left guest rows or jobs while `current.json` still
@@ -509,11 +1008,15 @@ recovery instead.
 
 `Status` reports both the recorded receipt and the observed application
 container state, health, image ID, and image-match result. It also reports
-`Forwarder: not-required` for loopback or, for LAN, the current forwarder
-readiness plus receipt-identity and configuration-hash matches. A recorded
-receipt is not presented as current runtime health when the container is
-stopped, unhealthy, unavailable, running another image, or paired with a stale
-or mismatched LAN forwarder.
+`Forwarder: not-required` for loopback or, for clear-text LAN and trusted-edge
+media, the current forwarder readiness plus receipt-identity and
+configuration-hash matches. A recorded receipt is not presented as current
+runtime health when the container is stopped, unhealthy, unavailable, running
+another image, or paired with a stale or mismatched forwarder. The command does
+not report Cloudflare service, DNS, edge-certificate, or route health. `Status`
+and the compact `HealthCheck` action both return nonzero when the sealed
+topology, exact image, application health, forwarder, or required supervisor is
+not ready; use `HealthCheck` for external monitoring.
 
 `Rollback` verifies the retained environment, Compose-source,
 rendered-configuration, forwarder-script, and forwarder-configuration hashes
@@ -573,41 +1076,67 @@ investigation before a deliberate rerun.
 
 ## Qualification boundary
 
-`K_COMMS_LOCAL_RELEASE=true` is a deliberately narrow exception for this
-loopback or exact private-LAN topology. The runtime also requires
-`ALLOW_DEVELOPMENT_ADAPTERS=true`, the selected exact public HTTP/WS origins,
-and the internal API origin `http://livekit:7880`. Compose additionally
-requires `K_COMMS_PODMAN_BIND_ADDRESS=127.0.0.1`; the selected public host is
-never substituted into a Podman `ports` entry. A LAN selection additionally
-requires the exact guarded `K_COMMS_LOCAL_RELEASE_HOST`, a matching observed
-Windows interface/profile receipt, a schema-v5 retained forwarder, and either
-a Private profile or the explicit audited non-Private-profile override.
-Missing, public-IP, unassigned, wildcard, directly published RFC1918, stale
-forwarder, or broader combinations fail closed.
+`K_COMMS_LOCAL_RELEASE=true` is a deliberately narrow exception for the
+loopback, exact private-LAN, or exact Cloudflare trusted-edge topology. The
+runtime also requires `ALLOW_DEVELOPMENT_ADAPTERS=true`, the selected exact
+public HTTP/WS or HTTPS/WSS origins, and the internal API origin
+`http://livekit:7880`. Compose additionally requires
+`K_COMMS_PODMAN_BIND_ADDRESS=127.0.0.1`; the selected public host or media node
+is never substituted into a Podman `ports` entry. A clear-text LAN selection
+additionally requires the exact guarded local-release host and its five
+listener forwarder. A trusted-edge selection requires the three exact
+`avayaworks.com` hostnames, exact guarded media node, explicit confirmation, and
+only the `7981/TCP` plus `7982/UDP` forwarder contract. Both LAN-address modes
+require a matching observed Windows interface/profile receipt and either a
+Private profile or the explicit audited non-Private-profile override. Missing,
+public-IP, unassigned, wildcard, directly published RFC1918, stale forwarder,
+or broader combinations fail closed.
 
 This proves local packaging, migration, dependency startup, application
-readiness, immutable restart, and application rollback. The HTTP checks prove
-LiveKit signaling availability, not successful WebRTC media packets. External
-browser media tests are therefore required before calling the release
-media-capable. A `-LanTextOnly` result is deliberately not media qualification;
-it also does not qualify sign-in, account conversion, or account-authenticated
-guest links. Use the full loopback qualifier or trusted HTTPS/WSS qualification
-before making credential or media claims.
+readiness, immutable restart, and application rollback. Signaling checks alone
+do not prove successful WebRTC packets. Browser media tests are therefore
+required before calling the release media-capable. A `-LanTextOnly` result is
+deliberately not media qualification; it also does not qualify sign-in,
+account conversion, or account-authenticated guest links. Use the full loopback
+qualifier or the trusted HTTPS/WSS qualification plus its second-device LAN
+gate before making credential or media claims.
 
 On Podman Desktop, LiveKit's published TCP and UDP ports remain on
-`127.0.0.1` while `--node-ip` advertises the selected loopback or RFC1918
-public host. In LAN mode the managed host forwarder owns the selected-address
-TCP/UDP listeners and relays them to those loopback publications. Do not enable
-LiveKit's separate `rtc.enable_loopback_candidate` option: real-browser
-qualification showed that it prevents the mapped TCP candidate from being
-selected. The release policy validator rejects that flag.
+`127.0.0.1` while `--node-ip` advertises the selected loopback or RFC1918 media
+host. In clear-text LAN mode the managed host forwarder owns all five
+selected-address listeners. In trusted-edge mode it owns only the selected
+address's `7981/TCP` and `7982/UDP` media listeners; Cloudflare independently
+connects the three browser-facing origins to loopback. Do not enable LiveKit's
+separate `rtc.enable_loopback_candidate` option: real-browser qualification
+showed that it prevents the mapped TCP candidate from being selected. The
+release policy validator rejects that flag.
 
-The release manager starts, verifies, replaces, and stops the receipt-bound
-forwarder during lifecycle actions; it does not continuously supervise it as a
-Windows service. If the process exits unexpectedly, Status reports it as not
-ready and qualification fails. Run Start to recover the exact retained release
-and forwarder. Automatic crash restart remains an operations gap.
+For a trusted-edge receipt, the release manager also registers a
+current-user, limited-privilege Windows Scheduled Task whose action is bound to
+the exact receipt path, candidate id, forwarder configuration hash, manager
+script hash, state root, and Compose project. The task executes a hash-sealed
+manager copy taken from the immutable Git snapshot and retained beside the
+deployment receipt, using the exact existing PowerShell engine that created the
+receipt. Later source-checkout edits cannot disable or alter active-release
+recovery. Health requires the task to remain enabled, `Ready` or `Running`, and
+configured with its exact receipt-sealed start boundary, one-minute trigger,
+active repetition window, principal, action, restart policy, and execution
+limit. Task Scheduler must also report a non-missing next run within the
+one-minute interval plus the sealed two-minute scheduling grace; a future-dated,
+expired, missing, or stale schedule fails health. It checks once per minute and
+safely replaces an unexpectedly exited media-only forwarder only while the exact
+retained application remains healthy. It can expose only the receipt's
+`7981/TCP` and `7982/UDP` listeners. `Deploy`, `Start`, and `Rollback` register
+the task before publishing the newly active `current.json`; `Stop` and release
+replacement stop and unregister it before terminating the forwarder,
+preventing an intentional stop from being undone. A same-name task with a
+mismatched action, principal, or ownership description is never overwritten
+or removed. The loopback and clear-text LAN profiles retain their existing
+lifecycle behavior and do not register this trusted-edge supervisor.
 
-External HTTPS/WSS, TURN/TLS, managed state, multi-zone resilience, provider approval,
-signed publication attestations, security approval, accessibility studies,
-and on-call readiness remain outside this qualification.
+For the loopback and clear-text LAN profiles, external HTTPS/WSS remains
+outside qualification. The Cloudflare profile qualifies only its three exact
+HTTPS/WSS origins and same-LAN direct ICE path. Remote media, TURN/TLS, managed
+state, multi-zone resilience, provider approval, signed publication
+attestations, security approval, accessibility studies, and on-call readiness
+remain outside every local-release qualification.

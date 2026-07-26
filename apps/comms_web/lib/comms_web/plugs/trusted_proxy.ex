@@ -1,10 +1,12 @@
 defmodule CommsWeb.Plugs.TrustedProxy do
   @moduledoc """
-  Accepts `X-Forwarded-For` only from explicitly configured proxy networks.
+  Accepts forwarding metadata only from explicitly configured proxy networks.
 
   The right-most untrusted address is selected so an attacker-controlled value
   prepended to the chain cannot replace the client address added by a trusted
-  ingress. Invalid or ambiguous headers fail closed to the socket peer.
+  ingress. A trusted peer may also establish the effective HTTPS scheme, but
+  only with exactly one `X-Forwarded-Proto: https` value. Invalid, duplicated,
+  or untrusted forwarding metadata fails closed.
   """
 
   import Bitwise
@@ -15,17 +17,26 @@ defmodule CommsWeb.Plugs.TrustedProxy do
   def init(opts), do: opts
 
   def call(%Plug.Conn{} = conn, _opts) do
-    client = client_address(conn.remote_ip, get_req_header(conn, "x-forwarded-for"))
-    %{conn | remote_ip: client}
+    trusted_networks = trusted_networks()
+    peer_address = conn.remote_ip
+
+    conn
+    |> Map.put(
+      :remote_ip,
+      client_address(peer_address, get_req_header(conn, "x-forwarded-for"), trusted_networks)
+    )
+    |> maybe_put_forwarded_scheme(
+      trusted?(peer_address, trusted_networks),
+      get_req_header(conn, "x-forwarded-proto")
+    )
   end
 
   @doc false
   def client_address(peer_address, forwarded_values) do
-    trusted_networks =
-      :comms_web
-      |> Application.get_env(:trusted_proxy_cidrs, [])
-      |> Enum.flat_map(&parse_network/1)
+    client_address(peer_address, forwarded_values, trusted_networks())
+  end
 
+  defp client_address(peer_address, forwarded_values, trusted_networks) do
     if trusted?(peer_address, trusted_networks) do
       case forwarded_chain(forwarded_values) do
         {:ok, addresses} ->
@@ -40,6 +51,15 @@ defmodule CommsWeb.Plugs.TrustedProxy do
     else
       peer_address
     end
+  end
+
+  defp maybe_put_forwarded_scheme(conn, true, ["https"]), do: %{conn | scheme: :https}
+  defp maybe_put_forwarded_scheme(conn, _trusted_peer?, _forwarded_values), do: conn
+
+  defp trusted_networks do
+    :comms_web
+    |> Application.get_env(:trusted_proxy_cidrs, [])
+    |> Enum.flat_map(&parse_network/1)
   end
 
   defp forwarded_chain(forwarded_values) do

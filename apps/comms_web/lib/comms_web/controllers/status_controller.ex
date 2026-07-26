@@ -5,6 +5,7 @@ defmodule CommsWeb.StatusController do
   alias CommsCore.Notifications, as: NotificationDelivery
   alias CommsIntegrations.Audio.LiveKitReadiness
   alias CommsIntegrations.{Notifications, Scanner, Webhooks}
+  alias CommsWeb.Plugs.RequireSecureTransport
 
   def show(conn, _params) do
     calls_available = available?(LiveKitReadiness.status())
@@ -36,8 +37,7 @@ defmodule CommsWeb.StatusController do
   defp available?(_status), do: false
 
   defp secure_actions_available?(conn) do
-    conn.scheme == :https or
-      not Application.get_env(:comms_web, :insecure_lan_release, false)
+    RequireSecureTransport.secure_actions_available?(conn)
   end
 
   defp instant_rooms_available? do

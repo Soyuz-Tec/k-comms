@@ -57,7 +57,7 @@ defmodule CommsWeb.StatusControllerTest do
     assert policy =~ "ws://127.0.0.1:7880"
 
     assert get_resp_header(conn, "permissions-policy") == [
-             "camera=(self), microphone=(self), geolocation=()"
+             "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
            ]
   end
 
@@ -205,6 +205,54 @@ defmodule CommsWeb.StatusControllerTest do
 
     assert https_capabilities["secure_account_actions"] == true
     assert https_capabilities["secure_media_actions"] == true
+  end
+
+  test "trusted-edge status is secure only after the trusted proxy establishes HTTPS" do
+    values = %{
+      insecure_lan_release: false,
+      secure_transport_required: true,
+      trusted_proxy_cidrs: ["10.89.0.12/32"],
+      hsts: true
+    }
+
+    previous =
+      Map.new(values, fn {key, _value} -> {key, Application.get_env(:comms_web, key)} end)
+
+    Enum.each(values, fn {key, value} -> Application.put_env(:comms_web, key, value) end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} ->
+        restore_env(:comms_web, key, value)
+      end)
+    end)
+
+    direct_capabilities =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> get("/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert direct_capabilities["secure_account_actions"] == false
+    assert direct_capabilities["secure_media_actions"] == false
+
+    trusted_response =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> get("/api/v1/status")
+
+    trusted_capabilities =
+      trusted_response
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert trusted_capabilities["secure_account_actions"] == true
+    assert trusted_capabilities["secure_media_actions"] == true
+
+    assert get_resp_header(trusted_response, "strict-transport-security") == [
+             "max-age=31536000; includeSubDomains"
+           ]
   end
 
   test "GET /metrics", %{conn: conn} do

@@ -54,4 +54,45 @@ defmodule CommsWeb.TrustedProxyTest do
 
     assert malformed.remote_ip == {10, 20, 0, 4}
   end
+
+  test "accepts exactly one HTTPS forwarding value from a trusted peer" do
+    conn =
+      Plug.Test.conn(:get, "http://comms.avayaworks.com/api/v1/status")
+      |> Map.put(:remote_ip, {10, 20, 0, 4})
+      |> Plug.Conn.put_req_header("x-forwarded-proto", "https")
+      |> TrustedProxy.call([])
+
+    assert conn.scheme == :https
+  end
+
+  test "does not accept forwarded scheme from an untrusted peer" do
+    conn =
+      Plug.Test.conn(:get, "http://comms.avayaworks.com/api/v1/status")
+      |> Map.put(:remote_ip, {198, 51, 100, 20})
+      |> Plug.Conn.put_req_header("x-forwarded-proto", "https")
+      |> TrustedProxy.call([])
+
+    assert conn.scheme == :http
+  end
+
+  test "duplicate, comma-joined, and malformed forwarded schemes fail closed" do
+    base =
+      Plug.Test.conn(:get, "http://comms.avayaworks.com/api/v1/status")
+      |> Map.put(:remote_ip, {10, 20, 0, 4})
+
+    duplicate =
+      %{base | req_headers: [{"x-forwarded-proto", "https"}, {"x-forwarded-proto", "https"}]}
+      |> TrustedProxy.call([])
+
+    assert duplicate.scheme == :http
+
+    for value <- ["https,https", "https, http", "http", "HTTPS", " https", "https "] do
+      conn =
+        base
+        |> Plug.Conn.put_req_header("x-forwarded-proto", value)
+        |> TrustedProxy.call([])
+
+      assert conn.scheme == :http
+    end
+  end
 end

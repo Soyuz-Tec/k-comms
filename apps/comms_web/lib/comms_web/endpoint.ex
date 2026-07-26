@@ -6,6 +6,9 @@ defmodule CommsWeb.Endpoint do
     longpoll: false
   )
 
+  # Establish trusted edge metadata before any response or route policy reads
+  # the effective request scheme.
+  plug(CommsWeb.Plugs.TrustedProxy)
   plug(CommsWeb.Plugs.SecurityHeaders)
 
   plug(Plug.Static,
@@ -17,7 +20,6 @@ defmodule CommsWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
-  plug(CommsWeb.Plugs.TrustedProxy)
   plug(CommsWeb.Plugs.Cors)
 
   plug(Plug.Parsers,

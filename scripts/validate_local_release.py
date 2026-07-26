@@ -131,8 +131,17 @@ def validate_local_release(
             "${K_COMMS_PODMAN_BIND_ADDRESS:-127.0.0.1}"
         ),
         "K_COMMS_RELEASE_HOST": "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
+        "K_COMMS_LIVEKIT_NODE_IP": "${K_COMMS_LIVEKIT_NODE_IP:-127.0.0.1}",
         "K_COMMS_LOCAL_RELEASE_HOST": "${K_COMMS_LOCAL_RELEASE_HOST:-}",
+        "K_COMMS_RELEASE_EXPOSURE_MODE": (
+            "${K_COMMS_RELEASE_EXPOSURE_MODE:-}"
+        ),
+        "K_COMMS_TRUSTED_EDGE_CONFIRMATION": (
+            "${K_COMMS_TRUSTED_EDGE_CONFIRMATION:-}"
+        ),
         "PHX_HOST": "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
+        "HSTS_ENABLED": "${HSTS_ENABLED:-false}",
+        "TRUSTED_PROXY_CIDRS": "${TRUSTED_PROXY_CIDRS:-}",
     }
     for name, expected in required_network_environment.items():
         if str(app_environment.get(name, "")) != expected:
@@ -180,7 +189,7 @@ def validate_local_release(
     livekit_command = [str(value) for value in _list(livekit.get("command"))]
     for required in (
         "--node-ip",
-        "${K_COMMS_RELEASE_HOST:-127.0.0.1}",
+        "${K_COMMS_LIVEKIT_NODE_IP:-127.0.0.1}",
         "--rtc.tcp_port",
         "${K_COMMS_RELEASE_LIVEKIT_TCP_PORT:-7981}",
         "--udp-port",
@@ -210,6 +219,8 @@ def validate_local_release(
     if migrate_environment.get("K_COMMS_LOCAL_RELEASE") != "false":
         errors.append("migration service must not enable the application exception")
     required_migration_environment = {
+        "K_COMMS_RELEASE_EXPOSURE_MODE": "",
+        "K_COMMS_TRUSTED_EDGE_CONFIRMATION": "",
         "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS": "5000",
         "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS": "480000",
         "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE": "true",
@@ -237,6 +248,8 @@ def validate_local_release(
         "K_COMMS_ROLE": "worker",
         "K_COMMS_RUNTIME_PURPOSE": "one_shot",
         "K_COMMS_LOCAL_RELEASE": "false",
+        "K_COMMS_RELEASE_EXPOSURE_MODE": "",
+        "K_COMMS_TRUSTED_EDGE_CONFIRMATION": "",
         "ALLOW_BOOTSTRAP": "false",
         "BOOTSTRAP_TENANT_NAME": (
             "${BOOTSTRAP_TENANT_NAME:?BOOTSTRAP_TENANT_NAME is required}"
@@ -282,6 +295,8 @@ def validate_local_release(
         "K_COMMS_ROLE": "worker",
         "K_COMMS_RUNTIME_PURPOSE": "one_shot",
         "K_COMMS_LOCAL_RELEASE": "false",
+        "K_COMMS_RELEASE_EXPOSURE_MODE": "",
+        "K_COMMS_TRUSTED_EDGE_CONFIRMATION": "",
         "ALLOW_BOOTSTRAP": "false",
         "K_COMMS_QUALIFICATION_ACTION": "${K_COMMS_QUALIFICATION_ACTION:-}",
         "K_COMMS_QUALIFICATION_ID": "${K_COMMS_QUALIFICATION_ID:-}",
@@ -601,10 +616,10 @@ def validate_local_release(
     get_stable_environment_body = _compact(
         _function_body(runner_document, "Get-StableEnvironment")
     )
-    new_release_environment_body = _compact(
+    new_release_environment_body = _compact_powershell(
         _function_body(runner_document, "New-ReleaseEnvironment")
     )
-    release_environment_topology_body = _compact(
+    release_environment_topology_body = _compact_powershell(
         _function_body(runner_document, "Assert-ReleaseEnvironmentTopology")
     )
     resolve_bind_address_body = _compact(
@@ -645,6 +660,36 @@ def validate_local_release(
     )
     receipt_network_record_body = _compact(
         _function_body(runner_document, "New-ReceiptNetworkRecord")
+    )
+    receipt_public_origins_body = _compact_powershell(
+        _function_body(runner_document, "New-ReceiptPublicOriginsRecord")
+    )
+    requested_topology_body = _compact_powershell(
+        _function_body(runner_document, "Resolve-RequestedReleaseTopology")
+    )
+    canonical_hostname_body = _compact_powershell(
+        _function_body(runner_document, "Resolve-CanonicalDnsHostname")
+    )
+    exact_trusted_proxy_body = _compact_powershell(
+        _function_body(runner_document, "Assert-ExactTrustedProxyCidr")
+    )
+    compose_trusted_proxy_body = _compact_powershell(
+        _function_body(runner_document, "Resolve-ComposeTrustedProxyCidr")
+    )
+    receipt_trusted_proxy_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ReceiptTrustedProxyGatewayCurrent",
+        )
+    )
+    wait_trusted_edge_body = _compact_powershell(
+        _function_body(runner_document, "Wait-TrustedEdgeApplication")
+    )
+    rollback_exposure_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-RollbackExposureTopologyCompatible",
+        )
     )
     receipt_profile_record_body = _compact(
         _function_body(runner_document, "Get-ReceiptNetworkProfileRecord")
@@ -725,6 +770,78 @@ def validate_local_release(
     )
     forwarder_self_test_body = _compact_powershell(
         _function_body(runner_document, "Invoke-LanForwarderSelfTest")
+    )
+    forwarder_supervision_self_test_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-LanForwarderSupervisionSelfTest")
+    )
+    supervisor_record_body = _compact_powershell(
+        _function_body(runner_document, "New-LanForwarderSupervisorRecord")
+    )
+    supervisor_schedule_record_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "New-LanForwarderSupervisorScheduleRecord",
+        )
+    )
+    supervisor_schedule_setter_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Set-LanForwarderSupervisorScheduleRecord",
+        )
+    )
+    supervisor_register_body = _compact_powershell(
+        _function_body(runner_document, "Register-LanForwarderSupervisor")
+    )
+    supervisor_unregister_body = _compact_powershell(
+        _function_body(runner_document, "Unregister-LanForwarderSupervisor")
+    )
+    supervisor_task_contract_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Get-LanForwarderSupervisorTaskContractObservation",
+        )
+    )
+    supervisor_datetime_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "ConvertTo-ScheduledTaskUtcDateTimeOffset",
+        )
+    )
+    supervisor_task_observation_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Get-LanForwarderSupervisorTaskObservation",
+        )
+    )
+    supervisor_bootstrap_ownership_body = _compact_powershell(
+        _function_body(runner_document, "Assert-SupervisorOwnedStateDirectory")
+    )
+    supervisor_bootstrap_lock_body = _compact_powershell(
+        _function_body(runner_document, "Enter-SupervisorOperationLock")
+    )
+    supervisor_bootstrap_receipt_body = _compact_powershell(
+        _function_body(runner_document, "Get-SupervisorCurrentReceipt")
+    )
+    supervise_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-Supervise")
+    )
+    health_check_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-HealthCheck")
+    )
+    start_supervision_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-StartLocked")
+    )
+    rollback_supervision_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-RollbackLocked")
+    )
+    stop_supervision_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-StopLocked")
+    )
+    validate_supervision_body = _compact_powershell(
+        _function_body(runner_document, "Invoke-Validate")
+    )
+    supported_schema_body = _compact_powershell(
+        _function_body(runner_document, "Assert-SupportedReceiptSchemaVersion")
     )
     status_body = _compact(_function_body(runner_document, "Invoke-Status"))
     rollback_body = _compact(_function_body(runner_document, "Invoke-RollbackLocked"))
@@ -924,25 +1041,40 @@ def validate_local_release(
         '$podmanbindaddress = "127.0.0.1"' not in _compact(runner_document)
         or '$values["k_comms_podman_bind_address"] = $podmanbindaddress'
         not in new_release_environment_body
-        or '$values["k_comms_release_host"] = $bindaddress'
+        or '$values["k_comms_release_host"] = if ($istrustededge)'
         not in new_release_environment_body
-        or '$values["k_comms_local_release_host"] =' not in new_release_environment_body
-        or 'if ($bindaddress -eq "127.0.0.1") { "" } else { $bindaddress }'
+        or "[string]$topology.publichost" not in new_release_environment_body
+        or '$values["k_comms_livekit_node_ip"] = if ($istrustededge)'
         not in new_release_environment_body
-        or '$values["phx_host"] = $bindaddress'
+        or "[string]$topology.medianodeaddress" not in new_release_environment_body
+        or '$values["k_comms_local_release_host"] ='
         not in new_release_environment_body
-        or '$values["public_app_url"] = "http://$bindaddress`:$appport"'
+        or '$values["k_comms_release_exposure_mode"] = if ($istrustededge)'
         not in new_release_environment_body
-        or '$values["livekit_server_url"] = "ws://$bindaddress`:$livekitsignalport"'
+        or '$values["k_comms_trusted_edge_confirmation"] ='
         not in new_release_environment_body
-        or '$values["s3_public_endpoint"] = "http://$bindaddress`:$minioport"'
+        or '$values["phx_host"] = [string]$topology.publichost'
         not in new_release_environment_body
-        or "csp_connect_sources" not in new_release_environment_body
+        or '$values["public_app_url"] = [string]$topology.publicappurl'
+        not in new_release_environment_body
+        or '$values["livekit_server_url"] = [string]$topology.livekitorigin'
+        not in new_release_environment_body
+        or '$values["s3_public_endpoint"] = [string]$topology.objectorigin'
+        not in new_release_environment_body
+        or '$values["trusted_proxy_cidrs"] = [string]$topology.trustedproxycidr'
+        not in new_release_environment_body
+        or '$values["public_app_url"] = "http://$bindaddress:$appport"'
+        not in new_release_environment_body
+        or '$values["livekit_server_url"] = "ws://$bindaddress:$livekitsignalport"'
+        not in new_release_environment_body
+        or '$values["s3_public_endpoint"] = "http://$bindaddress:$minioport"'
+        not in new_release_environment_body
+        or '$values["csp_connect_sources"] =' not in new_release_environment_body
     ):
         errors.append(
             "release environment must keep Podman on exact loopback while "
-            "deriving Phoenix, browser, media, object, CORS, and CSP origins "
-            "from the exact selected public host"
+            "deriving exact direct-release or trusted-edge Phoenix, browser, "
+            "media, object, proxy, CORS, HSTS, and CSP settings"
         )
     if (
         "assert-releaseenvironmenttopology" not in deploy_body
@@ -956,6 +1088,15 @@ def validate_local_release(
         or "minio_api_cors_allow_origin = $expectedbrowserorigins"
         not in release_environment_topology_body
         or "csp_connect_sources =" not in release_environment_topology_body
+        or "k_comms_release_exposure_mode = $cloudflaretrustededgeprofile"
+        not in release_environment_topology_body
+        or "k_comms_trusted_edge_confirmation = $cloudflaretrustededgeconfirmation"
+        not in release_environment_topology_body
+        or "hsts_enabled = \"true\"" not in release_environment_topology_body
+        or "trusted_proxy_cidrs = assert-exacttrustedproxycidr"
+        not in release_environment_topology_body
+        or "trusted-edge release environment topology is inconsistent"
+        not in release_environment_topology_body
     ):
         errors.append(
             "deploy and validation must assert the complete loopback or LAN "
@@ -1011,8 +1152,12 @@ def validate_local_release(
         or wait_application_body.count("$expectedbindaddress") < 4
         or "[parameter(mandatory)][string]$expectedbindaddress"
         not in ensure_instant_room_tenant_body
-        or "if ($bindaddress -cne $podmanbindaddress)"
-        not in deploy_body
+        or (
+            "$releasenetworkobservation.exposureprofile -ceq "
+            "$cloudflaretrustededgeprofile -or $bindaddress -cne "
+            "$podmanbindaddress"
+        )
+        not in deploy_flow_body
         or "if (test-receiptrequireslanforwarder -receipt $receipt)"
         not in restore_body
         or min(
@@ -1052,9 +1197,17 @@ def validate_local_release(
         "network = new-receiptnetworkrecord" not in deploy_body
         or "bindaddress = $observation.bindaddress"
         not in receipt_network_record_body
-        or "publichost = $observation.bindaddress"
+        or "publichost =" not in receipt_network_record_body
+        or "[string]$observation.publichost"
+        not in receipt_network_record_body
+        or "[string]$observation.bindaddress"
         not in receipt_network_record_body
         or "publicappurl = $publicappurl" not in receipt_network_record_body
+        or 'exposureprofile = $profile' not in receipt_network_record_body
+        or '$record["medianodeaddress"]' not in receipt_network_record_body
+        or '$record["trustedproxycidr"]' not in receipt_network_record_body
+        or '$record["trustededgeconfirmation"]'
+        not in receipt_network_record_body
         or "resolve-releasenetworkobservation" not in receipt_topology_body
         or "public host must match" not in receipt_topology_body
         or "public application url does not match" not in receipt_topology_body
@@ -1064,9 +1217,9 @@ def validate_local_release(
             "public host, and public application origin"
         )
     if (
-        "$script:releasenetworkobservation = resolve-releasenetworkobservation"
+        "$script:releasenetworkobservation = resolve-requestedreleasetopology"
         not in deploy_entry
-        or "$script:releasenetworkobservation = resolve-releasenetworkobservation"
+        or "$script:releasenetworkobservation = resolve-requestedreleasetopology"
         not in validate_body
         or "$script:bindaddress = $script:releasenetworkobservation.bindaddress"
         not in deploy_entry
@@ -1081,6 +1234,12 @@ def validate_local_release(
         or "s3_public_endpoint =" not in retained_assets_body
         or "k_comms_local_release_host" not in retained_assets_body
         or "retained schema-v5 release environment topology does not"
+        not in retained_assets_body
+        or "retained schema-v6 trusted-edge environment topology does"
+        not in retained_assets_body
+        or "k_comms_release_exposure_mode = $cloudflaretrustededgeprofile"
+        not in retained_assets_body
+        or "trusted_proxy_cidrs = $topology.trustedproxycidr"
         not in retained_assets_body
     ):
         errors.append(
@@ -1123,7 +1282,8 @@ def validate_local_release(
             marker not in forwarder_listeners_body
             for marker in required_listener_markers
         )
-        or forwarder_listeners_body.count("targethost = $podmanbindaddress") != 5
+        or forwarder_listeners_body.count("targethost = $podmanbindaddress") != 7
+        or 'if ($profile -ceq "media-only")' not in forwarder_listeners_body
         or any(
             marker not in forwarder_limits_body
             for marker in required_limit_markers
@@ -1146,6 +1306,8 @@ def validate_local_release(
         or "if ($sourcesha256 -cne $scriptsha256)"
         not in new_forwarder_record_body
         or "schemaversion = 1" not in new_forwarder_record_body
+        or "schemaversion = 2" not in new_forwarder_record_body
+        or 'profile = "media-only"' not in new_forwarder_record_body
         or "bindaddress = $expectedbindaddress" not in new_forwarder_record_body
         or "readinesstoken = $readinesstoken" not in new_forwarder_record_body
         or "readyfile = $statuspath" not in new_forwarder_record_body
@@ -1158,7 +1320,9 @@ def validate_local_release(
         not in forwarder_record_assets_body
         or "get-filehash -literalpath $configpath -algorithm sha256"
         not in forwarder_record_assets_body
-        or '-name "schemaversion" -expected 1'
+        or '-name "schemaversion" -expected $(if ($profile -ceq "media-only")'
+        not in forwarder_record_assets_body
+        or '-name "profile" -expected "media-only"'
         not in forwarder_record_assets_body
         or '-name "bindaddress" -expected $expectedbindaddress'
         not in forwarder_record_assets_body
@@ -1176,7 +1340,7 @@ def validate_local_release(
         or '-name "required" -expected $false'
         not in forwarder_assets_body
         or "assert-lanforwarderrecordassets" not in forwarder_assets_body
-        or "schemaversion = 5" not in deploy_body
+        or "schemaversion = 6" not in deploy_body
         or "forwarder = $forwarderrecord" not in deploy_body
         or "new-lanforwarderreceiptrecord" not in deploy_body
         or '$forwarderrecord = [ordered]@{ required = $false '
@@ -1208,7 +1372,12 @@ def validate_local_release(
         not in forwarder_observation_body
         or '[string]$ready.event -ceq "lan_release_forwarder_ready"'
         not in forwarder_observation_body
-        or "[int]$ready.schemaversion -eq 1" not in forwarder_observation_body
+        or "$expectedreadyschemaversion = if "
+        "($forwarderprofile -ceq \"media-only\") { 2 } else { 1 }"
+        not in forwarder_observation_body
+        or "[int]$ready.schemaversion -eq $expectedreadyschemaversion"
+        not in forwarder_observation_body
+        or "$readyprofilematches" not in forwarder_observation_body
         or "[string]$ready.configsha256 -ceq"
         not in forwarder_observation_body
         or "[string]$ready.readinesstoken -ceq"
@@ -1354,6 +1523,256 @@ def validate_local_release(
             "local release validation must exercise forwarder asset, READY, "
             "process-replacement, orphan-cleanup, occupied-port, and "
             "listener-release controls"
+        )
+    if (
+        "$supportedreceiptschemaversion = 6" not in _compact(runner_document)
+        or "$value -isnot [int] -and $value -isnot [long]"
+        not in _compact_powershell(runner_document)
+        or "$schemaversion -gt $supportedreceiptschemaversion"
+        not in supported_schema_body
+        or "new-lanforwardersupervisorrecord" not in new_forwarder_record_body
+        or "manage_local_release.supervisor.ps1"
+        not in _compact(runner_document)
+        or "[io.file]::copy(" not in supervisor_record_body
+        or "retainedmanagerhash -cne $sourcemanagerhash"
+        not in supervisor_record_body
+        or "managerscriptsha256" not in supervisor_record_body
+        or "expectedreceiptpath" not in supervisor_record_body
+        or "expectedcandidateid" not in supervisor_record_body
+        or "expectedforwarderconfigsha256" not in supervisor_record_body
+        or "register-scheduledtask" not in supervisor_register_body
+        or "new-scheduledtasktrigger -once" not in supervisor_register_body
+        or "-repetitioninterval" not in supervisor_register_body
+        or "new-timespan -seconds ([int]$supervisor.intervalseconds)"
+        not in supervisor_register_body
+        or "-multipleinstances ignorenew" not in supervisor_register_body
+        or "-restartcount 3" not in supervisor_register_body
+        or "-executiontimelimit (new-timespan -minutes 2)"
+        not in supervisor_register_body
+        or "unregister-scheduledtask" not in supervisor_unregister_body
+        or "refusing to remove a lan forwarder supervisor task"
+        not in supervisor_unregister_body
+        or "assert-lanforwardersupervisorinvocation" not in supervise_body
+        or "assert-lanforwardersupervisortaskready" not in supervise_body
+        or "repair-lanforwarderifneeded" not in supervise_body
+        or "supervisor will not start media forwarding" not in supervise_body
+        or "assert-receiptruntimehealthy" not in health_check_body
+        or '"healthcheck" { invoke-healthcheck }'
+        not in _compact_powershell(runner_document)
+        or '"supervise" { invoke-supervise }'
+        not in _compact_powershell(runner_document)
+        or (
+            "invoke-lanforwardersupervisionselftest "
+            "-temporarydirectory $temporarydirectory"
+        )
+        not in validate_supervision_body
+        or '-profile "media-only"' not in forwarder_supervision_self_test_body
+        or "unexpectedly exited media-only process"
+        not in forwarder_supervision_self_test_body
+        or 'recovery exposed a " + "non-media listener'
+        not in forwarder_supervision_self_test_body
+        or "unregister-lanforwardersupervisor" not in deploy_body
+        or "register-lanforwardersupervisor" not in deploy_body
+        or "unregister-lanforwardersupervisor" not in restore_body
+        or "register-lanforwardersupervisor" not in restore_body
+        or "unregister-lanforwardersupervisor" not in start_supervision_body
+        or "unregister-lanforwardersupervisor"
+        not in rollback_supervision_body
+        or "unregister-lanforwardersupervisor" not in stop_supervision_body
+    ):
+        errors.append(
+            "trusted-edge media forwarding must use receipt-bound scheduled "
+            "supervision, exact crash recovery, strict health checks, and "
+            "fail-closed receipt schema compatibility"
+        )
+    supervisor_deploy_receipt_index = deploy_flow_body.find(
+        "write-jsonatomic -path $receiptpath -value $receipt"
+    )
+    supervisor_deploy_schedule_index = deploy_flow_body.find(
+        "set-lanforwardersupervisorschedulerecord "
+        "-forwarder $forwarderrecord"
+    )
+    supervisor_deploy_register_index = deploy_flow_body.find(
+        "register-lanforwardersupervisor -receipt $receipt"
+    )
+    supervisor_deploy_pointer_index = deploy_flow_body.find(
+        "write-jsonatomic -path $currentpointerpath",
+        supervisor_deploy_register_index,
+    )
+    supervisor_restore_register_index = restore_flow_body.find(
+        "register-lanforwardersupervisor -receipt $receipt"
+    )
+    supervisor_restore_pointer_index = restore_flow_body.find(
+        "write-jsonatomic -path $currentpointerpath",
+        supervisor_restore_register_index,
+    )
+    if (
+        "[parameter(mandatory)][string]$immutablesourceroot"
+        not in supervisor_record_body
+        or (
+            "$sourcemanagerscriptpath = join-path $immutablesourceroot "
+            '"scripts\\manage_local_release.ps1"'
+        )
+        not in supervisor_record_body
+        or "get-filehash -literalpath $sourcemanagerscriptpath"
+        not in supervisor_record_body
+        or "[io.file]::copy( $sourcemanagerscriptpath,"
+        not in supervisor_record_body
+        or "powershellexecutablepath = get-currentpowershellexecutablepath"
+        not in supervisor_record_body
+        or "schedulesealedatutc = $schedule.schedulesealedatutc"
+        not in supervisor_record_body
+        or "taskstartboundaryutc = $schedule.taskstartboundaryutc"
+        not in supervisor_record_body
+        or "startdelayseconds = $schedule.startdelayseconds"
+        not in supervisor_record_body
+        or "repetitiondurationdays = $schedule.repetitiondurationdays"
+        not in supervisor_record_body
+        or "nextrungraceseconds = $schedule.nextrungraceseconds"
+        not in supervisor_record_body
+        or "addseconds($lanforwardersupervisorstartdelayseconds)"
+        not in supervisor_schedule_record_body
+        or "set-lanforwardersupervisorschedulerecord"
+        not in deploy_flow_body
+        or "get-lanforwardersupervisor -forwarder $forwarder"
+        not in supervisor_schedule_setter_body
+        or "[string]$supervisor.powershellexecutablepath"
+        not in supervisor_register_body
+        or "$pshome" in supervisor_register_body
+        or "$pshome" in supervisor_task_observation_body
+        or "$trigger.repetition.stopatdurationend = $true"
+        not in supervisor_register_body
+        or "-at $taskstartboundary.localdatetime"
+        not in supervisor_register_body
+        or (
+            "new-timespan -days "
+            "([int]$supervisor.repetitiondurationdays)"
+        )
+        not in supervisor_register_body
+        or 'register-scheduledtask -taskpath "\\"'
+        not in supervisor_register_body
+        or "identitymatchesreceipt" not in supervisor_task_contract_body
+        or "schedulematchesreceipt" not in supervisor_task_contract_body
+        or "operationalstateready" not in supervisor_task_contract_body
+        or '"ready"' not in supervisor_task_contract_body
+        or '"running"' not in supervisor_task_contract_body
+        or '"msft_tasktimetrigger"' not in supervisor_task_contract_body
+        or "test-scheduledtaskdurationequals"
+        not in supervisor_task_contract_body
+        or "repetition.interval" not in supervisor_task_contract_body
+        or "repetition.duration" not in supervisor_task_contract_body
+        or "repetition.stopatdurationend" not in supervisor_task_contract_body
+        or "$trigger.startboundary" not in supervisor_task_contract_body
+        or "$supervisor.taskstartboundaryutc"
+        not in supervisor_task_contract_body
+        or "$supervisor.schedulesealedatutc"
+        not in supervisor_task_contract_body
+        or "$supervisor.startdelayseconds"
+        not in supervisor_task_contract_body
+        or "$supervisor.repetitiondurationdays"
+        not in supervisor_task_contract_body
+        or "$taskinfo.psobject.properties[\"nextruntime\"]"
+        not in supervisor_task_contract_body
+        or "$taskinfo.nextruntime" not in supervisor_task_contract_body
+        or "$supervisor.nextrungraceseconds"
+        not in supervisor_task_contract_body
+        or "$now.addseconds(-[int]$supervisor.nextrungraceseconds)"
+        not in supervisor_task_contract_body
+        or (
+            "$now.addseconds( [int]$supervisor.intervalseconds + "
+            "[int]$supervisor.nextrungraceseconds )"
+        )
+        not in supervisor_task_contract_body
+        or "[datetimeoffset]$nowutc = [datetimeoffset]::utcnow"
+        not in supervisor_task_contract_body
+        or "[allownull()]$taskinfo" not in supervisor_task_contract_body
+        or "get-scheduledtaskinfo" not in supervisor_task_observation_body
+        or "-taskinfo $taskinfo" not in supervisor_task_observation_body
+        or "-nowutc ([datetimeoffset]::utcnow)"
+        not in supervisor_task_observation_body
+        or "$value -is [datetimeoffset]" not in supervisor_datetime_body
+        or "$value -is [datetime]" not in supervisor_datetime_body
+        or "[datetimekind]::unspecified" not in supervisor_datetime_body
+        or "[datetimeoffset]::tryparse(" not in supervisor_datetime_body
+        or "$observed.year -le 1900" not in supervisor_datetime_body
+        or "$settings.enabled" not in supervisor_task_contract_body
+        or "$settings.multipleinstances" not in supervisor_task_contract_body
+        or "$settings.restartcount" not in supervisor_task_contract_body
+        or "$settings.restartinterval" not in supervisor_task_contract_body
+        or "$settings.executiontimelimit" not in supervisor_task_contract_body
+        or "$settings.startwhenavailable" not in supervisor_task_contract_body
+        or "$settings.allowdemandstart" not in supervisor_task_contract_body
+        or "$settings.disallowstartifonbatteries"
+        not in supervisor_task_contract_body
+        or "$settings.stopifgoingonbatteries"
+        not in supervisor_task_contract_body
+        or "-not $observation.identitymatchesreceipt"
+        not in supervisor_register_body
+        or "-not $observation.identitymatchesreceipt"
+        not in supervisor_unregister_body
+        or "assert-noreparsepointancestors -path $canonicalpath"
+        not in supervisor_bootstrap_ownership_body
+        or "$stateownershipmarkername"
+        not in supervisor_bootstrap_ownership_body
+        or "assert-supervisorownedstatedirectory"
+        not in supervisor_bootstrap_lock_body
+        or "operation.lock" not in supervisor_bootstrap_lock_body
+        or "join-path $canonicalstateroot \"history\""
+        not in supervisor_bootstrap_receipt_body
+        or "join-path $historypath $candidateid"
+        not in supervisor_bootstrap_receipt_body
+        or "join-path $candidatepath \"deployment.json\""
+        not in supervisor_bootstrap_receipt_body
+        or "join-path $canonicalstateroot \"current.json\""
+        not in supervisor_bootstrap_receipt_body
+        or "enter-supervisoroperationlock" not in supervise_body
+        or "get-supervisorcurrentreceipt" not in supervise_body
+        or "assert-requiredtools" in supervise_body
+        or "initialize-ownedstatedirectory" in supervise_body
+        or "enter-releaseoperationlock" in supervise_body
+        or "get-currentreceipt" in supervise_body
+        or min(
+            supervise_body.find("get-supervisorcurrentreceipt"),
+            supervise_body.find("assert-lanforwardersupervisorinvocation"),
+            supervise_body.find(
+                "test-receiptiscloudflaretrustededge -receipt $current"
+            ),
+            supervise_body.find("assert-retainedreleaseassets -receipt $current"),
+        )
+        < 0
+        or not (
+            supervise_body.find("get-supervisorcurrentreceipt")
+            < supervise_body.find("assert-lanforwardersupervisorinvocation")
+            < supervise_body.find(
+                "test-receiptiscloudflaretrustededge -receipt $current"
+            )
+            < supervise_body.find("assert-retainedreleaseassets -receipt $current")
+        )
+        or min(
+            supervisor_deploy_receipt_index,
+            supervisor_deploy_schedule_index,
+            supervisor_deploy_register_index,
+            supervisor_deploy_pointer_index,
+            supervisor_restore_register_index,
+            supervisor_restore_pointer_index,
+        )
+        < 0
+        or not (
+            supervisor_deploy_schedule_index
+            < supervisor_deploy_receipt_index
+            < supervisor_deploy_register_index
+            < supervisor_deploy_pointer_index
+        )
+        or not (
+            supervisor_restore_register_index
+            < supervisor_restore_pointer_index
+        )
+    ):
+        errors.append(
+            "trusted-edge supervisor must bootstrap from receipt-only state, "
+            "seal immutable manager and PowerShell assets, enforce exact task "
+            "identity/schedule/readiness, and publish current only after "
+            "registration"
         )
     if (
         "interfaceindex = $observation.interfaceindex"
@@ -1810,8 +2229,12 @@ def validate_local_release(
         or 'bindaddress = "127.0.0.1"' not in port_body
         or "if ($candidatebindaddress -ceq $podmanbindaddress) { return }"
         not in port_body
-        or port_body.count("forwarder\" protocol = \"tcp\"") != 4
+        or port_body.count("forwarder\" protocol = \"tcp\"") != 5
         or 'name = "livekit media udp forwarder" protocol = "udp"'
+        not in port_body
+        or '[validateset("full", "media-only")]'
+        not in port_body
+        or 'if ($forwarderprofile -ceq "media-only")'
         not in port_body
         or "-address ([net.ipaddress]::parse($candidatebindaddress))"
         not in port_body
@@ -2087,6 +2510,175 @@ def validate_local_release(
             "Deploy, Restore, Start, Rollback, and Stop must manage the "
             "receipt-bound forwarder, including failure cleanup, with Node "
             "required only for LAN mode"
+        )
+
+    trusted_edge_cli_markers = (
+        '[validateset("auto", "cloudflare_trusted_edge")]',
+        '[string]$exposureprofile = "auto"',
+        '[string]$apphostname = ""',
+        '[string]$mediahostname = ""',
+        '[string]$objecthostname = ""',
+        '[string]$medianodeaddress = ""',
+        '[string]$trustededgeconfirmation = ""',
+        '$cloudflaretrustededgeconfirmation = "cloudflare-tunnel-v1"',
+    )
+    trusted_edge_topology_markers = (
+        'if ($requestedbindaddress -cne $podmanbindaddress)',
+        "if ($trustededgeconfirmation -cne "
+        "$cloudflaretrustededgeconfirmation)",
+        "resolve-canonicaldnshostname -value $apphostname",
+        "resolve-canonicaldnshostname -value $mediahostname",
+        "resolve-canonicaldnshostname -value $objecthostname",
+        "cloudflare application, media, and object hostnames must be distinct",
+        "resolve-releasenetworkobservation -value $medianodeaddress",
+        "if ($observation.bindaddress -ceq $podmanbindaddress)",
+        'publicappurl = "https://$resolvedapphostname"',
+        'appwebsocketorigin = "wss://$resolvedapphostname"',
+        'livekitorigin = "wss://$resolvedmediahostname"',
+        'objectorigin = "https://$resolvedobjecthostname"',
+        "trustededgeconfirmation = $cloudflaretrustededgeconfirmation",
+    )
+    trusted_edge_receipt_markers = (
+        "cloudflare trusted-edge releases require a schema-v6 receipt",
+        "if ($recordedexposuremode -cne $cloudflaretrustededgeprofile)",
+        "retained trusted-edge application, media, and object",
+        "hostnames must remain distinct",
+        "assert-exacttrustedproxycidr",
+        "schema-v6 trusted-edge receipt is missing sealed public origins",
+        "retained trusted-edge public origin",
+        "retained release public application url does not match",
+    )
+    trusted_edge_rollback_markers = (
+        "rollback cannot change between the cloudflare trusted-edge profile",
+        "public application origin",
+        "application websocket origin",
+        "media origin",
+        "object-storage origin",
+        "media node address",
+        "trusted proxy cidr",
+        "trusted-edge confirmation",
+        '"app", "minio", "livekitsignal", "livekittcp", "livekitudp"',
+        '"media-only"',
+    )
+    if (
+        any(marker not in compact_runner for marker in trusted_edge_cli_markers)
+        or any(
+            marker not in requested_topology_body
+            for marker in trusted_edge_topology_markers
+        )
+        or "$value -cne $value.tolowerinvariant()"
+        not in canonical_hostname_body
+        or '$value -notmatch "\\."' not in canonical_hostname_body
+        or "$label.length -gt 63" not in canonical_hostname_body
+        or "test-rfc1918ipv4 -address $parsed"
+        not in exact_trusted_proxy_body
+        or '/32$"' not in exact_trusted_proxy_body
+        or '@("ps", "-q", "postgres")' not in compose_trusted_proxy_body
+        or '"{{json .networksettings.networks}}"'
+        not in compose_trusted_proxy_body
+        or '$attachments[0].value.psobject.properties["gateway"]'
+        not in compose_trusted_proxy_body
+        or "$attachments.count -ne 1" not in compose_trusted_proxy_body
+        or "assert-exacttrustedproxycidr" not in compose_trusted_proxy_body
+        or "resolve-composetrustedproxycidr" not in receipt_trusted_proxy_body
+        or "$observed -cne $recorded" not in receipt_trusted_proxy_body
+        or "assert-receipttrustedproxygatewaycurrent -receipt $receipt"
+        not in restore_flow_body
+        or "assert-receipttrustedproxygatewaycurrent -receipt $current"
+        not in status_body
+        or any(
+            marker not in receipt_topology_body
+            for marker in trusted_edge_receipt_markers
+        )
+        or "application = [string]$topology.publicappurl"
+        not in receipt_public_origins_body
+        or "applicationwebsocket = [string]$topology.appwebsocketorigin"
+        not in receipt_public_origins_body
+        or "media = [string]$topology.livekitorigin"
+        not in receipt_public_origins_body
+        or "objectstorage = [string]$topology.objectorigin"
+        not in receipt_public_origins_body
+        or '$record["apphostname"] = [string]$observation.publichost'
+        not in receipt_network_record_body
+        or '$record["mediahostname"] =' not in receipt_network_record_body
+        or '$record["objecthostname"] =' not in receipt_network_record_body
+        or deploy_flow_body.count("schemaversion = 6") != 2
+        or "publicorigins = new-receiptpublicoriginsrecord"
+        not in deploy_flow_body
+        or "resolve-composetrustedproxycidr" not in deploy_flow_body
+        or "wait-trustededgeapplication" not in deploy_flow_body
+        or "$($topology.publicappurl)/health/ready"
+        not in wait_trusted_edge_body
+        or "$($topology.publicappurl)/app/" not in wait_trusted_edge_body
+        or "$($topology.objectorigin)/minio/health/ready"
+        not in wait_trusted_edge_body
+        or "$($topology.livekitorigin.replace('wss://', 'https://'))/"
+        not in wait_trusted_edge_body
+        or "-requiresecureactions" not in wait_trusted_edge_body
+        or (
+            'if (test-receiptiscloudflaretrustededge -receipt $receipt) '
+            '{ "media-only" } else { "full" }'
+        )
+        not in forwarder_assets_body
+        or "-profile $profile" not in new_forwarder_record_body
+        or "-profile $profile" not in forwarder_record_assets_body
+        or '"media-only"' not in deploy_flow_body
+        or any(
+            marker not in rollback_exposure_body
+            for marker in trusted_edge_rollback_markers
+        )
+        or "if ($comparison[1] -cne $comparison[2])"
+        not in rollback_exposure_body
+        or "assert-rollbackexposuretopologycompatible"
+        not in rollback_flow_body
+        or rollback_flow_body.find(
+            "assert-rollbackexposuretopologycompatible"
+        )
+        > rollback_flow_body.find(
+            "stop-lanforwarder -receipt $current -allownotrunning"
+        )
+        or min(
+            deploy_flow_body.find(
+                "$releasenetworkobservation.trustedproxycidr = "
+                "resolve-composetrustedproxycidr"
+            ),
+            deploy_flow_body.find(
+                "assert-releaseenvironmenttopology "
+                "-values $releaseenvironment"
+            ),
+            deploy_flow_body.find("start-sealedapplication"),
+            deploy_flow_body.find(
+                "assert-lanforwarderready -receipt $candidateforwarderreceipt"
+            ),
+            deploy_flow_body.find("wait-trustededgeapplication"),
+        )
+        < 0
+        or not (
+            deploy_flow_body.find(
+                "$releasenetworkobservation.trustedproxycidr = "
+                "resolve-composetrustedproxycidr"
+            )
+            < deploy_flow_body.find("start-sealedapplication")
+            < deploy_flow_body.find(
+                "assert-lanforwarderready -receipt $candidateforwarderreceipt"
+            )
+            < deploy_flow_body.find("wait-trustededgeapplication")
+        )
+        or not (
+            restore_flow_body.find(
+                "assert-receipttrustedproxygatewaycurrent -receipt $receipt"
+            )
+            < restore_flow_body.find("start-sealedapplication")
+            < restore_flow_body.find(
+                "assert-lanforwarderready -receipt $receipt"
+            )
+            < restore_flow_body.find("wait-trustededgeapplication")
+        )
+    ):
+        errors.append(
+            "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
+            "origins, one RFC1918 Podman gateway /32, schema-v6 media-only "
+            "forwarding, public health probes, and rollback-compatible topology"
         )
 
     return errors

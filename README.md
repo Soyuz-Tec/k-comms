@@ -110,6 +110,18 @@ Open `http://127.0.0.1:4188/app/`. Use `-Action Status`, `-Action Stop`, or
 the prior application/configuration and never runs a down migration. See the
 [immutable local release runbook](docs/10-infrastructure-and-deployment/local-release-qualification.md).
 
+For a controlled same-LAN media pilot, the explicit
+`cloudflare_trusted_edge` profile serves the UI/API at
+`https://comms.avayaworks.com`, LiveKit signaling at
+`wss://media.avayaworks.com`, and browser object traffic at
+`https://kcomms-files.avayaworks.com` through loopback-only Cloudflare Tunnel
+origins. Only LiveKit ICE `7981/TCP` and `7982/UDP` are exposed on the selected
+LAN media address. The tunnel service and its credentials remain outside this
+repository and outside the release manager. This profile does not qualify
+remote media, TURN/TLS, or production use; follow the trusted-edge deployment,
+rollback, and physical second-device gates in the
+[local release runbook](docs/10-infrastructure-and-deployment/local-release-qualification.md#trusted-httpswss-with-cloudflare-and-same-lan-media).
+
 ## Quality gates
 
 ```bash

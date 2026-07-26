@@ -16,7 +16,9 @@ import { pathToFileURL } from "node:url";
 import { TextDecoder } from "node:util";
 
 const LOOPBACK_TARGET = "127.0.0.1";
-const CONFIG_SCHEMA_VERSION = 1;
+const LEGACY_CONFIG_SCHEMA_VERSION = 1;
+const PROFILED_CONFIG_SCHEMA_VERSION = 2;
+const MEDIA_ONLY_PROFILE = "media-only";
 const READY_EVENT = "lan_release_forwarder_ready";
 const FATAL_EVENT = "lan_release_forwarder_fatal";
 const STOPPED_EVENT = "lan_release_forwarder_stopped";
@@ -47,10 +49,15 @@ export const DEFAULT_FORWARDER_LIMITS = Object.freeze({
   maxUdpPendingPublicDatagrams: 1_024
 });
 
-const EXPECTED_LISTENERS = Object.freeze([
+const LEGACY_EXPECTED_LISTENERS = Object.freeze([
   Object.freeze({ name: "app", protocol: "tcp" }),
   Object.freeze({ name: "minio", protocol: "tcp" }),
   Object.freeze({ name: "livekitSignal", protocol: "tcp" }),
+  Object.freeze({ name: "livekitTcp", protocol: "tcp" }),
+  Object.freeze({ name: "livekitUdp", protocol: "udp" })
+]);
+
+const MEDIA_ONLY_EXPECTED_LISTENERS = Object.freeze([
   Object.freeze({ name: "livekitTcp", protocol: "tcp" }),
   Object.freeze({ name: "livekitUdp", protocol: "udp" })
 ]);
@@ -235,25 +242,55 @@ function validateLimits(value) {
 }
 
 export function validateForwarderConfig(value) {
-  assertExactKeys(
-    value,
-    [
-      "schemaVersion",
-      "bindAddress",
-      "readinessToken",
-      "readyFile",
-      "listeners",
-      "limits"
-    ],
-    "config"
-  );
+  if (!isRecord(value)) {
+    fail("CONFIG_INVALID", "config must be an object");
+  }
 
-  if (value.schemaVersion !== CONFIG_SCHEMA_VERSION) {
+  let expectedListeners;
+  let profile;
+  if (value.schemaVersion === LEGACY_CONFIG_SCHEMA_VERSION) {
+    assertExactKeys(
+      value,
+      [
+        "schemaVersion",
+        "bindAddress",
+        "readinessToken",
+        "readyFile",
+        "listeners",
+        "limits"
+      ],
+      "config"
+    );
+    expectedListeners = LEGACY_EXPECTED_LISTENERS;
+  } else if (value.schemaVersion === PROFILED_CONFIG_SCHEMA_VERSION) {
+    assertExactKeys(
+      value,
+      [
+        "schemaVersion",
+        "profile",
+        "bindAddress",
+        "readinessToken",
+        "readyFile",
+        "listeners",
+        "limits"
+      ],
+      "config"
+    );
+    if (value.profile !== MEDIA_ONLY_PROFILE) {
+      fail(
+        "CONFIG_INVALID",
+        `profile must be exactly ${MEDIA_ONLY_PROFILE}`
+      );
+    }
+    profile = MEDIA_ONLY_PROFILE;
+    expectedListeners = MEDIA_ONLY_EXPECTED_LISTENERS;
+  } else {
     fail(
       "CONFIG_INVALID",
-      `schemaVersion must be ${CONFIG_SCHEMA_VERSION}`
+      `schemaVersion must be ${LEGACY_CONFIG_SCHEMA_VERSION} or ${PROFILED_CONFIG_SCHEMA_VERSION}`
     );
   }
+
   if (!isCanonicalRfc1918Host(value.bindAddress)) {
     fail(
       "CONFIG_INVALID",
@@ -271,15 +308,15 @@ export function validateForwarderConfig(value) {
   if (!Array.isArray(value.listeners)) {
     fail("CONFIG_INVALID", "listeners must be an array");
   }
-  if (value.listeners.length !== EXPECTED_LISTENERS.length) {
+  if (value.listeners.length !== expectedListeners.length) {
     fail(
       "CONFIG_INVALID",
-      `listeners must contain exactly ${EXPECTED_LISTENERS.length} entries`
+      `listeners must contain exactly ${expectedListeners.length} entries for schemaVersion ${value.schemaVersion}${profile ? ` profile ${profile}` : ""}`
     );
   }
 
   const listeners = value.listeners.map((listener, index) =>
-    validateListener(listener, EXPECTED_LISTENERS[index], index)
+    validateListener(listener, expectedListeners[index], index)
   );
   const ports = new Set(listeners.map(({ publicPort }) => publicPort));
   if (ports.size !== listeners.length) {
@@ -287,12 +324,44 @@ export function validateForwarderConfig(value) {
   }
 
   return Object.freeze({
-    schemaVersion: CONFIG_SCHEMA_VERSION,
+    schemaVersion: value.schemaVersion,
+    ...(profile ? { profile } : {}),
     bindAddress: value.bindAddress,
     readinessToken: validateReadinessToken(value.readinessToken),
     readyFile: value.readyFile,
     listeners: Object.freeze(listeners),
     limits: validateLimits(value.limits)
+  });
+}
+
+/*
+ * Schema v1 intentionally remains the exact five-listener release contract:
+ * application, object storage, LiveKit signaling, and both LiveKit ICE
+ * transports. Schema v2 is profile-gated so a media-only process cannot
+ * silently bind a mixed or expanded listener set.
+ */
+function readinessEvidence(config, configSha256, processStartTimeUtc) {
+  return Object.freeze({
+    event: READY_EVENT,
+    schemaVersion: config.schemaVersion,
+    ...(config.profile ? { profile: config.profile } : {}),
+    pid: process.pid,
+    processStartTimeUtc,
+    bindAddress: config.bindAddress,
+    configSha256,
+    readinessToken: config.readinessToken,
+    listeners: config.listeners
+  });
+}
+
+function stoppedEvidence(config, configSha256, reason) {
+  return Object.freeze({
+    event: STOPPED_EVENT,
+    schemaVersion: config.schemaVersion,
+    ...(config.profile ? { profile: config.profile } : {}),
+    pid: process.pid,
+    reason,
+    configSha256
   });
 }
 
@@ -514,16 +583,11 @@ export class LanReleaseForwarder {
       }
 
       this.accepting = true;
-      const ready = Object.freeze({
-        event: READY_EVENT,
-        schemaVersion: CONFIG_SCHEMA_VERSION,
-        pid: process.pid,
-        processStartTimeUtc: this.processStartTimeUtc,
-        bindAddress: this.config.bindAddress,
-        configSha256: this.configSha256,
-        readinessToken: this.config.readinessToken,
-        listeners: this.config.listeners
-      });
+      const ready = readinessEvidence(
+        this.config,
+        this.configSha256,
+        this.processStartTimeUtc
+      );
       const line = jsonLine(ready);
       await writeReadyFileAtomically(this.config.readyFile, line);
       this.readyWritten = true;
@@ -1032,13 +1096,11 @@ export class LanReleaseForwarder {
 
     this.listenerEntries.length = 0;
     await this.removeOwnedReadyFile();
-    const stopped = Object.freeze({
-      event: STOPPED_EVENT,
-      schemaVersion: CONFIG_SCHEMA_VERSION,
-      pid: process.pid,
-      reason,
-      configSha256: this.configSha256
-    });
+    const stopped = stoppedEvidence(
+      this.config,
+      this.configSha256,
+      reason
+    );
     this.emitStdout(jsonLine(stopped));
     const result = Object.freeze({ exitCode, reason });
     this.resolveClosed(result);
