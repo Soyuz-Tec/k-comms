@@ -361,43 +361,162 @@
 
 @media (max-width: 760px) {
   .calls-page {
-    padding: .8rem .75rem calc(1rem + var(--safe-bottom));
+    gap: .8rem;
+    padding: .85rem 1rem calc(1rem + var(--safe-bottom));
+    background: white;
   }
 
-  .calls-page-heading,
+  .calls-page-heading {
+    align-items: center;
+    flex-direction: row;
+    margin: 0;
+  }
+
+  .calls-page-heading .eyebrow,
+  .calls-page-heading p {
+    display: none;
+  }
+
+  .calls-page-heading h1 {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1.75rem;
+    font-weight: 750;
+    letter-spacing: -.035em;
+  }
+
+  .calls-page-heading .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border-color: #d8e0e7;
+    border-radius: 50%;
+    color: #006d73;
+    background: white;
+    font-size: 0;
+  }
+
+  .calls-page-heading .button::before {
+    content: "↻";
+    font-size: 1.15rem;
+  }
+
+  .calls-history {
+    order: 1;
+  }
+
+  .calls-launcher {
+    order: 2;
+  }
+
+  .calls-launcher,
+  .calls-history {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: white;
+    box-shadow: none;
+  }
+
   .calls-section-heading {
     align-items: stretch;
     flex-direction: column;
+    gap: .75rem;
+    margin-bottom: .75rem;
   }
 
-  .calls-page-heading .button,
+  .calls-section-heading .eyebrow {
+    display: none;
+  }
+
+  .calls-section-heading h2 {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1rem;
+    font-weight: 750;
+  }
+
   .calls-search {
     width: 100%;
     max-width: none;
   }
 
+  .calls-search input {
+    min-height: 46px;
+    border-color: #d8e0e7;
+    border-radius: 14px;
+    background: #fbfcfd;
+  }
+
   .calls-filter-stack {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    gap: .5rem;
   }
 
   .calls-segments {
+    min-width: 0;
+    flex: 1 1 auto;
     display: grid;
     grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: 12px;
+    background: #f1f5f9;
+  }
+
+  .calls-segments button {
+    min-width: 0;
+    color: #64748b;
+  }
+
+  .calls-segments button[aria-pressed="true"] {
+    border-color: #006d73;
+    color: white;
+    background: #006d73;
+    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+  }
+
+  .calls-media-filter {
+    flex: 0 0 7.5rem;
+  }
+
+  .calls-media-filter > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
 
   .calls-media-filter select {
     width: 100%;
+    min-height: 50px;
+    border-color: #d8e0e7;
+    border-radius: 12px;
+    background: white;
   }
 
-  .calls-launch-list > li,
   .call-session-row {
-    align-items: stretch;
-    grid-template-columns: auto minmax(0, 1fr);
+    min-height: 70px;
+    align-items: center;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: .7rem;
+    padding: .75rem .1rem;
+    border: 0;
+    border-bottom: 1px solid #edf1f5;
+    border-radius: 0;
+    background: white;
   }
 
   .calls-launch-list > li {
+    align-items: stretch;
     flex-direction: column;
+    padding: .8rem;
+    border-color: #e2e8f0;
+    border-radius: 14px;
+    background: #fbfcfd;
   }
 
   .calls-conversation-identity {
@@ -406,15 +525,66 @@
 
   .calls-quick-actions,
   .call-session-actions {
+    display: flex;
+    width: auto;
+    grid-column: auto;
+    justify-content: flex-end;
+  }
+
+  .calls-quick-actions {
     display: grid;
     width: 100%;
-    grid-column: 1 / -1;
     grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
   }
 
   .call-session-actions a,
   .call-session-actions button {
-    width: 100%;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    color: #006d73;
+    background: #edf8f7;
+    font-size: 0;
+  }
+
+  .call-session-actions a::before {
+    content: "↩";
+    font-size: 1.05rem;
+  }
+
+  .call-session-actions button::before {
+    content: "↗";
+    font-size: 1.05rem;
+  }
+
+  .call-media-mark {
+    border-radius: 50%;
+  }
+
+  .call-session-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: .2rem;
+  }
+
+  .calls-status {
+    min-height: 20px;
+    padding: .12rem .42rem;
+    font-size: .65rem;
+  }
+
+  .call-session-copy p {
+    margin-top: .18rem;
+    font-size: .74rem;
+  }
+
+  .calls-state {
+    border-color: #d8e0e7;
+    background: #fbfcfd;
   }
 }
 

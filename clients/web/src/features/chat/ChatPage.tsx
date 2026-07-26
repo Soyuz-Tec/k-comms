@@ -24,7 +24,8 @@ import {
 import {
   clientMessageId,
   conversationTitle,
-  errorText
+  errorText,
+  formatTime
 } from "../../lib/format";
 import { loadDraft, storeDraft } from "../../lib/drafts";
 import {
@@ -1825,7 +1826,31 @@ export function ChatPage() {
           </div>
         </div>}
         <nav className="conversation-list" aria-label="Conversation list">
-          {conversations.length === 0 ? showOnboardingSpotlight ? <p className="empty-copy">Your conversations will appear here.</p> : <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button>{canInviteTeammates && <Link className="button ghost compact" to={invitationPath}>Invite a teammate</Link>}</div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => <button ref={(element) => { if (element) conversationButtonRefs.current.set(conversation.id, element); else conversationButtonRefs.current.delete(conversation.id); }} type="button" key={conversation.id} className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`} aria-current={conversation.id === activeConversationId ? "page" : undefined} onClick={() => selectConversation(conversation.id)}><span className="conversation-icon" aria-hidden="true">{conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}</span><span className="conversation-copy"><strong>{conversationIdentifier(conversation)}</strong><small>{conversation.kind} · {conversation.visibility}</small></span>{(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}</button>)}
+          {conversations.length === 0 ? showOnboardingSpotlight ? <p className="empty-copy">Your conversations will appear here.</p> : <div className="conversation-zero-state"><p className="empty-copy">No conversations yet. Choose how you want to get started.</p><div className="empty-state-actions"><button className="button primary compact" type="button" onClick={() => { setShowCreateConversation(true); setShowBrowseChannels(false); setShowSearch(false); }}>Start a conversation</button><button className="button ghost compact" type="button" onClick={() => { setShowBrowseChannels(true); setShowCreateConversation(false); setShowSearch(false); }}>Browse channels</button>{canInviteTeammates && <Link className="button ghost compact" to={invitationPath}>Invite a teammate</Link>}</div></div> : filteredConversations.length === 0 ? <p className="empty-copy" role="status">No conversations match these filters.</p> : filteredConversations.map((conversation) => (
+            <button
+              ref={(element) => {
+                if (element) conversationButtonRefs.current.set(conversation.id, element);
+                else conversationButtonRefs.current.delete(conversation.id);
+              }}
+              type="button"
+              key={conversation.id}
+              className={`conversation-row ${conversation.id === activeConversationId ? "active" : ""}`}
+              aria-current={conversation.id === activeConversationId ? "page" : undefined}
+              onClick={() => selectConversation(conversation.id)}
+            >
+              <span className={`conversation-icon ${conversation.kind}`} aria-hidden="true">
+                {conversation.kind === "channel" ? "#" : conversation.kind === "direct" ? "@" : "◇"}
+              </span>
+              <span className="conversation-copy">
+                <span className="conversation-title-line">
+                  <strong>{conversationIdentifier(conversation)}</strong>
+                  <time dateTime={conversation.updated_at}>{formatTime(conversation.updated_at)}</time>
+                </span>
+                <small>{conversation.kind === "direct" ? "Direct message" : conversation.kind === "channel" ? "Room conversation" : "Group conversation"}</small>
+              </span>
+              {(conversation.unread_count || 0) > 0 && <span className="unread-badge" aria-label={`${conversation.unread_count} unread messages`}>{conversation.unread_count}</span>}
+            </button>
+          ))}
         </nav>
       </aside>
 

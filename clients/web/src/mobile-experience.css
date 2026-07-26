@@ -550,3 +550,137 @@
     background: Highlight;
   }
 }
+
+@media (max-width: 760px) {
+  .member-page,
+  .you-page {
+    background: white;
+  }
+
+  .directory-page.member-page {
+    padding: .85rem 1rem calc(1rem + var(--safe-bottom));
+  }
+
+  .member-page-heading {
+    align-items: center;
+    margin: 0 0 .8rem;
+  }
+
+  .member-page-heading .eyebrow,
+  .member-page-heading p {
+    display: none;
+  }
+
+  .member-page-heading h1 {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: clamp(1.45rem, 7vw, 1.75rem);
+    font-weight: 750;
+    letter-spacing: -.035em;
+  }
+
+  .directory-toolbar {
+    gap: .65rem;
+    margin-bottom: .75rem;
+  }
+
+  .member-segmented-control {
+    min-height: 50px;
+    padding: 3px;
+    border: 0;
+    border-radius: 12px;
+    background: #f1f5f9;
+  }
+
+  .member-segmented-control button {
+    color: #64748b;
+  }
+
+  .member-segmented-control button[aria-pressed="true"] {
+    color: white;
+    background: #006d73;
+    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+  }
+
+  .member-search {
+    min-height: 46px;
+    border-color: #d8e0e7;
+    border-radius: 14px;
+    background: #fbfcfd;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  }
+
+  .directory-list {
+    gap: 0;
+  }
+
+  .directory-row {
+    min-height: 72px;
+    gap: .7rem;
+    padding: .75rem .1rem;
+    border: 0;
+    border-bottom: 1px solid #edf1f5;
+    border-radius: 0;
+    background: white;
+    box-shadow: none;
+  }
+
+  .member-avatar,
+  .room-avatar {
+    color: #006d73;
+    background: #e0f3f2;
+  }
+
+  .directory-row-copy strong {
+    color: #111827;
+    font-size: .9rem;
+  }
+
+  .directory-row-copy small {
+    color: #64748b;
+    font-size: .72rem;
+  }
+
+  .directory-actions {
+    gap: .45rem;
+    padding-left: 51px;
+  }
+
+  .directory-action {
+    border-color: #d8e0e7;
+    border-radius: 12px;
+    color: #006d73;
+    background: white;
+  }
+
+  .directory-action.primary {
+    border-color: #006d73;
+    color: white;
+    background: #006d73;
+  }
+
+  .member-status-view {
+    border-color: #d8e0e7;
+    border-radius: 16px;
+    background: #fbfcfd;
+  }
+
+  .you-section-chooser,
+  .you-role-shortcuts {
+    border-color: #d8e0e7;
+    border-radius: 16px;
+    background: white;
+    box-shadow: 0 6px 18px rgb(15 23 42 / 5%);
+  }
+
+  .you-section-chooser a,
+  .you-role-card-grid a {
+    color: #006d73;
+  }
+
+  .you-role-card-grid a {
+    border-color: #d8e0e7;
+    border-radius: 13px;
+    background: #fbfcfd;
+  }
+}

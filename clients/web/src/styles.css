@@ -86,20 +86,24 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .brand-mark {
   position: relative;
   display: inline-flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  gap: 2px;
   width: 28px;
   height: 28px;
-  padding: 6px;
-  border-radius: 9px 9px 9px 3px;
-  background: var(--mint);
+  border: 1px solid #0a8f96;
+  border-radius: 6px;
+  color: white;
+  background: linear-gradient(145deg, #1bb7bd, #00747b);
+  box-shadow: 0 2px 6px rgb(0 92 97 / 22%);
 }
 
-.brand-mark i { display: block; width: 3px; border-radius: 2px; background: var(--forest); }
-.brand-mark i:nth-child(1) { height: 7px; }
-.brand-mark i:nth-child(2) { height: 13px; }
-.brand-mark i:nth-child(3) { height: 9px; }
+.brand-letter {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -.08em;
+  line-height: 1;
+}
 .brand.compact .brand-mark { width: 25px; height: 25px; }
 
 .eyebrow {
@@ -331,6 +335,9 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .conversation-copy strong, .conversation-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-copy strong { font-size: .84rem; }
 .conversation-copy small { color: var(--ink-soft); font-size: .65rem; text-transform: capitalize; }
+.conversation-title-line { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.conversation-title-line strong { min-width: 0; flex: 1 1 auto; }
+.conversation-title-line time { flex: 0 0 auto; color: var(--ink-soft); font-size: .62rem; font-weight: 500; }
 .unread-badge { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; color: white; background: var(--forest); font-size: .62rem; font-weight: 800; }
 .empty-copy { padding: 1.2rem; color: var(--ink-soft); font-size: .8rem; line-height: 1.6; text-align: center; }
 
@@ -1331,5 +1338,527 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   .audio-call-dock.minimized {
     top: auto;
     max-height: none;
+  }
+}
+
+/*
+ * Mobile visual system.
+ *
+ * The product model remains the unified K-Comms member experience. These
+ * rules bring the phone shell, inbox, conversation and call surfaces in line
+ * with the approved teal mobile mockup without changing durable workflows.
+ */
+@media (max-width: 760px) {
+  :root {
+    color: #0b1220;
+    background: #f6f8fa;
+    --ink: #0b1220;
+    --ink-soft: #64748b;
+    --forest: #006d73;
+    --forest-light: #005c61;
+    --mint: #d5f2ef;
+    --mint-bright: #e7f8f6;
+    --paper: #ffffff;
+    --canvas: #f6f8fa;
+    --line: #d8e0e7;
+    --danger: #b42318;
+    --control-border: #aab8c5;
+    --focus-ring: #087f86;
+    --target-size: 44px;
+    --mobile-topbar-height: 62px;
+    --mobile-nav-height: 68px;
+  }
+
+  body,
+  .app-shell {
+    color: var(--ink);
+    background: var(--canvas);
+  }
+
+  .app-shell > .topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: .25rem;
+    padding:
+      calc(.45rem + var(--safe-top))
+      calc(.6rem + var(--safe-right))
+      .45rem
+      calc(.75rem + var(--safe-left));
+    border-bottom-color: #e4eaf0;
+    background: rgb(255 255 255 / 96%);
+    box-shadow: 0 2px 12px rgb(15 23 42 / 5%);
+    backdrop-filter: blur(18px);
+  }
+
+  .topbar .brand.compact {
+    min-width: 0;
+    gap: .55rem;
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: .84rem;
+    letter-spacing: -.01em;
+  }
+
+  .topbar .brand.compact > span:last-child {
+    display: inline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topbar .brand.compact .brand-mark {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+  }
+
+  .instant-room-launch {
+    width: 44px;
+    min-width: 44px;
+    border: 0;
+    border-radius: 50%;
+    color: white;
+    background: var(--forest);
+    box-shadow: none;
+  }
+
+  .topbar .notification-trigger,
+  .mobile-account-trigger {
+    border-color: transparent;
+    border-radius: 50%;
+    color: #164e63;
+    background: transparent;
+  }
+
+  .topbar .notification-trigger:hover,
+  .mobile-account-trigger:hover,
+  .mobile-account-menu[open] .mobile-account-trigger {
+    background: #edf8f7;
+  }
+
+  .mobile-account-trigger .avatar {
+    color: #005c61;
+    background: #d5f2ef;
+  }
+
+  .mobile-account-panel {
+    border-color: #d8e0e7;
+    border-radius: 18px;
+    background: rgb(255 255 255 / 99%);
+    box-shadow: 0 24px 64px rgb(15 23 42 / 20%);
+  }
+
+  .mobile-product-nav {
+    border-top-color: #e2e8f0;
+    background: rgb(255 255 255 / 98%);
+    box-shadow: 0 -8px 24px rgb(15 23 42 / 6%);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-product-nav.member-bottom-nav a {
+    position: relative;
+    color: #607086;
+    font-weight: 650;
+  }
+
+  .mobile-product-nav.member-bottom-nav a.active {
+    color: var(--forest);
+    background: transparent;
+  }
+
+  .mobile-product-nav.member-bottom-nav a.active::before {
+    position: absolute;
+    top: 3px;
+    left: 50%;
+    width: 26px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: #07838a;
+    content: "";
+    transform: translateX(-50%);
+  }
+
+  .member-nav-icon {
+    width: 1.32rem;
+    height: 1.32rem;
+    stroke-width: 1.9;
+  }
+
+  .workspace-grid.mobile-list .conversation-sidebar {
+    background: white;
+  }
+
+  .sidebar-heading {
+    align-items: end;
+    padding: 1.05rem 1rem .7rem;
+  }
+
+  .sidebar-heading .eyebrow {
+    display: none;
+  }
+
+  .sidebar-heading h1 {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1.75rem;
+    font-weight: 750;
+    letter-spacing: -.035em;
+  }
+
+  .sidebar-tools {
+    gap: .2rem;
+  }
+
+  .sidebar-tools .icon-button {
+    width: 44px;
+    height: 44px;
+    border-color: transparent;
+    border-radius: 50%;
+    color: #164e63;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sidebar-tools .icon-button:hover {
+    color: var(--forest);
+    background: #edf8f7;
+  }
+
+  .conversation-filters {
+    grid-template-columns: 1fr;
+    gap: .65rem;
+    padding: 0 1rem .8rem;
+    border-bottom: 0;
+  }
+
+  .conversation-filters input[type="search"] {
+    min-height: 46px;
+    padding: .65rem .85rem;
+    border-color: #d7e0e8;
+    border-radius: 14px;
+    color: var(--ink);
+    background: white;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  }
+
+  .workspace-grid.mobile-list .conversation-list {
+    padding: .15rem 1rem 1rem;
+  }
+
+  .workspace-grid.mobile-list .conversation-row {
+    min-height: 68px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: .75rem;
+    margin: 0;
+    padding: .7rem .15rem;
+    border: 0;
+    border-bottom: 1px solid #edf1f5;
+    border-radius: 0;
+    background: white;
+  }
+
+  .workspace-grid.mobile-list .conversation-row:hover,
+  .workspace-grid.mobile-list .conversation-row.active {
+    color: var(--ink);
+    background: linear-gradient(90deg, #effaf9, white 88%);
+  }
+
+  .conversation-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: #006d73;
+    background: #e0f3f2;
+    font-size: 1.05rem;
+  }
+
+  .conversation-icon.direct {
+    color: #0f766e;
+    background: #dcf3ec;
+  }
+
+  .conversation-copy {
+    gap: .28rem;
+  }
+
+  .conversation-copy strong {
+    color: #111827;
+    font-size: .9rem;
+    font-weight: 700;
+  }
+
+  .conversation-copy small,
+  .conversation-title-line time {
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  .unread-badge {
+    min-width: 22px;
+    height: 22px;
+    background: #006d73;
+    font-size: .68rem;
+  }
+
+  .workspace-grid.mobile-messages .conversation-pane {
+    background: white;
+  }
+
+  .conversation-header {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: .45rem;
+    padding: .42rem .65rem;
+    border-bottom-color: #e8edf2;
+    background: rgb(255 255 255 / 98%);
+  }
+
+  .mobile-back,
+  .conversation-header .icon-button {
+    width: 44px;
+    height: 44px;
+    border-color: transparent;
+    border-radius: 50%;
+    color: #164e63;
+    background: transparent;
+  }
+
+  .conversation-header > div:nth-child(2) .eyebrow {
+    color: #64748b;
+    font-size: .66rem;
+    letter-spacing: .04em;
+    text-transform: capitalize;
+  }
+
+  .conversation-header h2 {
+    margin-top: .08rem;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: .95rem;
+    font-weight: 750;
+    letter-spacing: -.015em;
+  }
+
+  .conversation-header-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .conversation-header-actions .connection-summary {
+    display: none;
+  }
+
+  .conversation-header-actions > .button {
+    display: inline-flex;
+    min-height: 44px;
+    border-color: #dce5eb;
+    border-radius: 12px;
+    color: #164e63;
+    background: white;
+  }
+
+  .conversation-header-actions .mobile-header-search {
+    display: inline-grid;
+  }
+
+  .conversation-header-actions .audio-call-control {
+    order: initial;
+    width: auto;
+    display: flex;
+    gap: .1rem;
+  }
+
+  .conversation-header-actions .audio-call-control .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    color: #164e63;
+    background: transparent;
+    font-size: 0;
+  }
+
+  .conversation-header-actions .audio-call-control .button span {
+    font-size: 1.15rem;
+  }
+
+  .message-scroll {
+    padding: 1rem .8rem;
+    background: linear-gradient(180deg, #f7fafc, #ffffff 24%);
+  }
+
+  .message-list {
+    gap: .4rem;
+  }
+
+  .message-content {
+    max-width: 84%;
+  }
+
+  .message-content > header strong {
+    color: #165d63;
+    font-size: .72rem;
+  }
+
+  .message-content > header time,
+  .message-content > header span {
+    color: #718096;
+    font-size: .65rem;
+  }
+
+  .message-bubble,
+  .message.mine .message-bubble {
+    padding: .72rem .82rem;
+    border-color: #dfe6ed;
+    color: #182235;
+    background: white;
+    box-shadow: 0 4px 12px rgb(15 23 42 / 5%);
+    font-size: .88rem;
+    line-height: 1.48;
+  }
+
+  .message.mine .message-bubble {
+    border-color: #b9e4e1;
+    background: #e6f7f5;
+  }
+
+  .typing-line {
+    color: #64748b;
+    background: white;
+  }
+
+  .composer {
+    border-top-color: #e6ebf0;
+    background: rgb(255 255 255 / 98%);
+    box-shadow: 0 -8px 22px rgb(15 23 42 / 4%);
+  }
+
+  .composer textarea {
+    min-height: 46px;
+    border-color: #d6dee7;
+    border-radius: 16px;
+    color: var(--ink);
+    background: #fbfcfd;
+  }
+
+  .attachment-button {
+    border-color: #d6dee7;
+    border-radius: 12px;
+    color: #006d73;
+    background: white;
+  }
+
+  .send-button {
+    border-color: #006d73;
+    border-radius: 50%;
+    color: white;
+    background: #006d73;
+  }
+
+  .audio-prejoin-dialog.call-prejoin-dialog {
+    width: min(100%, 430px);
+    padding: 1.25rem;
+    border-color: #dce3e9;
+    border-radius: 24px;
+    background: white;
+    box-shadow: 0 30px 80px rgb(15 23 42 / 28%);
+  }
+
+  .audio-prejoin-dialog.call-prejoin-dialog h2 {
+    color: #0b1220;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1.4rem;
+  }
+
+  .call-capture-indicator.prejoin,
+  .audio-prejoin-dialog .audio-device-row,
+  .prejoin-consent-grid {
+    border-color: #dce5eb;
+    border-radius: 14px;
+    background: #f8fafc;
+  }
+
+  .audio-prejoin-dialog .button.primary {
+    border-color: #006d73;
+    border-radius: 12px;
+    color: white;
+    background: #006d73;
+  }
+
+  .audio-call-dock.video-call-dock:not(.minimized) {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: var(--app-viewport-height);
+    padding:
+      max(.75rem, var(--safe-top))
+      max(.65rem, var(--safe-right))
+      max(.75rem, var(--safe-bottom))
+      max(.65rem, var(--safe-left));
+    border: 0;
+    border-radius: 0;
+    color: white;
+    background: #0b0f14;
+    box-shadow: none;
+  }
+
+  .video-call-dock .audio-call-dock-heading h2,
+  .video-call-dock .call-capture-indicator strong {
+    color: white;
+  }
+
+  .video-call-dock .eyebrow,
+  .video-call-dock .call-capture-indicator {
+    color: #cbd5e1;
+  }
+
+  .video-call-dock .call-capture-indicator span,
+  .video-call-dock .audio-device-row,
+  .video-call-dock .call-collaboration-links button {
+    border-color: #334155;
+    color: white;
+    background: #1e293b;
+  }
+
+  .video-call-dock .video-participant-grid {
+    gap: .45rem;
+    margin: .5rem 0;
+  }
+
+  .video-call-dock .video-participant-tile,
+  .video-call-dock .video-track-stack {
+    border-radius: 14px;
+    background: #111827;
+  }
+
+  .video-call-dock .audio-call-actions {
+    position: sticky;
+    z-index: 2;
+    bottom: 0;
+    justify-content: center;
+    padding: .65rem;
+    border-radius: 18px;
+    background: rgb(11 15 20 / 92%);
+    backdrop-filter: blur(14px);
+  }
+
+  .video-call-dock .audio-call-actions .button {
+    min-width: 48px;
+    min-height: 48px;
+    border-color: #334155;
+    border-radius: 999px;
+    color: white;
+    background: #1e293b;
+  }
+
+  .video-call-dock .audio-call-actions .button.danger {
+    border-color: #ef4444;
+    background: #ef4444;
   }
 }
