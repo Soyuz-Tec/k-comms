@@ -2389,7 +2389,8 @@ function Invoke-PublicObjectStorageQualification {
         [string]$OwnerEmail = $script:LiveOwnerEmail,
         [string]$OwnerPassword = $script:LiveOwnerPassword,
         $ReleaseContext = $script:SealedReleaseContext,
-        [byte[]]$QualificationContentBytes = $null
+        [byte[]]$QualificationContentBytes = $null,
+        [ValidateRange(0, 120)][int]$ObjectPurgeSettlingSeconds = 60
     )
 
     if (-not $script:QualificationMode.TrustedEdge) {
@@ -2641,6 +2642,9 @@ function Invoke-PublicObjectStorageQualification {
             -not [string]::IsNullOrEmpty($attachmentId)
         ) {
             try {
+                if ($objectUploaded -and $ObjectPurgeSettlingSeconds -gt 0) {
+                    Start-Sleep -Seconds $ObjectPurgeSettlingSeconds
+                }
                 & $PurgeAction `
                     -ReleaseContext $ReleaseContext `
                     -TenantId $tenantId `
@@ -6170,7 +6174,8 @@ function Invoke-PublicObjectStorageQualificationSelfTestFixture {
         -OwnerEmail "self-test@example.invalid" `
         -OwnerPassword "self-test-password" `
         -ReleaseContext ([PSCustomObject]@{SelfTest = $true}) `
-        -QualificationContentBytes $Fixture.ContentBytes
+        -QualificationContentBytes $Fixture.ContentBytes `
+        -ObjectPurgeSettlingSeconds 0
 }
 
 function Assert-PublicObjectStorageTransportSelfTest {
