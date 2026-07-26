@@ -2322,6 +2322,26 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 'powerShellExecutablePath = Join-Path $PSHOME "powershell.exe"',
             ),
             (
+                "        principalSid = $principalSid",
+                "        principalSid = $principal",
+            ),
+            (
+                "([Security.Principal.NTAccount]::new($Value)).Translate(",
+                "([Security.Principal.NTAccount]::new($Value)) # SID translation removed",
+            ),
+            (
+                "(Resolve-WindowsPrincipalSid -Value $principal) -cne $principalSid",
+                "$principalSid -cne $principalSid",
+            ),
+            (
+                "-Value ([string]$Task.Principal.UserId)",
+                "-Value ([string]$Supervisor.principal)",
+            ),
+            (
+                "$sealedPrincipalSid -cne [string]$Supervisor.principalSid -or",
+                "$sealedPrincipalSid -cne $sealedPrincipalSid -or",
+            ),
+            (
                 "    $trigger.Repetition.StopAtDurationEnd = $true",
                 "    $trigger.Repetition.StopAtDurationEnd = $false",
             ),
@@ -2499,6 +2519,7 @@ Write-Output "strict forwarder command identity runtime self-test passed"
             for name in (
                 "Get-RequiredForwarderProperty",
                 "Get-LanForwarderSupervisorTaskArguments",
+                "Resolve-WindowsPrincipalSid",
                 "Test-ScheduledTaskDurationEquals",
                 "ConvertTo-ScheduledTaskUtcDateTimeOffset",
                 "Test-ScheduledTaskNamedValue",
@@ -2512,6 +2533,8 @@ $now = [DateTimeOffset]::Parse(
     "2026-07-25T00:00:30Z",
     [Globalization.CultureInfo]::InvariantCulture
 )
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principalShortName = ([string]$currentIdentity.Name).Split("\")[-1]
 $supervisor = [PSCustomObject]@{
     managerScriptPath = "C:\State\history\candidate\manager.ps1"
     powerShellExecutablePath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -2528,7 +2551,8 @@ $supervisor = [PSCustomObject]@{
     repetitionDurationDays = 3650
     nextRunGraceSeconds = 120
     taskDescription = "receipt-bound task"
-    principal = "EXAMPLE\operator"
+    principal = [string]$currentIdentity.Name
+    principalSid = [string]$currentIdentity.User.Value
 }
 function New-TaskFixture {
     $arguments =
@@ -2543,7 +2567,7 @@ function New-TaskFixture {
             WorkingDirectory = ""
         })
         Principal = [PSCustomObject]@{
-            UserId = $supervisor.principal
+            UserId = $principalShortName
             LogonType = "Interactive"
             RunLevel = "Limited"
         }
@@ -2576,13 +2600,24 @@ function New-TaskFixture {
 $validTaskInfo = [PSCustomObject]@{
     NextRunTime = $now.AddSeconds(45)
 }
-$valid = Get-LanForwarderSupervisorTaskContractObservation `
-    -Task (New-TaskFixture) `
-    -Supervisor $supervisor `
-    -TaskInfo $validTaskInfo `
-    -NowUtc $now
-if (-not $valid.MatchesReceipt -or $valid.Status -cne "ready") {
-    throw "valid supervisor task contract was rejected: $($valid.Detail)"
+foreach ($validPrincipal in @(
+    [string]$currentIdentity.Name,
+    $principalShortName,
+    [string]$currentIdentity.User.Value
+)) {
+    $validTask = New-TaskFixture
+    $validTask.Principal.UserId = $validPrincipal
+    $valid = Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $validTask `
+        -Supervisor $supervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+    if (-not $valid.MatchesReceipt -or $valid.Status -cne "ready") {
+        throw (
+            "valid supervisor task principal '$validPrincipal' was rejected: " +
+            $valid.Detail
+        )
+    }
 }
 $disabled = New-TaskFixture
 $disabled.State = "Disabled"
@@ -2640,6 +2675,17 @@ $foreignObservation =
         -NowUtc $now
 if ($foreignObservation.IdentityMatchesReceipt) {
     throw "foreign task action was treated as receipt-owned"
+}
+$foreignPrincipal = New-TaskFixture
+$foreignPrincipal.Principal.UserId = "S-1-5-18"
+$foreignPrincipalObservation =
+    Get-LanForwarderSupervisorTaskContractObservation `
+        -Task $foreignPrincipal `
+        -Supervisor $supervisor `
+        -TaskInfo $validTaskInfo `
+        -NowUtc $now
+if ($foreignPrincipalObservation.IdentityMatchesReceipt) {
+    throw "foreign task principal SID was treated as receipt-owned"
 }
 $futureTask = New-TaskFixture
 $futureTask.Triggers[0].StartBoundary = "2099-01-01T00:00:00Z"

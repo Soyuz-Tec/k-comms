@@ -5607,6 +5607,29 @@ function Set-LanForwarderSupervisorScheduleRecord {
     }
 }
 
+function Resolve-WindowsPrincipalSid {
+    param([Parameter(Mandatory)][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw "Windows principal identity is empty"
+    }
+    try {
+        $sid =
+            if ($Value -match "^S-[0-9]+(?:-[0-9]+)+$") {
+                [Security.Principal.SecurityIdentifier]::new($Value)
+            }
+            else {
+                ([Security.Principal.NTAccount]::new($Value)).Translate(
+                    [Security.Principal.SecurityIdentifier]
+                )
+            }
+        return [string]$sid.Value
+    }
+    catch {
+        throw "Windows principal identity could not be resolved to an SID"
+    }
+}
+
 function New-LanForwarderSupervisorRecord {
     param(
         [Parameter(Mandatory)][string]$ImmutableSourceRoot,
@@ -5621,8 +5644,14 @@ function New-LanForwarderSupervisorRecord {
     if ($ForwarderConfigSha256 -notmatch "^[0-9a-f]{64}$") {
         throw "LAN forwarder supervisor configuration hash is malformed"
     }
-    $principal = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    if ([string]::IsNullOrWhiteSpace($principal)) {
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [string]$currentIdentity.Name
+    $principalSid = [string]$currentIdentity.User.Value
+    if (
+        [string]::IsNullOrWhiteSpace($principal) -or
+        [string]::IsNullOrWhiteSpace($principalSid) -or
+        (Resolve-WindowsPrincipalSid -Value $principal) -cne $principalSid
+    ) {
         throw "LAN forwarder supervisor could not resolve the current Windows identity"
     }
     $candidateDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($ReceiptPath))
@@ -5667,6 +5696,7 @@ function New-LanForwarderSupervisorRecord {
             (Get-Sha256Text -Value $StateRoot).Substring(0, 16)
         )
         principal = $principal
+        principalSid = $principalSid
         managerScriptPath = $retainedManagerScriptPath
         managerScriptSha256 = $retainedManagerHash
         powerShellExecutablePath = Get-CurrentPowerShellExecutablePath
@@ -5725,6 +5755,10 @@ function Assert-LanForwarderSupervisorRecord {
         @("taskName", $expectedTaskName),
         @("taskDescription", $expectedDescription),
         @("principal", [Security.Principal.WindowsIdentity]::GetCurrent().Name),
+        @(
+            "principalSid",
+            [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        ),
         @("managerScriptPath", $expectedManagerScriptPath),
         @("stateRoot", $StateRoot),
         @("projectName", $ProjectName),
@@ -6645,9 +6679,24 @@ function Get-LanForwarderSupervisorTaskContractObservation {
     ) {
         $identityFailures.Add("description") | Out-Null
     }
+    $observedPrincipalSid = ""
+    $sealedPrincipalSid = ""
+    try {
+        $observedPrincipalSid =
+            Resolve-WindowsPrincipalSid `
+                -Value ([string]$Task.Principal.UserId)
+        $sealedPrincipalSid =
+            Resolve-WindowsPrincipalSid `
+                -Value ([string]$Supervisor.principal)
+    }
+    catch {
+        $observedPrincipalSid = ""
+        $sealedPrincipalSid = ""
+    }
     if (
-        [string]$Task.Principal.UserId -cne
-            [string]$Supervisor.principal -or
+        [string]::IsNullOrWhiteSpace($observedPrincipalSid) -or
+        $observedPrincipalSid -cne [string]$Supervisor.principalSid -or
+        $sealedPrincipalSid -cne [string]$Supervisor.principalSid -or
         -not (Test-ScheduledTaskNamedValue `
             -Value $Task.Principal.LogonType `
             -ExpectedName "Interactive" `

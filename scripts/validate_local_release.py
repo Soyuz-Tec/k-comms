@@ -930,6 +930,9 @@ def validate_local_release(
     supervisor_record_body = _compact_powershell(
         _function_body(runner_document, "New-LanForwarderSupervisorRecord")
     )
+    supervisor_principal_sid_body = _compact_powershell(
+        _function_body(runner_document, "Resolve-WindowsPrincipalSid")
+    )
     supervisor_schedule_record_body = _compact_powershell(
         _function_body(
             runner_document,
@@ -1773,6 +1776,24 @@ def validate_local_release(
         not in supervisor_record_body
         or "powershellexecutablepath = get-currentpowershellexecutablepath"
         not in supervisor_record_body
+        or "principalsid = $principalsid" not in supervisor_record_body
+        or any(
+            marker not in supervisor_principal_sid_body
+            for marker in (
+                "[security.principal.securityidentifier]::new($value)",
+                "[security.principal.ntaccount]::new($value)",
+                (
+                    ".translate( "
+                    "[security.principal.securityidentifier] )"
+                ),
+                "return [string]$sid.value",
+            )
+        )
+        or (
+            "(resolve-windowsprincipalsid -value $principal) "
+            "-cne $principalsid"
+            not in supervisor_record_body
+        )
         or "schedulesealedatutc = $schedule.schedulesealedatutc"
         not in supervisor_record_body
         or "taskstartboundaryutc = $schedule.taskstartboundaryutc"
@@ -1852,6 +1873,24 @@ def validate_local_release(
         or "$settings.multipleinstances" not in supervisor_task_contract_body
         or "$settings.restartcount" not in supervisor_task_contract_body
         or "$settings.restartinterval" not in supervisor_task_contract_body
+        or (
+            "resolve-windowsprincipalsid "
+            "-value ([string]$task.principal.userid)"
+            not in supervisor_task_contract_body
+        )
+        or (
+            "resolve-windowsprincipalsid "
+            "-value ([string]$supervisor.principal)"
+            not in supervisor_task_contract_body
+        )
+        or (
+            "$observedprincipalsid -cne [string]$supervisor.principalsid"
+            not in supervisor_task_contract_body
+        )
+        or (
+            "$sealedprincipalsid -cne [string]$supervisor.principalsid"
+            not in supervisor_task_contract_body
+        )
         or (
             "-expected (new-timespan -minutes 1)"
             not in supervisor_task_contract_body
