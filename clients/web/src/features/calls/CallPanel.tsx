@@ -172,8 +172,10 @@ export function CallPanel({
   const currentMediaKind = call ? callMediaKind(call) : prejoinKind;
   const joined = Boolean(roomRef.current) && ["connected", "reconnecting", "leaving"].includes(phase);
   const joinedKind = roomMediaKindRef.current || currentMediaKind;
-  const mobileCallModal = mobileCallLayout && joined && !minimized;
-  const callDockRef = useModalDialog(() => setMinimized(true), mobileCallModal);
+  const expandedCallModal = joined && !minimized && (
+    mobileCallLayout || joinedKind === "video"
+  );
+  const callDockRef = useModalDialog(() => setMinimized(true), expandedCallModal);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -1134,10 +1136,10 @@ export function CallPanel({
         <section
           ref={callDockRef}
           className={`call-dock audio-call-dock ${joinedKind === "video" ? "video-call-dock" : ""} ${minimized ? "minimized" : ""}`}
-          role={mobileCallModal ? "dialog" : "region"}
-          aria-modal={mobileCallModal || undefined}
+          role={expandedCallModal ? "dialog" : "region"}
+          aria-modal={expandedCallModal || undefined}
           aria-labelledby="call-title"
-          tabIndex={mobileCallModal ? -1 : undefined}
+          tabIndex={expandedCallModal ? -1 : undefined}
         >
           <div className="audio-call-dock-heading">
             <div>
@@ -1230,18 +1232,20 @@ export function CallPanel({
                 )}
               </div>
             </section>
-            {error && <div className="form-error" role="alert">{error}</div>}
-            {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
-            {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
-            {joinedKind === "audio" && <ul className="audio-participant-list" aria-label="Call participants">
-              {participants.map((participant) => {
-                const identifier = participantIdentifier(
-                  { id: participant.id, display_name: participant.name },
-                  duplicateCallParticipantNames
-                );
-                return <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{identifier}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small></span></li>;
-              })}
-            </ul>}
+            <div className="call-stage">
+              {error && <div className="form-error" role="alert">{error}</div>}
+              {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
+              {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
+              {joinedKind === "audio" && <ul className="audio-participant-list" aria-label="Call participants">
+                {participants.map((participant) => {
+                  const identifier = participantIdentifier(
+                    { id: participant.id, display_name: participant.name },
+                    duplicateCallParticipantNames
+                  );
+                  return <li key={participant.id} className={participant.speaking ? "speaking" : undefined}><span className="audio-participant-mark" aria-hidden="true">{participant.speaking ? "◉" : "○"}</span><span><strong>{identifier}{participant.local ? " (you)" : ""}</strong><small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small></span></li>;
+                })}
+              </ul>}
+            </div>
             <div className="call-device-grid">
               <div className="audio-device-row">
                 <label htmlFor="active-audio-input">Microphone</label>
