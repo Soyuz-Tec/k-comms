@@ -42,6 +42,7 @@ export function MessageItem({
   const [busy, setBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const mine = message.sender_user_id === currentUserId;
   const groups = groupReactions(message, currentUserId);
 
@@ -99,7 +100,16 @@ export function MessageItem({
             {groups.map(({ emoji, count, mine: reacted }) => <button type="button" key={emoji} className={reacted ? "reacted" : ""} aria-pressed={reacted} aria-label={`${reacted ? "Remove" : "Add"} ${emoji} reaction; ${count} total`} onClick={() => onReaction(emoji)}>{emoji} <span>{count}</span></button>)}
             {message.status === "active" && <span className="quick-reactions" aria-label="Quick reactions">{quickReactions.filter((emoji) => !groups.some((group) => group.emoji === emoji)).map((emoji) => <button type="button" key={emoji} aria-label={`React with ${emoji}`} onClick={() => onReaction(emoji)}>{emoji}</button>)}</span>}
           </div>
-          <div className="message-actions">{onThread && <button type="button" onClick={onThread}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={onReply}>Reply</button><button type="button" onClick={onReport}>Report</button>{mine && <button type="button" onClick={() => setEditing(true)}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
+          <button
+            className="mobile-message-actions-trigger"
+            type="button"
+            aria-label="More message actions"
+            aria-expanded={actionsOpen}
+            onClick={() => setActionsOpen((open) => !open)}
+          >
+            <span aria-hidden="true">•••</span>
+          </button>
+          <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button><button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>{mine && <button type="button" onClick={() => { setActionsOpen(false); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
         {mine && seenCount > 0 && <small className="seen-copy">Seen by {seenCount}</small>}
       </article>

@@ -146,6 +146,7 @@ export function CallPanel({
   const [videoBlocked, setVideoBlocked] = useState(false);
   const [participants, setParticipants] = useState<ParticipantView[]>([]);
   const [callWorkspaceTab, setCallWorkspaceTab] = useState<CallWorkspaceTab>("chat");
+  const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const [accessRevoked, setAccessRevoked] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [mobileCallLayout, setMobileCallLayout] = useState(
@@ -1180,7 +1181,11 @@ export function CallPanel({
                 </span>
               )}
             </div>
-            <section className="call-workspace-sheet" aria-label="Call workspace">
+            <section
+              className={`call-workspace-sheet ${mobileWorkspaceOpen ? "mobile-open" : ""}`}
+              id="call-workspace-sheet"
+              aria-label="Call workspace"
+            >
               <nav className="call-collaboration-links" aria-label="Call workspace">
                 <button type="button" aria-pressed={callWorkspaceTab === "chat"} onClick={() => {
                   setCallWorkspaceTab("chat");
@@ -1266,6 +1271,7 @@ export function CallPanel({
               <button className={`button compact call-action-microphone ${microphoneEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={microphoneEnabled} disabled={phase !== "connected"} onClick={() => void toggleMicrophone()}>{microphoneEnabled ? "Mute microphone" : "Unmute microphone"}</button>
               {joinedKind === "video" && <button className={`button compact call-action-camera ${cameraEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={cameraEnabled} disabled={phase !== "connected"} onClick={() => void toggleCamera()}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>}
               {joinedKind === "video" && <button className={`button compact call-action-screen ${screenShareEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={screenShareEnabled} disabled={phase !== "connected"} onClick={() => void toggleScreenShare()}>{screenShareEnabled ? "Stop sharing screen" : "Share screen"}</button>}
+              {joinedKind === "video" && mobileCallLayout && <button className={`button compact call-action-more ${mobileWorkspaceOpen ? "primary" : "ghost"}`} type="button" aria-expanded={mobileWorkspaceOpen} aria-controls="call-workspace-sheet" onClick={() => setMobileWorkspaceOpen((open) => !open)}>More</button>}
               <button className="button danger compact call-action-leave" type="button" disabled={phase === "leaving"} onClick={() => void leave()}>Leave call</button>
               {call?.can_end && <button className="button danger compact call-action-end" type="button" disabled={phase === "leaving"} onClick={() => void endForEveryone()}>End for everyone</button>}
             </div>

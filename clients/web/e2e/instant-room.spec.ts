@@ -1,5 +1,5 @@
 import { expect, mockServiceStatus, test } from "./fixtures";
-import type { Page, Route } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const guestId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -15,7 +15,7 @@ test.describe("instant-room front door", () => {
     );
   });
 
-  test("creates once and exposes a one-step shareable room at 320px", async ({ page }) => {
+  test("creates once and exposes a one-step shareable room at 320px", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 320, height: 700 });
     const fixture = await installInstantRoomFixture(page);
 
@@ -53,6 +53,17 @@ test.describe("instant-room front door", () => {
         .getByRole("list", { name: "Room participants" })
         .getByText("Taylor Host", { exact: false })
     ).toContainText("Taylor Host (you)");
+    await expectNoOverlap(
+      page.locator(".instant-room-share-copy"),
+      page.getByRole("img", { name: "Scan to join Instant room" })
+    );
+    await expectNoDocumentOverflow(page);
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("instant-room-320.png"),
+        fullPage: true
+      });
+    }
 
     expect(fixture.createRequests).toHaveLength(1);
     expect(fixture.createRequests[0]).toMatchObject({
@@ -61,8 +72,6 @@ test.describe("instant-room front door", () => {
     });
     expect(fixture.idempotencyKeys).toHaveLength(1);
     expect(fixture.idempotencyKeys[0]).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    await expectNoDocumentOverflow(page);
-
     const storage = await page.evaluate(() => ({
       session: sessionStorage.getItem("k-comms.guest-session.v1"),
       persistent: localStorage.getItem("k-comms.guest-session.v1")
@@ -188,6 +197,13 @@ async function installInstantRoomFixture(page: Page) {
   });
 
   return { createRequests, idempotencyKeys, shareUrl };
+}
+
+async function expectNoOverlap(left: Locator, right: Locator) {
+  const [leftBox, rightBox] = await Promise.all([left.boundingBox(), right.boundingBox()]);
+  expect(leftBox).not.toBeNull();
+  expect(rightBox).not.toBeNull();
+  expect(leftBox!.x + leftBox!.width).toBeLessThanOrEqual(rightBox!.x + 1);
 }
 
 async function expectNoDocumentOverflow(page: Page) {
