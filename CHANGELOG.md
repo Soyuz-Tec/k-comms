@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Temporarily disabled instant-room creation rate limits for all users during
+  active development and controlled pilot evaluation.
+
 ## [0.3.0] - 2026-07-12
 
 ### Added

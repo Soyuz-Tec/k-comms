@@ -28,20 +28,7 @@ defmodule CommsWeb.Router do
   pipeline :instant_room_create_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSameOriginJSON)
-    plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :ip)
     plug(CommsWeb.Plugs.OptionalHumanAuthentication)
-
-    plug(CommsWeb.Plugs.DistributedRateLimit,
-      scope: :instant_room_create,
-      limit: 2,
-      window: 60
-    )
-
-    plug(CommsWeb.Plugs.DistributedRateLimit,
-      scope: :instant_room_create,
-      limit: 10,
-      window: 86_400
-    )
   end
 
   pipeline :instant_room_join_api do

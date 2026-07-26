@@ -224,7 +224,7 @@ defmodule CommsWeb.DistributedRateLimitTest do
                  fn -> DistributedRateLimit.call(build_conn(), opts) end
   end
 
-  test "router keeps network buckets and adds independent conversion session buckets" do
+  test "router bypasses creation buckets and keeps other public buckets" do
     account = Fixtures.account_fixture()
 
     restore_env(
@@ -235,13 +235,13 @@ defmodule CommsWeb.DistributedRateLimitTest do
     remote_ip = {198, 51, 100, 211}
 
     guests =
-      for index <- 1..2 do
+      for index <- 1..3 do
         remote_ip
         |> public_json_conn(random_idempotency_key())
         |> post(
           "/api/v1/instant-rooms",
           Jason.encode!(%{
-            display_name: "Rate limit guest #{index}",
+            display_name: "Development guest #{index}",
             device: %{name: "Browser #{index}", platform: "web"}
           })
         )
@@ -258,7 +258,7 @@ defmodule CommsWeb.DistributedRateLimitTest do
       |> json_response(200)
     end
 
-    for {guest, index} <- Enum.with_index(guests, 1) do
+    for {guest, index} <- guests |> Enum.take(2) |> Enum.with_index(1) do
       response =
         remote_ip
         |> client_conn()
@@ -274,7 +274,7 @@ defmodule CommsWeb.DistributedRateLimitTest do
       assert response["error"]["code"] == "invalid_guest_account"
     end
 
-    assert [[1, 2]] =
+    assert [[0, nil]] =
              SQL.query!(
                Repo,
                """
@@ -285,7 +285,7 @@ defmodule CommsWeb.DistributedRateLimitTest do
                []
              ).rows
 
-    assert [[1, 2]] =
+    assert [[1, 3]] =
              SQL.query!(
                Repo,
                """
@@ -394,31 +394,6 @@ defmodule CommsWeb.DistributedRateLimitTest do
              |> DistributedRateLimit.call(opts(scope, 1, 600))
              |> Map.fetch!(:halted)
     end
-  end
-
-  test "instant-room creation enforces both minute burst and daily admission caps" do
-    burst_client = client_conn({198, 51, 100, 91})
-    minute = opts(:instant_room_create, 2, 60)
-    daily = opts(:instant_room_create, 10, 86_400)
-
-    for _request <- 1..2 do
-      refute burst_client |> DistributedRateLimit.call(minute) |> halted?()
-      refute burst_client |> DistributedRateLimit.call(daily) |> halted?()
-    end
-
-    burst_rejected = DistributedRateLimit.call(burst_client, minute)
-    assert burst_rejected.halted
-    assert get_resp_header(burst_rejected, "retry-after") != []
-
-    daily_client = client_conn({198, 51, 100, 92})
-
-    for _request <- 1..10 do
-      refute daily_client |> DistributedRateLimit.call(daily) |> halted?()
-    end
-
-    daily_rejected = DistributedRateLimit.call(daily_client, daily)
-    assert daily_rejected.halted
-    assert get_resp_header(daily_rejected, "retry-after") != []
   end
 
   defp opts(scope, limit, window) do
