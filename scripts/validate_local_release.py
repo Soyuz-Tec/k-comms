@@ -501,6 +501,15 @@ def validate_local_release(
     start_sealed_application_body = _compact_powershell(
         _function_body(runner_document, "Start-SealedApplication")
     )
+    prepare_trusted_application_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Prepare-SealedTrustedEdgeApplication",
+        )
+    )
+    start_release_services_body = _compact_powershell(
+        _function_body(runner_document, "Start-ReleaseServices")
+    )
     if (
         "[collections.generic.hashset[string]]::new("
         not in compose_interpolation_names_body
@@ -574,6 +583,34 @@ def validate_local_release(
     if (
         '@("up", "-d", "--no-build", "--force-recreate", "app")'
         not in start_sealed_application_body
+        or "if (-not $trustedproxytopology)"
+        not in start_sealed_application_body
+        or "assert-composeapplicationtrustedproxypeercurrent"
+        not in start_sealed_application_body
+        or '@("start", "app")' not in start_sealed_application_body
+        or "compose recreated the application after its trusted proxy address"
+        not in start_sealed_application_body
+        or (
+            '"up", "--no-start", "--no-deps", "--no-build", '
+            '"--force-recreate", "app"'
+        )
+        not in prepare_trusted_application_body
+        or "set-composeapplicationtrustedproxyreservation"
+        not in prepare_trusted_application_body
+        or "prepare-sealedtrustededgeapplication"
+        not in start_release_services_body
+        or start_release_services_body.find(
+            "prepare-sealedtrustededgeapplication"
+        )
+        > start_release_services_body.find(
+            '@("run", "--rm", "--no-deps", "minio-init")'
+        )
+        or start_release_services_body.find(
+            "prepare-sealedtrustededgeapplication"
+        )
+        > start_release_services_body.find(
+            '@("run", "--rm", "--no-deps", "migrate")'
+        )
         or "-sealpublicbootstrap" not in start_sealed_application_body
         or "start-sealedapplication" not in restore_body
     ):
@@ -673,13 +710,58 @@ def validate_local_release(
     exact_trusted_proxy_body = _compact_powershell(
         _function_body(runner_document, "Assert-ExactTrustedProxyCidr")
     )
-    compose_trusted_proxy_body = _compact_powershell(
-        _function_body(runner_document, "Resolve-ComposeTrustedProxyCidr")
+    trusted_proxy_selection_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Select-ComposeApplicationTrustedProxyReservation",
+        )
+    )
+    trusted_proxy_network_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Get-PodmanApplicationNetworkContract",
+        )
+    )
+    trusted_proxy_prepare_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Set-ComposeApplicationTrustedProxyReservation",
+        )
+    )
+    trusted_proxy_current_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ComposeApplicationTrustedProxyPeerCurrent",
+        )
+    )
+    trusted_proxy_ownership_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-PodmanApplicationContainerOwnership",
+        )
     )
     receipt_trusted_proxy_body = _compact_powershell(
         _function_body(
             runner_document,
-            "Assert-ReceiptTrustedProxyGatewayCurrent",
+            "Assert-ReceiptTrustedProxyPeerCurrent",
+        )
+    )
+    trusted_proxy_recovery_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ReceiptTrustedProxyReservationRecoverable",
+        )
+    )
+    trusted_proxy_occupancy_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-TrustedProxyRecoveryOccupancy",
+        )
+    )
+    trusted_proxy_self_test_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Invoke-TrustedProxyReservationSelfTest",
         )
     )
     wait_trusted_edge_body = _compact_powershell(
@@ -1235,7 +1317,7 @@ def validate_local_release(
         or "k_comms_local_release_host" not in retained_assets_body
         or "retained schema-v5 release environment topology does not"
         not in retained_assets_body
-        or "retained schema-v6 trusted-edge environment topology does"
+        or "retained schema-v7 trusted-edge environment topology does"
         not in retained_assets_body
         or "k_comms_release_exposure_mode = $cloudflaretrustededgeprofile"
         not in retained_assets_body
@@ -1340,7 +1422,7 @@ def validate_local_release(
         or '-name "required" -expected $false'
         not in forwarder_assets_body
         or "assert-lanforwarderrecordassets" not in forwarder_assets_body
-        or "schemaversion = 6" not in deploy_body
+        or "schemaversion = 7" not in deploy_body
         or "forwarder = $forwarderrecord" not in deploy_body
         or "new-lanforwarderreceiptrecord" not in deploy_body
         or '$forwarderrecord = [ordered]@{ required = $false '
@@ -1525,7 +1607,7 @@ def validate_local_release(
             "listener-release controls"
         )
     if (
-        "$supportedreceiptschemaversion = 6" not in _compact(runner_document)
+        "$supportedreceiptschemaversion = 7" not in _compact(runner_document)
         or "$value -isnot [int] -and $value -isnot [long]"
         not in _compact_powershell(runner_document)
         or "$schemaversion -gt $supportedreceiptschemaversion"
@@ -2539,12 +2621,21 @@ def validate_local_release(
         "trustededgeconfirmation = $cloudflaretrustededgeconfirmation",
     )
     trusted_edge_receipt_markers = (
-        "cloudflare trusted-edge releases require a schema-v6 receipt",
+        "schema-v6 trusted-edge receipts trusted the podman gateway",
+        "cloudflare trusted-edge releases require a schema-v7 receipt",
         "if ($recordedexposuremode -cne $cloudflaretrustededgeprofile)",
         "retained trusted-edge application, media, and object",
         "hostnames must remain distinct",
         "assert-exacttrustedproxycidr",
-        "schema-v6 trusted-edge receipt is missing sealed public origins",
+        "$recordedtrustedproxysourcekind -cne $trustedproxysourcekind",
+        "applicationnetworkname",
+        "applicationnetworkid",
+        "applicationnetworksubnet",
+        "applicationnetworkgateway",
+        "applicationnetworkprefixlength",
+        "applicationcontaineripv4",
+        "applicationcontaineripv4cidr",
+        "schema-v7 trusted-edge receipt is missing sealed public origins",
         "retained trusted-edge public origin",
         "retained release public application url does not match",
     )
@@ -2556,6 +2647,14 @@ def validate_local_release(
         "object-storage origin",
         "media node address",
         "trusted proxy cidr",
+        "trusted proxy source kind",
+        "application network name",
+        "application network id",
+        "application network subnet",
+        "application network gateway",
+        "application network prefix length",
+        "application container ipv4",
+        "application container ipv4 cidr",
         "trusted-edge confirmation",
         '"app", "minio", "livekitsignal", "livekittcp", "livekitudp"',
         '"media-only"',
@@ -2573,18 +2672,90 @@ def validate_local_release(
         or "test-rfc1918ipv4 -address $parsed"
         not in exact_trusted_proxy_body
         or '/32$"' not in exact_trusted_proxy_body
-        or '@("ps", "-q", "postgres")' not in compose_trusted_proxy_body
-        or '"{{json .networksettings.networks}}"'
-        not in compose_trusted_proxy_body
-        or '$attachments[0].value.psobject.properties["gateway"]'
-        not in compose_trusted_proxy_body
-        or "$attachments.count -ne 1" not in compose_trusted_proxy_body
-        or "assert-exacttrustedproxycidr" not in compose_trusted_proxy_body
-        or "resolve-composetrustedproxycidr" not in receipt_trusted_proxy_body
-        or "$observed -cne $recorded" not in receipt_trusted_proxy_body
-        or "assert-receipttrustedproxygatewaycurrent -receipt $receipt"
+        or '$trustedproxysourcekind = "podman-app-self-v1"'
+        not in compact_runner
+        or (
+            '"up", "--no-start", "--no-deps", "--no-build", '
+            '"--force-recreate", "app"'
+        )
+        not in prepare_trusted_application_body
+        or "get-composeapplicationnetworkcontract"
+        not in trusted_proxy_selection_body
+        or "select-freeprivateipv4cidr"
+        not in trusted_proxy_selection_body
+        or "trustedproxysourcekind = $trustedproxysourcekind"
+        not in trusted_proxy_selection_body
+        or '@("network", "inspect", $networkname)'
+        not in trusted_proxy_network_body
+        or "$networkrecords.count -ne 1"
+        not in trusted_proxy_network_body
+        or '$networkid -notmatch "^[0-9a-f]{64}$"'
+        not in trusted_proxy_network_body
+        or "$subnets.count -ne 1" not in trusted_proxy_network_body
+        or '$network.psobject.properties["containers"]'
+        not in trusted_proxy_network_body
+        or '"com.docker.compose.project"'
+        not in trusted_proxy_network_body
+        or '"com.docker.compose.network"'
+        not in trusted_proxy_network_body
+        or "$projectlabelproperty.value -cne $expectedcomposeproject"
+        not in trusted_proxy_network_body
+        or '$networklabelproperty.value -cne "default"'
+        not in trusted_proxy_network_body
+        or "assert-trustedproxyrecoveryoccupancy"
+        not in trusted_proxy_prepare_body
+        or '"network", "disconnect"' not in trusted_proxy_prepare_body
+        or '"network", "connect", "--ip"'
+        not in trusted_proxy_prepare_body
+        or "foreach ($networkalias in @($original.aliases))"
+        not in trusted_proxy_prepare_body
+        or "assert-composeapplicationtrustedproxypeercurrent"
+        not in trusted_proxy_prepare_body
+        or "$attachment.networkname -cne $contract.network.networkname"
+        not in trusted_proxy_current_body
+        or "$attachment.networkid -cne $contract.network.networkid"
+        not in trusted_proxy_current_body
+        or "$attachment.prefixlength -ne $contract.network.prefixlength"
+        not in trusted_proxy_current_body
+        or "$attachment.ipaddress -cne $contract.applicationcontaineripv4"
+        not in trusted_proxy_current_body
+        or '"com.docker.compose.project"'
+        not in trusted_proxy_ownership_body
+        or '"com.docker.compose.service"'
+        not in trusted_proxy_ownership_body
+        or '"com.docker.compose.container-number"'
+        not in trusted_proxy_ownership_body
+        or "$record.image -cne $expectedimageid"
+        not in trusted_proxy_ownership_body
+        or "$record.state.running -ne $expectedrunning"
+        not in trusted_proxy_ownership_body
+        or "resolve-receiptnetworktopology -receipt $receipt"
+        not in receipt_trusted_proxy_body
+        or "assert-composeapplicationtrustedproxypeercurrent"
+        not in receipt_trusted_proxy_body
+        or "get-composeservicecontainerid"
+        not in trusted_proxy_recovery_body
+        or "-allownotfound" not in trusted_proxy_recovery_body
+        or "-allowanyrunningstate" not in trusted_proxy_recovery_body
+        or "assert-trustedproxyrecoveryoccupancy"
+        not in trusted_proxy_recovery_body
+        or "a foreign container occupies the sealed application ipv4"
+        not in trusted_proxy_occupancy_body
+        or "app-stopped-rebindable" not in trusted_proxy_occupancy_body
+        or "app-absent-recoverable" not in trusted_proxy_occupancy_body
+        or "stopped application was not accepted for exact-ip recovery"
+        not in trusted_proxy_self_test_body
+        or "deleted application was not accepted for exact-ip recovery"
+        not in trusted_proxy_self_test_body
+        or "foreign trusted proxy ip occupant unexpectedly succeeded"
+        not in trusted_proxy_self_test_body
+        or "invoke-trustedproxyreservationselftest"
+        not in _compact_powershell(
+            _function_body(runner_document, "Invoke-Validate")
+        )
+        or "assert-receipttrustedproxypeercurrent -receipt $receipt"
         not in restore_flow_body
-        or "assert-receipttrustedproxygatewaycurrent -receipt $current"
+        or "assert-receipttrustedproxypeercurrent -receipt $current"
         not in status_body
         or any(
             marker not in receipt_topology_body
@@ -2602,10 +2773,33 @@ def validate_local_release(
         not in receipt_network_record_body
         or '$record["mediahostname"] =' not in receipt_network_record_body
         or '$record["objecthostname"] =' not in receipt_network_record_body
-        or deploy_flow_body.count("schemaversion = 6") != 2
+        or '$record["trustedproxysourcekind"]'
+        not in receipt_network_record_body
+        or '$record["applicationnetworkname"]'
+        not in receipt_network_record_body
+        or '$record["applicationnetworkid"]'
+        not in receipt_network_record_body
+        or '$record["applicationnetworksubnet"]'
+        not in receipt_network_record_body
+        or '$record["applicationnetworkgateway"]'
+        not in receipt_network_record_body
+        or '$record["applicationnetworkprefixlength"]'
+        not in receipt_network_record_body
+        or '$record["applicationcontaineripv4"]'
+        not in receipt_network_record_body
+        or '$record["applicationcontaineripv4cidr"]'
+        not in receipt_network_record_body
+        or deploy_flow_body.count("schemaversion = 7") != 2
         or "publicorigins = new-receiptpublicoriginsrecord"
         not in deploy_flow_body
-        or "resolve-composetrustedproxycidr" not in deploy_flow_body
+        or "select-composeapplicationtrustedproxyreservation"
+        not in deploy_flow_body
+        or "$previoustrustedschemaversion -eq 7"
+        not in deploy_flow_body
+        or "$previoustrustedschemaversion -eq 6"
+        not in deploy_flow_body
+        or "prepare-sealedtrustededgeapplication"
+        not in start_release_services_body
         or "wait-trustededgeapplication" not in deploy_flow_body
         or "$($topology.publicappurl)/health/ready"
         not in wait_trusted_edge_body
@@ -2639,8 +2833,7 @@ def validate_local_release(
         )
         or min(
             deploy_flow_body.find(
-                "$releasenetworkobservation.trustedproxycidr = "
-                "resolve-composetrustedproxycidr"
+                "select-composeapplicationtrustedproxyreservation"
             ),
             deploy_flow_body.find(
                 "assert-releaseenvironmenttopology "
@@ -2655,9 +2848,9 @@ def validate_local_release(
         < 0
         or not (
             deploy_flow_body.find(
-                "$releasenetworkobservation.trustedproxycidr = "
-                "resolve-composetrustedproxycidr"
+                "select-composeapplicationtrustedproxyreservation"
             )
+            < deploy_flow_body.find("start-releaseservices")
             < deploy_flow_body.find("start-sealedapplication")
             < deploy_flow_body.find(
                 "assert-lanforwarderready -receipt $candidateforwarderreceipt"
@@ -2665,20 +2858,51 @@ def validate_local_release(
             < deploy_flow_body.find("wait-trustededgeapplication")
         )
         or not (
-            restore_flow_body.find(
-                "assert-receipttrustedproxygatewaycurrent -receipt $receipt"
-            )
+            restore_flow_body.find("start-releaseservices")
             < restore_flow_body.find("start-sealedapplication")
+            < restore_flow_body.find(
+                "assert-receipttrustedproxypeercurrent -receipt $receipt"
+            )
             < restore_flow_body.find(
                 "assert-lanforwarderready -receipt $receipt"
             )
             < restore_flow_body.find("wait-trustededgeapplication")
         )
+        or trusted_proxy_prepare_body.count(
+            '"network", "connect", "--ip"'
+        )
+        != 1
+        or "select-composeapplicationtrustedproxyreservation"
+        in trusted_proxy_prepare_body
+        or "select-composeapplicationtrustedproxyreservation"
+        in restore_flow_body
+        or not (
+            _compact_powershell(
+                _function_body(runner_document, "Invoke-StartLocked")
+            ).find(
+                "assert-receipttrustedproxyreservationrecoverable "
+                "-receipt $current"
+            )
+            < _compact_powershell(
+                _function_body(runner_document, "Invoke-StartLocked")
+            ).find("unregister-lanforwardersupervisor -receipt $current")
+        )
+        or not (
+            rollback_flow_body.find(
+                "assert-receipttrustedproxyreservationrecoverable "
+                "-receipt $current"
+            )
+            < rollback_flow_body.find(
+                "unregister-lanforwardersupervisor -receipt $current"
+            )
+        )
     ):
         errors.append(
             "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
-            "origins, one RFC1918 Podman gateway /32, schema-v6 media-only "
-            "forwarding, public health probes, and rollback-compatible topology"
+            "origins, one schema-v7 RFC1918 Podman app-self /32, exact network "
+            "and ownership evidence, stopped reservation before one-shots, "
+            "media-only forwarding, public health probes, and fail-closed "
+            "restart/rollback topology"
         )
 
     return errors

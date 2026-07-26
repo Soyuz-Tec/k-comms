@@ -189,6 +189,24 @@ function Assert-Condition {
     }
 }
 
+function Convert-QualificationIPv4ToUInt64 {
+    param([Parameter(Mandatory)][Net.IPAddress]$Address)
+
+    Assert-Condition `
+        -Condition (
+            $Address.AddressFamily -eq
+                [Net.Sockets.AddressFamily]::InterNetwork
+        ) `
+        -Message "Qualification IPv4 conversion received a non-IPv4 address"
+    $bytes = $Address.GetAddressBytes()
+    return (
+        ([uint64]$bytes[0] -shl 24) -bor
+        ([uint64]$bytes[1] -shl 16) -bor
+        ([uint64]$bytes[2] -shl 8) -bor
+        [uint64]$bytes[3]
+    )
+}
+
 function Get-RequiredProperty {
     param(
         [Parameter(Mandatory)]$Object,
@@ -828,8 +846,20 @@ function Resolve-SealedReceiptQualificationTarget {
             1
         }
         else {
+            if (
+                $schemaVersionProperty.Value -isnot [int] -and
+                $schemaVersionProperty.Value -isnot [long]
+            ) {
+                throw "sealed release receipt schemaVersion must be an integer"
+            }
             [int]$schemaVersionProperty.Value
         }
+    if ($schemaVersion -gt 7) {
+        throw (
+            "sealed release receipt schemaVersion $schemaVersion is newer " +
+            "than the qualifier's supported maximum 7"
+        )
+    }
     $networkProperty = $Receipt.PSObject.Properties["network"]
     if ($schemaVersion -ge 4 -and $null -eq $networkProperty) {
         throw "schema-v4+ sealed release receipt is missing required property 'network'"
@@ -893,7 +923,16 @@ function Resolve-SealedReceiptQualificationTarget {
     }
 
     if (
-        $schemaVersion -ge 6 -and
+        $schemaVersion -eq 6 -and
+        $exposureProfile -ceq "cloudflare_trusted_edge"
+    ) {
+        throw (
+            "schema-v6 trusted-edge receipts trusted the Podman gateway and " +
+            "cannot be qualified safely; deploy a schema-v7 release"
+        )
+    }
+    if (
+        $schemaVersion -ge 7 -and
         $exposureProfile -ceq "cloudflare_trusted_edge"
     ) {
         if (
@@ -901,7 +940,7 @@ function Resolve-SealedReceiptQualificationTarget {
             $exposureMode -cne "cloudflare_trusted_edge"
         ) {
             throw (
-                "schema-v6 trusted-edge receipt must keep Podman on loopback and " +
+                "schema-v7 trusted-edge receipt must keep Podman on loopback and " +
                 "declare exposureMode cloudflare_trusted_edge"
             )
         }
@@ -955,11 +994,122 @@ function Resolve-SealedReceiptQualificationTarget {
                 "RFC1918 IPv4 /32"
             )
         }
+        Assert-PropertyValue `
+            -Object $network `
+            -Name "trustedProxySourceKind" `
+            -Expected "podman-app-self-v1" `
+            -Context "sealed release receipt network"
+        $applicationNetworkName = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationNetworkName" `
+            -Context "sealed release receipt network")
+        $applicationNetworkId = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationNetworkId" `
+            -Context "sealed release receipt network")
+        $applicationNetworkSubnet = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationNetworkSubnet" `
+            -Context "sealed release receipt network")
+        $applicationNetworkGateway = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationNetworkGateway" `
+            -Context "sealed release receipt network")
+        $applicationNetworkPrefixLength =
+            [int](Get-RequiredProperty `
+                -Object $network `
+                -Name "applicationNetworkPrefixLength" `
+                -Context "sealed release receipt network")
+        $applicationContainerIpv4 = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationContainerIpv4" `
+            -Context "sealed release receipt network")
+        $applicationContainerIpv4Cidr = [string](Get-RequiredProperty `
+            -Object $network `
+            -Name "applicationContainerIpv4Cidr" `
+            -Context "sealed release receipt network")
+        if (
+            $applicationNetworkName -notmatch
+                "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$" -or
+            $applicationNetworkId -notmatch "^[0-9a-f]{64}$" -or
+            $applicationContainerIpv4Cidr -cne
+                "$applicationContainerIpv4/32" -or
+            $trustedProxyCidr -cne $applicationContainerIpv4Cidr
+        ) {
+            throw (
+                "Trusted-edge application network or app-self peer identity " +
+                "is inconsistent"
+            )
+        }
+        $applicationAddress = $null
+        $gatewayAddress = $null
+        $subnetMatch = [Regex]::Match(
+            $applicationNetworkSubnet,
+            "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/(?<prefix>[0-9]{1,2})$"
+        )
+        $subnetAddress = $null
+        if (
+            -not $subnetMatch.Success -or
+            [int]$subnetMatch.Groups["prefix"].Value -ne
+                $applicationNetworkPrefixLength -or
+            $applicationNetworkPrefixLength -lt 16 -or
+            $applicationNetworkPrefixLength -gt 30 -or
+            -not [Net.IPAddress]::TryParse(
+                $subnetMatch.Groups["address"].Value,
+                [ref]$subnetAddress
+            ) -or
+            $subnetAddress.ToString() -cne
+                $subnetMatch.Groups["address"].Value -or
+            -not [Net.IPAddress]::TryParse(
+                $applicationNetworkGateway,
+                [ref]$gatewayAddress
+            ) -or
+            $gatewayAddress.ToString() -cne $applicationNetworkGateway -or
+            -not [Net.IPAddress]::TryParse(
+                $applicationContainerIpv4,
+                [ref]$applicationAddress
+            ) -or
+            $applicationAddress.ToString() -cne
+                $applicationContainerIpv4 -or
+            -not (Test-QualificationRfc1918IPv4 -Address $subnetAddress) -or
+            -not (Test-QualificationRfc1918IPv4 -Address $gatewayAddress) -or
+            -not (Test-QualificationRfc1918IPv4 -Address $applicationAddress)
+        ) {
+            throw (
+                "Trusted-edge application network fields must be canonical " +
+                "RFC1918 IPv4 values"
+            )
+        }
+        $subnetValue =
+            Convert-QualificationIPv4ToUInt64 -Address $subnetAddress
+        $addressCount =
+            [uint64][Math]::Pow(
+                2,
+                32 - $applicationNetworkPrefixLength
+            )
+        $broadcastValue = $subnetValue + $addressCount - 1
+        $gatewayValue =
+            Convert-QualificationIPv4ToUInt64 -Address $gatewayAddress
+        $applicationValue =
+            Convert-QualificationIPv4ToUInt64 -Address $applicationAddress
+        if (
+            ($subnetValue % $addressCount) -ne 0 -or
+            $gatewayValue -le $subnetValue -or
+            $gatewayValue -ge $broadcastValue -or
+            $applicationValue -le $subnetValue -or
+            $applicationValue -ge $broadcastValue -or
+            $applicationValue -eq $gatewayValue
+        ) {
+            throw (
+                "Trusted-edge application network gateway and app-self peer " +
+                "must be distinct usable addresses in the sealed subnet"
+            )
+        }
 
         $publicOrigins = Get-RequiredProperty `
             -Object $Receipt `
             -Name "publicOrigins" `
-            -Context "schema-v6 sealed release receipt"
+            -Context "schema-v7 sealed release receipt"
         $appOrigin = [string](Get-RequiredProperty `
             -Object $publicOrigins `
             -Name "application" `
@@ -1016,7 +1166,7 @@ function Resolve-SealedReceiptQualificationTarget {
         $forwarder = Get-RequiredProperty `
             -Object $Receipt `
             -Name "forwarder" `
-            -Context "schema-v6 sealed release receipt"
+            -Context "schema-v7 sealed release receipt"
         Assert-PropertyValue `
             -Object $forwarder `
             -Name "required" `
@@ -1068,7 +1218,7 @@ function Resolve-SealedReceiptQualificationTarget {
         $topLevelPublicAppUrl = [string](Get-RequiredProperty `
             -Object $Receipt `
             -Name "publicAppUrl" `
-            -Context "schema-v6 sealed release receipt")
+            -Context "schema-v7 sealed release receipt")
         if ($topLevelPublicAppUrl -cne $expectedAppOrigin) {
             throw "Trusted-edge top-level public application origin does not match"
         }
@@ -1086,6 +1236,15 @@ function Resolve-SealedReceiptQualificationTarget {
             TrustedEdge = $true
             ExposureMode = $exposureMode
             ForwarderRequired = $true
+            TrustedProxySourceKind = "podman-app-self-v1"
+            ApplicationNetworkName = $applicationNetworkName
+            ApplicationNetworkId = $applicationNetworkId
+            ApplicationNetworkSubnet = $applicationNetworkSubnet
+            ApplicationNetworkGateway = $applicationNetworkGateway
+            ApplicationNetworkPrefixLength =
+                $applicationNetworkPrefixLength
+            ApplicationContainerIpv4 = $applicationContainerIpv4
+            ApplicationContainerIpv4Cidr = $applicationContainerIpv4Cidr
         }
     }
 
@@ -5237,7 +5396,7 @@ function Assert-TrustedEdgeQualificationSelfTest {
         minio = 5900
     }
     $receipt = [PSCustomObject]@{
-        schemaVersion = 6
+        schemaVersion = 7
         publicAppUrl = "https://comms.avayaworks.com"
         publicOrigins = [PSCustomObject]@{
             application = "https://comms.avayaworks.com"
@@ -5257,7 +5416,15 @@ function Assert-TrustedEdgeQualificationSelfTest {
             mediaHostname = "media.avayaworks.com"
             objectHostname = "kcomms-files.avayaworks.com"
             mediaNodeAddress = "192.168.1.177"
-            trustedProxyCidr = "10.89.0.1/32"
+            trustedProxyCidr = "10.89.0.254/32"
+            trustedProxySourceKind = "podman-app-self-v1"
+            applicationNetworkName = "k-comms-release_default"
+            applicationNetworkId = "a" * 64
+            applicationNetworkSubnet = "10.89.0.0/24"
+            applicationNetworkGateway = "10.89.0.1"
+            applicationNetworkPrefixLength = 24
+            applicationContainerIpv4 = "10.89.0.254"
+            applicationContainerIpv4Cidr = "10.89.0.254/32"
             trustedEdgeConfirmation = "cloudflare-tunnel-v1"
         }
         forwarder = [PSCustomObject]@{
@@ -5294,7 +5461,7 @@ function Assert-TrustedEdgeQualificationSelfTest {
             $target.DirectHttpOrigin -ceq "http://127.0.0.1:4188" -and
             $target.ForwarderRequired
         ) `
-        -Message "Self-test rejected the canonical schema-v6 trusted-edge receipt"
+        -Message "Self-test rejected the canonical schema-v7 trusted-edge receipt"
     $trustedPolicy = New-ExpectedContentSecurityPolicy `
         -AppOrigin $target.AppOrigin `
         -AppWebSocketOrigin $target.AppWebSocketOrigin `
@@ -5312,10 +5479,53 @@ function Assert-TrustedEdgeQualificationSelfTest {
 
     $tamperCases = @(
         [PSCustomObject]@{
+            Name = "legacy gateway receipt"
+            Mutate = {
+                param($candidate)
+                $candidate.schemaVersion = 6
+            }
+        },
+        [PSCustomObject]@{
+            Name = "future receipt schema"
+            Mutate = {
+                param($candidate)
+                $candidate.schemaVersion = 8
+            }
+        },
+        [PSCustomObject]@{
+            Name = "string receipt schema"
+            Mutate = {
+                param($candidate)
+                $candidate.schemaVersion = "7"
+            }
+        },
+        [PSCustomObject]@{
             Name = "broad trusted proxy"
             Mutate = {
                 param($candidate)
                 $candidate.network.trustedProxyCidr = "10.89.0.0/24"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "wrong app-self source"
+            Mutate = {
+                param($candidate)
+                $candidate.network.trustedProxySourceKind = "podman-gateway-v1"
+            }
+        },
+        [PSCustomObject]@{
+            Name = "malformed application network ID"
+            Mutate = {
+                param($candidate)
+                $candidate.network.applicationNetworkId = "b" * 63
+            }
+        },
+        [PSCustomObject]@{
+            Name = "mismatched app-self address"
+            Mutate = {
+                param($candidate)
+                $candidate.network.applicationContainerIpv4 =
+                    "10.89.0.253"
             }
         },
         [PSCustomObject]@{

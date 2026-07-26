@@ -83,10 +83,13 @@ The following constraints are part of the decision:
    `LIVEKIT_SERVER_URL=wss://media.avayaworks.com`, and
    `S3_PUBLIC_ENDPOINT=https://kcomms-files.avayaworks.com`. Phoenix host/origin
    validation, CORS, and CSP must admit only the corresponding HTTPS/WSS
-   origins, in addition to required internal service addresses. Forwarded
-   client/proto headers are trusted only from the exact observed
-   application-network gateway `/32` sealed in the release receipt, never from
-   an arbitrary loopback/private subnet or untrusted request.
+   origins, in addition to required internal service addresses. A schema-v7
+   receipt records `trustedProxySourceKind=podman-app-self-v1`, the exact
+   application bridge name, ID, subnet, gateway, and prefix, and the reserved
+   application IPv4 and `/32` CIDR. Forwarded client/proto headers are trusted
+   only when the connection peer is that exact receipt-sealed application
+   container `/32`, never from the bridge gateway, an arbitrary
+   loopback/private subnet, or an untrusted request.
 4. Cloudflare Tunnel is an independently administered Windows service. Use a
    K-Comms-dedicated tunnel/connector and keep it running while the release
    manager performs `Deploy`, `Start`, or `Rollback`, because those actions
@@ -160,12 +163,23 @@ The following constraints are part of the decision:
    on the same LAN proves microphone, camera, screen sharing, participant
    visibility, two-way audio/video, device controls, and cleanup over the exact
    sealed release. A secure origin alone is not media evidence.
-11. `Start`, `Status`, `Stop`, and `Rollback` remain receipt-driven. They verify
-    or reuse the retained exposure profile, three exact hostnames, loopback
-    origins, media node address, two-listener LAN contract, image identity, and
-    configuration hashes. They do not mutate Cloudflare state. Rollback keeps
-    the stable public names and may activate only a predecessor whose retained
-    receipt declares compatible trusted-edge and media configuration.
+11. Trusted-edge activation reserves the application peer before it can accept
+    traffic. The manager creates the Compose application stopped with
+    `compose up --no-start --no-deps`, disconnects its automatically allocated
+    bridge attachment, reconnects it with the exact sealed IPv4, verifies the
+    Compose project/service ownership, image, one-network identity, prefix, and
+    address, and then starts the same container without recreation. `Start`,
+    `Status`, `Stop`, and `Rollback` remain receipt-driven. `Start` and
+    `Rollback` reuse this exact reservation and fail closed before activation
+    when the network name/ID/subnet/gateway/prefix, address, ownership, image,
+    or attachment count drifts. Schema-v6 trusted-edge receipts used gateway
+    trust and must be redeployed as schema v7 rather than reinterpreted.
+    Lifecycle actions also verify or reuse the retained exposure profile, three
+    exact hostnames, loopback origins, media node address, two-listener LAN
+    contract, and configuration hashes. They do not mutate Cloudflare state.
+    Rollback keeps the stable public names and may activate only a predecessor
+    whose retained receipt declares compatible trusted-edge and media
+    configuration.
 12. A limited-privilege Windows Scheduled Task supervises only the trusted-edge
     media-only forwarder. Its action is bound to the exact active receipt path,
     candidate id, forwarder configuration hash, manager-script hash, state
@@ -212,6 +226,8 @@ LAN-only. Do not distribute invitations outside the controlled pilot.
 - Application, signaling, and object origins remain explicit and independently
   constrained.
 - Podman's application and stateful service publications remain loopback-only.
+- Trust is narrowed from a bridge-wide gateway identity to the exact
+  receipt-sealed application-container peer.
 - Only the two required LiveKit ICE media ports are exposed to the trusted LAN.
 - Existing anonymous QR/link onboarding remains a one-step guest journey.
 - Stable hostnames survive a host IP change on the browser control plane; the
@@ -234,6 +250,10 @@ LAN-only. Do not distribute invitations outside the controlled pilot.
 - The tunnel token needs an independently owned rotation, revocation, and host
   recovery process; no credential lifecycle evidence belongs in a release
   receipt.
+- Podman host-port forwarding still does not authenticate the Windows process
+  that opened the loopback connection. The app-self `/32` is appropriate only
+  for this controlled profile; direct loopback remains a local-operator-trust
+  boundary and is not a shareable edge.
 - One tunnel service and one host are not highly available.
 
 ## Alternatives considered
@@ -255,8 +275,14 @@ LAN-only. Do not distribute invitations outside the controlled pilot.
   node address, the two media-listener ports, and confirmation value; the
   receipt then seals the exact selected `avayaworks.com` values.
 - The retained receipt and status output prove loopback-only Podman
-  publications, exact HTTPS/WSS origins, the selected media node address,
-  two-listener LAN forwarding, and immutable image/configuration identity.
+  publications, exact HTTPS/WSS origins, the schema-v7
+  `podman-app-self-v1` source kind, full bridge identity, reserved application
+  IPv4/CIDR, the selected media node address, two-listener LAN forwarding, and
+  immutable image/configuration identity.
+- Deployment evidence proves the application is created stopped, reattached to
+  its sealed IPv4, checked for exact ownership/image/network identity, and
+  started without recreation. Restart and rollback qualification repeat those
+  checks and reject schema-v6 trusted-edge receipts until they are redeployed.
 - Public probes verify:
   - `https://comms.avayaworks.com/health/ready`;
   - `https://comms.avayaworks.com/app/`;

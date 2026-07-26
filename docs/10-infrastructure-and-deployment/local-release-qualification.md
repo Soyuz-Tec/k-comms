@@ -192,7 +192,7 @@ powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
   -Action Deploy -BindAddress 192.168.1.25 -AllowPublicNetworkProfile
 ```
 
-The network record introduced in schema v5 and retained by current schema v6
+The network record introduced in schema v5 and retained by current schema v7
 records the observed interface, network name/category, override authorization,
 whether it was needed, the fixed Podman bind, exposure mode, retained forwarder
 script/config hashes and paths, readiness token, ready and log paths, and exact
@@ -484,14 +484,43 @@ S3_PUBLIC_ENDPOINT=https://kcomms-files.avayaworks.com
 
 It also seals the corresponding Phoenix host/origin, CORS, CSP, LiveKit node
 address, two-listener media-forwarder contract, and loopback Podman
-publications. The application accepts Cloudflare client/proto forwarding
-headers only from the exact observed application-network gateway `/32` sealed
-in the receipt; it does not trust an arbitrary forwarded header or broad
-private subnet. The manager's public HTTPS probes require a browser-trusted
-edge certificate and reachable routes, but they do not inspect Cloudflare
-Access, Cache Rules, DNS ownership, certificate lifecycle, or provider
-availability settings. Manager success alone is therefore not complete
-trusted-edge qualification.
+publications.
+
+Schema v7 replaces the former gateway-derived proxy trust with one exact
+application peer reservation. Its network record includes:
+
+```text
+trustedProxySourceKind=podman-app-self-v1
+applicationNetworkName
+applicationNetworkId
+applicationNetworkSubnet
+applicationNetworkGateway
+applicationNetworkPrefixLength
+applicationContainerIpv4
+applicationContainerIpv4Cidr
+trustedProxyCidr
+```
+
+`trustedProxyCidr` must equal `applicationContainerIpv4Cidr`, and both identify
+only the reserved application IPv4 `/32`. The bridge gateway is recorded as
+part of the complete network identity but is not trusted as a proxy source.
+The manager creates the application stopped with
+`compose up --no-start --no-deps`, verifies the Compose-owned app replica and
+sealed image, disconnects the automatically assigned bridge attachment,
+reconnects it at the exact reserved IPv4 while preserving its aliases, and
+verifies one exact network name, network ID, prefix, and address. It then starts
+that already-created container without a Compose recreation and repeats the
+identity checks while running. An occupied reservation, additional attachment,
+same-name/different-ID bridge, address drift, ownership drift, image drift, or
+network specification drift fails closed.
+
+The application accepts Cloudflare client/proto forwarding headers only from
+that exact receipt-sealed application peer. It does not trust the bridge
+gateway, an arbitrary forwarded header, or a broad private subnet. The
+manager's public HTTPS probes require a browser-trusted edge certificate and
+reachable routes, but they do not inspect Cloudflare Access, Cache Rules, DNS
+ownership, certificate lifecycle, or provider availability settings. Manager
+success alone is therefore not complete trusted-edge qualification.
 
 ### Start, stop, status, and rollback
 
@@ -758,6 +787,10 @@ independently administered Cloudflare route. Playwright traces, screenshots,
 video, and AI failure-copy are disabled for this bearer-bearing journey, and
 the captured share field is redacted before later assertions.
 
+That gateway rule is isolated to this disposable qualification application and
+its documentation-only forwarded address. It does not describe or weaken the
+retained schema-v7 application's `podman-app-self-v1` peer reservation.
+
 The instant-room journey remains anonymous-only and never converts either
 browser identity. Default loopback and trusted-edge qualification then run
 `e2e/live-guest-communication.spec.ts`, `e2e/live-audio.spec.ts`, and
@@ -934,10 +967,10 @@ qualifier writes one secret-free schema-v3
 `qualification-cleanup.json` marker at the state root shared by every retained
 candidate. In addition to the random tenant id, it binds the temporary
 application's deterministic name, nonce, random loopback port and origin,
-trusted gateway `/32`, documentation client address, and retained public
-origin to the originating deployment receipt, environment, Compose source,
-project, Git revision, and image ID. It uses only paths, hashes, addresses, and
-public image metadata.
+qualification-only trusted gateway `/32`, documentation client address, and
+retained public origin to the originating deployment receipt, environment,
+Compose source, project, Git revision, and image ID. It uses only paths, hashes,
+addresses, and public image metadata.
 
 The mandatory `finally` recovery path verifies and removes the temporary
 application by its inspected container ID, confirms that it is absent, deletes
@@ -990,16 +1023,27 @@ or validate the independent Cloudflare connector.
 
 `Start` accepts schema-v3 and schema-v4 receipts only for loopback
 compatibility. Existing schema-v5 receipts remain valid for status, start, and
-rollback. Every new deployment writes schema v6, a format-wide bump that adds
-the explicit exposure profile and sealed public-origin record while retaining
-the audited network profile, loopback Podman bind, exposure mode, and forwarder
-record. Trusted-edge schema-v6 receipts additionally require the three public
-origins, trusted-proxy `/32`, media-node address, exact confirmation, and
-media-only forwarder profile. Deploy a clean schema-v6 candidate before first
-selecting trusted-edge mode; older receipts remain restartable only under
-their own compatible sealed profile.
-The manager rejects receipt schema versions newer than v6 instead of
-interpreting them with stale lifecycle logic.
+rollback. Schema-v6 receipts introduced the explicit exposure profile and
+sealed public-origin record while retaining the audited network profile,
+loopback Podman bind, exposure mode, and forwarder record. A schema-v6
+trusted-edge receipt derived trust from the Podman gateway and therefore is
+not safe to activate under the corrected peer model; `Start` and `Rollback`
+reject it and require a clean schema-v7 redeployment rather than reinterpret
+its old `trustedProxyCidr`.
+
+Every new deployment writes schema v7. Trusted-edge schema-v7 receipts require
+the three public origins, `trustedProxySourceKind=podman-app-self-v1`, the exact
+bridge name, immutable network ID, subnet, gateway, prefix, reserved
+application IPv4 and matching `/32` CIDR, media-node address, exact
+confirmation, and media-only forwarder profile. `Start` and `Rollback` inspect
+and reuse that exact reservation; they never select a replacement address or
+rewrite the receipt when the reservation is occupied or topology has drifted.
+They create the app stopped, restore its sealed attachment, verify
+ownership/image/network/address, and start it without recreation. Any mismatch
+fails closed before the receipt becomes active. Older non-trusted-edge receipts
+remain restartable only under their own compatible sealed profile. The manager
+rejects receipt schema versions newer than v7 instead of interpreting them
+with stale lifecycle logic.
 Before activating a receipt that lacks guest rollback capabilities, `Start`
 runs the same quiesced PostgreSQL hazard probe. This fails closed when a
 migrated failed candidate left guest rows or jobs while `current.json` still
@@ -1091,6 +1135,14 @@ require a matching observed Windows interface/profile receipt and either a
 Private profile or the explicit audited non-Private-profile override. Missing,
 public-IP, unassigned, wildcard, directly published RFC1918, stale forwarder,
 or broader combinations fail closed.
+
+The trusted-edge profile also requires the schema-v7 app-self bridge contract
+above. Direct `http://127.0.0.1:4188` access remains a
+local-operator-trust-only boundary: it is not a shareable trusted-edge origin
+and must never be used to assert forwarded client identity. Protected
+trusted-edge operations require the public HTTPS origin. Use a separately
+deployed loopback profile for any explicitly supported local operator workflow
+that cannot use the trusted edge.
 
 This proves local packaging, migration, dependency startup, application
 readiness, immutable restart, and application rollback. Signaling checks alone

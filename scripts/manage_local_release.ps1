@@ -57,7 +57,8 @@ $lanForwarderSourceRelativePath = "scripts\lan_release_forwarder.mjs"
 $podmanBindAddress = "127.0.0.1"
 $cloudflareTrustedEdgeProfile = "cloudflare_trusted_edge"
 $cloudflareTrustedEdgeConfirmation = "cloudflare-tunnel-v1"
-$supportedReceiptSchemaVersion = 6
+$supportedReceiptSchemaVersion = 7
+$trustedProxySourceKind = "podman-app-self-v1"
 $lanForwarderSupervisorKind = "windows-scheduled-task-poll-v1"
 $lanForwarderSupervisorIntervalSeconds = 60
 $lanForwarderSupervisorStartDelaySeconds = 15
@@ -1292,6 +1293,14 @@ function Resolve-RequestedReleaseTopology {
                 "http://$($observation.BindAddress)`:$MinioPort"
             MediaNodeAddress = $observation.BindAddress
             TrustedProxyCidr = ""
+            TrustedProxySourceKind = ""
+            ApplicationNetworkName = ""
+            ApplicationNetworkId = ""
+            ApplicationNetworkSubnet = ""
+            ApplicationNetworkGateway = ""
+            ApplicationNetworkPrefixLength = 0
+            ApplicationContainerIpv4 = ""
+            ApplicationContainerIpv4Cidr = ""
             TrustedEdgeConfirmation = ""
         }
     }
@@ -1347,9 +1356,17 @@ function Resolve-RequestedReleaseTopology {
         LiveKitOrigin = "wss://$resolvedMediaHostname"
         ObjectOrigin = "https://$resolvedObjectHostname"
         MediaNodeAddress = $observation.BindAddress
-        # Deployment resolves and seals the exact application-network gateway
-        # /32 before any application container starts.
+        # Deployment selects and seals the exact application bridge peer /32
+        # before any application container starts.
         TrustedProxyCidr = ""
+        TrustedProxySourceKind = $trustedProxySourceKind
+        ApplicationNetworkName = ""
+        ApplicationNetworkId = ""
+        ApplicationNetworkSubnet = ""
+        ApplicationNetworkGateway = ""
+        ApplicationNetworkPrefixLength = 0
+        ApplicationContainerIpv4 = ""
+        ApplicationContainerIpv4Cidr = ""
         TrustedEdgeConfirmation = $cloudflareTrustedEdgeConfirmation
     }
 }
@@ -1408,6 +1425,17 @@ function Assert-ReleaseNetworkObservationCurrent {
         ObjectOrigin = [string]$Expected.ObjectOrigin
         MediaNodeAddress = [string]$Expected.MediaNodeAddress
         TrustedProxyCidr = [string]$Expected.TrustedProxyCidr
+        TrustedProxySourceKind = [string]$Expected.TrustedProxySourceKind
+        ApplicationNetworkName = [string]$Expected.ApplicationNetworkName
+        ApplicationNetworkId = [string]$Expected.ApplicationNetworkId
+        ApplicationNetworkSubnet = [string]$Expected.ApplicationNetworkSubnet
+        ApplicationNetworkGateway = [string]$Expected.ApplicationNetworkGateway
+        ApplicationNetworkPrefixLength =
+            [int]$Expected.ApplicationNetworkPrefixLength
+        ApplicationContainerIpv4 =
+            [string]$Expected.ApplicationContainerIpv4
+        ApplicationContainerIpv4Cidr =
+            [string]$Expected.ApplicationContainerIpv4Cidr
         TrustedEdgeConfirmation = [string]$Expected.TrustedEdgeConfirmation
     }
 }
@@ -1583,6 +1611,22 @@ function New-ReceiptNetworkRecord {
     if ($isTrustedEdge) {
         $record["mediaNodeAddress"] = [string]$Observation.MediaNodeAddress
         $record["trustedProxyCidr"] = [string]$Observation.TrustedProxyCidr
+        $record["trustedProxySourceKind"] =
+            [string]$Observation.TrustedProxySourceKind
+        $record["applicationNetworkName"] =
+            [string]$Observation.ApplicationNetworkName
+        $record["applicationNetworkId"] =
+            [string]$Observation.ApplicationNetworkId
+        $record["applicationNetworkSubnet"] =
+            [string]$Observation.ApplicationNetworkSubnet
+        $record["applicationNetworkGateway"] =
+            [string]$Observation.ApplicationNetworkGateway
+        $record["applicationNetworkPrefixLength"] =
+            [int]$Observation.ApplicationNetworkPrefixLength
+        $record["applicationContainerIpv4"] =
+            [string]$Observation.ApplicationContainerIpv4
+        $record["applicationContainerIpv4Cidr"] =
+            [string]$Observation.ApplicationContainerIpv4Cidr
         $record["trustedEdgeConfirmation"] =
             [string]$Observation.TrustedEdgeConfirmation
         $record["appHostname"] = [string]$Observation.PublicHost
@@ -1658,6 +1702,149 @@ function Assert-ExactTrustedProxyCidr {
     return "$($parsed.ToString())/32"
 }
 
+function Convert-IPv4AddressToUInt64 {
+    param([Parameter(Mandatory)][Net.IPAddress]$Address)
+
+    if ($Address.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+        throw "Only IPv4 addresses can be converted to an integer"
+    }
+    $bytes = $Address.GetAddressBytes()
+    return (
+        ([uint64]$bytes[0] -shl 24) -bor
+        ([uint64]$bytes[1] -shl 16) -bor
+        ([uint64]$bytes[2] -shl 8) -bor
+        [uint64]$bytes[3]
+    )
+}
+
+function Convert-UInt64ToIPv4Address {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateRange(0, 4294967295)]
+        [uint64]$Value
+    )
+
+    $bytes = [byte[]]@(
+        [byte](($Value -shr 24) -band 255)
+        [byte](($Value -shr 16) -band 255)
+        [byte](($Value -shr 8) -band 255)
+        [byte]($Value -band 255)
+    )
+    return [Net.IPAddress]::new($bytes)
+}
+
+function Select-FreePrivateIPv4Cidr {
+    param(
+        [Parameter(Mandatory)][string]$SubnetCidr,
+        [Parameter(Mandatory)][string]$Gateway,
+        [string[]]$UsedCidrs = @()
+    )
+
+    $subnetMatch = [Regex]::Match(
+        $SubnetCidr,
+        "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/(?<prefix>[0-9]{1,2})$"
+    )
+    if (-not $subnetMatch.Success) {
+        throw "Podman application network must expose one canonical IPv4 subnet"
+    }
+    $subnetAddress = $null
+    if (
+        -not [Net.IPAddress]::TryParse(
+            $subnetMatch.Groups["address"].Value,
+            [ref]$subnetAddress
+        ) -or
+        $subnetAddress.AddressFamily -ne
+            [Net.Sockets.AddressFamily]::InterNetwork -or
+        $subnetAddress.ToString() -cne
+            $subnetMatch.Groups["address"].Value
+    ) {
+        throw "Podman application network subnet is not canonical IPv4"
+    }
+    $prefixLength = [int]$subnetMatch.Groups["prefix"].Value
+    if ($prefixLength -lt 16 -or $prefixLength -gt 30) {
+        throw (
+            "Podman application network IPv4 prefix must be between /16 and /30"
+        )
+    }
+    $subnetValue = Convert-IPv4AddressToUInt64 -Address $subnetAddress
+    $addressCount = [uint64][Math]::Pow(2, 32 - $prefixLength)
+    if (($subnetValue % $addressCount) -ne 0) {
+        throw "Podman application network subnet address is not its canonical base"
+    }
+    $broadcastValue = $subnetValue + $addressCount - 1
+    $broadcastAddress =
+        Convert-UInt64ToIPv4Address -Value $broadcastValue
+    if (
+        -not (Test-Rfc1918IPv4 -Address $subnetAddress) -or
+        -not (Test-Rfc1918IPv4 -Address $broadcastAddress)
+    ) {
+        throw "Podman application network subnet must be wholly RFC1918 private"
+    }
+
+    $gatewayAddress = $null
+    if (
+        -not [Net.IPAddress]::TryParse($Gateway, [ref]$gatewayAddress) -or
+        $gatewayAddress.AddressFamily -ne
+            [Net.Sockets.AddressFamily]::InterNetwork -or
+        $gatewayAddress.ToString() -cne $Gateway
+    ) {
+        throw "Podman application network gateway must be canonical IPv4"
+    }
+    $gatewayValue = Convert-IPv4AddressToUInt64 -Address $gatewayAddress
+    if ($gatewayValue -le $subnetValue -or $gatewayValue -ge $broadcastValue) {
+        throw "Podman application network gateway is outside its usable subnet"
+    }
+
+    $usedAddresses = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal
+    )
+    $null = $usedAddresses.Add($gatewayAddress.ToString())
+    foreach ($usedCidr in @($UsedCidrs)) {
+        $usedMatch = [Regex]::Match(
+            [string]$usedCidr,
+            "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/(?<prefix>[0-9]{1,2})$"
+        )
+        if (-not $usedMatch.Success) {
+            throw "Podman application network contains a malformed allocation"
+        }
+        $usedAddress = $null
+        if (
+            -not [Net.IPAddress]::TryParse(
+                $usedMatch.Groups["address"].Value,
+                [ref]$usedAddress
+            ) -or
+            $usedAddress.AddressFamily -ne
+                [Net.Sockets.AddressFamily]::InterNetwork -or
+            $usedAddress.ToString() -cne
+                $usedMatch.Groups["address"].Value -or
+            [int]$usedMatch.Groups["prefix"].Value -ne $prefixLength
+        ) {
+            throw (
+                "Podman application network allocation does not match its " +
+                "canonical IPv4 subnet"
+            )
+        }
+        $usedValue = Convert-IPv4AddressToUInt64 -Address $usedAddress
+        if ($usedValue -le $subnetValue -or $usedValue -ge $broadcastValue) {
+            throw "Podman application network allocation is outside its subnet"
+        }
+        $null = $usedAddresses.Add($usedAddress.ToString())
+    }
+
+    for (
+        [uint64]$candidateValue = $broadcastValue - 1;
+        $candidateValue -gt $subnetValue;
+        $candidateValue--
+    ) {
+        $candidate =
+            (Convert-UInt64ToIPv4Address -Value $candidateValue).ToString()
+        if (-not $usedAddresses.Contains($candidate)) {
+            return Assert-ExactTrustedProxyCidr -Value "$candidate/32"
+        }
+    }
+    throw "Podman application network has no free private IPv4 for the application"
+}
+
 function Resolve-ReceiptNetworkTopology {
     param([Parameter(Mandatory)]$Receipt)
 
@@ -1683,8 +1870,14 @@ function Resolve-ReceiptNetworkTopology {
     $publicAppUrl = Get-ReceiptPublicAppUrl -Receipt $Receipt
 
     if ($exposureProfile -ceq $cloudflareTrustedEdgeProfile) {
-        if ($schemaVersion -lt 6) {
-            throw "Cloudflare trusted-edge releases require a schema-v6 receipt"
+        if ($schemaVersion -eq 6) {
+            throw (
+                "Schema-v6 trusted-edge receipts trusted the Podman gateway and " +
+                "cannot be restarted safely; deploy a schema-v7 release"
+            )
+        }
+        if ($schemaVersion -lt 7) {
+            throw "Cloudflare trusted-edge releases require a schema-v7 receipt"
         }
         $recordedExposureMode = [string](Get-ReceiptNetworkProperty `
             -Receipt $Receipt `
@@ -1739,6 +1932,78 @@ function Resolve-ReceiptNetworkTopology {
             -Value ([string](Get-ReceiptNetworkProperty `
                 -Receipt $Receipt `
                 -Name "trustedProxyCidr"))
+        $recordedTrustedProxySourceKind =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "trustedProxySourceKind")
+        if ($recordedTrustedProxySourceKind -cne $trustedProxySourceKind) {
+            throw (
+                "Retained trusted-edge receipt has an unsupported trusted " +
+                "proxy source kind"
+            )
+        }
+        $applicationNetworkName =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationNetworkName")
+        $applicationNetworkId =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationNetworkId")
+        $applicationNetworkSubnet =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationNetworkSubnet")
+        $applicationNetworkGateway =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationNetworkGateway")
+        $applicationNetworkPrefixLength =
+            [int](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationNetworkPrefixLength")
+        $applicationContainerIpv4 =
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $Receipt `
+                -Name "applicationContainerIpv4")
+        $applicationContainerIpv4Cidr =
+            Assert-ExactTrustedProxyCidr `
+                -Value ([string](Get-ReceiptNetworkProperty `
+                    -Receipt $Receipt `
+                    -Name "applicationContainerIpv4Cidr"))
+        if (
+            $applicationNetworkName -notmatch
+                "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$" -or
+            $applicationNetworkId -notmatch "^[0-9a-f]{64}$" -or
+            $trustedProxyCidr -cne $applicationContainerIpv4Cidr -or
+            $applicationContainerIpv4Cidr -cne
+                "$applicationContainerIpv4/32"
+        ) {
+            throw (
+                "Retained trusted-edge application peer identity is " +
+                "inconsistent"
+            )
+        }
+        $subnetMatch = [Regex]::Match(
+            $applicationNetworkSubnet,
+            "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/(?<prefix>[0-9]{1,2})$"
+        )
+        if (
+            -not $subnetMatch.Success -or
+            [int]$subnetMatch.Groups["prefix"].Value -ne
+                $applicationNetworkPrefixLength
+        ) {
+            throw (
+                "Retained trusted-edge application network prefix is " +
+                "inconsistent"
+            )
+        }
+        $null = Select-FreePrivateIPv4Cidr `
+            -SubnetCidr $applicationNetworkSubnet `
+            -Gateway $applicationNetworkGateway `
+            -UsedCidrs @(
+                "$applicationContainerIpv4/$applicationNetworkPrefixLength"
+            )
         $expectedOrigins = [ordered]@{
             application = "https://$appHostname"
             applicationWebSocket = "wss://$appHostname"
@@ -1747,7 +2012,7 @@ function Resolve-ReceiptNetworkTopology {
         }
         $publicOrigins = Get-ReceiptPublicOriginsRecord -Receipt $Receipt
         if (-not $publicOrigins) {
-            throw "Schema-v6 trusted-edge receipt is missing sealed public origins"
+            throw "Schema-v7 trusted-edge receipt is missing sealed public origins"
         }
         foreach ($entry in $expectedOrigins.GetEnumerator()) {
             $actual = Get-ReceiptTopLevelProperty `
@@ -1786,6 +2051,15 @@ function Resolve-ReceiptNetworkTopology {
             ObjectOrigin = [string]$expectedOrigins.objectStorage
             MediaNodeAddress = $mediaNodeAddress
             TrustedProxyCidr = $trustedProxyCidr
+            TrustedProxySourceKind = $recordedTrustedProxySourceKind
+            ApplicationNetworkName = $applicationNetworkName
+            ApplicationNetworkId = $applicationNetworkId
+            ApplicationNetworkSubnet = $applicationNetworkSubnet
+            ApplicationNetworkGateway = $applicationNetworkGateway
+            ApplicationNetworkPrefixLength =
+                $applicationNetworkPrefixLength
+            ApplicationContainerIpv4 = $applicationContainerIpv4
+            ApplicationContainerIpv4Cidr = $applicationContainerIpv4Cidr
             TrustedEdgeConfirmation = $trustedEdgeConfirmation
             ExposureProfile = $exposureProfile
             InterfaceIndex = $observation.InterfaceIndex
@@ -1870,6 +2144,14 @@ function Resolve-ReceiptNetworkTopology {
         ObjectOrigin = $objectOrigin
         MediaNodeAddress = $resolvedBindAddress
         TrustedProxyCidr = ""
+        TrustedProxySourceKind = ""
+        ApplicationNetworkName = ""
+        ApplicationNetworkId = ""
+        ApplicationNetworkSubnet = ""
+        ApplicationNetworkGateway = ""
+        ApplicationNetworkPrefixLength = 0
+        ApplicationContainerIpv4 = ""
+        ApplicationContainerIpv4Cidr = ""
         TrustedEdgeConfirmation = ""
         ExposureProfile = $exposureProfile
         InterfaceIndex = $observation.InterfaceIndex
@@ -3398,23 +3680,96 @@ function Stop-ApplicationForMigration {
     }
 }
 
+function Prepare-SealedTrustedEdgeApplication {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$ExpectedImageId,
+        [Parameter(Mandatory)]$TrustedProxyTopology
+    )
+
+    Invoke-Compose `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Arguments @(
+            "up",
+            "--no-start",
+            "--no-deps",
+            "--no-build",
+            "--force-recreate",
+            "app"
+        ) `
+        -SealPublicBootstrap `
+        -EchoOutput | Out-Null
+    return Set-ComposeApplicationTrustedProxyReservation `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -ExpectedImageId $ExpectedImageId `
+        -Topology $TrustedProxyTopology
+}
+
 function Start-SealedApplication {
     param(
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposeProject,
-        [Parameter(Mandatory)][string]$ComposePath
+        [Parameter(Mandatory)][string]$ComposePath,
+        [string]$ExpectedImageId = "",
+        $TrustedProxyTopology = $null
     )
 
     # Always override the retained interpolation value. This keeps legacy
     # receipts restartable when their tenant already exists without ever
     # re-exposing the public bootstrap endpoint.
+    if (-not $TrustedProxyTopology) {
+        Invoke-Compose `
+            -EnvironmentFile $EnvironmentFile `
+            -ComposeProject $ComposeProject `
+            -ComposePath $ComposePath `
+            -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
+            -SealPublicBootstrap `
+            -EchoOutput | Out-Null
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($ExpectedImageId)) {
+        throw "Trusted-edge application start requires the exact image ID"
+    }
+
+    $binding = Assert-ComposeApplicationTrustedProxyPeerCurrent `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -ExpectedImageId $ExpectedImageId `
+        -Topology $TrustedProxyTopology `
+        -ExpectedRunning $false
     Invoke-Compose `
         -EnvironmentFile $EnvironmentFile `
         -ComposeProject $ComposeProject `
         -ComposePath $ComposePath `
-        -Arguments @("up", "-d", "--no-build", "--force-recreate", "app") `
+        -Arguments @("start", "app") `
         -SealPublicBootstrap `
         -EchoOutput | Out-Null
+    $startedContainerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Service "app" `
+        -IncludeStopped
+    if ($startedContainerId -cne [string]$binding.ContainerId) {
+        throw (
+            "Compose recreated the application after its trusted proxy address " +
+            "was sealed"
+        )
+    }
+    $null = Assert-ComposeApplicationTrustedProxyPeerCurrent `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -ExpectedImageId $ExpectedImageId `
+        -Topology $TrustedProxyTopology `
+        -ExpectedRunning $true
 }
 
 function Start-ReleaseServices {
@@ -3422,6 +3777,8 @@ function Start-ReleaseServices {
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposeProject,
         [Parameter(Mandatory)][string]$ComposePath,
+        [string]$ExpectedImageId = "",
+        $TrustedProxyTopology = $null,
         [switch]$RunMigration
     )
 
@@ -3441,6 +3798,18 @@ function Start-ReleaseServices {
         -ComposeProject $ComposeProject `
         -ComposePath $ComposePath `
         -Service "minio"
+
+    if ($TrustedProxyTopology) {
+        if ([string]::IsNullOrWhiteSpace($ExpectedImageId)) {
+            throw "Trusted-edge service start requires the exact image ID"
+        }
+        $null = Prepare-SealedTrustedEdgeApplication `
+            -EnvironmentFile $EnvironmentFile `
+            -ComposeProject $ComposeProject `
+            -ComposePath $ComposePath `
+            -ExpectedImageId $ExpectedImageId `
+            -TrustedProxyTopology $TrustedProxyTopology
+    }
 
     Invoke-Compose `
         -EnvironmentFile $EnvironmentFile `
@@ -3466,72 +3835,680 @@ function Start-ReleaseServices {
     }
 }
 
-function Resolve-ComposeTrustedProxyCidr {
+function Get-ComposeServiceContainerId {
     param(
         [Parameter(Mandatory)][string]$EnvironmentFile,
         [Parameter(Mandatory)][string]$ComposeProject,
-        [Parameter(Mandatory)][string]$ComposePath
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$Service,
+        [switch]$IncludeStopped,
+        [switch]$AllowNotFound
     )
 
-    $containerId = (Invoke-Compose `
-        -EnvironmentFile $EnvironmentFile `
-        -ComposeProject $ComposeProject `
-        -ComposePath $ComposePath `
-        -Arguments @("ps", "-q", "postgres")).Output.Trim()
-    if (-not $containerId) {
-        throw "Cannot resolve the Podman gateway before PostgreSQL is running"
+    $arguments =
+        if ($IncludeStopped) {
+            @("ps", "--all", "--quiet", $Service)
+        }
+        else {
+            @("ps", "--quiet", $Service)
+        }
+    $containerIds = @(
+        (Invoke-Compose `
+            -EnvironmentFile $EnvironmentFile `
+            -ComposeProject $ComposeProject `
+            -ComposePath $ComposePath `
+            -Arguments $arguments).Output -split "\r?\n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    if ($AllowNotFound -and $containerIds.Count -eq 0) {
+        return ""
     }
+    if ($containerIds.Count -ne 1) {
+        throw (
+            "Compose service '$Service' must resolve to exactly one " +
+            "container"
+        )
+    }
+    return [string]$containerIds[0]
+}
+
+function Get-PodmanContainerSingleNetworkAttachment {
+    param([Parameter(Mandatory)][string]$ContainerId)
+
     $inspection = Invoke-NativeCommand `
         -FilePath "podman" `
         -Arguments @(
             "inspect",
             "--format",
             "{{json .NetworkSettings.Networks}}",
-            $containerId
+            $ContainerId
         )
     try {
         $networks = $inspection.Output | ConvertFrom-Json
     }
     catch {
-        throw "Podman returned invalid application-network inspection JSON"
+        throw "Podman returned invalid container-network inspection JSON"
     }
     $attachments = @($networks.PSObject.Properties)
     if ($attachments.Count -ne 1) {
         throw (
-            "The local release must attach PostgreSQL to exactly one isolated " +
-            "Compose network before deriving trusted proxies"
+            "The local release container must attach to exactly one isolated " +
+            "Compose network"
         )
     }
-    $gatewayProperty = $attachments[0].Value.PSObject.Properties["Gateway"]
+    $addressProperty =
+        $attachments[0].Value.PSObject.Properties["IPAddress"]
+    $prefixProperty =
+        $attachments[0].Value.PSObject.Properties["IPPrefixLen"]
+    $networkIdProperty =
+        $attachments[0].Value.PSObject.Properties["NetworkID"]
     if (
-        -not $gatewayProperty -or
-        [string]::IsNullOrWhiteSpace([string]$gatewayProperty.Value)
+        -not $addressProperty -or
+        -not $prefixProperty -or
+        -not $networkIdProperty -or
+        [string]::IsNullOrWhiteSpace([string]$addressProperty.Value)
     ) {
-        throw "The isolated Compose network has no observable IPv4 gateway"
+        throw (
+            "The isolated Compose network has no complete container attachment"
+        )
     }
-    Assert-ExactTrustedProxyCidr `
-        -Value "$([string]$gatewayProperty.Value)/32"
+    $address = $null
+    if (
+        -not [Net.IPAddress]::TryParse(
+            [string]$addressProperty.Value,
+            [ref]$address
+        ) -or
+        $address.AddressFamily -ne
+            [Net.Sockets.AddressFamily]::InterNetwork -or
+        $address.ToString() -cne [string]$addressProperty.Value
+    ) {
+        throw "The isolated Compose network container address is not canonical IPv4"
+    }
+    $aliasesProperty = $attachments[0].Value.PSObject.Properties["Aliases"]
+    return [PSCustomObject]@{
+        ContainerId = $ContainerId
+        NetworkName = [string]$attachments[0].Name
+        NetworkId = [string]$networkIdProperty.Value
+        IPAddress = $address.ToString()
+        PrefixLength = [int]$prefixProperty.Value
+        Aliases =
+            if ($aliasesProperty) {
+                @($aliasesProperty.Value | Where-Object { $_ })
+            }
+            else {
+                @()
+            }
+    }
 }
 
-function Assert-ReceiptTrustedProxyGatewayCurrent {
+function Get-PodmanApplicationNetworkContract {
+    param(
+        [Parameter(Mandatory)][string]$NetworkName,
+        [Parameter(Mandatory)][string]$ExpectedComposeProject
+    )
+
+    $inspection = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @("network", "inspect", $networkName)
+    try {
+        $networkRecords = @($inspection.Output | ConvertFrom-Json)
+    }
+    catch {
+        throw "Podman returned invalid application-network inspection JSON"
+    }
+    if ($networkRecords.Count -ne 1) {
+        throw "Podman must return exactly one application-network record"
+    }
+    $network = $networkRecords[0]
+    if ([string]$network.name -cne $networkName) {
+        throw "Podman application-network identity changed during inspection"
+    }
+    $networkId = [string]$network.id
+    if ($networkId -notmatch "^[0-9a-f]{64}$") {
+        throw "Podman application-network ID is not one exact immutable ID"
+    }
+    if ([string]$network.driver -cne "bridge") {
+        throw "Podman application network must use the bridge driver"
+    }
+    $labelsProperty = $network.PSObject.Properties["labels"]
+    $projectLabelProperty =
+        if ($labelsProperty) {
+            $labelsProperty.Value.PSObject.Properties[
+                "com.docker.compose.project"
+            ]
+        }
+        else {
+            $null
+        }
+    $networkLabelProperty =
+        if ($labelsProperty) {
+            $labelsProperty.Value.PSObject.Properties[
+                "com.docker.compose.network"
+            ]
+        }
+        else {
+            $null
+        }
+    if (
+        -not $projectLabelProperty -or
+        -not $networkLabelProperty -or
+        [string]$projectLabelProperty.Value -cne $ExpectedComposeProject -or
+        [string]$networkLabelProperty.Value -cne "default"
+    ) {
+        throw (
+            "Podman application network is not the Compose-owned default " +
+            "network for project '$ExpectedComposeProject'"
+        )
+    }
+    $subnets = @($network.subnets)
+    if ($subnets.Count -ne 1) {
+        throw "The application network must contain exactly one IPv4 subnet"
+    }
+    $gateway = [string]$subnets[0].gateway
+    $subnetCidr = [string]$subnets[0].subnet
+    if (
+        [string]::IsNullOrWhiteSpace($gateway) -or
+        [string]::IsNullOrWhiteSpace($subnetCidr)
+    ) {
+        throw "The application network lacks a complete IPv4 subnet record"
+    }
+    $subnetMatch = [Regex]::Match(
+        $subnetCidr,
+        "^(?<address>(?:[0-9]{1,3}\.){3}[0-9]{1,3})/(?<prefix>[0-9]{1,2})$"
+    )
+    if (-not $subnetMatch.Success) {
+        throw "The application network subnet is not canonical IPv4 CIDR"
+    }
+    # Run the same strict subnet/gateway checks used for allocation. Selecting
+    # a value is a pure calculation and does not reserve or mutate the network.
+    $null = Select-FreePrivateIPv4Cidr `
+        -SubnetCidr $subnetCidr `
+        -Gateway $gateway `
+        -UsedCidrs @()
+
+    $usedCidrs = [Collections.Generic.List[string]]::new()
+    $allocations = [Collections.Generic.List[object]]::new()
+    $containersProperty = $network.PSObject.Properties["containers"]
+    if ($containersProperty) {
+        foreach (
+            $containerProperty in
+                @($containersProperty.Value.PSObject.Properties)
+        ) {
+            $interfacesProperty =
+                $containerProperty.Value.PSObject.Properties["interfaces"]
+            if (-not $interfacesProperty) {
+                throw "Podman network container has no interface inventory"
+            }
+            foreach (
+                $interfaceProperty in
+                    @($interfacesProperty.Value.PSObject.Properties)
+            ) {
+                $interfaceSubnetsProperty =
+                    $interfaceProperty.Value.PSObject.Properties["subnets"]
+                if (-not $interfaceSubnetsProperty) {
+                    throw "Podman network interface has no IPv4 allocation"
+                }
+                foreach ($allocation in @($interfaceSubnetsProperty.Value)) {
+                    if (
+                        -not $allocation.PSObject.Properties["ipnet"] -or
+                        [string]::IsNullOrWhiteSpace(
+                            [string]$allocation.ipnet
+                        )
+                    ) {
+                        throw "Podman network interface allocation is malformed"
+                    }
+                    $usedCidrs.Add([string]$allocation.ipnet)
+                    $allocations.Add([PSCustomObject]@{
+                        ContainerId = [string]$containerProperty.Name
+                        ContainerName =
+                            [string]$containerProperty.Value.name
+                        Cidr = [string]$allocation.ipnet
+                    })
+                }
+            }
+        }
+    }
+    return [PSCustomObject]@{
+        NetworkName = $networkName
+        NetworkId = $networkId
+        Subnet = $subnetCidr
+        Gateway = $gateway
+        PrefixLength = [int]$subnetMatch.Groups["prefix"].Value
+        UsedCidrs = @($usedCidrs)
+        Allocations = @($allocations)
+    }
+}
+
+function Get-ComposeApplicationNetworkContract {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath
+    )
+
+    $postgresId = Get-ComposeServiceContainerId `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Service "postgres"
+    $attachment =
+        Get-PodmanContainerSingleNetworkAttachment -ContainerId $postgresId
+    $network =
+        Get-PodmanApplicationNetworkContract `
+            -NetworkName $attachment.NetworkName `
+            -ExpectedComposeProject $ComposeProject
+    if (
+        $attachment.NetworkId -cne $network.NetworkId -or
+        $attachment.PrefixLength -ne $network.PrefixLength
+    ) {
+        throw (
+            "PostgreSQL application-network attachment does not match the " +
+            "inspected network identity"
+        )
+    }
+    return $network
+}
+
+function Select-ComposeApplicationTrustedProxyReservation {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath
+    )
+
+    $network = Get-ComposeApplicationNetworkContract `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath
+    $applicationCidr = Select-FreePrivateIPv4Cidr `
+        -SubnetCidr $network.Subnet `
+        -Gateway $network.Gateway `
+        -UsedCidrs @($network.UsedCidrs)
+    $applicationAddress =
+        $applicationCidr.Substring(0, $applicationCidr.Length - 3)
+    return [PSCustomObject]@{
+        TrustedProxySourceKind = $trustedProxySourceKind
+        TrustedProxyCidr = $applicationCidr
+        ApplicationNetworkName = [string]$network.NetworkName
+        ApplicationNetworkId = [string]$network.NetworkId
+        ApplicationNetworkSubnet = [string]$network.Subnet
+        ApplicationNetworkGateway = [string]$network.Gateway
+        ApplicationNetworkPrefixLength = [int]$network.PrefixLength
+        ApplicationContainerIpv4 = $applicationAddress
+        ApplicationContainerIpv4Cidr = $applicationCidr
+    }
+}
+
+function Assert-PodmanApplicationContainerOwnership {
+    param(
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ContainerId,
+        [Parameter(Mandatory)][string]$ExpectedImageId,
+        [bool]$ExpectedRunning = $false,
+        [switch]$AllowAnyRunningState
+    )
+
+    $inspection = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @("inspect", $ContainerId)
+    try {
+        $records = @($inspection.Output | ConvertFrom-Json)
+    }
+    catch {
+        throw "Podman returned invalid application-container inspection JSON"
+    }
+    if ($records.Count -ne 1) {
+        throw "Podman must return exactly one application-container record"
+    }
+    $record = $records[0]
+    $labels = $record.Config.Labels
+    $projectLabel = [string](
+        $labels.PSObject.Properties["com.docker.compose.project"].Value
+    )
+    $serviceLabel = [string](
+        $labels.PSObject.Properties["com.docker.compose.service"].Value
+    )
+    $containerNumberLabel = [string](
+        $labels.PSObject.Properties["com.docker.compose.container-number"].Value
+    )
+    if (
+        $projectLabel -cne $ComposeProject -or
+        $serviceLabel -cne "app" -or
+        $containerNumberLabel -cne "1"
+    ) {
+        throw (
+            "Application container is not the one Compose-owned app replica " +
+            "for project '$ComposeProject'"
+        )
+    }
+    if ([string]$record.Image -cne $ExpectedImageId) {
+        throw "Compose application container image does not match the sealed image"
+    }
+    if (
+        -not $AllowAnyRunningState -and
+        [bool]$record.State.Running -ne $ExpectedRunning
+    ) {
+        throw (
+            "Compose application running state does not match the expected " +
+            "trusted-proxy reservation phase"
+        )
+    }
+    return [PSCustomObject]@{
+        ContainerId = $ContainerId
+        Running = [bool]$record.State.Running
+        ImageId = [string]$record.Image
+    }
+}
+
+function Assert-TrustedProxyTopologyContract {
+    param(
+        [Parameter(Mandatory)]$Topology,
+        [Parameter(Mandatory)][string]$ComposeProject
+    )
+
+    if (
+        [string]$Topology.TrustedProxySourceKind -cne
+            $trustedProxySourceKind
+    ) {
+        throw "Trusted proxy source kind must be $trustedProxySourceKind"
+    }
+    $trustedProxyCidr =
+        Assert-ExactTrustedProxyCidr `
+            -Value ([string]$Topology.TrustedProxyCidr)
+    $applicationCidr =
+        Assert-ExactTrustedProxyCidr `
+            -Value ([string]$Topology.ApplicationContainerIpv4Cidr)
+    if ($trustedProxyCidr -cne $applicationCidr) {
+        throw "Trusted proxy CIDR must equal the sealed application IPv4 CIDR"
+    }
+    $expectedAddress =
+        $applicationCidr.Substring(0, $applicationCidr.Length - 3)
+    if (
+        [string]$Topology.ApplicationContainerIpv4 -cne $expectedAddress
+    ) {
+        throw "Sealed application IPv4 does not match its exact /32"
+    }
+    if (
+        [string]$Topology.ApplicationNetworkName -notmatch
+            "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$" -or
+        [string]$Topology.ApplicationNetworkId -notmatch
+            "^[0-9a-f]{64}$"
+    ) {
+        throw "Sealed application network name or ID is malformed"
+    }
+    $network = [PSCustomObject]@{
+        NetworkName = [string]$Topology.ApplicationNetworkName
+        NetworkId = [string]$Topology.ApplicationNetworkId
+        Subnet = [string]$Topology.ApplicationNetworkSubnet
+        Gateway = [string]$Topology.ApplicationNetworkGateway
+        PrefixLength = [int]$Topology.ApplicationNetworkPrefixLength
+    }
+    $validatedNetwork =
+        Get-PodmanApplicationNetworkContract `
+            -NetworkName $network.NetworkName `
+            -ExpectedComposeProject $ComposeProject
+    foreach ($comparison in @(
+        @("ID", $network.NetworkId, $validatedNetwork.NetworkId),
+        @("subnet", $network.Subnet, $validatedNetwork.Subnet),
+        @("gateway", $network.Gateway, $validatedNetwork.Gateway),
+        @(
+            "prefix length",
+            [string]$network.PrefixLength,
+            [string]$validatedNetwork.PrefixLength
+        )
+    )) {
+        if ([string]$comparison[1] -cne [string]$comparison[2]) {
+            throw (
+                "Observed application network $($comparison[0]) " +
+                "'$($comparison[2])' does not match sealed " +
+                "'$($comparison[1])'"
+            )
+        }
+    }
+    return [PSCustomObject]@{
+        TrustedProxyCidr = $trustedProxyCidr
+        ApplicationContainerIpv4 = $expectedAddress
+        Network = $validatedNetwork
+    }
+}
+
+function Assert-ComposeApplicationTrustedProxyPeerCurrent {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$ExpectedImageId,
+        [Parameter(Mandatory)]$Topology,
+        [Parameter(Mandatory)][bool]$ExpectedRunning
+    )
+
+    $contract = Assert-TrustedProxyTopologyContract `
+        -Topology $Topology `
+        -ComposeProject $ComposeProject
+    $containerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Service "app" `
+        -IncludeStopped
+    $null = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject $ComposeProject `
+        -ContainerId $containerId `
+        -ExpectedImageId $ExpectedImageId `
+        -ExpectedRunning $ExpectedRunning
+    $attachment =
+        Get-PodmanContainerSingleNetworkAttachment -ContainerId $containerId
+    if (
+        $attachment.NetworkName -cne $contract.Network.NetworkName -or
+        $attachment.NetworkId -cne $contract.Network.NetworkId -or
+        $attachment.PrefixLength -ne $contract.Network.PrefixLength -or
+        $attachment.IPAddress -cne $contract.ApplicationContainerIpv4
+    ) {
+        throw (
+            "Observed Podman application trusted proxy peer " +
+            "'$($attachment.IPAddress)/32' on '$($attachment.NetworkName)' " +
+            "does not match sealed '$($contract.TrustedProxyCidr)' on " +
+            "'$($contract.Network.NetworkName)'"
+        )
+    }
+    return $attachment
+}
+
+function Set-ComposeApplicationTrustedProxyReservation {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$ExpectedImageId,
+        [Parameter(Mandatory)]$Topology
+    )
+
+    $contract = Assert-TrustedProxyTopologyContract `
+        -Topology $Topology `
+        -ComposeProject $ComposeProject
+    $containerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Service "app" `
+        -IncludeStopped
+    $null = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject $ComposeProject `
+        -ContainerId $containerId `
+        -ExpectedImageId $ExpectedImageId `
+        -ExpectedRunning $false
+    $original =
+        Get-PodmanContainerSingleNetworkAttachment -ContainerId $containerId
+    if (
+        $original.NetworkName -cne $contract.Network.NetworkName -or
+        $original.NetworkId -cne $contract.Network.NetworkId -or
+        $original.PrefixLength -ne $contract.Network.PrefixLength
+    ) {
+        throw (
+            "Compose-created application attachment does not match the sealed " +
+            "application network"
+        )
+    }
+    if (@($original.Aliases) -notcontains "app") {
+        throw "Compose application network attachment lacks its service alias"
+    }
+    $null = Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress $contract.ApplicationContainerIpv4 `
+        -Allocations @($contract.Network.Allocations) `
+        -ApplicationContainerId $containerId `
+        -ApplicationAttachedAddress $original.IPAddress `
+        -ApplicationRunning $false
+    Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "network",
+            "disconnect",
+            $contract.Network.NetworkName,
+            $containerId
+        ) | Out-Null
+    $connectArguments = @(
+        "network",
+        "connect",
+        "--ip",
+        $contract.ApplicationContainerIpv4
+    )
+    foreach ($networkAlias in @($original.Aliases)) {
+        $connectArguments += @("--alias", [string]$networkAlias)
+    }
+    $connectArguments += @($contract.Network.NetworkName, $containerId)
+    Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments $connectArguments | Out-Null
+    return Assert-ComposeApplicationTrustedProxyPeerCurrent `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -ExpectedImageId $ExpectedImageId `
+        -Topology $Topology `
+        -ExpectedRunning $false
+}
+
+function Assert-ReceiptTrustedProxyPeerCurrent {
     param([Parameter(Mandatory)]$Receipt)
 
     if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
         return
     }
-    $recorded = [string](Get-ReceiptNetworkProperty `
-        -Receipt $Receipt `
-        -Name "trustedProxyCidr")
-    $observed = Resolve-ComposeTrustedProxyCidr `
+    $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+    $null = Assert-ComposeApplicationTrustedProxyPeerCurrent `
         -EnvironmentFile ([string]$Receipt.environmentFile) `
         -ComposeProject ([string]$Receipt.projectName) `
-        -ComposePath ([string]$Receipt.composeSourcePath)
-    if ($observed -cne $recorded) {
+        -ComposePath ([string]$Receipt.composeSourcePath) `
+        -ExpectedImageId ([string]$Receipt.imageId) `
+        -Topology $topology `
+        -ExpectedRunning $true
+}
+
+function Assert-TrustedProxyRecoveryOccupancy {
+    param(
+        [Parameter(Mandatory)][string]$ExpectedAddress,
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [object[]]$Allocations,
+        [string]$ApplicationContainerId = "",
+        [string]$ApplicationAttachedAddress = "",
+        [bool]$ApplicationRunning = $false
+    )
+
+    $expectedOccupants = @(
+        $Allocations |
+            Where-Object {
+                ([string]$_.Cidr).Split("/")[0] -ceq $ExpectedAddress
+            }
+    )
+    if ($expectedOccupants.Count -gt 1) {
+        throw "The sealed application IPv4 has ambiguous Podman occupants"
+    }
+    if ([string]::IsNullOrWhiteSpace($ApplicationContainerId)) {
+        if ($expectedOccupants.Count -ne 0) {
+            throw (
+                "A foreign container occupies the sealed application IPv4 " +
+                "while the Compose app is absent"
+            )
+        }
+        return "app-absent-recoverable"
+    }
+
+    if (
+        $expectedOccupants.Count -eq 1 -and
+        [string]$expectedOccupants[0].ContainerId -cne
+            $ApplicationContainerId
+    ) {
+        throw "A foreign container occupies the sealed application IPv4"
+    }
+    if ($ApplicationRunning) {
+        if (
+            $ApplicationAttachedAddress -cne $ExpectedAddress -or
+            $expectedOccupants.Count -ne 1
+        ) {
+            throw "Running Compose application does not own its sealed IPv4"
+        }
+        return "app-running-current"
+    }
+    if ($ApplicationAttachedAddress -ceq $ExpectedAddress) {
+        if ($expectedOccupants.Count -ne 1) {
+            throw "Stopped Compose application IPv4 ownership is inconsistent"
+        }
+        return "app-stopped-current"
+    }
+    if ($expectedOccupants.Count -ne 0) {
+        throw "Stopped Compose application cannot reclaim its sealed IPv4"
+    }
+    return "app-stopped-rebindable"
+}
+
+function Assert-ReceiptTrustedProxyReservationRecoverable {
+    param([Parameter(Mandatory)]$Receipt)
+
+    if (-not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)) {
+        return
+    }
+    $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+    $contract = Assert-TrustedProxyTopologyContract `
+        -Topology $topology `
+        -ComposeProject ([string]$Receipt.projectName)
+    $containerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile ([string]$Receipt.environmentFile) `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ComposePath ([string]$Receipt.composeSourcePath) `
+        -Service "app" `
+        -IncludeStopped `
+        -AllowNotFound
+    if ([string]::IsNullOrWhiteSpace($containerId)) {
+        return Assert-TrustedProxyRecoveryOccupancy `
+            -ExpectedAddress $contract.ApplicationContainerIpv4 `
+            -Allocations @($contract.Network.Allocations)
+    }
+
+    $ownership = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ContainerId $containerId `
+        -ExpectedImageId ([string]$Receipt.imageId) `
+        -AllowAnyRunningState
+    $attachment =
+        Get-PodmanContainerSingleNetworkAttachment -ContainerId $containerId
+    if (
+        $attachment.NetworkName -cne $contract.Network.NetworkName -or
+        $attachment.NetworkId -cne $contract.Network.NetworkId -or
+        $attachment.PrefixLength -ne $contract.Network.PrefixLength
+    ) {
         throw (
-            "Observed Podman application-network gateway '$observed' does not " +
-            "match the sealed trusted proxy CIDR '$recorded'"
+            "Compose application attachment cannot be recovered on the " +
+            "sealed application network"
         )
     }
+    return Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress $contract.ApplicationContainerIpv4 `
+        -Allocations @($contract.Network.Allocations) `
+        -ApplicationContainerId $containerId `
+        -ApplicationAttachedAddress $attachment.IPAddress `
+        -ApplicationRunning ([bool]$ownership.Running)
 }
 
 function Get-RequiredForwarderProperty {
@@ -5756,7 +6733,7 @@ function Assert-RetainedReleaseAssets {
                     [string]$entry.Value
             ) {
                 throw (
-                    "Retained schema-v6 trusted-edge environment topology does " +
+                    "Retained schema-v7 trusted-edge environment topology does " +
                     "not match its receipt for $($entry.Key)"
                 )
             }
@@ -6269,8 +7246,15 @@ function Restore-Release {
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
             -ComposePath $Receipt.composeSourcePath `
+            -ExpectedImageId ([string]$Receipt.imageId) `
+            -TrustedProxyTopology $(if (
+                Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt
+            ) {
+                $topology
+            } else {
+                $null
+            }) `
             -RunMigration:$RunMigration
-        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $Receipt
         Ensure-InstantRoomTenant `
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
@@ -6281,7 +7265,16 @@ function Restore-Release {
         Start-SealedApplication `
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
-            -ComposePath $Receipt.composeSourcePath
+            -ComposePath $Receipt.composeSourcePath `
+            -ExpectedImageId ([string]$Receipt.imageId) `
+            -TrustedProxyTopology $(if (
+                Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt
+            ) {
+                $topology
+            } else {
+                $null
+            })
+        Assert-ReceiptTrustedProxyPeerCurrent -Receipt $Receipt
         Wait-ContainerHealth `
             -EnvironmentFile $Receipt.environmentFile `
             -ComposeProject $Receipt.projectName `
@@ -7401,6 +8394,93 @@ function Invoke-StableEncryptionKeySelfTest {
     }
 }
 
+function Invoke-TrustedProxyReservationSelfTest {
+    $selected = Select-FreePrivateIPv4Cidr `
+        -SubnetCidr "10.89.20.0/24" `
+        -Gateway "10.89.20.1" `
+        -UsedCidrs @(
+            "10.89.20.3/24",
+            "10.89.20.88/24",
+            "10.89.20.254/24"
+        )
+    if ($selected -cne "10.89.20.253/32") {
+        throw "Trusted proxy selection did not choose the highest free private IP"
+    }
+    $stoppedRecovery = Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress "10.89.20.254" `
+        -Allocations @(
+            [PSCustomObject]@{
+                ContainerId = "app-container"
+                Cidr = "10.89.20.88/24"
+            }
+        ) `
+        -ApplicationContainerId "app-container" `
+        -ApplicationAttachedAddress "10.89.20.88" `
+        -ApplicationRunning $false
+    if ($stoppedRecovery -cne "app-stopped-rebindable") {
+        throw "Stopped application was not accepted for exact-IP recovery"
+    }
+    $deletedRecovery = Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress "10.89.20.254" `
+        -Allocations @()
+    if ($deletedRecovery -cne "app-absent-recoverable") {
+        throw "Deleted application was not accepted for exact-IP recovery"
+    }
+    try {
+        $null = Assert-TrustedProxyRecoveryOccupancy `
+            -ExpectedAddress "10.89.20.254" `
+            -Allocations @(
+                [PSCustomObject]@{
+                    ContainerId = "foreign-container"
+                    Cidr = "10.89.20.254/24"
+                }
+            )
+        throw "Foreign trusted proxy IP occupant unexpectedly succeeded"
+    }
+    catch {
+        if (
+            $_.Exception.Message -ceq
+                "Foreign trusted proxy IP occupant unexpectedly succeeded"
+        ) {
+            throw
+        }
+    }
+
+    foreach ($invalid in @(
+        @{
+            Subnet = "8.8.8.0/24"
+            Gateway = "8.8.8.1"
+            Used = @()
+        },
+        @{
+            Subnet = "10.88.0.0/15"
+            Gateway = "10.88.0.1"
+            Used = @()
+        },
+        @{
+            Subnet = "10.89.20.0/30"
+            Gateway = "10.89.20.1"
+            Used = @("10.89.20.2/30")
+        }
+    )) {
+        try {
+            $null = Select-FreePrivateIPv4Cidr `
+                -SubnetCidr $invalid.Subnet `
+                -Gateway $invalid.Gateway `
+                -UsedCidrs $invalid.Used
+            throw "Invalid trusted proxy reservation unexpectedly succeeded"
+        }
+        catch {
+            if (
+                $_.Exception.Message -ceq
+                    "Invalid trusted proxy reservation unexpectedly succeeded"
+            ) {
+                throw
+            }
+        }
+    }
+}
+
 function Invoke-Validate {
     $script:ReleaseNetworkObservation = Resolve-RequestedReleaseTopology `
         -RequestedExposureProfile $ExposureProfile `
@@ -7412,7 +8492,21 @@ function Invoke-Validate {
     ) {
         # Validate is non-mutating and therefore has no Compose network to
         # inspect. Use one narrow RFC1918 /32 only for rendering/self-tests.
-        $script:ReleaseNetworkObservation.TrustedProxyCidr = "10.0.0.1/32"
+        $script:ReleaseNetworkObservation.TrustedProxyCidr = "10.0.0.254/32"
+        $script:ReleaseNetworkObservation.TrustedProxySourceKind =
+            $trustedProxySourceKind
+        $script:ReleaseNetworkObservation.ApplicationNetworkName =
+            "k-comms-release_default"
+        $script:ReleaseNetworkObservation.ApplicationNetworkId = "0" * 64
+        $script:ReleaseNetworkObservation.ApplicationNetworkSubnet =
+            "10.0.0.0/24"
+        $script:ReleaseNetworkObservation.ApplicationNetworkGateway =
+            "10.0.0.1"
+        $script:ReleaseNetworkObservation.ApplicationNetworkPrefixLength = 24
+        $script:ReleaseNetworkObservation.ApplicationContainerIpv4 =
+            "10.0.0.254"
+        $script:ReleaseNetworkObservation.ApplicationContainerIpv4Cidr =
+            "10.0.0.254/32"
     }
     $script:BindAddress = $script:ReleaseNetworkObservation.BindAddress
     $requiredCommands = @("podman", "python", "icacls.exe")
@@ -7449,6 +8543,7 @@ function Invoke-Validate {
             -Arguments @("config", "--quiet") | Out-Null
         Invoke-StateRootSafetySelfTest
         Invoke-BindAddressSelfTest
+        Invoke-TrustedProxyReservationSelfTest
         Invoke-PortPreflightSelfTest
         Invoke-LanForwarderSelfTest -TemporaryDirectory $temporaryDirectory
         Invoke-LanForwarderSupervisionSelfTest `
@@ -7790,8 +8885,45 @@ function Invoke-DeployLocked {
                 $cloudflareTrustedEdgeProfile
         ) {
             # Compose creates the isolated application network. Only after it
-            # exists can the manager seal the one exact host-side gateway /32
-            # that is allowed to supply Cloudflare's forwarded scheme.
+            # exists can the manager reserve the one exact application bridge
+            # address that Podman's host-port proxy presents as the request
+            # peer. Reuse a healthy retained trusted-edge address so Start and
+            # Rollback never reselect topology.
+            $previousTrustedTopology = $null
+            $previousReceiptIsTrustedEdge = (
+                $previousReceipt -and
+                (Test-ReceiptIsCloudflareTrustedEdge `
+                    -Receipt $previousReceipt)
+            )
+            $previousTrustedSchemaVersion =
+                if ($previousReceiptIsTrustedEdge) {
+                    Assert-SupportedReceiptSchemaVersion `
+                        -Receipt $previousReceipt
+                }
+                else {
+                    0
+                }
+            if (
+                $previousReceiptIsTrustedEdge -and
+                $previousTrustedSchemaVersion -eq 7
+            ) {
+                Assert-RetainedReleaseAssets -Receipt $previousReceipt
+                Assert-ReceiptTrustedProxyPeerCurrent `
+                    -Receipt $previousReceipt
+                $previousTrustedTopology =
+                    Resolve-ReceiptNetworkTopology `
+                        -Receipt $previousReceipt
+            }
+            elseif (
+                $previousReceiptIsTrustedEdge -and
+                $previousTrustedSchemaVersion -eq 6
+            ) {
+                Write-Warning (
+                    "The retained schema-v6 trusted-edge gateway reservation " +
+                    "cannot be reused. Deploy will seal a fresh schema-v7 " +
+                    "application-peer reservation."
+                )
+            }
             $candidateTouchedRuntime = $true
             Invoke-Compose `
                 -EnvironmentFile $environmentFile `
@@ -7806,11 +8938,30 @@ function Invoke-DeployLocked {
                     "livekit"
                 ) `
                 -EchoOutput | Out-Null
-            $releaseNetworkObservation.TrustedProxyCidr =
-                Resolve-ComposeTrustedProxyCidr `
-                    -EnvironmentFile $environmentFile `
-                    -ComposeProject $ProjectName `
-                    -ComposePath $composeSourcePath
+            if ($previousTrustedTopology) {
+                $reservation = $previousTrustedTopology
+            }
+            else {
+                $reservation =
+                    Select-ComposeApplicationTrustedProxyReservation `
+                        -EnvironmentFile $environmentFile `
+                        -ComposeProject $ProjectName `
+                        -ComposePath $composeSourcePath
+            }
+            foreach ($propertyName in @(
+                "TrustedProxySourceKind",
+                "TrustedProxyCidr",
+                "ApplicationNetworkName",
+                "ApplicationNetworkId",
+                "ApplicationNetworkSubnet",
+                "ApplicationNetworkGateway",
+                "ApplicationNetworkPrefixLength",
+                "ApplicationContainerIpv4",
+                "ApplicationContainerIpv4Cidr"
+            )) {
+                $releaseNetworkObservation.$propertyName =
+                    $reservation.$propertyName
+            }
             $releaseEnvironment = New-ReleaseEnvironment `
                 -Stable $stableEnvironment `
                 -Revision $Revision `
@@ -7835,7 +8986,7 @@ function Invoke-DeployLocked {
                 -Secrets $stableEnvironment
         }
         $candidateForwarderReceipt = [PSCustomObject]@{
-            schemaVersion = 6
+            schemaVersion = 7
             candidateId = $candidateId
             receiptPath = $receiptPath
             publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
@@ -7870,25 +9021,16 @@ function Invoke-DeployLocked {
             -EnvironmentFile $environmentFile `
             -ComposeProject $ProjectName `
             -ComposePath $composeSourcePath `
-            -RunMigration
-        if (
-            $releaseNetworkObservation.ExposureProfile -ceq
-                $cloudflareTrustedEdgeProfile
-        ) {
-            $currentTrustedProxyCidr = Resolve-ComposeTrustedProxyCidr `
-                -EnvironmentFile $environmentFile `
-                -ComposeProject $ProjectName `
-                -ComposePath $composeSourcePath
-            if (
-                $currentTrustedProxyCidr -cne
-                    [string]$releaseNetworkObservation.TrustedProxyCidr
+            -ExpectedImageId ([string]$image.imageId) `
+            -TrustedProxyTopology $(if (
+                $releaseNetworkObservation.ExposureProfile -ceq
+                    $cloudflareTrustedEdgeProfile
             ) {
-                throw (
-                    "Podman application-network gateway changed before trusted " +
-                    "edge activation"
-                )
-            }
-        }
+                $releaseNetworkObservation
+            } else {
+                $null
+            }) `
+            -RunMigration
         $migrationSucceeded = $true
         [IO.File]::WriteAllText(
             $migrationLogPath,
@@ -7905,7 +9047,16 @@ function Invoke-DeployLocked {
         Start-SealedApplication `
             -EnvironmentFile $environmentFile `
             -ComposeProject $ProjectName `
-            -ComposePath $composeSourcePath
+            -ComposePath $composeSourcePath `
+            -ExpectedImageId ([string]$image.imageId) `
+            -TrustedProxyTopology $(if (
+                $releaseNetworkObservation.ExposureProfile -ceq
+                    $cloudflareTrustedEdgeProfile
+            ) {
+                $releaseNetworkObservation
+            } else {
+                $null
+            })
         Wait-ContainerHealth `
             -EnvironmentFile $environmentFile `
             -ComposeProject $ProjectName `
@@ -7958,7 +9109,7 @@ function Invoke-DeployLocked {
                 -Forwarder $forwarderRecord
         }
         $receipt = [ordered]@{
-            schemaVersion = 6
+            schemaVersion = 7
             status = "healthy"
             receiptPath = $receiptPath
             deployedAt = [DateTime]::UtcNow.ToString("o")
@@ -8243,6 +9394,46 @@ function Assert-RollbackExposureTopologyCompatible {
             [string]$TargetTopology.TrustedProxyCidr
         ),
         @(
+            "trusted proxy source kind",
+            [string]$CurrentTopology.TrustedProxySourceKind,
+            [string]$TargetTopology.TrustedProxySourceKind
+        ),
+        @(
+            "application network name",
+            [string]$CurrentTopology.ApplicationNetworkName,
+            [string]$TargetTopology.ApplicationNetworkName
+        ),
+        @(
+            "application network ID",
+            [string]$CurrentTopology.ApplicationNetworkId,
+            [string]$TargetTopology.ApplicationNetworkId
+        ),
+        @(
+            "application network subnet",
+            [string]$CurrentTopology.ApplicationNetworkSubnet,
+            [string]$TargetTopology.ApplicationNetworkSubnet
+        ),
+        @(
+            "application network gateway",
+            [string]$CurrentTopology.ApplicationNetworkGateway,
+            [string]$TargetTopology.ApplicationNetworkGateway
+        ),
+        @(
+            "application network prefix length",
+            [string]$CurrentTopology.ApplicationNetworkPrefixLength,
+            [string]$TargetTopology.ApplicationNetworkPrefixLength
+        ),
+        @(
+            "application container IPv4",
+            [string]$CurrentTopology.ApplicationContainerIpv4,
+            [string]$TargetTopology.ApplicationContainerIpv4
+        ),
+        @(
+            "application container IPv4 CIDR",
+            [string]$CurrentTopology.ApplicationContainerIpv4Cidr,
+            [string]$TargetTopology.ApplicationContainerIpv4Cidr
+        ),
+        @(
             "trusted-edge confirmation",
             [string]$CurrentTopology.TrustedEdgeConfirmation,
             [string]$TargetTopology.TrustedEdgeConfirmation
@@ -8317,6 +9508,9 @@ function Invoke-RollbackLocked {
     ) {
         Assert-RequiredTools -Commands @("node")
     }
+    $null =
+        Assert-ReceiptTrustedProxyReservationRecoverable `
+            -Receipt $current
     Unregister-LanForwarderSupervisor `
         -Receipt $current `
         -AllowNotRegistered
@@ -8447,7 +9641,7 @@ function Assert-ReceiptRuntimeHealthy {
 
     Assert-RetainedReleaseAssets -Receipt $Receipt
     $null = Resolve-ReceiptNetworkTopology -Receipt $Receipt
-    Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $Receipt
+    Assert-ReceiptTrustedProxyPeerCurrent -Receipt $Receipt
     $application = Get-AppRuntimeObservation -Receipt $Receipt
     if (
         $application.Status -cne "running" -or
@@ -8523,7 +9717,7 @@ function Invoke-Supervise {
         Assert-RetainedReleaseAssets -Receipt $current
         $null = Assert-LanForwarderSupervisorTaskReady -Receipt $current
         $null = Resolve-ReceiptNetworkTopology -Receipt $current
-        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $current
+        Assert-ReceiptTrustedProxyPeerCurrent -Receipt $current
         $application = Get-AppRuntimeObservation -Receipt $current
         if (
             $application.Status -cne "running" -or
@@ -8560,7 +9754,7 @@ function Invoke-Status {
     try {
         $observedNetworkTopology =
             Resolve-ReceiptNetworkTopology -Receipt $current
-        Assert-ReceiptTrustedProxyGatewayCurrent -Receipt $current
+        Assert-ReceiptTrustedProxyPeerCurrent -Receipt $current
         $networkTopologyMatchesReceipt = $true
         $networkTopologyDetail = (
             "$($observedNetworkTopology.InterfaceAlias) " +
@@ -8601,6 +9795,46 @@ function Invoke-Status {
             [string](Get-ReceiptNetworkProperty `
                 -Receipt $current `
                 -Name "trustedProxyCidr" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Trusted proxy source: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "trustedProxySourceKind" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Application network: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "applicationNetworkName" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Application network ID: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "applicationNetworkId" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Application network subnet/gateway: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "applicationNetworkSubnet" `
+                -DefaultValue "") +
+            " / " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "applicationNetworkGateway" `
+                -DefaultValue "")
+        )
+        Write-Host (
+            "Application container IPv4 CIDR: " +
+            [string](Get-ReceiptNetworkProperty `
+                -Receipt $current `
+                -Name "applicationContainerIpv4Cidr" `
                 -DefaultValue "")
         )
         if ($trustedPublicOrigins) {
@@ -8745,6 +9979,9 @@ function Invoke-StartLocked {
     ) {
         throw "Retained image digest no longer matches the recorded image digest"
     }
+    $null =
+        Assert-ReceiptTrustedProxyReservationRecoverable `
+            -Receipt $current
     Unregister-LanForwarderSupervisor `
         -Receipt $current `
         -AllowNotRegistered

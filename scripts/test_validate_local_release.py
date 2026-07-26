@@ -1818,13 +1818,74 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 "-not (Test-Rfc1918IPv4 -Address $parsed)",
                 "$false",
             ),
-            "observed Podman gateway": (
-                '$attachments[0].Value.PSObject.Properties["Gateway"]',
-                '$attachments[0].Value.PSObject.Properties["RemovedGateway"]',
+            "sealed Podman network ID": (
+                '$networkId -notmatch "^[0-9a-f]{64}$"',
+                "$false",
             ),
-            "schema-v6 receipt": (
+            "schema-v7 receipt": (
+                "schemaVersion = 7",
                 "schemaVersion = 6",
-                "schemaVersion = 5",
+            ),
+            "schema-v6 deploy replacement": (
+                "$previousTrustedSchemaVersion -eq 7",
+                "$previousTrustedSchemaVersion -ge 6",
+            ),
+            "app-self source kind": (
+                '$trustedProxySourceKind = "podman-app-self-v1"',
+                '$trustedProxySourceKind = "removed"',
+            ),
+            "stopped no-deps reservation": (
+                '            "--no-start",',
+                '            "--removed-no-start",',
+            ),
+            "exact app IP rebind": (
+                '    $connectArguments = @('
+                '\n        "network",'
+                '\n        "connect",'
+                '\n        "--ip",',
+                '    $connectArguments = @('
+                '\n        "network",'
+                '\n        "connect",'
+                '\n        "--removed-ip",',
+            ),
+            "foreign IP preflight before disconnect": (
+                "    $null = Assert-TrustedProxyRecoveryOccupancy `"
+                "\n        -ExpectedAddress $contract.ApplicationContainerIpv4 `"
+                "\n        -Allocations @($contract.Network.Allocations) `"
+                "\n        -ApplicationContainerId $containerId `"
+                "\n        -ApplicationAttachedAddress $original.IPAddress `"
+                "\n        -ApplicationRunning $false",
+                "    $null = Removed-TrustedProxyRecoveryOccupancy `"
+                "\n        -ExpectedAddress $contract.ApplicationContainerIpv4 `"
+                "\n        -Allocations @($contract.Network.Allocations) `"
+                "\n        -ApplicationContainerId $containerId `"
+                "\n        -ApplicationAttachedAddress $original.IPAddress `"
+                "\n        -ApplicationRunning $false",
+            ),
+            "Compose app ownership": (
+                '"com.docker.compose.service"',
+                '"removed.compose.service"',
+            ),
+            "Compose network ownership": (
+                "[string]$projectLabelProperty.Value -cne "
+                "$ExpectedComposeProject",
+                "$false",
+            ),
+            "deleted app recovery": (
+                "Deleted application was not accepted for exact-IP recovery",
+                "Removed deleted application recovery proof",
+            ),
+            "stopped app recovery": (
+                "Stopped application was not accepted for exact-IP recovery",
+                "Removed stopped application recovery proof",
+            ),
+            "absent app preflight": (
+                "        -AllowNotFound",
+                "        -RemovedAllowNotFound",
+            ),
+            "sealed application IPv4": (
+                '$record["applicationContainerIpv4"] =',
+                '$record["removedApplicationContainerIpv4"] =',
             ),
             "sealed application hostname": (
                 '$record["appHostname"] = [string]$Observation.PublicHost',
@@ -1850,8 +1911,10 @@ Write-Output "strict forwarder command identity runtime self-test passed"
         }
         expected = (
             "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
-            "origins, one RFC1918 Podman gateway /32, schema-v6 media-only "
-            "forwarding, public health probes, and rollback-compatible topology"
+            "origins, one schema-v7 RFC1918 Podman app-self /32, exact network "
+            "and ownership evidence, stopped reservation before one-shots, "
+            "media-only forwarding, public health probes, and fail-closed "
+            "restart/rollback topology"
         )
         for description, (before, after) in mutations.items():
             with self.subTest(description=description):

@@ -117,9 +117,22 @@ For a controlled same-LAN media pilot, the explicit
 `https://kcomms-files.avayaworks.com` through loopback-only Cloudflare Tunnel
 origins. Only LiveKit ICE `7981/TCP` and `7982/UDP` are exposed on the selected
 LAN media address. The tunnel service and its credentials remain outside this
-repository and outside the release manager. This profile does not qualify
-remote media, TURN/TLS, or production use; follow the trusted-edge deployment,
-rollback, and physical second-device gates in the
+repository and outside the release manager.
+
+Trusted-edge deployments require a schema-v7 receipt. The manager records
+`trustedProxySourceKind=podman-app-self-v1`, seals the exact isolated Podman
+bridge name, ID, subnet, gateway, prefix, and reserved application IPv4/CIDR,
+then trusts only that application `/32`. It creates the application stopped,
+reconnects it at the sealed address, verifies its ownership, image, network,
+and address, and starts that same container without recreation. `Start` and
+`Rollback` replay and verify the same reservation or fail closed; a
+schema-v6 trusted-edge receipt must be redeployed before it can be activated.
+Direct loopback access remains a local-operator-trust path, not a shareable
+trusted-edge origin.
+
+This profile does not qualify remote media, TURN/TLS, or production use;
+follow the trusted-edge deployment, rollback, and physical second-device gates
+in the
 [local release runbook](docs/10-infrastructure-and-deployment/local-release-qualification.md#trusted-httpswss-with-cloudflare-and-same-lan-media).
 
 ## Quality gates
