@@ -1006,20 +1006,20 @@ Write-Output "strict forwarder command identity runtime self-test passed"
         mutations = (
             (
                 (
-                    "    Assert-RetainedReleaseAssets -Receipt $current\n"
                     "    Unregister-LanForwarderSupervisor `\n"
                     "        -Receipt $current `\n"
                     "        -AllowNotRegistered\n"
                     "    Stop-LanForwarder -Receipt $current -AllowNotRunning\n"
-                    "    Ensure-PodmanReady"
+                    "    Invoke-Compose `\n"
+                    "        -EnvironmentFile $current.environmentFile `"
                 ),
                 (
-                    "    Assert-RetainedReleaseAssets -Receipt $current\n"
                     "    Unregister-LanForwarderSupervisor `\n"
                     "        -Receipt $current `\n"
                     "        -AllowNotRegistered\n"
                     "    Write-Warning 'forwarder left running'\n"
-                    "    Ensure-PodmanReady"
+                    "    Invoke-Compose `\n"
+                    "        -EnvironmentFile $current.environmentFile `"
                 ),
             ),
             (
@@ -1862,6 +1862,230 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 "\n        -ApplicationAttachedAddress $original.IPAddress `"
                 "\n        -ApplicationRunning $false",
             ),
+            "stopped attachment permits only unassigned zero-prefix state": (
+                "-not $AllowUnassignedAddress -or $prefixLength -ne 0",
+                "-not $AllowUnassignedAddress -and $prefixLength -ne 0",
+            ),
+            "pending static-IP request before start": (
+                "$binding = Assert-ComposeApplicationTrustedProxyPeerPending `",
+                "$binding = Assert-ComposeApplicationTrustedProxyPeerCurrent `",
+            ),
+            "pending reservation verification after connect": (
+                "    return Assert-ComposeApplicationTrustedProxyPeerPending `",
+                "    return Assert-ComposeApplicationTrustedProxyPeerCurrent `",
+            ),
+            "post-start peer must be running": (
+                "        -Topology $TrustedProxyTopology `"
+                "\n        -ExpectedRunning $true",
+                "        -Topology $TrustedProxyTopology `"
+                "\n        -ExpectedRunning $false",
+            ),
+            "start cannot select a replacement address": (
+                "$binding = Assert-ComposeApplicationTrustedProxyPeerPending `",
+                "$null = Select-ComposeApplicationTrustedProxyReservation"
+                "\n    $binding = "
+                "Assert-ComposeApplicationTrustedProxyPeerPending `",
+            ),
+            "schema-v6 retained activation rejection": (
+                "        if ($schemaVersion -eq 6) {",
+                "        if ($false) {",
+            ),
+            "generic pre-v7 retained activation rejection": (
+                "        if ($schemaVersion -lt 7) {",
+                "        if ($false) {",
+            ),
+            "schema-v6 deploy fresh reservation": (
+                "$previousTrustedSchemaVersion -eq 6",
+                "$false",
+            ),
+            "schema-v6 exact irreversible confirmation": (
+                "            $Schema6CutoverConfirmation -cne\n"
+                "                $schema6CutoverConfirmationValue",
+                "            $false",
+            ),
+            "schema-v6 quiescence preflight": (
+                "            Assert-Schema6TrustedEdgeCutoverQuiesced `\n"
+                "                -Receipt $previousReceipt",
+                "            Removed-Schema6TrustedEdgeCutoverQuiesced `\n"
+                "                -Receipt $previousReceipt",
+            ),
+            "schema-v6 port preflight cannot resolve legacy topology": (
+                "        -PreviousReceipt $(if "
+                "($schema6IrreversibleCutover) {\n"
+                "            $null\n"
+                "        } else {\n"
+                "            $previousReceipt\n"
+                "        }) `",
+                "        -PreviousReceipt $previousReceipt `",
+            ),
+            "schema-v6 data-volume ownership": (
+                "        Assert-ComposeProjectDataVolumesRetained `\n"
+                "            -ComposeProject ([string]$Receipt.projectName)",
+                "        Removed-ComposeProjectDataVolumesRetained `\n"
+                "            -ComposeProject ([string]$Receipt.projectName)",
+            ),
+            "schema-v6 data-volume foreign mount exclusion": (
+                "                $mountProjectLabel -cne $ComposeProject -or\n"
+                "                [bool]$mountRecord.State.Running",
+                "                $false",
+            ),
+            "schema-v6 stable environment idempotence": (
+                '    if (-not $stableValues.Contains("BOOTSTRAP_OWNER_PASSWORD")) {',
+                "    if ($false) {",
+            ),
+            "schema-v6 stable encryption key idempotence": (
+                "            -not (Test-EncryptionKey `\n"
+                "                -Value "
+                "([string]$stableValues[$encryptionKeyName]))",
+                "            $false",
+            ),
+            "schema-v6 media supervisor must be absent": (
+                "    if ($task) {\n"
+                "        throw (\n"
+                '            "Schema-v6 cutover requires the retained LAN media supervisor to "',
+                "    if ($false) {\n"
+                "        throw (\n"
+                '            "Schema-v6 cutover requires the retained LAN media supervisor to "',
+            ),
+            "schema-v6 current receipt recheck": (
+                "Assert-Schema6TrustedEdgeCutoverCurrent `",
+                "Removed-Schema6TrustedEdgeCutoverCurrent `",
+            ),
+            "schema-v6 data-volume identity seal": (
+                '            "CreatedAt",\n'
+                '            "Driver",\n'
+                '            "Scope",\n'
+                '            "LockNumber",',
+                '            "RemovedCreatedAt",\n'
+                '            "RemovedDriver",\n'
+                '            "RemovedScope",\n'
+                '            "RemovedLockNumber",',
+            ),
+            "orphaned state requires exact retry confirmation": (
+                "        $RetryConfirmation -cne\n"
+                "            $failedFirstCandidateRetryConfirmationValue",
+                "        $false",
+            ),
+            "orphan retry rejects a lost successful pointer": (
+                "    if ($successfulReceipts.Count -ne 0) {",
+                "    if ($false) {",
+            ),
+            "orphan retry requires a manager failure receipt": (
+                "    if ($failureReceipts.Count -eq 0) {",
+                "    if ($false) {",
+            ),
+            "orphan retry rejects prior receipt linkage": (
+                "        -not [string]::IsNullOrWhiteSpace(\n"
+                "            [string]$failure.previousReceiptPath\n"
+                "        ) -or",
+                "        $false -or",
+            ),
+            "orphan retry rejects irreversible cutover evidence": (
+                "        [bool]$failure.schema6CutoverIrreversible\n"
+                "    ) {",
+                "        $false\n"
+                "    ) {",
+            ),
+            "orphan retry seals the stable environment hash": (
+                "            (Get-FileHash `\n"
+                "                -LiteralPath $stableEnvironmentPath `\n"
+                "                -Algorithm SHA256).Hash.ToLowerInvariant() -cne\n"
+                "                    $recordedStableSha256",
+                "            $false",
+            ),
+            "orphan retry seals immutable file hashes": (
+                "            (Get-FileHash `\n"
+                "                -LiteralPath $canonicalPath `\n"
+                "                -Algorithm SHA256).Hash.ToLowerInvariant() -cne\n"
+                "                    $fileContract.Sha256",
+                "            $false",
+            ),
+            "orphan retry seals retained volume identity": (
+                "                [string]$expectedVolumes[$index].$propertyName -cne\n"
+                "                    [string]$observedVolumes[$index].$propertyName",
+                "                $false",
+            ),
+            "orphan retry seals unpublished receipt identity": (
+                "            if ($comparison[0] -cne $comparison[1]) {",
+                "            if ($false) {",
+            ),
+            "orphan retry rechecks final project containers": (
+                "    if (-not [string]::IsNullOrWhiteSpace("
+                "$finalProjectContainers.Output)) {",
+                "    if ($false) {",
+            ),
+            "orphan retry rechecks state before mutation": (
+                "                    -PendingCandidateDirectory "
+                "$candidateDirectory `",
+                "                    -RemovedPendingCandidateDirectory "
+                "$candidateDirectory `",
+            ),
+            "schema-v6 audit restore preflight": (
+                "                        "
+                "Assert-Schema6TrustedEdgeCutoverAuditRestorationSafe `",
+                "                        "
+                "Removed-Schema6TrustedEdgeCutoverAuditRestorationSafe `",
+            ),
+            "schema-v6 audit anchor is non-activating": (
+                '            "--no-start",',
+                '            "-d",',
+            ),
+            "schema-v6 audit anchor is non-destructive": (
+                '            "--no-recreate",',
+                '            "--force-recreate",',
+            ),
+            "schema-v6 audit restoration seals volume identity": (
+                "                [string]$matches[0].$propertyName -cne\n"
+                "                    [string]$expectedVolume.$propertyName",
+                "                $false",
+            ),
+            "schema-v6 current recheck seals volume identity": (
+                "                [string]$freshVolume.$propertyName -cne\n"
+                "                    [string]$expectedVolume.$propertyName",
+                "                $false",
+            ),
+            "schema-v6 failure cannot restore legacy release": (
+                "            -not $schema6IrreversibleCutover\n"
+                "        ) {",
+                "            $true\n"
+                "        ) {",
+            ),
+            "schema-v6 success has no rollback link": (
+                "                if ($schema6IrreversibleCutover) {\n"
+                "                    $null\n"
+                "                }\n"
+                "                elseif ($previousReceipt) {",
+                "                if ($false) {\n"
+                "                    $null\n"
+                "                }\n"
+                "                elseif ($previousReceipt) {",
+            ),
+            "schema-v6 Stop proves final quiescence": (
+                "        $null = Assert-Schema6TrustedEdgeCutoverQuiesced `\n"
+                "            -Receipt $current",
+                "        $null = Removed-Schema6TrustedEdgeCutoverQuiesced `\n"
+                "            -Receipt $current",
+            ),
+            "schema-v6 non-activating Stop asset validation": (
+                "-AllowSchema6TrustedEdgeStop:$isSchema6TrustedEdgeStop",
+                "-AllowSchema6TrustedEdgeStop:$false",
+            ),
+            "schema-v6 Stop exact app ownership": (
+                "        $null = Assert-PodmanApplicationContainerOwnership `"
+                "\n            -ComposeProject "
+                "([string]$current.projectName)",
+                "        $null = Removed-PodmanApplicationContainerOwnership `"
+                "\n            -ComposeProject "
+                "([string]$current.projectName)",
+            ),
+            "running app alias identity": (
+                'if (@($attachment.Aliases) -notcontains "app") {',
+                "if ($false) {",
+            ),
+            "running app exclusive IP occupancy": (
+                "-ApplicationRunning $ExpectedRunning",
+                "-ApplicationRunning $false",
+            ),
             "Compose app ownership": (
                 '"com.docker.compose.service"',
                 '"removed.compose.service"',
@@ -1931,6 +2155,112 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                     self.compose,
                     self.runner.replace(before, after),
                 )
+                self.assertIn(expected, errors)
+
+    def test_rejects_schema6_runtime_mutation_before_current_recheck(
+        self,
+    ) -> None:
+        expected = (
+            "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
+            "origins, one schema-v7 RFC1918 Podman app-self /32, exact network "
+            "and ownership evidence, stopped reservation before one-shots, "
+            "media-only forwarding, public health probes, and fail-closed "
+            "restart/rollback topology"
+        )
+        recheck = (
+            "            if ($schema6IrreversibleCutover) {\n"
+            "                $null = Assert-Schema6TrustedEdgeCutoverCurrent `\n"
+            "                    -ExpectedReceipt $previousReceipt `\n"
+            "                    -ExpectedState $schema6CutoverState\n"
+            "            }\n"
+        )
+        premature_runtime_mutation = (
+            "            Invoke-Compose `\n"
+            "                -EnvironmentFile $environmentFile `\n"
+            "                -ComposeProject $ProjectName `\n"
+            "                -ComposePath $composeSourcePath `\n"
+            '                -Arguments @("up", "-d", "postgres") | Out-Null\n'
+        )
+        self.assertIn(recheck, self.runner)
+        runner = self.runner.replace(
+            recheck,
+            premature_runtime_mutation + recheck,
+            1,
+        )
+        self.assertIn(expected, validate_local_release(self.compose, runner))
+
+    def test_rejects_destructive_or_legacy_irreversible_cleanup(
+        self,
+    ) -> None:
+        expected = (
+            "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
+            "origins, one schema-v7 RFC1918 Podman app-self /32, exact network "
+            "and ownership evidence, stopped reservation before one-shots, "
+            "media-only forwarding, public health probes, and fail-closed "
+            "restart/rollback topology"
+        )
+        cleanup_header = (
+            "function Remove-FailedCandidateRuntime {\n"
+            "    param(\n"
+        )
+        restore_anchor = (
+            "                Remove-FailedCandidateRuntime `\n"
+            "                    -EnvironmentFile $environmentFile `\n"
+            "                    -ComposeProject $ProjectName `\n"
+            "                    -ComposePath $composeSourcePath\n"
+        )
+        mutations = (
+            self.runner.replace(
+                cleanup_header,
+                cleanup_header
+                + "        # forbidden destructive mutation\n"
+                + '        Invoke-Compose -Arguments @("down", "-v")\n',
+                1,
+            ),
+            self.runner.replace(
+                cleanup_header,
+                cleanup_header
+                + "        # forbidden native mutation\n"
+                + "        Invoke-NativeCommand -FilePath "
+                + '"podman" -Arguments @("volume", "prune", "--force")\n',
+                1,
+            ),
+            self.runner.replace(
+                restore_anchor,
+                restore_anchor
+                + "                Restore-Release "
+                + "-Receipt $previousReceipt\n",
+                1,
+            ),
+        )
+        for runner in mutations:
+            with self.subTest():
+                self.assertNotEqual(runner, self.runner)
+                self.assertIn(
+                    expected,
+                    validate_local_release(self.compose, runner),
+                )
+
+    def test_rejects_each_missing_trusted_proxy_recovery_preflight(self) -> None:
+        expected = (
+            "Cloudflare trusted-edge releases must seal canonical HTTPS/WSS "
+            "origins, one schema-v7 RFC1918 Podman app-self /32, exact network "
+            "and ownership evidence, stopped reservation before one-shots, "
+            "media-only forwarding, public health probes, and fail-closed "
+            "restart/rollback topology"
+        )
+        needle = (
+            "    $null =\n"
+            "        Assert-ReceiptTrustedProxyReservationRecoverable `\n"
+            "            -Receipt $current\n"
+        )
+        for function_name in ("Invoke-StartLocked", "Invoke-RollbackLocked"):
+            with self.subTest(function_name=function_name):
+                body = _function_body(self.runner, function_name)
+                self.assertIn(needle, body)
+                mutated_body = body.replace(needle, "", 1)
+                mutated_runner = self.runner.replace(body, mutated_body, 1)
+                errors = validate_local_release(self.compose, mutated_runner)
                 self.assertIn(expected, errors)
 
     def test_rejects_missing_media_supervision_or_strict_health(self) -> None:

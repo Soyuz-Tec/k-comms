@@ -506,13 +506,18 @@ only the reserved application IPv4 `/32`. The bridge gateway is recorded as
 part of the complete network identity but is not trusted as a proxy source.
 The manager creates the application stopped with
 `compose up --no-start --no-deps`, verifies the Compose-owned app replica and
-sealed image, disconnects the automatically assigned bridge attachment,
-reconnects it at the exact reserved IPv4 while preserving its aliases, and
-verifies one exact network name, network ID, prefix, and address. It then starts
-that already-created container without a Compose recreation and repeats the
-identity checks while running. An occupied reservation, additional attachment,
-same-name/different-ID bridge, address drift, ownership drift, image drift, or
-network specification drift fails closed.
+sealed image, validates its one unassigned bridge attachment and service
+aliases, disconnects it, and reconnects it with the exact reserved IPv4 request
+while preserving those aliases. Windows Podman reports an empty address and a
+zero prefix while this container is stopped, so the manager verifies the exact
+network name/ID and absence of a foreign active occupant at that stage.
+`podman start` is the atomic allocator/collision authority. The manager starts
+that already-created container without a Compose recreation and immediately
+verifies the exact running network name, network ID, prefix, and address. An
+occupied reservation or allocation race fails at start and triggers rollback;
+an additional attachment, same-name/different-ID bridge, address drift,
+ownership drift, image drift, or network specification drift also fails
+closed. The manager never selects a replacement address.
 
 The application accepts Cloudflare client/proto forwarding headers only from
 that exact receipt-sealed application peer. It does not trust the bridge
@@ -941,6 +946,10 @@ The protected state contains:
 - the exact `compose.source.yaml` used by that candidate and its SHA-256 hash;
 - the exact `compose.rendered.yaml`;
 - a safe-to-review `compose.rendered.redacted.yaml`;
+- when a candidate receipt was written but never published, the renamed
+  `unpublished-deployment.json` plus its exact path and SHA-256 sealed in the
+  paired `failure.json`; the active receipt name `deployment.json` is never
+  retained for that failed candidate;
 - for LAN mode, the retained forwarder script, its exact JSON configuration,
   SHA-256 hashes, atomic ready record, and stdout/stderr logs;
 - for trusted-edge mode, the three public hostnames, loopback origins,
@@ -992,6 +1001,67 @@ its failure is reported independently. The fingerprint contains only a
 tenant-presence flag, table counts, and a SHA-256 identity digest, never row
 ids, slugs, message content, credentials, or bearer material.
 
+### Missing current pointer after a failed first candidate
+
+The absence of `current.json` normally means there is no release to adopt.
+`Deploy` fails closed when it finds a stable environment, history, project
+containers, or owned data volumes without that pointer. Do not delete the
+retained evidence, invent a pointer, or treat an arbitrary state directory as a
+fresh install.
+
+One narrow retry exists for a manager-proven failure of the first-ever
+candidate. Correct and commit the candidate, reuse the exact state root and
+Compose project, specify the complete intended topology again, and append this
+exact acknowledgement to the new `Deploy`:
+
+```powershell
+-FailedFirstCandidateRetryConfirmation failed-first-candidate-retry-v1
+```
+
+The token is intent, not an adoption or cleanup bypass. The manager accepts it
+only when all of the following are true:
+
+- `current.json` is absent, no active-named `deployment.json` exists anywhere
+  below the history root, and no container exists for the Compose project;
+- the latest retained `failure.json` is a regular, non-reparse file under its
+  exact candidate directory, and its candidate id and project match that
+  directory and the requested project;
+- `previousReceiptPath` is empty and
+  `schema6CutoverIrreversible` is false, proving this is a failed first
+  candidate rather than a lost current pointer, failed upgrade, or irreversible
+  schema-v6 cutover;
+- the stable environment's presence and SHA-256 match the failure record;
+- every retained candidate environment, Compose source, and source archive
+  named by the failure record is a regular file inside the same candidate
+  directory and matches its recorded SHA-256; and
+- a runtime-touched failure has complete environment and Compose evidence.
+
+Named PostgreSQL and MinIO volumes may remain because preserving them is the
+purpose of this recovery, but they do not weaken any identity or hash check.
+Any project container or successful active-named receipt blocks the retry.
+When an exact healthy receipt exists but `current.json` was lost, restore that
+exact pointer through an approved recovery procedure instead of using this
+token.
+
+A late failure can occur after the candidate's receipt was written but before
+its `current.json` publication completed. Only after supervisor, forwarder, and
+runtime cleanup succeeds does the manager hash that uncommitted receipt,
+atomically write `failure.json` with the intended
+`unpublishedDeploymentReceiptPath` and
+`unpublishedDeploymentReceiptSha256`, and then atomically rename
+`deployment.json` to `unpublished-deployment.json`. An interruption before the
+rename leaves the active receipt name in place, so retry fails closed. On retry,
+the optional archived file is accepted only at the sealed co-located path, with
+the exact hash and candidate/project identity recorded by the failure. It
+remains failure evidence, never a healthy or activatable release. A remaining
+`deployment.json`, an unpaired unpublished file, a path outside the candidate
+directory, or any identity/hash mismatch fails closed.
+
+The retry creates and qualifies a new immutable candidate. It never publishes
+or starts the failed candidate and never mutates the retained evidence to make
+it appear successful. If the retry also fails, preserve the new failure record
+and investigate before another explicitly acknowledged attempt.
+
 ## Status, start, stop, and rollback
 
 ```powershell
@@ -1029,7 +1099,80 @@ loopback Podman bind, exposure mode, and forwarder record. A schema-v6
 trusted-edge receipt derived trust from the Podman gateway and therefore is
 not safe to activate under the corrected peer model; `Start` and `Rollback`
 reject it and require a clean schema-v7 redeployment rather than reinterpret
-its old `trustedProxyCidr`.
+its old `trustedProxyCidr`. A v6 trusted-edge release has exactly one supported
+upgrade: an explicitly acknowledged, irreversible clean cutover under the
+**same** `-StateRoot` and `-ProjectName`. Do not select a new project: doing so
+would create new secrets and empty PostgreSQL/MinIO volumes.
+
+Before cutting over, create and restore-test an approved backup. If that is not
+available, the operator must deliberately accept the data/migration risk
+encoded by the exact confirmation token. Then use the same state and project:
+
+```powershell
+$stateRoot = Join-Path $env:LOCALAPPDATA "K-Comms\local-release"
+$projectName = "k-comms-release"
+
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
+  -Action Stop `
+  -StateRoot $stateRoot `
+  -ProjectName $projectName
+if ($LASTEXITCODE -ne 0) {
+  throw "Schema-v6 trusted-edge Stop/quiescence failed"
+}
+
+powershell -ExecutionPolicy Bypass -File scripts/manage_local_release.ps1 `
+  -Action Deploy `
+  -StateRoot $stateRoot `
+  -ProjectName $projectName `
+  -ExposureProfile cloudflare_trusted_edge `
+  -AppHostname comms.avayaworks.com `
+  -MediaHostname media.avayaworks.com `
+  -ObjectHostname kcomms-files.avayaworks.com `
+  -MediaNodeAddress 192.168.1.177 `
+  -TrustedEdgeConfirmation cloudflare-tunnel-v1 `
+  -Schema6CutoverConfirmation `
+    schema6-irrevocable-cutover-data-risk-v1 `
+  -AllowPublicNetworkProfile
+if ($LASTEXITCODE -ne 0) {
+  throw "Schema-v6 to schema-v7 trusted-edge cutover failed"
+}
+```
+
+`Stop` is the sole non-upgrade schema-v6 trusted-edge lifecycle escape hatch.
+It verifies retained environment, Compose, rendered configuration, source, and
+forwarder hashes plus exact Compose project/app/image ownership. After stopping
+the services it proves that no project container or exact-command media
+forwarder remains running, no media listener or supervisor task remains, the
+stable environment matches the retained release without needing normalization,
+and both Compose-owned data volumes have no running or foreign mount user.
+
+`Stop` is also idempotent after an irreversible schema-v6-to-v7 candidate has
+failed. The manager removes the candidate runtime, then uses the exact retained
+v6 environment, Compose source, image, and project to recreate only the old
+application with `--no-start`. It verifies that stopped container as the
+non-activating audit anchor, re-proves the full quiescence contract, and only
+then seals the candidate failure evidence. The v6 `current.json` remains the
+cutover audit pointer; the anchor is not an activatable rollback.
+
+A repeated `Stop` validates the exact current v6 receipt and retained assets,
+requires that audit anchor to have the recorded Compose project/app/image
+identity, stops it idempotently, and re-proves that the project has no running
+container, forwarder/listener/supervisor, or running/foreign retained-volume
+user. It returns success without starting anything or rewriting the pointer.
+A missing or mismatched anchor fails closed. This path uses no
+`failed-first-candidate-retry-v1` token; a corrected cutover repeats the stopped
+`Deploy` with `schema6-irrevocable-cutover-data-risk-v1`.
+
+`Deploy` repeats that proof before creating the candidate. The candidate reuses
+the exact stable environment and data volumes, but its database migration has
+no automatic v6 rollback. A successful v7 receipt sets `previousReceiptPath` to
+null and records the v6 source only in `schema6CutoverFromReceiptPath`. On
+failure, the manager removes candidate containers without deleting volumes or
+stable secrets, restores and verifies only the stopped v6 audit anchor, keeps
+the v6 current pointer as audit/retry evidence, and never reactivates the
+obsolete gateway-trust release. Correct the failure and repeat the same stopped,
+explicitly confirmed cutover; `Deploy` re-proves the anchor before candidate
+mutation. Never use `Start` on v6.
 
 Every new deployment writes schema v7. Trusted-edge schema-v7 receipts require
 the three public origins, `trustedProxySourceKind=podman-app-self-v1`, the exact
@@ -1039,11 +1182,14 @@ confirmation, and media-only forwarder profile. `Start` and `Rollback` inspect
 and reuse that exact reservation; they never select a replacement address or
 rewrite the receipt when the reservation is occupied or topology has drifted.
 They create the app stopped, restore its sealed attachment, verify
-ownership/image/network/address, and start it without recreation. Any mismatch
-fails closed before the receipt becomes active. Older non-trusted-edge receipts
-remain restartable only under their own compatible sealed profile. The manager
-rejects receipt schema versions newer than v7 instead of interpreting them
-with stale lifecycle logic.
+ownership/image/network/aliases, and submit the same sealed address request.
+Because Windows Podman leaves a stopped attachment unassigned, container start
+is the atomic collision gate; the exact running prefix/address is verified
+immediately afterward without recreation. Any mismatch fails closed before the
+receipt becomes active. Older non-trusted-edge receipts remain restartable only
+under their own compatible sealed profile. The manager rejects receipt schema
+versions newer than v7 instead of interpreting them with stale lifecycle
+logic.
 Before activating a receipt that lacks guest rollback capabilities, `Start`
 runs the same quiesced PostgreSQL hazard probe. This fails closed when a
 migrated failed candidate left guest rows or jobs while `current.json` still

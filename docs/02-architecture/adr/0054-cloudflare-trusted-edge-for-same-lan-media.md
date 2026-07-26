@@ -165,15 +165,49 @@ The following constraints are part of the decision:
    sealed release. A secure origin alone is not media evidence.
 11. Trusted-edge activation reserves the application peer before it can accept
     traffic. The manager creates the Compose application stopped with
-    `compose up --no-start --no-deps`, disconnects its automatically allocated
-    bridge attachment, reconnects it with the exact sealed IPv4, verifies the
-    Compose project/service ownership, image, one-network identity, prefix, and
-    address, and then starts the same container without recreation. `Start`,
+    `compose up --no-start --no-deps`, verifies its unassigned one-network
+    attachment and aliases, disconnects it, and reconnects it with the exact
+    sealed IPv4 request. Windows Podman does not expose an assigned address for
+    a stopped container; `podman start` is therefore the atomic allocator and
+    collision gate. The manager starts the same container without recreation
+    and immediately verifies Compose project/service ownership, image,
+    one-network identity, prefix, and address. `Start`,
     `Status`, `Stop`, and `Rollback` remain receipt-driven. `Start` and
     `Rollback` reuse this exact reservation and fail closed before activation
     when the network name/ID/subnet/gateway/prefix, address, ownership, image,
     or attachment count drifts. Schema-v6 trusted-edge receipts used gateway
-    trust and must be redeployed as schema v7 rather than reinterpreted.
+    trust and must be redeployed as schema v7 rather than reinterpreted. The
+    manager permits exactly one in-place upgrade: an explicitly acknowledged,
+    irreversible clean cutover after the v6 release has been stopped. It reuses
+    the same state root and Compose project so stable authentication/encryption
+    secrets plus the project-owned PostgreSQL and MinIO volumes remain intact.
+    Before candidate mutation it proves all project containers and the exact
+    receipt-bound media forwarder are stopped, its scheduled supervisor and
+    readiness evidence are absent, the stable environment is already
+    normalization-idempotent and byte-identical to the retained release, and
+    both data volumes have exact Compose ownership with no running or foreign
+    mount user. The acknowledgement
+    `schema6-irrevocable-cutover-data-risk-v1` records that schema migration has
+    no automatic v6 rollback; operators must first prove backup/restore evidence
+    or explicitly accept that risk. A successful v7 receipt records the source
+    v6 receipt only as audit evidence and exposes no executable rollback link.
+    A failed candidate runtime is removed without volumes, secrets, or the v6
+    audit pointer being deleted. The manager then recreates only the exact
+    retained v6 application from its sealed environment, Compose source, image,
+    and project with `--no-start`, verifies that stopped container as the
+    non-activating cutover audit anchor, and only then seals failure evidence.
+    The obsolete release is never reactivated.
+    The schema-v6 `Stop` path is strictly non-activating: it verifies retained
+    asset hashes and exact Compose project/app/image ownership, stops the
+    recorded containers, and proves the complete cutover quiescence contract
+    without resolving or replaying the obsolete peer topology. It remains
+    idempotent after an irreversible v7 candidate failure through the exact
+    stopped v6 audit anchor. A repeated `Stop` validates the current v6 receipt,
+    retained assets, anchor ownership/image/stopped state, absent forwarder,
+    media listeners and supervisor, and lack of running or foreign volume
+    users before succeeding without activation or pointer mutation. A missing
+    or mismatched anchor fails closed. A corrected `Deploy` repeats the same
+    proof and replaces the audit anchor only with a newly qualified candidate.
     Lifecycle actions also verify or reuse the retained exposure profile, three
     exact hostnames, loopback origins, media node address, two-listener LAN
     contract, and configuration hashes. They do not mutate Cloudflare state.
@@ -279,10 +313,13 @@ LAN-only. Do not distribute invitations outside the controlled pilot.
   `podman-app-self-v1` source kind, full bridge identity, reserved application
   IPv4/CIDR, the selected media node address, two-listener LAN forwarding, and
   immutable image/configuration identity.
-- Deployment evidence proves the application is created stopped, reattached to
-  its sealed IPv4, checked for exact ownership/image/network identity, and
-  started without recreation. Restart and rollback qualification repeat those
-  checks and reject schema-v6 trusted-edge receipts until they are redeployed.
+- Deployment evidence proves the application is created stopped, reattached
+  with its sealed IPv4 request, checked for exact
+  ownership/image/network/alias identity, and started without recreation.
+  Startup must reject an occupied request and the running container must then
+  expose the exact sealed prefix/address. Restart and rollback qualification
+  repeat those checks and reject schema-v6 trusted-edge receipts until they are
+  redeployed.
 - Public probes verify:
   - `https://comms.avayaworks.com/health/ready`;
   - `https://comms.avayaworks.com/app/`;

@@ -123,10 +123,51 @@ Trusted-edge deployments require a schema-v7 receipt. The manager records
 `trustedProxySourceKind=podman-app-self-v1`, seals the exact isolated Podman
 bridge name, ID, subnet, gateway, prefix, and reserved application IPv4/CIDR,
 then trusts only that application `/32`. It creates the application stopped,
-reconnects it at the sealed address, verifies its ownership, image, network,
-and address, and starts that same container without recreation. `Start` and
-`Rollback` replay and verify the same reservation or fail closed; a
+reconnects it with the sealed address request, verifies its ownership, image,
+network identity, and aliases, and starts that same container without
+recreation. Windows Podman assigns and exposes the requested address only at
+start, so startup is the atomic collision gate and the manager immediately
+verifies the running prefix/address. `Start` and `Rollback` replay and verify
+the same reservation or fail closed; a
 schema-v6 trusted-edge receipt must be redeployed before it can be activated.
+Because that unsafe gateway-trust release cannot be an automatic rollback
+target, its one supported upgrade is an explicitly acknowledged, irreversible
+clean cutover to v7 under the **same** state root and Compose project. Reusing
+both preserves the stable encryption/authentication secrets and the owned
+PostgreSQL and MinIO volumes. Run `Stop`, prove a usable backup/restore path or
+explicitly accept the migration risk, then deploy with
+`-Schema6CutoverConfirmation schema6-irrevocable-cutover-data-risk-v1`.
+The manager proves all project containers and the receipt-bound media
+forwarder are stopped, the supervisor is absent, the stable environment is
+unchanged, and both data volumes remain exclusively project-owned before any
+candidate mutation. The resulting v7 receipt has no v6 rollback link. If the
+candidate fails, its runtime is removed while the stable secrets, volumes, and
+v6 audit pointer remain. The manager then recreates only the exact retained v6
+application from its sealed environment, Compose source, image, and project,
+using `--no-start`, and proves that stopped container as the non-activating
+audit anchor before sealing failure evidence. The obsolete v6 release is never
+reactivated. `Stop` is the only other schema-v6 trusted-edge lifecycle action
+and never resolves or trusts the obsolete peer. After an irreversible candidate
+failure, repeating `Stop` is idempotent through that exact stopped audit anchor:
+it validates the current v6 receipt and retained assets, re-proves complete
+quiescence, and does not start containers or rewrite the v6 audit pointer. A
+missing anchor fails closed.
+
+A separate recovery token exists only for the rare case where the first-ever
+candidate failed and no `current.json` was published. Reuse the same state root
+and Compose project, correct the candidate, and append
+`-FailedFirstCandidateRetryConfirmation failed-first-candidate-retry-v1` to the
+new `Deploy`. The token is accepted only after the manager proves that no
+published receipt or project container exists and that the retained
+`failure.json`, stable environment, and immutable candidate files match their
+recorded hashes. A failed candidate never retains the active receipt name
+`deployment.json`: after complete cleanup, the manager hashes any unpublished
+candidate receipt, atomically seals its intended `unpublished-deployment.json`
+path and SHA-256 in `failure.json`, and then atomically renames the receipt.
+An interruption before the rename leaves `deployment.json` in place so retry
+fails closed. Otherwise, restore `current.json` from the exact healthy receipt
+instead of retrying.
+
 Direct loopback access remains a local-operator-trust path, not a shareable
 trusted-edge origin.
 

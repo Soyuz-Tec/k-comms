@@ -408,7 +408,7 @@ def validate_local_release(
         "compose.source.yaml": (
             "local release orchestrator must retain the candidate Compose source"
         ),
-        "environmentsha256": (
+        "environmentsha256 = $environmentsha256": (
             "local release orchestrator must hash the retained release environment"
         ),
         "composesourcesha256": (
@@ -585,9 +585,23 @@ def validate_local_release(
         not in start_sealed_application_body
         or "if (-not $trustedproxytopology)"
         not in start_sealed_application_body
+        or "assert-composeapplicationtrustedproxypeerpending"
+        not in start_sealed_application_body
         or "assert-composeapplicationtrustedproxypeercurrent"
         not in start_sealed_application_body
+        or "-expectedrunning $true" not in start_sealed_application_body
+        or "select-composeapplicationtrustedproxyreservation"
+        in start_sealed_application_body
         or '@("start", "app")' not in start_sealed_application_body
+        or not (
+            start_sealed_application_body.find(
+                "assert-composeapplicationtrustedproxypeerpending"
+            )
+            < start_sealed_application_body.find('@("start", "app")')
+            < start_sealed_application_body.find(
+                "assert-composeapplicationtrustedproxypeercurrent"
+            )
+        )
         or "compose recreated the application after its trusted proxy address"
         not in start_sealed_application_body
         or (
@@ -722,10 +736,22 @@ def validate_local_release(
             "Get-PodmanApplicationNetworkContract",
         )
     )
+    trusted_proxy_attachment_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Get-PodmanContainerSingleNetworkAttachment",
+        )
+    )
     trusted_proxy_prepare_body = _compact_powershell(
         _function_body(
             runner_document,
             "Set-ComposeApplicationTrustedProxyReservation",
+        )
+    )
+    trusted_proxy_pending_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ComposeApplicationTrustedProxyPeerPending",
         )
     )
     trusted_proxy_current_body = _compact_powershell(
@@ -762,6 +788,48 @@ def validate_local_release(
         _function_body(
             runner_document,
             "Invoke-TrustedProxyReservationSelfTest",
+        )
+    )
+    schema6_cutover_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-Schema6TrustedEdgeCutoverQuiesced",
+        )
+    )
+    schema6_cutover_current_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-Schema6TrustedEdgeCutoverCurrent",
+        )
+    )
+    schema6_audit_application_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Restore-Schema6TrustedEdgeCutoverAuditApplication",
+        )
+    )
+    schema6_audit_restoration_safe_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-Schema6TrustedEdgeCutoverAuditRestorationSafe",
+        )
+    )
+    retained_volume_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ComposeProjectDataVolumesRetained",
+        )
+    )
+    project_quiescence_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-ComposeProjectRuntimeQuiesced",
+        )
+    )
+    orphaned_state_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-NoOrphanedReleaseState",
         )
     )
     wait_trusted_edge_body = _compact_powershell(
@@ -806,6 +874,9 @@ def validate_local_release(
     validate_body = _compact(_function_body(runner_document, "Invoke-Validate"))
     restore_body = _compact(_function_body(runner_document, "Restore-Release"))
     retained_assets_body = _compact(
+        _function_body(runner_document, "Assert-RetainedReleaseAssets")
+    )
+    trusted_edge_stop_assets_body = _compact_powershell(
         _function_body(runner_document, "Assert-RetainedReleaseAssets")
     )
     forwarder_listeners_body = _compact_powershell(
@@ -1317,7 +1388,7 @@ def validate_local_release(
         or "k_comms_local_release_host" not in retained_assets_body
         or "retained schema-v5 release environment topology does not"
         not in retained_assets_body
-        or "retained schema-v7 trusted-edge environment topology does"
+        or "retained trusted-edge environment topology does"
         not in retained_assets_body
         or "k_comms_release_exposure_mode = $cloudflaretrustededgeprofile"
         not in retained_assets_body
@@ -2602,7 +2673,13 @@ def validate_local_release(
         '[string]$objecthostname = ""',
         '[string]$medianodeaddress = ""',
         '[string]$trustededgeconfirmation = ""',
+        '[string]$schema6cutoverconfirmation = ""',
+        '[string]$failedfirstcandidateretryconfirmation = ""',
         '$cloudflaretrustededgeconfirmation = "cloudflare-tunnel-v1"',
+        '$schema6cutoverconfirmationvalue = '
+        '"schema6-irrevocable-cutover-data-risk-v1"',
+        '$failedfirstcandidateretryconfirmationvalue = '
+        '"failed-first-candidate-retry-v1"',
     )
     trusted_edge_topology_markers = (
         'if ($requestedbindaddress -cne $podmanbindaddress)',
@@ -2659,6 +2736,63 @@ def validate_local_release(
         '"app", "minio", "livekitsignal", "livekittcp", "livekitudp"',
         '"media-only"',
     )
+    schema6_preflight_position = deploy_flow_body.find(
+        "assert-schema6trustededgecutoverquiesced "
+        "-receipt $previousreceipt"
+    )
+    schema6_current_recheck_position = deploy_flow_body.find(
+        "assert-schema6trustededgecutovercurrent "
+        "-expectedreceipt $previousreceipt"
+    )
+    first_deploy_runtime_mutation_position = deploy_flow_body.find(
+        "invoke-compose"
+    )
+    orphan_preflight_position = deploy_flow_body.find(
+        "assert-noorphanedreleasestate"
+    )
+    orphan_current_recheck_position = deploy_flow_body.find(
+        "assert-noorphanedreleasestate",
+        orphan_preflight_position + 1,
+    )
+    candidate_image_evidence_position = deploy_flow_body.find(
+        "$image = get-imageevidence"
+    )
+    failure_cleanup_position = deploy_flow_body.find(
+        "remove-failedcandidateruntime"
+    )
+    schema6_audit_safe_position = deploy_flow_body.find(
+        "assert-schema6trustededgecutoverauditrestorationsafe"
+    )
+    schema6_audit_restore_position = deploy_flow_body.find(
+        "restore-schema6trustededgecutoverauditapplication"
+    )
+    failure_record_position = deploy_flow_body.find(
+        "$failurerecord = [ordered]@"
+    )
+    failure_write_position = deploy_flow_body.find(
+        'write-jsonatomic -path (join-path $candidatedirectory "failure.json")'
+    )
+    unpublished_move_position = deploy_flow_body.find(
+        "move-item -literalpath $receiptpath "
+        "-destination $unpublishedreceiptpath"
+    )
+    irreversible_cleanup_start = deploy_flow_body.find(
+        "elseif ($candidatetouchedruntime)"
+    )
+    irreversible_cleanup_end = deploy_flow_body.find(
+        "throw $deploymenterror",
+        irreversible_cleanup_start,
+    )
+    irreversible_cleanup_body = (
+        deploy_flow_body[
+            irreversible_cleanup_start:irreversible_cleanup_end
+        ]
+        if (
+            irreversible_cleanup_start >= 0
+            and irreversible_cleanup_end > irreversible_cleanup_start
+        )
+        else ""
+    )
     if (
         any(marker not in compact_runner for marker in trusted_edge_cli_markers)
         or any(
@@ -2679,6 +2813,20 @@ def validate_local_release(
             '"--force-recreate", "app"'
         )
         not in prepare_trusted_application_body
+        or "assert-composeapplicationtrustedproxypeerpending"
+        not in start_sealed_application_body
+        or "-expectedrunning $true" not in start_sealed_application_body
+        or "select-composeapplicationtrustedproxyreservation"
+        in start_sealed_application_body
+        or not (
+            start_sealed_application_body.find(
+                "assert-composeapplicationtrustedproxypeerpending"
+            )
+            < start_sealed_application_body.find('@("start", "app")')
+            < start_sealed_application_body.find(
+                "assert-composeapplicationtrustedproxypeercurrent"
+            )
+        )
         or "get-composeapplicationnetworkcontract"
         not in trusted_proxy_selection_body
         or "select-freeprivateipv4cidr"
@@ -2708,6 +2856,14 @@ def validate_local_release(
         not in trusted_proxy_network_body
         or '$networklabelproperty.value -cne "default"'
         not in trusted_proxy_network_body
+        or "[switch]$allowunassignedaddress"
+        not in trusted_proxy_attachment_body
+        or "$addressassigned = -not [string]::isnullorwhitespace($addressvalue)"
+        not in trusted_proxy_attachment_body
+        or "-not $allowunassignedaddress -or $prefixlength -ne 0"
+        not in trusted_proxy_attachment_body
+        or "addressassigned = $addressassigned"
+        not in trusted_proxy_attachment_body
         or "assert-trustedproxyrecoveryoccupancy"
         not in trusted_proxy_prepare_body
         or '"network", "disconnect"' not in trusted_proxy_prepare_body
@@ -2715,8 +2871,22 @@ def validate_local_release(
         not in trusted_proxy_prepare_body
         or "foreach ($networkalias in @($original.aliases))"
         not in trusted_proxy_prepare_body
-        or "assert-composeapplicationtrustedproxypeercurrent"
+        or "assert-composeapplicationtrustedproxypeerpending"
         not in trusted_proxy_prepare_body
+        or "-allowunassignedaddress" not in trusted_proxy_prepare_body
+        or "get-podmancontainersinglenetworkattachment"
+        not in trusted_proxy_pending_body
+        or "-allowunassignedaddress" not in trusted_proxy_pending_body
+        or "$attachment.networkname -cne $contract.network.networkname"
+        not in trusted_proxy_pending_body
+        or "$attachment.networkid -cne $contract.network.networkid"
+        not in trusted_proxy_pending_body
+        or "$attachment.addressassigned -and"
+        not in trusted_proxy_pending_body
+        or '@($attachment.aliases) -notcontains "app"'
+        not in trusted_proxy_pending_body
+        or "assert-trustedproxyrecoveryoccupancy"
+        not in trusted_proxy_pending_body
         or "$attachment.networkname -cne $contract.network.networkname"
         not in trusted_proxy_current_body
         or "$attachment.networkid -cne $contract.network.networkid"
@@ -2724,6 +2894,12 @@ def validate_local_release(
         or "$attachment.prefixlength -ne $contract.network.prefixlength"
         not in trusted_proxy_current_body
         or "$attachment.ipaddress -cne $contract.applicationcontaineripv4"
+        not in trusted_proxy_current_body
+        or '@($attachment.aliases) -notcontains "app"'
+        not in trusted_proxy_current_body
+        or "assert-trustedproxyrecoveryoccupancy"
+        not in trusted_proxy_current_body
+        or "-applicationrunning $expectedrunning"
         not in trusted_proxy_current_body
         or '"com.docker.compose.project"'
         not in trusted_proxy_ownership_body
@@ -2772,6 +2948,514 @@ def validate_local_release(
         or any(
             marker not in receipt_topology_body
             for marker in trusted_edge_receipt_markers
+        )
+        or "if ($schemaversion -eq 6)" not in receipt_topology_body
+        or "if ($schemaversion -lt 7)" not in receipt_topology_body
+        or "$previoustrustedschemaversion -eq 6" not in deploy_flow_body
+        or (
+            "$schema6cutoverconfirmation -cne "
+            "$schema6cutoverconfirmationvalue"
+        )
+        not in deploy_flow_body
+        or "assert-retainedreleaseassets -receipt $previousreceipt "
+        "-allowschema6trustededgestop"
+        not in deploy_flow_body
+        or "assert-schema6trustededgecutoverquiesced "
+        "-receipt $previousreceipt"
+        not in deploy_flow_body
+        or "$schema6irreversiblecutover = $true" not in deploy_flow_body
+        or "$orphanrecoverystate = "
+        "assert-noorphanedreleasestate "
+        "-statepath $stateroot -composeproject $projectname "
+        "-retryconfirmation $failedfirstcandidateretryconfirmation"
+        not in deploy_flow_body
+        or deploy_flow_body.count("assert-noorphanedreleasestate") < 3
+        or deploy_flow_body.count(
+            "-pendingcandidatedirectory $candidatedirectory"
+        )
+        < 2
+        or deploy_flow_body.count(
+            "-expectedfreshstableenvironmentsha256 "
+            "( $firstcandidatestableenvironmentsha256 )"
+        )
+        < 2
+        or "if ($currentorphanrecoverystate -cne $orphanrecoverystate)"
+        not in deploy_flow_body
+        or min(
+            orphan_preflight_position,
+            candidate_image_evidence_position,
+            orphan_current_recheck_position,
+            first_deploy_runtime_mutation_position,
+        )
+        < 0
+        or not (
+            orphan_preflight_position
+            < candidate_image_evidence_position
+            < orphan_current_recheck_position
+            < first_deploy_runtime_mutation_position
+        )
+        or "assert-schema6trustededgecutovercurrent "
+        "-expectedreceipt $previousreceipt "
+        "-expectedstate $schema6cutoverstate"
+        not in deploy_flow_body
+        or deploy_flow_body.count(
+            "assert-schema6trustededgecutovercurrent "
+            "-expectedreceipt $previousreceipt "
+            "-expectedstate $schema6cutoverstate"
+        )
+        < 2
+        or min(
+            schema6_preflight_position,
+            schema6_current_recheck_position,
+            first_deploy_runtime_mutation_position,
+        )
+        < 0
+        or not (
+            schema6_preflight_position
+            < schema6_current_recheck_position
+            < first_deploy_runtime_mutation_position
+        )
+        or (
+            "-previousreceipt $(if ($schema6irreversiblecutover) "
+            "{ $null } else { $previousreceipt })"
+        )
+        not in deploy_flow_body
+        or "schema-v6 trusted-edge cutover can only produce a schema-v7"
+        not in deploy_flow_body
+        or "verify backup/restore evidence or accept the data"
+        not in deploy_flow_body
+        or "schema-v6 cutover changed the retained stable"
+        not in deploy_flow_body
+        or (
+            "if ( $previousreceipt -and $candidatetouchedruntime -and "
+            "-not $schema6irreversiblecutover )"
+        )
+        not in deploy_flow_body
+        or (
+            "previousreceiptpath = if ($schema6irreversiblecutover) "
+            "{ $null }"
+        )
+        not in deploy_flow_body
+        or deploy_flow_body.count(
+            "previousreceiptpath = if ($schema6irreversiblecutover) "
+            "{ $null }"
+        )
+        < 2
+        or (
+            "schema6cutoverfromreceiptpath = "
+            "if ($schema6irreversiblecutover)"
+        )
+        not in deploy_flow_body
+        or (
+            "schema6cutoverirreversible = "
+            "[bool]$schema6irreversiblecutover"
+        )
+        not in deploy_flow_body
+        or "remove-failedcandidateruntime" not in deploy_flow_body
+        or min(
+            failure_cleanup_position,
+            schema6_audit_safe_position,
+            schema6_audit_restore_position,
+            failure_record_position,
+            failure_write_position,
+            unpublished_move_position,
+        )
+        < 0
+        or not (
+            failure_cleanup_position
+            < schema6_audit_safe_position
+            < schema6_audit_restore_position
+            < failure_record_position
+            < failure_write_position
+            < unpublished_move_position
+        )
+        or 'recoverystate = "retry-ready"' not in deploy_flow_body
+        or "unpublisheddeploymentreceiptpath = $null"
+        not in deploy_flow_body
+        or "unpublisheddeploymentreceiptsha256 = $null"
+        not in deploy_flow_body
+        or (
+            "$failurerecord.unpublisheddeploymentreceiptpath = "
+            "[io.path]::getfullpath($unpublishedreceiptpath)"
+        )
+        not in deploy_flow_body
+        or (
+            "$failurerecord.unpublisheddeploymentreceiptsha256 = "
+            "$unpublishedreceiptsha256"
+        )
+        not in deploy_flow_body
+        or (
+            "get-filehash -literalpath $receiptpath -algorithm sha256"
+        )
+        not in deploy_flow_body
+        or (
+            "test-path -literalpath $receiptpath -pathtype leaf"
+        )
+        not in deploy_flow_body
+        or "the unpublished deployment receipt was not archived"
+        not in deploy_flow_body
+        or "atomically with its sealed hash" not in deploy_flow_body
+        or "reactivated automatically."
+        not in deploy_flow_body
+        or not irreversible_cleanup_body
+        or "restore-release" in irreversible_cleanup_body
+        or (
+            "assert-schema6trustededgecutovercurrent "
+            "-expectedreceipt $previousreceipt "
+            "-expectedstate $schema6cutoverstate"
+        )
+        not in irreversible_cleanup_body
+        or any(
+            marker in cleanup_body
+            for marker in (
+                '"volume", "rm"',
+                "volume rm",
+                '"volume", "prune"',
+                "volume prune",
+                "--volumes",
+                '"down"',
+                '"-v"',
+            )
+        )
+        or cleanup_body.count("invoke-compose") != 3
+        or cleanup_body.count("& $composeinvoker") != 3
+        or "invoke-nativecommand" in cleanup_body
+        or "assert-composeprojectruntimequiesced "
+        "-composeproject ([string]$receipt.projectname)"
+        not in schema6_cutover_body
+        or "-allownotfound" in schema6_cutover_body
+        or "assert-podmanapplicationcontainerownership"
+        not in schema6_cutover_body
+        or "-expectedrunning $false" not in schema6_cutover_body
+        or any(
+            marker not in schema6_audit_application_body
+            for marker in (
+                "$schemaversion -ne 6",
+                "test-receiptiscloudflaretrustededge -receipt $receipt",
+                (
+                    '-arguments @( "up", "--no-start", "--no-deps", '
+                    '"--no-build", "--no-recreate", "--pull", "never", "app" )'
+                ),
+                "get-composeservicecontainerid",
+                "-includestopped",
+                "assert-podmanapplicationcontainerownership",
+                "-expectedimageid ([string]$receipt.imageid)",
+                "-expectedrunning $false",
+            )
+        )
+        or "-allownotfound" in schema6_audit_application_body
+        or '"--force-recreate"' in schema6_audit_application_body
+        or '"start"' in schema6_audit_application_body
+        or '"-d"' in schema6_audit_application_body
+        or "start-sealedapplication" in schema6_audit_application_body
+        or '"network"' in schema6_audit_application_body
+        or '"volume"' in schema6_audit_application_body
+        or any(
+            marker not in schema6_audit_restoration_safe_body
+            for marker in (
+                "get-currentreceipt",
+                (
+                    "$current.receiptpath -cne "
+                    "[string]$expectedstate.receiptpath"
+                ),
+                (
+                    "$receiptsha256 -cne "
+                    "[string]$expectedstate.receiptsha256"
+                ),
+                (
+                    "assert-retainedreleaseassets -receipt $current "
+                    "-allowschema6trustededgestop"
+                ),
+                (
+                    "assert-composeprojectruntimequiesced "
+                    "-composeproject ([string]$current.projectname)"
+                ),
+                (
+                    '"ps", "--all", "--filter", '
+                    '"label=com.docker.compose.project=$($current.projectname)"'
+                ),
+                (
+                    "-not [string]::isnullorwhitespace($containers.output)"
+                ),
+                (
+                    "$stableenvironmentsha256 -cne "
+                    "[string]$expectedstate.stableenvironmentsha256"
+                ),
+                "assert-composeprojectdatavolumesretained",
+                "$expectedvolumes.count -ne 2 -or $freshvolumes.count -ne 2",
+                (
+                    '"name", "volumekey", "createdat", "driver", "scope", '
+                    '"locknumber", "mountpoint"'
+                ),
+                (
+                    "[string]$matches[0].$propertyname -cne "
+                    "[string]$expectedvolume.$propertyname"
+                ),
+                "get-lanforwardercommandprocesses -forwarder $forwarder",
+                "get-lanforwarderownedendpoints -receipt $current",
+                'get-scheduledtask -taskpath "\\"',
+            )
+        )
+        or "invoke-compose" in schema6_audit_restoration_safe_body
+        or "start-process" in schema6_audit_restoration_safe_body
+        or "move-item" in schema6_audit_restoration_safe_body
+        or "assert-composeprojectdatavolumesretained "
+        "-composeproject ([string]$receipt.projectname)"
+        not in schema6_cutover_body
+        or "-expectedrunning $false" not in schema6_cutover_body
+        or "get-lanforwardercommandprocesses -forwarder $forwarder"
+        not in schema6_cutover_body
+        or "get-lanforwarderownedendpoints -receipt $receipt"
+        not in schema6_cutover_body
+        or (
+            "test-path -literalpath ([string]$forwarder.statuspath) "
+            "-pathtype leaf"
+        )
+        not in schema6_cutover_body
+        or 'get-scheduledtask -taskpath "\\"'
+        not in schema6_cutover_body
+        or "if ($task) { throw (" not in schema6_cutover_body
+        or (
+            "$stablevalues = read-environmentfile "
+            "-path $stableenvironmentpath"
+        )
+        not in schema6_cutover_body
+        or (
+            "$retainedreleasevalues = read-environmentfile "
+            "-path ([string]$receipt.environmentfile)"
+        )
+        not in schema6_cutover_body
+        or (
+            "$retainedreleasevalues[[string]$entry.key] -cne "
+            "[string]$entry.value"
+        )
+        not in schema6_cutover_body
+        or (
+            '-not $stablevalues.contains("bootstrap_owner_password")'
+        )
+        not in schema6_cutover_body
+        or (
+            '"webhook_secret_encryption_key", '
+            '"push_subscription_encryption_key"'
+        )
+        not in schema6_cutover_body
+        or "test-encryptionkey -value "
+        "([string]$stablevalues[$encryptionkeyname])"
+        not in schema6_cutover_body
+        or '$volumekey in @("postgres-data", "minio-data")'
+        not in retained_volume_body
+        or '@("volume", "inspect", $volumename)'
+        not in retained_volume_body
+        or (
+            "$parsedvolumerecords = "
+            "$inspection.output | convertfrom-json"
+        )
+        not in retained_volume_body
+        or "$records = @($parsedvolumerecords)"
+        not in retained_volume_body
+        or '"com.docker.compose.project"' not in retained_volume_body
+        or '"com.docker.compose.volume"' not in retained_volume_body
+        or "$projectlabel -cne $composeproject"
+        not in retained_volume_body
+        or "$volumelabel -cne $volumekey"
+        not in retained_volume_body
+        or (
+            '"ps", "--all", "--filter", "volume=$volumename", '
+            '"--format", "{{.id}}"'
+        )
+        not in retained_volume_body
+        or "$mountprojectlabel -cne $composeproject"
+        not in retained_volume_body
+        or "[bool]$mountrecord.state.running"
+        not in retained_volume_body
+        or (
+            '"ps", "--filter", '
+            '"label=com.docker.compose.project=$composeproject"'
+        )
+        not in project_quiescence_body
+        or "$runningids.count -ne 0" not in project_quiescence_body
+        or "$datavolumes = @( "
+        "assert-composeprojectdatavolumesretained "
+        "-composeproject ([string]$receipt.projectname) )"
+        not in schema6_cutover_body
+        or "datavolumes = $datavolumes"
+        not in schema6_cutover_body
+        or "createdat = [string]$record.createdat"
+        not in retained_volume_body
+        or "driver = [string]$record.driver"
+        not in retained_volume_body
+        or "scope = [string]$record.scope"
+        not in retained_volume_body
+        or "locknumber = [int]$record.locknumber"
+        not in retained_volume_body
+        or "get-currentreceipt" not in schema6_cutover_current_body
+        or "$current.receiptpath -cne "
+        "[string]$expectedstate.receiptpath"
+        not in schema6_cutover_current_body
+        or "$receiptsha256 -cne "
+        "[string]$expectedstate.receiptsha256"
+        not in schema6_cutover_current_body
+        or "assert-retainedreleaseassets -receipt $current "
+        "-allowschema6trustededgestop"
+        not in schema6_cutover_current_body
+        or "assert-schema6trustededgecutoverquiesced -receipt $current"
+        not in schema6_cutover_current_body
+        or "$freshstate.stableenvironmentsha256 -cne "
+        "[string]$expectedstate.stableenvironmentsha256"
+        not in schema6_cutover_current_body
+        or "$expectedvolumes.count -ne 2 -or "
+        "$freshvolumes.count -ne 2"
+        not in schema6_cutover_current_body
+        or '"createdat", "driver", "scope", "locknumber", "mountpoint"'
+        not in schema6_cutover_current_body
+        or (
+            "[string]$freshvolume.$propertyname -cne "
+            "[string]$expectedvolume.$propertyname"
+        )
+        not in schema6_cutover_current_body
+        or "receiptsha256 = (get-filehash "
+        "-literalpath ([string]$receipt.receiptpath)"
+        not in schema6_cutover_body
+        or (
+            "$retryconfirmation -cne "
+            "$failedfirstcandidateretryconfirmationvalue"
+        )
+        not in orphaned_state_body
+        or "$successfulreceipts.count -ne 0" not in orphaned_state_body
+        or "$failurereceipts.count -eq 0" not in orphaned_state_body
+        or orphaned_state_body.count(
+            "-not [string]::isnullorwhitespace($projectcontainers.output)"
+        )
+        < 2
+        or (
+            "-not [string]::isnullorwhitespace( "
+            "[string]$failure.previousreceiptpath )"
+        )
+        not in orphaned_state_body
+        or "[bool]$failure.schema6cutoverirreversible"
+        not in orphaned_state_body
+        or (
+            "get-filehash -literalpath $stableenvironmentpath "
+            "-algorithm sha256).hash.tolowerinvariant() -cne "
+            "$recordedstablesha256"
+        )
+        not in orphaned_state_body
+        or (
+            "get-filehash -literalpath $canonicalpath -algorithm sha256"
+        )
+        not in orphaned_state_body
+        or '[string]$failure.recoverystate -cne "retry-ready"'
+        not in orphaned_state_body
+        or (
+            "$expectedvolumes.count -ne $observedvolumes.count"
+        )
+        not in orphaned_state_body
+        or (
+            "[string]$expectedvolumes[$index].$propertyname -cne "
+            "[string]$observedvolumes[$index].$propertyname"
+        )
+        not in orphaned_state_body
+        or (
+            '"name", "volumekey", "createdat", "driver", "scope", '
+            '"locknumber", "mountpoint"'
+        )
+        not in orphaned_state_body
+        or (
+            "$unpublishedreceiptexists -ne "
+            "(-not [string]::isnullorwhitespace($unpublishedreceiptpath))"
+        )
+        not in orphaned_state_body
+        or (
+            "unpublished-deployment.json"
+        )
+        not in orphaned_state_body
+        or (
+            "get-lanforwardercommandprocesses -forwarder $forwarder"
+        )
+        not in orphaned_state_body
+        or (
+            "get-lanforwarderownedendpoints -receipt $unpublishedreceipt"
+        )
+        not in orphaned_state_body
+        or "failed-first-candidate lan forwarder cleanup is incomplete"
+        not in orphaned_state_body
+        or "if ($comparison[0] -cne $comparison[1])"
+        not in orphaned_state_body
+        or "[string]$expectedfreshstableenvironmentsha256"
+        not in orphaned_state_body
+        or "$pendingcandidateprefix" not in orphaned_state_body
+        or "$finalprojectcontainers = invoke-nativecommand"
+        not in orphaned_state_body
+        or (
+            "-not [string]::isnullorwhitespace("
+            "$finalprojectcontainers.output)"
+        )
+        not in orphaned_state_body
+        or (
+            "the current release pointer changed during failed-first-candidate"
+        )
+        not in orphaned_state_body
+        or '"deployment.json"' not in orphaned_state_body
+        or '"failure.json"' not in orphaned_state_body
+        or "failure receipt is not an exact first-candidate record"
+        not in orphaned_state_body
+        or "failed-first-candidate stable environment does not match"
+        not in orphaned_state_body
+        or "failed-first-candidate immutable evidence does not match"
+        not in orphaned_state_body
+        or "runtime-touched first-candidate failure lacks complete immutable"
+        not in orphaned_state_body
+        or "-allowmissing" not in orphaned_state_body
+        or 'candidateTouchedRuntime = [bool]$candidateTouchedRuntime'.casefold()
+        not in deploy_flow_body
+        or "stableenvironmentsha256 =" not in deploy_flow_body
+        or "projectname = $projectname" not in deploy_flow_body
+        or "datavolumes = @()" not in deploy_flow_body
+        or "$failurerecord.datavolumes = $postcleanupvolumes"
+        not in deploy_flow_body
+        or "a current release pointer exists after failed"
+        not in deploy_flow_body
+        or "compose project containers remain after failed"
+        not in deploy_flow_body
+        or "[switch]$allowschema6trustededgestop"
+        not in trusted_edge_stop_assets_body
+        or "$schemaversion -eq 6 -and $allowschema6trustededgestop"
+        not in trusted_edge_stop_assets_body
+        or "schema-v6 stop receipt does not retain the exact"
+        not in trusted_edge_stop_assets_body
+        or "trusted-edge exposure mode"
+        not in trusted_edge_stop_assets_body
+        or "assert-exacttrustedproxycidr"
+        not in trusted_edge_stop_assets_body
+        or "-allowschema6trustededgestop:$isschema6trustededgestop"
+        not in stop_flow_body
+        or "$isschema6trustededgestop = (" not in stop_flow_body
+        or "-allownotfound" in stop_flow_body
+        or "assert-podmanapplicationcontainerownership"
+        not in stop_flow_body
+        or "-allowanyrunningstate" not in stop_flow_body
+        or "assert-schema6trustededgecutoverquiesced "
+        "-receipt $current"
+        not in stop_flow_body
+        or stop_flow_body.find(
+            "assert-schema6trustededgecutoverquiesced "
+            "-receipt $current"
+        )
+        < stop_flow_body.find(
+            '-arguments @("stop", "app", "livekit", "minio", "postgres")'
+        )
+        or not (
+            stop_flow_body.find("get-composeservicecontainerid")
+            < stop_flow_body.find(
+                "assert-podmanapplicationcontainerownership"
+            )
+            < stop_flow_body.find(
+                '-arguments @("stop", "app", "livekit", "minio", "postgres")'
+            )
+            < stop_flow_body.find(
+                "assert-schema6trustededgecutoverquiesced "
+                "-receipt $current"
+            )
         )
         or "application = [string]$topology.publicappurl"
         not in receipt_public_origins_body
@@ -2888,17 +3572,44 @@ def validate_local_release(
         in trusted_proxy_prepare_body
         or "select-composeapplicationtrustedproxyreservation"
         in restore_flow_body
+        or min(
+            deploy_flow_body.find("$previoustrustedschemaversion -eq 6"),
+            deploy_flow_body.find("assert-candidateports"),
+        )
+        < 0
         or not (
-            _compact_powershell(
-                _function_body(runner_document, "Invoke-StartLocked")
-            ).find(
+            deploy_flow_body.find("$previoustrustedschemaversion -eq 6")
+            < deploy_flow_body.find("assert-candidateports")
+        )
+        or min(
+            start_flow_body.find(
+                "assert-receipttrustedproxyreservationrecoverable "
+                "-receipt $current"
+            ),
+            start_flow_body.find(
+                "unregister-lanforwardersupervisor -receipt $current"
+            ),
+        )
+        < 0
+        or not (
+            start_flow_body.find(
                 "assert-receipttrustedproxyreservationrecoverable "
                 "-receipt $current"
             )
-            < _compact_powershell(
-                _function_body(runner_document, "Invoke-StartLocked")
-            ).find("unregister-lanforwardersupervisor -receipt $current")
+            < start_flow_body.find(
+                "unregister-lanforwardersupervisor -receipt $current"
+            )
         )
+        or min(
+            rollback_flow_body.find(
+                "assert-receipttrustedproxyreservationrecoverable "
+                "-receipt $current"
+            ),
+            rollback_flow_body.find(
+                "unregister-lanforwardersupervisor -receipt $current"
+            ),
+        )
+        < 0
         or not (
             rollback_flow_body.find(
                 "assert-receipttrustedproxyreservationrecoverable "

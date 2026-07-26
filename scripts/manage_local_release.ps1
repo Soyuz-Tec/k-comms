@@ -25,6 +25,8 @@ param(
     [string]$ObjectHostname = "",
     [string]$MediaNodeAddress = "",
     [string]$TrustedEdgeConfirmation = "",
+    [string]$Schema6CutoverConfirmation = "",
+    [string]$FailedFirstCandidateRetryConfirmation = "",
     [string]$ExpectedReceiptPath = "",
     [string]$ExpectedCandidateId = "",
     [string]$ExpectedForwarderConfigSha256 = "",
@@ -57,6 +59,10 @@ $lanForwarderSourceRelativePath = "scripts\lan_release_forwarder.mjs"
 $podmanBindAddress = "127.0.0.1"
 $cloudflareTrustedEdgeProfile = "cloudflare_trusted_edge"
 $cloudflareTrustedEdgeConfirmation = "cloudflare-tunnel-v1"
+$schema6CutoverConfirmationValue =
+    "schema6-irrevocable-cutover-data-risk-v1"
+$failedFirstCandidateRetryConfirmationValue =
+    "failed-first-candidate-retry-v1"
 $supportedReceiptSchemaVersion = 7
 $trustedProxySourceKind = "podman-app-self-v1"
 $lanForwarderSupervisorKind = "windows-scheduled-task-poll-v1"
@@ -3737,13 +3743,12 @@ function Start-SealedApplication {
         throw "Trusted-edge application start requires the exact image ID"
     }
 
-    $binding = Assert-ComposeApplicationTrustedProxyPeerCurrent `
+    $binding = Assert-ComposeApplicationTrustedProxyPeerPending `
         -EnvironmentFile $EnvironmentFile `
         -ComposeProject $ComposeProject `
         -ComposePath $ComposePath `
         -ExpectedImageId $ExpectedImageId `
-        -Topology $TrustedProxyTopology `
-        -ExpectedRunning $false
+        -Topology $TrustedProxyTopology
     Invoke-Compose `
         -EnvironmentFile $EnvironmentFile `
         -ComposeProject $ComposeProject `
@@ -3873,8 +3878,708 @@ function Get-ComposeServiceContainerId {
     return [string]$containerIds[0]
 }
 
+function Assert-ComposeProjectDataVolumesRetained {
+    param(
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [switch]$AllowMissing
+    )
+
+    $evidence = [Collections.Generic.List[object]]::new()
+    foreach ($volumeKey in @("postgres-data", "minio-data")) {
+        $volumeName = "${ComposeProject}_$volumeKey"
+        $volumeExists = Invoke-NativeCommand `
+            -FilePath "podman" `
+            -Arguments @("volume", "exists", $volumeName) `
+            -AllowFailure
+        if ($volumeExists.ExitCode -eq 1 -and $AllowMissing) {
+            continue
+        }
+        if ($volumeExists.ExitCode -ne 0) {
+            throw "Required retained data volume '$volumeName' is missing"
+        }
+        $inspection = Invoke-NativeCommand `
+            -FilePath "podman" `
+            -Arguments @("volume", "inspect", $volumeName)
+        try {
+            # Windows PowerShell 5.1 requires the conversion result to be
+            # assigned before array normalization.
+            $parsedVolumeRecords = $inspection.Output | ConvertFrom-Json
+            $records = @($parsedVolumeRecords)
+        }
+        catch {
+            throw "Podman returned invalid retained-volume inspection JSON"
+        }
+        if ($records.Count -ne 1) {
+            throw "Podman must return exactly one retained data-volume record"
+        }
+        $record = $records[0]
+        $labels = $record.Labels
+        $projectLabel = [string](
+            $labels.PSObject.Properties["com.docker.compose.project"].Value
+        )
+        $volumeLabel = [string](
+            $labels.PSObject.Properties["com.docker.compose.volume"].Value
+        )
+        if (
+            [string]$record.Name -cne $volumeName -or
+            $projectLabel -cne $ComposeProject -or
+            $volumeLabel -cne $volumeKey -or
+            [string]::IsNullOrWhiteSpace([string]$record.Mountpoint)
+        ) {
+            throw (
+                "Retained data volume '$volumeName' does not have the exact " +
+                "Compose project and volume ownership"
+            )
+        }
+
+        $mountUsers = Invoke-NativeCommand `
+            -FilePath "podman" `
+            -Arguments @(
+                "ps",
+                "--all",
+                "--filter",
+                "volume=$volumeName",
+                "--format",
+                "{{.ID}}"
+            )
+        $mountUserIds = @(
+            $mountUsers.Output -split "\r?\n" |
+                ForEach-Object { $_.Trim() } |
+                Where-Object { $_ }
+        )
+        foreach ($mountUserId in $mountUserIds) {
+            $mountInspection = Invoke-NativeCommand `
+                -FilePath "podman" `
+                -Arguments @("inspect", $mountUserId)
+            try {
+                $parsedMountRecords =
+                    $mountInspection.Output | ConvertFrom-Json
+                $mountRecords = @($parsedMountRecords)
+            }
+            catch {
+                throw "Podman returned invalid retained-volume user JSON"
+            }
+            if ($mountRecords.Count -ne 1) {
+                throw (
+                    "Podman must return exactly one retained-volume user " +
+                    "record"
+                )
+            }
+            $mountRecord = $mountRecords[0]
+            $mountProjectLabel = [string](
+                $mountRecord.Config.Labels.PSObject.Properties[
+                    "com.docker.compose.project"
+                ].Value
+            )
+            if (
+                $mountProjectLabel -cne $ComposeProject -or
+                [bool]$mountRecord.State.Running
+            ) {
+                throw (
+                    "Retained data volume '$volumeName' is mounted by an " +
+                    "unquiesced or foreign container"
+                )
+            }
+        }
+        $evidence.Add([PSCustomObject]@{
+            Name = $volumeName
+            VolumeKey = $volumeKey
+            CreatedAt = [string]$record.CreatedAt
+            Driver = [string]$record.Driver
+            Scope = [string]$record.Scope
+            LockNumber = [int]$record.LockNumber
+            Mountpoint = [string]$record.Mountpoint
+        })
+    }
+    return @($evidence)
+}
+
+function Assert-ComposeProjectRuntimeQuiesced {
+    param([Parameter(Mandatory)][string]$ComposeProject)
+
+    $running = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "ps",
+            "--filter",
+            "label=com.docker.compose.project=$ComposeProject",
+            "--format",
+            "{{.ID}}"
+        )
+    $runningIds = @(
+        $running.Output -split "\r?\n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    if ($runningIds.Count -ne 0) {
+        throw (
+            "Schema-v6 cutover requires every Compose project container to " +
+            "be stopped before candidate mutation"
+        )
+    }
+}
+
+function Assert-NoOrphanedReleaseState {
+    param(
+        [Parameter(Mandatory)][string]$StatePath,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [AllowEmptyString()][string]$RetryConfirmation = "",
+        [AllowEmptyString()][string]$PendingCandidateDirectory = "",
+        [AllowEmptyString()]
+        [string]$ExpectedFreshStableEnvironmentSha256 = ""
+    )
+
+    $evidence = [Collections.Generic.List[string]]::new()
+    $stableEnvironmentPath = Join-Path $StatePath "environment.env"
+    $stableEnvironmentExists =
+        Test-Path `
+            -LiteralPath $stableEnvironmentPath `
+            -PathType Leaf
+    $expectedFreshStableEnvironment = -not [string]::IsNullOrWhiteSpace(
+        $ExpectedFreshStableEnvironmentSha256
+    )
+    if (
+        $expectedFreshStableEnvironment -and
+        (
+            -not $stableEnvironmentExists -or
+            (Get-FileHash `
+                -LiteralPath $stableEnvironmentPath `
+                -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    $ExpectedFreshStableEnvironmentSha256
+        )
+    ) {
+        throw (
+            "The manager-created first-candidate stable environment changed " +
+            "before runtime mutation"
+        )
+    }
+    if ($stableEnvironmentExists -and -not $expectedFreshStableEnvironment) {
+        $evidence.Add("stable environment")
+    }
+    $historyPath = Join-Path $StatePath "history"
+    $pendingCandidatePrefix = ""
+    if (-not [string]::IsNullOrWhiteSpace($PendingCandidateDirectory)) {
+        $canonicalPendingCandidateDirectory =
+            [IO.Path]::GetFullPath($PendingCandidateDirectory)
+        $canonicalHistoryPrefix =
+            [IO.Path]::GetFullPath($historyPath).TrimEnd("\", "/") +
+            [IO.Path]::DirectorySeparatorChar
+        if (-not $canonicalPendingCandidateDirectory.StartsWith(
+            $canonicalHistoryPrefix,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw (
+                "Pending candidate directory must remain under release history"
+            )
+        }
+        $pendingCandidatePrefix =
+            $canonicalPendingCandidateDirectory.TrimEnd("\", "/") +
+            [IO.Path]::DirectorySeparatorChar
+    }
+    $historyFiles =
+        if (Test-Path -LiteralPath $historyPath -PathType Container) {
+            @(
+                Get-ChildItem `
+                    -LiteralPath $historyPath `
+                    -File `
+                    -Recurse `
+                    -Force `
+                    -ErrorAction Stop |
+                    Where-Object {
+                        -not $pendingCandidatePrefix -or
+                        -not [IO.Path]::GetFullPath($_.FullName).StartsWith(
+                            $pendingCandidatePrefix,
+                            [StringComparison]::OrdinalIgnoreCase
+                        )
+                    }
+            )
+        }
+        else {
+            @()
+        }
+    if (
+        $historyFiles.Count -ne 0
+    ) {
+        $evidence.Add("release history")
+    }
+
+    $projectContainers = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "ps",
+            "--all",
+            "--filter",
+            "label=com.docker.compose.project=$ComposeProject",
+            "--format",
+            "{{.ID}}"
+        )
+    if (-not [string]::IsNullOrWhiteSpace($projectContainers.Output)) {
+        $evidence.Add("Compose project containers")
+    }
+
+    $retainedVolumes = @(
+        Assert-ComposeProjectDataVolumesRetained `
+            -ComposeProject $ComposeProject `
+            -AllowMissing
+    )
+    foreach ($volume in $retainedVolumes) {
+        $evidence.Add("data volume $($volume.Name)")
+    }
+
+    if ($evidence.Count -eq 0) {
+        if (
+            Test-Path `
+                -LiteralPath (Join-Path $StatePath "current.json") `
+                -PathType Leaf
+        ) {
+            throw (
+                "The current release pointer appeared while fresh-state " +
+                "validation was in progress"
+            )
+        }
+        return "fresh"
+    }
+    if (
+        $RetryConfirmation -cne
+            $failedFirstCandidateRetryConfirmationValue
+    ) {
+        throw (
+            "No current release pointer exists, but retained K-Comms state " +
+            "was found for Compose project '$ComposeProject': " +
+            ($evidence -join ", ") +
+            ". Restore current.json from the exact healthy receipt, or retry " +
+            "only a manager-proven failed first candidate with " +
+            "-FailedFirstCandidateRetryConfirmation " +
+            "'$failedFirstCandidateRetryConfirmationValue'."
+        )
+    }
+    if (-not [string]::IsNullOrWhiteSpace($projectContainers.Output)) {
+        throw (
+            "Failed-first-candidate recovery requires complete candidate " +
+            "container cleanup"
+        )
+    }
+
+    if (
+        Test-Path `
+            -LiteralPath (Join-Path $StatePath "current.json") `
+            -PathType Leaf
+    ) {
+        throw (
+            "The current release pointer appeared while orphan recovery was " +
+            "being validated; restart Deploy against the recorded release"
+        )
+    }
+    $successfulReceipts = @(
+        Get-ChildItem `
+            -LiteralPath $historyPath `
+            -Filter "deployment.json" `
+            -File `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                -not $pendingCandidatePrefix -or
+                -not [IO.Path]::GetFullPath($_.FullName).StartsWith(
+                    $pendingCandidatePrefix,
+                    [StringComparison]::OrdinalIgnoreCase
+                )
+            }
+    )
+    if ($successfulReceipts.Count -ne 0) {
+        throw (
+            "A published-name deployment receipt exists while current.json is " +
+            "missing; restore that exact pointer instead of adopting state"
+        )
+    }
+    $failureReceipts = @(
+        Get-ChildItem `
+            -LiteralPath $historyPath `
+            -Filter "failure.json" `
+            -File `
+            -Recurse `
+            -Force `
+            -ErrorAction SilentlyContinue |
+            Where-Object {
+                -not $pendingCandidatePrefix -or
+                -not [IO.Path]::GetFullPath($_.FullName).StartsWith(
+                    $pendingCandidatePrefix,
+                    [StringComparison]::OrdinalIgnoreCase
+                )
+            } |
+            Sort-Object -Property LastWriteTimeUtc
+    )
+    if ($failureReceipts.Count -eq 0) {
+        throw (
+            "Failed-first-candidate recovery has no manager failure receipt"
+        )
+    }
+    $failureItem = $failureReceipts[-1]
+    if (
+        ($failureItem.Attributes -band
+            [IO.FileAttributes]::ReparsePoint) -ne 0
+    ) {
+        throw "Failed-first-candidate recovery receipt must be a regular file"
+    }
+    $failure = Read-JsonFile -Path $failureItem.FullName
+    foreach ($requiredProperty in @(
+        "candidateId",
+        "projectName",
+        "candidateTouchedRuntime",
+        "previousReceiptPath",
+        "schema6CutoverIrreversible",
+        "stableEnvironmentSha256",
+        "environmentFile",
+        "environmentSha256",
+        "composeSourcePath",
+        "composeSourceSha256",
+        "sourceArchivePath",
+        "sourceArchiveSha256",
+        "dataVolumes",
+        "recoveryState",
+        "unpublishedDeploymentReceiptPath",
+        "unpublishedDeploymentReceiptSha256"
+    )) {
+        if (-not $failure.PSObject.Properties[$requiredProperty]) {
+            throw (
+                "Failed-first-candidate recovery receipt is missing " +
+                $requiredProperty
+            )
+        }
+    }
+    $candidateDirectory = $failureItem.Directory.FullName
+    $historyPrefix =
+        [IO.Path]::GetFullPath($historyPath).TrimEnd("\", "/") +
+        [IO.Path]::DirectorySeparatorChar
+    if (
+        -not [IO.Path]::GetFullPath($candidateDirectory).StartsWith(
+            $historyPrefix,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        [string]$failure.candidateId -cne $failureItem.Directory.Name -or
+        [string]$failure.projectName -cne $ComposeProject -or
+        -not [string]::IsNullOrWhiteSpace(
+            [string]$failure.previousReceiptPath
+        ) -or
+        [bool]$failure.schema6CutoverIrreversible
+    ) {
+        throw (
+            "Failure receipt is not an exact first-candidate record for this " +
+            "state root and Compose project"
+        )
+    }
+    if ([string]$failure.recoveryState -cne "retry-ready") {
+        throw (
+            "Failed-first-candidate recovery receipt is not finalized for retry"
+        )
+    }
+
+    $stableExists =
+        Test-Path -LiteralPath $stableEnvironmentPath -PathType Leaf
+    $recordedStableSha256 =
+        [string]$failure.stableEnvironmentSha256
+    if (
+        $stableExists -ne
+            (-not [string]::IsNullOrWhiteSpace($recordedStableSha256)) -or
+        (
+            $stableExists -and
+            (Get-FileHash `
+                -LiteralPath $stableEnvironmentPath `
+                -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    $recordedStableSha256
+        )
+    ) {
+        throw (
+            "Failed-first-candidate stable environment does not match its " +
+            "failure receipt"
+        )
+    }
+
+    foreach ($fileContract in @(
+        [PSCustomObject]@{
+            Path = [string]$failure.environmentFile
+            Sha256 = [string]$failure.environmentSha256
+        },
+        [PSCustomObject]@{
+            Path = [string]$failure.composeSourcePath
+            Sha256 = [string]$failure.composeSourceSha256
+        },
+        [PSCustomObject]@{
+            Path = [string]$failure.sourceArchivePath
+            Sha256 = [string]$failure.sourceArchiveSha256
+        },
+        [PSCustomObject]@{
+            Path = [string]$failure.unpublishedDeploymentReceiptPath
+            Sha256 = [string]$failure.unpublishedDeploymentReceiptSha256
+        }
+    )) {
+        if (
+            [string]::IsNullOrWhiteSpace($fileContract.Path) -and
+            [string]::IsNullOrWhiteSpace($fileContract.Sha256)
+        ) {
+            continue
+        }
+        $canonicalPath = [IO.Path]::GetFullPath($fileContract.Path)
+        $candidatePrefix =
+            [IO.Path]::GetFullPath($candidateDirectory).TrimEnd("\", "/") +
+            [IO.Path]::DirectorySeparatorChar
+        if (
+            [string]::IsNullOrWhiteSpace($fileContract.Path) -or
+            [string]::IsNullOrWhiteSpace($fileContract.Sha256) -or
+            -not $canonicalPath.StartsWith(
+                $candidatePrefix,
+                [StringComparison]::OrdinalIgnoreCase
+            ) -or
+            -not (Test-Path -LiteralPath $canonicalPath -PathType Leaf) -or
+            (
+                (Get-Item -LiteralPath $canonicalPath -Force).Attributes -band
+                    [IO.FileAttributes]::ReparsePoint
+            ) -ne 0 -or
+            (Get-FileHash `
+                -LiteralPath $canonicalPath `
+                -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    $fileContract.Sha256
+        ) {
+            throw (
+                "Failed-first-candidate immutable evidence does not match " +
+                "its failure receipt"
+            )
+        }
+    }
+    if (
+        [bool]$failure.candidateTouchedRuntime -and
+        (
+            [string]::IsNullOrWhiteSpace(
+                [string]$failure.environmentSha256
+            ) -or
+            [string]::IsNullOrWhiteSpace(
+                [string]$failure.composeSourceSha256
+            )
+        )
+    ) {
+        throw (
+            "Runtime-touched first-candidate failure lacks complete immutable " +
+            "environment and Compose evidence"
+        )
+    }
+    $expectedVolumes = @($failure.dataVolumes | Sort-Object -Property VolumeKey)
+    $observedVolumes = @($retainedVolumes | Sort-Object -Property VolumeKey)
+    if ($expectedVolumes.Count -ne $observedVolumes.Count) {
+        throw (
+            "Failed-first-candidate retained data-volume count changed after " +
+            "manager cleanup"
+        )
+    }
+    for ($index = 0; $index -lt $expectedVolumes.Count; $index += 1) {
+        foreach ($propertyName in @(
+            "Name",
+            "VolumeKey",
+            "CreatedAt",
+            "Driver",
+            "Scope",
+            "LockNumber",
+            "Mountpoint"
+        )) {
+            if (
+                [string]$expectedVolumes[$index].$propertyName -cne
+                    [string]$observedVolumes[$index].$propertyName
+            ) {
+                throw (
+                    "Failed-first-candidate retained data-volume identity " +
+                    "changed after manager cleanup"
+                )
+            }
+        }
+    }
+    $unpublishedReceiptPath =
+        [string]$failure.unpublishedDeploymentReceiptPath
+    $unpublishedReceiptSha256 =
+        [string]$failure.unpublishedDeploymentReceiptSha256
+    $expectedUnpublishedReceiptPath =
+        [IO.Path]::GetFullPath(
+            (Join-Path $candidateDirectory "unpublished-deployment.json")
+        )
+    $unpublishedReceiptExists =
+        Test-Path `
+            -LiteralPath $expectedUnpublishedReceiptPath `
+            -PathType Leaf
+    if (
+        [string]::IsNullOrWhiteSpace($unpublishedReceiptPath) -ne
+            [string]::IsNullOrWhiteSpace($unpublishedReceiptSha256) -or
+        $unpublishedReceiptExists -ne
+            (-not [string]::IsNullOrWhiteSpace($unpublishedReceiptPath))
+    ) {
+        throw (
+            "Failed-first-candidate unpublished receipt file, path, and hash " +
+            "must be sealed together"
+        )
+    }
+    if (-not [string]::IsNullOrWhiteSpace($unpublishedReceiptPath)) {
+        if (-not [bool]$failure.candidateTouchedRuntime) {
+            throw (
+                "An unpublished deployment receipt cannot belong to a " +
+                "runtime-untouched failure"
+            )
+        }
+        $canonicalUnpublishedReceiptPath =
+            [IO.Path]::GetFullPath($unpublishedReceiptPath)
+        if ($canonicalUnpublishedReceiptPath -cne $expectedUnpublishedReceiptPath) {
+            throw (
+                "Failed-first-candidate unpublished receipt path is not the " +
+                "exact manager-owned audit path"
+            )
+        }
+        $unpublishedReceipt =
+            Read-JsonFile -Path $canonicalUnpublishedReceiptPath
+        $originalReceiptPath =
+            [IO.Path]::GetFullPath(
+                (Join-Path $candidateDirectory "deployment.json")
+            )
+        if (
+            [int]$unpublishedReceipt.schemaVersion -ne 7 -or
+            [string]$unpublishedReceipt.status -cne "healthy" -or
+            [IO.Path]::GetFullPath(
+                [string]$unpublishedReceipt.receiptPath
+            ) -cne $originalReceiptPath -or
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$unpublishedReceipt.previousReceiptPath
+            ) -or
+            [bool]$unpublishedReceipt.schema6CutoverIrreversible -or
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$unpublishedReceipt.schema6CutoverFromReceiptPath
+            )
+        ) {
+            throw (
+                "Failed-first-candidate unpublished receipt is not an exact " +
+                "unpublished schema-v7 first-candidate receipt"
+            )
+        }
+        foreach ($comparison in @(
+            @(
+                [string]$unpublishedReceipt.candidateId,
+                [string]$failure.candidateId
+            ),
+            @(
+                [string]$unpublishedReceipt.projectName,
+                [string]$failure.projectName
+            ),
+            @(
+                [string]$unpublishedReceipt.revision,
+                [string]$failure.revision
+            ),
+            @(
+                [string]$unpublishedReceipt.imageReference,
+                [string]$failure.imageReference
+            ),
+            @(
+                [string]$unpublishedReceipt.environmentFile,
+                [string]$failure.environmentFile
+            ),
+            @(
+                [string]$unpublishedReceipt.environmentSha256,
+                [string]$failure.environmentSha256
+            ),
+            @(
+                [string]$unpublishedReceipt.composeSourcePath,
+                [string]$failure.composeSourcePath
+            ),
+            @(
+                [string]$unpublishedReceipt.composeSourceSha256,
+                [string]$failure.composeSourceSha256
+            ),
+            @(
+                [string]$unpublishedReceipt.sourceArchivePath,
+                [string]$failure.sourceArchivePath
+            ),
+            @(
+                [string]$unpublishedReceipt.sourceArchiveSha256,
+                [string]$failure.sourceArchiveSha256
+            ),
+            @(
+                [string]$unpublishedReceipt.publicAppUrl,
+                [string]$failure.publicAppUrl
+            ),
+            @(
+                (
+                    $unpublishedReceipt.publicOrigins |
+                        ConvertTo-Json -Depth 10 -Compress
+                ),
+                (
+                    $failure.publicOrigins |
+                        ConvertTo-Json -Depth 10 -Compress
+                )
+            )
+        )) {
+            if ($comparison[0] -cne $comparison[1]) {
+                throw (
+                    "Failed-first-candidate unpublished receipt identity does " +
+                    "not match its failure receipt"
+                )
+            }
+        }
+        $forwarder = Get-ReceiptForwarder -Receipt $unpublishedReceipt
+        if (Test-ReceiptRequiresLanForwarder -Receipt $unpublishedReceipt) {
+            $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+            if (
+                Get-ScheduledTask `
+                    -TaskPath "\" `
+                    -TaskName ([string]$supervisor.taskName) `
+                    -ErrorAction SilentlyContinue
+            ) {
+                throw (
+                    "Failed-first-candidate supervisor task was not completely " +
+                    "removed"
+                )
+            }
+            if (
+                @(Get-LanForwarderCommandProcesses -Forwarder $forwarder).Count -ne 0 -or
+                @(Get-LanForwarderOwnedEndpoints -Receipt $unpublishedReceipt).Count -ne 0 -or
+                (
+                    Test-Path `
+                        -LiteralPath ([string]$forwarder.statusPath) `
+                        -PathType Leaf
+                )
+            ) {
+                throw (
+                    "Failed-first-candidate LAN forwarder cleanup is incomplete"
+                )
+            }
+        }
+    }
+    if (
+        Test-Path `
+            -LiteralPath (Join-Path $StatePath "current.json") `
+            -PathType Leaf
+    ) {
+        throw (
+            "The current release pointer changed during failed-first-candidate " +
+            "recovery validation"
+        )
+    }
+    $finalProjectContainers = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "ps",
+            "--all",
+            "--filter",
+            "label=com.docker.compose.project=$ComposeProject",
+            "--format",
+            "{{.ID}}"
+        )
+    if (-not [string]::IsNullOrWhiteSpace($finalProjectContainers.Output)) {
+        throw (
+            "Compose project containers changed during failed-first-candidate " +
+            "recovery validation"
+        )
+    }
+    return "failed-first-candidate-retry"
+}
+
 function Get-PodmanContainerSingleNetworkAttachment {
-    param([Parameter(Mandatory)][string]$ContainerId)
+    param(
+        [Parameter(Mandatory)][string]$ContainerId,
+        [switch]$AllowUnassignedAddress
+    )
 
     $inspection = Invoke-NativeCommand `
         -FilePath "podman" `
@@ -3907,31 +4612,52 @@ function Get-PodmanContainerSingleNetworkAttachment {
         -not $addressProperty -or
         -not $prefixProperty -or
         -not $networkIdProperty -or
-        [string]::IsNullOrWhiteSpace([string]$addressProperty.Value)
+        [string]::IsNullOrWhiteSpace([string]$networkIdProperty.Value)
     ) {
         throw (
             "The isolated Compose network has no complete container attachment"
         )
     }
-    $address = $null
-    if (
-        -not [Net.IPAddress]::TryParse(
-            [string]$addressProperty.Value,
-            [ref]$address
-        ) -or
-        $address.AddressFamily -ne
-            [Net.Sockets.AddressFamily]::InterNetwork -or
-        $address.ToString() -cne [string]$addressProperty.Value
-    ) {
-        throw "The isolated Compose network container address is not canonical IPv4"
+    $addressValue = [string]$addressProperty.Value
+    $prefixLength = [int]$prefixProperty.Value
+    $addressAssigned = -not [string]::IsNullOrWhiteSpace($addressValue)
+    if (-not $addressAssigned) {
+        if (-not $AllowUnassignedAddress -or $prefixLength -ne 0) {
+            throw (
+                "The isolated Compose network has no assigned container IPv4"
+            )
+        }
+    }
+    else {
+        $address = $null
+        if (
+            -not [Net.IPAddress]::TryParse($addressValue, [ref]$address) -or
+            $address.AddressFamily -ne
+                [Net.Sockets.AddressFamily]::InterNetwork -or
+            $address.ToString() -cne $addressValue -or
+            $prefixLength -lt 1 -or
+            $prefixLength -gt 32
+        ) {
+            throw (
+                "The isolated Compose network container address is not " +
+                "canonical IPv4"
+            )
+        }
     }
     $aliasesProperty = $attachments[0].Value.PSObject.Properties["Aliases"]
     return [PSCustomObject]@{
         ContainerId = $ContainerId
         NetworkName = [string]$attachments[0].Name
         NetworkId = [string]$networkIdProperty.Value
-        IPAddress = $address.ToString()
-        PrefixLength = [int]$prefixProperty.Value
+        AddressAssigned = $addressAssigned
+        IPAddress =
+            if ($addressAssigned) {
+                $address.ToString()
+            }
+            else {
+                ""
+            }
+        PrefixLength = $prefixLength
         Aliases =
             if ($aliasesProperty) {
                 @($aliasesProperty.Value | Where-Object { $_ })
@@ -4320,6 +5046,72 @@ function Assert-ComposeApplicationTrustedProxyPeerCurrent {
             "'$($contract.Network.NetworkName)'"
         )
     }
+    if (@($attachment.Aliases) -notcontains "app") {
+        throw "Running Compose application attachment lacks its service alias"
+    }
+    $null = Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress $contract.ApplicationContainerIpv4 `
+        -Allocations @($contract.Network.Allocations) `
+        -ApplicationContainerId $containerId `
+        -ApplicationAttachedAddress $attachment.IPAddress `
+        -ApplicationRunning $ExpectedRunning
+    return $attachment
+}
+
+function Assert-ComposeApplicationTrustedProxyPeerPending {
+    param(
+        [Parameter(Mandatory)][string]$EnvironmentFile,
+        [Parameter(Mandatory)][string]$ComposeProject,
+        [Parameter(Mandatory)][string]$ComposePath,
+        [Parameter(Mandatory)][string]$ExpectedImageId,
+        [Parameter(Mandatory)]$Topology
+    )
+
+    $contract = Assert-TrustedProxyTopologyContract `
+        -Topology $Topology `
+        -ComposeProject $ComposeProject
+    $containerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile $EnvironmentFile `
+        -ComposeProject $ComposeProject `
+        -ComposePath $ComposePath `
+        -Service "app" `
+        -IncludeStopped
+    $null = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject $ComposeProject `
+        -ContainerId $containerId `
+        -ExpectedImageId $ExpectedImageId `
+        -ExpectedRunning $false
+    $attachment =
+        Get-PodmanContainerSingleNetworkAttachment `
+            -ContainerId $containerId `
+            -AllowUnassignedAddress
+    if (
+        $attachment.NetworkName -cne $contract.Network.NetworkName -or
+        $attachment.NetworkId -cne $contract.Network.NetworkId -or
+        (
+            $attachment.AddressAssigned -and
+            (
+                $attachment.PrefixLength -ne
+                    $contract.Network.PrefixLength -or
+                $attachment.IPAddress -cne
+                    $contract.ApplicationContainerIpv4
+            )
+        )
+    ) {
+        throw (
+            "Pending Podman application trusted proxy attachment does not " +
+            "match the sealed application network"
+        )
+    }
+    if (@($attachment.Aliases) -notcontains "app") {
+        throw "Pending Compose application attachment lacks its service alias"
+    }
+    $null = Assert-TrustedProxyRecoveryOccupancy `
+        -ExpectedAddress $contract.ApplicationContainerIpv4 `
+        -Allocations @($contract.Network.Allocations) `
+        -ApplicationContainerId $containerId `
+        -ApplicationAttachedAddress $attachment.IPAddress `
+        -ApplicationRunning $false
     return $attachment
 }
 
@@ -4347,11 +5139,16 @@ function Set-ComposeApplicationTrustedProxyReservation {
         -ExpectedImageId $ExpectedImageId `
         -ExpectedRunning $false
     $original =
-        Get-PodmanContainerSingleNetworkAttachment -ContainerId $containerId
+        Get-PodmanContainerSingleNetworkAttachment `
+            -ContainerId $containerId `
+            -AllowUnassignedAddress
     if (
         $original.NetworkName -cne $contract.Network.NetworkName -or
         $original.NetworkId -cne $contract.Network.NetworkId -or
-        $original.PrefixLength -ne $contract.Network.PrefixLength
+        (
+            $original.AddressAssigned -and
+            $original.PrefixLength -ne $contract.Network.PrefixLength
+        )
     ) {
         throw (
             "Compose-created application attachment does not match the sealed " +
@@ -4388,13 +5185,16 @@ function Set-ComposeApplicationTrustedProxyReservation {
     Invoke-NativeCommand `
         -FilePath "podman" `
         -Arguments $connectArguments | Out-Null
-    return Assert-ComposeApplicationTrustedProxyPeerCurrent `
+    # Windows Podman keeps a stopped container's address blank until start.
+    # A successful connect records the requested --ip; start is the atomic
+    # allocator/collision authority, and the running assertion below verifies
+    # the exact assigned peer without ever reselecting it.
+    return Assert-ComposeApplicationTrustedProxyPeerPending `
         -EnvironmentFile $EnvironmentFile `
         -ComposeProject $ComposeProject `
         -ComposePath $ComposePath `
         -ExpectedImageId $ExpectedImageId `
-        -Topology $Topology `
-        -ExpectedRunning $false
+        -Topology $Topology
 }
 
 function Assert-ReceiptTrustedProxyPeerCurrent {
@@ -4500,11 +5300,16 @@ function Assert-ReceiptTrustedProxyReservationRecoverable {
         -ExpectedImageId ([string]$Receipt.imageId) `
         -AllowAnyRunningState
     $attachment =
-        Get-PodmanContainerSingleNetworkAttachment -ContainerId $containerId
+        Get-PodmanContainerSingleNetworkAttachment `
+            -ContainerId $containerId `
+            -AllowUnassignedAddress
     if (
         $attachment.NetworkName -cne $contract.Network.NetworkName -or
         $attachment.NetworkId -cne $contract.Network.NetworkId -or
-        $attachment.PrefixLength -ne $contract.Network.PrefixLength
+        (
+            $attachment.AddressAssigned -and
+            $attachment.PrefixLength -ne $contract.Network.PrefixLength
+        )
     ) {
         throw (
             "Compose application attachment cannot be recovered on the " +
@@ -6576,6 +7381,380 @@ function Stop-LanForwarder {
     Assert-LanForwarderPortsReleased -Receipt $Receipt
 }
 
+function Assert-Schema6TrustedEdgeCutoverQuiesced {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $schemaVersion = Assert-SupportedReceiptSchemaVersion -Receipt $Receipt
+    if (
+        $schemaVersion -ne 6 -or
+        -not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)
+    ) {
+        throw "Schema-v6 cutover preflight requires a trusted-edge receipt"
+    }
+
+    Assert-ComposeProjectRuntimeQuiesced `
+        -ComposeProject ([string]$Receipt.projectName)
+    $dataVolumes = @(
+        Assert-ComposeProjectDataVolumesRetained `
+            -ComposeProject ([string]$Receipt.projectName)
+    )
+
+    $applicationContainerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile ([string]$Receipt.environmentFile) `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ComposePath ([string]$Receipt.composeSourcePath) `
+        -Service "app" `
+        -IncludeStopped
+    $null = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ContainerId $applicationContainerId `
+        -ExpectedImageId ([string]$Receipt.imageId) `
+        -ExpectedRunning $false
+
+    $forwarder = Get-ReceiptForwarder -Receipt $Receipt
+    $commandProcesses = @(
+        Get-LanForwarderCommandProcesses -Forwarder $forwarder
+    )
+    if ($commandProcesses.Count -ne 0) {
+        throw (
+            "Schema-v6 cutover requires the retained LAN media forwarder to " +
+            "be stopped"
+        )
+    }
+    $ownedEndpoints = @(Get-LanForwarderOwnedEndpoints -Receipt $Receipt)
+    if ($ownedEndpoints.Count -ne 0) {
+        throw (
+            "Schema-v6 cutover requires every retained LAN media endpoint to " +
+            "be released"
+        )
+    }
+    if (
+        Test-Path `
+            -LiteralPath ([string]$forwarder.statusPath) `
+            -PathType Leaf
+    ) {
+        throw (
+            "Schema-v6 cutover requires stale LAN media readiness evidence to " +
+            "be removed by -Action Stop"
+        )
+    }
+
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    if (-not $supervisor) {
+        throw "Schema-v6 cutover receipt has no retained supervisor contract"
+    }
+    $task = Get-ScheduledTask `
+        -TaskPath "\" `
+        -TaskName ([string]$supervisor.taskName) `
+        -ErrorAction SilentlyContinue
+    if ($task) {
+        throw (
+            "Schema-v6 cutover requires the retained LAN media supervisor to " +
+            "be unregistered by -Action Stop"
+        )
+    }
+
+    $stableEnvironmentPath = Join-Path $StateRoot "environment.env"
+    if (-not (Test-Path -LiteralPath $stableEnvironmentPath -PathType Leaf)) {
+        throw "Schema-v6 cutover cannot find the retained stable environment"
+    }
+    $stableValues = Read-EnvironmentFile -Path $stableEnvironmentPath
+    $retainedReleaseValues =
+        Read-EnvironmentFile -Path ([string]$Receipt.environmentFile)
+    if (-not $stableValues.Contains("BOOTSTRAP_OWNER_PASSWORD")) {
+        throw (
+            "Schema-v6 cutover stable environment requires an existing " +
+            "bootstrap owner credential; normalization is not allowed"
+        )
+    }
+    foreach ($encryptionKeyName in @(
+        "WEBHOOK_SECRET_ENCRYPTION_KEY",
+        "PUSH_SUBSCRIPTION_ENCRYPTION_KEY"
+    )) {
+        if (
+            -not $stableValues.Contains($encryptionKeyName) -or
+            -not (Test-EncryptionKey `
+                -Value ([string]$stableValues[$encryptionKeyName]))
+        ) {
+            throw (
+                "Schema-v6 cutover requires a valid retained " +
+                "$encryptionKeyName; normalization is not allowed"
+            )
+        }
+    }
+    foreach ($entry in $stableValues.GetEnumerator()) {
+        if (
+            -not $retainedReleaseValues.Contains([string]$entry.Key) -or
+            [string]$retainedReleaseValues[[string]$entry.Key] -cne
+                [string]$entry.Value
+        ) {
+            throw (
+                "Schema-v6 cutover stable environment does not match the " +
+                "retained release"
+            )
+        }
+    }
+    return [PSCustomObject]@{
+        StableEnvironmentPath = $stableEnvironmentPath
+        StableEnvironmentSha256 =
+            (Get-FileHash `
+                -LiteralPath $stableEnvironmentPath `
+                -Algorithm SHA256).Hash.ToLowerInvariant()
+        ReceiptPath = [string]$Receipt.receiptPath
+        ReceiptSha256 =
+            (Get-FileHash `
+                -LiteralPath ([string]$Receipt.receiptPath) `
+                -Algorithm SHA256).Hash.ToLowerInvariant()
+        DataVolumes = $dataVolumes
+    }
+}
+
+function Restore-Schema6TrustedEdgeCutoverAuditApplication {
+    param([Parameter(Mandatory)]$Receipt)
+
+    $schemaVersion = Assert-SupportedReceiptSchemaVersion -Receipt $Receipt
+    if (
+        $schemaVersion -ne 6 -or
+        -not (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)
+    ) {
+        throw (
+            "Only a retained schema-v6 trusted-edge receipt can restore the " +
+            "non-activating cutover audit application"
+        )
+    }
+    Invoke-Compose `
+        -EnvironmentFile ([string]$Receipt.environmentFile) `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ComposePath ([string]$Receipt.composeSourcePath) `
+        -Arguments @(
+            "up",
+            "--no-start",
+            "--no-deps",
+            "--no-build",
+            "--no-recreate",
+            "--pull",
+            "never",
+            "app"
+        ) `
+        -EchoOutput | Out-Null
+    $applicationContainerId = Get-ComposeServiceContainerId `
+        -EnvironmentFile ([string]$Receipt.environmentFile) `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ComposePath ([string]$Receipt.composeSourcePath) `
+        -Service "app" `
+        -IncludeStopped
+    $null = Assert-PodmanApplicationContainerOwnership `
+        -ComposeProject ([string]$Receipt.projectName) `
+        -ContainerId $applicationContainerId `
+        -ExpectedImageId ([string]$Receipt.imageId) `
+        -ExpectedRunning $false
+    return $applicationContainerId
+}
+
+function Assert-Schema6TrustedEdgeCutoverAuditRestorationSafe {
+    param(
+        [Parameter(Mandatory)]$ExpectedReceipt,
+        [Parameter(Mandatory)]$ExpectedState
+    )
+
+    $current = Get-CurrentReceipt
+    if (
+        -not $current -or
+        [string]$ExpectedReceipt.receiptPath -cne
+            [string]$ExpectedState.ReceiptPath -or
+        [string]$current.receiptPath -cne
+            [string]$ExpectedState.ReceiptPath
+    ) {
+        throw (
+            "Schema-v6 audit-anchor restoration current receipt changed"
+        )
+    }
+    $receiptSha256 =
+        (Get-FileHash `
+            -LiteralPath ([string]$current.receiptPath) `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($receiptSha256 -cne [string]$ExpectedState.ReceiptSha256) {
+        throw (
+            "Schema-v6 audit-anchor restoration retained receipt changed"
+        )
+    }
+    Assert-RetainedReleaseAssets `
+        -Receipt $current `
+        -AllowSchema6TrustedEdgeStop
+    Assert-ComposeProjectRuntimeQuiesced `
+        -ComposeProject ([string]$current.projectName)
+    $containers = Invoke-NativeCommand `
+        -FilePath "podman" `
+        -Arguments @(
+            "ps",
+            "--all",
+            "--filter",
+            "label=com.docker.compose.project=$($current.projectName)",
+            "--format",
+            "{{.ID}}"
+        )
+    if (-not [string]::IsNullOrWhiteSpace($containers.Output)) {
+        throw (
+            "Schema-v6 audit-anchor restoration requires complete candidate " +
+            "container cleanup"
+        )
+    }
+    $stableEnvironmentSha256 =
+        (Get-FileHash `
+            -LiteralPath ([string]$ExpectedState.StableEnvironmentPath) `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (
+        $stableEnvironmentSha256 -cne
+            [string]$ExpectedState.StableEnvironmentSha256
+    ) {
+        throw (
+            "Schema-v6 audit-anchor restoration stable environment changed"
+        )
+    }
+    $expectedVolumes = @($ExpectedState.DataVolumes)
+    $freshVolumes = @(
+        Assert-ComposeProjectDataVolumesRetained `
+            -ComposeProject ([string]$current.projectName)
+    )
+    if ($expectedVolumes.Count -ne 2 -or $freshVolumes.Count -ne 2) {
+        throw (
+            "Schema-v6 audit-anchor restoration did not retain both data volumes"
+        )
+    }
+    foreach ($expectedVolume in $expectedVolumes) {
+        $matches = @(
+            $freshVolumes |
+                Where-Object {
+                    [string]$_.VolumeKey -ceq
+                        [string]$expectedVolume.VolumeKey
+                }
+        )
+        if ($matches.Count -ne 1) {
+            throw (
+                "Schema-v6 audit-anchor restoration data-volume identity changed"
+            )
+        }
+        foreach ($propertyName in @(
+            "Name",
+            "VolumeKey",
+            "CreatedAt",
+            "Driver",
+            "Scope",
+            "LockNumber",
+            "Mountpoint"
+        )) {
+            if (
+                [string]$matches[0].$propertyName -cne
+                    [string]$expectedVolume.$propertyName
+            ) {
+                throw (
+                    "Schema-v6 audit-anchor restoration data-volume identity " +
+                    "changed for $propertyName"
+                )
+            }
+        }
+    }
+    $forwarder = Get-ReceiptForwarder -Receipt $current
+    $supervisor = Get-LanForwarderSupervisor -Forwarder $forwarder
+    if (
+        @(Get-LanForwarderCommandProcesses -Forwarder $forwarder).Count -ne 0 -or
+        @(Get-LanForwarderOwnedEndpoints -Receipt $current).Count -ne 0 -or
+        (
+            Test-Path `
+                -LiteralPath ([string]$forwarder.statusPath) `
+                -PathType Leaf
+        ) -or
+        (
+            Get-ScheduledTask `
+                -TaskPath "\" `
+                -TaskName ([string]$supervisor.taskName) `
+                -ErrorAction SilentlyContinue
+        )
+    ) {
+        throw (
+            "Schema-v6 audit-anchor restoration requires the retained media " +
+            "forwarder and supervisor to remain absent"
+        )
+    }
+    return $true
+}
+
+function Assert-Schema6TrustedEdgeCutoverCurrent {
+    param(
+        [Parameter(Mandatory)]$ExpectedReceipt,
+        [Parameter(Mandatory)]$ExpectedState
+    )
+
+    $current = Get-CurrentReceipt
+    if (
+        [string]$ExpectedReceipt.receiptPath -cne
+            [string]$ExpectedState.ReceiptPath -or
+        -not $current -or
+        [string]$current.receiptPath -cne
+            [string]$ExpectedState.ReceiptPath
+    ) {
+        throw (
+            "Schema-v6 cutover current receipt changed after preflight"
+        )
+    }
+    $receiptSha256 =
+        (Get-FileHash `
+            -LiteralPath ([string]$current.receiptPath) `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($receiptSha256 -cne [string]$ExpectedState.ReceiptSha256) {
+        throw "Schema-v6 cutover retained receipt changed after preflight"
+    }
+    Assert-RetainedReleaseAssets `
+        -Receipt $current `
+        -AllowSchema6TrustedEdgeStop
+    $freshState =
+        Assert-Schema6TrustedEdgeCutoverQuiesced -Receipt $current
+    if (
+        [string]$freshState.StableEnvironmentSha256 -cne
+            [string]$ExpectedState.StableEnvironmentSha256
+    ) {
+        throw "Schema-v6 cutover stable environment changed after preflight"
+    }
+    $expectedVolumes = @($ExpectedState.DataVolumes)
+    $freshVolumes = @($freshState.DataVolumes)
+    if ($expectedVolumes.Count -ne 2 -or $freshVolumes.Count -ne 2) {
+        throw "Schema-v6 cutover did not retain both sealed data volumes"
+    }
+    foreach ($expectedVolume in $expectedVolumes) {
+        $matches = @(
+            $freshVolumes |
+                Where-Object {
+                    [string]$_.VolumeKey -ceq
+                        [string]$expectedVolume.VolumeKey
+                }
+        )
+        if ($matches.Count -ne 1) {
+            throw "Schema-v6 cutover data-volume identity changed"
+        }
+        $freshVolume = $matches[0]
+        foreach ($propertyName in @(
+            "Name",
+            "VolumeKey",
+            "CreatedAt",
+            "Driver",
+            "Scope",
+            "LockNumber",
+            "Mountpoint"
+        )) {
+            if (
+                [string]$freshVolume.$propertyName -cne
+                    [string]$expectedVolume.$propertyName
+            ) {
+                throw (
+                    "Schema-v6 cutover data-volume identity changed for " +
+                    "$propertyName"
+                )
+            }
+        }
+    }
+    return $freshState
+}
+
 function Start-LanForwarder {
     param([Parameter(Mandatory)]$Receipt)
 
@@ -6675,7 +7854,10 @@ function Start-LanForwarder {
 }
 
 function Assert-RetainedReleaseAssets {
-    param([Parameter(Mandatory)]$Receipt)
+    param(
+        [Parameter(Mandatory)]$Receipt,
+        [switch]$AllowSchema6TrustedEdgeStop
+    )
 
     $schemaVersion = Assert-SupportedReceiptSchemaVersion -Receipt $Receipt
     if (-not (Test-Path -LiteralPath $Receipt.environmentFile -PathType Leaf)) {
@@ -6713,27 +7895,60 @@ function Assert-RetainedReleaseAssets {
         $schemaVersion -ge 6 -and
         (Test-ReceiptIsCloudflareTrustedEdge -Receipt $Receipt)
     ) {
-        $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
-        $expectedTopologyEnvironment = [ordered]@{
-            K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
-            K_COMMS_RELEASE_HOST = $topology.PublicHost
-            K_COMMS_LIVEKIT_NODE_IP = $topology.MediaNodeAddress
-            K_COMMS_LOCAL_RELEASE_HOST = $topology.MediaNodeAddress
-            K_COMMS_RELEASE_EXPOSURE_MODE =
-                $cloudflareTrustedEdgeProfile
-            K_COMMS_TRUSTED_EDGE_CONFIRMATION =
-                $cloudflareTrustedEdgeConfirmation
-            PHX_HOST = $topology.PublicHost
-            PUBLIC_APP_URL = $topology.PublicAppUrl
-            CORS_ORIGINS = $topology.PublicAppUrl
-            HSTS_ENABLED = "true"
-            LIVEKIT_SERVER_URL = $topology.LiveKitOrigin
-            S3_PUBLIC_ENDPOINT = $topology.ObjectOrigin
-            MINIO_API_CORS_ALLOW_ORIGIN = $topology.PublicAppUrl
-            CSP_CONNECT_SOURCES =
-                "'self' $($topology.LiveKitOrigin) $($topology.ObjectOrigin)"
-            TRUSTED_PROXY_CIDRS = $topology.TrustedProxyCidr
-        }
+        $expectedTopologyEnvironment =
+            if ($schemaVersion -eq 6 -and $AllowSchema6TrustedEdgeStop) {
+                $recordedExposureMode =
+                    [string](Get-ReceiptNetworkProperty `
+                        -Receipt $Receipt `
+                        -Name "exposureMode")
+                if (
+                    $recordedExposureMode -cne
+                        $cloudflareTrustedEdgeProfile
+                ) {
+                    throw (
+                        "Schema-v6 stop receipt does not retain the exact " +
+                        "trusted-edge exposure mode"
+                    )
+                }
+                $recordedTrustedProxyCidr =
+                    Assert-ExactTrustedProxyCidr `
+                        -Value ([string](Get-ReceiptNetworkProperty `
+                            -Receipt $Receipt `
+                            -Name "trustedProxyCidr"))
+                [ordered]@{
+                    K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+                    K_COMMS_RELEASE_EXPOSURE_MODE =
+                        $cloudflareTrustedEdgeProfile
+                    K_COMMS_TRUSTED_EDGE_CONFIRMATION =
+                        $cloudflareTrustedEdgeConfirmation
+                    HSTS_ENABLED = "true"
+                    TRUSTED_PROXY_CIDRS = $recordedTrustedProxyCidr
+                }
+            }
+            else {
+                $topology = Resolve-ReceiptNetworkTopology -Receipt $Receipt
+                [ordered]@{
+                    K_COMMS_PODMAN_BIND_ADDRESS = $podmanBindAddress
+                    K_COMMS_RELEASE_HOST = $topology.PublicHost
+                    K_COMMS_LIVEKIT_NODE_IP = $topology.MediaNodeAddress
+                    K_COMMS_LOCAL_RELEASE_HOST = $topology.MediaNodeAddress
+                    K_COMMS_RELEASE_EXPOSURE_MODE =
+                        $cloudflareTrustedEdgeProfile
+                    K_COMMS_TRUSTED_EDGE_CONFIRMATION =
+                        $cloudflareTrustedEdgeConfirmation
+                    PHX_HOST = $topology.PublicHost
+                    PUBLIC_APP_URL = $topology.PublicAppUrl
+                    CORS_ORIGINS = $topology.PublicAppUrl
+                    HSTS_ENABLED = "true"
+                    LIVEKIT_SERVER_URL = $topology.LiveKitOrigin
+                    S3_PUBLIC_ENDPOINT = $topology.ObjectOrigin
+                    MINIO_API_CORS_ALLOW_ORIGIN = $topology.PublicAppUrl
+                    CSP_CONNECT_SOURCES =
+                        "'self' $($topology.LiveKitOrigin) " +
+                        "$($topology.ObjectOrigin)"
+                    TRUSTED_PROXY_CIDRS = $topology.TrustedProxyCidr
+                }
+            }
         foreach ($entry in $expectedTopologyEnvironment.GetEnumerator()) {
             if (
                 -not $retainedEnvironment.Contains($entry.Key) -or
@@ -6741,7 +7956,7 @@ function Assert-RetainedReleaseAssets {
                     [string]$entry.Value
             ) {
                 throw (
-                    "Retained schema-v7 trusted-edge environment topology does " +
+                    "Retained trusted-edge environment topology does " +
                     "not match its receipt for $($entry.Key)"
                 )
             }
@@ -8755,11 +9970,62 @@ function Invoke-DeployLocked {
     New-Item -ItemType Directory -Path (Join-Path $StateRoot "history") -Force | Out-Null
 
     $previousReceipt = Get-CurrentReceipt
+    $orphanRecoveryState = $null
+    if (-not $previousReceipt) {
+        $orphanRecoveryState =
+            Assert-NoOrphanedReleaseState `
+                -StatePath $StateRoot `
+                -ComposeProject $ProjectName `
+                -RetryConfirmation $FailedFirstCandidateRetryConfirmation
+    }
     if ($previousReceipt -and $previousReceipt.projectName -ne $ProjectName) {
         throw (
             "The retained release uses Compose project $($previousReceipt.projectName). " +
             "Reuse that project name or select a new -StateRoot for an isolated project."
         )
+    }
+    $previousReceiptIsTrustedEdge = (
+        $previousReceipt -and
+        (Test-ReceiptIsCloudflareTrustedEdge -Receipt $previousReceipt)
+    )
+    $previousTrustedSchemaVersion =
+        if ($previousReceiptIsTrustedEdge) {
+            Assert-SupportedReceiptSchemaVersion -Receipt $previousReceipt
+        }
+        else {
+            0
+        }
+    $schema6IrreversibleCutover = $false
+    $schema6CutoverState = $null
+    if ($previousTrustedSchemaVersion -eq 6) {
+        if (
+            $releaseNetworkObservation.ExposureProfile -cne
+                $cloudflareTrustedEdgeProfile
+        ) {
+            throw (
+                "Schema-v6 trusted-edge cutover can only produce a schema-v7 " +
+                "trusted-edge release"
+            )
+        }
+        if (
+            $Schema6CutoverConfirmation -cne
+                $schema6CutoverConfirmationValue
+        ) {
+            throw (
+                "Schema-v6 trusted-edge cutover is irreversible and has no " +
+                "automatic rollback after migrations. Stop the retained " +
+                "release, verify backup/restore evidence or accept the data " +
+                "risk, then pass -Schema6CutoverConfirmation " +
+                "'$schema6CutoverConfirmationValue'."
+            )
+        }
+        Assert-RetainedReleaseAssets `
+            -Receipt $previousReceipt `
+            -AllowSchema6TrustedEdgeStop
+        $schema6CutoverState =
+            Assert-Schema6TrustedEdgeCutoverQuiesced `
+                -Receipt $previousReceipt
+        $schema6IrreversibleCutover = $true
     }
     Assert-CandidatePorts `
         -CandidateBindAddress $BindAddress `
@@ -8769,7 +10035,11 @@ function Invoke-DeployLocked {
         -CandidateLiveKitSignalPort $LiveKitSignalPort `
         -CandidateLiveKitTcpPort $LiveKitTcpPort `
         -CandidateLiveKitUdpPort $LiveKitUdpPort `
-        -PreviousReceipt $previousReceipt `
+        -PreviousReceipt $(if ($schema6IrreversibleCutover) {
+            $null
+        } else {
+            $previousReceipt
+        }) `
         -ForwarderProfile $(if (
             $releaseNetworkObservation.ExposureProfile -ceq
                 $cloudflareTrustedEdgeProfile
@@ -8844,6 +10114,21 @@ function Invoke-DeployLocked {
         }
 
         $stableEnvironment = Get-StableEnvironment
+        if ($schema6IrreversibleCutover) {
+            $stableEnvironmentSha256 =
+                (Get-FileHash `
+                    -LiteralPath $schema6CutoverState.StableEnvironmentPath `
+                    -Algorithm SHA256).Hash.ToLowerInvariant()
+            if (
+                $stableEnvironmentSha256 -cne
+                    $schema6CutoverState.StableEnvironmentSha256
+            ) {
+                throw (
+                    "Schema-v6 cutover changed the retained stable " +
+                    "environment instead of reusing it"
+                )
+            }
+        }
         $releaseEnvironment = New-ReleaseEnvironment `
             -Stable $stableEnvironment `
             -Revision $Revision `
@@ -8888,6 +10173,28 @@ function Invoke-DeployLocked {
             -ExpectedRevision $Revision `
             -Phase "after building the immutable candidate image"
         $image = Get-ImageEvidence -ImageReference $imageReference -ExpectedRevision $Revision
+        $firstCandidateStableEnvironmentSha256 = $null
+        if (-not $previousReceipt) {
+            $firstCandidateStableEnvironmentSha256 =
+                (Get-FileHash `
+                    -LiteralPath (Join-Path $StateRoot "environment.env") `
+                    -Algorithm SHA256).Hash.ToLowerInvariant()
+            $currentOrphanRecoveryState =
+                Assert-NoOrphanedReleaseState `
+                    -StatePath $StateRoot `
+                    -ComposeProject $ProjectName `
+                    -RetryConfirmation $FailedFirstCandidateRetryConfirmation `
+                    -PendingCandidateDirectory $candidateDirectory `
+                    -ExpectedFreshStableEnvironmentSha256 (
+                        $firstCandidateStableEnvironmentSha256
+                    )
+            if ($currentOrphanRecoveryState -cne $orphanRecoveryState) {
+                throw (
+                    "First-candidate recovery state changed before runtime " +
+                    "mutation"
+                )
+            }
+        }
         if (
             $releaseNetworkObservation.ExposureProfile -ceq
                 $cloudflareTrustedEdgeProfile
@@ -8898,19 +10205,6 @@ function Invoke-DeployLocked {
             # peer. Reuse a healthy retained trusted-edge address so Start and
             # Rollback never reselect topology.
             $previousTrustedTopology = $null
-            $previousReceiptIsTrustedEdge = (
-                $previousReceipt -and
-                (Test-ReceiptIsCloudflareTrustedEdge `
-                    -Receipt $previousReceipt)
-            )
-            $previousTrustedSchemaVersion =
-                if ($previousReceiptIsTrustedEdge) {
-                    Assert-SupportedReceiptSchemaVersion `
-                        -Receipt $previousReceipt
-                }
-                else {
-                    0
-                }
             if (
                 $previousReceiptIsTrustedEdge -and
                 $previousTrustedSchemaVersion -eq 7
@@ -8922,15 +10216,10 @@ function Invoke-DeployLocked {
                     Resolve-ReceiptNetworkTopology `
                         -Receipt $previousReceipt
             }
-            elseif (
-                $previousReceiptIsTrustedEdge -and
-                $previousTrustedSchemaVersion -eq 6
-            ) {
-                Write-Warning (
-                    "The retained schema-v6 trusted-edge gateway reservation " +
-                    "cannot be reused. Deploy will seal a fresh schema-v7 " +
-                    "application-peer reservation."
-                )
+            if ($schema6IrreversibleCutover) {
+                $null = Assert-Schema6TrustedEdgeCutoverCurrent `
+                    -ExpectedReceipt $previousReceipt `
+                    -ExpectedState $schema6CutoverState
             }
             $candidateTouchedRuntime = $true
             Invoke-Compose `
@@ -9015,6 +10304,27 @@ function Invoke-DeployLocked {
             forwarder = $forwarderRecord
         }
 
+        if (
+            -not $previousReceipt -and
+            $releaseNetworkObservation.ExposureProfile -cne
+                $cloudflareTrustedEdgeProfile
+        ) {
+            $currentOrphanRecoveryState =
+                Assert-NoOrphanedReleaseState `
+                    -StatePath $StateRoot `
+                    -ComposeProject $ProjectName `
+                    -RetryConfirmation $FailedFirstCandidateRetryConfirmation `
+                    -PendingCandidateDirectory $candidateDirectory `
+                    -ExpectedFreshStableEnvironmentSha256 (
+                        $firstCandidateStableEnvironmentSha256
+                    )
+            if ($currentOrphanRecoveryState -cne $orphanRecoveryState) {
+                throw (
+                    "First-candidate recovery state changed before runtime " +
+                    "mutation"
+                )
+            }
+        }
         $releaseNetworkObservation =
             Assert-ReleaseNetworkObservationCurrent `
                 -Expected $releaseNetworkObservation
@@ -9169,7 +10479,25 @@ function Invoke-DeployLocked {
                 livekitTcp = $LiveKitTcpPort
                 livekitUdp = $LiveKitUdpPort
             }
-            previousReceiptPath = if ($previousReceipt) { $previousReceipt.receiptPath } else { $null }
+            previousReceiptPath =
+                if ($schema6IrreversibleCutover) {
+                    $null
+                }
+                elseif ($previousReceipt) {
+                    $previousReceipt.receiptPath
+                }
+                else {
+                    $null
+                }
+            schema6CutoverFromReceiptPath =
+                if ($schema6IrreversibleCutover) {
+                    $previousReceipt.receiptPath
+                }
+                else {
+                    $null
+                }
+            schema6CutoverIrreversible =
+                [bool]$schema6IrreversibleCutover
         }
         Write-JsonAtomic -Path $receiptPath -Value $receipt
         $null = Register-LanForwarderSupervisor -Receipt $receipt
@@ -9215,33 +10543,11 @@ function Invoke-DeployLocked {
                 )
             }
         }
-        try {
-            Write-JsonAtomic -Path (Join-Path $candidateDirectory "failure.json") -Value ([ordered]@{
-                failedAt = [DateTime]::UtcNow.ToString("o")
-                revision = $Revision
-                candidateId = $candidateId
-                imageReference = $imageReference
-                publicAppUrl = [string]$releaseNetworkObservation.PublicAppUrl
-                publicOrigins =
-                    New-ReceiptPublicOriginsRecord `
-                        -Topology $releaseNetworkObservation
-                network = New-ReceiptNetworkRecord `
-                    -Observation $releaseNetworkObservation `
-                    -PublicAppUrl ([string]$releaseNetworkObservation.PublicAppUrl)
-                environmentSha256 = $environmentSha256
-                composeSourcePath = $composeSourcePath
-                composeSourceSha256 = $composeSourceSha256
-                sourceArchivePath = if ($source) { $source.archivePath } else { $null }
-                sourceArchiveSha256 = if ($source) { $source.archiveSha256 } else { $null }
-                forwarder = $forwarderRecord
-                message = $deploymentError.Exception.Message
-                previousReceiptPath = if ($previousReceipt) { $previousReceipt.receiptPath } else { $null }
-            })
-        }
-        catch {
-            Write-Warning "Could not persist the candidate failure receipt: $($_.Exception.Message)"
-        }
-        if ($previousReceipt -and $candidateTouchedRuntime) {
+        if (
+            $previousReceipt -and
+            $candidateTouchedRuntime -and
+            -not $schema6IrreversibleCutover
+        ) {
             Write-Warning "Candidate failed; restoring the retained application image without down migrations."
             try {
                 if ($migrationSucceeded) {
@@ -9263,19 +10569,236 @@ function Invoke-DeployLocked {
             }
         }
         elseif ($candidateTouchedRuntime) {
-            Write-Warning "First candidate failed; stopping and removing every candidate service."
+            $cleanupWarning =
+                if ($schema6IrreversibleCutover) {
+                    "Irreversible schema-v6 cutover candidate failed; " +
+                    "stopping and removing candidate containers while " +
+                    "preserving stable secrets, data volumes, and the v6 " +
+                    "audit pointer. The obsolete v6 release will not be " +
+                    "reactivated automatically."
+                }
+                else {
+                    "First candidate failed; stopping and removing every " +
+                    "candidate service."
+                }
+            Write-Warning $cleanupWarning
             try {
                 Remove-FailedCandidateRuntime `
                     -EnvironmentFile $environmentFile `
                     -ComposeProject $ProjectName `
                     -ComposePath $composeSourcePath
+                if ($schema6IrreversibleCutover) {
+                    $null =
+                        Assert-Schema6TrustedEdgeCutoverAuditRestorationSafe `
+                            -ExpectedReceipt $previousReceipt `
+                            -ExpectedState $schema6CutoverState
+                    $null =
+                        Restore-Schema6TrustedEdgeCutoverAuditApplication `
+                            -Receipt $previousReceipt
+                    $null = Assert-Schema6TrustedEdgeCutoverCurrent `
+                        -ExpectedReceipt $previousReceipt `
+                        -ExpectedState $schema6CutoverState
+                }
             }
             catch {
                 throw (
-                    "Candidate deployment failed and complete first-candidate cleanup also failed. " +
+                    "Candidate deployment failed and complete non-volume " +
+                    "candidate cleanup also failed. " +
                     "Candidate: $($deploymentError.Exception.Message) Cleanup: $($_.Exception.Message)"
                 )
             }
+        }
+        try {
+            $failureRecord = [ordered]@{
+                failedAt = [DateTime]::UtcNow.ToString("o")
+                revision = $Revision
+                candidateId = $candidateId
+                projectName = $ProjectName
+                imageReference = $imageReference
+                candidateTouchedRuntime = [bool]$candidateTouchedRuntime
+                publicAppUrl =
+                    [string]$releaseNetworkObservation.PublicAppUrl
+                publicOrigins =
+                    New-ReceiptPublicOriginsRecord `
+                        -Topology $releaseNetworkObservation
+                network = New-ReceiptNetworkRecord `
+                    -Observation $releaseNetworkObservation `
+                    -PublicAppUrl (
+                        [string]$releaseNetworkObservation.PublicAppUrl
+                    )
+                environmentSha256 = $environmentSha256
+                environmentFile =
+                    if ($environmentSha256) {
+                        $environmentFile
+                    }
+                    else {
+                        $null
+                    }
+                stableEnvironmentSha256 =
+                    if (
+                        Test-Path `
+                            -LiteralPath (
+                                Join-Path $StateRoot "environment.env"
+                            ) `
+                            -PathType Leaf
+                    ) {
+                        (Get-FileHash `
+                            -LiteralPath (
+                                Join-Path $StateRoot "environment.env"
+                            ) `
+                            -Algorithm SHA256).Hash.ToLowerInvariant()
+                    }
+                    else {
+                        $null
+                    }
+                composeSourcePath =
+                    if ($composeSourceSha256) {
+                        $composeSourcePath
+                    }
+                    else {
+                        $null
+                    }
+                composeSourceSha256 = $composeSourceSha256
+                sourceArchivePath =
+                    if ($source) { $source.archivePath } else { $null }
+                sourceArchiveSha256 =
+                    if ($source) { $source.archiveSha256 } else { $null }
+                forwarder = $forwarderRecord
+                message = $deploymentError.Exception.Message
+                previousReceiptPath =
+                    if ($schema6IrreversibleCutover) {
+                        $null
+                    }
+                    elseif ($previousReceipt) {
+                        $previousReceipt.receiptPath
+                    }
+                    else {
+                        $null
+                    }
+                schema6CutoverFromReceiptPath =
+                    if ($schema6IrreversibleCutover) {
+                        $previousReceipt.receiptPath
+                    }
+                    else {
+                        $null
+                    }
+                schema6CutoverIrreversible =
+                    [bool]$schema6IrreversibleCutover
+                dataVolumes = @()
+                recoveryState = "retry-ready"
+                unpublishedDeploymentReceiptPath = $null
+                unpublishedDeploymentReceiptSha256 = $null
+            }
+            $postCleanupVolumes =
+                if (
+                    -not $previousReceipt -or
+                    $schema6IrreversibleCutover
+                ) {
+                    @(
+                        Assert-ComposeProjectDataVolumesRetained `
+                            -ComposeProject $ProjectName `
+                            -AllowMissing
+                    )
+                }
+                else {
+                    @()
+                }
+            $failureRecord.dataVolumes = $postCleanupVolumes
+            if (-not $previousReceipt) {
+                if (
+                    Test-Path `
+                        -LiteralPath (Join-Path $StateRoot "current.json") `
+                        -PathType Leaf
+                ) {
+                    throw (
+                        "A current release pointer exists after failed " +
+                        "first-candidate cleanup"
+                    )
+                }
+                $postCleanupContainers = Invoke-NativeCommand `
+                    -FilePath "podman" `
+                    -Arguments @(
+                        "ps",
+                        "--all",
+                        "--filter",
+                        "label=com.docker.compose.project=$ProjectName",
+                        "--format",
+                        "{{.ID}}"
+                    )
+                if (
+                    -not [string]::IsNullOrWhiteSpace(
+                        $postCleanupContainers.Output
+                    )
+                ) {
+                    throw (
+                        "Compose project containers remain after failed " +
+                        "first-candidate cleanup"
+                    )
+                }
+            }
+            $unpublishedReceiptPath = $null
+            $unpublishedReceiptSha256 = $null
+            if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
+                $unpublishedReceiptPath =
+                    Join-Path $candidateDirectory "unpublished-deployment.json"
+                if (Test-Path -LiteralPath $unpublishedReceiptPath) {
+                    throw (
+                        "The unpublished deployment-receipt audit path already " +
+                        "exists"
+                    )
+                }
+                $receiptItem = Get-Item -LiteralPath $receiptPath -Force
+                if (
+                    ($receiptItem.Attributes -band
+                        [IO.FileAttributes]::ReparsePoint) -ne 0
+                ) {
+                    throw (
+                        "The unpublished deployment receipt must be a regular " +
+                        "file"
+                    )
+                }
+                $unpublishedReceiptSha256 =
+                    (Get-FileHash `
+                        -LiteralPath $receiptPath `
+                        -Algorithm SHA256).Hash.ToLowerInvariant()
+                $failureRecord.unpublishedDeploymentReceiptPath =
+                    [IO.Path]::GetFullPath($unpublishedReceiptPath)
+                $failureRecord.unpublishedDeploymentReceiptSha256 =
+                    $unpublishedReceiptSha256
+            }
+            Write-JsonAtomic `
+                -Path (Join-Path $candidateDirectory "failure.json") `
+                -Value $failureRecord
+            if ($unpublishedReceiptPath) {
+                Move-Item `
+                    -LiteralPath $receiptPath `
+                    -Destination $unpublishedReceiptPath `
+                    -ErrorAction Stop
+                $unpublishedItem =
+                    Get-Item -LiteralPath $unpublishedReceiptPath -Force
+                if (
+                    (Test-Path -LiteralPath $receiptPath -PathType Leaf) -or
+                    ($unpublishedItem.Attributes -band
+                        [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    (Get-FileHash `
+                        -LiteralPath $unpublishedReceiptPath `
+                        -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                            $unpublishedReceiptSha256
+                ) {
+                    throw (
+                        "The unpublished deployment receipt was not archived " +
+                        "atomically with its sealed hash"
+                    )
+                }
+            }
+        }
+        catch {
+            throw (
+                "Candidate deployment failed after cleanup, but its immutable " +
+                "failure evidence could not be finalized. Candidate: " +
+                "$($deploymentError.Exception.Message) Evidence: " +
+                "$($_.Exception.Message)"
+            )
         }
         throw $deploymentError
     }
@@ -10111,18 +11634,45 @@ function Invoke-StopLocked {
         Write-Host "No successful K-Comms local release is recorded."
         return
     }
-    Assert-RetainedReleaseAssets -Receipt $current
+    $schemaVersion = Assert-SupportedReceiptSchemaVersion -Receipt $current
+    $isSchema6TrustedEdgeStop = (
+        $schemaVersion -eq 6 -and
+        (Test-ReceiptIsCloudflareTrustedEdge -Receipt $current)
+    )
+    Assert-RetainedReleaseAssets `
+        -Receipt $current `
+        -AllowSchema6TrustedEdgeStop:$isSchema6TrustedEdgeStop
+    Ensure-PodmanReady
+    if ($isSchema6TrustedEdgeStop) {
+        # This is a strictly non-activating escape hatch for a controlled v7
+        # cutover. It validates exact Compose ownership and image identity but
+        # never resolves, trusts, starts, or replays the obsolete gateway peer.
+        $applicationContainerId = Get-ComposeServiceContainerId `
+            -EnvironmentFile ([string]$current.environmentFile) `
+            -ComposeProject ([string]$current.projectName) `
+            -ComposePath ([string]$current.composeSourcePath) `
+            -Service "app" `
+            -IncludeStopped
+        $null = Assert-PodmanApplicationContainerOwnership `
+            -ComposeProject ([string]$current.projectName) `
+            -ContainerId $applicationContainerId `
+            -ExpectedImageId ([string]$current.imageId) `
+            -AllowAnyRunningState
+    }
     Unregister-LanForwarderSupervisor `
         -Receipt $current `
         -AllowNotRegistered
     Stop-LanForwarder -Receipt $current -AllowNotRunning
-    Ensure-PodmanReady
     Invoke-Compose `
         -EnvironmentFile $current.environmentFile `
         -ComposeProject $current.projectName `
         -ComposePath $current.composeSourcePath `
         -Arguments @("stop", "app", "livekit", "minio", "postgres") `
         -EchoOutput | Out-Null
+    if ($isSchema6TrustedEdgeStop) {
+        $null = Assert-Schema6TrustedEdgeCutoverQuiesced `
+            -Receipt $current
+    }
     Write-Host "Stopped local release containers; retained images, configuration, and data volumes."
 }
 
