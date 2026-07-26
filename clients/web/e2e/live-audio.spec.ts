@@ -146,7 +146,7 @@ test.describe("real-stack audio qualification", () => {
       await memberPage.getByLabel("Email address").fill(
         fixture.memberCredentials.email
       );
-      await memberPage.getByLabel("Password").fill(
+      await memberPage.getByRole("textbox", { name: "Password" }).fill(
         fixture.memberCredentials.password
       );
       await memberPage.getByRole("button", { name: "Sign in" }).click();
