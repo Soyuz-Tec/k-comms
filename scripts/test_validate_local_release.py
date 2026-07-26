@@ -2350,6 +2350,14 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 "            -Value $true `",
             ),
             (
+                "            -Expected (New-TimeSpan -Minutes 1)) -and",
+                "            -Expected (New-TimeSpan -Seconds 30)) -and",
+            ),
+            (
+                "        -RestartInterval (New-TimeSpan -Minutes 1) `",
+                "        -RestartInterval (New-TimeSpan -Seconds 30) `",
+            ),
+            (
                 "        Enter-SupervisorOperationLock `",
                 "        Enter-ReleaseOperationLock `",
             ),
@@ -2556,7 +2564,7 @@ function New-TaskFixture {
             Enabled = $true
             MultipleInstances = "IgnoreNew"
             RestartCount = 3
-            RestartInterval = "PT30S"
+            RestartInterval = "PT1M"
             ExecutionTimeLimit = "PT2M"
             StartWhenAvailable = $true
             AllowDemandStart = $true
@@ -2592,13 +2600,20 @@ if (
 ) {
     throw "disabled task did not fail only its operational-state contract"
 }
-foreach ($drift in @("settings-disabled", "trigger-disabled", "interval", "restart")) {
+foreach ($drift in @(
+    "settings-disabled",
+    "trigger-disabled",
+    "interval",
+    "restart",
+    "restart-interval"
+)) {
     $task = New-TaskFixture
     switch ($drift) {
         "settings-disabled" { $task.Settings.Enabled = $false }
         "trigger-disabled" { $task.Triggers[0].Enabled = $false }
         "interval" { $task.Triggers[0].Repetition.Interval = "PT5M" }
         "restart" { $task.Settings.RestartCount = 2 }
+        "restart-interval" { $task.Settings.RestartInterval = "PT2M" }
     }
     $observation =
         Get-LanForwarderSupervisorTaskContractObservation `

@@ -6734,7 +6734,7 @@ function Get-LanForwarderSupervisorTaskContractObservation {
         [int]$settings.RestartCount -eq 3 -and
         (Test-ScheduledTaskDurationEquals `
             -Value $settings.RestartInterval `
-            -Expected (New-TimeSpan -Seconds 30)) -and
+            -Expected (New-TimeSpan -Minutes 1)) -and
         (Test-ScheduledTaskDurationEquals `
             -Value $settings.ExecutionTimeLimit `
             -Expected (New-TimeSpan -Minutes 2)) -and
@@ -7008,7 +7008,7 @@ function Register-LanForwarderSupervisor {
         -StartWhenAvailable `
         -MultipleInstances IgnoreNew `
         -RestartCount 3 `
-        -RestartInterval (New-TimeSpan -Seconds 30) `
+        -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
     $principal = New-ScheduledTaskPrincipal `
         -UserId ([string]$supervisor.principal) `

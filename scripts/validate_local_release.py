@@ -1852,6 +1852,14 @@ def validate_local_release(
         or "$settings.multipleinstances" not in supervisor_task_contract_body
         or "$settings.restartcount" not in supervisor_task_contract_body
         or "$settings.restartinterval" not in supervisor_task_contract_body
+        or (
+            "-expected (new-timespan -minutes 1)"
+            not in supervisor_task_contract_body
+        )
+        or (
+            "-restartinterval (new-timespan -minutes 1)"
+            not in supervisor_register_body
+        )
         or "$settings.executiontimelimit" not in supervisor_task_contract_body
         or "$settings.startwhenavailable" not in supervisor_task_contract_body
         or "$settings.allowdemandstart" not in supervisor_task_contract_body
