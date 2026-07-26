@@ -293,6 +293,8 @@ describe("GuestAccessPage", () => {
     expect(screen.getByText("Guest", { selector: ".guest-badge" })).toBeVisible();
     expect(screen.getByRole("region", { name: "Room call" })).toBeVisible();
     expect(screen.getByLabelText("Guest call controls")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Message history" }))
+      .toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "Open mocked room chat" }));
     await waitFor(() =>
