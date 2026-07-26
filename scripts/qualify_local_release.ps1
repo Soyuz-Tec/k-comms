@@ -2381,6 +2381,10 @@ function Invoke-PublicObjectStorageQualification {
             ${function:Invoke-PublicObjectHttpRequest},
         [scriptblock]$PurgeAction =
             ${function:Invoke-QualificationObjectPurge},
+        [scriptblock]$QualificationAppCleanupAction =
+            ${function:Remove-LiveQualificationApp},
+        $QualificationAppCleanupContext =
+            $script:LiveQualificationCleanupContext,
         [string]$ApplicationOrigin = $script:BaseUri,
         [string]$PublicObjectOrigin = $script:SealedPublicObjectOrigin,
         [string]$QualificationApplicationOrigin =
@@ -2641,6 +2645,47 @@ function Invoke-PublicObjectStorageQualification {
             -not [string]::IsNullOrEmpty($tenantId) -and
             -not [string]::IsNullOrEmpty($attachmentId)
         ) {
+            if ($objectUploaded) {
+                if (-not [string]::IsNullOrEmpty($accessToken)) {
+                    try {
+                        $null = & $ApiRequestAction `
+                            -Origin $QualificationApplicationOrigin `
+                            -Path "/api/v1/sessions/current" `
+                            -Method "DELETE" `
+                            -ExpectedStatus 204 `
+                            -Context (
+                                "Disposable object qualification session cleanup"
+                            ) `
+                            -AccessToken $accessToken
+                    }
+                    catch {
+                        $cleanupFailures.Add(
+                            [InvalidOperationException]::new(
+                                (
+                                    "Disposable object qualification session " +
+                                    "cleanup failed"
+                                ),
+                                $_.Exception
+                            )
+                        )
+                    }
+                    finally {
+                        $accessToken = $null
+                    }
+                }
+                try {
+                    & $QualificationAppCleanupAction `
+                        -CleanupContext $QualificationAppCleanupContext
+                }
+                catch {
+                    $cleanupFailures.Add(
+                        [InvalidOperationException]::new(
+                            "Disposable qualification app release failed",
+                            $_.Exception
+                        )
+                    )
+                }
+            }
             try {
                 if ($objectUploaded -and $ObjectPurgeSettlingSeconds -gt 0) {
                     Start-Sleep -Seconds $ObjectPurgeSettlingSeconds
@@ -4741,9 +4786,6 @@ function Invoke-PackagedReleaseQualification {
             Push-Location $webRoot
             try {
                 Invoke-InstantRoomSpec -Playwright $playwright
-                if ($script:QualificationMode.TrustedEdge) {
-                    Invoke-PublicObjectStorageQualification
-                }
                 if ($script:QualificationMode.LanTextOnly) {
                     Write-Warning (
                         "LAN text-only qualification intentionally skipped " +
@@ -4756,6 +4798,9 @@ function Invoke-PackagedReleaseQualification {
                     Invoke-GuestSpec -Playwright $playwright
                     Invoke-MediaSpec -Kind "audio" -Playwright $playwright
                     Invoke-MediaSpec -Kind "video" -Playwright $playwright
+                    if ($script:QualificationMode.TrustedEdge) {
+                        Invoke-PublicObjectStorageQualification
+                    }
                 }
             }
             finally {
@@ -6167,6 +6212,8 @@ function Invoke-PublicObjectStorageQualificationSelfTestFixture {
         -ApiRequestAction $Fixture.ApiRequestAction `
         -ObjectRequestAction $Fixture.ObjectRequestAction `
         -PurgeAction $Fixture.PurgeAction `
+        -QualificationAppCleanupAction { param($CleanupContext) } `
+        -QualificationAppCleanupContext ([PSCustomObject]@{SelfTest = $true}) `
         -ApplicationOrigin $Fixture.ApplicationOrigin `
         -PublicObjectOrigin $Fixture.PublicObjectOrigin `
         -QualificationApplicationOrigin $Fixture.QualificationApplicationOrigin `
