@@ -46,7 +46,7 @@ vi.mock("../guest/GuestAccessPage", () => ({
     initialSession: GuestSession;
     onConverted: (session: GuestSession, conversation: Conversation) => void;
     onLeave: () => void;
-    roomBanner?: React.ReactNode;
+    roomBanner?: React.ReactNode | ((participantCount: number) => React.ReactNode);
   }) => {
     uiHarness.shellRenders += 1;
     uiHarness.roomApis.push(api);
@@ -86,7 +86,7 @@ vi.mock("../guest/GuestAccessPage", () => ({
         <button type="button" onClick={onLeave}>
           Leave room
         </button>
-        {roomBanner}
+        {typeof roomBanner === "function" ? roomBanner(1) : roomBanner}
       </main>
     );
   }
@@ -261,12 +261,23 @@ describe("InstantRoomPage", () => {
       device: expect.objectContaining({ platform: "web" })
     }));
     expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
     expect(uiHarness.qrValue).toBe(shareUrl);
-    expect(screen.getByText(/remains available for 1 hour/i)).toBeVisible();
+    expect(screen.getByText(/available for 1 hour after everyone leaves/i)).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "Invite someone in one step" })
     ).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Reveal" }));
+    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    await user.click(screen.getByRole("button", { name: "Hide invite details" }));
+    expect(screen.getByRole("region", { name: "Invite people" })).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "Invite someone in one step" })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Invite people" }));
+    expect(
+      screen.getByRole("heading", { name: "Invite someone in one step" })
+    ).toBeVisible();
 
     const stored = window.sessionStorage.getItem("k-comms.guest-session.v1") || "";
     expect(stored).toContain("guest-access");
@@ -363,7 +374,7 @@ describe("InstantRoomPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
   });
 
   it("preserves a cross-workspace account while using its guest room fallback", async () => {
@@ -430,7 +441,7 @@ describe("InstantRoomPage", () => {
     );
 
     await waitFor(() => expect(screen.getByText("human")).toBeVisible());
-    expect(screen.getByText(/remains available for 24 hours/i)).toBeVisible();
+    expect(screen.getByText(/available for 24 hours after everyone leaves/i)).toBeVisible();
     expect(uiHarness.roomApis.length).toBeGreaterThan(1);
     expect(uiHarness.roomApis.every((api) => api === firstApi)).toBe(true);
     await user.click(
@@ -441,7 +452,7 @@ describe("InstantRoomPage", () => {
     );
     expect(memberSocketTicket).toHaveBeenCalledTimes(1);
     expect(window.location.pathname).toBe("/");
-    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
   });
 
   it("restores a converted member room and exact link without creating again", async () => {
@@ -491,7 +502,7 @@ describe("InstantRoomPage", () => {
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
     expect(conversationLookup).toHaveBeenCalledWith(conversation.id);
-    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
     expect(screen.getByText("human")).toBeVisible();
   });
 
@@ -550,7 +561,7 @@ describe("InstantRoomPage", () => {
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
     expect(conversationLookup).toHaveBeenCalledWith(conversation.id);
-    expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
     await user.click(screen.getByRole("button", { name: "Leave room" }));
     expect(
       window.sessionStorage.getItem("k-comms.member-instant-room.v1")
@@ -681,7 +692,7 @@ describe("InstantRoomPage", () => {
     await user.click(screen.getByRole("button", { name: "Share" }));
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl)
+      expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl)
     );
     expect(uiHarness.qrValue).toBe(shareUrl);
   });
