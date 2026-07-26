@@ -34,10 +34,18 @@ test.describe("instant-room front door", () => {
     await page.getByRole("button", { name: "Start instant room" }).click();
 
     await expect(page.getByRole("heading", { name: "Instant room" })).toBeVisible();
-    await expect(page.getByLabel("Room invite link")).toHaveValue(fixture.shareUrl);
+    const inviteLink = page.getByLabel("Room invite link");
+    await expect(inviteLink).not.toHaveValue(fixture.shareUrl);
+    await expect(inviteLink).toHaveValue(/#guest=••••••••••••$/);
+    await page.getByRole("button", { name: "Reveal" }).click();
+    await expect(inviteLink).toHaveValue(fixture.shareUrl);
     await expect(
       page.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Hide", exact: true })).toHaveCSS(
+      "min-height",
+      "44px"
+    );
     await expect(page.getByRole("button", { name: "Copy" })).toHaveCSS(
       "min-height",
       "44px"

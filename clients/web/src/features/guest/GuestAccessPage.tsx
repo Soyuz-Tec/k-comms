@@ -1877,7 +1877,10 @@ export function GuestShell({
         <div
           ref={messageScrollRef}
           className="guest-message-scroll"
+          role="region"
+          aria-label="Message history"
           aria-busy={loading}
+          tabIndex={0}
           onScroll={messageScrollChanged}
         >
           {loading ? (
