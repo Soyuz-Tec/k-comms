@@ -423,15 +423,15 @@ export function InstantRoomPage() {
         >
           <KCommsMark />
           <span className="instant-room-kicker">
-            {leftRoom ? "Start again" : "No account required"}
+            {leftRoom ? "Start again" : "No account needed"}
           </span>
           <h1 id="instant-room-start-title" data-route-focus>
             Start an instant room
           </h1>
           <p>
             {accountSession
-              ? "Start with your workspace identity, then share one link or QR code. Guests join with their own display name."
-              : "Choose the name people will see, then share one link or QR code. Guests join with their own display name."}
+              ? "Create it with your workspace identity, then share the link."
+              : "Add your name, share one link, and start talking."}
           </p>
           {secureActionsUnavailable && (
             <div className="transport-warning" role="alert">
@@ -455,33 +455,43 @@ export function InstantRoomPage() {
               </p>
             ) : (
               <label className="field">
-                Your display name
-                <input
-                  name="display_name"
-                  type="text"
-                  minLength={1}
-                  maxLength={120}
-                  autoComplete="name"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="How people should see you"
-                  required
-                  autoFocus
-                />
+                <span className="instant-room-field-label">
+                  Your display name
+                </span>
+                <span className="instant-room-input">
+                  <EntryFieldIcon kind="person" />
+                  <input
+                    name="display_name"
+                    type="text"
+                    minLength={1}
+                    maxLength={120}
+                    autoComplete="name"
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder="Your name"
+                    required
+                    autoFocus
+                  />
+                </span>
               </label>
             )}
             <label className="field">
-              Room name <span className="optional">(optional)</span>
-              <input
-                name="title"
-                type="text"
-                maxLength={160}
-                autoComplete="off"
-                value={roomTitle}
-                onChange={(event) => setRoomTitle(event.target.value)}
-                placeholder="For example, Daily check-in"
-                autoFocus={Boolean(accountSession)}
-              />
+              <span className="instant-room-field-label">
+                Room name <span className="optional">Optional</span>
+              </span>
+              <span className="instant-room-input">
+                <EntryFieldIcon kind="room" />
+                <input
+                  name="title"
+                  type="text"
+                  maxLength={160}
+                  autoComplete="off"
+                  value={roomTitle}
+                  onChange={(event) => setRoomTitle(event.target.value)}
+                  placeholder="Daily check-in"
+                  autoFocus={Boolean(accountSession)}
+                />
+              </span>
             </label>
             <button
               className="button primary full"
@@ -520,7 +530,7 @@ export function InstantRoomPage() {
             >
               {accountSession
                 ? "Return to workspace"
-                : "Already have a workspace? Sign in"}
+                : "Have a workspace? Sign in"}
             </Link>
           </div>
         </section>
@@ -960,5 +970,32 @@ function KCommsMark() {
       <span aria-hidden="true">K</span>
       <strong>K-Comms</strong>
     </div>
+  );
+}
+
+function EntryFieldIcon({ kind }: { kind: "person" | "room" }) {
+  return (
+    <svg
+      className="instant-room-field-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {kind === "person" ? (
+        <>
+          <circle cx="12" cy="8" r="3.25" />
+          <path d="M5.75 19c.55-3.45 2.63-5.2 6.25-5.2s5.7 1.75 6.25 5.2" />
+        </>
+      ) : (
+        <>
+          <rect x="4.25" y="5.25" width="15.5" height="13.5" rx="2.25" />
+          <path d="M8 9h8M8 13h5" />
+        </>
+      )}
+    </svg>
   );
 }
