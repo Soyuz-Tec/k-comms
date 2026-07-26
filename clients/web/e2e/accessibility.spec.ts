@@ -151,6 +151,10 @@ test("thread drawer satisfies automated WCAG A and AA checks", async ({ page }) 
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
   await expect(page.getByText(message.body)).toBeVisible();
+  const mobileActions = page.getByRole("button", { name: "More message actions" });
+  if (await mobileActions.isVisible()) {
+    await mobileActions.click();
+  }
   await page.getByRole("button", { name: "Start thread" }).click();
   await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
   await expectNoWcagFailures(page);

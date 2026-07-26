@@ -504,6 +504,13 @@ describe("CallPanel video calls", () => {
     const activeCall = await screen.findByRole("dialog", { name: "Design group" });
     expect(activeCall).toHaveAttribute("aria-modal", "true");
     expect(backgroundAction.closest('[aria-hidden="true"]')).not.toBeNull();
+    const more = within(activeCall).getByRole("button", { name: "More" });
+    const workspace = within(activeCall).getByRole("region", { name: "Call workspace" });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(workspace).not.toHaveClass("mobile-open");
+    await user.click(more);
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(workspace).toHaveClass("mobile-open");
     await waitFor(() =>
       expect(activeCall).toContainElement(document.activeElement as HTMLElement)
     );

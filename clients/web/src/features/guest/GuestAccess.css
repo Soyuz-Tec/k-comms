@@ -886,6 +886,194 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   }
 }
 
+@media (max-width: 520px) {
+  .guest-shell {
+    overflow-x: hidden;
+    color: #0b1220;
+    background: white;
+  }
+
+  .guest-shell-header {
+    min-height: calc(62px + var(--safe-top));
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .35rem;
+    padding:
+      max(.42rem, var(--safe-top))
+      max(.55rem, var(--safe-right))
+      .42rem
+      max(.7rem, var(--safe-left));
+    border-bottom-color: #e3e9ee;
+    background: rgb(255 255 255 / 98%);
+    box-shadow: 0 3px 14px rgb(15 23 42 / 5%);
+  }
+
+  .guest-room-heading {
+    min-width: 0;
+    display: grid;
+    gap: .12rem;
+  }
+
+  .guest-room-heading h1 {
+    overflow: hidden;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1rem;
+    font-weight: 760;
+    letter-spacing: -.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .guest-room-heading p {
+    overflow: hidden;
+    margin: 0;
+    color: #64748b;
+    font-size: .66rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .guest-shell-actions {
+    display: flex;
+    align-items: center;
+    gap: .16rem;
+  }
+
+  .guest-shell-actions .button {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    color: #006d73;
+    background: #edf8f7;
+    font-size: 0;
+  }
+
+  .guest-shell-actions .button::before {
+    font-size: 1rem;
+  }
+
+  .guest-shell-actions .button:first-child::before {
+    content: "☆";
+  }
+
+  .guest-shell-actions a.button::before {
+    content: "↪";
+  }
+
+  .guest-shell-actions .button.danger {
+    color: #b42318;
+    background: #fff1f0;
+  }
+
+  .guest-shell-actions .button.danger::before {
+    content: "×";
+    font-size: 1.3rem;
+  }
+
+  .guest-participant-roster {
+    padding: .52rem .75rem;
+    border-inline: 0;
+    border-bottom-color: #e6ebf0;
+    background: white;
+  }
+
+  .guest-participant-heading {
+    margin-bottom: .3rem;
+  }
+
+  .guest-participant-roster ul {
+    max-height: 56px;
+  }
+
+  .guest-participant-roster li {
+    min-height: 48px;
+    padding: .3rem .45rem;
+    border-color: #e1e8ee;
+    border-radius: 12px;
+    background: #fbfcfd;
+  }
+
+  .guest-room {
+    width: 100%;
+    border-inline: 0;
+  }
+
+  .guest-message-scroll {
+    padding: .78rem;
+    background: linear-gradient(180deg, #f7fafc, white 30%);
+  }
+
+  .guest-message-list {
+    gap: .6rem;
+  }
+
+  .guest-message-list > li.mine {
+    margin-left: 2.5rem;
+    padding: .65rem .72rem;
+    border: 1px solid #b9e4e1;
+    border-radius: 14px;
+    background: #e6f7f5;
+  }
+
+  .guest-composer {
+    grid-template-columns: minmax(0, 1fr) 64px;
+    gap: .42rem;
+    padding:
+      .48rem max(.55rem, var(--safe-right))
+      max(.52rem, var(--safe-bottom))
+      max(.55rem, var(--safe-left));
+    border-top-color: #e4e9ee;
+    background: rgb(255 255 255 / 98%);
+    box-shadow: 0 -8px 22px rgb(15 23 42 / 5%);
+  }
+
+  .guest-composer textarea {
+    min-height: 48px;
+    max-height: 104px;
+    padding: .72rem .78rem;
+    border-color: #d3dde5;
+    border-radius: 15px;
+    font-size: 16px;
+  }
+
+  .guest-composer .button {
+    min-width: 64px;
+    min-height: 48px;
+    padding: .5rem;
+    border-radius: 14px;
+  }
+
+  .guest-shell > .audio-call-control {
+    position: fixed;
+    z-index: 12;
+    right: max(.7rem, var(--safe-right));
+    bottom: calc(68px + var(--safe-bottom));
+    width: auto;
+    padding: 0;
+  }
+
+  .guest-shell > .audio-call-control .button {
+    min-height: 46px;
+    border-radius: 999px;
+    box-shadow: 0 10px 26px rgb(0 92 97 / 24%);
+  }
+
+  .guest-shell-error {
+    right: max(.7rem, var(--safe-right));
+    bottom: max(.7rem, var(--safe-bottom));
+    width: calc(100vw - max(1.4rem, var(--safe-left) + var(--safe-right)));
+    padding: .7rem .8rem;
+    border-radius: 14px;
+  }
+}
+
 @media (forced-colors: active) {
   .guest-share-dialog,
   .guest-entry-card,
