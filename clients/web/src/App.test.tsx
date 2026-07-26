@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, { memberAppTarget } from "./App";
 
 const appHarness = vi.hoisted(() => {
   const status = vi.fn();
@@ -109,6 +109,14 @@ describe("application route priority", () => {
       await screen.findByRole("heading", { name: "Sign in to your workspace" })
     ).toBeVisible();
     expect(window.location.pathname).toBe("/sign-in");
+  });
+
+  it("returns a signed-in member to a safe conversation deep link", () => {
+    expect(
+      memberAppTarget(
+        "?conversation=conversation-1&message=message-2&invitation_token=secret"
+      )
+    ).toBe("/app?conversation=conversation-1&message=message-2");
   });
 
   it("does not redirect an account route while transport policy is unresolved", () => {

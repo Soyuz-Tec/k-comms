@@ -453,6 +453,28 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "Access-Control-Request-Headers",
             "AccessControlAllowOrigin",
             "K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true",
+            "verified_empty=false reason=",
+            "object_storage_status_[0-9]{3}",
+            "Disposable public object purge failed (reason=$reason)",
+            "Disposable public object cleanup failed "
+            '" +\n                        "(reason=$safePurgeReason)"',
+            "purge.(purge, 3, 0, 0)",
+            "delay_ms = if remaining == 3, do: 500, else: 1_000",
+            "Process.sleep(delay_ms)",
+            "total_versions + versions",
+            "total_markers + markers",
+            '"object_still_downloadable"',
+            '"purge_evidence_invalid"',
+            '"uploaded_version_not_deleted"',
+            '"cleanup_unclassified"',
+            '"purge_unclassified"',
+            "Application.ensure_all_started(:comms_integrations)",
+            "$expiresIn -is [int] -or $expiresIn -is [long]",
+            "[long]$expiresIn -ge 1",
+            "$jsonDescriptor =",
+            "function ConvertFrom-QualificationJson",
+            '$arguments["DateKind"] = "String"',
+            "ConvertFrom-QualificationJson -Json $content",
             "Public object remained downloadable after its ",
             "verified purge",
             "PASS disposable public attachment and object cleanup",
@@ -466,6 +488,17 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "$aggregateFailure.InnerExceptions.Count -eq 4",
         ):
             self.assertIn(proof, self.document)
+
+        purge = self.document[
+            self.document.index("function Invoke-QualificationObjectPurge") :
+            self.document.index("function Invoke-PublicObjectStorageQualification")
+        ]
+        self.assertLess(
+            purge.index("Application.ensure_all_started(:comms_integrations)"),
+            purge.index("CommsIntegrations.ObjectStorage.purge_object_versions("),
+        )
+        self.assertNotIn("$result.Output -join", purge)
+        self.assertNotIn("throw $result.Output", purge)
 
         qualification = self.document[
             self.document.index("function Invoke-PackagedReleaseQualification") :

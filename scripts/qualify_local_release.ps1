@@ -189,6 +189,17 @@ function Assert-Condition {
     }
 }
 
+function ConvertFrom-QualificationJson {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Json)
+
+    $arguments = @{InputObject = $Json}
+    $command = Get-Command -Name "ConvertFrom-Json" -CommandType Cmdlet
+    if ($command.Parameters.ContainsKey("DateKind")) {
+        $arguments["DateKind"] = "String"
+    }
+    Microsoft.PowerShell.Utility\ConvertFrom-Json @arguments
+}
+
 function Convert-QualificationIPv4ToUInt64 {
     param([Parameter(Mandatory)][Net.IPAddress]$Address)
 
@@ -1839,7 +1850,7 @@ function Invoke-QualificationApiRequest {
         ) `
         -Message "$Context returned an empty or oversized JSON response"
     try {
-        $content | ConvertFrom-Json
+        ConvertFrom-QualificationJson -Json $content
     }
     catch {
         throw "$Context did not return valid JSON"
@@ -1891,9 +1902,9 @@ function Resolve-PublicObjectRequestDescriptor {
             $approvedOrigin -ceq $ExpectedOrigin -and
             $developmentHttp -is [bool] -and
             -not [bool]$developmentHttp -and
-            $expiresIn -is [int] -and
-            [int]$expiresIn -ge 1 -and
-            [int]$expiresIn -le 3600
+            ($expiresIn -is [int] -or $expiresIn -is [long]) -and
+            [long]$expiresIn -ge 1 -and
+            [long]$expiresIn -le 3600
         ) `
         -Message (
             "Public object request descriptor method, origin, transport, " +
@@ -2253,15 +2264,59 @@ function Invoke-QualificationObjectPurge {
 
     Assert-QualificationReleaseImageIdentity -ReleaseContext $ReleaseContext
     $expression =
+        'case Application.ensure_all_started(:comms_integrations) do ' +
+        '{:ok, _started} -> :ok; ' +
+        '{:error, _reason} -> raise "object storage runtime start failed" end; ' +
         'tenant_id = System.fetch_env!("K_COMMS_QUALIFICATION_OBJECT_TENANT_ID"); ' +
         'object_key = System.fetch_env!("K_COMMS_QUALIFICATION_OBJECT_KEY"); ' +
+        'purge = fn purge, remaining, total_versions, total_markers -> ' +
         'case CommsIntegrations.ObjectStorage.purge_object_versions(' +
         '%{tenant_id: tenant_id, object_key: object_key}) do ' +
+        '{:ok, %{verified_empty?: verified, deleted_versions: versions, ' +
+        'deleted_markers: markers}} when is_boolean(verified) and ' +
+        'is_integer(versions) and versions >= 0 and is_integer(markers) and ' +
+        'markers >= 0 -> ' +
+        'next_versions = total_versions + versions; ' +
+        'next_markers = total_markers + markers; ' +
+        'cond do verified -> {:ok, %{verified_empty?: true, ' +
+        'deleted_versions: next_versions, deleted_markers: next_markers}}; ' +
+        'remaining > 1 -> ' +
+        'delay_ms = if remaining == 3, do: 500, else: 1_000; ' +
+        'Process.sleep(delay_ms); ' +
+        'purge.(purge, remaining - 1, next_versions, next_markers); ' +
+        'true -> {:ok, %{verified_empty?: false, ' +
+        'deleted_versions: next_versions, deleted_markers: next_markers}} end; ' +
+        '{:error, reason} -> {:error, reason}; ' +
+        '_ -> {:error, :unclassified} end end; ' +
+        'case purge.(purge, 3, 0, 0) do ' +
         '{:ok, %{verified_empty?: true, deleted_versions: versions, ' +
         'deleted_markers: markers}} -> ' +
         'IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=true ' +
         'deleted_versions=#{versions} deleted_markers=#{markers}"); ' +
-        '_ -> raise "public object purge failed" end'
+        '{:ok, %{verified_empty?: false}} -> ' +
+        'IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=false ' +
+        'reason=verified_nonempty"); raise "public object purge failed"; ' +
+        '{:error, reason} -> ' +
+        'reason_code = case reason do ' +
+        'value when value in [:object_storage_unavailable, ' +
+        ':object_version_listing_failed, :object_version_listing_invalid, ' +
+        ':object_version_listing_too_large, :object_deletion_failed] -> ' +
+        'Atom.to_string(value); ' +
+        '{:object_storage_status, status} when is_integer(status) -> ' +
+        '"object_storage_status_#{status}"; ' +
+        '%Mint.TransportError{reason: transport_reason} -> ' +
+        'case transport_reason do ' +
+        'value when value in [:closed, :timeout, :econnrefused, ' +
+        ':econnreset, :enetunreach, :nxdomain] -> ' +
+        '"transport_#{value}"; _ -> "transport_other" end; ' +
+        '%Mint.HTTPError{} -> "http_protocol_error"; ' +
+        '{:missing_s3_config, _key} -> "missing_s3_config"; ' +
+        '_ -> "unclassified" end; ' +
+        'IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 verified_empty=false ' +
+        'reason=#{reason_code}"); raise "public object purge failed"; ' +
+        '_ -> IO.puts("K_COMMS_PUBLIC_OBJECT_PURGE_V1 ' +
+        'verified_empty=false reason=unclassified"); ' +
+        'raise "public object purge failed" end'
     $overrides = @{PODMAN_COMPOSE_WARNING_LOGS = "false"}
     $result = Invoke-WithSealedQualificationEnvironment `
         -ReleaseContext $ReleaseContext `
@@ -2288,9 +2343,31 @@ function Invoke-QualificationObjectPurge {
                     "qualification", "eval", $expression
                 )
         }
-    Assert-Condition `
-        -Condition ($result.ExitCode -eq 0) `
-        -Message "Disposable public object purge failed"
+    if ($result.ExitCode -ne 0) {
+        $failureMatch = [Regex]::Match(
+            [string]::Join("`n", @($result.Output)),
+            "K_COMMS_PUBLIC_OBJECT_PURGE_V1 " +
+            "verified_empty=false reason=(?<reason>" +
+            "object_storage_unavailable|" +
+            "object_version_listing_failed|" +
+            "object_version_listing_invalid|" +
+            "object_version_listing_too_large|" +
+            "object_deletion_failed|" +
+            "object_storage_status_[0-9]{3}|unclassified|" +
+            "verified_nonempty|" +
+            "transport_(?:closed|timeout|econnrefused|econnreset|" +
+            "enetunreach|nxdomain|other)|http_protocol_error|" +
+            "missing_s3_config)"
+        )
+        $reason =
+            if ($failureMatch.Success) {
+                $failureMatch.Groups["reason"].Value
+            }
+            else {
+                "unclassified"
+            }
+        throw "Disposable public object purge failed (reason=$reason)"
+    }
     Assert-QualificationObjectPurgeEvidence `
         -Output @($result.Output) `
         -RequireDeletedVersion:$RequireDeletedVersion
@@ -2587,9 +2664,58 @@ function Invoke-PublicObjectStorageQualification {
                 )
             }
             catch {
+                $safePurgeReason = "cleanup_unclassified"
+                $safePurgeMatch = [Regex]::Match(
+                    $_.Exception.Message,
+                    "^Disposable public object purge failed " +
+                    "\(reason=(?<reason>" +
+                        "object_storage_unavailable|" +
+                        "object_version_listing_failed|" +
+                        "object_version_listing_invalid|" +
+                        "object_version_listing_too_large|" +
+                        "object_deletion_failed|" +
+                        "object_storage_status_[0-9]{3}|unclassified|" +
+                        "verified_nonempty|" +
+                        "transport_(?:closed|timeout|econnrefused|" +
+                        "econnreset|enetunreach|nxdomain|other)|" +
+                        "http_protocol_error|missing_s3_config)\)$"
+                )
+                if ($safePurgeMatch.Success) {
+                    $matchedPurgeReason =
+                        $safePurgeMatch.Groups["reason"].Value
+                    $safePurgeReason =
+                        if ($matchedPurgeReason -ceq "unclassified") {
+                            "purge_unclassified"
+                        }
+                        else {
+                            $matchedPurgeReason
+                        }
+                }
+                elseif (
+                    $_.Exception.Message -ceq
+                        "Public object remained downloadable after its " +
+                        "verified purge"
+                ) {
+                    $safePurgeReason = "object_still_downloadable"
+                }
+                elseif (
+                    $_.Exception.Message -ceq
+                        "Disposable public object purge evidence was missing " +
+                        "or ambiguous"
+                ) {
+                    $safePurgeReason = "purge_evidence_invalid"
+                }
+                elseif (
+                    $_.Exception.Message -ceq
+                        "Disposable public object purge removed no uploaded " +
+                        "version"
+                ) {
+                    $safePurgeReason = "uploaded_version_not_deleted"
+                }
                 $cleanupFailures.Add(
                     [InvalidOperationException]::new(
-                        "Disposable public object cleanup failed",
+                        "Disposable public object cleanup failed " +
+                        "(reason=$safePurgeReason)",
                         $_.Exception
                     )
                 )
@@ -6154,7 +6280,8 @@ function Assert-PublicObjectStorageTransportSelfTest {
                 $aggregateFailure.InnerExceptions[1].Message -ceq
                     "Disposable attachment abandonment failed" -and
                 $aggregateFailure.InnerExceptions[2].Message -ceq
-                    "Disposable public object cleanup failed" -and
+                    "Disposable public object cleanup failed " +
+                    "(reason=cleanup_unclassified)" -and
                 $aggregateFailure.InnerExceptions[3].Message -ceq
                     "Disposable object qualification session cleanup failed" -and
                 $aggregate.State.AbandonCalls -eq 1 -and
@@ -6194,8 +6321,10 @@ function Assert-PublicObjectStorageQualificationSelfTest {
         expires_in = 300
         expires_at = [DateTimeOffset]::UtcNow.AddMinutes(5).ToString("o")
     }
+    $jsonDescriptor = ConvertFrom-QualificationJson `
+        -Json ($descriptor | ConvertTo-Json -Depth 6)
     $resolved = Resolve-PublicObjectRequestDescriptor `
-        -Descriptor $descriptor `
+        -Descriptor $jsonDescriptor `
         -ExpectedMethod "PUT" `
         -ExpectedOrigin $origin `
         -ExpectedHeaders $expectedHeaders
@@ -6239,10 +6368,8 @@ function Assert-PublicObjectStorageQualificationSelfTest {
             }
         }
     )) {
-        $candidate =
-            $descriptor |
-                ConvertTo-Json -Depth 6 |
-                ConvertFrom-Json
+        $candidate = ConvertFrom-QualificationJson `
+            -Json ($descriptor | ConvertTo-Json -Depth 6)
         & $case.Mutate $candidate
         $rejected = $false
         try {

@@ -124,14 +124,42 @@ test.describe("real-stack audio qualification", () => {
       // This is a whole K-Comms session revocation, not only a call admission
       // revocation. The closed realtime socket forces an authentication retry;
       // once both access and refresh credentials are rejected, the product must
-      // remove the authenticated workspace (including the call). Signed-out
-      // `/app` now routes to the account-optional instant-room front door;
-      // explicit account authentication remains available at `/sign-in`.
-      await expect(memberPage).toHaveURL(/\/$/, { timeout: 20_000 });
+      // remove the authenticated workspace (including the call). The public
+      // instant-room front door remains `/`; a revoked authenticated `/app`
+      // session returns to explicit sign-in while retaining the conversation
+      // deep link for a successful re-authentication.
+      await expect(memberPage).toHaveURL(
+        new RegExp(
+          `/sign-in\\?conversation=${fixture.conversation.id}$`
+        ),
+        { timeout: 20_000 }
+      );
       await expect(memberPage.locator(".app-shell")).toHaveCount(0);
       await expect(memberPage.locator(".audio-call-dock")).toHaveCount(0);
       await expect(memberPage.locator('audio[data-k-comms-call-audio="remote"]')).toHaveCount(0);
       await expect.poll(() => allPeerConnectionsClosed(memberPage), { timeout: 20_000 }).toBe(true);
+
+      const workspace = memberPage.getByLabel("Workspace address");
+      if (await workspace.count()) {
+        await workspace.fill(fixture.memberCredentials.tenantSlug);
+      }
+      await memberPage.getByLabel("Email address").fill(
+        fixture.memberCredentials.email
+      );
+      await memberPage.getByLabel("Password").fill(
+        fixture.memberCredentials.password
+      );
+      await memberPage.getByRole("button", { name: "Sign in" }).click();
+      await expect(memberPage).toHaveURL(
+        new RegExp(
+          `/app/?\\?conversation=${fixture.conversation.id}$`
+        ),
+        { timeout: 20_000 }
+      );
+      await expect(memberPage.locator(".app-shell")).toBeVisible();
+      await expect(memberPage.getByRole("button", {
+        name: /^(Start|Join) audio call$/
+      })).toBeVisible();
 
       const ownerRoster = ownerPage.getByRole("list", { name: "Call participants" });
       await expect(ownerRoster.getByRole("listitem")).toHaveCount(1, { timeout: 20_000 });
@@ -272,7 +300,12 @@ async function provisionDisposableConversation(request: APIRequestContext) {
   });
   const conversation = (await expectJSON<DataResponse<Conversation>>(conversationResponse, 201)).data;
 
-  return { owner, member: invitedMember.session, conversation };
+  return {
+    owner,
+    member: invitedMember.session,
+    memberCredentials: invitedMember.credentials,
+    conversation
+  };
 }
 
 async function provisionDisposableGroupConversation(request: APIRequestContext) {
@@ -372,7 +405,11 @@ async function inviteAndSignInAudioMember(
     }
   });
   const session = withReceivedAt(await expectJSON<Session>(signIn, 200));
-  return { session, user };
+  return {
+    session,
+    user,
+    credentials: { tenantSlug, email, password }
+  };
 }
 
 async function audioContext(

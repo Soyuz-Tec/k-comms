@@ -122,7 +122,15 @@ function ApplicationRoutes() {
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/ops" element={<OpsPage />} />
               </Route>
-              <Route path="/sign-in" element={<Navigate to="/app" replace />} />
+              <Route
+                path="/sign-in"
+                element={
+                  <Navigate
+                    to={memberAppTarget(location.search)}
+                    replace
+                  />
+                }
+              />
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Routes>
           </Suspense>
@@ -137,6 +145,23 @@ function hasInvitationToken(search: string, hash: string): boolean {
     new URLSearchParams(search).has("invitation_token") ||
     new URLSearchParams(hash.replace(/^#/, "")).has("invitation_token")
   );
+}
+
+export function memberAppTarget(search: string): string {
+  const source = new URLSearchParams(search);
+  const target = new URLSearchParams();
+  for (const name of [
+    "conversation",
+    "message",
+    "search_message",
+    "search_sequence",
+    "call"
+  ]) {
+    const value = source.get(name);
+    if (value) target.set(name, value);
+  }
+  const query = target.toString();
+  return query ? `/app?${query}` : "/app";
 }
 
 function RouteLoading() {
