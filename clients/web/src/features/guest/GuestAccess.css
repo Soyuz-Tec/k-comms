@@ -554,6 +554,43 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   background: transparent;
 }
 
+.guest-live-tools {
+  width: min(960px, 100%);
+  flex: 0 0 auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  padding: .55rem .8rem;
+  border-inline: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #eef4e9;
+}
+
+.guest-live-tools > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: .08rem;
+}
+
+.guest-live-tools > div:first-child > span {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: .75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guest-live-tools .audio-call-control {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.guest-live-tools .audio-call-control .button {
+  min-height: 44px;
+}
+
 .guest-room {
   width: min(960px, 100%);
   min-height: 0;
@@ -821,6 +858,25 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
   .guest-participant-roster ul {
     max-height: 6.5rem;
+  }
+
+  .guest-live-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guest-live-tools > div:first-child > span {
+    white-space: normal;
+  }
+
+  .guest-live-tools .audio-call-control {
+    width: 100%;
+  }
+
+  .guest-live-tools .audio-call-control .button {
+    flex: 1 1 0;
+    max-width: none;
+    min-width: 0;
   }
 
   .guest-composer {

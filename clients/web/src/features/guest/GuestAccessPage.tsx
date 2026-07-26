@@ -875,7 +875,7 @@ export function GuestShell({
     conversation: Conversation,
     socketHandoff?: SocketHandoff
   ) => void;
-  roomBanner?: ReactNode;
+  roomBanner?: ReactNode | ((participantCount: number) => ReactNode);
   identityLabel?: "Guest" | "Host" | "Member";
   initialPresenceCount?: number;
   onPresenceChange?: (count: number) => void;
@@ -1637,6 +1637,13 @@ export function GuestShell({
     }
   }
 
+  const openRoomChat = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.scrollIntoView?.({ block: "nearest" });
+    });
+  }, []);
+
   return (
     <main className="guest-shell" id="main-content">
       <header className="guest-shell-header">
@@ -1726,7 +1733,7 @@ export function GuestShell({
         </section>
       )}
 
-      {roomBanner}
+      {typeof roomBanner === "function" ? roomBanner(members.length) : roomBanner}
       {(!accountActionsAllowed || !mediaActionsAllowed) && (
         <div className="guest-transport-warning transport-warning" role="alert">
           <strong>Secure account and media actions are unavailable.</strong>
@@ -1841,6 +1848,30 @@ export function GuestShell({
         currentUserId={initialSession.user.id}
         presenceKnown={presenceKnown}
       />
+
+      <section className="guest-live-tools" aria-label="Room call">
+        <div>
+          <strong>Talk live</strong>
+          <span>Start or join without losing the room conversation.</span>
+        </div>
+        <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
+          <GuestCallPanel
+            api={api}
+            conversation={conversation}
+            audioEnabled={
+              initialSession.capabilities.allow_audio_calls &&
+              mediaActionsAllowed
+            }
+            videoEnabled={
+              initialSession.capabilities.allow_video_calls &&
+              mediaActionsAllowed
+            }
+            currentUserDisplayName={initialSession.user.display_name}
+            realtimeEvent={realtimeCall}
+            onOpenChat={openRoomChat}
+          />
+        </Suspense>
+      </section>
 
       <section className="guest-room" aria-label={conversationTitle(conversation)}>
         <div
@@ -1957,23 +1988,6 @@ export function GuestShell({
           </button>
         </form>
       </section>
-
-      <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
-        <GuestCallPanel
-          api={api}
-          conversation={conversation}
-          audioEnabled={
-            initialSession.capabilities.allow_audio_calls &&
-            mediaActionsAllowed
-          }
-          videoEnabled={
-            initialSession.capabilities.allow_video_calls &&
-            mediaActionsAllowed
-          }
-          currentUserDisplayName={initialSession.user.display_name}
-          realtimeEvent={realtimeCall}
-        />
-      </Suspense>
 
       {error && (
         <div className="guest-shell-error" role="alert">
