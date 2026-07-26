@@ -177,6 +177,7 @@ $script:QualificationMode = Resolve-QualificationMode `
     -Origin $script:BaseUriObject `
     -LanTextOnly:$LanTextOnly
 $script:ExpectedContentSecurityPolicy = ""
+$script:DeferredQualificationObjectCleanup = $null
 
 function Assert-Condition {
     param(
@@ -2239,7 +2240,8 @@ function Invoke-QualificationObjectPurge {
         [Parameter(Mandatory)][string]$TenantId,
         [Parameter(Mandatory)][string]$AttachmentId,
         [Parameter(Mandatory)][string]$FileName,
-        [switch]$RequireDeletedVersion
+        [switch]$RequireDeletedVersion,
+        [switch]$UseRunningApplication
     )
 
     $tenantGuid = [Guid]::Empty
@@ -2318,18 +2320,68 @@ function Invoke-QualificationObjectPurge {
         'verified_empty=false reason=unclassified"); ' +
         'raise "public object purge failed" end'
     $overrides = @{PODMAN_COMPOSE_WARNING_LOGS = "false"}
-    $result = Invoke-WithSealedQualificationEnvironment `
-        -ReleaseContext $ReleaseContext `
-        -Overrides $overrides `
-        -Command {
+    $result =
+        if ($UseRunningApplication) {
+            $appContainerResult =
+                Invoke-WithSealedQualificationEnvironment `
+                    -ReleaseContext $ReleaseContext `
+                    -Overrides $overrides `
+                    -Command {
+                        Invoke-QualificationNativeCommand `
+                            -FilePath "podman" `
+                            -ArgumentList @(
+                                "compose",
+                                "--env-file",
+                                [string]$ReleaseContext.EnvironmentFile,
+                                "--file",
+                                [string]$ReleaseContext.ComposeSourcePath,
+                                "--project-name",
+                                [string]$ReleaseContext.ProjectName,
+                                "ps", "--quiet", "app"
+                            )
+                    }
+            Assert-Condition `
+                -Condition ($appContainerResult.ExitCode -eq 0) `
+                -Message "Running release app discovery failed"
+            $appContainerIds = @(
+                $appContainerResult.Output |
+                    ForEach-Object { [string]$_ } |
+                    Where-Object { $_ -cmatch "^[0-9a-f]{64}$" }
+            )
+            Assert-Condition `
+                -Condition ($appContainerIds.Count -eq 1) `
+                -Message "Running release app discovery was ambiguous"
+            $appContainerId = $appContainerIds[0]
+            $inspectionResult = Invoke-QualificationNativeCommand `
+                -FilePath "podman" `
+                -ArgumentList @("container", "inspect", $appContainerId)
+            Assert-Condition `
+                -Condition ($inspectionResult.ExitCode -eq 0) `
+                -Message "Running release app inspection failed"
+            $inspection = @(
+                ($inspectionResult.Output -join [Environment]::NewLine) |
+                    ConvertFrom-Json
+            )
+            Assert-Condition `
+                -Condition (
+                    $inspection.Count -eq 1 -and
+                    [string]$inspection[0].Id -ceq $appContainerId -and
+                    [string]$inspection[0].Image -ceq
+                        [string]$ReleaseContext.ImageId -and
+                    [bool]$inspection[0].State.Running
+                ) `
+                -Message (
+                    "Running release app does not match the sealed image identity"
+                )
             Invoke-QualificationNativeCommand `
                 -FilePath "podman" `
                 -ArgumentList @(
-                    "compose",
-                    "--env-file", [string]$ReleaseContext.EnvironmentFile,
-                    "--file", [string]$ReleaseContext.ComposeSourcePath,
-                    "--project-name", [string]$ReleaseContext.ProjectName,
-                    "run", "--rm", "--no-deps", "--pull", "never",
+                    "exec",
+                    "--env",
+                    (
+                        "K_COMMS_INSTANCE_ID=" +
+                        "qualification-public-object-purge"
+                    ),
                     "--env",
                     (
                         "K_COMMS_QUALIFICATION_OBJECT_TENANT_ID=" +
@@ -2340,8 +2392,39 @@ function Invoke-QualificationObjectPurge {
                         "K_COMMS_QUALIFICATION_OBJECT_KEY=" +
                         $objectKey
                     ),
-                    "qualification", "eval", $expression
+                    $appContainerId,
+                    "/app/bin/k_comms", "eval", $expression
                 )
+        }
+        else {
+            Invoke-WithSealedQualificationEnvironment `
+                -ReleaseContext $ReleaseContext `
+                -Overrides $overrides `
+                -Command {
+                    Invoke-QualificationNativeCommand `
+                        -FilePath "podman" `
+                        -ArgumentList @(
+                            "compose",
+                            "--env-file",
+                            [string]$ReleaseContext.EnvironmentFile,
+                            "--file",
+                            [string]$ReleaseContext.ComposeSourcePath,
+                            "--project-name",
+                            [string]$ReleaseContext.ProjectName,
+                            "run", "--rm", "--no-deps", "--pull", "never",
+                            "--env",
+                            (
+                                "K_COMMS_QUALIFICATION_OBJECT_TENANT_ID=" +
+                                $TenantId
+                            ),
+                            "--env",
+                            (
+                                "K_COMMS_QUALIFICATION_OBJECT_KEY=" +
+                                $objectKey
+                            ),
+                            "qualification", "eval", $expression
+                        )
+                }
         }
     if ($result.ExitCode -ne 0) {
         $failureMatch = [Regex]::Match(
@@ -2373,6 +2456,170 @@ function Invoke-QualificationObjectPurge {
         -RequireDeletedVersion:$RequireDeletedVersion
 }
 
+function Invoke-VerifiedQualificationObjectCleanup {
+    param(
+        [Parameter(Mandatory)][scriptblock]$PurgeAction,
+        [Parameter(Mandatory)][scriptblock]$ObjectRequestAction,
+        [Parameter(Mandatory)]$ReleaseContext,
+        [Parameter(Mandatory)][string]$TenantId,
+        [Parameter(Mandatory)][string]$AttachmentId,
+        [Parameter(Mandatory)][string]$FileName,
+        [Parameter(Mandatory)][string]$ApplicationOrigin,
+        $DownloadRequest,
+        [switch]$RequireDeletedVersion,
+        [ValidateRange(0, 60)][int]$RetryDelaySeconds = 10
+    )
+
+    try {
+        & $PurgeAction `
+            -ReleaseContext $ReleaseContext `
+            -TenantId $TenantId `
+            -AttachmentId $AttachmentId `
+            -FileName $FileName `
+            -RequireDeletedVersion:$RequireDeletedVersion
+    }
+    catch {
+        if (
+            $_.Exception.Message -cne
+                "Disposable public object purge failed " +
+                "(reason=verified_nonempty)"
+        ) {
+            throw
+        }
+        if ($RetryDelaySeconds -gt 0) {
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
+        & $PurgeAction `
+            -ReleaseContext $ReleaseContext `
+            -TenantId $TenantId `
+            -AttachmentId $AttachmentId `
+            -FileName $FileName `
+            -RequireDeletedVersion:$RequireDeletedVersion
+    }
+
+    if ($null -ne $DownloadRequest) {
+        $deletedResponse = & $ObjectRequestAction `
+            -Request $DownloadRequest `
+            -Origin $ApplicationOrigin `
+            -MaxResponseBytes 65536
+        Assert-Condition `
+            -Condition ($deletedResponse.StatusCode -eq 404) `
+            -Message (
+                "Public object remained downloadable after its verified purge"
+            )
+    }
+    Write-Host "PASS disposable public attachment and object cleanup"
+}
+
+function Complete-DeferredQualificationObjectCleanup {
+    $context = $script:DeferredQualificationObjectCleanup
+    if ($null -eq $context) {
+        return
+    }
+
+    $runningAppPurgeAction = {
+        param(
+            $ReleaseContext,
+            $TenantId,
+            $AttachmentId,
+            $FileName,
+            [switch]$RequireDeletedVersion
+        )
+        Invoke-QualificationObjectPurge `
+            -ReleaseContext $ReleaseContext `
+            -TenantId $TenantId `
+            -AttachmentId $AttachmentId `
+            -FileName $FileName `
+            -RequireDeletedVersion:$RequireDeletedVersion `
+            -UseRunningApplication
+    }
+
+    try {
+        Invoke-VerifiedQualificationObjectCleanup `
+            -PurgeAction $runningAppPurgeAction `
+            -ObjectRequestAction ${function:Invoke-PublicObjectHttpRequest} `
+            -ReleaseContext $context.ReleaseContext `
+            -TenantId $context.TenantId `
+            -AttachmentId $context.AttachmentId `
+            -FileName $context.FileName `
+            -ApplicationOrigin $context.ApplicationOrigin `
+            -DownloadRequest $context.DownloadRequest `
+            -RetryDelaySeconds 10
+    }
+    catch {
+        $safeReason =
+            if (
+                $_.Exception.Message -match
+                    "^Disposable public object purge failed " +
+                    "\(reason=(?<reason>[a-z0-9_]+)\)$"
+            ) {
+                $Matches["reason"]
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Running release app discovery failed"
+            ) {
+                "running_app_discovery_failed"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Running release app discovery was ambiguous"
+            ) {
+                "running_app_discovery_ambiguous"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Running release app inspection failed"
+            ) {
+                "running_app_inspection_failed"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Running release app does not match the sealed image identity"
+            ) {
+                "running_app_identity_mismatch"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Disposable public object purge evidence was missing or ambiguous"
+            ) {
+                "purge_evidence_invalid"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Disposable public object purge removed no uploaded version"
+            ) {
+                "uploaded_version_not_deleted"
+            }
+            elseif (
+                $_.Exception.Message -ceq
+                    "Public object remained downloadable after its verified purge"
+            ) {
+                "object_still_downloadable"
+            }
+            else {
+                "deferred_cleanup_unclassified"
+            }
+        Write-Host "FAIL deferred public object cleanup reason=$safeReason"
+        if (
+            $safeReason -ceq "deferred_cleanup_unclassified" -and
+            $_.Exception.Message -notmatch
+                "(?i)https?://|token|secret|password|credential|" +
+                "authorization|x-amz|cookie"
+        ) {
+            Write-Host (
+                "FAIL deferred public object cleanup detail=" +
+                $_.Exception.Message
+            )
+        }
+        throw
+    }
+    finally {
+        $context.DownloadRequest = $null
+        $script:DeferredQualificationObjectCleanup = $null
+    }
+}
+
 function Invoke-PublicObjectStorageQualification {
     param(
         [scriptblock]$ApiRequestAction =
@@ -2385,6 +2632,9 @@ function Invoke-PublicObjectStorageQualification {
             ${function:Remove-LiveQualificationApp},
         $QualificationAppCleanupContext =
             $script:LiveQualificationCleanupContext,
+        [scriptblock]$QualificationTenantCleanupAction =
+            ${function:Invoke-QualificationTenantOperation},
+        [string]$QualificationId = $script:LiveQualificationId,
         [string]$ApplicationOrigin = $script:BaseUri,
         [string]$PublicObjectOrigin = $script:SealedPublicObjectOrigin,
         [string]$QualificationApplicationOrigin =
@@ -2394,7 +2644,7 @@ function Invoke-PublicObjectStorageQualification {
         [string]$OwnerPassword = $script:LiveOwnerPassword,
         $ReleaseContext = $script:SealedReleaseContext,
         [byte[]]$QualificationContentBytes = $null,
-        [ValidateRange(0, 120)][int]$ObjectPurgeSettlingSeconds = 60
+        [ValidateRange(0, 240)][int]$ObjectPurgeSettlingSeconds = 5
     )
 
     if (-not $script:QualificationMode.TrustedEdge) {
@@ -2685,32 +2935,47 @@ function Invoke-PublicObjectStorageQualification {
                         )
                     )
                 }
+                try {
+                    & $QualificationTenantCleanupAction `
+                        -Action "delete" `
+                        -ReleaseContext $ReleaseContext `
+                        -QualificationId $QualificationId
+                }
+                catch {
+                    $cleanupFailures.Add(
+                        [InvalidOperationException]::new(
+                            "Disposable qualification tenant release failed",
+                            $_.Exception
+                        )
+                    )
+                }
             }
             try {
                 if ($objectUploaded -and $ObjectPurgeSettlingSeconds -gt 0) {
                     Start-Sleep -Seconds $ObjectPurgeSettlingSeconds
                 }
-                & $PurgeAction `
+                if ($objectUploaded) {
+                    $script:DeferredQualificationObjectCleanup =
+                        [PSCustomObject]@{
+                            ReleaseContext = $ReleaseContext
+                            TenantId = $tenantId
+                            AttachmentId = $attachmentId
+                            FileName = $fileName
+                            ApplicationOrigin = $ApplicationOrigin
+                            DownloadRequest = $downloadRequest
+                        }
+                }
+                Invoke-VerifiedQualificationObjectCleanup `
+                    -PurgeAction $PurgeAction `
+                    -ObjectRequestAction $ObjectRequestAction `
                     -ReleaseContext $ReleaseContext `
                     -TenantId $tenantId `
                     -AttachmentId $attachmentId `
                     -FileName $fileName `
+                    -ApplicationOrigin $ApplicationOrigin `
+                    -DownloadRequest $downloadRequest `
                     -RequireDeletedVersion:$objectUploaded
-                if ($null -ne $downloadRequest) {
-                    $deletedResponse = & $ObjectRequestAction `
-                        -Request $downloadRequest `
-                        -Origin $ApplicationOrigin `
-                        -MaxResponseBytes 65536
-                    Assert-Condition `
-                        -Condition ($deletedResponse.StatusCode -eq 404) `
-                        -Message (
-                            "Public object remained downloadable after its " +
-                            "verified purge"
-                        )
-                }
-                Write-Host (
-                    "PASS disposable public attachment and object cleanup"
-                )
+                $script:DeferredQualificationObjectCleanup = $null
             }
             catch {
                 $safePurgeReason = "cleanup_unclassified"
@@ -4725,6 +4990,7 @@ function Invoke-PackagedReleaseQualification {
     $fixedTenantFingerprintBefore = $null
     $primaryFailure = $null
     $cleanupFailure = $null
+    $deferredCleanupFailure = $null
     $fingerprintFailure = $null
     try {
         try {
@@ -4829,6 +5095,32 @@ function Invoke-PackagedReleaseQualification {
         }
 
         try {
+            if ($null -ne $script:DeferredQualificationObjectCleanup) {
+                Complete-DeferredQualificationObjectCleanup
+                if (
+                    $null -ne $primaryFailure -and
+                    $primaryFailure.Message -ceq
+                        "Disposable public object cleanup failed " +
+                        "(reason=verified_nonempty)"
+                ) {
+                    $primaryFailure = $null
+                }
+                else {
+                    throw (
+                        "Deferred public object cleanup did not correspond to " +
+                        "the expected verified-nonempty primary failure"
+                    )
+                }
+            }
+        }
+        catch {
+            $deferredCleanupFailure = [InvalidOperationException]::new(
+                "Mandatory deferred public object cleanup failed",
+                $_.Exception
+            )
+        }
+
+        try {
             if ($null -ne $fixedTenantFingerprintBefore) {
                 $fixedTenantFingerprintAfter =
                     Get-FixedInstantRoomTenantFingerprint `
@@ -4866,6 +5158,7 @@ function Invoke-PackagedReleaseQualification {
     foreach ($failure in @(
         $primaryFailure,
         $cleanupFailure,
+        $deferredCleanupFailure,
         $fingerprintFailure
     )) {
         if ($null -ne $failure) {
@@ -6214,6 +6507,10 @@ function Invoke-PublicObjectStorageQualificationSelfTestFixture {
         -PurgeAction $Fixture.PurgeAction `
         -QualificationAppCleanupAction { param($CleanupContext) } `
         -QualificationAppCleanupContext ([PSCustomObject]@{SelfTest = $true}) `
+        -QualificationTenantCleanupAction {
+            param($Action, $ReleaseContext, $QualificationId)
+        } `
+        -QualificationId ("a" * 32) `
         -ApplicationOrigin $Fixture.ApplicationOrigin `
         -PublicObjectOrigin $Fixture.PublicObjectOrigin `
         -QualificationApplicationOrigin $Fixture.QualificationApplicationOrigin `
