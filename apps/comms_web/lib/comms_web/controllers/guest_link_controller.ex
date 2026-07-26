@@ -66,11 +66,7 @@ defmodule CommsWeb.GuestLinkController do
   end
 
   defp share_url(token) do
-    base_url =
-      Application.get_env(:comms_core, :public_app_url, CommsWeb.Endpoint.url())
-      |> String.trim_trailing("/")
-
-    "#{base_url}/join#guest=#{URI.encode_www_form(token)}"
+    CommsWeb.PublicShareURL.build(token)
   end
 
   defp maybe_put_conversion_verification_code(payload, code) when is_binary(code),

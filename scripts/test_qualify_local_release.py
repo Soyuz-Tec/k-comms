@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
+
+from validate_local_release import _function_body
 
 ROOT = Path(__file__).resolve().parents[1]
 QUALIFIER = ROOT / "scripts" / "qualify_local_release.ps1"
@@ -15,6 +18,7 @@ LIVE_INSTANT_ROOM_SPEC = (
 LIVE_GUEST_SPEC = ROOT / "clients" / "web" / "e2e" / "live-guest-communication.spec.ts"
 LIVE_AUDIO_SPEC = ROOT / "clients" / "web" / "e2e" / "live-audio.spec.ts"
 LIVE_VIDEO_SPEC = ROOT / "clients" / "web" / "e2e" / "live-video.spec.ts"
+WINDOWS_POWERSHELL = shutil.which("powershell.exe")
 
 
 class PackagedLocalReleaseQualifierTest(unittest.TestCase):
@@ -178,6 +182,74 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         )
         self.assertIn('"network"', self.document)
         self.assertIn('"bindAddress"', self.document)
+
+    def test_podman_progress_stderr_is_captured_by_native_exit_code(self) -> None:
+        for proof in (
+            "function Invoke-QualificationNativeCommand",
+            '$ErrorActionPreference = "Continue"',
+            "& $resolvedCommand.Source @ArgumentList 2>&1",
+            "$exitCode = $global:LASTEXITCODE",
+            "$ErrorActionPreference = $previousErrorActionPreference",
+            "Native command executable is unavailable",
+            "function Assert-NativeCommandCaptureSelfTest",
+            "Assert-NativeCommandCaptureSelfTest",
+            "k-comms-native-progress",
+            "k-comms-native-failure",
+        ):
+            self.assertIn(proof, self.document)
+
+        self.assertEqual(
+            self.document.count("Invoke-QualificationNativeCommand `"),
+            13,
+        )
+        self.assertEqual(self.document.count('-FilePath "podman"'), 11)
+        self.assertNotIn("& podman", self.document)
+        self.assertNotIn("qualification eval $expression 2>&1", self.document)
+        self.assertNotIn("2>$null", self.document)
+        self.assertNotIn("*>$null", self.document)
+
+    @unittest.skipUnless(
+        WINDOWS_POWERSHELL,
+        "native command fail-closed execution is covered on Windows",
+    )
+    def test_native_helper_rejects_missing_executable_with_stale_zero(self) -> None:
+        helper = (
+            "function Invoke-QualificationNativeCommand {"
+            + _function_body(
+                self.document,
+                "Invoke-QualificationNativeCommand",
+            )
+        )
+        script = (
+            '$ErrorActionPreference = "Continue"\n'
+            + helper
+            + "\n"
+            + "$global:LASTEXITCODE = 0\n"
+            + "$result = Invoke-QualificationNativeCommand "
+            + "-FilePath 'k_comms_missing_native_command_xyz' "
+            + "-ArgumentList @('--version')\n"
+            + "if ($result.ExitCode -ne -1) { exit 9 }\n"
+            + "if ($global:LASTEXITCODE -ne 0) { exit 10 }\n"
+        )
+        result = subprocess.run(
+            [
+                WINDOWS_POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
         self.assertIn('"publicHost"', self.document)
         self.assertIn('"podmanBindAddress"', self.document)
         self.assertIn('"exposureMode"', self.document)
@@ -329,7 +401,9 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             'K_COMMS_RELEASE_EXPOSURE_MODE = ""',
             'K_COMMS_TRUSTED_EDGE_CONFIRMATION = ""',
             'K_COMMS_RELEASE_HOST = "127.0.0.1"',
-            "PUBLIC_APP_URL = $appOrigin",
+            "PUBLIC_APP_URL = $retainedAppOrigin",
+            "[string]$CleanupContext.PublicAppUrl",
+            "K_COMMS_QUALIFICATION_SHARE_ORIGIN",
         ):
             self.assertIn(exact_clear, isolated_environment)
 
@@ -900,18 +974,21 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             self.document.index("function Remove-LiveQualificationApp")
         ]
         for proof in (
-            "run --detach --no-deps --pull never",
-            '--publish "127.0.0.1:$($CleanupContext.AppHostPort):4000"',
-            '--env "K_COMMS_ROLE=edge"',
-            '--env "ALLOW_BOOTSTRAP=false"',
+            '"run", "--detach", "--no-deps", "--pull", "never"',
+            '"127.0.0.1:$($CleanupContext.AppHostPort):4000"',
+            '"--env", "K_COMMS_ROLE=edge"',
+            '"--env", "ALLOW_BOOTSTRAP=false"',
             '"INSTANT_ROOM_TENANT_SLUG="',
-            '--env "PUBLIC_APP_URL=$($CleanupContext.AppOrigin)"',
-            '--env "K_COMMS_RELEASE_EXPOSURE_MODE="',
-            '--env "K_COMMS_TRUSTED_EDGE_CONFIRMATION="',
-            '--env "CORS_ORIGINS=$($CleanupContext.AppOrigin)"',
+            '"PUBLIC_APP_URL=$qualificationPublicAppUrl"',
+            '"--env", "K_COMMS_RELEASE_EXPOSURE_MODE="',
+            '"--env", "K_COMMS_TRUSTED_EDGE_CONFIRMATION="',
+            '"CORS_ORIGINS=$($CleanupContext.AppOrigin)"',
+            '"K_COMMS_QUALIFICATION_SHARE_ORIGIN="',
+            "$CleanupContext.PublicAppUrl",
             '"com.k-comms.qualification.nonce="',
             '"com.k-comms.qualification.revision="',
-            "app 2>&1",
+            "Invoke-QualificationNativeCommand `",
+            "app",
             "Assert-LiveQualificationAppRuntime",
         ):
             self.assertIn(proof, start)
@@ -923,10 +1000,10 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         ]
         self.assertLess(
             removal.index("Assert-QualificationAppContainerIdentity"),
-            removal.index("podman rm --force --time 10 $inspection.Id"),
+            removal.index("$removeResult = Invoke-QualificationNativeCommand"),
         )
         self.assertLess(
-            removal.index("podman rm --force --time 10 $inspection.Id"),
+            removal.index("$removeResult = Invoke-QualificationNativeCommand"),
             removal.index("PASS isolated qualification app removal"),
         )
 
@@ -1014,9 +1091,9 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "the exact schema-v$schemaVersion properties",
             "its originating release",
             "Assert-QualificationReleaseImageIdentity -ReleaseContext",
-            "--env-file $ReleaseContext.EnvironmentFile",
-            "--file $ReleaseContext.ComposeSourcePath",
-            "--project-name $ReleaseContext.ProjectName",
+            '"--env-file", [string]$ReleaseContext.EnvironmentFile',
+            '"--file", [string]$ReleaseContext.ComposeSourcePath',
+            '"--project-name", [string]$ReleaseContext.ProjectName',
             "Self-test accepted a cleanup marker switched to the current",
             "Self-test accepted a tampered originating release",
             "Self-test accepted an extra cleanup marker property",

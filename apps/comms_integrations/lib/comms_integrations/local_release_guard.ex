@@ -341,7 +341,8 @@ defmodule CommsIntegrations.LocalReleaseGuard do
 
   defp qualification_app_requested?(options) do
     not is_nil(Keyword.get(options, :qualification_app_origin)) or
-      not is_nil(Keyword.get(options, :qualification_app_confirmation))
+      not is_nil(Keyword.get(options, :qualification_app_confirmation)) or
+      not is_nil(Keyword.get(options, :qualification_share_origin))
   end
 
   defp qualification_app_origin!(options) do
@@ -380,7 +381,40 @@ defmodule CommsIntegrations.LocalReleaseGuard do
 
       origin = Keyword.get(options, :qualification_app_origin)
       require_qualification_app_origin!(origin, Keyword.fetch!(options, :public_app_url))
+
+      require_qualification_share_origin!(
+        Keyword.get(options, :qualification_share_origin),
+        Keyword.fetch!(options, :public_app_url),
+        origin
+      )
+
       origin
+    end
+  end
+
+  defp require_qualification_share_origin!(share_origin, public_app_url, app_origin) do
+    valid? =
+      is_binary(share_origin) and share_origin != app_origin and
+        (share_origin == public_app_url or canonical_public_https_origin?(share_origin))
+
+    unless valid? do
+      raise ArgumentError,
+            "K_COMMS_QUALIFICATION_SHARE_ORIGIN must exactly equal PUBLIC_APP_URL " <>
+              "or one canonical public HTTPS origin on port 443"
+    end
+  end
+
+  defp canonical_public_https_origin?(value) when is_binary(value) do
+    try do
+      uri = URI.parse(value)
+      host = normalize_hostname(uri.host, "K_COMMS_QUALIFICATION_SHARE_ORIGIN")
+
+      value == String.trim(value) and uri.scheme == "https" and
+        is_binary(host) and uri.port == 443 and uri.path in [nil, "", "/"] and
+        is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment) and
+        public_dns_hostname?(host) and value == "https://#{host}"
+    rescue
+      URI.Error -> false
     end
   end
 

@@ -183,9 +183,39 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
                    "k-comms-qualification-0123456789abcdef0123456789abcdef",
                  qualification_app_origin: qualification_origin,
                  qualification_app_confirmation: "local-release-qualification-app-v1",
+                 qualification_share_origin: "http://127.0.0.1:4188",
                  cors_origins: [qualification_origin]
                )
              )
+  end
+
+  test "qualification share origin accepts the sealed local or public origin only" do
+    qualification_origin = "http://127.0.0.1:45231"
+
+    assert :ok =
+             LocalReleaseGuard.validate!(
+               qualification_options(qualification_origin)
+               |> Keyword.put(:qualification_share_origin, "http://192.168.50.25:4188")
+             )
+
+    for invalid <- [
+          nil,
+          "",
+          qualification_origin,
+          "http://comms.avayaworks.com",
+          "https://comms.avayaworks.com/",
+          "https://COMMS.avayaworks.com",
+          "https://comms.avayaworks.com:444",
+          "https://127.0.0.1",
+          "https://example.invalid"
+        ] do
+      assert_raise ArgumentError, ~r/K_COMMS_QUALIFICATION_SHARE_ORIGIN/, fn ->
+        LocalReleaseGuard.validate!(
+          qualification_options(qualification_origin)
+          |> Keyword.put(:qualification_share_origin, invalid)
+        )
+      end
+    end
   end
 
   test "qualification app mode does not broaden retained release CSP or CORS" do
@@ -415,6 +445,7 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
         instant_room_tenant_slug: "k-comms-development",
         qualification_app_origin: nil,
         qualification_app_confirmation: nil,
+        qualification_share_origin: nil,
         phx_host: "127.0.0.1",
         public_app_url: "http://127.0.0.1:4188",
         livekit_server_url: "ws://127.0.0.1:7980",
@@ -465,6 +496,7 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
       instant_room_tenant_slug: "k-comms-qualification-0123456789abcdef0123456789abcdef",
       qualification_app_origin: origin,
       qualification_app_confirmation: "local-release-qualification-app-v1",
+      qualification_share_origin: "https://comms.avayaworks.com",
       cors_origins: [origin]
     )
   end

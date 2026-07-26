@@ -75,6 +75,9 @@ if config_env() == :prod do
   qualification_app_confirmation =
     System.get_env("K_COMMS_QUALIFICATION_APP_CONFIRMATION")
 
+  qualification_share_origin =
+    System.get_env("K_COMMS_QUALIFICATION_SHARE_ORIGIN")
+
   local_release_host =
     case System.get_env("K_COMMS_LOCAL_RELEASE_HOST") do
       nil -> nil
@@ -302,6 +305,7 @@ if config_env() == :prod do
     instant_room_tenant_slug: instant_room_tenant_slug,
     qualification_app_origin: qualification_app_origin,
     qualification_app_confirmation: qualification_app_confirmation,
+    qualification_share_origin: qualification_share_origin,
     phx_host: host,
     public_app_url: public_app_url,
     livekit_server_url: livekit_server_url,
@@ -312,6 +316,8 @@ if config_env() == :prod do
     hsts?: hsts?,
     trusted_proxy_cidrs: trusted_proxy_cidrs
   )
+
+  public_share_origin = qualification_share_origin || public_app_url
 
   if runtime_purpose == "application" and audio_provider_mode == "disabled" and
        not development_adapters? do
@@ -486,6 +492,7 @@ if config_env() == :prod do
 
   config :comms_web,
     allow_bootstrap: allow_bootstrap?,
+    public_share_origin: public_share_origin,
     insecure_lan_release:
       local_release? and public_app_uri.scheme == "http" and
         public_app_uri.host not in ["127.0.0.1", "localhost", "::1"],

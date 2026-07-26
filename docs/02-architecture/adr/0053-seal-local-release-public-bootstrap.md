@@ -56,11 +56,14 @@ public application bootstrap endpoint disabled.
 8. Both modes also start a temporary instance of the originating Compose
    `app` service with the exact image and revision, `K_COMMS_ROLE=edge`, the
    disposable tenant slug, and a random high port published only on
-   `127.0.0.1`. `PUBLIC_APP_URL` remains the retained release's public origin.
-   The temporary origin is admitted only through a qualification-specific,
-   exact-origin CORS exception. The container's deterministic name, nonce,
-   receipt hashes, labels, environment, hardening, listener, health, role, and
-   image identity are verified before use.
+   `127.0.0.1`. `PUBLIC_APP_URL` remains the retained loopback application
+   origin required by the direct-release guard. A separately sealed
+   `K_COMMS_QUALIFICATION_SHARE_ORIGIN` preserves the retained release's
+   canonical invitation origin, including its public HTTPS origin in
+   trusted-edge mode. The temporary origin is admitted only through a
+   qualification-specific, exact-origin CORS exception. The container's
+   deterministic name, nonce, receipt hashes, labels, environment, hardening,
+   listener, health, role, and image identity are verified before use.
 9. Instant-room host creation occurs through that temporary origin. Its browser
    alone sends a qualification-id-derived documentation IPv6 address in
    `X-Forwarded-For`, and the temporary application trusts that value only from

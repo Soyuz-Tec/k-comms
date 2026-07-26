@@ -53,6 +53,14 @@ defmodule CommsWeb.InstantRoomControllerTest do
   test "anonymous creation, replay, preview, and guest join form a complete public flow", %{
     account: _account
   } do
+    public_share_origin = "https://comms.avayaworks.com"
+    previous_share_origin = Application.fetch_env!(:comms_web, :public_share_origin)
+    Application.put_env(:comms_web, :public_share_origin, public_share_origin)
+
+    on_exit(fn ->
+      Application.put_env(:comms_web, :public_share_origin, previous_share_origin)
+    end)
+
     create_key = idempotency_key()
 
     create_body = %{
@@ -88,7 +96,7 @@ defmodule CommsWeb.InstantRoomControllerTest do
     assert is_binary(response["token"])
 
     assert response["share_url"] ==
-             "#{Application.fetch_env!(:comms_core, :public_app_url) |> String.trim_trailing("/")}/join#guest=#{URI.encode_www_form(response["token"])}"
+             "#{public_share_origin}/join#guest=#{URI.encode_www_form(response["token"])}"
 
     refute response["share_url"] =~ "?token="
 

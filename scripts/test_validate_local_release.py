@@ -22,6 +22,7 @@ from validate_local_release import (
 )
 
 WINDOWS_POWERSHELL = shutil.which("powershell.exe")
+POWERSHELL_CORE = shutil.which("pwsh.exe")
 
 
 class LocalReleasePolicyTest(unittest.TestCase):
@@ -31,6 +32,57 @@ class LocalReleasePolicyTest(unittest.TestCase):
 
     def test_repository_assets_pass(self) -> None:
         self.assertEqual(validate_paths(DEFAULT_COMPOSE, DEFAULT_RUNNER), [])
+
+    @unittest.skipUnless(
+        POWERSHELL_CORE,
+        "PowerShell Core JSON timestamp behavior is covered when pwsh is available",
+    )
+    def test_powershell_core_json_utc_timestamp_round_trip(self) -> None:
+        function_source = (
+            "function ConvertTo-ScheduledTaskUtcDateTimeOffset {"
+            + _function_body(
+                self.runner,
+                "ConvertTo-ScheduledTaskUtcDateTimeOffset",
+            )
+        )
+        script = rf"""
+{function_source}
+$receipt = '{{"scheduleSealedAtUtc":"2026-07-25T00:00:00Z","taskStartBoundaryUtc":"2026-07-25T00:00:15Z"}}' | ConvertFrom-Json
+if (-not ($receipt.scheduleSealedAtUtc -is [DateTime])) {{
+    throw "pwsh did not materialize the JSON timestamp as DateTime"
+}}
+$sealed = ConvertTo-ScheduledTaskUtcDateTimeOffset `
+    -Value $receipt.scheduleSealedAtUtc
+$boundary = ConvertTo-ScheduledTaskUtcDateTimeOffset `
+    -Value $receipt.taskStartBoundaryUtc
+if (
+    $sealed.UtcDateTime.ToString("o") -cne
+        "2026-07-25T00:00:00.0000000Z" -or
+    ($boundary - $sealed).TotalSeconds -ne 15
+) {{
+    throw "pwsh JSON timestamps did not preserve their UTC schedule"
+}}
+"""
+        result = subprocess.run(
+            [
+                POWERSHELL_CORE,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
 
     def test_build_context_excludes_ignored_vite_environment_files(self) -> None:
         patterns = {
@@ -2342,6 +2394,26 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 "$sealedPrincipalSid -cne $sealedPrincipalSid -or",
             ),
             (
+                "        -Value (Get-RequiredForwarderProperty `\n"
+                "            -Object $Supervisor `\n"
+                '            -Name "scheduleSealedAtUtc" `\n'
+                '            -Context "LAN forwarder supervisor receipt")',
+                "        -Value ([string](Get-RequiredForwarderProperty `\n"
+                "            -Object $Supervisor `\n"
+                '            -Name "scheduleSealedAtUtc" `\n'
+                '            -Context "LAN forwarder supervisor receipt"))',
+            ),
+            (
+                "        -Value (Get-RequiredForwarderProperty `\n"
+                "            -Object $Supervisor `\n"
+                '            -Name "taskStartBoundaryUtc" `\n'
+                '            -Context "LAN forwarder supervisor receipt")',
+                "        -Value ([string](Get-RequiredForwarderProperty `\n"
+                "            -Object $Supervisor `\n"
+                '            -Name "taskStartBoundaryUtc" `\n'
+                '            -Context "LAN forwarder supervisor receipt"))',
+            ),
+            (
                 "    $trigger.Repetition.StopAtDurationEnd = $true",
                 "    $trigger.Repetition.StopAtDurationEnd = $false",
             ),
@@ -2535,6 +2607,28 @@ $now = [DateTimeOffset]::Parse(
 )
 $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principalShortName = ([string]$currentIdentity.Name).Split("\")[-1]
+$stringUtc =
+    ConvertTo-ScheduledTaskUtcDateTimeOffset `
+        -Value "2026-07-25T00:00:00Z"
+$dateTimeUtc =
+    ConvertTo-ScheduledTaskUtcDateTimeOffset `
+        -Value ([DateTime]::SpecifyKind(
+            [DateTime]::ParseExact(
+                "2026-07-25T00:00:00",
+                "yyyy-MM-ddTHH:mm:ss",
+                [Globalization.CultureInfo]::InvariantCulture
+            ),
+            [DateTimeKind]::Utc
+        ))
+if (
+    $null -eq $stringUtc -or
+    $null -eq $dateTimeUtc -or
+    $stringUtc.UtcTicks -ne $dateTimeUtc.UtcTicks -or
+    $dateTimeUtc.UtcDateTime.ToString("o") -cne
+        "2026-07-25T00:00:00.0000000Z"
+) {
+    throw "PowerShell JSON timestamp representations did not normalize to UTC"
+}
 $supervisor = [PSCustomObject]@{
     managerScriptPath = "C:\State\history\candidate\manager.ps1"
     powerShellExecutablePath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"

@@ -39,7 +39,8 @@ config :comms_web,
   allow_bootstrap: true,
   access_token_ttl_seconds: 900,
   auth_adapter: CommsWeb.Auth.Token,
-  metrics_allow_unauthenticated: true
+  metrics_allow_unauthenticated: true,
+  public_share_origin: "http://localhost:5173"
 
 config :comms_web, CommsWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

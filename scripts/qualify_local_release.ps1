@@ -370,6 +370,80 @@ function Invoke-WithSealedQualificationEnvironment {
     }
 }
 
+function Invoke-QualificationNativeCommand {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+
+    # Windows PowerShell 5.1 promotes native stderr records to terminating
+    # errors when the caller uses ErrorActionPreference=Stop. Podman Compose
+    # writes ordinary progress (for example, "Container ... Creating") to
+    # stderr even when it succeeds, so capture both streams under Continue and
+    # make the native exit code the sole success authority.
+    $resolvedCommand =
+        Get-Command `
+            -Name $FilePath `
+            -CommandType Application `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+    if ($null -eq $resolvedCommand) {
+        return [PSCustomObject]@{
+            ExitCode = -1
+            Output = @("Native command executable is unavailable")
+        }
+    }
+    $previousErrorActionPreference = $ErrorActionPreference
+    $previousNativeExitCodeVariable =
+        Get-Variable `
+            -Name "LASTEXITCODE" `
+            -Scope Global `
+            -ErrorAction SilentlyContinue
+    $previousNativeExitCodeWasSet =
+        $null -ne $previousNativeExitCodeVariable
+    $previousNativeExitCode =
+        if ($previousNativeExitCodeWasSet) {
+            $previousNativeExitCodeVariable.Value
+        }
+        else {
+            $null
+        }
+    try {
+        $ErrorActionPreference = "Continue"
+        $global:LASTEXITCODE = $null
+        $output = @(
+            & $resolvedCommand.Source @ArgumentList 2>&1
+        )
+        $exitCode = $global:LASTEXITCODE
+        if ($null -eq $exitCode) {
+            $exitCode = -1
+            $output = @(
+                "Native command invocation did not produce an exit code"
+            )
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        if ($previousNativeExitCodeWasSet) {
+            $global:LASTEXITCODE =
+                $previousNativeExitCode
+        }
+        else {
+            Remove-Variable `
+                -Name "LASTEXITCODE" `
+                -Scope Global `
+                -ErrorAction SilentlyContinue
+        }
+    }
+    [PSCustomObject]@{
+        ExitCode = [int]$exitCode
+        Output = @(
+            $output |
+                ForEach-Object { [string]$_ }
+        )
+    }
+}
+
 function Enter-QualificationOperationLock {
     param(
         [Parameter(Mandatory)][string]$StateRoot,
@@ -384,7 +458,7 @@ function Enter-QualificationOperationLock {
     $mutexOwned = $false
     try {
         try {
-            $mutexOwned = $mutex.WaitOne(0)
+            $mutexOwned = $mutex.WaitOne(15000)
         }
         catch [Threading.AbandonedMutexException] {
             $mutexOwned = $true
@@ -2193,26 +2267,26 @@ function Invoke-QualificationObjectPurge {
         -ReleaseContext $ReleaseContext `
         -Overrides $overrides `
         -Command {
-            $output = @(
-                & podman compose `
-                    --env-file $ReleaseContext.EnvironmentFile `
-                    --file $ReleaseContext.ComposeSourcePath `
-                    --project-name $ReleaseContext.ProjectName `
-                    run --rm --no-deps --pull never `
-                    --env (
+            Invoke-QualificationNativeCommand `
+                -FilePath "podman" `
+                -ArgumentList @(
+                    "compose",
+                    "--env-file", [string]$ReleaseContext.EnvironmentFile,
+                    "--file", [string]$ReleaseContext.ComposeSourcePath,
+                    "--project-name", [string]$ReleaseContext.ProjectName,
+                    "run", "--rm", "--no-deps", "--pull", "never",
+                    "--env",
+                    (
                         "K_COMMS_QUALIFICATION_OBJECT_TENANT_ID=" +
                         $TenantId
-                    ) `
-                    --env (
+                    ),
+                    "--env",
+                    (
                         "K_COMMS_QUALIFICATION_OBJECT_KEY=" +
                         $objectKey
-                    ) `
-                    qualification eval $expression 2>&1
-            )
-            [PSCustomObject]@{
-                ExitCode = $LASTEXITCODE
-                Output = $output
-            }
+                    ),
+                    "qualification", "eval", $expression
+                )
         }
     Assert-Condition `
         -Condition ($result.ExitCode -eq 0) `
@@ -3012,17 +3086,16 @@ function Invoke-QualificationTenantOperation {
         -ReleaseContext $ReleaseContext `
         -Overrides $overrides `
         -Command {
-            $output = @(
-                & podman compose `
-                    --env-file $ReleaseContext.EnvironmentFile `
-                    --file $ReleaseContext.ComposeSourcePath `
-                    --project-name $ReleaseContext.ProjectName `
-                    run --rm --no-deps --pull never qualification 2>&1
-            )
-            [PSCustomObject]@{
-                ExitCode = $LASTEXITCODE
-                Output = $output
-            }
+            Invoke-QualificationNativeCommand `
+                -FilePath "podman" `
+                -ArgumentList @(
+                    "compose",
+                    "--env-file", [string]$ReleaseContext.EnvironmentFile,
+                    "--file", [string]$ReleaseContext.ComposeSourcePath,
+                    "--project-name", [string]$ReleaseContext.ProjectName,
+                    "run", "--rm", "--no-deps", "--pull", "never",
+                    "qualification"
+                )
         }
     if ($result.ExitCode -ne 0) {
         throw (
@@ -3048,20 +3121,17 @@ function Get-FixedInstantRoomTenantFingerprint {
         -ReleaseContext $ReleaseContext `
         -Overrides $overrides `
         -Command {
-            $output = @(
-                & podman compose `
-                    --env-file $ReleaseContext.EnvironmentFile `
-                    --file $ReleaseContext.ComposeSourcePath `
-                    --project-name $ReleaseContext.ProjectName `
-                    run --rm --no-deps --pull never qualification `
-                    eval `
-                    "CommsCore.Release.instant_room_tenant_fingerprint()" `
-                    2>&1
-            )
-            [PSCustomObject]@{
-                ExitCode = $LASTEXITCODE
-                Output = $output
-            }
+            Invoke-QualificationNativeCommand `
+                -FilePath "podman" `
+                -ArgumentList @(
+                    "compose",
+                    "--env-file", [string]$ReleaseContext.EnvironmentFile,
+                    "--file", [string]$ReleaseContext.ComposeSourcePath,
+                    "--project-name", [string]$ReleaseContext.ProjectName,
+                    "run", "--rm", "--no-deps", "--pull", "never",
+                    "qualification", "eval",
+                    "CommsCore.Release.instant_room_tenant_fingerprint()"
+                )
         }
     Assert-Condition `
         -Condition ($result.ExitCode -eq 0) `
@@ -3093,18 +3163,22 @@ function Get-FixedInstantRoomTenantFingerprint {
 function Assert-QualificationReleaseImageIdentity {
     param([Parameter(Mandatory)]$ReleaseContext)
 
-    $output = @(
-        & podman image inspect $ReleaseContext.ImageReference 2>&1
-    )
-    if ($LASTEXITCODE -ne 0) {
+    $result = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @(
+            "image",
+            "inspect",
+            [string]$ReleaseContext.ImageReference
+        )
+    if ($result.ExitCode -ne 0) {
         throw (
             "The originating qualification image is unavailable: " +
-            "$($output -join [Environment]::NewLine)"
+            "$($result.Output -join [Environment]::NewLine)"
         )
     }
     try {
         $images = @(
-            ($output -join [Environment]::NewLine) | ConvertFrom-Json
+            ($result.Output -join [Environment]::NewLine) | ConvertFrom-Json
         )
     }
     catch {
@@ -3154,26 +3228,46 @@ function Assert-QualificationReleaseImageIdentity {
 function Get-OriginReleaseAppProxyCidr {
     param([Parameter(Mandatory)]$ReleaseContext)
 
+    $psResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @(
+            "ps",
+            "--filter",
+            "label=com.docker.compose.project=$($ReleaseContext.ProjectName)",
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--filter",
+            "status=running",
+            "--format",
+            "{{.ID}}"
+        )
     $containerIds = @(
-        & podman ps `
-            --filter "label=com.docker.compose.project=$($ReleaseContext.ProjectName)" `
-            --filter "label=com.docker.compose.service=app" `
-            --filter "status=running" `
-            --format "{{.ID}}" 2>$null
+        $psResult.Output |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
     )
     Assert-Condition `
-        -Condition ($LASTEXITCODE -eq 0 -and $containerIds.Count -eq 1) `
+        -Condition (
+            $psResult.ExitCode -eq 0 -and
+            $containerIds.Count -eq 1
+        ) `
         -Message (
             "The originating release must have exactly one running Compose " +
             "app container before creating an isolated qualification app"
         )
-    $output = @(& podman container inspect $containerIds[0] 2>&1)
+    $inspectResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @(
+            "container",
+            "inspect",
+            [string]$containerIds[0]
+        )
     Assert-Condition `
-        -Condition ($LASTEXITCODE -eq 0) `
+        -Condition ($inspectResult.ExitCode -eq 0) `
         -Message "The originating release app container could not be inspected"
     try {
         $containers = @(
-            ($output -join [Environment]::NewLine) | ConvertFrom-Json
+            ($inspectResult.Output -join [Environment]::NewLine) |
+                ConvertFrom-Json
         )
     }
     catch {
@@ -3224,6 +3318,7 @@ function New-LiveQualificationAppEnvironment {
 
     $releaseEnvironment = $CleanupContext.ReleaseContext.Environment
     foreach ($name in @(
+        "K_COMMS_RELEASE_APP_PORT",
         "K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT",
         "K_COMMS_RELEASE_MINIO_PORT"
     )) {
@@ -3234,17 +3329,22 @@ function New-LiveQualificationAppEnvironment {
             ) `
             -Message "The sealed release environment is missing valid $name"
     }
+    $appPort = [int]$releaseEnvironment["K_COMMS_RELEASE_APP_PORT"]
     $liveKitSignalPort =
         [int]$releaseEnvironment["K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT"]
     $minioPort = [int]$releaseEnvironment["K_COMMS_RELEASE_MINIO_PORT"]
+    $appOrigin = [string]$CleanupContext.AppOrigin
+    $qualificationAppPort = ([Uri]$appOrigin).Port
     Assert-Condition `
         -Condition (
+            $appPort -ge 1 -and $appPort -le 65535 -and
+            $appPort -ne $qualificationAppPort -and
             $liveKitSignalPort -ge 1 -and $liveKitSignalPort -le 65535 -and
             $minioPort -ge 1 -and $minioPort -le 65535
         ) `
         -Message "The sealed release media or object-storage port is invalid"
 
-    $appOrigin = [string]$CleanupContext.AppOrigin
+    $retainedAppOrigin = "http://127.0.0.1:$appPort"
     $appWebSocketOrigin = $appOrigin.Replace("http://", "ws://")
     $liveKitOrigin = "ws://127.0.0.1:$liveKitSignalPort"
     $objectOrigin = "http://127.0.0.1:$minioPort"
@@ -3259,7 +3359,7 @@ function New-LiveQualificationAppEnvironment {
         ALLOW_BOOTSTRAP = "false"
         INSTANT_ROOM_TENANT_SLUG =
             "k-comms-qualification-$($CleanupContext.QualificationId)"
-        PUBLIC_APP_URL = $appOrigin
+        PUBLIC_APP_URL = $retainedAppOrigin
         CORS_ORIGINS = $appOrigin
         HSTS_ENABLED = "false"
         LIVEKIT_SERVER_URL = $liveKitOrigin
@@ -3270,14 +3370,18 @@ function New-LiveQualificationAppEnvironment {
         K_COMMS_QUALIFICATION_APP_ORIGIN = $appOrigin
         K_COMMS_QUALIFICATION_APP_CONFIRMATION =
             "local-release-qualification-app-v1"
+        K_COMMS_QUALIFICATION_SHARE_ORIGIN =
+            [string]$CleanupContext.PublicAppUrl
     }
 }
 
 function Get-LiveQualificationAppInspection {
     param([Parameter(Mandatory)][string]$ContainerName)
 
-    & podman container exists $ContainerName *> $null
-    $existsExitCode = $LASTEXITCODE
+    $existsResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @("container", "exists", $ContainerName)
+    $existsExitCode = $existsResult.ExitCode
     if ($existsExitCode -eq 1) {
         return $null
     }
@@ -3287,13 +3391,16 @@ function Get-LiveQualificationAppInspection {
             "Could not determine whether isolated qualification app " +
             "$ContainerName exists"
         )
-    $output = @(& podman container inspect $ContainerName 2>&1)
+    $inspectResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @("container", "inspect", $ContainerName)
     Assert-Condition `
-        -Condition ($LASTEXITCODE -eq 0) `
+        -Condition ($inspectResult.ExitCode -eq 0) `
         -Message "Could not inspect isolated qualification app $ContainerName"
     try {
         $containers = @(
-            ($output -join [Environment]::NewLine) | ConvertFrom-Json
+            ($inspectResult.Output -join [Environment]::NewLine) |
+                ConvertFrom-Json
         )
     }
     catch {
@@ -3553,12 +3660,14 @@ function Assert-LiveQualificationAppRuntime {
         ) `
         -Message "The isolated qualification app is not running and healthy"
 
-    $portOutput = @(& podman port $Inspection.Id "4000/tcp" 2>&1)
+    $portResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @("port", [string]$Inspection.Id, "4000/tcp")
     Assert-Condition `
         -Condition (
-            $LASTEXITCODE -eq 0 -and
-            $portOutput.Count -eq 1 -and
-            [string]$portOutput[0] -ceq
+            $portResult.ExitCode -eq 0 -and
+            $portResult.Output.Count -eq 1 -and
+            [string]$portResult.Output[0] -ceq
                 "127.0.0.1:$($CleanupContext.AppHostPort)"
         ) `
         -Message (
@@ -3639,75 +3748,97 @@ function Start-LiveQualificationApp {
     $overrides =
         New-LiveQualificationAppEnvironment -CleanupContext $CleanupContext
     $overrides["PODMAN_COMPOSE_WARNING_LOGS"] = "false"
+    $qualificationPublicAppUrl =
+        [string]$overrides["PUBLIC_APP_URL"]
     $result = Invoke-WithSealedQualificationEnvironment `
         -ReleaseContext $CleanupContext.ReleaseContext `
         -Overrides $overrides `
         -Command {
-            $output = @(
-                & podman compose `
-                    --env-file $CleanupContext.ReleaseContext.EnvironmentFile `
-                    --file $CleanupContext.ReleaseContext.ComposeSourcePath `
-                    --project-name $CleanupContext.ReleaseContext.ProjectName `
-                    run --detach --no-deps --pull never `
-                    --name $CleanupContext.AppContainerName `
-                    --publish "127.0.0.1:$($CleanupContext.AppHostPort):4000" `
-                    --env "K_COMMS_ROLE=edge" `
-                    --env "K_COMMS_RUNTIME_PURPOSE=application" `
-                    --env "K_COMMS_LOCAL_RELEASE=true" `
-                    --env "K_COMMS_RELEASE_HOST=127.0.0.1" `
-                    --env "K_COMMS_LOCAL_RELEASE_HOST=127.0.0.1" `
-                    --env "K_COMMS_RELEASE_EXPOSURE_MODE=" `
-                    --env "K_COMMS_TRUSTED_EDGE_CONFIRMATION=" `
-                    --env "ALLOW_BOOTSTRAP=false" `
-                    --env (
+            Invoke-QualificationNativeCommand `
+                -FilePath "podman" `
+                -ArgumentList @(
+                    "compose",
+                    "--env-file",
+                    [string]$CleanupContext.ReleaseContext.EnvironmentFile,
+                    "--file",
+                    [string]$CleanupContext.ReleaseContext.ComposeSourcePath,
+                    "--project-name",
+                    [string]$CleanupContext.ReleaseContext.ProjectName,
+                    "run", "--detach", "--no-deps", "--pull", "never",
+                    "--name", [string]$CleanupContext.AppContainerName,
+                    "--publish",
+                    "127.0.0.1:$($CleanupContext.AppHostPort):4000",
+                    "--env", "K_COMMS_ROLE=edge",
+                    "--env", "K_COMMS_RUNTIME_PURPOSE=application",
+                    "--env", "K_COMMS_LOCAL_RELEASE=true",
+                    "--env", "K_COMMS_RELEASE_HOST=127.0.0.1",
+                    "--env", "K_COMMS_LOCAL_RELEASE_HOST=127.0.0.1",
+                    "--env", "K_COMMS_RELEASE_EXPOSURE_MODE=",
+                    "--env", "K_COMMS_TRUSTED_EDGE_CONFIRMATION=",
+                    "--env", "ALLOW_BOOTSTRAP=false",
+                    "--env",
+                    (
                         "INSTANT_ROOM_TENANT_SLUG=" +
-                        "k-comms-qualification-$($CleanupContext.QualificationId)"
-                    ) `
-                    --env "PUBLIC_APP_URL=$($CleanupContext.AppOrigin)" `
-                    --env "CORS_ORIGINS=$($CleanupContext.AppOrigin)" `
-                    --env (
+                        "k-comms-qualification-" +
+                        $CleanupContext.QualificationId
+                    ),
+                    "--env",
+                    "PUBLIC_APP_URL=$qualificationPublicAppUrl",
+                    "--env",
+                    "CORS_ORIGINS=$($CleanupContext.AppOrigin)",
+                    "--env",
+                    (
                         "TRUSTED_PROXY_CIDRS=" +
                         $CleanupContext.AppTrustedProxyCidr
-                    ) `
-                    --env (
+                    ),
+                    "--env",
+                    (
                         "K_COMMS_QUALIFICATION_APP_ORIGIN=" +
                         $CleanupContext.AppOrigin
-                    ) `
-                    --env (
+                    ),
+                    "--env",
+                    (
                         "K_COMMS_QUALIFICATION_APP_CONFIRMATION=" +
                         "local-release-qualification-app-v1"
-                    ) `
-                    --label "com.k-comms.qualification.app=true" `
-                    --label (
+                    ),
+                    "--env",
+                    (
+                        "K_COMMS_QUALIFICATION_SHARE_ORIGIN=" +
+                        $CleanupContext.PublicAppUrl
+                    ),
+                    "--label", "com.k-comms.qualification.app=true",
+                    "--label",
+                    (
                         "com.k-comms.qualification.id=" +
                         $CleanupContext.QualificationId
-                    ) `
-                    --label (
+                    ),
+                    "--label",
+                    (
                         "com.k-comms.qualification.nonce=" +
                         $CleanupContext.AppNonce
-                    ) `
-                    --label (
+                    ),
+                    "--label",
+                    (
                         "com.k-comms.qualification.receipt-sha256=" +
                         $CleanupContext.ReleaseContext.ReceiptSha256
-                    ) `
-                    --label (
+                    ),
+                    "--label",
+                    (
                         "com.k-comms.qualification.environment-sha256=" +
                         $CleanupContext.ReleaseContext.EnvironmentSha256
-                    ) `
-                    --label (
+                    ),
+                    "--label",
+                    (
                         "com.k-comms.qualification.compose-sha256=" +
                         $CleanupContext.ReleaseContext.ComposeSourceSha256
-                    ) `
-                    --label (
+                    ),
+                    "--label",
+                    (
                         "com.k-comms.qualification.revision=" +
                         $CleanupContext.ReleaseContext.Revision
-                    ) `
-                    app 2>&1
-            )
-            [PSCustomObject]@{
-                ExitCode = $LASTEXITCODE
-                Output = $output
-            }
+                    ),
+                    "app"
+                )
         }
     Assert-Condition `
         -Condition ($result.ExitCode -eq 0) `
@@ -3734,9 +3865,11 @@ function Start-LiveQualificationApp {
                 return
             }
             if (-not [bool]$inspection.State.Running) {
+                $exitCode = [int]$inspection.State.ExitCode
+                $oomKilled = [bool]$inspection.State.OOMKilled
                 throw (
                     "The isolated qualification app stopped before becoming " +
-                    "healthy"
+                    "healthy (exitCode=$exitCode; oomKilled=$oomKilled)"
                 )
             }
         }
@@ -3757,9 +3890,17 @@ function Remove-LiveQualificationApp {
     Assert-QualificationAppContainerIdentity `
         -Inspection $inspection `
         -CleanupContext $CleanupContext
-    $output = @(& podman rm --force --time 10 $inspection.Id 2>&1)
+    $removeResult = Invoke-QualificationNativeCommand `
+        -FilePath "podman" `
+        -ArgumentList @(
+            "rm",
+            "--force",
+            "--time",
+            "10",
+            [string]$inspection.Id
+        )
     Assert-Condition `
-        -Condition ($LASTEXITCODE -eq 0) `
+        -Condition ($removeResult.ExitCode -eq 0) `
         -Message "The verified isolated qualification app could not be removed"
     $remaining = Get-LiveQualificationAppInspection `
         -ContainerName $CleanupContext.AppContainerName
@@ -4667,6 +4808,7 @@ function New-QualificationReleaseContextSelfTestFixture {
             "K_COMMS_RELEASE_PROJECT=$ProjectName`n" +
             "K_COMMS_RELEASE_IMAGE=$imageReference`n" +
             "K_COMMS_RELEASE_REVISION=$revision`n" +
+            "K_COMMS_RELEASE_APP_PORT=4188`n" +
             "K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT=7980`n" +
             "K_COMMS_RELEASE_MINIO_PORT=5900`n" +
             "PUBLIC_APP_URL=http://127.0.0.1:4188`n" +
@@ -5595,8 +5737,10 @@ function Assert-TrustedEdgeQualificationSelfTest {
                 QualificationId = "a" * 32
                 AppOrigin = "http://127.0.0.1:49152"
                 AppTrustedProxyCidr = "10.89.0.1/32"
+                PublicAppUrl = "https://comms.avayaworks.com"
                 ReleaseContext = [PSCustomObject]@{
                     Environment = @{
+                        K_COMMS_RELEASE_APP_PORT = "4188"
                         K_COMMS_RELEASE_LIVEKIT_SIGNAL_PORT = "7980"
                         K_COMMS_RELEASE_MINIO_PORT = "5900"
                     }
@@ -5611,7 +5755,10 @@ function Assert-TrustedEdgeQualificationSelfTest {
                 "K_COMMS_TRUSTED_EDGE_CONFIRMATION"
             ] -ceq "" -and
             [string]$qualificationEnvironment["PUBLIC_APP_URL"] -ceq
-                "http://127.0.0.1:49152" -and
+                "http://127.0.0.1:4188" -and
+            [string]$qualificationEnvironment[
+                "K_COMMS_QUALIFICATION_SHARE_ORIGIN"
+            ] -ceq "https://comms.avayaworks.com" -and
             [string]$qualificationEnvironment["K_COMMS_RELEASE_HOST"] -ceq
                 "127.0.0.1"
         ) `
@@ -6117,7 +6264,50 @@ function Assert-PublicObjectStorageQualificationSelfTest {
     }
 }
 
+function Assert-NativeCommandCaptureSelfTest {
+    $success = Invoke-QualificationNativeCommand `
+        -FilePath $env:ComSpec `
+        -ArgumentList @(
+            "/d",
+            "/s",
+            "/c",
+            "echo k-comms-native-progress 1>&2 & exit /b 0"
+        )
+    Assert-Condition `
+        -Condition (
+            $success.ExitCode -eq 0 -and
+            ($success.Output -join "`n") -match
+                "k-comms-native-progress" -and
+            $ErrorActionPreference -ceq "Stop"
+        ) `
+        -Message (
+            "Self-test could not capture successful native stderr without " +
+            "weakening fail-closed error handling"
+        )
+
+    $failure = Invoke-QualificationNativeCommand `
+        -FilePath $env:ComSpec `
+        -ArgumentList @(
+            "/d",
+            "/s",
+            "/c",
+            "echo k-comms-native-failure 1>&2 & exit /b 7"
+        )
+    Assert-Condition `
+        -Condition (
+            $failure.ExitCode -eq 7 -and
+            ($failure.Output -join "`n") -match
+                "k-comms-native-failure" -and
+            $ErrorActionPreference -ceq "Stop"
+        ) `
+        -Message (
+            "Self-test did not preserve a failing native exit code and " +
+            "captured stderr"
+        )
+}
+
 function Invoke-SelfTest {
+    Assert-NativeCommandCaptureSelfTest
     Assert-QualificationLockAndStateSelfTest
     Assert-TrustedEdgeQualificationSelfTest
     Assert-PublicObjectStorageQualificationSelfTest

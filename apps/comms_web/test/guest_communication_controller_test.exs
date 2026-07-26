@@ -74,6 +74,14 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
     account: account,
     member_token: member_token
   } do
+    public_share_origin = "https://comms.avayaworks.com"
+    previous_share_origin = Application.fetch_env!(:comms_web, :public_share_origin)
+    Application.put_env(:comms_web, :public_share_origin, public_share_origin)
+
+    on_exit(fn ->
+      Application.put_env(:comms_web, :public_share_origin, previous_share_origin)
+    end)
+
     conversation_id = account.conversation.id
 
     old_message =
@@ -92,7 +100,10 @@ defmodule CommsWeb.GuestCommunicationControllerTest do
 
     assert link["data"]["conversation_id"] == conversation_id
     assert link["data"]["remaining_uses"] == 2
-    assert link["data"]["share_url"] =~ "/join#guest="
+
+    assert link["data"]["share_url"] ==
+             "#{public_share_origin}/join#guest=#{URI.encode_www_form(link["token"])}"
+
     assert link["share_url"] == link["data"]["share_url"]
     assert is_binary(link["token"])
     refute Map.has_key?(link, "conversion_verification_code")

@@ -1,5 +1,7 @@
 import Config
 
+public_app_url = System.get_env("PUBLIC_APP_URL", "http://localhost:5173")
+
 config :comms_core, CommsCore.Repo,
   url: System.get_env("DATABASE_URL", "ecto://postgres:postgres@localhost/k_comms_dev"),
   pool_size: String.to_integer(System.get_env("POOL_SIZE", "10")),
@@ -17,7 +19,7 @@ config :comms_core,
   password_recovery_signing_key: "development-only-password-recovery-signing-key",
   password_recovery_ttl_seconds: 1_800,
   password_recovery_retention_seconds: 2_592_000,
-  public_app_url: System.get_env("PUBLIC_APP_URL", "http://localhost:5173")
+  public_app_url: public_app_url
 
 config :comms_integrations,
   allow_insecure_local_object_storage: true,
@@ -36,6 +38,7 @@ config :comms_integrations,
 
 config :comms_web,
   allow_bootstrap: true,
+  public_share_origin: public_app_url,
   access_token_ttl_seconds: 3_600,
   metrics_allow_unauthenticated: true,
   csp_connect_sources:

@@ -5824,15 +5824,15 @@ function Assert-LanForwarderSupervisorRecord {
         )
     }
     $scheduleSealedAt = ConvertTo-ScheduledTaskUtcDateTimeOffset `
-        -Value ([string](Get-RequiredForwarderProperty `
+        -Value (Get-RequiredForwarderProperty `
             -Object $Supervisor `
             -Name "scheduleSealedAtUtc" `
-            -Context "LAN forwarder supervisor receipt"))
+            -Context "LAN forwarder supervisor receipt")
     $taskStartBoundary = ConvertTo-ScheduledTaskUtcDateTimeOffset `
-        -Value ([string](Get-RequiredForwarderProperty `
+        -Value (Get-RequiredForwarderProperty `
             -Object $Supervisor `
             -Name "taskStartBoundaryUtc" `
-            -Context "LAN forwarder supervisor receipt"))
+            -Context "LAN forwarder supervisor receipt")
     $now = [DateTimeOffset]::UtcNow
     if (
         $null -eq $scheduleSealedAt -or

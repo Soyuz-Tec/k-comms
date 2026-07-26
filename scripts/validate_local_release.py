@@ -930,6 +930,12 @@ def validate_local_release(
     supervisor_record_body = _compact_powershell(
         _function_body(runner_document, "New-LanForwarderSupervisorRecord")
     )
+    supervisor_record_assertion_body = _compact_powershell(
+        _function_body(
+            runner_document,
+            "Assert-LanForwarderSupervisorRecord",
+        )
+    )
     supervisor_principal_sid_body = _compact_powershell(
         _function_body(runner_document, "Resolve-WindowsPrincipalSid")
     )
@@ -1869,6 +1875,20 @@ def validate_local_release(
         or "[datetimekind]::unspecified" not in supervisor_datetime_body
         or "[datetimeoffset]::tryparse(" not in supervisor_datetime_body
         or "$observed.year -le 1900" not in supervisor_datetime_body
+        or (
+            "convertto-scheduledtaskutcdatetimeoffset -value "
+            "(get-requiredforwarderproperty -object $supervisor "
+            '-name "schedulesealedatutc" '
+            '-context "lan forwarder supervisor receipt")'
+            not in supervisor_record_assertion_body
+        )
+        or (
+            "convertto-scheduledtaskutcdatetimeoffset -value "
+            "(get-requiredforwarderproperty -object $supervisor "
+            '-name "taskstartboundaryutc" '
+            '-context "lan forwarder supervisor receipt")'
+            not in supervisor_record_assertion_body
+        )
         or "$settings.enabled" not in supervisor_task_contract_body
         or "$settings.multipleinstances" not in supervisor_task_contract_body
         or "$settings.restartcount" not in supervisor_task_contract_body
