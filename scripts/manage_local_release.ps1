@@ -3952,7 +3952,12 @@ function Get-PodmanApplicationNetworkContract {
         -FilePath "podman" `
         -Arguments @("network", "inspect", $networkName)
     try {
-        $networkRecords = @($inspection.Output | ConvertFrom-Json)
+        # Windows PowerShell 5.1 preserves a top-level JSON array as one
+        # pipeline object when ConvertFrom-Json is wrapped inline in @(...).
+        # Assign first so @($parsed) enumerates the actual Podman records on
+        # both Windows PowerShell and PowerShell 7.
+        $parsedNetworkRecords = $inspection.Output | ConvertFrom-Json
+        $networkRecords = @($parsedNetworkRecords)
     }
     catch {
         throw "Podman returned invalid application-network inspection JSON"
@@ -4153,7 +4158,10 @@ function Assert-PodmanApplicationContainerOwnership {
         -FilePath "podman" `
         -Arguments @("inspect", $ContainerId)
     try {
-        $records = @($inspection.Output | ConvertFrom-Json)
+        # Keep the assignment separate for Windows PowerShell 5.1; see the
+        # matching network-inspection parser above.
+        $parsedContainerRecords = $inspection.Output | ConvertFrom-Json
+        $records = @($parsedContainerRecords)
     }
     catch {
         throw "Podman returned invalid application-container inspection JSON"

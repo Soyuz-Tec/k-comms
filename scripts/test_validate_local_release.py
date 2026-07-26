@@ -1871,6 +1871,14 @@ Write-Output "strict forwarder command identity runtime self-test passed"
                 "$ExpectedComposeProject",
                 "$false",
             ),
+            "Windows PowerShell network JSON array parsing": (
+                "$parsedNetworkRecords = $inspection.Output | ConvertFrom-Json",
+                "$networkRecords = @($inspection.Output | ConvertFrom-Json)",
+            ),
+            "Windows PowerShell container JSON array parsing": (
+                "$parsedContainerRecords = $inspection.Output | ConvertFrom-Json",
+                "$records = @($inspection.Output | ConvertFrom-Json)",
+            ),
             "deleted app recovery": (
                 "Deleted application was not accepted for exact-IP recovery",
                 "Removed deleted application recovery proof",

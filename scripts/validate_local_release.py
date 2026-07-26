@@ -2687,6 +2687,12 @@ def validate_local_release(
         not in trusted_proxy_selection_body
         or '@("network", "inspect", $networkname)'
         not in trusted_proxy_network_body
+        or "$parsednetworkrecords = $inspection.output | convertfrom-json"
+        not in trusted_proxy_network_body
+        or "$networkrecords = @($parsednetworkrecords)"
+        not in trusted_proxy_network_body
+        or "@($inspection.output | convertfrom-json)"
+        in trusted_proxy_network_body
         or "$networkrecords.count -ne 1"
         not in trusted_proxy_network_body
         or '$networkid -notmatch "^[0-9a-f]{64}$"'
@@ -2725,6 +2731,12 @@ def validate_local_release(
         not in trusted_proxy_ownership_body
         or '"com.docker.compose.container-number"'
         not in trusted_proxy_ownership_body
+        or "$parsedcontainerrecords = $inspection.output | convertfrom-json"
+        not in trusted_proxy_ownership_body
+        or "$records = @($parsedcontainerrecords)"
+        not in trusted_proxy_ownership_body
+        or "@($inspection.output | convertfrom-json)"
+        in trusted_proxy_ownership_body
         or "$record.image -cne $expectedimageid"
         not in trusted_proxy_ownership_body
         or "$record.state.running -ne $expectedrunning"
