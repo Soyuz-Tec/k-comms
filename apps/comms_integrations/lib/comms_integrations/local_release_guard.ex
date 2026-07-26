@@ -395,14 +395,36 @@ defmodule CommsIntegrations.LocalReleaseGuard do
   defp require_qualification_share_origin!(share_origin, public_app_url, app_origin) do
     valid? =
       is_binary(share_origin) and share_origin != app_origin and
-        (share_origin == public_app_url or canonical_public_https_origin?(share_origin))
+        (share_origin == public_app_url or
+           canonical_private_http_origin_on_port?(share_origin, public_app_url) or
+           canonical_public_https_origin?(share_origin))
 
     unless valid? do
       raise ArgumentError,
             "K_COMMS_QUALIFICATION_SHARE_ORIGIN must exactly equal PUBLIC_APP_URL " <>
-              "or one canonical public HTTPS origin on port 443"
+              "or be one canonical RFC1918 HTTP origin on the same port or " <>
+              "one canonical public HTTPS origin on port 443"
     end
   end
+
+  defp canonical_private_http_origin_on_port?(value, public_app_url)
+       when is_binary(value) and is_binary(public_app_url) do
+    try do
+      uri = URI.parse(value)
+      public_uri = URI.parse(public_app_url)
+
+      value == String.trim(value) and uri.scheme == "http" and
+        is_binary(uri.host) and private_rfc1918_ipv4?(uri.host) and
+        uri.port == public_uri.port and uri.port in 1..65_535 and
+        uri.path in [nil, "", "/"] and is_nil(uri.userinfo) and
+        is_nil(uri.query) and is_nil(uri.fragment) and
+        value == "http://#{uri.host}:#{uri.port}"
+    rescue
+      URI.Error -> false
+    end
+  end
+
+  defp canonical_private_http_origin_on_port?(_value, _public_app_url), do: false
 
   defp canonical_public_https_origin?(value) when is_binary(value) do
     try do

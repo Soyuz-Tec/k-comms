@@ -189,6 +189,43 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
              )
   end
 
+  test "qualification app can preserve the sealed RFC1918 share origin" do
+    qualification_origin = "http://127.0.0.1:45231"
+
+    assert :ok =
+             LocalReleaseGuard.validate!(
+               options(
+                 role: "edge",
+                 instant_room_tenant_slug:
+                   "k-comms-qualification-0123456789abcdef0123456789abcdef",
+                 qualification_app_origin: qualification_origin,
+                 qualification_app_confirmation: "local-release-qualification-app-v1",
+                 qualification_share_origin: "http://192.168.50.25:4188",
+                 cors_origins: [qualification_origin]
+               )
+             )
+
+    for invalid <- [
+          "http://192.168.50.25:4189",
+          "http://192.168.050.25:4188",
+          "http://192.168.50.25:4188/",
+          "http://203.0.113.25:4188"
+        ] do
+      assert_raise ArgumentError, ~r/K_COMMS_QUALIFICATION_SHARE_ORIGIN/, fn ->
+        LocalReleaseGuard.validate!(
+          options(
+            role: "edge",
+            instant_room_tenant_slug: "k-comms-qualification-0123456789abcdef0123456789abcdef",
+            qualification_app_origin: qualification_origin,
+            qualification_app_confirmation: "local-release-qualification-app-v1",
+            qualification_share_origin: invalid,
+            cors_origins: [qualification_origin]
+          )
+        )
+      end
+    end
+  end
+
   test "qualification share origin accepts the sealed local or public origin only" do
     qualification_origin = "http://127.0.0.1:45231"
 
