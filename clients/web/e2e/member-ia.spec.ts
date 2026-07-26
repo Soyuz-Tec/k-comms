@@ -20,7 +20,7 @@ test.describe("low-click member information architecture", () => {
   });
 
   for (const width of [320, 390]) {
-    test(`${width}px reflows every primary member route without horizontal overflow`, async ({ page }) => {
+    test(`${width}px reflows every primary member route without horizontal overflow`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 844 });
       const fixture = await installWorkspace(page);
 
@@ -38,6 +38,16 @@ test.describe("low-click member information architecture", () => {
           page.locator("nav.mobile-product-nav a"),
           `${route.heading} mobile navigation`
         );
+        if (
+          process.env.K_COMMS_VISUAL_CAPTURE === "1"
+          && width === 390
+          && ["/app/calls", "/app/files"].includes(route.path)
+        ) {
+          await page.screenshot({
+            path: testInfo.outputPath(`${route.path.endsWith("calls") ? "calls" : "files"}-390.png`),
+            fullPage: true
+          });
+        }
       }
 
       expect(fixture.unexpectedRequests).toEqual([]);
@@ -97,6 +107,9 @@ test.describe("low-click member information architecture", () => {
 
     let actions = 0;
     await countedClick(page.getByRole("link", { name: "Files" }), () => actions += 1);
+    await expect(page.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Documents" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Images" })).toBeVisible();
     await expect(page.getByText("Quarterly-plan.pdf", { exact: true })).toBeVisible();
     await countedClick(
       page.getByRole("link", { name: "View source message for Quarterly-plan.pdf" }),

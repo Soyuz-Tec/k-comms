@@ -40,6 +40,7 @@ export type CallPhase =
   | "error";
 
 type VideoTrack = LocalVideoTrack | RemoteVideoTrack;
+type CallWorkspaceTab = "chat" | "people" | "files";
 
 interface VideoTrackView {
   id: string;
@@ -144,6 +145,7 @@ export function CallPanel({
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [videoBlocked, setVideoBlocked] = useState(false);
   const [participants, setParticipants] = useState<ParticipantView[]>([]);
+  const [callWorkspaceTab, setCallWorkspaceTab] = useState<CallWorkspaceTab>("chat");
   const [accessRevoked, setAccessRevoked] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [mobileCallLayout, setMobileCallLayout] = useState(
@@ -720,6 +722,7 @@ export function CallPanel({
 
   function resetConnectedState() {
     setParticipants([]);
+    setCallWorkspaceTab("chat");
     setMicrophoneEnabled(false);
     setCameraEnabled(false);
     setScreenShareEnabled(false);
@@ -1105,6 +1108,7 @@ export function CallPanel({
       {(phase === "prejoin" || phase === "joining") && createPortal(
         <CallPrejoinDialog
           kind={prejoinKind}
+          conversationTitle={conversation.title || "Conversation"}
           joining={phase === "joining"}
           existingCall={call?.status === "active"}
           microphones={microphones}
@@ -1174,13 +1178,58 @@ export function CallPanel({
                 </span>
               )}
             </div>
-            {onNavigate && (
+            <section className="call-workspace-sheet" aria-label="Call workspace">
               <nav className="call-collaboration-links" aria-label="Call workspace">
-                <button type="button" onClick={() => { setMinimized(true); onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`); }}>Chat</button>
-                <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/directory"); }}>Directory</button>
-                <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/files"); }}>Files</button>
+                <button type="button" aria-pressed={callWorkspaceTab === "chat"} onClick={() => {
+                  setCallWorkspaceTab("chat");
+                  if (onNavigate) {
+                    setMinimized(true);
+                    onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`);
+                  }
+                }}>Chat</button>
+                <button type="button" aria-label="Directory" aria-pressed={callWorkspaceTab === "people"} onClick={() => {
+                  setCallWorkspaceTab("people");
+                  if (onNavigate) {
+                    setMinimized(true);
+                    onNavigate("/app/directory");
+                  }
+                }}>People ({participants.length})</button>
+                <button type="button" aria-pressed={callWorkspaceTab === "files"} onClick={() => {
+                  setCallWorkspaceTab("files");
+                  if (onNavigate) {
+                    setMinimized(true);
+                    onNavigate("/app/files");
+                  }
+                }}>Files</button>
               </nav>
-            )}
+              <div className="call-workspace-body">
+                {callWorkspaceTab === "chat" && (
+                  <>
+                    <strong>{conversation.title || "Conversation"}</strong>
+                    <span>Continue messaging while the call stays connected.</span>
+                    {onNavigate && <button type="button" onClick={() => { setMinimized(true); onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`); }}>Open chat</button>}
+                  </>
+                )}
+                {callWorkspaceTab === "people" && (
+                  <ul className="call-workspace-people">
+                    {participants.map((participant) => (
+                      <li key={participant.id}>
+                        <span aria-hidden="true">{initials(participant.name)}</span>
+                        <strong>{participant.name}{participant.local ? " (you)" : ""}</strong>
+                        <small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {callWorkspaceTab === "files" && (
+                  <>
+                    <strong>Shared files</strong>
+                    <span>Open authorized conversation files without ending the call.</span>
+                    {onNavigate && <button type="button" onClick={() => { setMinimized(true); onNavigate("/app/files"); }}>Open files</button>}
+                  </>
+                )}
+              </div>
+            </section>
             {error && <div className="form-error" role="alert">{error}</div>}
             {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
             {joinedKind === "video" && <VideoParticipantGrid participants={participants} />}
@@ -1210,11 +1259,11 @@ export function CallPanel({
               </div>}
             </div>
             <div className="audio-call-actions">
-              <button className={`button compact ${microphoneEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={microphoneEnabled} disabled={phase !== "connected"} onClick={() => void toggleMicrophone()}>{microphoneEnabled ? "Mute microphone" : "Unmute microphone"}</button>
-              {joinedKind === "video" && <button className={`button compact ${cameraEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={cameraEnabled} disabled={phase !== "connected"} onClick={() => void toggleCamera()}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>}
-              {joinedKind === "video" && <button className={`button compact ${screenShareEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={screenShareEnabled} disabled={phase !== "connected"} onClick={() => void toggleScreenShare()}>{screenShareEnabled ? "Stop sharing screen" : "Share screen"}</button>}
-              <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void leave()}>Leave call</button>
-              {call?.can_end && <button className="button danger compact" type="button" disabled={phase === "leaving"} onClick={() => void endForEveryone()}>End for everyone</button>}
+              <button className={`button compact call-action-microphone ${microphoneEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={microphoneEnabled} disabled={phase !== "connected"} onClick={() => void toggleMicrophone()}>{microphoneEnabled ? "Mute microphone" : "Unmute microphone"}</button>
+              {joinedKind === "video" && <button className={`button compact call-action-camera ${cameraEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={cameraEnabled} disabled={phase !== "connected"} onClick={() => void toggleCamera()}>{cameraEnabled ? "Turn camera off" : "Turn camera on"}</button>}
+              {joinedKind === "video" && <button className={`button compact call-action-screen ${screenShareEnabled ? "primary" : "ghost"}`} type="button" aria-pressed={screenShareEnabled} disabled={phase !== "connected"} onClick={() => void toggleScreenShare()}>{screenShareEnabled ? "Stop sharing screen" : "Share screen"}</button>}
+              <button className="button danger compact call-action-leave" type="button" disabled={phase === "leaving"} onClick={() => void leave()}>Leave call</button>
+              {call?.can_end && <button className="button danger compact call-action-end" type="button" disabled={phase === "leaving"} onClick={() => void endForEveryone()}>End for everyone</button>}
             </div>
           </div>
           <div ref={remoteAudioRef} className="remote-audio-tracks" aria-hidden="true" />
@@ -1300,11 +1349,12 @@ function CallActions({
 }
 
 function CallAction({ kind, label, active, disabled, onOpen }: { kind: CallMediaKind; label: string; active: boolean; disabled: boolean; onOpen: (kind: CallMediaKind) => void }) {
-  return <button className={`button compact ${active ? "audio-call-active" : "ghost"}`} type="button" disabled={disabled} aria-haspopup="dialog" onClick={() => onOpen(kind)}><span aria-hidden="true">{kind === "video" ? "▣" : "◖"}</span>{label}</button>;
+  return <button className={`button compact ${active ? "audio-call-active" : "ghost"}`} type="button" disabled={disabled} aria-haspopup="dialog" onClick={() => onOpen(kind)}><span aria-hidden="true">{kind === "video" ? <svg viewBox="0 0 24 24"><rect x="3.2" y="6" width="12.8" height="12" rx="2.2" /><path d="m16 10 4.8-2.5v9L16 14" /></svg> : <svg viewBox="0 0 24 24"><path d="M7.2 3.8 10 8.4 8.1 10a14.4 14.4 0 0 0 5.9 5.9l1.6-1.9 4.6 2.8-.8 3.2c-.2.8-.9 1.3-1.7 1.2A17.6 17.6 0 0 1 2.8 6.3c-.1-.8.4-1.5 1.2-1.7l3.2-.8Z" /></svg>}</span>{label}</button>;
 }
 
 function CallPrejoinDialog({
   kind,
+  conversationTitle,
   joining,
   existingCall,
   microphones,
@@ -1324,6 +1374,7 @@ function CallPrejoinDialog({
   onJoin
 }: {
   kind: CallMediaKind;
+  conversationTitle: string;
   joining: boolean;
   existingCall: boolean;
   microphones: MediaDeviceInfo[];
@@ -1347,15 +1398,32 @@ function CallPrejoinDialog({
     ? `Join the ${kind} call`
     : `Start ${kind === "audio" ? "an" : "a"} ${kind} call`;
   return <div className="modal-backdrop">
-    <section ref={dialogRef} className="modal-dialog audio-prejoin-dialog call-prejoin-dialog" role="dialog" aria-modal="true" aria-labelledby="call-prejoin-title" tabIndex={-1}>
-      <span className="eyebrow">{kind === "video" ? "Camera and microphone" : "Audio only"}</span>
-      <h2 id="call-prejoin-title">{title}</h2>
-      <p>{kind === "video" ? "Choose exactly which devices to publish before entering. Camera preview stays on this device until you join." : "Choose whether to publish your microphone. Camera and screen sharing stay off."}</p>
+    <section ref={dialogRef} className="modal-dialog audio-prejoin-dialog call-prejoin-dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+      <header className="prejoin-heading">
+        <button className="prejoin-back" type="button" aria-label="Back" data-initial-focus onClick={onCancel}>‹</button>
+        <div>
+          <h2 id="call-prejoin-title">Ready to join?</h2>
+          <p>{conversationTitle}</p>
+        </div>
+      </header>
+      <p className="prejoin-intro">{kind === "video" ? "Choose exactly which devices to publish before entering. Camera preview stays on this device until you join." : "Choose whether to publish your microphone. Camera and screen sharing stay off."}</p>
       {error && <div className="form-error" role="alert">{error}</div>}
       {kind === "video" && <div className={`camera-preview ${cameraEnabled ? "enabled" : ""}`}>
         {cameraEnabled ? <video ref={previewVideoRef} data-k-comms-camera-preview autoPlay muted playsInline aria-label="Camera preview" /> : <div className="camera-preview-placeholder" aria-hidden="true">Camera off</div>}
         {previewBusy && <span className="camera-preview-status" role="status">Starting camera preview…</span>}
       </div>}
+      <div className="prejoin-mode-cards" aria-label="Call mode">
+        <div className={kind === "audio" ? "selected" : ""}>
+          <span aria-hidden="true">◖</span>
+          <strong>Audio</strong>
+          <small>Voice only</small>
+        </div>
+        <div className={kind === "video" ? "selected" : ""}>
+          <span aria-hidden="true">▣</span>
+          <strong>Video</strong>
+          <small>With camera</small>
+        </div>
+      </div>
       <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">
         <strong>Before joining</strong>
         <span>Microphone is not capturing</span>
@@ -1369,24 +1437,27 @@ function CallPrejoinDialog({
         <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
         {kind === "video" && <label className="checkbox-field"><input type="checkbox" checked={cameraEnabled} disabled={joining || previewBusy} onChange={(event) => onCameraEnabled(event.target.checked)} />Use camera when I join</label>}
       </div>
-      <div className="call-device-grid prejoin-device-grid">
-        <label className="field">Microphone
-          <select value={selectedMicrophone} disabled={joining || microphones.length === 0} onChange={(event) => onMicrophone(event.target.value)}>
-            {microphones.length === 0 && <option value="">Browser default</option>}
-            {microphones.map((device, index) => <option key={device.deviceId || `prejoin-microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
-          </select>
-          <small>Permission is requested only if you choose to use your microphone.</small>
-        </label>
-        {kind === "video" && <label className="field">Camera
-          <select value={selectedCamera} disabled={joining || previewBusy || cameras.length === 0} onChange={(event) => onCamera(event.target.value)}>
-            {cameras.length === 0 && <option value="">Browser default</option>}
-            {cameras.map((device, index) => <option key={device.deviceId || `prejoin-camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
-          </select>
-          <small>Camera permission is requested when you turn the preview on.</small>
-        </label>}
-      </div>
+      <details className="prejoin-device-settings">
+        <summary>Device settings</summary>
+        <div className="call-device-grid prejoin-device-grid">
+          <label className="field">Microphone
+            <select value={selectedMicrophone} disabled={joining || microphones.length === 0} onChange={(event) => onMicrophone(event.target.value)}>
+              {microphones.length === 0 && <option value="">Browser default</option>}
+              {microphones.map((device, index) => <option key={device.deviceId || `prejoin-microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+            </select>
+            <small>Permission is requested only if you choose to use your microphone.</small>
+          </label>
+          {kind === "video" && <label className="field">Camera
+            <select value={selectedCamera} disabled={joining || previewBusy || cameras.length === 0} onChange={(event) => onCamera(event.target.value)}>
+              {cameras.length === 0 && <option value="">Browser default</option>}
+              {cameras.map((device, index) => <option key={device.deviceId || `prejoin-camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+            </select>
+            <small>Camera permission is requested when you turn the preview on.</small>
+          </label>}
+        </div>
+      </details>
       <div className="form-actions audio-prejoin-actions">
-        <button className="button ghost" type="button" data-initial-focus onClick={onCancel}>Cancel</button>
+        <button className="button ghost prejoin-cancel-action" type="button" onClick={onCancel}>Cancel</button>
         {kind === "audio" ? <>
           <button className="button ghost" type="button" disabled={joining} onClick={() => onJoin(false, false)}>{joining ? "Joining…" : "Join muted"}</button>
           <button className="button primary" type="button" disabled={joining} onClick={() => onJoin(true, false)}>{joining ? "Joining…" : "Join with microphone"}</button>

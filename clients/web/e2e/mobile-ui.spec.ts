@@ -19,16 +19,21 @@ test.describe("authenticated mobile web acceptance", () => {
   });
 
   for (const viewport of viewportCases) {
-    test(`${viewport.width}px supports list, messaging, account and product navigation`, async ({ page }) => {
+    test(`${viewport.width}px supports list, messaging, account and product navigation`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       const fixture = await installWorkspace(page);
 
       await page.goto("/app/");
       await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+      await expect(page.locator(".mobile-workspace-label")).toContainText("K-Comms");
+      await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
       await expect(page.locator("nav.mobile-product-nav")).toBeVisible();
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await expectNoDocumentOverflow(page);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("inbox-390.png"), fullPage: true });
+      }
 
       const conversation = page.getByRole("button", { name: /General/ });
       await expectMinimumTarget(conversation, "conversation row");
@@ -69,6 +74,9 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(attachment, "attachment control");
       await expectMinimumTarget(send, "send control");
       await expectNoDocumentOverflow(page);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("conversation-390.png"), fullPage: true });
+      }
       await expect.poll(() => fixture.readCursorRequests).toBeGreaterThan(0);
 
       await back.click();
@@ -157,7 +165,7 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(controlledInputErrors).toEqual([]);
   });
 
-  test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }) => {
+  test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 640 });
     const fixture = await installWorkspace(page);
     await page.goto(`/app/?conversation=${conversationId}`);
@@ -165,8 +173,15 @@ test.describe("authenticated mobile web acceptance", () => {
     await page.getByRole("button", { name: "Start video call" }).click();
     const dialog = page.getByRole("dialog", { name: "Start a video call" });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Ready to join?" })).toBeVisible();
+    await expect(dialog.getByText("Audio", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Video", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use microphone when I join" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use camera when I join" })).toBeVisible();
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({ path: testInfo.outputPath("video-prejoin-390.png"), fullPage: true });
+    }
+    await dialog.getByText("Device settings", { exact: true }).click();
     await expect(dialog.getByRole("combobox", { name: /^Microphone/ })).toBeAttached();
     await expect(dialog.getByRole("combobox", { name: /^Camera/ })).toBeAttached();
 

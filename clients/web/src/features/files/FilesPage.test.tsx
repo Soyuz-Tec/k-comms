@@ -60,6 +60,16 @@ const blockedFile: FileSummary = {
   downloadable: false
 };
 
+const imageFile: FileSummary = {
+  ...availableFile,
+  id: "file-3",
+  message_id: "44444444-4444-4444-8444-444444444444",
+  conversation_sequence: 44,
+  file_name: "roadmap.png",
+  content_type: "image/png",
+  byte_size: 820_000
+};
+
 const harness = vi.hoisted(() => {
   const files = vi.fn();
   const attachmentDownload = vi.fn();
@@ -89,7 +99,7 @@ vi.mock("../../app/workspace-data", () => ({
 describe("FilesPage", () => {
   beforeEach(() => {
     harness.files.mockReset().mockResolvedValue({
-      data: [availableFile, blockedFile],
+      data: [availableFile, blockedFile, imageFile],
       page: { limit: 25, has_more: false, next_cursor: null }
     });
     harness.attachmentDownload.mockReset().mockResolvedValue({
@@ -117,6 +127,22 @@ describe("FilesPage", () => {
     const blockedDownload = screen.getByRole("button", { name: "Download blocked.exe" });
     expect(blockedDownload).toBeDisabled();
     expect(blockedDownload).toHaveAttribute("title", "This file was blocked by the safety check");
+  });
+
+  it("filters the authorized page by document and image type", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+
+    expect(await screen.findByText("forecast.xlsx")).toBeVisible();
+    expect(screen.getByText("roadmap.png")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Images" }));
+    expect(screen.getByText("roadmap.png")).toBeVisible();
+    expect(screen.queryByText("forecast.xlsx")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Documents" }));
+    expect(screen.getByText("forecast.xlsx")).toBeVisible();
+    expect(screen.queryByText("roadmap.png")).not.toBeInTheDocument();
   });
 
   it("opens only the existing authorized attachment download descriptor", async () => {

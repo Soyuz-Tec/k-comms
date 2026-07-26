@@ -41,6 +41,7 @@ export function CallsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
+  const [launcherExpanded, setLauncherExpanded] = useState(false);
   const requestGeneration = useRef(0);
 
   const loadCalls = useCallback(async (mode: "replace" | "append", cursor?: string | null) => {
@@ -140,7 +141,22 @@ export function CallsPage() {
         </button>
       </header>
 
-      <section className="calls-launcher" aria-labelledby="new-call-heading">
+      <button
+        className="calls-new-call-toggle"
+        type="button"
+        aria-expanded={launcherExpanded || (!loading && calls.length === 0)}
+        aria-controls="calls-launcher"
+        onClick={() => setLauncherExpanded((expanded) => !expanded)}
+      >
+        <span aria-hidden="true">＋</span>
+        New call
+      </button>
+
+      <section
+        className={`calls-launcher ${launcherExpanded || (!loading && calls.length === 0) ? "is-mobile-open" : ""}`}
+        id="calls-launcher"
+        aria-labelledby="new-call-heading"
+      >
         <div className="calls-section-heading">
           <div>
             <span className="eyebrow">One-step launch</span>

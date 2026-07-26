@@ -168,6 +168,19 @@ export function useCallSession(): CallSessionContextValue {
   return value;
 }
 
+function CallKindIcon({ kind }: { kind: "audio" | "video" }) {
+  return kind === "audio" ? (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7.2 3.8 10 8.4 8.1 10a14.4 14.4 0 0 0 5.9 5.9l1.6-1.9 4.6 2.8-.8 3.2c-.2.8-.9 1.3-1.7 1.2A17.6 17.6 0 0 1 2.8 6.3c-.1-.8.4-1.5 1.2-1.7l3.2-.8Z" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.2" y="6" width="12.8" height="12" rx="2.2" />
+      <path d="m16 10 4.8-2.5v9L16 14" />
+    </svg>
+  );
+}
+
 export function CallLaunchActions({
   conversation,
   audioEnabled,
@@ -201,7 +214,7 @@ export function CallLaunchActions({
         aria-pressed={currentBusyKind === "audio"}
         onClick={() => launchCall(conversation, "audio")}
       >
-        <span aria-hidden="true">◖</span>
+        <span aria-hidden="true"><CallKindIcon kind="audio" /></span>
         {!audioEnabled
           ? "Audio calls disabled"
           : currentBusyKind === "audio"
@@ -218,7 +231,7 @@ export function CallLaunchActions({
           aria-pressed={currentBusyKind === "video"}
           onClick={() => launchCall(conversation, "video")}
         >
-          <span aria-hidden="true">▣</span>
+          <span aria-hidden="true"><CallKindIcon kind="video" /></span>
           {!videoEnabled
             ? "Video calls disabled"
             : currentBusyKind === "video"

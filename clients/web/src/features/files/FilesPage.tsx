@@ -24,11 +24,13 @@ import type {
 import "./FilesPage.css";
 
 const pageSize = 25;
+type FileCategory = "all" | "documents" | "images";
 
 export function FilesPage() {
   const { api, session } = useSession();
   const { conversations, users } = useWorkspaceData();
   const [scope, setScope] = useState<FilesScope>("recent");
+  const [category, setCategory] = useState<FileCategory>("all");
   const [conversationId, setConversationId] = useState("");
   const [files, setFiles] = useState<FileSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -94,6 +96,10 @@ export function FilesPage() {
     () => duplicateParticipantNames(users),
     [users]
   );
+  const visibleFiles = useMemo(
+    () => files.filter((file) => category === "all" || fileCategory(file) === category),
+    [category, files]
+  );
   if (!session) return null;
 
   async function openDownload(file: FileSummary) {
@@ -139,46 +145,66 @@ export function FilesPage() {
 
       <section className="files-surface" aria-labelledby="files-list-heading">
         <div className="files-toolbar">
-          <div>
+          <div className="files-toolbar-heading">
             <span className="eyebrow">Authorized index</span>
             <h2 id="files-list-heading">Shared files</h2>
           </div>
-          <div className="files-filters">
-            <fieldset className="files-segments">
-              <legend className="sr-only">File ownership scope</legend>
-              <button type="button" aria-pressed={scope === "recent"} onClick={() => setScope("recent")}>
-                Recent
+          <fieldset className="files-category-tabs">
+            <legend className="sr-only">File type</legend>
+            {([
+              ["all", "All"],
+              ["documents", "Documents"],
+              ["images", "Images"]
+            ] as const).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={category === value}
+                onClick={() => setCategory(value)}
+              >
+                {label}
               </button>
-              <button type="button" aria-pressed={scope === "shared_by_me"} onClick={() => setScope("shared_by_me")}>
-                Shared by me
-              </button>
-            </fieldset>
-            <label>
-              <span>Conversation</span>
-              <select value={conversationId} onChange={(event) => setConversationId(event.currentTarget.value)}>
-                <option value="">All conversations</option>
-                {conversations
-                  .filter((conversation) => !conversation.archived_at)
-                  .sort((left, right) =>
-                    conversationParticipantIdentifier(left, duplicateDirectNames)
-                      .localeCompare(
-                        conversationParticipantIdentifier(
-                          right,
-                          duplicateDirectNames
+            ))}
+          </fieldset>
+          <details className="files-advanced-filter">
+            <summary aria-label="Advanced file filters">Filters</summary>
+            <div className="files-filters">
+              <fieldset className="files-segments">
+                <legend className="sr-only">File ownership scope</legend>
+                <button type="button" aria-pressed={scope === "recent"} onClick={() => setScope("recent")}>
+                  Recent
+                </button>
+                <button type="button" aria-pressed={scope === "shared_by_me"} onClick={() => setScope("shared_by_me")}>
+                  Shared by me
+                </button>
+              </fieldset>
+              <label>
+                <span>Conversation</span>
+                <select value={conversationId} onChange={(event) => setConversationId(event.currentTarget.value)}>
+                  <option value="">All conversations</option>
+                  {conversations
+                    .filter((conversation) => !conversation.archived_at)
+                    .sort((left, right) =>
+                      conversationParticipantIdentifier(left, duplicateDirectNames)
+                        .localeCompare(
+                          conversationParticipantIdentifier(
+                            right,
+                            duplicateDirectNames
+                          )
                         )
-                      )
-                  )
-                  .map((conversation) => (
-                    <option key={conversation.id} value={conversation.id}>
-                      {conversationParticipantIdentifier(
-                        conversation,
-                        duplicateDirectNames
-                      )}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
+                    )
+                    .map((conversation) => (
+                      <option key={conversation.id} value={conversation.id}>
+                        {conversationParticipantIdentifier(
+                          conversation,
+                          duplicateDirectNames
+                        )}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
 
         {downloadError && (
@@ -208,9 +234,14 @@ export function FilesPage() {
             <strong>No shared files yet</strong>
             <span>Attachments shared in your conversations will appear here.</span>
           </div>
+        ) : !error && visibleFiles.length === 0 ? (
+          <div className="files-state empty">
+            <strong>No {category} found</strong>
+            <span>Choose another file type or adjust the filters.</span>
+          </div>
         ) : (
           <ol className="files-list" aria-busy={loadingMore}>
-            {files.map((file) => (
+            {visibleFiles.map((file) => (
               <FileRow
                 key={file.id}
                 file={file}
@@ -266,7 +297,7 @@ function FileRow({
   const sharedAt = file.shared_at || file.uploaded_at || file.inserted_at;
   return (
     <li className="file-row">
-      <div className="file-kind-mark" aria-hidden="true">{fileExtension(file.file_name)}</div>
+      <div className={`file-kind-mark ${fileKindTone(file)}`} aria-hidden="true">{fileExtension(file.file_name)}</div>
       <div className="file-row-copy">
         <div className="file-row-title">
           <strong>{file.file_name}</strong>
@@ -323,6 +354,20 @@ function fileExtension(fileName: string): string {
   const extension = fileName.split(".").pop()?.trim().toLocaleUpperCase();
   if (!extension || extension === fileName.toLocaleUpperCase()) return "FILE";
   return extension.slice(0, 4);
+}
+
+function fileCategory(file: FileSummary): Exclude<FileCategory, "all"> {
+  if (file.content_type?.toLocaleLowerCase().startsWith("image/")) return "images";
+  return "documents";
+}
+
+function fileKindTone(file: FileSummary): string {
+  const extension = fileExtension(file.file_name).toLocaleLowerCase();
+  if (fileCategory(file) === "images") return "image";
+  if (extension === "xlsx" || extension === "xls" || extension === "csv") return "sheet";
+  if (extension === "ppt" || extension === "pptx") return "slides";
+  if (extension === "pdf") return "pdf";
+  return "document";
 }
 
 function safetyLabel(state: FileSafetyState): string {

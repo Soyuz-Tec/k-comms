@@ -127,14 +127,72 @@
   outline-offset: 1px;
 }
 
+.mobile-workspace-label {
+  display: none;
+}
+
+.sidebar-tools .inbox-filter-trigger svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.inbox-new-button > span:last-child {
+  display: none;
+}
+
 @media (max-width: 760px) {
+  .mobile-workspace-label {
+    display: inline-flex;
+    align-items: center;
+    gap: .15rem;
+    margin-top: .14rem;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 650;
+  }
+
+  .sidebar-tools .inbox-search-trigger {
+    display: none;
+  }
+
+  .sidebar-tools .inbox-new-button {
+    width: auto;
+    min-width: 70px;
+    padding: 0 .75rem;
+    gap: .28rem;
+    border-radius: 12px;
+    color: white;
+    background: #006d73;
+    font-size: .78rem;
+    font-weight: 750;
+  }
+
+  .sidebar-tools .inbox-new-button:hover {
+    color: white;
+    background: #005c61;
+  }
+
+  .inbox-new-button > span:last-child {
+    display: inline;
+  }
+
   .inbox-segments {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .35rem;
+    padding: 0;
+    background: transparent;
   }
 
   .inbox-segment {
     min-height: 44px;
     padding-inline: .2rem;
+    border: 1px solid #d7e0e8;
+    border-radius: 999px;
+    background: white;
     font-size: .7rem;
   }
 

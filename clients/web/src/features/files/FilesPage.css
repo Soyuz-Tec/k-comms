@@ -33,6 +33,78 @@
   margin-bottom: 1rem;
 }
 
+.files-category-tabs {
+  display: flex;
+  flex: 0 1 24rem;
+  margin: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: #e8ece5;
+}
+
+.files-category-tabs button {
+  min-width: 74px;
+  min-height: 44px;
+  flex: 1 1 0;
+  padding: .55rem .8rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-weight: 800;
+}
+
+.files-category-tabs button[aria-pressed="true"] {
+  border-color: #cbd7cc;
+  color: var(--ink);
+  background: white;
+  box-shadow: 0 2px 8px rgb(16 42 42 / 8%);
+}
+
+.files-advanced-filter {
+  position: relative;
+}
+
+.files-advanced-filter > summary {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .55rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: white;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 750;
+  list-style: none;
+}
+
+.files-advanced-filter > summary::-webkit-details-marker {
+  display: none;
+}
+
+.files-advanced-filter[open] > summary {
+  border-color: #006d73;
+  color: #006d73;
+}
+
+.files-advanced-filter .files-filters {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + .5rem);
+  right: 0;
+  width: min(32rem, calc(100vw - 2rem));
+  padding: .75rem;
+  border: 1px solid #d8e0e7;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 18px 48px rgb(15 23 42 / 16%);
+}
+
 .files-filters {
   display: flex;
   align-items: flex-end;
@@ -112,6 +184,26 @@
   background: #e2ebfa;
   font-size: .65rem;
   font-weight: 900;
+}
+
+.file-kind-mark.pdf {
+  color: #b42318;
+  background: #fff0ef;
+}
+
+.file-kind-mark.sheet {
+  color: #15803d;
+  background: #eaf8ee;
+}
+
+.file-kind-mark.slides {
+  color: #c2410c;
+  background: #fff1e7;
+}
+
+.file-kind-mark.image {
+  color: #2563eb;
+  background: #eaf1ff;
 }
 
 .file-row-copy {
@@ -358,7 +450,11 @@
   }
 
   .files-toolbar {
-    gap: .75rem;
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: .65rem;
     margin-bottom: .75rem;
   }
 
@@ -371,6 +467,68 @@
     font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     font-size: 1rem;
     font-weight: 750;
+  }
+
+  .files-toolbar-heading {
+    display: none;
+  }
+
+  .files-category-tabs {
+    min-width: 0;
+    display: grid;
+    grid-column: 1;
+    grid-row: 1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .files-category-tabs button {
+    min-width: 0;
+    min-height: 44px;
+    padding: .48rem .25rem;
+    border: 1px solid #d7e0e8;
+    border-radius: 999px;
+    background: white;
+    font-size: .7rem;
+  }
+
+  .files-category-tabs button + button {
+    margin-left: .35rem;
+  }
+
+  .files-category-tabs button[aria-pressed="true"] {
+    border-color: #006d73;
+    color: white;
+    background: #006d73;
+    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+  }
+
+  .files-advanced-filter {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .files-advanced-filter > summary {
+    width: 44px;
+    height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border-radius: 50%;
+    color: #006d73;
+    font-size: 0;
+  }
+
+  .files-advanced-filter > summary::before {
+    content: "≡";
+    font-size: 1rem;
+    transform: rotate(90deg);
+  }
+
+  .files-advanced-filter .files-filters {
+    top: calc(100% + .35rem);
+    right: 0;
   }
 
   .files-filters {
@@ -406,11 +564,12 @@
     align-items: center;
     grid-template-columns: 44px minmax(0, 1fr) auto;
     gap: .7rem;
-    padding: .75rem .1rem;
-    border: 0;
-    border-bottom: 1px solid #edf1f5;
-    border-radius: 0;
+    margin-bottom: .6rem;
+    padding: .75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
     background: white;
+    box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
   }
 
   .file-row-actions {
@@ -445,8 +604,6 @@
 
   .file-kind-mark {
     border-radius: 12px;
-    color: #b42318;
-    background: #fff0ef;
   }
 
   .file-row-title {

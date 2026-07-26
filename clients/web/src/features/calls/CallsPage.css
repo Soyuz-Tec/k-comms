@@ -8,6 +8,10 @@
   margin-bottom: .25rem;
 }
 
+.calls-new-call-toggle {
+  display: none;
+}
+
 .calls-page h2 {
   margin: .25rem 0;
   font-family: Georgia, "Times New Roman", serif;
@@ -361,8 +365,8 @@
 
 @media (max-width: 760px) {
   .calls-page {
-    gap: .8rem;
-    padding: .85rem 1rem calc(1rem + var(--safe-bottom));
+    gap: .72rem;
+    padding: .72rem 1rem calc(1rem + var(--safe-bottom));
     background: white;
   }
 
@@ -383,6 +387,11 @@
     font-size: 1.75rem;
     font-weight: 750;
     letter-spacing: -.035em;
+  }
+
+  .calls-page-heading::after {
+    content: "";
+    flex: 1 1 auto;
   }
 
   .calls-page-heading .button {
@@ -407,8 +416,12 @@
     order: 1;
   }
 
-  .calls-launcher {
+  .calls-new-call-toggle {
     order: 2;
+  }
+
+  .calls-launcher {
+    order: 3;
   }
 
   .calls-launcher,
@@ -418,6 +431,32 @@
     border-radius: 0;
     background: white;
     box-shadow: none;
+  }
+
+  .calls-launcher:not(.is-mobile-open) {
+    display: none;
+  }
+
+  .calls-new-call-toggle {
+    width: 100%;
+    min-height: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .45rem;
+    margin-top: .15rem;
+    border: 0;
+    border-radius: 12px;
+    color: white;
+    background: #006d73;
+    box-shadow: 0 7px 18px rgb(0 92 97 / 18%);
+    font: inherit;
+    font-size: .88rem;
+    font-weight: 750;
+  }
+
+  .calls-new-call-toggle:hover {
+    background: #005c61;
   }
 
   .calls-section-heading {
@@ -436,6 +475,10 @@
     font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     font-size: 1rem;
     font-weight: 750;
+  }
+
+  .calls-history > .calls-section-heading > div:first-child {
+    display: none;
   }
 
   .calls-search {
@@ -463,12 +506,15 @@
     grid-template-columns: 1fr 1fr;
     padding: 3px;
     border-radius: 12px;
-    background: #f1f5f9;
+    background: transparent;
   }
 
   .calls-segments button {
     min-width: 0;
+    border: 1px solid #d7e0e8;
+    border-radius: 999px;
     color: #64748b;
+    background: white;
   }
 
   .calls-segments button[aria-pressed="true"] {
@@ -494,7 +540,7 @@
     width: 100%;
     min-height: 50px;
     border-color: #d8e0e7;
-    border-radius: 12px;
+    border-radius: 999px;
     background: white;
   }
 
@@ -503,7 +549,7 @@
     align-items: center;
     grid-template-columns: 44px minmax(0, 1fr) auto;
     gap: .7rem;
-    padding: .75rem .1rem;
+    padding: .72rem .1rem;
     border: 0;
     border-bottom: 1px solid #edf1f5;
     border-radius: 0;
@@ -563,6 +609,8 @@
 
   .call-media-mark {
     border-radius: 50%;
+    color: #006d73;
+    background: #e0f3f2;
   }
 
   .call-session-title {
