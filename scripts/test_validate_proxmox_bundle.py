@@ -73,6 +73,20 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("name: ${{ inputs.environment }}" in error for error in errors)
         )
 
+    def test_rejects_unencoded_remote_shell(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "scripts/proxmox/deploy-remote.ps1"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "base64 -d | bash",
+                "bash -lc",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("base64 -d | bash" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

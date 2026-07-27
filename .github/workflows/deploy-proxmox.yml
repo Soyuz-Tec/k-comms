@@ -160,11 +160,17 @@ jobs:
         if: always()
         shell: powershell
         run: |
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
           foreach ($path in @(
               $env:DEPLOY_KEY_PATH,
               $env:DEPLOY_KNOWN_HOSTS_PATH
           )) {
               if ($path -and (Test-Path -LiteralPath $path)) {
+                  & icacls.exe $path /inheritance:r /grant:r "$identity`:(F)" |
+                      Out-Null
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Failed to authorize protected SSH input cleanup"
+                  }
                   Remove-Item -LiteralPath $path -Force
               }
           }

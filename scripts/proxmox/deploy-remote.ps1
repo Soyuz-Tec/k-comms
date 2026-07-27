@@ -70,7 +70,7 @@ try {
     }
 
     $bootstrapArgument = if ($Bootstrap) { " --bootstrap" } else { "" }
-    $remoteCommand = @(
+    $remoteScript = @(
         "set -Eeuo pipefail"
         "rm -rf '$remoteDirectory'"
         "install -d -m 0755 '$remoteDirectory'"
@@ -84,11 +84,15 @@ try {
             $bootstrapArgument
         )
         "rm -f '$remoteArchive'"
-    ) -join "; "
+    ) -join "`n"
+    $encodedRemoteScript = [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($remoteScript)
+    )
+    $remoteCommand = "printf '%s' '$encodedRemoteScript' | base64 -d | bash"
 
     & ssh.exe -i $resolvedKey -o BatchMode=yes -o StrictHostKeyChecking=yes `
         -o "UserKnownHostsFile=$resolvedKnownHosts" `
-        $target "bash -lc `"$remoteCommand`""
+        $target $remoteCommand
     if ($LASTEXITCODE -ne 0) {
         throw "Remote deployment failed"
     }
