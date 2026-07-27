@@ -41,7 +41,9 @@ REQUIRED_FILES = (
     "deploy/proxmox/systemd/k-comms-backup.timer",
     "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
+    "scripts/test_proxmox_livekit_runtime.sh",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
+    "docs/02-architecture/adr/0057-managed-livekit-cloud-internet-media.md",
     "docs/10-infrastructure-and-deployment/environments/development.md",
     "docs/14-operations/development-to-production-completion-standard.md",
 )
@@ -201,6 +203,10 @@ def validate(root: Path) -> list[str]:
         errors.append("S3_ACCESS_KEY_ID must match MINIO_ROOT_USER")
     if "CHANGE_ME" not in runtime_values.get("LIVEKIT_KEYS", ""):
         errors.append("runtime.env.example must leave LIVEKIT_KEYS as a placeholder")
+    if runtime_values.get("K_COMMS_LIVEKIT_TOPOLOGY") != "local_sidecar":
+        errors.append("runtime.env.example must default to the local LiveKit standby")
+    if runtime_values.get("K_COMMS_MANAGED_LIVEKIT_CONFIRMATION") != "":
+        errors.append("runtime.env.example must not pre-confirm managed LiveKit")
 
     inventory = json.loads(read(root, "deploy/proxmox/inventory.json"))
     environments = inventory.get("environments", {})
@@ -261,6 +267,10 @@ def validate(root: Path) -> list[str]:
         "backup.sh",
         "verify.sh",
         "k-comms-deployment-receipt-v1",
+        "--livekit-credential",
+        "write_managed_livekit_runtime_env",
+        'install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"',
+        "--arg media_topology",
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
@@ -302,6 +312,10 @@ def validate(root: Path) -> list[str]:
         "adopted-local",
         "configured_network_subnet",
         "configured_network_gateway",
+        "validate_managed_livekit_url",
+        "write_managed_livekit_runtime_env",
+        "K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=livekit-cloud-v1",
+        "managed LiveKit credential must have mode 0600",
     ):
         if required not in common:
             errors.append(f"common.sh is missing storage adoption control: {required}")
@@ -375,6 +389,8 @@ def validate(root: Path) -> list[str]:
         "adopted local image source label does not match",
         "adopted local image revision label does not match",
         "LiveKit UDP receive-buffer ceiling is below 5000000 bytes",
+        "assert_managed_livekit_runtime",
+        "managed LiveKit Cloud endpoint is not reachable",
     ):
         if required not in verifier:
             errors.append(f"verify.sh is missing adopted-image control: {required}")
@@ -441,6 +457,9 @@ def validate(root: Path) -> list[str]:
         "name: ${{ inputs.environment }}",
         "secrets.K_COMMS_DEPLOY_SSH_KEY",
         "secrets.K_COMMS_DEPLOY_HOST_KEY",
+        "secrets.K_COMMS_LIVEKIT_CLOUD_CREDENTIAL",
+        "LIVEKIT_CREDENTIAL_PATH",
+        "bash scripts/test_proxmox_livekit_runtime.sh",
         "StrictHostKeyChecking=yes",
     ):
         if required not in workflow and required not in read(
@@ -457,6 +476,9 @@ def validate(root: Path) -> list[str]:
         "StrictHostKeyChecking=yes",
         "sync-assets.sh",
         "deploy.sh",
+        "LiveKitCredentialPath",
+        "--livekit-credential",
+        "chmod 0600",
         "ToBase64String",
         "base64 -d | bash",
     ):
@@ -470,6 +492,8 @@ def validate(root: Path) -> list[str]:
         "It does not make",
         "same digest",
         "restore-k-comms-backup-v1",
+        "K_COMMS_LIVEKIT_CLOUD_CREDENTIAL",
+        "managed_cloud",
     ):
         if required not in readme:
             errors.append(f"Proxmox runbook is missing boundary text: {required}")

@@ -114,6 +114,41 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("name: ${{ inputs.environment }}" in error for error in errors)
         )
 
+    def test_rejects_missing_livekit_cloud_environment_secret(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "secrets.K_COMMS_LIVEKIT_CLOUD_CREDENTIAL",
+                "secrets.REMOVED_LIVEKIT_CREDENTIAL",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "secrets.K_COMMS_LIVEKIT_CLOUD_CREDENTIAL" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_missing_livekit_runtime_rollback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/deploy.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"',
+                ": # removed protected runtime rollback",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("deploy.sh is missing control" in error for error in errors)
+        )
+
     def test_rejects_unencoded_remote_shell(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

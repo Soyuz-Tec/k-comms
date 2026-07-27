@@ -99,6 +99,7 @@ jobs:
         run: |
           python scripts/test_validate_proxmox_bundle.py
           python scripts/validate_proxmox_bundle.py
+          bash scripts/test_proxmox_livekit_runtime.sh
 
   deploy:
     needs: verify-artifact
@@ -115,9 +116,22 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.K_COMMS_DEPLOY_SSH_KEY }}
           DEPLOY_HOST_KEY: ${{ secrets.K_COMMS_DEPLOY_HOST_KEY }}
+          LIVEKIT_CLOUD_CREDENTIAL: ${{ secrets.K_COMMS_LIVEKIT_CLOUD_CREDENTIAL }}
         run: |
           $keyPath = Join-Path $env:RUNNER_TEMP "k-comms-deploy-key"
           $knownHostsPath = Join-Path $env:RUNNER_TEMP "k-comms-known-hosts"
+          $liveKitCredentialPath = Join-Path $env:RUNNER_TEMP "k-comms-livekit.json"
+          $liveKitCredential = $env:LIVEKIT_CLOUD_CREDENTIAL.Trim()
+          $liveKitDocument = $liveKitCredential | ConvertFrom-Json
+          $propertyNames = @($liveKitDocument.PSObject.Properties.Name | Sort-Object)
+          if (
+              ($propertyNames -join ",") -ne "apiKey,apiSecret,url" -or
+              $liveKitDocument.url -notmatch "^wss://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.livekit\.cloud$" -or
+              $liveKitDocument.apiKey -notmatch "^API[A-Za-z0-9_-]{8,}$" -or
+              $liveKitDocument.apiSecret -notmatch "^[A-Za-z0-9_-]{32,}$"
+          ) {
+              throw "Protected LiveKit Cloud credential has an invalid shape"
+          }
           [IO.File]::WriteAllText(
               $keyPath,
               $env:DEPLOY_SSH_KEY.Trim() + [Environment]::NewLine,
@@ -128,13 +142,22 @@ jobs:
               $env:DEPLOY_HOST_KEY.Trim() + [Environment]::NewLine,
               [Text.UTF8Encoding]::new($false)
           )
+          [IO.File]::WriteAllText(
+              $liveKitCredentialPath,
+              $liveKitCredential + [Environment]::NewLine,
+              [Text.UTF8Encoding]::new($false)
+          )
           $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-          & icacls.exe $keyPath /inheritance:r /grant:r "$identity`:(R)" | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-              throw "Failed to restrict the SSH private key ACL"
+          foreach ($path in @($keyPath, $liveKitCredentialPath)) {
+              & icacls.exe $path /inheritance:r /grant:r "$identity`:(R)" | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Failed to restrict a protected deployment input ACL"
+              }
           }
           "DEPLOY_KEY_PATH=$keyPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "DEPLOY_KNOWN_HOSTS_PATH=$knownHostsPath" |
+              Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LIVEKIT_CREDENTIAL_PATH=$liveKitCredentialPath" |
               Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Deploy and verify the approved digest
         shell: powershell
@@ -151,6 +174,7 @@ jobs:
               Image = "${{ inputs.image }}"
               Revision = "${{ inputs.revision }}"
               BundlePath = (Join-Path $env:GITHUB_WORKSPACE "deploy\proxmox")
+              LiveKitCredentialPath = $env:LIVEKIT_CREDENTIAL_PATH
           }
           if ("${{ inputs.bootstrap }}" -eq "true") {
               $arguments.Bootstrap = $true
@@ -163,7 +187,8 @@ jobs:
           $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
           foreach ($path in @(
               $env:DEPLOY_KEY_PATH,
-              $env:DEPLOY_KNOWN_HOSTS_PATH
+              $env:DEPLOY_KNOWN_HOSTS_PATH,
+              $env:LIVEKIT_CREDENTIAL_PATH
           )) {
               if ($path -and (Test-Path -LiteralPath $path)) {
                   & icacls.exe $path /inheritance:r /grant:r "$identity`:(F)" |

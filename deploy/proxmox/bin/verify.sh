@@ -58,6 +58,15 @@ wait_for_url "http://${bind_address}:5900/minio/health/ready" 3 1
 curl --silent --show-error --max-time 5 "http://${bind_address}:7980/" >/dev/null ||
   die "LiveKit signaling port is not reachable"
 
+assert_managed_livekit_runtime
+livekit_topology="$(configured_livekit_topology)"
+if [[ "$livekit_topology" == "$K_COMMS_MANAGED_LIVEKIT_TOPOLOGY" ]]; then
+  managed_livekit_api_url="$(read_env_value "$K_COMMS_RUNTIME_ENV" LIVEKIT_API_URL)"
+  curl --fail --silent --show-error --max-time 10 \
+    "${managed_livekit_api_url}/" >/dev/null ||
+    die "managed LiveKit Cloud endpoint is not reachable"
+fi
+
 release_image="$(read_env_value "$K_COMMS_RELEASE_ENV" K_COMMS_RELEASE_IMAGE)"
 release_revision="$(read_env_value "$K_COMMS_RELEASE_ENV" K_COMMS_RELEASE_REVISION)"
 validate_revision "$release_revision"
@@ -105,4 +114,4 @@ if [[ "$skip_host_tuning" == false ]]; then
     die "LiveKit UDP receive-buffer ceiling is below 5000000 bytes"
 fi
 
-log "${environment} verification passed for ${release_image}"
+log "${environment} verification passed for ${release_image} with ${livekit_topology} media"

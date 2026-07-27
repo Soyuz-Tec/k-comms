@@ -11,6 +11,76 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
     assert :ok = LocalReleaseGuard.validate!(trusted_edge_options())
   end
 
+  test "accepts explicitly confirmed managed LiveKit in trusted-edge mode" do
+    assert :ok =
+             LocalReleaseGuard.validate!(
+               trusted_edge_options(
+                 livekit_topology: "managed_cloud",
+                 managed_livekit_confirmation: "livekit-cloud-v1",
+                 livekit_server_url: "wss://project-k-comms.livekit.cloud",
+                 livekit_api_url: "https://project-k-comms.livekit.cloud",
+                 csp_connect_sources: [
+                   "'self'",
+                   "wss://project-k-comms.livekit.cloud",
+                   "https://objects.avayaworks.com"
+                 ]
+               )
+             )
+  end
+
+  test "accepts explicitly confirmed managed LiveKit from a private-LAN release" do
+    host = "192.168.50.25"
+
+    assert :ok =
+             LocalReleaseGuard.validate!(
+               lan_options(
+                 livekit_topology: "managed_cloud",
+                 managed_livekit_confirmation: "livekit-cloud-v1",
+                 livekit_server_url: "wss://project-k-comms.livekit.cloud",
+                 livekit_api_url: "https://project-k-comms.livekit.cloud",
+                 csp_connect_sources: [
+                   "'self'",
+                   "http://#{host}:4188",
+                   "ws://#{host}:4188",
+                   "wss://project-k-comms.livekit.cloud",
+                   "http://#{host}:5900"
+                 ]
+               )
+             )
+  end
+
+  test "managed LiveKit requires exact confirmation and matching public origins" do
+    for confirmation <- [nil, "", "livekit-cloud-v2", " livekit-cloud-v1"] do
+      assert_raise ArgumentError,
+                   ~r/K_COMMS_MANAGED_LIVEKIT_CONFIRMATION must exactly equal/,
+                   fn ->
+                     LocalReleaseGuard.validate!(
+                       trusted_edge_options(
+                         livekit_topology: "managed_cloud",
+                         managed_livekit_confirmation: confirmation
+                       )
+                     )
+                   end
+    end
+
+    assert_raise ArgumentError, ~r/same public host/, fn ->
+      LocalReleaseGuard.validate!(
+        trusted_edge_options(
+          livekit_topology: "managed_cloud",
+          managed_livekit_confirmation: "livekit-cloud-v1",
+          livekit_server_url: "wss://project-k-comms.livekit.cloud",
+          livekit_api_url: "https://other-project.livekit.cloud"
+        )
+      )
+    end
+
+    assert_raise ArgumentError, ~r/valid only when/, fn ->
+      LocalReleaseGuard.validate!(
+        trusted_edge_options(managed_livekit_confirmation: "livekit-cloud-v1")
+      )
+    end
+  end
+
   test "trusted-edge mode requires the local-release gate and exact confirmation" do
     assert_raise ArgumentError, ~r/requires K_COMMS_LOCAL_RELEASE=true/, fn ->
       LocalReleaseGuard.validate!(trusted_edge_options(enabled?: false))
@@ -478,6 +548,8 @@ defmodule CommsIntegrations.LocalReleaseGuardTest do
         runtime_purpose: "application",
         allow_bootstrap?: false,
         audio_provider_mode: "livekit",
+        livekit_topology: "local_sidecar",
+        managed_livekit_confirmation: nil,
         local_release_host: nil,
         instant_room_tenant_slug: "k-comms-development",
         qualification_app_origin: nil,

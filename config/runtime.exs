@@ -117,6 +117,14 @@ if config_env() == :prod do
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
   local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
   release_exposure_mode = System.get_env("K_COMMS_RELEASE_EXPOSURE_MODE")
+  livekit_topology = System.get_env("K_COMMS_LIVEKIT_TOPOLOGY", "local_sidecar")
+
+  managed_livekit_confirmation =
+    case System.get_env("K_COMMS_MANAGED_LIVEKIT_CONFIRMATION") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
 
   trusted_edge_confirmation =
     case System.get_env("K_COMMS_TRUSTED_EDGE_CONFIRMATION") do
@@ -418,6 +426,8 @@ if config_env() == :prod do
     development_adapters?: development_adapters?,
     exposure_mode: release_exposure_mode,
     trusted_edge_confirmation: trusted_edge_confirmation,
+    livekit_topology: livekit_topology,
+    managed_livekit_confirmation: managed_livekit_confirmation,
     role: role,
     runtime_purpose: runtime_purpose,
     allow_bootstrap?: allow_bootstrap?,
