@@ -4,6 +4,6 @@ Description=K-Comms private Podman network
 [Network]
 NetworkName=k-comms
 Driver=bridge
-Subnet=10.89.0.0/24
-Gateway=10.89.0.1
+Subnet=@@PODMAN_SUBNET@@
+Gateway=@@PODMAN_GATEWAY@@
 Label=io.k-comms.managed=true

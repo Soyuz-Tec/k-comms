@@ -44,6 +44,12 @@ fallback to the retained legacy service if activation verification fails.
 Fresh staging and adopted production are distinct storage modes; production
 may not silently create an empty replacement volume.
 
+The retained Compose network owns `10.89.0.0/24`. To keep fallback independent
+and prevent ambiguous network ownership, the production Quadlet network uses
+the separately verified `10.90.0.0/24` subnet while staging keeps
+`10.89.0.0/24`. The network subnet, gateway, Quadlet, and firewall DNS
+allowance are rendered from one protected environment identity.
+
 Promotion is `main` -> attested GHCR digest -> staging -> protected production
 environment. The deployment workflow and host script both require the digest
 and its exact 40-character source revision. Host activation additionally
