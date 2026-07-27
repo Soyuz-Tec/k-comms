@@ -38,6 +38,13 @@ pre-existing authoritative volumes. A production deploy refuses to start if
 either volume is absent, lacks its PostgreSQL or MinIO format marker, or is
 still mounted by a running legacy container.
 
+Network identity is equally explicit. Staging uses `10.89.0.0/24`; the
+Compose-era production network already owns that subnet, so the managed
+production Quadlet network uses the independently verified
+`10.90.0.0/24`. The firewall DNS allowance is rendered from the same protected
+subnet and gateway values. Adoption refuses to proceed if that dedicated
+subnet is already present in an unrelated route or Podman network.
+
 The pinned PostgreSQL image starts its entrypoint as root only long enough to
 initialize/chown the managed volume and drop to its `postgres` user. Its
 Quadlet therefore cannot set Linux `no-new-privileges`; a staging regression

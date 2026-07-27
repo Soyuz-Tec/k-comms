@@ -38,7 +38,7 @@ require_root
   die "adoption requires --confirmation adopt-k-comms-production-v1"
 [[ -n "$runtime_source" ]] || die "--runtime-source is required"
 runtime_source="$(realpath -e "$runtime_source")"
-for command in curl flock jq podman sha256sum systemctl tar; do
+for command in curl flock ip jq podman sha256sum systemctl tar; do
   require_command "$command"
 done
 validate_volume_name "$postgres_volume"
@@ -110,6 +110,15 @@ validate_revision "$current_revision"
 podman image exists "$current_image" ||
   die "legacy application image is not present locally"
 
+if podman network exists k-comms; then
+  existing_subnet="$(podman network inspect k-comms \
+    --format '{{range .Subnets}}{{.Subnet}}{{end}}')"
+  [[ "$existing_subnet" == 10.90.0.0/24 ]] ||
+    die "managed network k-comms exists with unexpected subnet ${existing_subnet}"
+elif ip -4 route show | grep -q -E '(^| )10\.90\.0\.0/24( |$)'; then
+  die "dedicated production Podman subnet 10.90.0.0/24 is already in use"
+fi
+
 if [[ "$preflight_only" == true ]]; then
   log "legacy production adoption preflight passed without changing the VM"
   exit 0
@@ -168,6 +177,13 @@ if [[ -e "$K_COMMS_RUNTIME_ENV" ]]; then
       die "existing prepared PostgreSQL volume does not match the adoption request"
     [[ "$(configured_minio_volume)" == "$minio_volume" ]] ||
       die "existing prepared MinIO volume does not match the adoption request"
+    existing_network_subnet="$(
+      read_optional_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_NETWORK_SUBNET
+    )"
+    if [[ -n "$existing_network_subnet" ]]; then
+      [[ "$existing_network_subnet" == 10.90.0.0/24 ]] ||
+        die "existing prepared production network uses an unexpected subnet"
+    fi
   fi
   for name in POSTGRES_PASSWORD LIVEKIT_API_SECRET MINIO_ROOT_PASSWORD; do
     [[ "$(read_env_value "$K_COMMS_RUNTIME_ENV" "$name")" == \
@@ -185,6 +201,8 @@ bash "${SCRIPT_DIR}/install.sh" \
   --bind-address 127.0.0.1 \
   --media-address 192.168.1.22 \
   --storage-mode adopted \
+  --network-subnet 10.90.0.0/24 \
+  --network-gateway 10.90.0.1 \
   --postgres-volume "$postgres_volume" \
   --minio-volume "$minio_volume" \
   --prepare-only
@@ -277,6 +295,8 @@ bash "${SCRIPT_DIR}/install.sh" \
   --bind-address 127.0.0.1 \
   --media-address 192.168.1.22 \
   --storage-mode adopted \
+  --network-subnet 10.90.0.0/24 \
+  --network-gateway 10.90.0.1 \
   --postgres-volume "$postgres_volume" \
   --minio-volume "$minio_volume"
 bash "${SCRIPT_DIR}/sync-assets.sh"

@@ -117,6 +117,20 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_fixed_podman_network_subnet(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/quadlet/k-comms.network.in"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Subnet=@@PODMAN_SUBNET@@",
+                "Subnet=10.89.0.0/24",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("configurable network identity" in error for error in errors))
+
     def test_rejects_direct_execution_of_transferred_installer(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

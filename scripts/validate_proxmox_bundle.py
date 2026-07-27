@@ -15,7 +15,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/inventory.json",
     "deploy/proxmox/runtime.env.example",
     "deploy/proxmox/nftables.conf.in",
-    "deploy/proxmox/quadlet/k-comms.network",
+    "deploy/proxmox/quadlet/k-comms.network.in",
     "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in",
     "deploy/proxmox/quadlet/k-comms-minio-data.volume.in",
     "deploy/proxmox/quadlet/k-comms-postgres.container",
@@ -179,7 +179,7 @@ def validate(root: Path) -> list[str]:
     for required in (
         "policy drop",
         "ip saddr 192.168.1.0/24 tcp dport 22 accept",
-        "ip saddr 10.89.0.0/24 ip daddr 10.89.0.1",
+        "ip saddr @@PODMAN_SUBNET@@ ip daddr @@PODMAN_GATEWAY@@",
         "th dport 53 accept",
         "tcp dport 7981 accept",
         "udp dport 7982 accept",
@@ -232,6 +232,8 @@ def validate(root: Path) -> list[str]:
         "start qemu-guest-agent.service",
         "--prepare-only",
         "--storage-mode",
+        "--network-subnet",
+        "--network-gateway",
         "this production VM must explicitly adopt its authoritative volumes",
     ):
         if required not in installer:
@@ -244,6 +246,8 @@ def validate(root: Path) -> list[str]:
         "assert_adopted_storage_ready_for_activation",
         "assert_no_foreign_running_mount",
         "adopted-local",
+        "configured_network_subnet",
+        "configured_network_gateway",
     ):
         if required not in common:
             errors.append(f"common.sh is missing storage adoption control: {required}")
@@ -260,6 +264,14 @@ def validate(root: Path) -> list[str]:
         if required not in read(root, location):
             errors.append(f"{location}: configurable volume identity is missing")
 
+    network_template = read(root, "deploy/proxmox/quadlet/k-comms.network.in")
+    for required in ("Subnet=@@PODMAN_SUBNET@@", "Gateway=@@PODMAN_GATEWAY@@"):
+        if required not in network_template:
+            errors.append(
+                "deploy/proxmox/quadlet/k-comms.network.in: "
+                f"configurable network identity is missing: {required}"
+            )
+
     adoption = read(root, "deploy/proxmox/bin/adopt-legacy-production.sh")
     for required in (
         "adopt-k-comms-production-v1",
@@ -270,6 +282,8 @@ def validate(root: Path) -> list[str]:
         "adoption failed; restoring the retained legacy service",
         'bash "${SCRIPT_DIR}/install.sh"',
         'bash "${SCRIPT_DIR}/sync-assets.sh"',
+        "10.90.0.0/24",
+        "dedicated production Podman subnet",
         "--preflight-only",
         "--prepare-only",
         "verify.sh",

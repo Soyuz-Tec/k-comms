@@ -79,6 +79,16 @@ validate_ipv4() {
   done
 }
 
+validate_ipv4_24_subnet() {
+  local cidr=$1
+  local address=${cidr%/24}
+
+  [[ "$cidr" == */24 ]] || die "Podman network subnet must use a /24 prefix"
+  validate_ipv4 "$address"
+  [[ "${address##*.}" == 0 ]] ||
+    die "Podman /24 subnet must use its network address: ${cidr}"
+}
+
 read_env_value() {
   local file=$1
   local name=$2
@@ -190,6 +200,14 @@ configured_postgres_volume() {
 
 configured_minio_volume() {
   read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_MINIO_VOLUME
+}
+
+configured_network_subnet() {
+  read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_NETWORK_SUBNET
+}
+
+configured_network_gateway() {
+  read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_NETWORK_GATEWAY
 }
 
 classify_image_ref() {
