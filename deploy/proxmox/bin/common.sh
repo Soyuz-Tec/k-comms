@@ -108,6 +108,7 @@ read_optional_env_value() {
   [[ -f "$file" ]] || return 0
   line="$(grep -E "^${name}=" "$file" | tail -n 1 || true)"
   [[ -n "$line" ]] && printf '%s' "${line#*=}"
+  return 0
 }
 
 assert_secure_runtime_env() {

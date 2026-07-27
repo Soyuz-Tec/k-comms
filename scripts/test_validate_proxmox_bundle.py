@@ -147,6 +147,22 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_missing_csp_normalization(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'normalize_runtime_csp "$K_COMMS_RUNTIME_ENV"',
+                ":",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

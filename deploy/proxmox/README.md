@@ -119,6 +119,12 @@ application image under Quadlets, and runs production verification. If any
 activation gate fails, the new units are stopped and the retained legacy
 service is restarted automatically.
 
+The protected configuration conversion accounts for the Compose-to-Podman
+environment-file parsing boundary. It removes only optional outer double
+quotes from `CSP_CONNECT_SOURCES`, then requires the normalized value to be
+exactly `'self'`, `LIVEKIT_SERVER_URL`, and `S3_PUBLIC_ENDPOINT` before any
+cutover.
+
 Before the maintenance action, the same gate can be exercised read-only by
 adding `--preflight-only`; it exits before creating or changing any file,
 service, firewall rule, container, or volume.

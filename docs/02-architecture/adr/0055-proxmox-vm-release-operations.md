@@ -50,6 +50,11 @@ the separately verified `10.90.0.0/24` subnet while staging keeps
 `10.89.0.0/24`. The network subnet, gateway, Quadlet, and firewall DNS
 allowance are rendered from one protected environment identity.
 
+The adoption converter handles the legacy Compose environment parser's removal
+of outer double quotes from `CSP_CONNECT_SOURCES`. The Podman runtime file
+stores the unquoted exact trusted-edge value and rejects any content beyond
+`'self'`, the configured LiveKit endpoint, and the configured object endpoint.
+
 Promotion is `main` -> attested GHCR digest -> staging -> protected production
 environment. The deployment workflow and host script both require the digest
 and its exact 40-character source revision. Host activation additionally
