@@ -302,6 +302,17 @@ def validate(root: Path) -> list[str]:
     if "assert_adopted_storage_ready_for_activation" not in deploy:
         errors.append("deploy.sh must reject unprepared adopted storage")
 
+    verifier = read(root, "deploy/proxmox/bin/verify.sh")
+    for required in (
+        "release_image_class",
+        "an adopted local image is accepted only in production",
+        "an adopted local image requires the adopted storage identity",
+        "adopted local image source label does not match",
+        "adopted local image revision label does not match",
+    ):
+        if required not in verifier:
+            errors.append(f"verify.sh is missing adopted-image control: {required}")
+
     rollback = read(root, "deploy/proxmox/bin/rollback.sh")
     for required in (
         "CommsCore.Release.assert_communication_rollback_compatible!()",
