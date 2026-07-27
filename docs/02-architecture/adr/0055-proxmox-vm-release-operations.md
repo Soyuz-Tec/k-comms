@@ -34,6 +34,16 @@ Each VM runs rootful Podman Quadlets owned by the repository package under
 VM keeps the Cloudflare connector and public hostnames selected in ADR-0054;
 the staging VM has no public ingress and no production credential or data.
 
+The existing production data volumes predate the Quadlet contract and keep
+their Compose-created names. Their names are explicit environment
+configuration, not implicit defaults. A one-time adoption operation verifies
+the live container mounts and storage-format markers, takes a quiesced backup,
+and moves service ownership from the retained legacy unit to Quadlets while
+preserving the same application image and data in place. It has an automatic
+fallback to the retained legacy service if activation verification fails.
+Fresh staging and adopted production are distinct storage modes; production
+may not silently create an empty replacement volume.
+
 Promotion is `main` -> attested GHCR digest -> staging -> protected production
 environment. The deployment workflow and host script both require the digest
 and its exact 40-character source revision. Host activation additionally
@@ -90,6 +100,10 @@ described by ADR-0012 and the production runbooks.
 - Production qualification verifies the retained public endpoints, Cloudflare
   connector, exact running digest/revision, timers, backup location, listeners,
   and authoritative record counts without copying or mutating production data.
+- One-time production adoption verifies exact legacy mounts, PostgreSQL and
+  MinIO format markers, a pre-cutover logical/object backup, unchanged
+  application identity, disabled legacy startup, and a successful
+  post-adoption production health gate.
 - A separate Proxmox backup schedule complements, but does not substitute for,
   the application-level PostgreSQL and MinIO recovery proof.
 

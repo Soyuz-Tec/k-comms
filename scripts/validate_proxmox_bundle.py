@@ -16,13 +16,14 @@ REQUIRED_FILES = (
     "deploy/proxmox/runtime.env.example",
     "deploy/proxmox/nftables.conf.in",
     "deploy/proxmox/quadlet/k-comms.network",
-    "deploy/proxmox/quadlet/k-comms-postgres-data.volume",
-    "deploy/proxmox/quadlet/k-comms-minio-data.volume",
+    "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in",
+    "deploy/proxmox/quadlet/k-comms-minio-data.volume.in",
     "deploy/proxmox/quadlet/k-comms-postgres.container",
     "deploy/proxmox/quadlet/k-comms-minio.container.in",
     "deploy/proxmox/quadlet/k-comms-livekit.container.in",
     "deploy/proxmox/quadlet/k-comms-app.container.in",
     "deploy/proxmox/bin/common.sh",
+    "deploy/proxmox/bin/adopt-legacy-production.sh",
     "deploy/proxmox/bin/generate-runtime-env.sh",
     "deploy/proxmox/bin/install.sh",
     "deploy/proxmox/bin/sync-assets.sh",
@@ -229,9 +230,54 @@ def validate(root: Path) -> list[str]:
         "aardvark-dns",
         "qemu-guest-agent",
         "start qemu-guest-agent.service",
+        "--prepare-only",
+        "--storage-mode",
+        "this production VM must explicitly adopt its authoritative volumes",
     ):
         if required not in installer:
             errors.append(f"install.sh is missing Proxmox guest integration: {required}")
+
+    common = read(root, "deploy/proxmox/bin/common.sh")
+    for required in (
+        "configured_postgres_volume",
+        "configured_minio_volume",
+        "assert_adopted_storage_ready_for_activation",
+        "assert_no_foreign_running_mount",
+        "adopted-local",
+    ):
+        if required not in common:
+            errors.append(f"common.sh is missing storage adoption control: {required}")
+
+    volume_templates = {
+        "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in": (
+            "VolumeName=@@POSTGRES_VOLUME@@"
+        ),
+        "deploy/proxmox/quadlet/k-comms-minio-data.volume.in": (
+            "VolumeName=@@MINIO_VOLUME@@"
+        ),
+    }
+    for location, required in volume_templates.items():
+        if required not in read(root, location):
+            errors.append(f"{location}: configurable volume identity is missing")
+
+    adoption = read(root, "deploy/proxmox/bin/adopt-legacy-production.sh")
+    for required in (
+        "adopt-k-comms-production-v1",
+        "k-comms-release_postgres-data",
+        "k-comms-release_minio-data",
+        "pg_dump --format=custom",
+        "k-comms-legacy-adoption-receipt-v1",
+        "adoption failed; restoring the retained legacy service",
+        "--preflight-only",
+        "--prepare-only",
+        "verify.sh",
+    ):
+        if required not in adoption:
+            errors.append(f"legacy production adoption is missing control: {required}")
+
+    deploy = read(root, "deploy/proxmox/bin/deploy.sh")
+    if "assert_adopted_storage_ready_for_activation" not in deploy:
+        errors.append("deploy.sh must reject unprepared adopted storage")
 
     rollback = read(root, "deploy/proxmox/bin/rollback.sh")
     for required in (

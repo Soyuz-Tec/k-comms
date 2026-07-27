@@ -1,7 +1,7 @@
 [Unit]
-Description=K-Comms PostgreSQL data
+Description=K-Comms object data
 
 [Volume]
-VolumeName=k-comms-postgres-data
+VolumeName=@@MINIO_VOLUME@@
 Label=io.k-comms.managed=true
 Label=io.k-comms.data-class=authoritative
