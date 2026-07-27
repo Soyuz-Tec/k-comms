@@ -33,7 +33,7 @@ require_file "${backup_dir}/COMPLETE"
 require_file "${backup_dir}/SHA256SUMS"
 require_file "${backup_dir}/postgres.dump"
 require_file "${backup_dir}/minio-data.tar.gz"
-(cd "$backup_dir" && sha256sum --check --strict SHA256SUMS)
+(cd "$backup_dir" && sha256sum --check --strict SHA256SUMS) >&2
 pg_restore --list "${backup_dir}/postgres.dump" >/dev/null
 tar --list --gzip --file "${backup_dir}/minio-data.tar.gz" >/dev/null
 acquire_deploy_lock

@@ -197,6 +197,22 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("restore-rehearsal.sh is missing control" in error for error in errors)
         )
 
+    def test_rejects_restore_rehearsal_that_contaminates_receipt_stdout(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/restore-rehearsal.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "sha256sum --check --strict SHA256SUMS) >&2",
+                "sha256sum --check --strict SHA256SUMS)",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("restore-rehearsal.sh is missing control" in error for error in errors)
+        )
+
     def test_rejects_missing_livekit_runtime_rollback(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)
