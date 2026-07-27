@@ -667,90 +667,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        transitions = {
-            transition["id"]: transition
-            for transition in manifest["enforcement"]["reviewed_manifest_transitions"]
-        }
         self.assertEqual(
-            set(transitions),
-            {"add-mobile-read-guest-access-and-instant-rooms"},
-        )
-        transition = transitions["add-mobile-read-guest-access-and-instant-rooms"]
-        self.assertEqual(
-            transition["adr"],
-            "docs/02-architecture/adr/0052-retained-message-sender-labels.md",
-        )
-        self.assertEqual(
-            set(transition["approved_changes"]),
-            {
-                "context:calls:public_contracts:add:"
-                "CommsCore.AudioCalls.CallSessionView",
-                "context:conversation_content:public_contracts:add:"
-                "CommsCore.Attachments.FileView",
-                "context:conversations:public_contracts:add:"
-                "CommsCore.Conversations.EphemeralRoomView",
-                "context:conversations:public_contracts:add:"
-                "CommsCore.Conversations.GuestAdmissionView",
-                "context:conversations:public_contracts:add:"
-                "CommsCore.Conversations.GuestLinkPreviewView",
-                "context:conversations:public_contracts:add:"
-                "CommsCore.Conversations.GuestLinkView",
-                "context:conversations:publishes:add:"
-                "ephemeral_room.created.v1",
-                "context:conversations:publishes:add:"
-                "ephemeral_room.expired.v1",
-                "context:conversations:publishes:add:"
-                "ephemeral_room.idle.v1",
-                "context:conversations:publishes:add:"
-                "ephemeral_room.owner_upgraded.v1",
-                "context:conversations:publishes:add:"
-                "ephemeral_room.reactivated.v1",
-                "context:identity_access:public_contracts:add:"
-                "CommsCore.Accounts.DirectoryPersonView",
-                "context:identity_access:public_contracts:add:"
-                "CommsCore.Accounts.RetainedSenderLabelView",
-                "context:platform_runtime:owned_modules:add:"
-                "CommsCore.PlatformRateLimits",
-                "context:platform_runtime:owned_modules:add:"
-                "CommsCore.PlatformRateLimits.Bucket",
-                "context:platform_runtime:public_contracts:add:"
-                "CommsCore.PlatformRateLimits.Decision",
-                "context:platform_runtime:public_facades:add:"
-                "CommsCore.PlatformRateLimits",
-                "runtime_collaborations:conversation-call-lifecycle:"
-                'callers:add:"CommsCore.Conversations.EphemeralRooms"',
-                "table:conversation_ephemeral_join_receipts:add:"
-                '{"canonical_schema":"CommsCore.Conversations.'
-                'EphemeralJoinReceipt","owner":"conversations","role":"source"}',
-                "table:conversation_ephemeral_presence_leases:add:"
-                '{"canonical_schema":"CommsCore.Conversations.'
-                'EphemeralPresenceLease","owner":"conversations","role":"source"}',
-                "table:conversation_ephemeral_rooms:add:"
-                '{"canonical_schema":"CommsCore.Conversations.EphemeralRoom",'
-                '"owner":"conversations","role":"source"}',
-                "table:conversation_guest_admissions:add:"
-                '{"canonical_schema":"CommsCore.Conversations.GuestAdmission",'
-                '"owner":"conversations","role":"source"}',
-                "table:conversation_guest_links:add:"
-                '{"canonical_schema":"CommsCore.Conversations.GuestLink",'
-                '"owner":"conversations","role":"source"}',
-                "table:public_rate_limit_buckets:add:"
-                '{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket",'
-                '"owner":"platform_runtime","role":"technical"}',
-                "technical_interfaces:web-distributed-public-rate-limit:add:"
-                '{"callers":["CommsWeb.InstantRoomMessageRateLimit",'
-                '"CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web '
-                "adapters supply only a supported scope, an HMAC-SHA-256 "
-                "network or identity digest, and positive limit/window values; "
-                "PlatformRateLimits owns the PostgreSQL-clock fixed-window "
-                "decision and bounded expired-bucket cleanup without retaining "
-                'raw network addresses or bearer material.","contracts":'
-                '["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct",'
-                '"id":"web-distributed-public-rate-limit","interface":'
-                '"CommsCore.PlatformRateLimits","operations":[{"arity":4,'
-                '"name":"allow?"}],"owner":"platform_runtime","transaction":'
-                '"independent"}',
-            },
+            manifest["enforcement"]["reviewed_manifest_transitions"],
+            [],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
