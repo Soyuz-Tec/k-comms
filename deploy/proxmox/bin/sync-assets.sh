@@ -99,6 +99,8 @@ install -m 0644 /etc/nftables.conf.k-comms /etc/nftables.conf
 
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.service /etc/systemd/system/
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.timer /etc/systemd/system/
+install -m 0644 "${BUNDLE_DIR}/systemd/cloudflared-kcomms.service" \
+  /etc/systemd/system/
 systemctl daemon-reload
 if nft list table inet k_comms_filter >/dev/null 2>&1; then
   nft delete table inet k_comms_filter

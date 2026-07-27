@@ -214,6 +214,24 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             errors,
         )
 
+    def test_rejects_unsynchronized_tunnel_unit(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/sync-assets.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'install -m 0644 "${BUNDLE_DIR}/systemd/cloudflared-kcomms.service" \\\n'
+                "  /etc/systemd/system/\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn(
+            "deploy/proxmox/bin/sync-assets.sh must install the Cloudflare connector unit",
+            errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
