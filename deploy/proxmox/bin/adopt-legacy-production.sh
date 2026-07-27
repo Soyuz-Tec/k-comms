@@ -252,6 +252,13 @@ install -d -m 0700 "$backup_dir"
 
 cutover_started=false
 adoption_complete=false
+start_tunnel_if_installed() {
+  if systemctl list-unit-files cloudflared-kcomms.service \
+    --no-legend 2>/dev/null | grep -q '^cloudflared-kcomms.service'; then
+    systemctl start cloudflared-kcomms.service
+  fi
+}
+
 recover_legacy() {
   if [[ "$cutover_started" == true && "$adoption_complete" == false ]]; then
     log "adoption failed; restoring the retained legacy service"
@@ -264,6 +271,7 @@ recover_legacy() {
       k-comms-network.service || true
     systemctl enable "$legacy_service" || true
     systemctl restart "$legacy_service" || true
+    start_tunnel_if_installed || true
   fi
   cleanup_runtime_candidate
 }
@@ -315,6 +323,7 @@ systemctl start \
   k-comms-minio.service \
   k-comms-livekit.service \
   k-comms-app.service
+start_tunnel_if_installed
 bash "${SCRIPT_DIR}/verify.sh" --environment production
 
 bash "${SCRIPT_DIR}/install.sh" \

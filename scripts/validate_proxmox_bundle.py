@@ -291,12 +291,18 @@ def validate(root: Path) -> list[str]:
         "dedicated production Podman subnet",
         'normalize_runtime_csp "$K_COMMS_RUNTIME_ENV"',
         "legacy CSP does not exactly match the trusted-edge media and object endpoints",
+        "start_tunnel_if_installed",
         "--preflight-only",
         "--prepare-only",
         "verify.sh",
     ):
         if required not in adoption:
             errors.append(f"legacy production adoption is missing control: {required}")
+    if adoption.count("start_tunnel_if_installed") < 3:
+        errors.append(
+            "legacy production adoption must start the tunnel after activation "
+            "and fallback"
+        )
 
     deploy = read(root, "deploy/proxmox/bin/deploy.sh")
     if "assert_adopted_storage_ready_for_activation" not in deploy:
