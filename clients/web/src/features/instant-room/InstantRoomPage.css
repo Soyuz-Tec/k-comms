@@ -243,6 +243,58 @@
 }
 
 @media (max-width: 680px) {
+  .instant-room-entry {
+    place-items: start stretch;
+    padding: 0;
+    background: white;
+  }
+
+  .instant-room-start,
+  .instant-room-loading,
+  .instant-room-error {
+    width: 100%;
+    min-height: var(--app-viewport-height);
+    align-content: start;
+    gap: .85rem;
+    padding:
+      max(1rem, var(--safe-top))
+      max(1rem, var(--safe-right))
+      max(1rem, var(--safe-bottom))
+      max(1rem, var(--safe-left));
+    border: 0;
+    border-radius: 0;
+    background: linear-gradient(180deg, #e9f8f6 0, white 170px);
+    box-shadow: none;
+  }
+
+  .instant-room-start h1 {
+    max-width: 18rem;
+    margin-top: .5rem;
+    color: #0b1220;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: clamp(1.9rem, 10vw, 2.45rem);
+    font-weight: 760;
+    letter-spacing: -.045em;
+    line-height: 1.04;
+  }
+
+  .instant-room-start-form {
+    gap: .75rem;
+    margin-top: .25rem;
+    padding: .9rem;
+    border: 1px solid #d8e6e4;
+    border-radius: 18px;
+    background: rgb(255 255 255 / 94%);
+    box-shadow: 0 12px 36px rgb(15 83 84 / 8%);
+  }
+
+  .instant-room-start-form input {
+    min-height: 50px;
+    border-color: #cbd9df;
+    border-radius: 13px;
+    background: #fbfcfd;
+  }
+
   .instant-room-launch {
     width: 44px;
     min-width: 44px;
@@ -259,18 +311,35 @@
   }
 
   .instant-room-share {
-    max-height: min(48vh, 390px);
-    grid-template-columns: minmax(0, 1fr) 112px;
-    align-items: start;
-    gap: .75rem;
-    overflow-y: auto;
+    width: 100%;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    align-items: center;
+    gap: .7rem;
+    overflow: visible;
     padding:
-      .75rem max(.75rem, var(--safe-right))
-      .75rem max(.75rem, var(--safe-left));
+      .78rem max(.8rem, var(--safe-right))
+      .78rem max(.8rem, var(--safe-left));
+    border-bottom-color: #d8e6e4;
+    background: linear-gradient(115deg, #edf9f7, #f8fbfa);
   }
 
   .instant-room-share-copy {
-    gap: .4rem;
+    gap: .34rem;
+  }
+
+  .instant-room-share .instant-room-kicker {
+    font-size: .62rem;
+  }
+
+  .instant-room-share h2 {
+    overflow: hidden;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 1.05rem;
+    font-weight: 760;
+    letter-spacing: -.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .instant-room-share-copy > p:not(.instant-room-lifetime, .instant-room-continuity, .instant-room-copy-notice, .transport-warning) {
@@ -279,14 +348,22 @@
 
   .instant-room-link-row {
     grid-template-columns: repeat(3, 1fr);
+    gap: .38rem;
   }
 
   .instant-room-link-row input {
+    min-height: 42px;
     grid-column: 1 / -1;
+    padding: .5rem .6rem;
+    font-size: .76rem;
   }
 
   .instant-room-link-row .button {
     width: 100%;
+    min-height: 44px;
+    padding: .45rem .5rem;
+    border-radius: 11px;
+    font-size: .76rem;
   }
 
   .instant-room-share-heading {
@@ -305,19 +382,26 @@
   }
 
   .instant-room-share .guest-qr {
-    width: min(144px, 42vw);
-    min-height: min(144px, 42vw);
+    width: 96px;
+    min-height: 96px;
     padding: .2rem;
+    border-radius: 12px;
+    background: white;
   }
 
-  .instant-room-lifetime {
-    font-size: .72rem;
+  .instant-room-lifetime,
+  .instant-room-continuity,
+  .instant-room-copy-notice {
+    overflow: hidden;
+    font-size: .66rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
 @media (max-width: 360px) {
   .instant-room-share {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 82px;
   }
 
   .instant-room-share.collapsed {
@@ -329,9 +413,8 @@
   }
 
   .instant-room-share .guest-qr {
-    width: min(132px, 42vw);
-    min-height: min(132px, 42vw);
-    justify-self: start;
+    width: 82px;
+    min-height: 82px;
   }
 
   .instant-room-entry-actions {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { AppIcon } from "../../components/AppIcon";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { conversationTitle, errorText } from "../../lib/format";
 import {
@@ -218,7 +219,7 @@ export function DirectoryPage() {
             <button type="button" onClick={() => setRetryGeneration((current) => current + 1)}>
               Try again
             </button>
-            <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button>
+            <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button>
           </div>
         </div>
       )}
@@ -242,10 +243,7 @@ export function DirectoryPage() {
         </div>
         <label className="member-search">
           <span className="sr-only">Search {section}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <circle cx="10.5" cy="10.5" r="6.5" />
-            <path d="m16 16 5 5" />
-          </svg>
+          <AppIcon name="search" />
           <input
             type="search"
             value={query}
@@ -440,9 +438,7 @@ function QuickActions({
         title={audioEnabled ? `Audio call ${name}` : "Audio calls are unavailable"}
         onClick={() => onAction("audio")}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          <path d="M7.2 3.5 10 8 8.4 9.7a13 13 0 0 0 5.9 5.9L16 14l4.5 2.8-.8 3.2c-.2.8-1 1.3-1.8 1.2A17.6 17.6 0 0 1 2.8 6.1C2.7 5.3 3.2 4.5 4 4.3l3.2-.8Z" />
-        </svg>
+        <AppIcon name="phone" />
       </button>
       <button
         className="directory-action icon"
@@ -452,10 +448,7 @@ function QuickActions({
         title={videoEnabled ? `Video call ${name}` : "Video calls are unavailable"}
         onClick={() => onAction("video")}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          <rect x="3" y="6" width="13" height="12" rx="2" />
-          <path d="m16 10 5-3v10l-5-3" />
-        </svg>
+        <AppIcon name="video" />
       </button>
     </div>
   );
@@ -472,7 +465,7 @@ function DirectoryEmpty({
 }) {
   return (
     <div className="member-status-view">
-      <span className="empty-mark" aria-hidden="true">◇</span>
+      <span className="empty-mark" aria-hidden="true"><AppIcon name="contact" /></span>
       <h2>{title}</h2>
       <p>{detail}</p>
       {action}

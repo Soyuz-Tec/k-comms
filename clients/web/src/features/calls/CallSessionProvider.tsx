@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { AppIcon } from "../../components/AppIcon";
 import type {
   CallMediaKind,
   CallRealtimeEvent,
@@ -155,7 +156,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       {notice && (
         <div className="call-session-launch-notice" role="status">
           <span>{notice}</span>
-          <button type="button" aria-label="Dismiss call notice" onClick={() => setNotice(null)}>×</button>
+          <button type="button" aria-label="Dismiss call notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button>
         </div>
       )}
     </CallSessionContext.Provider>
@@ -169,16 +170,7 @@ export function useCallSession(): CallSessionContextValue {
 }
 
 function CallKindIcon({ kind }: { kind: "audio" | "video" }) {
-  return kind === "audio" ? (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7.2 3.8 10 8.4 8.1 10a14.4 14.4 0 0 0 5.9 5.9l1.6-1.9 4.6 2.8-.8 3.2c-.2.8-.9 1.3-1.7 1.2A17.6 17.6 0 0 1 2.8 6.3c-.1-.8.4-1.5 1.2-1.7l3.2-.8Z" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3.2" y="6" width="12.8" height="12" rx="2.2" />
-      <path d="m16 10 4.8-2.5v9L16 14" />
-    </svg>
-  );
+  return <AppIcon name={kind === "audio" ? "phone" : "video"} />;
 }
 
 export function CallLaunchActions({

@@ -51,6 +51,9 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.goto(`/app/?conversation=${conversationId}`);
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
+      await expect(page.locator("nav.mobile-product-nav")).toBeHidden();
+      const moreMessageActions = page.getByRole("button", { name: "More message actions" });
+      await moreMessageActions.click();
       const messageActions = page.locator(".message-actions");
       await expect(messageActions.getByRole("button", { name: "Start thread" })).toBeVisible();
       await expect(messageActions.getByRole("button", { name: "Reply" })).toBeVisible();
@@ -73,6 +76,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(details, "conversation details control");
       await expectMinimumTarget(attachment, "attachment control");
       await expectMinimumTarget(send, "send control");
+      await moreMessageActions.click();
       await expectNoDocumentOverflow(page);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
         await page.screenshot({ path: testInfo.outputPath("conversation-390.png"), fullPage: true });
@@ -178,6 +182,8 @@ test.describe("authenticated mobile web acceptance", () => {
     await expect(dialog.getByText("Video", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use microphone when I join" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use camera when I join" })).toBeVisible();
+    await expect(page.locator("nav.mobile-product-nav")).toBeHidden();
+    await expect(page.locator(".composer")).toBeHidden();
     if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
       await page.screenshot({ path: testInfo.outputPath("video-prejoin-390.png"), fullPage: true });
     }

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { downloadUrl } from "../../api";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { AppIcon } from "../../components/AppIcon";
 import {
   errorText,
   formatBytes,
@@ -139,6 +140,7 @@ export function FilesPage() {
           disabled={loading}
           onClick={() => void loadFiles("replace")}
         >
+          <AppIcon name="refresh" />
           {loading ? "Refreshing…" : "Refresh"}
         </button>
       </header>
@@ -167,7 +169,7 @@ export function FilesPage() {
             ))}
           </fieldset>
           <details className="files-advanced-filter">
-            <summary aria-label="Advanced file filters">Filters</summary>
+            <summary aria-label="Advanced file filters"><AppIcon name="sliders" />Filters</summary>
             <div className="files-filters">
               <fieldset className="files-segments">
                 <legend className="sr-only">File ownership scope</legend>
@@ -210,7 +212,7 @@ export function FilesPage() {
         {downloadError && (
           <div className="files-download-error" role="alert">
             <span>{downloadError}</span>
-            <button type="button" aria-label="Dismiss download error" onClick={() => setDownloadError(null)}>×</button>
+            <button type="button" aria-label="Dismiss download error" onClick={() => setDownloadError(null)}><AppIcon name="x" /></button>
           </div>
         )}
 
@@ -319,6 +321,7 @@ function FileRow({
           to={sourceMessagePath(file)}
           aria-label={`View source message for ${file.file_name}`}
         >
+          <AppIcon name="externalLink" />
           View message
         </Link>
         <button
@@ -328,6 +331,7 @@ function FileRow({
           title={downloadTitle(file)}
           onClick={onDownload}
         >
+          <AppIcon name="download" />
           {downloading ? "Opening…" : "Download"}
         </button>
       </div>

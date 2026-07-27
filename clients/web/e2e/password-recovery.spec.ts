@@ -44,7 +44,9 @@ test("reset token is scrubbed before interaction and never persisted", async ({ 
   await expect(page).toHaveURL(/campaign=spring/);
   const password = page.getByLabel("New password", { exact: true });
   await expect(password).toBeEnabled();
-  await page.keyboard.press("Tab");
+  if (!(await password.evaluate((element) => element === document.activeElement))) {
+    await page.keyboard.press("Tab");
+  }
   await expect(password).toBeFocused();
   await password.fill("correct horse battery staple");
   await page.getByLabel("Confirm new password", { exact: true }).fill("correct horse battery staple");
