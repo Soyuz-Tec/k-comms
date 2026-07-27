@@ -268,6 +268,8 @@ def validate(root: Path) -> list[str]:
         "pg_dump --format=custom",
         "k-comms-legacy-adoption-receipt-v1",
         "adoption failed; restoring the retained legacy service",
+        'bash "${SCRIPT_DIR}/install.sh"',
+        'bash "${SCRIPT_DIR}/sync-assets.sh"',
         "--preflight-only",
         "--prepare-only",
         "verify.sh",
