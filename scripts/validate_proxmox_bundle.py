@@ -251,6 +251,11 @@ def validate(root: Path) -> list[str]:
     ):
         if required not in common:
             errors.append(f"common.sh is missing storage adoption control: {required}")
+    if (
+        '[[ -n "$line" ]] && printf \'%s\' "${line#*=}"\n  return 0'
+        not in common
+    ):
+        errors.append("read_optional_env_value must succeed when an optional key is absent")
 
     volume_templates = {
         "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in": (
@@ -284,6 +289,8 @@ def validate(root: Path) -> list[str]:
         'bash "${SCRIPT_DIR}/sync-assets.sh"',
         "10.90.0.0/24",
         "dedicated production Podman subnet",
+        'normalize_runtime_csp "$K_COMMS_RUNTIME_ENV"',
+        "legacy CSP does not exactly match the trusted-edge media and object endpoints",
         "--preflight-only",
         "--prepare-only",
         "verify.sh",

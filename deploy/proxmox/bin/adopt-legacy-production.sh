@@ -125,8 +125,10 @@ if [[ "$preflight_only" == true ]]; then
 fi
 
 runtime_candidate="$(mktemp /run/k-comms-runtime.XXXXXX)"
+csp_candidate=
 cleanup_runtime_candidate() {
   rm -f -- "$runtime_candidate"
+  [[ -z "$csp_candidate" ]] || rm -f -- "$csp_candidate"
 }
 trap cleanup_runtime_candidate EXIT
 grep -Ev \
@@ -166,6 +168,30 @@ append_env_if_missing S3_ACCESS_KEY_ID \
 append_env_if_missing S3_SECRET_ACCESS_KEY \
   "$(read_env_value "$runtime_source" MINIO_ROOT_PASSWORD)"
 
+normalize_runtime_csp() {
+  local file=$1
+  local value
+  local expected
+  local normalized
+
+  value="$(read_env_value "$file" CSP_CONNECT_SOURCES)"
+  if [[ "$value" == \"*\" ]]; then
+    value="${value#\"}"
+    value="${value%\"}"
+  fi
+  expected="'self' $(read_env_value "$file" LIVEKIT_SERVER_URL) $(read_env_value "$file" S3_PUBLIC_ENDPOINT)"
+  [[ "$value" == "$expected" ]] ||
+    die "legacy CSP does not exactly match the trusted-edge media and object endpoints"
+
+  normalized="$(mktemp /run/k-comms-csp.XXXXXX)"
+  csp_candidate=$normalized
+  grep -v -E '^CSP_CONNECT_SOURCES=' "$file" >"$normalized"
+  printf 'CSP_CONNECT_SOURCES=%s\n' "$value" >>"$normalized"
+  install -m 0600 "$normalized" "$file"
+  rm -f -- "$normalized"
+  csp_candidate=
+}
+
 if [[ -e "$K_COMMS_RUNTIME_ENV" ]]; then
   assert_secure_runtime_env
   if [[ -e "$K_COMMS_ENVIRONMENT_FILE" ]]; then
@@ -195,6 +221,7 @@ else
   install -m 0600 "$runtime_candidate" "$K_COMMS_RUNTIME_ENV"
   assert_secure_runtime_env
 fi
+normalize_runtime_csp "$K_COMMS_RUNTIME_ENV"
 
 bash "${SCRIPT_DIR}/install.sh" \
   --environment production \
