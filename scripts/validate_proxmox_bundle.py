@@ -37,6 +37,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/systemd/k-comms-health.timer",
     "deploy/proxmox/systemd/k-comms-backup.service",
     "deploy/proxmox/systemd/k-comms-backup.timer",
+    "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
 )
@@ -318,6 +319,23 @@ def validate(root: Path) -> list[str]:
     ):
         if required not in verifier:
             errors.append(f"verify.sh is missing adopted-image control: {required}")
+
+    tunnel_unit = read(
+        root, "deploy/proxmox/systemd/cloudflared-kcomms.service"
+    )
+    for required in (
+        "After=network-online.target",
+        "Restart=always",
+        "--token-file /etc/cloudflared/token",
+    ):
+        if required not in tunnel_unit:
+            errors.append(f"Cloudflare connector unit is missing: {required}")
+    if "Requires=k-comms-app.service" in tunnel_unit or (
+        "After=network-online.target k-comms-app.service" in tunnel_unit
+    ):
+        errors.append(
+            "Cloudflare connector must remain lifecycle-independent from the app"
+        )
 
     rollback = read(root, "deploy/proxmox/bin/rollback.sh")
     for required in (

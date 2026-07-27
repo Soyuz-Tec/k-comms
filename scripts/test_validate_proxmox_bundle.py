@@ -196,6 +196,24 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("start the tunnel after activation and fallback" in error for error in errors)
         )
 
+    def test_rejects_tunnel_app_lifecycle_coupling(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/systemd/cloudflared-kcomms.service"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "After=network-online.target",
+                "After=network-online.target k-comms-app.service\n"
+                "Requires=k-comms-app.service",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn(
+            "Cloudflare connector must remain lifecycle-independent from the app",
+            errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
