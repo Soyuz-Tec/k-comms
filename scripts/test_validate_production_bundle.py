@@ -147,6 +147,41 @@ class ValidateProductionBundleTest(unittest.TestCase):
             )
         )
 
+    def test_rejects_literal_configmap_or_asymmetric_core_secret_references(self) -> None:
+        documents = valid_documents()
+        edge = find_document(documents, "Deployment", "k-comms-edge")
+        worker = find_document(documents, "Deployment", "k-comms-worker")
+        edge_env = edge["spec"]["template"]["spec"]["containers"][0]["env"]
+        worker_env = worker["spec"]["template"]["spec"]["containers"][0]["env"]
+
+        next(item for item in edge_env if item["name"] == "DATABASE_URL").clear()
+        edge_env.append({"name": "DATABASE_URL", "value": "ecto://literal"})
+
+        worker_database = next(
+            item for item in worker_env if item["name"] == "DATABASE_URL"
+        )
+        worker_database["valueFrom"] = {
+            "configMapKeyRef": {"name": "runtime-config", "key": "DATABASE_URL"}
+        }
+
+        worker_webhook = next(
+            item
+            for item in worker_env
+            if item["name"] == "WEBHOOK_SECRET_ENCRYPTION_KEYS"
+        )
+        worker_webhook["valueFrom"]["secretKeyRef"].update(
+            {"name": "different-secrets", "key": "DIFFERENT_KEY"}
+        )
+
+        errors = validate_documents(documents)
+        self.assertTrue(any("DATABASE_URL must" in error for error in errors))
+        self.assertTrue(
+            any(
+                "WEBHOOK_SECRET_ENCRYPTION_KEYS must use" in error
+                for error in errors
+            )
+        )
+
     def test_rejects_blind_or_unbounded_migration_execution(self) -> None:
         documents = valid_documents()
         migration = next(
@@ -1177,6 +1212,30 @@ def workload(kind: str, name: str) -> dict:
                     "optional": False,
                 }
             }
+        )
+        environment.extend(
+            {
+                "name": variable,
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": "k-comms-secrets",
+                        "key": variable,
+                        **({"optional": True} if optional else {}),
+                    }
+                },
+            }
+            for variable, optional in (
+                ("RELEASE_COOKIE", False),
+                ("DATABASE_URL", False),
+                ("SECRET_KEY_BASE", False),
+                ("PASSWORD_RECOVERY_SIGNING_KEY", False),
+                ("S3_ACCESS_KEY_ID", False),
+                ("S3_SECRET_ACCESS_KEY", False),
+                ("WEBHOOK_SECRET_ENCRYPTION_KEY", True),
+                ("WEBHOOK_SECRET_ENCRYPTION_KEYS", True),
+                ("PUSH_SUBSCRIPTION_ENCRYPTION_KEY", True),
+                ("PUSH_SUBSCRIPTION_ENCRYPTION_KEYS", True),
+            )
         )
 
     document = {

@@ -337,6 +337,56 @@ defmodule CommsCore.IntegrationsSafetyOperationsTest do
              Integrations.replay_delivery(delivery.id, Fixtures.step_up(other))
   end
 
+  test "webhook rotation terminalizes queued old-key deliveries and refuses retired material" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.step_up(account)
+
+    {:ok, %{endpoint: endpoint}} =
+      Integrations.create_endpoint(
+        %{
+          name: "Rotation boundary",
+          url: "https://hooks.example.test/events",
+          event_types: ["message.created.v1"]
+        },
+        subject
+      )
+
+    {:ok, queued} =
+      Integrations.create_delivery(%{
+        tenant_id: account.tenant.id,
+        endpoint_id: endpoint.id,
+        event_type: "message.created.v1",
+        payload: %{},
+        idempotency_key: "webhook-rotation-boundary-0001",
+        secret_version: endpoint.secret_version,
+        status: :pending,
+        next_attempt_at: DateTime.utc_now()
+      })
+
+    assert {:ok, %{endpoint: rotated}} = Integrations.rotate_secret(endpoint.id, subject)
+    assert rotated.secret_version == 2
+
+    terminal = Repo.get!(WebhookDelivery, queued.id)
+    assert terminal.status == :failed
+    assert terminal.last_error_code == "endpoint_secret_rotated"
+    assert {:error, :terminal_delivery} = Integrations.claim_delivery(queued.id)
+
+    {:ok, old_version_delivery} =
+      Integrations.create_delivery(%{
+        tenant_id: account.tenant.id,
+        endpoint_id: endpoint.id,
+        event_type: "message.created.v1",
+        payload: %{},
+        idempotency_key: "webhook-rotation-boundary-0002",
+        secret_version: 1,
+        status: :pending,
+        next_attempt_at: DateTime.utc_now()
+      })
+
+    assert {:ok, claim} = Integrations.claim_delivery(old_version_delivery.id)
+    assert {:error, :webhook_secret_unavailable} = Integrations.delivery_request(claim)
+  end
+
   test "operations snapshot is tenant-scoped and exposes no destination or secret material" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)

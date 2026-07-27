@@ -47,6 +47,35 @@ defmodule CommsCore.AccountsTest do
     assert refreshed.refresh_token != authenticated.refresh_token
   end
 
+  test "successful authentication upgrades a legacy password hash" do
+    account = Fixtures.account_fixture()
+    password = account_fixture_password(account)
+    salt = :crypto.strong_rand_bytes(16)
+    digest = :crypto.pbkdf2_hmac(:sha256, password, salt, 210_000, 32)
+
+    legacy_hash =
+      Enum.join(
+        [
+          "pbkdf2-sha256",
+          "210000",
+          Base.url_encode64(salt, padding: false),
+          Base.url_encode64(digest, padding: false)
+        ],
+        "$"
+      )
+
+    account.user
+    |> Ecto.Changeset.change(password_hash: legacy_hash)
+    |> Repo.update!()
+
+    assert {:ok, _authentication} =
+             Accounts.authenticate_view(account.tenant.slug, account.user.email, password)
+
+    upgraded_hash = Repo.get!(User, account.user.id).password_hash
+    assert Password.verify(password, upgraded_hash)
+    refute Password.needs_rehash?(upgraded_hash)
+  end
+
   test "adapter authentication APIs return stable identity contracts" do
     account = Fixtures.account_fixture()
 
@@ -917,6 +946,43 @@ defmodule CommsCore.AccountsTest do
                account.user.email,
                "not-the-password"
              )
+  end
+
+  test "pads current, legacy, and missing-identity authentication failures to one floor" do
+    account = Fixtures.account_fixture()
+    password = account_fixture_password(account)
+    salt = :crypto.strong_rand_bytes(16)
+    digest = :crypto.pbkdf2_hmac(:sha256, password, salt, 210_000, 32)
+
+    legacy_hash =
+      Enum.join(
+        [
+          "pbkdf2-sha256",
+          "210000",
+          Base.url_encode64(salt, padding: false),
+          Base.url_encode64(digest, padding: false)
+        ],
+        "$"
+      )
+
+    account.user
+    |> Ecto.Changeset.change(password_hash: legacy_hash)
+    |> Repo.update!()
+
+    attempts = [
+      {account.tenant.slug, account.user.email},
+      {account.tenant.slug, "missing-#{account.user.email}"},
+      {"missing-#{account.tenant.slug}", account.user.email}
+    ]
+
+    for {tenant_slug, email} <- attempts do
+      started_at = System.monotonic_time(:millisecond)
+
+      assert {:error, :invalid_credentials} =
+               Accounts.authenticate_view(tenant_slug, email, "not-the-password")
+
+      assert System.monotonic_time(:millisecond) - started_at >= 500
+    end
   end
 
   test "tenant inactivity fails closed across sign-in, refresh, and active-session lookup" do

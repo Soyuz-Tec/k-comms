@@ -73,13 +73,17 @@ class ValidateStagingSecretsTest(unittest.TestCase):
                 "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
                 "WEBHOOK_SECRET_ENCRYPTION_KEYS",
             }
-            encoded = base64.b64encode(b"k" * 32).decode("ascii")
+            push_encoded = base64.b64encode(b"p" * 32).decode("ascii")
+            webhook_primary = base64.b64encode(b"w" * 32).decode("ascii")
+            webhook_previous = base64.b64encode(b"x" * 32).decode("ascii")
             self.write(
                 path,
                 keys,
                 {
-                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS": f"primary:{encoded}",
-                    "WEBHOOK_SECRET_ENCRYPTION_KEYS": f"primary:{encoded},previous:{encoded}",
+                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS": f"primary:{push_encoded}",
+                    "WEBHOOK_SECRET_ENCRYPTION_KEYS": (
+                        f"primary:{webhook_primary},previous:{webhook_previous}"
+                    ),
                 },
             )
             self.assertEqual(validate(path), [])
@@ -169,6 +173,71 @@ class ValidateStagingSecretsTest(unittest.TestCase):
                 any("entries must encode exactly 32 bytes" in error for error in errors)
             )
 
+    def test_keyrings_require_the_active_id_and_distinct_material(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime-secrets.env"
+            shared = base64.b64encode(b"k" * 32).decode("ascii")
+            keys = RUNTIME_REQUIRED | {
+                "WEBHOOK_SECRET_ENCRYPTION_KEY_ID",
+                "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+                "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
+            }
+            self.write(
+                path,
+                keys,
+                {
+                    "WEBHOOK_SECRET_ENCRYPTION_KEY_ID": "primary",
+                    "WEBHOOK_SECRET_ENCRYPTION_KEYS": f"retired:{shared}",
+                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS": f"primary:{shared}",
+                },
+            )
+
+            errors = validate(path)
+            self.assertTrue(any("must contain the active key id" in error for error in errors))
+            self.assertTrue(
+                any("must not be reused across" in error for error in errors)
+            )
+
+    def test_keyring_rejects_duplicate_material_under_different_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime-secrets.env"
+            shared = base64.b64encode(b"k" * 32).decode("ascii")
+            push = base64.b64encode(b"p" * 32).decode("ascii")
+            keys = RUNTIME_REQUIRED | {
+                "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+                "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
+            }
+            self.write(
+                path,
+                keys,
+                {
+                    "WEBHOOK_SECRET_ENCRYPTION_KEYS": (
+                        f"primary:{shared},previous:{shared}"
+                    ),
+                    "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS": f"primary:{push}",
+                },
+            )
+
+            errors = validate(path)
+            self.assertTrue(any("contains duplicate key material" in error for error in errors))
+
+    def test_database_url_cannot_override_runtime_tls_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime-secrets.env"
+            self.write(
+                path,
+                RUNTIME_WITH_SINGLE_KEYS,
+                {
+                    "DATABASE_URL": (
+                        "ecto://kcomms:postgres-password-32-bytes-long"
+                        "@postgres:5432/k_comms?ssl=false"
+                    )
+                },
+            )
+
+            errors = validate(path)
+            self.assertTrue(any("must not override the runtime TLS policy" in error for error in errors))
+
     def test_webhook_encryption_rejects_reserved_legacy_identifiers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "runtime-secrets.env"
@@ -233,10 +302,7 @@ class ValidateStagingSecretsTest(unittest.TestCase):
             self.write(
                 path,
                 STAGING_WITH_SINGLE_KEYS,
-                {
-                    "POSTGRES_PASSWORD": "different-postgres-password",
-                    "S3_SECRET_ACCESS_KEY": "different-minio-password",
-                },
+                {"POSTGRES_PASSWORD": "different-postgres-password"},
             )
 
             errors = validate(path)
@@ -246,12 +312,59 @@ class ValidateStagingSecretsTest(unittest.TestCase):
                     for error in errors
                 )
             )
-            self.assertTrue(
-                any(
-                    "S3_SECRET_ACCESS_KEY must match MINIO_ROOT_PASSWORD" in error
-                    for error in errors
-                )
+
+    def test_application_object_credentials_must_not_reuse_the_minio_root_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "secrets.env"
+            self.write(
+                path,
+                STAGING_WITH_SINGLE_KEYS,
+                {
+                    "S3_ACCESS_KEY_ID": "kcomms",
+                    "S3_SECRET_ACCESS_KEY": "minio-password-32-bytes-long-xx",
+                },
             )
+
+            errors = validate(path)
+            for key in ("S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"):
+                self.assertTrue(
+                    any(f"{key} must not reuse" in error for error in errors), key
+                )
+
+            self.write(path, STAGING_WITH_SINGLE_KEYS)
+            self.assertEqual(validate(path), [])
+
+    def test_staging_requires_a_usable_object_encryption_kms_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "secrets.env"
+
+            self.write(
+                path,
+                STAGING_WITH_SINGLE_KEYS - {"MINIO_KMS_SECRET_KEY"},
+            )
+            self.assertIn(
+                f"{path}: missing required key MINIO_KMS_SECRET_KEY", validate(path)
+            )
+
+            for invalid, expected in (
+                ("no-separator-present", "must be key_name:Base64Key"),
+                ("kcomms-key:not-base64!!", "must encode exactly 32 bytes"),
+                (
+                    "kcomms-key:" + base64.b64encode(b"too-short").decode(),
+                    "must encode exactly 32 bytes",
+                ),
+            ):
+                self.write(
+                    path,
+                    STAGING_WITH_SINGLE_KEYS,
+                    {"MINIO_KMS_SECRET_KEY": invalid},
+                )
+                errors = validate(path)
+                self.assertTrue(
+                    any(expected in error for error in errors), (invalid, errors)
+                )
 
     def test_errors_never_echo_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -273,13 +386,17 @@ class ValidateStagingSecretsTest(unittest.TestCase):
     ) -> None:
         postgres_password = "postgres-password-32-bytes-long"
         minio_password = "minio-password-32-bytes-long-xx"
+        application_password = "kcomms-app-password-32-bytes-xx"
+        kms_material = base64.b64encode(b"k-comms-staging-sse-s3-key-00001").decode()
         values = {
             "DATABASE_URL": f"ecto://kcomms:{postgres_password}@postgres:5432/k_comms",
             "SECRET_KEY_BASE": "s" * 64,
             "PASSWORD_RECOVERY_SIGNING_KEY": "r" * 32,
             "RELEASE_COOKIE": "c" * 32,
-            "S3_ACCESS_KEY_ID": "kcomms",
-            "S3_SECRET_ACCESS_KEY": minio_password,
+            # Deliberately distinct from the MinIO root identity below.
+            "S3_ACCESS_KEY_ID": "kcomms-app",
+            "S3_SECRET_ACCESS_KEY": application_password,
+            "MINIO_KMS_SECRET_KEY": f"kcomms-staging-key:{kms_material}",
             "WEBHOOK_SECRET_ENCRYPTION_KEY": "w" * 32,
             "PUSH_SUBSCRIPTION_ENCRYPTION_KEY": "p" * 32,
             "METRICS_BEARER_TOKEN": "m" * 32,

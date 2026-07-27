@@ -30,19 +30,25 @@ function ProductShellContent() {
   const { teardownCall } = useCallSession();
   const { error, setError, refreshAll } = useWorkspaceData();
   const [retrying, setRetrying] = useState(false);
+  const desktopShell = useDesktopShell();
+  const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
   const mobileAccountRef = useRef<HTMLDetailsElement | null>(null);
 
   useEffect(() => {
     function closeOutside(event: PointerEvent) {
-      const menu = mobileAccountRef.current;
-      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+      if (!(event.target instanceof Node)) return;
+      for (const menu of [desktopAccountRef.current, mobileAccountRef.current]) {
+        if (menu?.open && !menu.contains(event.target)) menu.open = false;
+      }
     }
 
     function closeOnEscape(event: KeyboardEvent) {
-      const menu = mobileAccountRef.current;
-      if (event.key !== "Escape" || !menu?.open) return;
-      menu.open = false;
-      menu.querySelector<HTMLElement>("summary")?.focus();
+      if (event.key !== "Escape") return;
+      for (const menu of [desktopAccountRef.current, mobileAccountRef.current]) {
+        if (!menu?.open) continue;
+        menu.open = false;
+        menu.querySelector<HTMLElement>("summary")?.focus();
+      }
     }
 
     document.addEventListener("pointerdown", closeOutside);
@@ -66,7 +72,61 @@ function ProductShellContent() {
   return (
     <div className="app-shell">
         <a className="skip-link" href="#main-content">Skip to content</a>
-        <header className="topbar">
+        {desktopShell && <aside className="desktop-workspace-rail" aria-label="Workspace navigation">
+          <div className="desktop-rail-brand">
+            <Brand compact />
+          </div>
+          <div
+            className="desktop-workspace-identity"
+            title={session.tenant.name}
+          >
+            <span aria-hidden="true">{initials(session.tenant.name).slice(0, 1)}</span>
+            <span className="visually-hidden">Current workspace: {session.tenant.name}</span>
+          </div>
+          <nav className="desktop-rail-nav" aria-label="Member areas">
+            <MemberAreaLinks compact />
+          </nav>
+          <button
+            className="desktop-instant-room"
+            type="button"
+            aria-label="Start instant room"
+            title="Start instant room"
+            onClick={() => {
+              beginNewInstantRoomVisit();
+              navigate("/");
+            }}
+          >
+            <span aria-hidden="true">＋</span>
+          </button>
+          <div className="desktop-rail-spacer" />
+          <NotificationCenter />
+          <details ref={desktopAccountRef} className="desktop-account-menu">
+            <summary
+              className="desktop-account-trigger"
+              aria-label={`Account menu for ${session.user.display_name}`}
+              title={session.user.display_name}
+            >
+              <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
+            </summary>
+            <section className="desktop-account-panel" aria-label="Signed-in account">
+              <div className="desktop-account-heading">
+                <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
+                <span>
+                  <strong>{session.user.display_name}</strong>
+                  <small>{session.tenant.name} · {session.user.role}</small>
+                </span>
+              </div>
+              {(showAdmin || showOperations) && (
+                <nav className="desktop-role-links" aria-label="Role tools">
+                  {showAdmin && <NavLink to="/admin" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Workspace administration</NavLink>}
+                  {showOperations && <NavLink to="/ops" onClick={() => { if (desktopAccountRef.current) desktopAccountRef.current.open = false; }}>Service operations</NavLink>}
+                </nav>
+              )}
+              <button className="button ghost compact desktop-signout" type="button" onClick={signOut}>Sign out</button>
+            </section>
+          </details>
+        </aside>}
+        {!desktopShell && <header className="topbar">
           <Brand compact />
           <div className="workspace-name">
             <span className="eyebrow">Workspace</span>
@@ -114,7 +174,7 @@ function ProductShellContent() {
               <button className="button ghost compact mobile-signout" type="button" onClick={signOut}>Sign out</button>
             </section>
           </details>
-        </header>
+        </header>}
 
         {error && (
           <div className="banner error-banner" role="alert">
@@ -127,4 +187,23 @@ function ProductShellContent() {
         <MobileBottomNav />
     </div>
   );
+}
+
+function useDesktopShell() {
+  const [desktop, setDesktop] = useState(() =>
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(min-width: 761px)").matches
+  );
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 761px)");
+    const update = () => setDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return desktop;
 }

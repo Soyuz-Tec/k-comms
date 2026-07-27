@@ -49,6 +49,11 @@ spec:
                 configMapKeyRef:
                   name: k-comms-config
                   key: MINIO_API_CORS_ALLOW_ORIGIN
+            - name: MINIO_KMS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: MINIO_KMS_SECRET_KEY
           ports:
             - name: api
               containerPort: 9000

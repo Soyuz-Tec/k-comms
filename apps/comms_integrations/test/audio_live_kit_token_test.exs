@@ -10,7 +10,8 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
       :livekit_api_url,
       :livekit_api_key,
       :livekit_api_secret,
-      :audio_token_ttl_seconds
+      :audio_token_ttl_seconds,
+      :allow_insecure_local_media
     ]
 
     previous = Map.new(keys, &{&1, Application.get_env(:comms_integrations, &1)})
@@ -21,6 +22,7 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
     Application.put_env(:comms_integrations, :livekit_api_key, "test-api-key")
     Application.put_env(:comms_integrations, :livekit_api_secret, "test-api-secret")
     Application.put_env(:comms_integrations, :audio_token_ttl_seconds, 300)
+    Application.put_env(:comms_integrations, :allow_insecure_local_media, false)
 
     on_exit(fn ->
       Enum.each(previous, fn {key, value} ->
@@ -162,6 +164,64 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
     Application.put_env(:comms_integrations, :audio_token_ttl_seconds, 300)
     Application.put_env(:comms_integrations, :livekit_server_url, "wss://audio.example.test/path")
     assert LiveKitToken.ensure_available() == {:error, :audio_provider_unavailable}
+  end
+
+  test "refuses to issue any credential over a plaintext media origin by default" do
+    input = [
+      "kc_audio_exact_room",
+      :audio,
+      "kc_exact_stored_provider_identity",
+      "Audio Member"
+    ]
+
+    # A participant token hands this URL to the browser. Without the explicit
+    # local-development gate, a plaintext signalling origin must fail closed
+    # rather than downgrade the media transport.
+    Application.put_env(:comms_integrations, :livekit_server_url, "ws://audio.example.test")
+
+    assert apply(LiveKitToken, :issue, input) == {:error, :audio_provider_unavailable}
+    assert LiveKitToken.ensure_available() == {:error, :audio_provider_unavailable}
+
+    Application.put_env(:comms_integrations, :livekit_server_url, "wss://audio.example.test")
+
+    # The room-control and room-admin tokens are admin-scoped, so a plaintext
+    # SFU control origin must fail closed on the same gate.
+    Application.put_env(:comms_integrations, :livekit_api_url, "http://audio-api.example.test")
+
+    assert apply(LiveKitToken, :issue, input) == {:error, :audio_provider_unavailable}
+
+    assert LiveKitToken.issue_room_control("kc_audio_exact_room") ==
+             {:error, :audio_provider_unavailable}
+
+    assert LiveKitToken.issue_room_admin("kc_audio_exact_room") ==
+             {:error, :audio_provider_unavailable}
+
+    assert LiveKitToken.issue_readiness() == {:error, :audio_provider_unavailable}
+  end
+
+  test "permits plaintext media origins only behind the explicit local gate" do
+    input = [
+      "kc_audio_exact_room",
+      :audio,
+      "kc_exact_stored_provider_identity",
+      "Audio Member"
+    ]
+
+    Application.put_env(:comms_integrations, :livekit_server_url, "ws://127.0.0.1:7880")
+    Application.put_env(:comms_integrations, :livekit_api_url, "http://livekit:7880")
+
+    assert apply(LiveKitToken, :issue, input) == {:error, :audio_provider_unavailable}
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_media, true)
+
+    assert {:ok, credential} = apply(LiveKitToken, :issue, input)
+    assert credential.server_url == "ws://127.0.0.1:7880"
+    assert {:ok, _control} = LiveKitToken.issue_room_control("kc_audio_exact_room")
+
+    # Only an exact boolean opt-in counts; a truthy value must not open the gate.
+    Application.put_env(:comms_integrations, :allow_insecure_local_media, "true")
+
+    assert apply(LiveKitToken, :issue, input) == {:error, :audio_provider_unavailable}
   end
 
   defp decode(value) do

@@ -30,6 +30,8 @@ config :comms_core,
 
 config :comms_integrations,
   allow_insecure_local_object_storage: true,
+  # Controller tests use loopback-only synthetic LiveKit fixtures.
+  allow_insecure_local_media: true,
   notification_adapter: CommsIntegrations.Notifications.Log,
   object_storage_adapter: CommsIntegrations.ObjectStorage.Memory,
   scanner_adapter: CommsIntegrations.Scanner.AllowAll,
@@ -39,6 +41,7 @@ config :comms_web,
   allow_bootstrap: true,
   access_token_ttl_seconds: 900,
   auth_adapter: CommsWeb.Auth.Token,
+  instant_room_creation_rate_limits_enabled: false,
   metrics_allow_unauthenticated: true,
   public_share_origin: "http://localhost:5173"
 

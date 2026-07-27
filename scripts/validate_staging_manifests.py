@@ -106,6 +106,8 @@ def validate_documents(documents: Sequence[Any]) -> list[str]:
         elif mounts[0].get("readOnly") is True:
             errors.append("minio /tmp mount must be writable")
 
+        errors.extend(_validate_minio_kms(containers[0]))
+
     volumes = _named_items(pod_spec.get("volumes"), "tmp")
     if len(volumes) != 1:
         errors.append("StatefulSet minio must define exactly one tmp volume")
@@ -128,6 +130,38 @@ def validate_documents(documents: Sequence[Any]) -> list[str]:
             "to cover the 1Gi tenant attachment ceiling plus temporary overhead"
         )
     return errors
+
+
+def _validate_minio_kms(container: Any) -> list[str]:
+    """SSE-S3 needs a KMS backend, so bucket default encryption is impossible
+    unless the minio container receives MINIO_KMS_SECRET_KEY from the secret."""
+
+    entries = container.get("env")
+    if not isinstance(entries, list):
+        return ["minio container must define MINIO_KMS_SECRET_KEY"]
+
+    matches = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("name") == "MINIO_KMS_SECRET_KEY"
+    ]
+    if len(matches) != 1:
+        return [
+            "minio container must define MINIO_KMS_SECRET_KEY exactly once so "
+            "bucket default encryption can be enabled"
+        ]
+
+    secret_ref = (matches[0].get("valueFrom") or {}).get("secretKeyRef") or {}
+    if (
+        secret_ref.get("name") != "k-comms-secrets"
+        or secret_ref.get("key") != "MINIO_KMS_SECRET_KEY"
+    ):
+        return [
+            "MINIO_KMS_SECRET_KEY must come from secret k-comms-secrets, never an "
+            "inline value"
+        ]
+
+    return []
 
 
 def validate_instant_room_gate(documents: Sequence[Any]) -> list[str]:

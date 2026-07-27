@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Minimal K-Comms desktop workspace mockup</title>
+  <desc id="desc">A minimal three-region communication workspace with a compact icon rail, conversation list, and uncluttered conversation canvas.</desc>
+  <defs>
+    <style>
+      .ui { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .label { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; }
+      .meta { font-size: 13px; fill: #647774; }
+      .body { font-size: 15px; fill: #173130; }
+      .title { font-size: 26px; font-weight: 760; fill: #102b2b; }
+      .icon { font-size: 18px; font-weight: 800; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#f4f6f3"/>
+
+  <!-- Compact workspace rail -->
+  <g>
+    <rect x="0" y="0" width="82" height="1000" fill="#0c2d2d"/>
+    <rect x="21" y="22" width="40" height="40" rx="10" fill="#0a8589"/>
+    <text x="41" y="49" text-anchor="middle" class="ui" font-size="20" font-weight="800" fill="#ffffff">K</text>
+
+    <rect x="18" y="91" width="46" height="46" rx="12" fill="#173f3e" stroke="#416561"/>
+    <text x="41" y="120" text-anchor="middle" class="ui" font-size="14" font-weight="800" fill="#d9ece6">A</text>
+    <circle cx="59" cy="127" r="5" fill="#42b878" stroke="#173f3e" stroke-width="2"/>
+
+    <line x1="18" y1="164" x2="64" y2="164" stroke="#315351"/>
+
+    <rect x="14" y="188" width="54" height="52" rx="13" fill="#d9f1e7"/>
+    <path d="M29 205h24v18H29zM34 211h14M34 216h9" fill="none" stroke="#0a6f73" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="60" cy="197" r="8" fill="#0a777b"/>
+    <text x="60" y="201" text-anchor="middle" class="ui" font-size="10" font-weight="800" fill="white">6</text>
+
+    <g fill="none" stroke="#b9cec8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M29 279c7 14 12 18 23 21l6-7-8-5-4 4c-5-2-9-6-11-11l4-4-5-8-7 6z"/>
+      <circle cx="35" cy="354" r="6"/>
+      <circle cx="50" cy="358" r="6"/>
+      <path d="M24 374c2-12 21-12 23 0M43 374c2-9 15-9 17 0"/>
+      <path d="M25 433h13l5 5h15v21H25z"/>
+      <circle cx="41" cy="520" r="8"/>
+      <path d="M27 546c2-17 26-17 28 0"/>
+    </g>
+
+    <rect x="17" y="605" width="48" height="48" rx="14" fill="#0a8589"/>
+    <path d="M41 617v24M29 629h24" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+
+    <circle cx="41" cy="932" r="21" fill="#bee1c8"/>
+    <text x="41" y="937" text-anchor="middle" class="ui" font-size="12" font-weight="800" fill="#143a37">AL</text>
+  </g>
+
+  <!-- Minimal workspace and message list -->
+  <g>
+    <rect x="82" y="0" width="350" height="1000" fill="#fbfcfa"/>
+    <line x1="431" y1="0" x2="431" y2="1000" stroke="#d6dfda"/>
+
+    <text x="108" y="39" class="ui label" fill="#627773">ACME</text>
+    <path d="M158 31l5 5 5-5" fill="none" stroke="#627773" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="108" y="82" class="ui title">Messages</text>
+    <rect x="366" y="46" width="40" height="40" rx="10" fill="#0a7c80"/>
+    <path d="M386 58v16M378 66h16" stroke="white" stroke-width="2" stroke-linecap="round"/>
+
+    <rect x="106" y="106" width="300" height="44" rx="10" fill="#f5f7f5" stroke="#c6d1cc"/>
+    <circle cx="129" cy="128" r="7" fill="none" stroke="#647774" stroke-width="1.6"/>
+    <path d="M134 133l5 5" stroke="#647774" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="151" y="133" class="ui meta">Search</text>
+
+    <text x="108" y="187" class="ui" font-size="13" font-weight="800" fill="#0a6e72">All</text>
+    <text x="156" y="187" class="ui" font-size="13" font-weight="700" fill="#6a7e7b">Unread</text>
+    <line x1="107" y1="198" x2="135" y2="198" stroke="#0a7c80" stroke-width="3" stroke-linecap="round"/>
+    <line x1="106" y1="207" x2="406" y2="207" stroke="#e0e7e3"/>
+
+    <rect x="96" y="220" width="320" height="74" rx="10" fill="#e4f1ea"/>
+    <circle cx="124" cy="257" r="18" fill="#c6e5dc"/>
+    <text x="124" y="263" text-anchor="middle" class="ui" font-size="18" font-weight="800" fill="#08777a">#</text>
+    <text x="153" y="247" class="ui" font-size="14" font-weight="800" fill="#173130">Execution Room</text>
+    <text x="153" y="270" class="ui meta">Alice: Please review the Q1 plan.</text>
+    <text x="392" y="245" text-anchor="end" class="ui" font-size="12" fill="#647774">9:41</text>
+    <circle cx="392" cy="271" r="10" fill="#0a777b"/>
+    <text x="392" y="275" text-anchor="middle" class="ui" font-size="10" font-weight="800" fill="white">3</text>
+
+    <g class="ui">
+      <circle cx="124" cy="337" r="18" fill="#eadccf"/>
+      <text x="124" y="342" text-anchor="middle" font-size="11" font-weight="800" fill="#765c47">MP</text>
+      <text x="153" y="329" font-size="14" font-weight="800" fill="#173130">Maya Patel</text>
+      <text x="153" y="352" class="meta">Thanks — I'll send that shortly.</text>
+      <text x="392" y="329" text-anchor="end" font-size="12" fill="#647774">9:32</text>
+
+      <line x1="106" y1="375" x2="406" y2="375" stroke="#e3e9e6"/>
+      <circle cx="124" cy="415" r="18" fill="#d9ece6"/>
+      <text x="124" y="421" text-anchor="middle" font-size="18" font-weight="800" fill="#08777a">#</text>
+      <text x="153" y="407" font-size="14" font-weight="800" fill="#173130">Product Updates</text>
+      <text x="153" y="430" class="meta">Daniel: Roadmap doc updated.</text>
+      <text x="392" y="407" text-anchor="end" font-size="12" fill="#647774">9:18</text>
+
+      <line x1="106" y1="453" x2="406" y2="453" stroke="#e3e9e6"/>
+      <circle cx="124" cy="493" r="18" fill="#dbe4ee"/>
+      <text x="124" y="498" text-anchor="middle" font-size="11" font-weight="800" fill="#496177">JL</text>
+      <text x="153" y="485" font-size="14" font-weight="800" fill="#173130">Jordan Lee</text>
+      <text x="153" y="508" class="meta">Sounds good.</text>
+      <text x="392" y="485" text-anchor="end" font-size="12" fill="#647774">8:53</text>
+
+      <line x1="106" y1="531" x2="406" y2="531" stroke="#e3e9e6"/>
+      <circle cx="124" cy="571" r="18" fill="#d9ece6"/>
+      <text x="124" y="577" text-anchor="middle" font-size="18" font-weight="800" fill="#08777a">#</text>
+      <text x="153" y="563" font-size="14" font-weight="800" fill="#173130">Design Team</text>
+      <text x="153" y="586" class="meta">Riley shared a file.</text>
+      <text x="392" y="563" text-anchor="end" font-size="12" fill="#647774">Tue</text>
+
+      <line x1="106" y1="609" x2="406" y2="609" stroke="#e3e9e6"/>
+      <circle cx="124" cy="649" r="18" fill="#e3dce9"/>
+      <text x="124" y="654" text-anchor="middle" font-size="11" font-weight="800" fill="#685574">SM</text>
+      <text x="153" y="641" font-size="14" font-weight="800" fill="#173130">Sofia Martinez</text>
+      <text x="153" y="664" class="meta">Let's sync later today.</text>
+      <text x="392" y="641" text-anchor="end" font-size="12" fill="#647774">Mon</text>
+    </g>
+  </g>
+
+  <!-- Uncluttered conversation canvas -->
+  <g>
+    <rect x="432" y="0" width="1168" height="1000" fill="#ffffff"/>
+    <rect x="432" y="0" width="1168" height="88" fill="#ffffff"/>
+    <line x1="432" y1="87" x2="1600" y2="87" stroke="#d6dfda"/>
+
+    <text x="464" y="39" class="ui" font-size="18" font-weight="800" fill="#102b2b">Execution Room</text>
+    <text x="464" y="63" class="ui meta">12 members</text>
+
+    <g fill="none" stroke="#315f5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="1457" cy="44" r="20" stroke="#c6d2cd"/>
+      <path d="M1448 36c4 9 8 13 16 16l5-6-6-4-3 4c-4-2-7-5-9-9l3-3-4-6-5 5z"/>
+      <circle cx="1511" cy="44" r="20" stroke="#c6d2cd"/>
+      <rect x="1499" y="36" width="16" height="14" rx="2"/>
+      <path d="M1515 40l8-4v14l-8-4z"/>
+      <circle cx="1565" cy="44" r="20" stroke="#c6d2cd"/>
+      <circle cx="1565" cy="44" r="2" fill="#315f5c" stroke="none"/>
+      <circle cx="1558" cy="44" r="2" fill="#315f5c" stroke="none"/>
+      <circle cx="1572" cy="44" r="2" fill="#315f5c" stroke="none"/>
+    </g>
+
+    <line x1="780" y1="132" x2="934" y2="132" stroke="#e1e7e4"/>
+    <text x="1016" y="136" text-anchor="middle" class="ui" font-size="12" font-weight="700" fill="#6a7d7a">TODAY</text>
+    <line x1="1098" y1="132" x2="1252" y2="132" stroke="#e1e7e4"/>
+
+    <circle cx="484" cy="203" r="19" fill="#eadccf"/>
+    <text x="484" y="208" text-anchor="middle" class="ui" font-size="11" font-weight="800" fill="#765c47">AJ</text>
+    <text x="516" y="188" class="ui" font-size="13" font-weight="800" fill="#173130">Alice Johnson</text>
+    <text x="614" y="188" class="ui" font-size="12" fill="#687b78">9:30 AM</text>
+    <rect x="516" y="201" width="404" height="68" rx="6 14 14 14" fill="#f5f7f5"/>
+    <text x="536" y="229" class="ui body">Morning team! Please review the execution plan</text>
+    <text x="536" y="251" class="ui body">for Q1 and share feedback by EOD.</text>
+    <text x="523" y="294" class="ui" font-size="12" fill="#536b68">👍 2</text>
+
+    <text x="1515" y="351" text-anchor="end" class="ui" font-size="12" fill="#687b78">9:32 AM</text>
+    <rect x="962" y="364" width="553" height="146" rx="14 6 14 14" fill="#dff0e8"/>
+    <text x="986" y="394" class="ui body">On it — here's the latest plan.</text>
+    <rect x="986" y="413" width="505" height="73" rx="10" fill="#ffffff" stroke="#bfd3ca"/>
+    <rect x="1002" y="427" width="34" height="43" rx="6" fill="#d95d4f"/>
+    <text x="1019" y="453" text-anchor="middle" class="ui" font-size="10" font-weight="800" fill="white">PDF</text>
+    <text x="1052" y="439" class="ui" font-size="14" font-weight="800" fill="#173130">Execution Plan Q1.pdf</text>
+    <text x="1052" y="462" class="ui meta">2.4 MB · Available</text>
+    <path d="M1451 438v20M1443 451l8 8 8-8" fill="none" stroke="#0a7478" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <circle cx="484" cy="582" r="19" fill="#dbe4ee"/>
+    <text x="484" y="587" text-anchor="middle" class="ui" font-size="11" font-weight="800" fill="#496177">DK</text>
+    <text x="516" y="567" class="ui" font-size="13" font-weight="800" fill="#173130">Daniel Kim</text>
+    <text x="596" y="567" class="ui" font-size="12" fill="#687b78">9:36 AM</text>
+    <rect x="516" y="580" width="303" height="48" rx="6 14 14 14" fill="#f5f7f5"/>
+    <text x="536" y="610" class="ui body">Looks solid. I added my notes.</text>
+
+    <circle cx="484" cy="690" r="19" fill="#e3dce9"/>
+    <text x="484" y="695" text-anchor="middle" class="ui" font-size="11" font-weight="800" fill="#685574">MP</text>
+    <text x="516" y="675" class="ui" font-size="13" font-weight="800" fill="#173130">Maya Patel</text>
+    <text x="599" y="675" class="ui" font-size="12" fill="#687b78">9:41 AM</text>
+    <rect x="516" y="688" width="438" height="70" rx="6 14 14 14" fill="#f5f7f5"/>
+    <text x="536" y="718" class="ui body">The risk section needs one decision from finance.</text>
+    <text x="536" y="742" class="ui" font-size="12" font-weight="700" fill="#0a7377">@Finance team</text>
+
+    <rect x="432" y="836" width="1168" height="164" fill="#ffffff"/>
+    <line x1="432" y1="836" x2="1600" y2="836" stroke="#d6dfda"/>
+    <rect x="466" y="866" width="1100" height="74" rx="12" fill="#fbfcfb" stroke="#aebdb7"/>
+    <circle cx="492" cy="903" r="16" fill="#edf2ef"/>
+    <path d="M492 895v16M484 903h16" stroke="#4b6a66" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="524" y="909" class="ui meta">Message Execution Room</text>
+    <circle cx="1476" cy="903" r="16" fill="#edf2ef"/>
+    <text x="1476" y="909" text-anchor="middle" class="ui" font-size="17" fill="#4b6a66">☺</text>
+    <rect x="1505" y="884" width="44" height="38" rx="10" fill="#0a7c80"/>
+    <path d="M1518 903h15M1527 896l7 7-7 7" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="466" y="971" class="ui" font-size="12" fill="#6b7d7a">Enter to send · Shift+Enter for a new line</text>
+    <text x="1566" y="971" text-anchor="end" class="ui" font-size="12" font-weight="700" fill="#486764">Draft saved</text>
+  </g>
+</svg>

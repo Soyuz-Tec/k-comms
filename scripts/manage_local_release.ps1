@@ -2176,6 +2176,9 @@ function New-StableEnvironment {
         POSTGRES_PASSWORD = New-UrlSafeSecret 36
         MINIO_ROOT_USER = "kcomms"
         MINIO_ROOT_PASSWORD = New-UrlSafeSecret 36
+        S3_APP_ACCESS_KEY_ID = "kcomms-app"
+        S3_APP_SECRET_ACCESS_KEY = New-UrlSafeSecret 36
+        MINIO_KMS_SECRET_KEY = "kcomms-local-key:" + (New-EncryptionKey)
         LIVEKIT_API_KEY = "local_" + (New-UrlSafeSecret 24)
         LIVEKIT_API_SECRET = New-UrlSafeSecret 48
         SECRET_KEY_BASE = New-UrlSafeSecret 72
@@ -2197,6 +2200,22 @@ function Get-StableEnvironment {
     $changed = $false
     if (-not $values.Contains("BOOTSTRAP_OWNER_PASSWORD")) {
         $values["BOOTSTRAP_OWNER_PASSWORD"] = New-UrlSafeSecret 48
+        $changed = $true
+    }
+    # A state root created before least-privilege object credentials and bucket
+    # default encryption has none of these, and the Compose file now requires
+    # all three. Backfill rather than forcing a redeploy; the application user is
+    # provisioned by minio-init on the next start.
+    if (-not $values.Contains("S3_APP_ACCESS_KEY_ID")) {
+        $values["S3_APP_ACCESS_KEY_ID"] = "kcomms-app"
+        $changed = $true
+    }
+    if (-not $values.Contains("S3_APP_SECRET_ACCESS_KEY")) {
+        $values["S3_APP_SECRET_ACCESS_KEY"] = New-UrlSafeSecret 36
+        $changed = $true
+    }
+    if (-not $values.Contains("MINIO_KMS_SECRET_KEY")) {
+        $values["MINIO_KMS_SECRET_KEY"] = "kcomms-local-key:" + (New-EncryptionKey)
         $changed = $true
     }
     foreach ($name in @(

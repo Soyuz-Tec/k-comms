@@ -31,6 +31,7 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
+            # The mc image has no grep, so every assertion below uses a case match.
             - |
               set -eu
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
@@ -38,6 +39,40 @@ spec:
               done
               mc mb --ignore-existing "local/$S3_BUCKET"
               mc version enable "local/$S3_BUCKET"
+
+              mc encrypt set sse-s3 "local/$S3_BUCKET"
+              encrypt_info="$(mc encrypt info "local/$S3_BUCKET")"
+              printf '%s\n' "$encrypt_info"
+              case "$encrypt_info" in
+                *sse-s3*) ;;
+                *) echo "bucket default encryption was not enabled" >&2; exit 1 ;;
+              esac
+
+              printf '%s' '{"Version":"2012-10-17","Statement":[
+                {"Effect":"Allow",
+                 "Action":["s3:ListBucket","s3:ListBucketVersions","s3:GetBucketLocation"],
+                 "Resource":["arn:aws:s3:::'"$S3_BUCKET"'"]},
+                {"Effect":"Allow",
+                 "Action":["s3:PutObject","s3:GetObject","s3:GetObjectVersion",
+                           "s3:DeleteObject","s3:DeleteObjectVersion"],
+                 "Resource":["arn:aws:s3:::'"$S3_BUCKET"'/*"]}]}' \
+                > /tmp/kcomms-app-policy.json
+
+              if [ "$S3_ACCESS_KEY_ID" = "$MINIO_ROOT_USER" ]; then
+                echo "S3_ACCESS_KEY_ID must not reuse the MinIO root identity" >&2
+                exit 1
+              fi
+
+              mc admin user add local "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY"
+              mc admin policy create local kcomms-app /tmp/kcomms-app-policy.json || true
+              mc admin policy attach local kcomms-app --user "$S3_ACCESS_KEY_ID" || true
+
+              entities="$(mc admin policy entities local --user "$S3_ACCESS_KEY_ID")"
+              printf '%s\n' "$entities"
+              case "$entities" in
+                *kcomms-app*) ;;
+                *) echo "application user is not bound to the bucket-scoped policy" >&2; exit 1 ;;
+              esac
           env:
             - name: MC_CONFIG_DIR
               value: /tmp/.mc
@@ -46,6 +81,16 @@ spec:
                 configMapKeyRef:
                   name: k-comms-config
                   key: S3_BUCKET
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k-comms-secrets
+                  key: S3_SECRET_ACCESS_KEY
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:

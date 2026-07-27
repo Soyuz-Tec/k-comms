@@ -94,13 +94,16 @@ defmodule CommsIntegrations.ObjectStorageTest do
     assert headers == %{
              "content-type" => "text/plain",
              "x-amz-checksum-sha256" => Base.encode64(:binary.copy(<<0xAA>>, 32)),
-             "x-amz-meta-sha256" => checksum
+             "x-amz-meta-sha256" => checksum,
+             "x-amz-server-side-encryption" => "AES256"
            }
 
     signed_headers = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
 
+    # Server-side encryption is signed, so the object store rejects an upload
+    # that drops or downgrades it rather than silently storing plaintext.
     assert signed_headers["X-Amz-SignedHeaders"] ==
-             "content-type;host;x-amz-checksum-sha256;x-amz-meta-sha256"
+             "content-type;host;x-amz-checksum-sha256;x-amz-meta-sha256;x-amz-server-side-encryption"
 
     assert {:ok, %{url: download_url}} =
              CommsIntegrations.ObjectStorage.S3.presign_download(attachment)
@@ -159,6 +162,46 @@ defmodule CommsIntegrations.ObjectStorageTest do
             }} = CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
 
     assert URI.parse(url).userinfo == nil
+  end
+
+  test "HTTP internal object-store origins use the same explicit local-only gate" do
+    previous_s3 = Application.get_env(:comms_integrations, :s3)
+
+    previous_allow =
+      Application.get_env(:comms_integrations, :allow_insecure_local_object_storage)
+
+    Application.put_env(:comms_integrations, :s3,
+      scheme: "https",
+      host: "objects.example.test",
+      port: 443,
+      internal_scheme: "http",
+      internal_host: "objects.internal",
+      internal_port: 9000,
+      bucket: "k-comms",
+      region: "us-east-1",
+      access_key_id: "access-key",
+      secret_access_key: "secret-key"
+    )
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_object_storage, false)
+
+    on_exit(fn ->
+      restore_env(:s3, previous_s3)
+      restore_env(:allow_insecure_local_object_storage, previous_allow)
+    end)
+
+    assert %{
+             status: :unavailable,
+             reason: :insecure_internal_object_storage_endpoint
+           } = CommsIntegrations.ObjectStorage.S3.status()
+
+    assert {:error, :insecure_internal_object_storage_endpoint} =
+             CommsIntegrations.ObjectStorage.S3.delete_object(%{
+               tenant_id: "tenant",
+               object_key: "tenant/file.txt",
+               object_version_id: "version-1",
+               storage_etag: "etag-1"
+             })
   end
 
   test "HTTP public object-store origin permits only the exact selected RFC1918 host" do

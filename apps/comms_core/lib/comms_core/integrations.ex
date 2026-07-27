@@ -199,7 +199,8 @@ defmodule CommsCore.Integrations do
           Repo.rollback(:conflict)
         end
 
-        version = endpoint.secret_version + 1
+        retired_version = endpoint.secret_version
+        version = retired_version + 1
 
         encrypted =
           secret
@@ -212,6 +213,12 @@ defmodule CommsCore.Integrations do
               is_nil(existing.retired_at)
         )
         |> Repo.update_all(set: [retired_at: now()])
+
+        fail_pending_deliveries_for_secret_version!(
+          endpoint,
+          retired_version,
+          "endpoint_secret_rotated"
+        )
 
         insert_secret!(endpoint, version, encrypted)
 
@@ -553,6 +560,24 @@ defmodule CommsCore.Integrations do
     )
   end
 
+  defp fail_pending_deliveries_for_secret_version!(endpoint, secret_version, reason) do
+    from(delivery in WebhookDelivery,
+      where:
+        delivery.endpoint_id == ^endpoint.id and delivery.tenant_id == ^endpoint.tenant_id and
+          delivery.secret_version == ^secret_version and
+          delivery.status in [:pending, :delivering, :retryable]
+    )
+    |> Repo.update_all(
+      set: [
+        status: :failed,
+        claimed_at: nil,
+        claim_token: nil,
+        last_error_code: reason,
+        updated_at: now()
+      ]
+    )
+  end
+
   defp active_delivery_in_progress?(endpoint) do
     cutoff = DateTime.add(now(), -@claim_timeout_seconds, :second)
 
@@ -691,11 +716,18 @@ defmodule CommsCore.Integrations do
   end
 
   defp materialize_delivery_request!(%WebhookDelivery{} = delivery, %WebhookEndpoint{} = endpoint) do
+    if delivery.secret_version != endpoint.secret_version do
+      Repo.rollback(:webhook_secret_unavailable)
+    end
+
     secret =
-      Repo.get_by(WebhookSecret,
-        tenant_id: delivery.tenant_id,
-        endpoint_id: delivery.endpoint_id,
-        version: delivery.secret_version
+      Repo.one(
+        from(secret in WebhookSecret,
+          where:
+            secret.tenant_id == ^delivery.tenant_id and
+              secret.endpoint_id == ^delivery.endpoint_id and
+              secret.version == ^delivery.secret_version and is_nil(secret.retired_at)
+        )
       ) || Repo.rollback(:webhook_secret_unavailable)
 
     plaintext =
