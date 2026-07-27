@@ -179,6 +179,23 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("verify.sh is missing adopted-image control" in error for error in errors)
         )
 
+    def test_rejects_missing_tunnel_recovery(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        document = path.read_text(encoding="utf-8")
+        path.write_text(
+            document.replace(
+                "    start_tunnel_if_installed || true\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("start the tunnel after activation and fallback" in error for error in errors)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
