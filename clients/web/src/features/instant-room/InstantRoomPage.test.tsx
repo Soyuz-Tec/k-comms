@@ -284,6 +284,41 @@ describe("InstantRoomPage", () => {
     expect(window.localStorage.getItem("k-comms.guest-session.v1")).toBeNull();
   });
 
+  it("reports a denied secure policy without mislabeling the browser address as HTTP", async () => {
+    vi.spyOn(ApiClient.prototype, "status").mockResolvedValue({
+      service: "k-comms",
+      version: "test",
+      status: "operational",
+      capabilities: {
+        administration: true,
+        audio_calls: true,
+        video_calls: true,
+        attachment_scanning: true,
+        bootstrap: false,
+        guest_links: true,
+        instant_rooms: true,
+        notifications: true,
+        push_notifications: true,
+        realtime: true,
+        secure_account_actions: false,
+        secure_media_actions: false,
+        webhooks: true
+      }
+    });
+
+    renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Text-only mode is active."
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "K-Comms could not verify a trusted HTTPS path"
+    );
+    expect(
+      screen.queryByText(/Text-only evaluation on this HTTP address/i)
+    ).not.toBeInTheDocument();
+  });
+
   it("retries one transient failure with the same idempotency key", async () => {
     const user = userEvent.setup();
     const create = vi
