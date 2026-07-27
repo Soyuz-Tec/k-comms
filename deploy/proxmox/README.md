@@ -37,6 +37,23 @@ Quadlet therefore cannot set Linux `no-new-privileges`; a staging regression
 test proved that doing so traps `gosu` before database startup. The application
 retains read-only rootfs, dropped capabilities, and no-new-privileges controls.
 
+## Protected GitHub delivery
+
+The manual `Deploy Proxmox` workflow uses the protected `staging` or
+`production` GitHub environment. Each environment must define:
+
+- variables `K_COMMS_DEPLOY_HOST` and `K_COMMS_DEPLOY_USER`;
+- secrets `K_COMMS_DEPLOY_SSH_KEY` and `K_COMMS_DEPLOY_HOST_KEY`; and
+- a protected-branch deployment policy.
+
+Production additionally requires an environment approval. The deploy job runs
+only on a persistent Windows self-hosted runner carrying the
+`k-comms-deploy` label. Keep that runner registered to this repository, run it
+as a least-privilege account, restrict its installation directory to that
+account and `SYSTEM`, and confirm it is online before promotion. Artifact
+provenance and SBOM verification stay on a GitHub-hosted runner before the
+protected environment releases any SSH material to the deployment job.
+
 ## Initial VM installation
 
 On a fresh dedicated Debian VM:
