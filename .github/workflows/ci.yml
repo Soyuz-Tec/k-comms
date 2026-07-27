@@ -208,6 +208,8 @@ jobs:
       - run: python scripts/validate_local_release.py
       - run: python scripts/test_validate_ops_assets.py
       - run: python scripts/validate_ops_assets.py
+      - run: python scripts/test_validate_proxmox_bundle.py
+      - run: python scripts/validate_proxmox_bundle.py
       - run: python scripts/test_validate_readiness_ledger.py
       - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json
 

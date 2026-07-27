@@ -1,0 +1,7 @@
+[Unit]
+Description=K-Comms object data
+
+[Volume]
+VolumeName=k-comms-minio-data
+Label=io.k-comms.managed=true
+Label=io.k-comms.data-class=authoritative

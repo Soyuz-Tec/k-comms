@@ -1,0 +1,15 @@
+[Unit]
+Description=Cloudflare Tunnel connector for K-Comms
+Wants=network-online.target
+After=network-online.target k-comms-app.service
+Requires=k-comms-app.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate run --token-file /etc/cloudflared/token
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

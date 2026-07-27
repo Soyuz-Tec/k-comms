@@ -1,0 +1,170 @@
+name: Deploy Proxmox
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected deployment environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      image:
+        description: Immutable GHCR image digest reference
+        required: true
+        type: string
+      revision:
+        description: Exact 40-character main commit
+        required: true
+        type: string
+      bootstrap:
+        description: Idempotently create the synthetic staging tenant
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+concurrency:
+  group: deploy-proxmox-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  verify-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.revision }}
+      - name: Enforce main revision and immutable image coordinates
+        shell: bash
+        env:
+          IMAGE: ${{ inputs.image }}
+          REVISION: ${{ inputs.revision }}
+          BOOTSTRAP: ${{ inputs.bootstrap }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE" =~ ^ghcr\.io/soyuz-tec/k-comms@sha256:[0-9a-f]{64}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$REVISION" ]]
+          git fetch --no-tags origin main
+          [[ "$(git rev-parse origin/main)" == "$REVISION" ]]
+          if [[ "$BOOTSTRAP" == true && "$DEPLOY_ENVIRONMENT" != staging ]]; then
+            echo "Bootstrap is permitted only in staging." >&2
+            exit 1
+          fi
+      - name: Authenticate to GHCR without persisting a credential
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          gh auth token | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Verify main-bound build provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -Eeuo pipefail
+          gh attestation verify "oci://${IMAGE}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/container.yml" \
+            --source-digest "$REVISION" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners
+      - name: Verify main-bound CycloneDX SBOM attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          set -Eeuo pipefail
+          gh attestation verify "oci://${IMAGE}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/container.yml" \
+            --source-digest "$REVISION" \
+            --source-ref refs/heads/main \
+            --predicate-type https://cyclonedx.org/bom \
+            --deny-self-hosted-runners
+      - name: Validate the Proxmox deployment contract
+        run: |
+          python scripts/test_validate_proxmox_bundle.py
+          python scripts/validate_proxmox_bundle.py
+
+  deploy:
+    needs: verify-artifact
+    runs-on: [self-hosted, windows, x64, k-comms-deploy]
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.revision }}
+      - name: Materialize protected SSH inputs
+        shell: powershell
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.K_COMMS_DEPLOY_SSH_KEY }}
+          DEPLOY_HOST_KEY: ${{ secrets.K_COMMS_DEPLOY_HOST_KEY }}
+        run: |
+          $keyPath = Join-Path $env:RUNNER_TEMP "k-comms-deploy-key"
+          $knownHostsPath = Join-Path $env:RUNNER_TEMP "k-comms-known-hosts"
+          [IO.File]::WriteAllText(
+              $keyPath,
+              $env:DEPLOY_SSH_KEY.Trim() + [Environment]::NewLine,
+              [Text.UTF8Encoding]::new($false)
+          )
+          [IO.File]::WriteAllText(
+              $knownHostsPath,
+              $env:DEPLOY_HOST_KEY.Trim() + [Environment]::NewLine,
+              [Text.UTF8Encoding]::new($false)
+          )
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+          & icacls.exe $keyPath /inheritance:r /grant:r "$identity`:(R)" | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to restrict the SSH private key ACL"
+          }
+          "DEPLOY_KEY_PATH=$keyPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "DEPLOY_KNOWN_HOSTS_PATH=$knownHostsPath" |
+              Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Deploy and verify the approved digest
+        shell: powershell
+        env:
+          DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
+        run: |
+          $arguments = @{
+              Environment = "${{ inputs.environment }}"
+              DeployHost = $env:DEPLOY_HOST
+              DeployUser = $env:DEPLOY_USER
+              SshKeyPath = $env:DEPLOY_KEY_PATH
+              KnownHostsPath = $env:DEPLOY_KNOWN_HOSTS_PATH
+              Image = "${{ inputs.image }}"
+              Revision = "${{ inputs.revision }}"
+              BundlePath = (Join-Path $env:GITHUB_WORKSPACE "deploy\proxmox")
+          }
+          if ("${{ inputs.bootstrap }}" -eq "true") {
+              $arguments.Bootstrap = $true
+          }
+          & (Join-Path $env:GITHUB_WORKSPACE "scripts\proxmox\deploy-remote.ps1") @arguments
+      - name: Remove protected SSH inputs
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($path in @(
+              $env:DEPLOY_KEY_PATH,
+              $env:DEPLOY_KNOWN_HOSTS_PATH
+          )) {
+              if ($path -and (Test-Path -LiteralPath $path)) {
+                  Remove-Item -LiteralPath $path -Force
+              }
+          }

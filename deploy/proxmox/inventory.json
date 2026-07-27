@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "management": {
+    "proxmox_url": "https://192.168.1.21:8006/",
+    "node": "kcomms"
+  },
+  "environments": {
+    "staging": {
+      "vm_id": 101,
+      "vm_name": "k-comms-staging",
+      "address": "192.168.1.23",
+      "cidr": "192.168.1.23/24",
+      "gateway": "192.168.1.1",
+      "app_url": "http://192.168.1.23:4188",
+      "data_policy": "synthetic-only"
+    },
+    "production": {
+      "vm_id": 100,
+      "vm_name": "k-comms-app",
+      "address": "192.168.1.22",
+      "cidr": "192.168.1.22/24",
+      "gateway": "192.168.1.1",
+      "app_url": "https://comms.avayaworks.com",
+      "media_url": "https://media.avayaworks.com",
+      "object_url": "https://kcomms-files.avayaworks.com",
+      "data_policy": "authoritative"
+    }
+  }
+}
