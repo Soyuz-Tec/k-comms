@@ -24,6 +24,8 @@ This map connects the twelve deployable-engineering-plan outputs to their primar
 - Software stack and environment standards: `docs/06-platform-and-stack/`
 - Developer onboarding and implementation guides: `docs/12-development-guides/`
 - Operational handbook and support model: `docs/14-operations/`
+- Required post-development release procedure:
+  `docs/14-operations/development-to-production-completion-standard.md`
 - Reference skeletons for future repositories: `skeletons/`
 - Reusable document templates: `templates/`
 

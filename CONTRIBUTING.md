@@ -5,6 +5,10 @@
 3. Update tests, contracts, migrations, docs, and ADRs with implementation.
 4. Run `make check`, `make contracts`, and `make docs-check`.
 5. Open a pull request using the repository template.
+6. After implementation, continue through the applicable gates in the
+   [development-to-production completion standard](docs/14-operations/development-to-production-completion-standard.md).
+   Completed runtime work defaults to protected staging and production
+   promotion; documentation-only work finishes at protected merge.
 
 Domain code must not depend on Phoenix controllers, socket structs, provider
 SDK models, or deployment-specific configuration. Every tenant-owned query,

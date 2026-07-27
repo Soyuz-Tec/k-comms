@@ -17,6 +17,25 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
     def test_repository_bundle_passes(self) -> None:
         self.assertEqual(validate(REPO_ROOT), [])
 
+    def test_rejects_weakened_post_development_completion_standard(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = (
+            root
+            / "docs/14-operations/development-to-production-completion-standard.md"
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Same immutable digest qualified in staging and production",
+                "Independently rebuilt images may be used",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("completion standard is missing control" in error for error in errors)
+        )
+
     def copied_contract(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
