@@ -279,6 +279,8 @@ def validate(root: Path) -> list[str]:
         "StrictHostKeyChecking=yes",
         "sync-assets.sh",
         "deploy.sh",
+        "ToBase64String",
+        "base64 -d | bash",
     ):
         if required not in remote:
             errors.append(f"remote deployment wrapper is missing: {required}")
