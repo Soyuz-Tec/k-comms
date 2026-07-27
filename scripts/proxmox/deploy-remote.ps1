@@ -110,6 +110,11 @@ try {
         })
         "sudo bash '$remoteDirectory/bin/sync-assets.sh'"
         (
+            "if sudo systemctl is-active --quiet k-comms-app.service; then" +
+            " sudo /opt/k-comms/bin/verify.sh" +
+            " --environment '$Environment'; fi"
+        )
+        (
             "sudo /opt/k-comms/bin/deploy.sh" +
             " --environment '$Environment'" +
             " --image '$Image'" +

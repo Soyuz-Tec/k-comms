@@ -38,6 +38,12 @@ without waiting for another instruction.
 - Then continue through production approval and backup.
 - Complete deployment of the same digest, post-deployment verification, and
   finalization.
+- Runtime-impacting merges automatically enter the serialized Container release
+  chain. Do not ask for another deployment instruction or manually rebuild the
+  image between environments.
+- Continue automatically through staging and queue production. The protected
+  production approval remains an independent authorized-reviewer action and
+  must never be self-approved or bypassed by the implementing agent.
 - For documentation-only or governance-only work, finish at a protected merge
   after documentation checks; do not create or deploy a runtime artifact.
 - Do not bypass a required check, protected environment, attestation, backup,

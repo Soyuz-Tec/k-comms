@@ -151,6 +151,20 @@ publishes a digest-bound SBOM attestation. The workflow pins every publication
 action to a reviewed commit and grants write permissions only to the
 publication job.
 
+For runtime-impacting protected-main merges, the Container workflow continues
+as the serialized release orchestrator. It passes the full digest and exact
+revision to the reusable protected Proxmox deployment workflow, qualifies
+staging through deploy, backup, rollback, candidate reactivation, and isolated
+PostgreSQL/MinIO restore, then queues the same digest for production. Production
+waits for its required reviewer, rechecks that the revision is still protected
+`main`, creates the quiesced backup, deploys, exports non-secret evidence, and
+finishes with public application, media, and object-storage verification.
+
+Documentation-only and governance-only merges do not enter the runtime release
+chain. Main release runs are not cancelled by later merges; later candidates
+queue, while a stale candidate fails its protected-main recheck before host
+access.
+
 GitHub Actions OIDC obtains a short-lived Sigstore certificate for each signed
 attestation. This is the repository's keyless signature boundary; it does not
 depend on a separate long-lived cosign private key. Promotion verifies both the

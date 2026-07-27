@@ -21,6 +21,12 @@ staging, production promotion, verification, and final reporting.
 Required reviews, protected-environment approvals, and fail-closed gates remain
 mandatory. This standard never authorizes bypassing them.
 
+For runtime-impacting merges, `.github/workflows/container.yml` executes the
+artifact, staging, production, evidence, and public-verification gates as one
+serialized release chain. It automatically queues the production job after
+staging passes, but the required authorized reviewer must still approve the
+protected `production` environment.
+
 ## Change classification and exit state
 
 | Change class | Examples | Required exit state |

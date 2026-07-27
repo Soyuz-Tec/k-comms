@@ -11,6 +11,7 @@ from pathlib import Path
 
 REQUIRED_FILES = (
     "AGENTS.md",
+    ".github/workflows/container.yml",
     ".github/workflows/deploy-proxmox.yml",
     "deploy/proxmox/README.md",
     "deploy/proxmox/inventory.json",
@@ -33,17 +34,22 @@ REQUIRED_FILES = (
     "deploy/proxmox/bin/verify.sh",
     "deploy/proxmox/bin/backup.sh",
     "deploy/proxmox/bin/quiesced-backup.sh",
+    "deploy/proxmox/bin/qualify-staging.sh",
     "deploy/proxmox/bin/rollback.sh",
     "deploy/proxmox/bin/restore.sh",
+    "deploy/proxmox/bin/restore-rehearsal.sh",
     "deploy/proxmox/systemd/k-comms-health.service",
     "deploy/proxmox/systemd/k-comms-health.timer",
     "deploy/proxmox/systemd/k-comms-backup.service",
     "deploy/proxmox/systemd/k-comms-backup.timer",
     "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
+    "scripts/proxmox/export-deployment-evidence.ps1",
+    "scripts/proxmox/qualify-staging-remote.ps1",
     "scripts/test_proxmox_livekit_runtime.sh",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
     "docs/02-architecture/adr/0057-managed-livekit-cloud-internet-media.md",
+    "docs/02-architecture/adr/0058-automatic-merge-to-production-promotion.md",
     "docs/10-infrastructure-and-deployment/environments/development.md",
     "docs/14-operations/development-to-production-completion-standard.md",
 )
@@ -446,8 +452,43 @@ def validate(root: Path) -> list[str]:
         if required not in restore:
             errors.append(f"restore.sh is missing control: {required}")
 
+    restore_rehearsal = read(
+        root, "deploy/proxmox/bin/restore-rehearsal.sh"
+    )
+    for required in (
+        "isolated restore rehearsal is permitted only in staging",
+        "sha256sum --check --strict",
+        "k_comms_restore_",
+        "pg_restore",
+        "restore-rehearsal.",
+        ".minio.sys/format.json",
+        "k-comms-restore-rehearsal-receipt-v1",
+    ):
+        if required not in restore_rehearsal:
+            errors.append(
+                f"restore-rehearsal.sh is missing control: {required}"
+            )
+
+    staging_qualification = read(
+        root, "deploy/proxmox/bin/qualify-staging.sh"
+    )
+    for required in (
+        "staging qualification is permitted only on the staging VM",
+        "rollback.sh",
+        "restore-rehearsal.sh",
+        "deploy.sh",
+        "k-comms-staging-qualification-receipt-v1",
+        "staging-qualification.json",
+        "a distinct previous release is required for rollback rehearsal",
+    ):
+        if required not in staging_qualification:
+            errors.append(
+                f"qualify-staging.sh is missing control: {required}"
+            )
+
     workflow = read(root, ".github/workflows/deploy-proxmox.yml")
     for required in (
+        "workflow_call:",
         "workflow_dispatch:",
         "cancel-in-progress: false",
         "--source-ref refs/heads/main",
@@ -460,6 +501,10 @@ def validate(root: Path) -> list[str]:
         "secrets.K_COMMS_LIVEKIT_CLOUD_CREDENTIAL",
         "LIVEKIT_CREDENTIAL_PATH",
         "bash scripts/test_proxmox_livekit_runtime.sh",
+        "Reconfirm the approved revision is still protected main",
+        "qualify-staging-remote.ps1",
+        "export-deployment-evidence.ps1",
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "StrictHostKeyChecking=yes",
     ):
         if required not in workflow and required not in read(
@@ -467,7 +512,10 @@ def validate(root: Path) -> list[str]:
         ):
             errors.append(f"deployment workflow is missing: {required}")
     if "pull_request:" in workflow or "\n  push:" in workflow:
-        errors.append("deployment workflow must remain manual-only")
+        errors.append(
+            "deployment workflow must be invoked only by workflow_call or "
+            "workflow_dispatch"
+        )
 
     remote = read(root, "scripts/proxmox/deploy-remote.ps1")
     for required in (
@@ -481,9 +529,70 @@ def validate(root: Path) -> list[str]:
         "chmod 0600",
         "ToBase64String",
         "base64 -d | bash",
+        "verify.sh",
     ):
         if required not in remote:
             errors.append(f"remote deployment wrapper is missing: {required}")
+
+    staging_remote = read(
+        root, "scripts/proxmox/qualify-staging-remote.ps1"
+    )
+    for required in (
+        "StrictHostKeyChecking=yes",
+        "ServerAliveInterval=15",
+        "qualify-staging.sh",
+        "ToBase64String",
+        "base64 -d | bash",
+    ):
+        if required not in staging_remote:
+            errors.append(
+                f"remote staging qualification wrapper is missing: {required}"
+            )
+
+    evidence_remote = read(
+        root, "scripts/proxmox/export-deployment-evidence.ps1"
+    )
+    for required in (
+        'ValidateSet("staging", "production")',
+        "StrictHostKeyChecking=yes",
+        "k-comms-workflow-evidence-v1",
+        "sha256sum --check --strict",
+        "staging-qualification.json",
+        "ConvertFrom-Json",
+        "ToBase64String",
+        "base64 -d | sudo bash",
+    ):
+        if required not in evidence_remote:
+            errors.append(
+                f"deployment evidence exporter is missing: {required}"
+            )
+
+    container_workflow = read(root, ".github/workflows/container.yml")
+    for required in (
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+        "deploy/proxmox/**",
+        "scripts/proxmox/**",
+        "Record the only promotable release candidate",
+        "needs: [publish, staging]",
+        "environment: staging",
+        "environment: production",
+        "image: ${{ needs.publish.outputs.image }}",
+        "uses: ./.github/workflows/deploy-proxmox.yml",
+        "Verify public production and finalize release evidence",
+        "https://comms.avayaworks.com/api/v1/status",
+        "https://kcomms-files.avayaworks.com/minio/health/ready",
+    ):
+        if required not in container_workflow:
+            errors.append(
+                f"automatic release workflow is missing control: {required}"
+            )
+    if container_workflow.count(
+        "uses: ./.github/workflows/deploy-proxmox.yml"
+    ) != 2:
+        errors.append(
+            "automatic release workflow must call the protected deployment "
+            "workflow exactly once for staging and once for production"
+        )
 
     readme = read(root, "deploy/proxmox/README.md")
     for required in (
@@ -494,6 +603,9 @@ def validate(root: Path) -> list[str]:
         "restore-k-comms-backup-v1",
         "K_COMMS_LIVEKIT_CLOUD_CREDENTIAL",
         "managed_cloud",
+        "automatically queues",
+        "required reviewer approves",
+        "isolated restore rehearsal",
     ):
         if required not in readme:
             errors.append(f"Proxmox runbook is missing boundary text: {required}")
