@@ -5,6 +5,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
 
   @algorithm "AWS4-HMAC-SHA256"
   @service "s3"
+  @server_side_encryption "AES256"
   @version_page_size 100
   @max_purge_passes 10
   @max_version_listing_bytes 262_144
@@ -22,7 +23,8 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
       headers = %{
         "content-type" => attachment.content_type,
         "x-amz-checksum-sha256" => checksum_base64(checksum),
-        "x-amz-meta-sha256" => checksum
+        "x-amz-meta-sha256" => checksum,
+        "x-amz-server-side-encryption" => @server_side_encryption
       }
 
       presign("PUT", attachment.object_key, :public, headers, [])
@@ -48,6 +50,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          :ok <- verify_size(headers, attachment.byte_size),
          {:ok, checksum} <- required_checksum(attachment),
          :ok <- verify_checksum(headers, checksum),
+         :ok <- verify_encryption(headers),
          {:ok, version} <- response_version(headers),
          {:ok, etag} <- response_etag(headers) do
       {:ok,
@@ -72,6 +75,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          {:ok, expected_etag} <- required_etag(attachment),
          {:ok, headers} <- head_current_object(attachment),
          :ok <- verify_size(headers, expected_size),
+         :ok <- verify_encryption(headers),
          {:ok, version} <- response_version(headers),
          {:ok, restored_etag} <- response_etag(headers),
          {:ok, etag_verification} <-
@@ -240,20 +244,26 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     config = Application.get_env(:comms_integrations, :s3, [])
     required = [:scheme, :host, :port, :bucket, :region, :access_key_id, :secret_access_key]
     missing = Enum.filter(required, &(Keyword.get(config, &1) in [nil, ""]))
+    internal_scheme = Keyword.get(config, :internal_scheme, Keyword.get(config, :scheme))
+    internal_host = Keyword.get(config, :internal_host, Keyword.get(config, :host))
+    internal_port = Keyword.get(config, :internal_port, Keyword.get(config, :port))
 
     cond do
       missing != [] ->
         %{status: :unavailable, adapter: "s3", reason: :missing_configuration, missing: missing}
 
-      public_endpoint_allowed?(
+      not endpoint_allowed?(
         Keyword.get(config, :scheme),
         Keyword.get(config, :host),
         Keyword.get(config, :port)
       ) ->
-        %{status: :available, adapter: "s3"}
+        %{status: :unavailable, adapter: "s3", reason: :insecure_public_object_storage_endpoint}
+
+      not endpoint_allowed?(internal_scheme, internal_host, internal_port) ->
+        %{status: :unavailable, adapter: "s3", reason: :insecure_internal_object_storage_endpoint}
 
       true ->
-        %{status: :unavailable, adapter: "s3", reason: :insecure_public_object_storage_endpoint}
+        %{status: :available, adapter: "s3"}
     end
   end
 
@@ -393,28 +403,27 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   defp internal_key(:host), do: :internal_host
   defp internal_key(:port), do: :internal_port
 
-  defp validate_endpoint_security(:internal, scheme, _host, _port)
-       when scheme in ["http", "https"],
-       do: :ok
+  defp validate_endpoint_security(:internal, scheme, host, port) do
+    if endpoint_allowed?(scheme, host, port),
+      do: :ok,
+      else: {:error, :insecure_internal_object_storage_endpoint}
+  end
 
   defp validate_endpoint_security(:public, scheme, host, port) do
-    if public_endpoint_allowed?(scheme, host, port),
+    if endpoint_allowed?(scheme, host, port),
       do: :ok,
       else: {:error, :insecure_public_object_storage_endpoint}
   end
 
-  defp validate_endpoint_security(_, _, _, _),
-    do: {:error, :invalid_object_storage_endpoint}
-
-  defp public_endpoint_allowed?("https", host, port),
+  defp endpoint_allowed?("https", host, port),
     do: is_binary(host) and host != "" and is_integer(port) and port > 0
 
-  defp public_endpoint_allowed?("http", host, port) do
+  defp endpoint_allowed?("http", host, port) do
     Application.get_env(:comms_integrations, :allow_insecure_local_object_storage, false) and
       local_development_host?(host) and is_integer(port) and port > 0
   end
 
-  defp public_endpoint_allowed?(_, _, _), do: false
+  defp endpoint_allowed?(_, _, _), do: false
 
   defp local_development_host?(host) do
     host in @local_development_hosts or exact_insecure_local_host?(host)
@@ -464,6 +473,16 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     if metadata == expected and actual == checksum_base64(expected),
       do: :ok,
       else: {:error, :object_checksum_mismatch}
+  end
+
+  # The object must come back reporting a server-side encryption algorithm.
+  # Any algorithm is accepted so a KMS-backed bucket is not rejected for being
+  # stronger than the requested default; an unencrypted object fails closed.
+  defp verify_encryption(headers) do
+    case header(headers, "x-amz-server-side-encryption") do
+      algorithm when is_binary(algorithm) and algorithm != "" -> :ok
+      _ -> {:error, :object_encryption_missing}
+    end
   end
 
   defp head_current_object(attachment) do
@@ -612,10 +631,21 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   end
 
   defp trustworthy_etag?(expected, actual, headers) do
-    is_nil(header(headers, "x-amz-server-side-encryption")) and
+    algorithm = header(headers, "x-amz-server-side-encryption")
+
+    md5_preserving_encryption?(algorithm) and
       Regex.match?(~r/^[a-f0-9]{32}$/, expected) and
       Regex.match?(~r/^[a-f0-9]{32}$/, actual)
   end
+
+  # SSE-S3 keeps the ETag equal to the plaintext MD5 for single-part uploads, so
+  # the ETag stays usable as a cheap cross-check under the requested default.
+  # KMS and customer-provided keys do not, and their opaque ETags are never
+  # treated as content evidence. The streamed SHA-256 remains authoritative in
+  # every case.
+  defp md5_preserving_encryption?(nil), do: true
+  defp md5_preserving_encryption?(@server_side_encryption), do: true
+  defp md5_preserving_encryption?(_algorithm), do: false
 
   defp normalize_etag(etag) when is_binary(etag) do
     normalized = etag |> String.trim() |> String.trim("\"") |> String.downcase()

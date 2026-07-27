@@ -39,6 +39,7 @@ config :comms_web,
   allow_bootstrap: true,
   access_token_ttl_seconds: 900,
   auth_adapter: CommsWeb.Auth.Token,
+  instant_room_creation_rate_limits_enabled: false,
   metrics_allow_unauthenticated: true,
   public_share_origin: "http://localhost:5173"
 

@@ -35,8 +35,14 @@ jobs:
       K_COMMS_TEST_S3_HOST: 127.0.0.1
       K_COMMS_TEST_S3_PORT: "9000"
       K_COMMS_TEST_S3_BUCKET: k-comms-test
-      K_COMMS_TEST_S3_ACCESS_KEY_ID: kcomms-test
-      K_COMMS_TEST_S3_SECRET_ACCESS_KEY: k-comms-test-password
+      # The suite runs as the bucket-scoped application identity, not as the
+      # MinIO root user, so the least-privilege policy is exercised by CI.
+      K_COMMS_TEST_S3_ACCESS_KEY_ID: kcomms-test-app
+      K_COMMS_TEST_S3_SECRET_ACCESS_KEY: k-comms-test-app-password
+      K_COMMS_TEST_S3_ROOT_USER: kcomms-test
+      K_COMMS_TEST_S3_ROOT_PASSWORD: k-comms-test-password
+      # Non-secret fixture key; base64 of exactly 32 bytes, as MinIO requires.
+      K_COMMS_TEST_S3_KMS_SECRET_KEY: kcomms-test-key:ay1jb21tcy1jaS1zc2UtczMtZml4dHVyZS1rZXktMDE=
       MINIO_IMAGE: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
       MINIO_MC_IMAGE: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
     steps:
@@ -83,8 +89,9 @@ jobs:
           docker run --detach \
             --name k-comms-ci-minio \
             --publish "127.0.0.1:${K_COMMS_TEST_S3_PORT}:9000" \
-            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
-            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
+            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ROOT_USER}" \
+            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_ROOT_PASSWORD}" \
+            --env "MINIO_KMS_SECRET_KEY=${K_COMMS_TEST_S3_KMS_SECRET_KEY}" \
             "$MINIO_IMAGE" server /data
 
           for attempt in $(seq 1 30); do
@@ -103,8 +110,10 @@ jobs:
           done
 
           docker run --rm --network host \
-            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
-            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
+            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ROOT_USER}" \
+            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_ROOT_PASSWORD}" \
+            --env "S3_APP_ACCESS_KEY_ID=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
+            --env "S3_APP_SECRET_ACCESS_KEY=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
             --env "S3_BUCKET=${K_COMMS_TEST_S3_BUCKET}" \
             --env "S3_ENDPOINT=http://${K_COMMS_TEST_S3_HOST}:${K_COMMS_TEST_S3_PORT}" \
             --entrypoint /bin/sh \
@@ -118,6 +127,34 @@ jobs:
               case "$version_info" in
                 *"versioning is enabled"*) ;;
                 *) echo "bucket versioning was not enabled" >&2; exit 1 ;;
+              esac
+
+              mc encrypt set sse-s3 "local/$S3_BUCKET"
+              encrypt_info="$(mc encrypt info "local/$S3_BUCKET")"
+              printf "%s\n" "$encrypt_info"
+              case "$encrypt_info" in
+                *sse-s3*) ;;
+                *) echo "bucket default encryption was not enabled" >&2; exit 1 ;;
+              esac
+
+              printf "%s" "{\"Version\":\"2012-10-17\",\"Statement\":[
+                {\"Effect\":\"Allow\",
+                 \"Action\":[\"s3:ListBucket\",\"s3:ListBucketVersions\",\"s3:GetBucketLocation\"],
+                 \"Resource\":[\"arn:aws:s3:::$S3_BUCKET\"]},
+                {\"Effect\":\"Allow\",
+                 \"Action\":[\"s3:PutObject\",\"s3:GetObject\",\"s3:GetObjectVersion\",
+                           \"s3:DeleteObject\",\"s3:DeleteObjectVersion\"],
+                 \"Resource\":[\"arn:aws:s3:::$S3_BUCKET/*\"]}]}" > /tmp/kcomms-app-policy.json
+
+              mc admin user add local "$S3_APP_ACCESS_KEY_ID" "$S3_APP_SECRET_ACCESS_KEY"
+              mc admin policy create local kcomms-app /tmp/kcomms-app-policy.json || true
+              mc admin policy attach local kcomms-app --user "$S3_APP_ACCESS_KEY_ID" || true
+
+              entities="$(mc admin policy entities local --user "$S3_APP_ACCESS_KEY_ID")"
+              printf "%s\n" "$entities"
+              case "$entities" in
+                *kcomms-app*) ;;
+                *) echo "application user is not bound to the bucket-scoped policy" >&2; exit 1 ;;
               esac
             '
       - run: mix test --warnings-as-errors

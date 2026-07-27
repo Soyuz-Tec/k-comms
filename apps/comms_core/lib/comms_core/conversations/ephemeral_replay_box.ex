@@ -1,7 +1,9 @@
 defmodule CommsCore.Conversations.EphemeralReplayBox do
   @moduledoc false
 
-  @aad_prefix "k-comms:ephemeral-room-replay:v1"
+  @aad_prefix "k-comms:ephemeral-room-replay:v2"
+  @legacy_aad_prefix "k-comms:ephemeral-room-replay:v1"
+  @key_derivation_context "k-comms:ephemeral-room-replay:key:v1"
   @key_bytes 32
   @nonce_bytes 12
   @tag_bytes 16
@@ -10,7 +12,8 @@ defmodule CommsCore.Conversations.EphemeralReplayBox do
   def encrypt(token, tenant_id, room_id)
       when is_binary(token) and is_binary(tenant_id) and is_binary(room_id) do
     with {:ok, current_key_id, keys} <- keyring(),
-         {:ok, key} <- Map.fetch(keys, current_key_id) do
+         {:ok, master_key} <- Map.fetch(keys, current_key_id) do
+      key = derive_key(master_key)
       nonce = :crypto.strong_rand_bytes(@nonce_bytes)
       aad = aad(current_key_id, tenant_id, room_id)
 
@@ -35,16 +38,16 @@ defmodule CommsCore.Conversations.EphemeralReplayBox do
          tenant_id when is_binary(tenant_id) <- value(room, :tenant_id),
          room_id when is_binary(room_id) <- value(room, :id),
          {:ok, _current_key_id, keys} <- keyring(),
-         {:ok, key} <- Map.fetch(keys, key_id),
+         {:ok, master_key} <- Map.fetch(keys, key_id),
          token when is_binary(token) <-
-           :crypto.crypto_one_time_aead(
-             :aes_256_gcm,
-             key,
+           decrypt_token(
+             master_key,
+             key_id,
+             tenant_id,
+             room_id,
              nonce,
              ciphertext,
-             aad(key_id, tenant_id, room_id),
-             tag,
-             false
+             tag
            ) do
       {:ok, token}
     else
@@ -109,8 +112,46 @@ defmodule CommsCore.Conversations.EphemeralReplayBox do
 
   defp decode_key(_), do: {:error, :invalid_key}
 
+  defp decrypt_token(master_key, key_id, tenant_id, room_id, nonce, ciphertext, tag) do
+    decrypt_with_key(
+      derive_key(master_key),
+      nonce,
+      ciphertext,
+      aad(key_id, tenant_id, room_id),
+      tag
+    ) ||
+      decrypt_with_key(
+        master_key,
+        nonce,
+        ciphertext,
+        legacy_aad(key_id, tenant_id, room_id),
+        tag
+      )
+  end
+
+  defp decrypt_with_key(key, nonce, ciphertext, aad, tag) do
+    case :crypto.crypto_one_time_aead(
+           :aes_256_gcm,
+           key,
+           nonce,
+           ciphertext,
+           aad,
+           tag,
+           false
+         ) do
+      token when is_binary(token) -> token
+      _ -> nil
+    end
+  end
+
+  defp derive_key(master_key),
+    do: :crypto.mac(:hmac, :sha256, master_key, @key_derivation_context)
+
   defp aad(key_id, tenant_id, room_id),
     do: Enum.join([@aad_prefix, key_id, tenant_id, room_id], ":")
+
+  defp legacy_aad(key_id, tenant_id, room_id),
+    do: Enum.join([@legacy_aad_prefix, key_id, tenant_id, room_id], ":")
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

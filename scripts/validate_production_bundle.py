@@ -134,6 +134,19 @@ OPERATION_WORKLOADS = (
     ),
 )
 
+CORE_SECRET_ENV = {
+    "RELEASE_COOKIE": False,
+    "DATABASE_URL": False,
+    "SECRET_KEY_BASE": False,
+    "PASSWORD_RECOVERY_SIGNING_KEY": False,
+    "S3_ACCESS_KEY_ID": False,
+    "S3_SECRET_ACCESS_KEY": False,
+    "WEBHOOK_SECRET_ENCRYPTION_KEY": True,
+    "WEBHOOK_SECRET_ENCRYPTION_KEYS": True,
+    "PUSH_SUBSCRIPTION_ENCRYPTION_KEY": True,
+    "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS": True,
+}
+
 
 def validate(path: Path) -> list[str]:
     return validate_paths([path])
@@ -260,6 +273,7 @@ def validate_documents(documents: list[dict]) -> list[str]:
     validate_guest_rollback_preflight(documents, errors)
     validate_workload_contracts(documents, errors)
     validate_provider_secret_refs(documents, errors)
+    validate_core_secret_refs(documents, errors)
     validate_external_data_plane(documents, errors)
     validate_capacity_controls(documents, errors)
     validate_database_egress(documents, errors)
@@ -1021,6 +1035,48 @@ def validate_provider_secret_refs(documents: list[dict], errors: list[str]) -> N
             errors.append(
                 f"Deployment {name}: k-comms-provider-secrets must be an explicit non-optional envFrom reference"
             )
+
+
+def validate_core_secret_refs(documents: list[dict], errors: list[str]) -> None:
+    for name in ("k-comms-edge", "k-comms-worker"):
+        document = named_document(documents, "Deployment", name)
+        if not document:
+            continue
+
+        containers = _pod_spec(document).get("containers", [])
+        environment = containers[0].get("env", []) if containers else []
+        entries: dict[str, list[dict]] = {}
+
+        for item in environment:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                entries.setdefault(item["name"], []).append(item)
+
+        for variable, optional in CORE_SECRET_ENV.items():
+            matches = entries.get(variable, [])
+            if len(matches) != 1:
+                errors.append(
+                    f"Deployment {name}: {variable} must have exactly one k-comms-secrets reference"
+                )
+                continue
+
+            item = matches[0]
+            value_from = item.get("valueFrom")
+            secret_ref = (
+                value_from.get("secretKeyRef")
+                if isinstance(value_from, dict)
+                else None
+            )
+            if (
+                "value" in item
+                or not isinstance(secret_ref, dict)
+                or secret_ref.get("name") != "k-comms-secrets"
+                or secret_ref.get("key") != variable
+                or secret_ref.get("optional", False) is not optional
+            ):
+                requirement = "optional" if optional else "non-optional"
+                errors.append(
+                    f"Deployment {name}: {variable} must use the matching {requirement} k-comms-secrets secretKeyRef"
+                )
 
 
 def _validate_pod_security(

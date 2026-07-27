@@ -1,6 +1,12 @@
 defmodule CommsWeb.Router do
   use CommsWeb, :router
 
+  @instant_room_creation_rate_limits_enabled Application.compile_env(
+                                               :comms_web,
+                                               :instant_room_creation_rate_limits_enabled,
+                                               true
+                                             )
+
   pipeline :api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RateLimit, limit: 120, window: 60, scope: :ip)
@@ -28,20 +34,17 @@ defmodule CommsWeb.Router do
   pipeline :instant_room_create_api do
     plug(:accepts, ["json"])
     plug(CommsWeb.Plugs.RequireSameOriginJSON)
-    plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :ip)
     plug(CommsWeb.Plugs.OptionalHumanAuthentication)
 
-    plug(CommsWeb.Plugs.DistributedRateLimit,
-      scope: :instant_room_create,
-      limit: 2,
-      window: 60
-    )
+    if @instant_room_creation_rate_limits_enabled do
+      plug(CommsWeb.Plugs.RateLimit, limit: 20, window: 60, scope: :ip)
 
-    plug(CommsWeb.Plugs.DistributedRateLimit,
-      scope: :instant_room_create,
-      limit: 10,
-      window: 86_400
-    )
+      plug(CommsWeb.Plugs.DistributedRateLimit,
+        scope: :instant_room_create,
+        limit: 2,
+        window: 60
+      )
+    end
   end
 
   pipeline :instant_room_join_api do

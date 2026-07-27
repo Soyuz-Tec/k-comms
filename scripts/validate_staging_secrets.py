@@ -8,7 +8,7 @@ import binascii
 import re
 import sys
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 
 KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -32,6 +32,8 @@ STAGING_RUNTIME_REQUIRED = RUNTIME_REQUIRED | {
     "POSTGRES_DB",
     "MINIO_ROOT_USER",
     "MINIO_ROOT_PASSWORD",
+    # Bucket default encryption is impossible without a KMS backend.
+    "MINIO_KMS_SECRET_KEY",
 }
 
 BOOTSTRAP_REQUIRED = {
@@ -58,6 +60,19 @@ ENCRYPTION_ALTERNATIVES = {
         "PUSH_SUBSCRIPTION_ENCRYPTION_KEY",
         "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
     ),
+}
+
+ENCRYPTION_FAMILIES = {
+    "webhook secret encryption": {
+        "single": "WEBHOOK_SECRET_ENCRYPTION_KEY",
+        "keyring": "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+        "current_id": "WEBHOOK_SECRET_ENCRYPTION_KEY_ID",
+    },
+    "push subscription encryption": {
+        "single": "PUSH_SUBSCRIPTION_ENCRYPTION_KEY",
+        "keyring": "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
+        "current_id": "PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID",
+    },
 }
 
 AES_256_KEYS = {
@@ -147,6 +162,8 @@ def validate(path: Path) -> list[str]:
             errors.append(
                 f"{path}:{number}: {key} must not use the reserved legacy identifier"
             )
+        if key.endswith("_ENCRYPTION_KEY_ID") and not KEY_ID.fullmatch(value):
+            errors.append(f"{path}:{number}: {key} contains an invalid key identifier")
         if key in MINIMUM_BYTES and len(value.encode("utf-8")) < MINIMUM_BYTES[key]:
             errors.append(
                 f"{path}:{number}: {key} must contain at least {MINIMUM_BYTES[key]} bytes"
@@ -156,6 +173,9 @@ def validate(path: Path) -> list[str]:
         errors.extend(
             validate_database_url(path, lines["DATABASE_URL"], values["DATABASE_URL"])
         )
+
+    if is_runtime_file(path):
+        errors.extend(validate_encryption_relationships(path, values, lines))
 
     if path.name.lower() in {"secrets.env", "secrets.env.example"}:
         errors.extend(validate_staging_relationships(path, values, lines))
@@ -167,18 +187,25 @@ def validate(path: Path) -> list[str]:
 
 
 def valid_aes_256_key(value: str) -> bool:
-    if len(value.encode("utf-8")) == 32:
-        return True
+    return decode_aes_256_key(value) is not None
+
+
+def decode_aes_256_key(value: str) -> bytes | None:
+    raw = value.encode("utf-8")
+    if len(raw) == 32:
+        return raw
 
     try:
-        return len(base64.b64decode(value, validate=True)) == 32
+        decoded = base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError):
-        return False
+        return None
+    return decoded if len(decoded) == 32 else None
 
 
 def validate_keyring(path: Path, number: int, key: str, value: str) -> list[str]:
     errors: list[str] = []
     seen_ids: set[str] = set()
+    seen_materials: set[bytes] = set()
     entries = value.split(",")
 
     if not entries:
@@ -205,6 +232,68 @@ def validate_keyring(path: Path, number: int, key: str, value: str) -> list[str]
             errors.append(
                 f"{path}:{number}: {key} entries must encode exactly 32 bytes"
             )
+        elif decoded in seen_materials:
+            errors.append(f"{path}:{number}: {key} contains duplicate key material")
+        else:
+            seen_materials.add(decoded)
+
+    return errors
+
+
+def validate_encryption_relationships(
+    path: Path, values: dict[str, str], lines: dict[str, int]
+) -> list[str]:
+    errors: list[str] = []
+    family_materials: dict[str, set[bytes]] = {}
+
+    for description, keys in ENCRYPTION_FAMILIES.items():
+        keyring_name = keys["keyring"]
+        single_name = keys["single"]
+        current_id_name = keys["current_id"]
+        current_id = values.get(current_id_name, "primary")
+        materials: set[bytes] = set()
+
+        if configured(values.get(keyring_name)):
+            entries = values[keyring_name].split(",")
+            key_ids: set[str] = set()
+
+            for entry in entries:
+                parts = entry.split(":", 1)
+                if len(parts) != 2:
+                    continue
+                key_id, encoded = parts
+                if KEY_ID.fullmatch(key_id):
+                    key_ids.add(key_id)
+                decoded = decode_aes_256_key(encoded)
+                if decoded is not None:
+                    materials.add(decoded)
+
+            if semantically_validatable(current_id) and current_id not in key_ids:
+                errors.append(
+                    f"{path}:{lines[keyring_name]}: {keyring_name} must contain the active key id {current_id_name}"
+                )
+        elif configured(values.get(single_name)):
+            decoded = decode_aes_256_key(values[single_name])
+            if decoded is not None:
+                materials.add(decoded)
+
+        family_materials[description] = materials
+
+    seen: dict[bytes, str] = {}
+    for description, materials in family_materials.items():
+        for material in materials:
+            previous = seen.get(material)
+            if previous is not None and previous != description:
+                keyring_name = ENCRYPTION_FAMILIES[description]["keyring"]
+                single_name = ENCRYPTION_FAMILIES[description]["single"]
+                source_name = (
+                    keyring_name if configured(values.get(keyring_name)) else single_name
+                )
+                errors.append(
+                    f"{path}:{lines[source_name]}: encryption key material must not be reused across {previous} and {description}"
+                )
+            else:
+                seen[material] = description
 
     return errors
 
@@ -236,6 +325,11 @@ def validate_database_url(path: Path, number: int, value: str) -> list[str]:
 
     if port is not None and not 1 <= port <= 65535:
         errors.append(f"{path}:{number}: DATABASE_URL contains an invalid port")
+
+    if any(key.lower() == "ssl" for key, _value in parse_qsl(parsed.query, keep_blank_values=True)):
+        errors.append(
+            f"{path}:{number}: DATABASE_URL must not override the runtime TLS policy with an ssl query parameter"
+        )
 
     return errors
 
@@ -271,6 +365,10 @@ def validate_staging_relationships(
                 f"{path}:{lines['DATABASE_URL']}: DATABASE_URL port must be 5432 for the portable staging overlay"
             )
 
+    # The application must reach the bundled MinIO service as a bucket-scoped
+    # identity that minio-init binds to a least-privilege policy. Reusing the
+    # root credential would let the application suspend versioning, clear bucket
+    # encryption, or purge version history.
     for application_key, minio_key in (
         ("S3_ACCESS_KEY_ID", "MINIO_ROOT_USER"),
         ("S3_SECRET_ACCESS_KEY", "MINIO_ROOT_PASSWORD"),
@@ -278,13 +376,36 @@ def validate_staging_relationships(
         if (
             semantically_validatable(values.get(application_key))
             and semantically_validatable(values.get(minio_key))
-            and values[application_key] != values[minio_key]
+            and values[application_key] == values[minio_key]
         ):
             errors.append(
-                f"{path}:{lines[application_key]}: {application_key} must match {minio_key} for the bundled MinIO service"
+                f"{path}:{lines[application_key]}: {application_key} must not reuse {minio_key}; "
+                "the application requires a bucket-scoped identity"
             )
 
+    kms_key = values.get("MINIO_KMS_SECRET_KEY")
+    if semantically_validatable(kms_key):
+        errors.extend(
+            validate_kms_secret_key(path, lines["MINIO_KMS_SECRET_KEY"], kms_key)
+        )
+
     return errors
+
+
+def validate_kms_secret_key(path: Path, number: int, value: str) -> list[str]:
+    """MinIO needs <key-name>:<base64 32 bytes> to serve SSE-S3 at all."""
+    parts = value.split(":", 1)
+    if len(parts) != 2 or not KEY_ID.fullmatch(parts[0]):
+        return [
+            f"{path}:{number}: MINIO_KMS_SECRET_KEY must be key_name:Base64Key"
+        ]
+
+    if decode_aes_256_key(parts[1]) is None:
+        return [
+            f"{path}:{number}: MINIO_KMS_SECRET_KEY material must encode exactly 32 bytes"
+        ]
+
+    return []
 
 
 def validate_bootstrap_identity(

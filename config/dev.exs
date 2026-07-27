@@ -23,6 +23,9 @@ config :comms_core,
 
 config :comms_integrations,
   allow_insecure_local_object_storage: true,
+  # Development signalling and SFU control default to ws://127.0.0.1 and
+  # http://livekit; both are refused unless this gate is explicitly on.
+  allow_insecure_local_media: true,
   audio_provider_mode: System.get_env("AUDIO_PROVIDER_MODE", "livekit"),
   livekit_server_url: System.get_env("LIVEKIT_SERVER_URL", "ws://127.0.0.1:7880"),
   livekit_api_url: System.get_env("LIVEKIT_API_URL", "http://livekit:7880"),
@@ -38,6 +41,7 @@ config :comms_integrations,
 
 config :comms_web,
   allow_bootstrap: true,
+  instant_room_creation_rate_limits_enabled: false,
   public_share_origin: public_app_url,
   access_token_ttl_seconds: 3_600,
   metrics_allow_unauthenticated: true,

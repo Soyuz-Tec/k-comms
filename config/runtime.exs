@@ -16,15 +16,54 @@ parse_keyring = fn value, environment_name ->
       nil
 
     encoded ->
-      encoded
-      |> String.split(",", trim: true)
-      |> Enum.map(fn entry ->
-        case String.split(entry, ":", parts: 2) do
-          [key_id, key] when key_id != "" and key != "" -> {key_id, key}
-          _ -> raise "#{environment_name} must use key_id:base64 entries"
-        end
-      end)
-      |> Map.new()
+      {keys, _materials} =
+        encoded
+        |> String.split(",", trim: true)
+        |> Enum.reduce({%{}, MapSet.new()}, fn entry, {keys, materials} ->
+          {key_id, key} =
+            case String.split(entry, ":", parts: 2) do
+              [key_id, key] when key_id != "" and key != "" -> {key_id, key}
+              _ -> raise "#{environment_name} must use key_id:base64 entries"
+            end
+
+          unless Regex.match?(~r/^[A-Za-z0-9_.-]{1,64}$/, key_id) do
+            raise "#{environment_name} contains an invalid key identifier"
+          end
+
+          if Map.has_key?(keys, key_id) do
+            raise "#{environment_name} contains duplicate key identifiers"
+          end
+
+          material =
+            case Base.decode64(key) do
+              {:ok, decoded} when byte_size(decoded) == 32 -> decoded
+              _ -> raise "#{environment_name} entries must encode exactly 32 bytes"
+            end
+
+          if MapSet.member?(materials, material) do
+            raise "#{environment_name} contains duplicate key material"
+          end
+
+          {Map.put(keys, key_id, key), MapSet.put(materials, material)}
+        end)
+
+      keys
+  end
+end
+
+decode_runtime_key = fn value, environment_name ->
+  cond do
+    not is_binary(value) ->
+      nil
+
+    byte_size(value) == 32 ->
+      value
+
+    true ->
+      case Base.decode64(value) do
+        {:ok, decoded} when byte_size(decoded) == 32 -> decoded
+        _ -> raise "#{environment_name} must be exactly 32 bytes or Base64 encoding of 32 bytes"
+      end
   end
 end
 
@@ -53,6 +92,26 @@ end
 if config_env() == :prod do
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
+
+  database_url
+  |> URI.parse()
+  |> Map.get(:query)
+  |> case do
+    nil ->
+      :ok
+
+    query ->
+      if Enum.any?(URI.query_decoder(query), fn {key, _value} ->
+           String.downcase(key) == "ssl"
+         end) do
+        raise "DATABASE_URL must not override the runtime TLS policy with an ssl query parameter"
+      end
+  end
+
+  if byte_size(secret_key_base) < 64 do
+    raise "SECRET_KEY_BASE must contain at least 64 bytes"
+  end
+
   role = System.get_env("K_COMMS_ROLE", "all")
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
@@ -205,6 +264,68 @@ if config_env() == :prod do
       System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEYS"),
       "WEBHOOK_SECRET_ENCRYPTION_KEYS"
     )
+
+  push_subscription_encryption_key_id =
+    System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID", "primary")
+
+  push_subscription_encryption_keys =
+    parse_keyring.(
+      System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"),
+      "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"
+    )
+
+  for {environment_name, current_key_id, keys} <- [
+        {
+          "WEBHOOK_SECRET_ENCRYPTION_KEYS",
+          webhook_secret_encryption_key_id,
+          webhook_secret_encryption_keys
+        },
+        {
+          "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS",
+          push_subscription_encryption_key_id,
+          push_subscription_encryption_keys
+        }
+      ] do
+    unless Regex.match?(~r/^[A-Za-z0-9_.-]{1,64}$/, current_key_id) do
+      raise "#{environment_name} active key identifier is invalid"
+    end
+
+    if is_map(keys) and not Map.has_key?(keys, current_key_id) do
+      raise "#{environment_name} must contain its active key identifier"
+    end
+  end
+
+  encryption_materials = fn single_key, single_name, keyring ->
+    if is_map(keyring) do
+      keyring
+      |> Map.values()
+      |> Enum.map(&decode_runtime_key.(&1, single_name))
+      |> MapSet.new()
+    else
+      case decode_runtime_key.(single_key, single_name) do
+        nil -> MapSet.new()
+        material -> MapSet.new([material])
+      end
+    end
+  end
+
+  webhook_materials =
+    encryption_materials.(
+      System.get_env("WEBHOOK_SECRET_ENCRYPTION_KEY"),
+      "WEBHOOK_SECRET_ENCRYPTION_KEY",
+      webhook_secret_encryption_keys
+    )
+
+  push_materials =
+    encryption_materials.(
+      System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY"),
+      "PUSH_SUBSCRIPTION_ENCRYPTION_KEY",
+      push_subscription_encryption_keys
+    )
+
+  unless MapSet.disjoint?(webhook_materials, push_materials) do
+    raise "encryption key material must not be reused across webhook and push domains"
+  end
 
   unless runtime_purpose in ["application", "one_shot"] do
     raise "K_COMMS_RUNTIME_PURPOSE must be application or one_shot"
@@ -441,13 +562,8 @@ if config_env() == :prod do
     webhook_secret_encryption_key_id: webhook_secret_encryption_key_id,
     webhook_secret_encryption_keys: webhook_secret_encryption_keys,
     push_subscription_encryption_key: System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY"),
-    push_subscription_encryption_key_id:
-      System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEY_ID", "primary"),
-    push_subscription_encryption_keys:
-      parse_keyring.(
-        System.get_env("PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"),
-        "PUSH_SUBSCRIPTION_ENCRYPTION_KEYS"
-      ),
+    push_subscription_encryption_key_id: push_subscription_encryption_key_id,
+    push_subscription_encryption_keys: push_subscription_encryption_keys,
     web_push_vapid_public_key: System.get_env("WEB_PUSH_VAPID_PUBLIC_KEY")
 
   database_tls_options =
@@ -587,6 +703,7 @@ if config_env() == :prod do
     livekit_api_secret: livekit_api_secret,
     audio_token_ttl_seconds: audio_token_ttl_seconds,
     allow_insecure_local_object_storage: local_release? and development_adapters?,
+    allow_insecure_local_media: local_release? and development_adapters?,
     insecure_local_object_storage_host:
       if(local_release? and development_adapters?, do: local_release_host, else: nil),
     object_storage_adapter: CommsIntegrations.ObjectStorage.S3,

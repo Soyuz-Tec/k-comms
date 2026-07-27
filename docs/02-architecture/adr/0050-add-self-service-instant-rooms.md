@@ -232,7 +232,12 @@ conversion, and instant-room message send. Server-generated presence renewals
 remain bounded by one authorized user/connection lease contract, and call
 admission retains the existing authenticated/guest call policy and rate
 controls. This is qualification coverage, not evidence of a production-ready
-public abuse posture.
+public abuse posture. The development and test builds intentionally bypass
+every room-creation rate-limit plug for all users so local iteration cannot be
+blocked. Other public operations keep their existing controls. The default and
+production build retain a two-request, 60-second distributed creation limit
+plus the node-local backstop; production enablement remains gated on the wider
+approved abuse-control posture.
 
 1. Production enforcement uses a shared store or edge service with atomic
    counters. Process-local ETS limits may be used only for an additional

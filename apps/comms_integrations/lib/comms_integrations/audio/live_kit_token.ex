@@ -222,21 +222,39 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
     do: ["microphone", "camera", "screen_share", "screen_share_audio"]
 
   defp valid_server_url?(value) when is_binary(value) do
-    uri = URI.parse(value)
-
-    uri.scheme in ["ws", "wss"] and configured?(uri.host) and uri.path in [nil, "", "/"] and
-      is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment)
+    valid_endpoint?(value, signalling_schemes())
   end
 
   defp valid_server_url?(_), do: false
 
   defp valid_api_url?(value) when is_binary(value) do
-    uri = URI.parse(value)
-
-    uri.scheme in ["http", "https"] and configured?(uri.host) and uri.path in [nil, "", "/"] and
-      is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment)
+    valid_endpoint?(value, api_schemes())
   end
 
   defp valid_api_url?(_), do: false
+
+  defp valid_endpoint?(value, permitted_schemes) do
+    uri = URI.parse(value)
+
+    uri.scheme in permitted_schemes and configured?(uri.host) and uri.path in [nil, "", "/"] and
+      is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment)
+  end
+
+  # A participant token carries the signalling URL the browser will connect to,
+  # and the room-control tokens are admin-scoped. Neither may travel over a
+  # plaintext origin unless the explicit local-development gate is on, so
+  # issuing fails closed rather than downgrading the transport.
+  defp signalling_schemes do
+    if allow_insecure_local_media?(), do: ["wss", "ws"], else: ["wss"]
+  end
+
+  defp api_schemes do
+    if allow_insecure_local_media?(), do: ["https", "http"], else: ["https"]
+  end
+
+  defp allow_insecure_local_media? do
+    Application.get_env(:comms_integrations, :allow_insecure_local_media, false) == true
+  end
+
   defp configured?(value), do: is_binary(value) and String.trim(value) != ""
 end
