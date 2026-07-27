@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { AppIcon } from "../../components/AppIcon";
 import { conversationTitle, errorText, formatDateTime } from "../../lib/format";
 import {
   conversationParticipantIdentifier,
@@ -137,6 +138,7 @@ export function CallsPage() {
           disabled={loading}
           onClick={() => void loadCalls("replace")}
         >
+          <AppIcon name="refresh" />
           {loading ? "Refreshing…" : "Refresh"}
         </button>
       </header>
@@ -148,7 +150,7 @@ export function CallsPage() {
         aria-controls="calls-launcher"
         onClick={() => setLauncherExpanded((expanded) => !expanded)}
       >
-        <span aria-hidden="true">＋</span>
+        <AppIcon name="plus" />
         New call
       </button>
 
@@ -164,6 +166,7 @@ export function CallsPage() {
           </div>
           <label className="calls-search">
             <span className="sr-only">Find a conversation to call</span>
+            <AppIcon name="search" />
             <input
               type="search"
               value={conversationQuery}
@@ -191,6 +194,7 @@ export function CallsPage() {
                       to={conversationPath(conversation.id)}
                       aria-label={`Message ${title}`}
                     >
+                      <AppIcon name="message" />
                       Message
                     </Link>
                     {canUseAudio && (
@@ -199,6 +203,7 @@ export function CallsPage() {
                         kind="audio"
                         ariaLabel={`Audio call ${title}`}
                       >
+                        <AppIcon name="phone" />
                         Audio
                       </CallLaunchButton>
                     )}
@@ -208,6 +213,7 @@ export function CallsPage() {
                         kind="video"
                         ariaLabel={`Video call ${title}`}
                       >
+                        <AppIcon name="video" />
                         Video
                       </CallLaunchButton>
                     )}
@@ -321,7 +327,7 @@ function CallSessionRow({
   return (
     <li className="call-session-row">
       <div className={`call-media-mark ${call.media_kind}`} aria-hidden="true">
-        {call.media_kind === "video" ? "▣" : "◖"}
+        <AppIcon name={call.media_kind === "video" ? "video" : "phone"} />
       </div>
       <div className="call-session-copy">
         <div className="call-session-title">
@@ -346,6 +352,7 @@ function CallSessionRow({
           to={conversationPath(call.conversation_id)}
           aria-label={`Open chat for ${title}`}
         >
+          <AppIcon name="message" />
           Open chat
         </Link>
         {ending ? (
@@ -357,6 +364,7 @@ function CallSessionRow({
             kind={call.media_kind}
             ariaLabel={`${active ? "Join" : "Open"} ${call.media_kind} call for ${title}`}
           >
+            <AppIcon name={call.media_kind === "video" ? "video" : "phone"} />
             {active ? `Join ${call.media_kind}` : `Start ${call.media_kind}`}
           </CallLaunchButton>
         ) : (
@@ -376,7 +384,7 @@ function ConversationIdentity({
 }) {
   return (
     <div className="calls-conversation-identity">
-      <span aria-hidden="true">{conversation.kind === "direct" ? "@" : "#"}</span>
+      <span aria-hidden="true"><AppIcon name={conversation.kind === "direct" ? "atSign" : "hash"} /></span>
       <div>
         <strong>{title}</strong>
         <small>{conversation.kind === "direct" ? "Direct conversation" : `${conversation.kind} conversation`}</small>

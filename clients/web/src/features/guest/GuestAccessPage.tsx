@@ -18,6 +18,7 @@ import {
   storeGuestSession
 } from "../../api";
 import { useSession } from "../../app/session";
+import { AppIcon } from "../../components/AppIcon";
 import {
   browserName,
   clientMessageId,
@@ -1679,6 +1680,7 @@ export function GuestShell({
               aria-controls="guest-account-conversion"
               onClick={() => setShowAccount((value) => !value)}
             >
+              <AppIcon name="bookmark" />
               {identityLabel === "Host"
                 ? "Save this room"
                 : "Keep this conversation"}
@@ -1686,10 +1688,12 @@ export function GuestShell({
           )}
           {identityLabel === "Host" && (
             <Link className="button ghost" to="/sign-in">
+              <AppIcon name="logIn" />
               Sign in
             </Link>
           )}
           <button className="button danger" type="button" disabled={leaving} onClick={leave}>
+            <AppIcon name="logOut" />
             {leaving ? "Leaving…" : "Leave"}
           </button>
         </div>
@@ -1889,7 +1893,7 @@ export function GuestShell({
             </div>
           ) : loadError ? (
             <div className="empty-state guest-load-error" role="alert">
-              <span className="empty-mark" aria-hidden="true">!</span>
+              <span className="empty-mark" aria-hidden="true"><AppIcon name="triangleAlert" /></span>
               <h2>Could not load this conversation</h2>
               <p>{loadError}</p>
               <button
@@ -1897,12 +1901,13 @@ export function GuestShell({
                 type="button"
                 onClick={() => setLoadRetry((attempt) => attempt + 1)}
               >
+                <AppIcon name="refresh" />
                 Retry conversation
               </button>
             </div>
           ) : messages.length === 0 ? (
             <div className="empty-state">
-              <span className="empty-mark" aria-hidden="true">✦</span>
+              <span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span>
               <h2>Start the conversation</h2>
               <p>
                 {identityLabel === "Guest"
@@ -1953,6 +1958,7 @@ export function GuestShell({
         {!isNearBottom && newMessageCount > 0 && (
           <div className="guest-new-message-jump">
             <button className="button primary compact" type="button" onClick={jumpToLatest}>
+              <AppIcon name="arrowDown" />
               {newMessageCount} new {newMessageCount === 1 ? "message" : "messages"} · Jump to latest
             </button>
           </div>
@@ -1987,6 +1993,7 @@ export function GuestShell({
             type="submit"
             disabled={sending || loading || Boolean(loadError) || !composer.trim()}
           >
+            <AppIcon name="send" />
             {sending ? "Sending…" : "Send"}
           </button>
         </form>
@@ -1995,7 +2002,7 @@ export function GuestShell({
       {error && (
         <div className="guest-shell-error" role="alert">
           <span>{error}</span>
-          <button type="button" aria-label="Dismiss error" onClick={() => setError("")}>×</button>
+          <button type="button" aria-label="Dismiss error" onClick={() => setError("")}><AppIcon name="x" /></button>
         </div>
       )}
     </main>
