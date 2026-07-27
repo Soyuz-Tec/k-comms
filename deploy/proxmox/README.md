@@ -119,6 +119,12 @@ application image under Quadlets, and runs production verification. If any
 activation gate fails, the new units are stopped and the retained legacy
 service is restarted automatically.
 
+The transaction also changes each retained legacy container restart policy to
+`no` after it is stopped. This prevents Podman's boot-time restart service from
+starting a legacy database or object store independently of the disabled
+legacy systemd unit. A failed adoption restores every container's original
+restart policy before restarting the legacy service.
+
 For production, the transaction starts the installed Cloudflare connector
 after the candidate app service and before verification. The fallback path
 also starts the connector after restoring the legacy service, so an application
@@ -146,7 +152,8 @@ The operation records a `k-comms-legacy-adoption-receipt-v1` receipt and keeps
 the stopped legacy containers plus their local image for the first-update
 rollback seam. Do not delete that image until a later production deployment
 and rollback rehearsal have both succeeded. The application image and source
-revision do not change during adoption.
+revision do not change during adoption. The receipt records that independent
+legacy-container restart has been suppressed.
 
 Until that first digest promotion, `verify.sh` accepts the retained local image
 only for the production VM with `adopted` storage and only when its OCI source

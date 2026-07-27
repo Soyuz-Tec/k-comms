@@ -63,12 +63,22 @@ for name in \
   read_env_value "$runtime_source" "$name" >/dev/null
 done
 
-for container in \
-  "$legacy_app" "$legacy_postgres" "$legacy_minio" "$legacy_livekit"; do
+legacy_containers=(
+  "$legacy_app"
+  "$legacy_postgres"
+  "$legacy_minio"
+  "$legacy_livekit"
+)
+declare -A legacy_restart_policies=()
+for container in "${legacy_containers[@]}"; do
   container_exists "$container" ||
     die "legacy container is missing: ${container}"
   [[ "$(podman inspect "$container" --format '{{.State.Running}}')" == true ]] ||
     die "legacy container is not running: ${container}"
+  legacy_restart_policies["$container"]="$(podman inspect "$container" \
+    --format '{{.HostConfig.RestartPolicy.Name}}')"
+  [[ -n "${legacy_restart_policies[$container]}" ]] ||
+    die "legacy container restart policy is unreadable: ${container}"
 done
 for container in "$legacy_app" "$legacy_postgres" "$legacy_minio"; do
   [[ "$(podman inspect "$container" --format '{{.State.Health.Status}}')" == healthy ]] ||
@@ -259,6 +269,17 @@ start_tunnel_if_installed() {
   fi
 }
 
+restore_legacy_restart_policies() {
+  local container
+  local original_restart_policy
+
+  for container in "${legacy_containers[@]}"; do
+    original_restart_policy="${legacy_restart_policies[$container]}"
+    podman update --restart="$original_restart_policy" "$container" >/dev/null ||
+      true
+  done
+}
+
 recover_legacy() {
   if [[ "$cutover_started" == true && "$adoption_complete" == false ]]; then
     log "adoption failed; restoring the retained legacy service"
@@ -269,6 +290,7 @@ recover_legacy() {
       k-comms-minio.service \
       k-comms-postgres.service \
       k-comms-network.service || true
+    restore_legacy_restart_policies
     systemctl enable "$legacy_service" || true
     systemctl restart "$legacy_service" || true
     start_tunnel_if_installed || true
@@ -294,10 +316,14 @@ tar --create --gzip --numeric-owner \
   --directory "$minio_path" .
 
 systemctl disable --now "$legacy_service"
-for container in \
-  "$legacy_app" "$legacy_postgres" "$legacy_minio" "$legacy_livekit"; do
+log "suppressing independent restart of the retained legacy containers"
+for container in "${legacy_containers[@]}"; do
+  podman update --restart=no "$container" >/dev/null
   [[ "$(podman inspect "$container" --format '{{.State.Running}}')" == false ]] ||
     die "legacy container remained active after shutdown: ${container}"
+  [[ "$(podman inspect "$container" \
+    --format '{{.HostConfig.RestartPolicy.Name}}')" == no ]] ||
+    die "legacy container retained an automatic restart policy: ${container}"
 done
 
 install -d -m 0700 "${backup_dir}/configuration"
@@ -359,6 +385,7 @@ jq -n \
       postgres_volume: $postgres_volume,
       minio_volume: $minio_volume
     },
+    legacy_restart_policy_suppressed: true,
     backup_path: $backup_path
   }' >"$receipt"
 chmod 0600 "$receipt"

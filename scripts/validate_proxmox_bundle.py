@@ -299,6 +299,8 @@ def validate(root: Path) -> list[str]:
         'normalize_runtime_csp "$K_COMMS_RUNTIME_ENV"',
         "legacy CSP does not exactly match the trusted-edge media and object endpoints",
         "start_tunnel_if_installed",
+        'podman update --restart=no "$container"',
+        'podman update --restart="$original_restart_policy" "$container"',
         "--preflight-only",
         "--prepare-only",
         "verify.sh",

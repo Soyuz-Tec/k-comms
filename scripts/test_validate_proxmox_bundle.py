@@ -117,6 +117,38 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_legacy_container_auto_restart_after_adoption(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'podman update --restart=no "$container"',
+                'podman update --restart=unless-stopped "$container"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_missing_legacy_restart_policy_fallback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'podman update --restart="$original_restart_policy" "$container"',
+                'podman update --restart=no "$container"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
     def test_rejects_fixed_podman_network_subnet(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)
