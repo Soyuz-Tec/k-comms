@@ -30,6 +30,8 @@ config :comms_core,
 
 config :comms_integrations,
   allow_insecure_local_object_storage: true,
+  # Controller tests use loopback-only synthetic LiveKit fixtures.
+  allow_insecure_local_media: true,
   notification_adapter: CommsIntegrations.Notifications.Log,
   object_storage_adapter: CommsIntegrations.ObjectStorage.Memory,
   scanner_adapter: CommsIntegrations.Scanner.AllowAll,
