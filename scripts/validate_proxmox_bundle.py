@@ -457,7 +457,7 @@ def validate(root: Path) -> list[str]:
     )
     for required in (
         "isolated restore rehearsal is permitted only in staging",
-        "sha256sum --check --strict",
+        "sha256sum --check --strict SHA256SUMS) >&2",
         "k_comms_restore_",
         "pg_restore",
         "restore-rehearsal.",
