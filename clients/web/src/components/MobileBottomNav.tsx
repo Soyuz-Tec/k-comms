@@ -35,20 +35,37 @@ export const memberDestinations: MemberDestination[] = [
   }
 ];
 
-export function MemberAreaLinks({ mobile = false }: { mobile?: boolean }) {
+export function MemberAreaLinks({
+  mobile = false,
+  compact = false
+}: {
+  mobile?: boolean;
+  compact?: boolean;
+}) {
+  const showIcons = mobile || compact;
+
   return (
     <>
-      {memberDestinations.map(({ icon, label, path }) => (
-        <NavLink key={path} to={path} end={path === "/app"}>
-          {mobile && (
-            <AppIcon
-              name={icon}
-              className="member-nav-icon"
-            />
-          )}
-          <span>{label}</span>
-        </NavLink>
-      ))}
+      {memberDestinations.map(({ icon, label, path }) => {
+        const targetPath = path === "/app" ? "/app/" : path;
+        return (
+          <NavLink
+            key={path}
+            to={targetPath}
+            end={path === "/app"}
+            aria-label={compact ? label : undefined}
+            title={compact ? label : undefined}
+          >
+            {showIcons && (
+              <AppIcon
+                name={icon}
+                className="member-nav-icon"
+              />
+            )}
+            <span className={compact ? "visually-hidden" : undefined}>{label}</span>
+          </NavLink>
+        );
+      })}
     </>
   );
 }

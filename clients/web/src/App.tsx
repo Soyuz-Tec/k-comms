@@ -9,7 +9,9 @@ import { AuthScreen } from "./features/auth/AuthScreen";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
 import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
+import "./styles.css";
 import "./mobile-experience.css";
+import "./desktop-experience.css";
 
 const AdminPage = lazy(() =>
   import("./features/admin/AdminPage").then(({ AdminPage: page }) => ({ default: page }))

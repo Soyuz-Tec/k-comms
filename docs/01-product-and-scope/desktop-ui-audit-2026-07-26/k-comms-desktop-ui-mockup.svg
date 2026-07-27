@@ -1,0 +1,318 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">K-Comms desktop workspace redesign mockup</title>
+  <desc id="desc">A four-region desktop communication workspace with a persistent navigation rail, conversation inbox, active conversation, and context panel.</desc>
+  <defs>
+    <linearGradient id="rail" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a292a"/>
+      <stop offset="1" stop-color="#123b39"/>
+    </linearGradient>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8faf7"/>
+      <stop offset="1" stop-color="#eef3ef"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#123b39" flood-opacity=".10"/>
+    </filter>
+    <style>
+      .sans { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .serif { font-family: Georgia, "Times New Roman", serif; }
+      .mono { font-family: "Cascadia Mono", Consolas, monospace; }
+      .label { font-size: 11px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; }
+      .small { font-size: 12px; }
+      .meta { font-size: 13px; fill: #617573; }
+      .body { font-size: 15px; fill: #173130; }
+      .nav { font-size: 14px; font-weight: 700; }
+      .title { font-size: 26px; font-weight: 700; fill: #102b2b; }
+      .icon { font-size: 16px; font-weight: 800; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#e8eeea"/>
+
+  <!-- Persistent workspace rail -->
+  <g>
+    <rect x="0" y="0" width="210" height="1000" fill="url(#rail)"/>
+    <rect x="24" y="22" width="38" height="38" rx="10" fill="#0a878b"/>
+    <text x="43" y="48" text-anchor="middle" class="sans" font-size="20" font-weight="800" fill="white">K</text>
+    <text x="76" y="47" class="mono" font-size="15" font-weight="800" letter-spacing="2" fill="#f6fbf7">K-COMMS</text>
+
+    <rect x="16" y="86" width="178" height="68" rx="12" fill="#173f3d" stroke="#32605b"/>
+    <text x="30" y="108" class="sans label" fill="#9cc2b8">Workspace</text>
+    <text x="30" y="132" class="serif" font-size="18" font-weight="700" fill="#ffffff">Acme Workspace</text>
+    <path d="M174 116l6 6 6-6" fill="none" stroke="#c6dcd5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="25" y="188" class="sans label" fill="#7fa69e">Communication</text>
+
+    <rect x="14" y="205" width="182" height="48" rx="11" fill="#d9f2e7"/>
+    <circle cx="38" cy="229" r="10" fill="#087f83"/>
+    <path d="M31 226h14M31 231h9" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <text x="60" y="234" class="sans nav" fill="#0c3534">Inbox</text>
+    <circle cx="178" cy="229" r="10" fill="#0a7377"/>
+    <text x="178" y="233" text-anchor="middle" class="sans small" font-weight="800" fill="white">6</text>
+
+    <g class="sans nav" fill="#d9e8e3">
+      <circle cx="38" cy="280" r="10" fill="#285350"/>
+      <path d="M34 275l8 5-8 5z" fill="#d9e8e3"/>
+      <text x="60" y="285">Calls</text>
+
+      <circle cx="38" cy="331" r="10" fill="#285350"/>
+      <circle cx="35" cy="328" r="3" fill="#d9e8e3"/>
+      <circle cx="42" cy="330" r="3" fill="#d9e8e3"/>
+      <path d="M30 338c1-5 9-5 10 0M38 338c1-4 7-4 8 0" fill="none" stroke="#d9e8e3" stroke-width="1.5"/>
+      <text x="60" y="336">Directory</text>
+
+      <circle cx="38" cy="382" r="10" fill="#285350"/>
+      <path d="M31 378h6l2 2h7v9H31z" fill="none" stroke="#d9e8e3" stroke-width="1.5" stroke-linejoin="round"/>
+      <text x="60" y="387">Files</text>
+
+      <circle cx="38" cy="433" r="10" fill="#285350"/>
+      <circle cx="38" cy="430" r="3" fill="#d9e8e3"/>
+      <path d="M32 440c1-6 11-6 12 0" fill="none" stroke="#d9e8e3" stroke-width="1.5"/>
+      <text x="60" y="438">You</text>
+    </g>
+
+    <rect x="16" y="500" width="178" height="50" rx="12" fill="#0a8589" filter="url(#shadow)"/>
+    <circle cx="40" cy="525" r="10" fill="#d9f2e7"/>
+    <path d="M40 519v12M34 525h12" stroke="#087579" stroke-width="2" stroke-linecap="round"/>
+    <text x="60" y="530" class="sans nav" fill="white">Instant room</text>
+
+    <line x1="18" y1="875" x2="192" y2="875" stroke="#35615d"/>
+    <circle cx="43" cy="920" r="20" fill="#bee1c8"/>
+    <text x="43" y="925" text-anchor="middle" class="sans small" font-weight="800" fill="#163c39">AL</text>
+    <text x="75" y="915" class="sans" font-size="13" font-weight="750" fill="white">Ada Lovelace</text>
+    <text x="75" y="935" class="sans small" fill="#a9c5bd">Owner</text>
+    <circle cx="178" cy="920" r="16" fill="#214a47" stroke="#416c67"/>
+    <circle cx="178" cy="917" r="2.5" fill="#cfe2dc"/>
+    <path d="M172 925c1-6 11-6 12 0" fill="none" stroke="#cfe2dc" stroke-width="1.5"/>
+  </g>
+
+  <!-- Inbox / conversation queue -->
+  <g>
+    <rect x="210" y="0" width="360" height="1000" fill="#f7f9f6"/>
+    <line x1="569" y1="0" x2="569" y2="1000" stroke="#d5dfda"/>
+
+    <text x="236" y="48" class="sans label" fill="#54706d">Messages and rooms</text>
+    <text x="236" y="80" class="serif title">Inbox</text>
+    <rect x="492" y="34" width="52" height="42" rx="11" fill="#0b7c80"/>
+    <text x="518" y="61" text-anchor="middle" class="sans" font-size="14" font-weight="800" fill="white">＋ New</text>
+
+    <rect x="232" y="101" width="312" height="44" rx="11" fill="white" stroke="#bdcbc5"/>
+    <circle cx="253" cy="123" r="7" fill="none" stroke="#627a77" stroke-width="1.6"/>
+    <path d="M258 128l6 6" stroke="#627a77" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="275" y="128" class="sans meta">Search messages and rooms</text>
+    <rect x="502" y="109" width="34" height="28" rx="8" fill="#edf3ef"/>
+    <path d="M512 117h14l-5 6v6l-4 2v-8z" fill="none" stroke="#526d69" stroke-width="1.4" stroke-linejoin="round"/>
+
+    <g class="sans small" font-weight="750">
+      <rect x="232" y="160" width="55" height="34" rx="17" fill="#0a7c80"/>
+      <text x="259" y="182" text-anchor="middle" fill="white">All</text>
+      <rect x="294" y="160" width="70" height="34" rx="17" fill="#edf2ee"/>
+      <text x="329" y="182" text-anchor="middle" fill="#476461">Unread</text>
+      <rect x="371" y="160" width="66" height="34" rx="17" fill="#edf2ee"/>
+      <text x="404" y="182" text-anchor="middle" fill="#476461">Direct</text>
+      <rect x="444" y="160" width="70" height="34" rx="17" fill="#edf2ee"/>
+      <text x="479" y="182" text-anchor="middle" fill="#476461">Rooms</text>
+    </g>
+
+    <rect x="228" y="214" width="320" height="78" rx="12" fill="#dff0e5" stroke="#bdd8c8"/>
+    <circle cx="256" cy="253" r="19" fill="#c2e4dc"/>
+    <text x="256" y="259" text-anchor="middle" class="sans" font-size="18" font-weight="800" fill="#08777a">#</text>
+    <text x="287" y="240" class="sans" font-size="14" font-weight="800" fill="#142f2e">Execution Room</text>
+    <text x="287" y="263" class="sans meta">Alice: Please review the Q1 plan.</text>
+    <text x="513" y="240" text-anchor="end" class="sans small" fill="#58716e">9:41 AM</text>
+    <circle cx="519" cy="266" r="11" fill="#0a777b"/>
+    <text x="519" y="270" text-anchor="middle" class="sans small" font-weight="800" fill="white">3</text>
+
+    <g class="sans">
+      <circle cx="256" cy="330" r="19" fill="#eadccf"/>
+      <text x="256" y="335" text-anchor="middle" font-size="12" font-weight="800" fill="#765c47">MP</text>
+      <text x="287" y="320" font-size="14" font-weight="800" fill="#18302f">Maya Patel</text>
+      <text x="287" y="343" class="meta">Thanks! I'll send that shortly.</text>
+      <text x="530" y="320" text-anchor="end" class="small" fill="#667d7a">9:32 AM</text>
+      <circle cx="529" cy="346" r="10" fill="#0a777b"/>
+      <text x="529" y="350" text-anchor="middle" class="small" font-weight="800" fill="white">1</text>
+
+      <line x1="235" y1="370" x2="542" y2="370" stroke="#e1e8e3"/>
+      <circle cx="256" cy="409" r="19" fill="#d9ece6"/>
+      <text x="256" y="415" text-anchor="middle" font-size="18" font-weight="800" fill="#08777a">#</text>
+      <text x="287" y="399" font-size="14" font-weight="800" fill="#18302f">Product Updates</text>
+      <text x="287" y="422" class="meta">Daniel: Roadmap doc updated.</text>
+      <text x="530" y="399" text-anchor="end" class="small" fill="#667d7a">9:18 AM</text>
+      <circle cx="529" cy="425" r="10" fill="#0a777b"/>
+      <text x="529" y="429" text-anchor="middle" class="small" font-weight="800" fill="white">2</text>
+
+      <line x1="235" y1="449" x2="542" y2="449" stroke="#e1e8e3"/>
+      <circle cx="256" cy="488" r="19" fill="#dbe4ee"/>
+      <text x="256" y="493" text-anchor="middle" font-size="12" font-weight="800" fill="#496177">JL</text>
+      <text x="287" y="478" font-size="14" font-weight="800" fill="#18302f">Jordan Lee</text>
+      <text x="287" y="501" class="meta">Sounds good.</text>
+      <text x="530" y="478" text-anchor="end" class="small" fill="#667d7a">8:53 AM</text>
+
+      <line x1="235" y1="528" x2="542" y2="528" stroke="#e1e8e3"/>
+      <circle cx="256" cy="567" r="19" fill="#d9ece6"/>
+      <text x="256" y="573" text-anchor="middle" font-size="18" font-weight="800" fill="#08777a">#</text>
+      <text x="287" y="557" font-size="14" font-weight="800" fill="#18302f">Design Team</text>
+      <text x="287" y="580" class="meta">Riley shared a file.</text>
+      <text x="530" y="557" text-anchor="end" class="small" fill="#667d7a">Yesterday</text>
+
+      <line x1="235" y1="607" x2="542" y2="607" stroke="#e1e8e3"/>
+      <circle cx="256" cy="646" r="19" fill="#e3dce9"/>
+      <text x="256" y="651" text-anchor="middle" font-size="12" font-weight="800" fill="#685574">SM</text>
+      <text x="287" y="636" font-size="14" font-weight="800" fill="#18302f">Sofia Martinez</text>
+      <text x="287" y="659" class="meta">Let's sync later today.</text>
+      <text x="530" y="636" text-anchor="end" class="small" fill="#667d7a">Yesterday</text>
+      <circle cx="529" cy="662" r="10" fill="#0a777b"/>
+      <text x="529" y="666" text-anchor="middle" class="small" font-weight="800" fill="white">1</text>
+    </g>
+  </g>
+
+  <!-- Main conversation -->
+  <g>
+    <rect x="570" y="0" width="700" height="1000" fill="#fdfefc"/>
+    <rect x="570" y="0" width="700" height="96" fill="#fbfcfa"/>
+    <line x1="570" y1="96" x2="1270" y2="96" stroke="#d5dfda"/>
+    <circle cx="606" cy="47" r="20" fill="#d9ece6"/>
+    <text x="606" y="54" text-anchor="middle" class="sans" font-size="19" font-weight="800" fill="#08777a">#</text>
+    <text x="642" y="40" class="sans" font-size="17" font-weight="800" fill="#122e2d">Execution Room</text>
+    <text x="642" y="63" class="sans meta">12 members · 6 online</text>
+
+    <rect x="1028" y="27" width="62" height="42" rx="11" fill="#f2f6f3" stroke="#bfd0c8"/>
+    <path d="M1047 41c6 12 10 15 17 17l4-5-6-4-3 3c-4-2-7-5-9-9l3-3-4-6-5 4z" fill="none" stroke="#116d70" stroke-width="1.7" stroke-linejoin="round"/>
+    <text x="1069" y="54" class="sans small" font-weight="750" fill="#174b4a">Audio</text>
+    <rect x="1098" y="27" width="62" height="42" rx="11" fill="#f2f6f3" stroke="#bfd0c8"/>
+    <rect x="1110" y="39" width="16" height="13" rx="2" fill="none" stroke="#116d70" stroke-width="1.7"/>
+    <path d="M1126 43l8-4v13l-8-4z" fill="none" stroke="#116d70" stroke-width="1.7" stroke-linejoin="round"/>
+    <text x="1139" y="54" class="sans small" font-weight="750" fill="#174b4a">Video</text>
+    <rect x="1168" y="27" width="74" height="42" rx="11" fill="#0d3635"/>
+    <text x="1205" y="53" text-anchor="middle" class="sans small" font-weight="800" fill="white">Details</text>
+
+    <rect x="570" y="96" width="700" height="754" fill="url(#canvas)"/>
+    <line x1="760" y1="136" x2="868" y2="136" stroke="#d5dfda"/>
+    <rect x="869" y="122" width="96" height="28" rx="14" fill="#eef3ef"/>
+    <text x="917" y="141" text-anchor="middle" class="sans small" font-weight="700" fill="#607572">Today</text>
+    <line x1="966" y1="136" x2="1080" y2="136" stroke="#d5dfda"/>
+
+    <circle cx="616" cy="195" r="20" fill="#eadccf"/>
+    <text x="616" y="200" text-anchor="middle" class="sans small" font-weight="800" fill="#765c47">AJ</text>
+    <text x="646" y="180" class="sans" font-size="13" font-weight="800" fill="#193332">Alice Johnson</text>
+    <text x="742" y="180" class="sans small" fill="#657b78">9:30 AM</text>
+    <rect x="646" y="192" width="382" height="70" rx="6 16 16 16" fill="white" stroke="#d4dfda"/>
+    <text x="666" y="221" class="sans body">Morning team! Please review the execution plan</text>
+    <text x="666" y="244" class="sans body">for Q1 and share feedback by EOD.</text>
+    <rect x="648" y="270" width="56" height="28" rx="14" fill="#f6f8f5" stroke="#d4dfda"/>
+    <text x="676" y="289" text-anchor="middle" class="sans small" fill="#425f5c">👍 2</text>
+
+    <text x="1198" y="328" text-anchor="end" class="sans" font-size="13" font-weight="800" fill="#193332">You</text>
+    <text x="1242" y="328" text-anchor="end" class="sans small" fill="#657b78">9:32 AM</text>
+    <rect x="790" y="340" width="452" height="142" rx="16 6 16 16" fill="#ddf0e8" stroke="#b9d9cb"/>
+    <text x="812" y="370" class="sans body">On it — here's the latest plan.</text>
+    <rect x="812" y="387" width="406" height="72" rx="11" fill="#f9fcfa" stroke="#bdd7cc"/>
+    <rect x="826" y="400" width="36" height="44" rx="7" fill="#d95d4f"/>
+    <text x="844" y="427" text-anchor="middle" class="sans small" font-weight="800" fill="white">PDF</text>
+    <text x="878" y="413" class="sans" font-size="14" font-weight="800" fill="#173130">Execution Plan Q1.pdf</text>
+    <text x="878" y="436" class="sans meta">2.4 MB · PDF · Available</text>
+    <rect x="1128" y="406" width="72" height="34" rx="9" fill="#0a7c80"/>
+    <text x="1164" y="428" text-anchor="middle" class="sans small" font-weight="800" fill="white">Open</text>
+
+    <circle cx="616" cy="540" r="20" fill="#dbe4ee"/>
+    <text x="616" y="545" text-anchor="middle" class="sans small" font-weight="800" fill="#496177">DK</text>
+    <text x="646" y="525" class="sans" font-size="13" font-weight="800" fill="#193332">Daniel Kim</text>
+    <text x="727" y="525" class="sans small" fill="#657b78">9:36 AM</text>
+    <rect x="646" y="537" width="286" height="47" rx="6 16 16 16" fill="white" stroke="#d4dfda"/>
+    <text x="666" y="566" class="sans body">Looks solid. I added my notes.</text>
+
+    <circle cx="616" cy="629" r="20" fill="#e3dce9"/>
+    <text x="616" y="634" text-anchor="middle" class="sans small" font-weight="800" fill="#685574">MP</text>
+    <text x="646" y="614" class="sans" font-size="13" font-weight="800" fill="#193332">Maya Patel</text>
+    <text x="729" y="614" class="sans small" fill="#657b78">9:41 AM</text>
+    <rect x="646" y="626" width="370" height="92" rx="6 16 16 16" fill="white" stroke="#d4dfda"/>
+    <text x="666" y="656" class="sans body">The risk section needs one decision from finance.</text>
+    <rect x="666" y="673" width="116" height="28" rx="14" fill="#eef4f0"/>
+    <text x="724" y="692" text-anchor="middle" class="sans small" font-weight="700" fill="#3b605d">@Finance team</text>
+
+    <text x="646" y="764" class="sans small" fill="#6b7e7b">Alice and Daniel are typing…</text>
+
+    <rect x="570" y="850" width="700" height="150" fill="#fbfcfa"/>
+    <line x1="570" y1="850" x2="1270" y2="850" stroke="#d5dfda"/>
+    <rect x="594" y="874" width="652" height="70" rx="13" fill="white" stroke="#9fb3ac"/>
+    <text x="616" y="903" class="sans meta">Message Execution Room</text>
+    <rect x="608" y="916" width="30" height="22" rx="6" fill="#eff4f1"/>
+    <text x="623" y="932" text-anchor="middle" class="sans small" font-weight="800" fill="#496966">＋</text>
+    <rect x="646" y="916" width="78" height="22" rx="6" fill="#eff4f1"/>
+    <text x="685" y="932" text-anchor="middle" class="sans small" font-weight="700" fill="#496966">@ Mention</text>
+    <circle cx="1170" cy="926" r="13" fill="#eff4f1"/>
+    <text x="1170" y="931" text-anchor="middle" class="sans" font-size="15" fill="#496966">☺</text>
+    <rect x="1192" y="911" width="42" height="30" rx="9" fill="#0a7c80"/>
+    <path d="M1205 926h13M1214 920l6 6-6 6" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="594" y="974" class="sans small" fill="#667c78">Enter to send · Shift+Enter for a new line</text>
+    <text x="1246" y="974" text-anchor="end" class="sans small" font-weight="700" fill="#2d5754">Draft saved</text>
+  </g>
+
+  <!-- Conversation context panel -->
+  <g>
+    <rect x="1270" y="0" width="330" height="1000" fill="#f5f8f5"/>
+    <line x1="1270" y1="0" x2="1270" y2="1000" stroke="#d5dfda"/>
+    <text x="1296" y="42" class="sans label" fill="#58716e">Conversation</text>
+    <text x="1296" y="73" class="serif title">Details</text>
+    <circle cx="1560" cy="52" r="17" fill="#e8efeb"/>
+    <path d="M1554 46l12 12M1566 46l-12 12" stroke="#4d6b67" stroke-width="1.7" stroke-linecap="round"/>
+
+    <rect x="1294" y="100" width="282" height="78" rx="14" fill="#e4f2eb" stroke="#c1d9cd"/>
+    <circle cx="1324" cy="139" r="18" fill="#0a7c80"/>
+    <path d="M1318 135h12M1318 141h8" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1354" y="128" class="sans small" font-weight="800" fill="#173331">Room is live</text>
+    <text x="1354" y="149" class="sans small" fill="#4f6a66">6 teammates online</text>
+    <text x="1354" y="166" class="sans small" font-weight="700" fill="#08777a">Start a call</text>
+
+    <text x="1296" y="222" class="sans label" fill="#58716e">Members · 12</text>
+    <g class="sans">
+      <circle cx="1318" cy="257" r="16" fill="#eadccf"/>
+      <text x="1318" y="261" text-anchor="middle" class="small" font-weight="800" fill="#765c47">AJ</text>
+      <text x="1346" y="254" font-size="13" font-weight="800" fill="#183130">Alice Johnson</text>
+      <text x="1346" y="272" class="small" fill="#657b78">Owner · online</text>
+      <circle cx="1561" cy="258" r="5" fill="#2c9b68"/>
+
+      <circle cx="1318" cy="308" r="16" fill="#dbe4ee"/>
+      <text x="1318" y="312" text-anchor="middle" class="small" font-weight="800" fill="#496177">DK</text>
+      <text x="1346" y="305" font-size="13" font-weight="800" fill="#183130">Daniel Kim</text>
+      <text x="1346" y="323" class="small" fill="#657b78">Member · online</text>
+      <circle cx="1561" cy="309" r="5" fill="#2c9b68"/>
+
+      <circle cx="1318" cy="359" r="16" fill="#e3dce9"/>
+      <text x="1318" y="363" text-anchor="middle" class="small" font-weight="800" fill="#685574">MP</text>
+      <text x="1346" y="356" font-size="13" font-weight="800" fill="#183130">Maya Patel</text>
+      <text x="1346" y="374" class="small" fill="#657b78">Member · away</text>
+      <circle cx="1561" cy="360" r="5" fill="#d5a748"/>
+    </g>
+    <rect x="1296" y="395" width="280" height="38" rx="10" fill="#f9fbf9" stroke="#c8d5cf"/>
+    <text x="1436" y="419" text-anchor="middle" class="sans small" font-weight="750" fill="#315b58">View all members</text>
+
+    <text x="1296" y="482" class="sans label" fill="#58716e">Shared files · 8</text>
+    <rect x="1294" y="500" width="282" height="70" rx="12" fill="white" stroke="#d4dfda"/>
+    <rect x="1308" y="514" width="34" height="42" rx="7" fill="#d95d4f"/>
+    <text x="1325" y="540" text-anchor="middle" class="sans small" font-weight="800" fill="white">PDF</text>
+    <text x="1354" y="526" class="sans" font-size="13" font-weight="800" fill="#183130">Execution Plan Q1.pdf</text>
+    <text x="1354" y="548" class="sans small" fill="#657b78">2.4 MB · Alice Johnson</text>
+
+    <rect x="1294" y="580" width="282" height="70" rx="12" fill="white" stroke="#d4dfda"/>
+    <rect x="1308" y="594" width="34" height="42" rx="7" fill="#3b9f61"/>
+    <text x="1325" y="620" text-anchor="middle" class="sans small" font-weight="800" fill="white">XLS</text>
+    <text x="1354" y="606" class="sans" font-size="13" font-weight="800" fill="#183130">Q1 Financials.xlsx</text>
+    <text x="1354" y="628" class="sans small" fill="#657b78">1.8 MB · Daniel Kim</text>
+
+    <rect x="1296" y="664" width="280" height="38" rx="10" fill="#f9fbf9" stroke="#c8d5cf"/>
+    <text x="1436" y="688" text-anchor="middle" class="sans small" font-weight="750" fill="#315b58">Browse all files</text>
+
+    <text x="1296" y="752" class="sans label" fill="#58716e">Pinned</text>
+    <rect x="1294" y="770" width="282" height="92" rx="12" fill="#fffdf6" stroke="#ddd4b9"/>
+    <text x="1312" y="795" class="sans" font-size="13" font-weight="800" fill="#463e29">Q1 review deadline</text>
+    <text x="1312" y="820" class="sans small" fill="#6f6852">Feedback due today at 5:00 PM.</text>
+    <text x="1312" y="843" class="sans small" font-weight="700" fill="#6c654c">Pinned by Alice</text>
+
+    <line x1="1294" y1="906" x2="1576" y2="906" stroke="#d7e0dc"/>
+    <rect x="1294" y="925" width="136" height="42" rx="11" fill="#f9fbf9" stroke="#c8d5cf"/>
+    <text x="1362" y="951" text-anchor="middle" class="sans small" font-weight="750" fill="#315b58">Mute room</text>
+    <rect x="1440" y="925" width="136" height="42" rx="11" fill="#f9fbf9" stroke="#c8d5cf"/>
+    <text x="1508" y="951" text-anchor="middle" class="sans small" font-weight="750" fill="#315b58">Room settings</text>
+  </g>
+</svg>
