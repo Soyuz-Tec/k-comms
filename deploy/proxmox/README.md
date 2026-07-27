@@ -124,6 +124,11 @@ after the candidate app service and before verification. The fallback path
 also starts the connector after restoring the legacy service, so an application
 activation failure does not leave public ingress offline.
 
+The connector's systemd lifecycle remains independent from the application
+unit. It stays available across application restarts and cutovers, while
+`verify.sh` still requires both the connector and the selected application
+origin to be active and ready before adoption or deployment succeeds.
+
 The protected configuration conversion accounts for the Compose-to-Podman
 environment-file parsing boundary. It removes only optional outer double
 quotes from `CSP_CONNECT_SOURCES`, then requires the normalized value to be

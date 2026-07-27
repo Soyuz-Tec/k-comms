@@ -76,6 +76,11 @@ loopback for `cloudflared`; staging exposes only its test ports to the same
 LAN. PostgreSQL, the MinIO console, Podman APIs, and Proxmox management are not
 public application routes.
 
+The Cloudflare connector is not `Requires`/`After` coupled to the application
+systemd unit. It remains independently restartable during application
+cutovers and fallback, and the production verification gate checks connector
+activity plus origin readiness together.
+
 ## Consequences
 
 The release path becomes reproducible, reviewable, digest-bound, and

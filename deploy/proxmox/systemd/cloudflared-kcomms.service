@@ -1,8 +1,7 @@
 [Unit]
 Description=Cloudflare Tunnel connector for K-Comms
 Wants=network-online.target
-After=network-online.target k-comms-app.service
-Requires=k-comms-app.service
+After=network-online.target
 
 [Service]
 Type=simple
