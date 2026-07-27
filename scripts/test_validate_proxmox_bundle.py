@@ -149,6 +149,38 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_enabled_legacy_auxiliary_boot_trigger(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'systemctl disable --now "${legacy_auxiliary_units[@]}"',
+                'systemctl stop "${legacy_auxiliary_units[@]}"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_missing_legacy_auxiliary_fallback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'systemctl enable --now "${legacy_auxiliary_units[@]}"',
+                'systemctl start "${legacy_auxiliary_units[@]}"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
     def test_rejects_fixed_podman_network_subnet(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

@@ -69,6 +69,10 @@ legacy_containers=(
   "$legacy_minio"
   "$legacy_livekit"
 )
+legacy_auxiliary_units=(
+  k-comms-media-tcp.service
+  k-comms-media-udp.service
+)
 declare -A legacy_restart_policies=()
 for container in "${legacy_containers[@]}"; do
   container_exists "$container" ||
@@ -86,6 +90,12 @@ for container in "$legacy_app" "$legacy_postgres" "$legacy_minio"; do
 done
 unit_active "$legacy_service" ||
   die "legacy production service is not active: ${legacy_service}"
+for unit in "${legacy_auxiliary_units[@]}"; do
+  systemctl cat "$unit" >/dev/null 2>&1 ||
+    die "legacy auxiliary unit is missing: ${unit}"
+  [[ "$(systemctl is-enabled "$unit")" == enabled ]] ||
+    die "legacy auxiliary unit is not enabled: ${unit}"
+done
 
 assert_legacy_mount() {
   local container=$1
@@ -293,6 +303,7 @@ recover_legacy() {
     restore_legacy_restart_policies
     systemctl enable "$legacy_service" || true
     systemctl restart "$legacy_service" || true
+    systemctl enable --now "${legacy_auxiliary_units[@]}" || true
     start_tunnel_if_installed || true
   fi
   cleanup_runtime_candidate
@@ -315,6 +326,8 @@ tar --create --gzip --numeric-owner \
   --file "${backup_dir}/minio-data.tar.gz" \
   --directory "$minio_path" .
 
+log "disabling legacy media units that can reactivate the application stack"
+systemctl disable --now "${legacy_auxiliary_units[@]}"
 systemctl disable --now "$legacy_service"
 log "suppressing independent restart of the retained legacy containers"
 for container in "${legacy_containers[@]}"; do
@@ -386,6 +399,10 @@ jq -n \
       minio_volume: $minio_volume
     },
     legacy_restart_policy_suppressed: true,
+    legacy_auxiliary_units_disabled: [
+      "k-comms-media-tcp.service",
+      "k-comms-media-udp.service"
+    ],
     backup_path: $backup_path
   }' >"$receipt"
 chmod 0600 "$receipt"

@@ -301,6 +301,8 @@ def validate(root: Path) -> list[str]:
         "start_tunnel_if_installed",
         'podman update --restart=no "$container"',
         'podman update --restart="$original_restart_policy" "$container"',
+        'systemctl disable --now "${legacy_auxiliary_units[@]}"',
+        'systemctl enable --now "${legacy_auxiliary_units[@]}"',
         "--preflight-only",
         "--prepare-only",
         "verify.sh",

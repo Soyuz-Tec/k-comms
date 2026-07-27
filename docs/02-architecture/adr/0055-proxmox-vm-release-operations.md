@@ -119,9 +119,10 @@ described by ADR-0012 and the production runbooks.
 - One-time production adoption verifies exact legacy mounts, PostgreSQL and
   MinIO format markers, a pre-cutover logical/object backup, unchanged
   application identity, disabled legacy service startup, suppressed
-  container-level legacy restart policies, and a successful post-adoption
+  container-level legacy restart policies, disabled legacy media helper units
+  that could reactivate the old stack, and a successful post-adoption
   production health gate. Adoption fallback restores the original container
-  restart policies before restarting the legacy service.
+  restart policies, legacy service, and media helpers.
 - A separate Proxmox backup schedule complements, but does not substitute for,
   the application-level PostgreSQL and MinIO recovery proof.
 
