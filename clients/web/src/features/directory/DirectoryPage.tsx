@@ -378,7 +378,7 @@ function DirectoryRooms({
         const title = conversationTitle(room.conversation);
         return (
           <li key={room.conversation.id} className="directory-row">
-            <span className="room-avatar" aria-hidden="true">#</span>
+            <span className="room-avatar" aria-hidden="true"><AppIcon name="hash" /></span>
             <div className="directory-row-copy">
               <strong>{title}</strong>
               <small>

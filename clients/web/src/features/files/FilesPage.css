@@ -436,9 +436,9 @@
     font-size: 0;
   }
 
-  .files-page-heading .button::before {
-    content: "↻";
-    font-size: 1.15rem;
+  .files-page-heading .button .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .files-surface {
@@ -520,10 +520,9 @@
     font-size: 0;
   }
 
-  .files-advanced-filter > summary::before {
-    content: "≡";
-    font-size: 1rem;
-    transform: rotate(90deg);
+  .files-advanced-filter > summary .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .files-advanced-filter .files-filters {
@@ -592,14 +591,9 @@
     font-size: 0;
   }
 
-  .file-row-actions a::before {
-    content: "↗";
-    font-size: 1.05rem;
-  }
-
-  .file-row-actions button::before {
-    content: "↓";
-    font-size: 1.05rem;
+  .file-row-actions .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .file-kind-mark {

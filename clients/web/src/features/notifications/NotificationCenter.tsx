@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
+import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatTime } from "../../lib/format";
 import type { InAppNotification } from "../../types";
@@ -53,7 +54,7 @@ export function NotificationCenter() {
         aria-expanded={open}
         onClick={() => setOpen((visible) => !visible)}
       >
-        <span aria-hidden="true">♢</span>
+        <AppIcon name="bell" />
         {unreadCount > 0 && <span className="notification-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
       </button>
       {open && (
@@ -128,7 +129,7 @@ function NotificationPanel({
     <aside ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title">
       <header>
         <div><span className="eyebrow">Inbox</span><h2 id="notification-title">Notifications</h2></div>
-        <button className="icon-button" type="button" aria-label="Close notifications" onClick={onClose}>×</button>
+        <button className="icon-button" type="button" aria-label="Close notifications" onClick={onClose}><AppIcon name="x" /></button>
       </header>
       <div className="notification-panel-actions">
         <span>{unreadCount} unread</span>
@@ -144,7 +145,7 @@ function NotificationPanel({
                 <span><strong>{notification.title}</strong><time dateTime={notification.inserted_at}>{formatTime(notification.inserted_at)}</time></span>
                 <p>{notification.body}</p>
               </button>
-              <button className="notification-dismiss" type="button" aria-label={`Dismiss ${notification.title}`} disabled={busyId === notification.id} onClick={() => void action(notification.id, () => onDismiss(notification))}>×</button>
+              <button className="notification-dismiss" type="button" aria-label={`Dismiss ${notification.title}`} disabled={busyId === notification.id} onClick={() => void action(notification.id, () => onDismiss(notification))}><AppIcon name="x" /></button>
             </li>
           ))}
         </ol>

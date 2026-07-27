@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api";
 import { stepUpWasCancelled } from "../../app/step-up";
 import { ConfirmDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatDateTime, conversationTitle } from "../../lib/format";
 import type { Conversation, GuestLink } from "../../types";
@@ -194,7 +195,7 @@ export function ConversationShareDialog({
             <h2 id="guest-share-title">Invite to {conversationTitle(conversation)}</h2>
           </div>
           <button className="icon-button" type="button" aria-label="Close guest invitation" onClick={onClose}>
-            ×
+            <AppIcon name="x" />
           </button>
         </header>
 

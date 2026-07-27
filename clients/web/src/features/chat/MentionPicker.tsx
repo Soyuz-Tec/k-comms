@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import type { ConversationMembership } from "../../types";
+import { AppIcon } from "../../components/AppIcon";
 import {
   duplicateParticipantNames,
   participantIdentifier
@@ -65,7 +66,7 @@ export function MentionPicker({
         disabled={disabled || available.length === 0}
         onClick={() => setOpen((visible) => !visible)}
       >
-        <span aria-hidden="true">@</span>
+        <AppIcon name="atSign" />
         Mention{selectedUserIds.length > 0 ? ` (${selectedUserIds.length})` : ""}
       </button>
       {open && (
@@ -95,7 +96,7 @@ export function MentionPicker({
           {selectedUserIds.map((userId) => (
             <span key={userId}>
               @{identifierById.get(userId) || "Member"}
-              <button type="button" aria-label={`Remove mention ${identifierById.get(userId) || "member"}`} onClick={() => toggle(userId)}>×</button>
+              <button type="button" aria-label={`Remove mention ${identifierById.get(userId) || "member"}`} onClick={() => toggle(userId)}><AppIcon name="x" /></button>
             </span>
           ))}
         </div>

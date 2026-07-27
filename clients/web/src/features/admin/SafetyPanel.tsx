@@ -4,6 +4,7 @@ import type { AttachmentSafety, ModerationCase } from "../../types";
 import { errorText, formatBytes, formatDateTime } from "../../lib/format";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 
 export function SafetyPanel({ api, canManageAttachments }: { api: ApiClient; canManageAttachments: boolean }) {
   const [cases, setCases] = useState<ModerationCase[]>([]);
@@ -44,7 +45,7 @@ export function SafetyPanel({ api, canManageAttachments }: { api: ApiClient; can
   }
 
   return <>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss safety error" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss safety error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
     {pendingAction && <ActionDialog
       title={`${moderationActionLabel(pendingAction.actionType)} case?`}
       description={pendingAction.value.summary}

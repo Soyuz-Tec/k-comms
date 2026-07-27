@@ -5,6 +5,7 @@ import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import type { ServiceAccount, ServiceAccountScope } from "../../types";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 
 export const serviceAccountScopes: ServiceAccountScope[] = [
   "conversations:read",
@@ -111,7 +112,7 @@ export function ServiceAccountsPanel({ api, onLifecycleChanged }: { api: ApiClie
     />}
     <div className="card-heading"><div><span className="eyebrow">Scoped automation</span><h2 id="service-accounts-title">Service accounts</h2></div><span className="status-pill success">{loading ? "Loading" : `${accounts.length} configured`}</span></div>
     <p className="support-note">Non-login bot identities can access only joined conversations and explicitly granted API scopes. After creation, add the bot from a conversation’s member controls. Credentials never work for browser sessions, administration, or sockets.</p>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss service account error" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss service account error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
     <form className="inline-admin-form service-account-form" onSubmit={(event) => void create(event)}>
       <label className="field">Bot name<input name="name" required minLength={2} maxLength={120} /></label>
       <label className="field">Credential expires<input name="expires_at" type="datetime-local" defaultValue={defaultExpiry()} min={minimumExpiry()} max={maximumExpiry()} required /></label>

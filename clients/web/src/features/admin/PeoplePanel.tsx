@@ -12,6 +12,7 @@ import { canChangeUser, canManageSessions, canManageUsers, roleLabel, rolesAssig
 import { useSession } from "../../app/session";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 
 type PendingPeopleAction =
   | {
@@ -192,7 +193,7 @@ export function PeoplePanel({
   const pendingUserChange = pendingAction?.kind === "user-change" ? pendingAction : null;
 
   return <>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss people error" onClick={() => setError(null)}>×</button></div>}{notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss people notice" onClick={() => setNotice(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss people error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}{notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss people notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
     {pendingAction && <ActionDialog
       key={peopleActionBusyKey(pendingAction)}
       title={pendingAction.kind === "user-change" ? "Apply this access change?" : pendingAction.kind === "invitation-revocation" ? "Revoke this invitation?" : "Revoke this session?"}

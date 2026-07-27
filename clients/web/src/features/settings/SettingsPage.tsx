@@ -5,6 +5,7 @@ import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
 import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 import { PushNotifications } from "./PushNotifications";
 
 const notificationChoices = [
@@ -213,8 +214,8 @@ export function SettingsPage() {
   return (
     <main className="page-shell" id="main-content">
       <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
-      {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button></div>}
-      {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
+      {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
+      {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       {loadFailures.length > 0 && (
         <div className="inline-notice settings-load-warning" role="status">
           <div>
@@ -225,7 +226,7 @@ export function SettingsPage() {
               ))}
             </ul>
           </div>
-          <button type="button" aria-label="Dismiss settings load warning" onClick={() => setLoadFailures([])}>×</button>
+          <button type="button" aria-label="Dismiss settings load warning" onClick={() => setLoadFailures([])}><AppIcon name="x" /></button>
         </div>
       )}
       {pendingRevocation && <ConfirmDialog
