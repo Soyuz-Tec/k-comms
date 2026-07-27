@@ -117,6 +117,100 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_legacy_container_auto_restart_after_adoption(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'podman update --restart=no "$container"',
+                'podman update --restart=unless-stopped "$container"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_missing_legacy_restart_policy_fallback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'podman update --restart="$original_restart_policy" "$container"',
+                'podman update --restart=no "$container"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_enabled_legacy_auxiliary_boot_trigger(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'systemctl disable --now "${legacy_auxiliary_units[@]}"',
+                'systemctl stop "${legacy_auxiliary_units[@]}"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_missing_legacy_auxiliary_fallback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'systemctl enable --now "${legacy_auxiliary_units[@]}"',
+                'systemctl start "${legacy_auxiliary_units[@]}"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
+    def test_rejects_missing_livekit_udp_host_tuning(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/sysctl/99-k-comms-livekit.conf"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "net.core.rmem_max = 5000000",
+                "net.core.rmem_max = 425984",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn("LiveKit UDP receive-buffer tuning is missing", errors)
+
+    def test_rejects_unsynchronized_livekit_udp_host_tuning(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/sync-assets.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "sysctl --load /etc/sysctl.d/99-k-comms-livekit.conf >/dev/null",
+                ":",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("sync-assets.sh is missing LiveKit host tuning" in error for error in errors)
+        )
+
     def test_rejects_fixed_podman_network_subnet(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

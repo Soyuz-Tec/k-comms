@@ -119,6 +119,15 @@ application image under Quadlets, and runs production verification. If any
 activation gate fails, the new units are stopped and the retained legacy
 service is restarted automatically.
 
+The transaction also changes each retained legacy container restart policy to
+`no` after it is stopped. This prevents Podman's boot-time restart service from
+starting a legacy database or object store independently of the disabled
+legacy systemd unit. It also disables the legacy TCP and UDP media helper
+units, whose dependency on the legacy application unit could otherwise
+reactivate that stack during boot. A failed adoption restores every
+container's original restart policy, the legacy application service, and both
+media helpers.
+
 For production, the transaction starts the installed Cloudflare connector
 after the candidate app service and before verification. The fallback path
 also starts the connector after restoring the legacy service, so an application
@@ -131,6 +140,12 @@ origin to be active and ready before adoption or deployment succeeds.
 Both initial installation and every reviewed asset synchronization install
 this connector unit explicitly; it is intentionally outside the
 `k-comms-*` systemd filename glob.
+
+The host contract also persists `net.core.rmem_max=5000000` under
+`/etc/sysctl.d` and applies it during installation and asset synchronization.
+This matches the minimum production receive-buffer ceiling reported by the
+pinned LiveKit server. Production verification fails if the effective value
+is lower.
 
 The protected configuration conversion accounts for the Compose-to-Podman
 environment-file parsing boundary. It removes only optional outer double
@@ -146,7 +161,9 @@ The operation records a `k-comms-legacy-adoption-receipt-v1` receipt and keeps
 the stopped legacy containers plus their local image for the first-update
 rollback seam. Do not delete that image until a later production deployment
 and rollback rehearsal have both succeeded. The application image and source
-revision do not change during adoption.
+revision do not change during adoption. The receipt records that independent
+legacy-container restart has been suppressed and the legacy media helpers have
+been disabled.
 
 Until that first digest promotion, `verify.sh` accepts the retained local image
 only for the production VM with `adopted` storage and only when its OCI source

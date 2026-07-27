@@ -7,17 +7,19 @@ source "${SCRIPT_DIR}/common.sh"
 
 environment_file=$K_COMMS_ENVIRONMENT_FILE
 environment=
+skip_host_tuning=false
 
 while (($#)); do
   case "$1" in
     --environment-file) environment_file=${2:-}; shift 2 ;;
     --environment) environment=${2:-}; shift 2 ;;
+    --skip-host-tuning) skip_host_tuning=true; shift ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 require_root
-for command in curl podman systemctl; do
+for command in curl podman sysctl systemctl; do
   require_command "$command"
 done
 
@@ -95,6 +97,12 @@ if [[ "$environment" == production ]] && systemctl list-unit-files cloudflared-k
   --no-legend 2>/dev/null | grep -q '^cloudflared-kcomms.service'; then
   unit_active cloudflared-kcomms.service ||
     die "production Cloudflare Tunnel service is installed but inactive"
+fi
+
+if [[ "$skip_host_tuning" == false ]]; then
+  receive_buffer_max="$(sysctl -n net.core.rmem_max)"
+  [[ "$receive_buffer_max" =~ ^[0-9]+$ && "$receive_buffer_max" -ge 5000000 ]] ||
+    die "LiveKit UDP receive-buffer ceiling is below 5000000 bytes"
 fi
 
 log "${environment} verification passed for ${release_image}"

@@ -7,6 +7,7 @@ BUNDLE_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 require_root
+require_command sysctl
 assert_secure_runtime_env
 environment="$(configured_environment)"
 bind_address="$(configured_bind_address)"
@@ -58,6 +59,8 @@ install -d -m 0755 \
 install -m 0755 "${BUNDLE_DIR}"/bin/*.sh "${K_COMMS_INSTALL_DIR}/bin/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.in "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/nftables.conf.in" "$K_COMMS_TEMPLATE_DIR/"
+install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \
+  "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/k-comms-postgres.container "$K_COMMS_QUADLET_DIR/"
 
 render_template \
@@ -96,6 +99,9 @@ render_template \
   STAGING_LAN_RULES "$staging_rules"
 nft --check --file /etc/nftables.conf.k-comms
 install -m 0644 /etc/nftables.conf.k-comms /etc/nftables.conf
+install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \
+  /etc/sysctl.d/
+sysctl --load /etc/sysctl.d/99-k-comms-livekit.conf >/dev/null
 
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.service /etc/systemd/system/
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.timer /etc/systemd/system/
