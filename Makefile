@@ -18,7 +18,7 @@ RELEASE_EVIDENCE_ARGS ?=
 
 .PHONY: bootstrap dev stop logs shell check test format web-check contracts docs-check \
 	validation-deps qualification-script-tests build container-smoke compose-validate \
-	kube-validate production-preflight release-evidence release clean
+	local-release-validate kube-validate production-preflight release-evidence release clean
 
 bootstrap:
 	$(COMPOSE) up -d postgres minio minio-init
@@ -54,12 +54,17 @@ validation-deps:
 	$(PYTHON) -m pip install -r requirements-validation.txt
 
 contracts:
+	$(PYTHON) scripts/test_validate_contracts.py
 	$(PYTHON) scripts/validate_contracts.py
 
 docs-check:
 	$(PYTHON) scripts/validate_docs.py
 
 qualification-script-tests:
+	$(PYTHON) scripts/test_instant_room_deployment_contracts.py
+	$(PYTHON) scripts/test_validate_local_release.py
+	$(PYTHON) scripts/test_qualify_local_release.py
+	$(PYTHON) scripts/validate_local_release.py
 	$(PYTHON) scripts/test_validate_staging_secrets.py
 	$(PYTHON) scripts/test_validate_production_bundle.py
 	$(PYTHON) scripts/test_collect_release_evidence.py
@@ -74,7 +79,8 @@ qualification-script-tests:
 		scripts/staging_product_acceptance.test.mjs \
 		scripts/staging_load.test.mjs \
 		scripts/score_usability_study.test.mjs \
-		scripts/score_usability_pilot.test.mjs
+		scripts/score_usability_pilot.test.mjs \
+		scripts/lan_release_forwarder.test.mjs
 
 build:
 	$(CONTAINER_ENGINE) build $(CONTAINER_BUILD_FLAGS) --target runtime \
@@ -86,6 +92,9 @@ container-smoke:
 
 compose-validate:
 	$(COMPOSE) config --quiet
+
+local-release-validate:
+	$(PYTHON) scripts/validate_local_release.py
 
 kube-validate:
 	@set -eu; \

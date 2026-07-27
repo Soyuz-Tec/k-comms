@@ -15,14 +15,25 @@ defmodule CommsCore.Operations do
 
   @runtime_gauges_sql """
   SELECT
-    COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(scheduled_at)))::double precision, 0.0),
+    COALESCE(
+      EXTRACT(
+        EPOCH FROM (
+          NOW() - MIN(scheduled_at) FILTER (
+            WHERE state IN ('available', 'scheduled', 'retryable')
+              AND scheduled_at <= NOW()
+          )
+        )
+      )::double precision,
+      0.0
+    ),
     COUNT(*) FILTER (WHERE state IN ('available', 'scheduled', 'retryable')),
     COUNT(*) FILTER (WHERE state = 'discarded'),
     (SELECT COUNT(*) FROM outbox_events WHERE published_at IS NULL),
     (SELECT COUNT(*) FROM attachments WHERE status = 'quarantined'),
     (SELECT COUNT(*) FROM notification_intents WHERE status = 'failed'),
     (SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'failed'),
-    (SELECT COUNT(*) FROM attachments WHERE scan_status = 'failed')
+    (SELECT COUNT(*) FROM attachments WHERE scan_status = 'failed'),
+    (SELECT COUNT(*) FROM attachments WHERE cleanup_status = 'failed')
   FROM oban_jobs
   """
 
@@ -38,7 +49,7 @@ defmodule CommsCore.Operations do
          outbox: outbox_counts(tenant_id),
          notifications: grouped_counts(Intent, tenant_id, :status),
          webhooks: grouped_counts(WebhookDelivery, tenant_id, :status),
-         attachments: grouped_counts(Attachment, tenant_id, :scan_status)
+         attachments: attachment_counts(tenant_id)
        }}
     end
   end
@@ -54,7 +65,7 @@ defmodule CommsCore.Operations do
          outbox: outbox_counts(nil),
          notifications: grouped_counts(Intent, nil, :status),
          webhooks: grouped_counts(WebhookDelivery, nil, :status),
-         attachments: grouped_counts(Attachment, nil, :scan_status)
+         attachments: attachment_counts(nil)
        }}
     end
   end
@@ -153,7 +164,8 @@ defmodule CommsCore.Operations do
              quarantined,
              notification_failures,
              webhook_failures,
-             scan_failures
+             scan_failures,
+             cleanup_failures
            ]
          ]
        }} ->
@@ -165,7 +177,8 @@ defmodule CommsCore.Operations do
           attachments_quarantined: quarantined,
           notification_failures: notification_failures,
           webhook_failures: webhook_failures,
-          attachment_scan_failures: scan_failures
+          attachment_scan_failures: scan_failures,
+          attachment_cleanup_failures: cleanup_failures
         }
 
       _ ->
@@ -225,6 +238,18 @@ defmodule CommsCore.Operations do
     |> select([record], {field(record, ^field), count(record.id)})
     |> Repo.all()
     |> Map.new(fn {status, count} -> {status, count} end)
+  end
+
+  defp attachment_counts(tenant_id) do
+    cleanup_failures =
+      Attachment
+      |> maybe_record_tenant(tenant_id)
+      |> where([attachment], attachment.cleanup_status == :failed)
+      |> Repo.aggregate(:count)
+
+    Attachment
+    |> grouped_counts(tenant_id, :scan_status)
+    |> Map.put(:cleanup_failed, cleanup_failures)
   end
 
   defp maybe_record_tenant(query, nil), do: query

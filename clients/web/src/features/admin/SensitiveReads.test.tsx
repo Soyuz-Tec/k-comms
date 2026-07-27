@@ -87,7 +87,7 @@ describe("sensitive administration reads", () => {
     const user = userEvent.setup();
 
     render(<StepUpProvider><PeoplePanel api={{ adminUserSessions } as unknown as ApiClient} actorRole="security_admin" users={[managedUser]} setUsers={vi.fn()} /></StepUpProvider>);
-    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(screen.getByRole("button", { name: "Manage sessions for Taylor Admin" }));
     await completeStepUp(user);
 
     expect(await screen.findByText("Session session-")).toBeVisible();

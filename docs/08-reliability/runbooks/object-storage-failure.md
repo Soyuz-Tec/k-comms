@@ -1,7 +1,7 @@
 # Runbook: Object Storage or Attachment-Safety Failure
 
 - **Owner:** K-Comms attachment safety and platform operations
-- **Alerts/triggers:** `KCommsAttachmentQuarantineBacklog`, `KCommsAttachmentScanFailures`, object-provider health alarm, or version/checksum mismatch
+- **Alerts/triggers:** `KCommsAttachmentQuarantineBacklog`, `KCommsAttachmentScanFailures`, `k_comms_attachment_cleanup_failures > 0`, object-provider health alarm, or version/checksum mismatch
 - **Default severity:** Sev-2 for blocked attachment workflows; Sev-1 for unsafe download, object substitution, or cross-tenant exposure
 - **Dashboard:** `ops/dashboards/service-overview.json` plus object-storage and scanner-provider dashboards
 - **Required context:** Environment, release revision, image digest, provider endpoint, bucket, and affected object-version range
@@ -37,12 +37,16 @@ curl --fail --silent --show-error "$API_ORIGIN/health/ready"
 curl --fail --silent --show-error \
   --header "authorization: Bearer $METRICS_BEARER_TOKEN" \
   "$API_ORIGIN/metrics" \
-  | grep -E '^k_comms_(attachments_quarantined|attachment_scan_failures) '
+  | grep -E '^k_comms_(attachments_quarantined|attachment_scan_failures|attachment_cleanup_failures) '
 ```
 
 Correlate the first failure with object-provider availability, bucket
 versioning, credential/CA rotation, egress/DNS changes, scanner status, worker
-deployment, and retry classification. Inspect only redacted application logs.
+deployment, and retry classification. A non-zero cleanup gauge represents
+abandoned upload intents whose exact-key version purge has not converged. Check
+that the periodic attachment cleanup reconciler is running and that cleanup
+workers receive both opaque tenant and attachment identifiers. Inspect only
+redacted application logs.
 
 ## Stabilization actions
 
@@ -54,7 +58,12 @@ deployment, and retry classification. Inspect only redacted application logs.
 4. Once provider identity is verified, resume bounded exact-version jobs. Use
    the product retry ledger or approved idempotent operation, never direct
    database mutation.
-5. If object data is unavailable or corrupt, enter the provider-native restore
+5. For abandoned-upload cleanup failures, verify the worker identity can list
+   bucket versions and delete specific versions and delete markers for the
+   configured attachment prefix. Restore those scoped permissions, then allow
+   the periodic reconciler to re-enqueue due rows. Do not shorten signed-upload
+   expiry/grace or mark cleanup complete manually.
+6. If object data is unavailable or corrupt, enter the provider-native restore
    and exact-version remap procedure with backup, approval, dry run, and
    reconciliation evidence.
 
@@ -85,6 +94,10 @@ authority.
    or download.
 5. Confirm backlog/failure gauges decline, worker readiness is stable, and core
    message send/replay remains correct.
+6. Create and abandon a synthetic upload intent, wait until its authorization
+   expiry plus grace, and prove that every exact-key version and delete marker
+   is removed, provider verification reports empty, and the cleanup failure
+   gauge returns to zero. Repeat the cleanup request to prove idempotency.
 
 ## Rollback and removal of temporary controls
 
@@ -108,6 +121,9 @@ until the incident review authorizes retention cleanup.
 ## Follow-up
 
 Review provider SLOs, lifecycle/capacity, scanner limits, retry policy, and
-egress/credential rotation. Rehearse both outage and exact-version restore
+egress/credential rotation. Review any provider lifecycle rule against
+quarantine, retention, and legal-hold requirements; never use global
+noncurrent-version expiry as a substitute for the application reconciler.
+Rehearse outage, abandoned-upload reconciliation, and exact-version restore
 paths, update alerts and this runbook, and link restricted evidence from the
 exact-release readiness ledger.

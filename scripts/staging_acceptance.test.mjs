@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   AcceptanceError,
+  assertInstantRoomCapabilityAndEndpoint,
   assertSignedTarget,
   attachmentEnteredSafetyWorkflow,
   buildSocketUrl,
@@ -16,6 +17,48 @@ import {
   readConfiguration,
   redactText
 } from "./staging_acceptance.mjs";
+
+test("instant-room qualification requires capability and probes the no-write unavailable contract", async () => {
+  const calls = [];
+  const api = {
+    async request(path, options) {
+      calls.push({ path, options });
+      return {
+        payload: {
+          error: {
+            code: "instant_room_unavailable",
+            detail: "This instant communication room is unavailable"
+          }
+        }
+      };
+    }
+  };
+  const baseUrl = new URL("https://comms.example.test");
+
+  assert.deepEqual(
+    await assertInstantRoomCapabilityAndEndpoint(
+      api,
+      { capabilities: { instant_rooms: true } },
+      baseUrl
+    ),
+    { capability: true, unavailable_preview_contract: true }
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/api/v1/instant-rooms/preview");
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.expected, 404);
+  assert.equal(calls[0].options.headers.Origin, baseUrl.origin);
+  assert.match(calls[0].options.body.token, /^[A-Za-z0-9_-]{43}$/);
+
+  await assert.rejects(
+    assertInstantRoomCapabilityAndEndpoint(
+      api,
+      { capabilities: { instant_rooms: false } },
+      baseUrl
+    ),
+    /instant_rooms capability is not enabled/
+  );
+});
 
 test("attachment completion accepts every safe asynchronous pipeline state", () => {
   assert.equal(attachmentEnteredSafetyWorkflow("uploaded"), true);

@@ -3,6 +3,45 @@ defmodule CommsWeb.RateLimitTest do
 
   alias CommsWeb.Plugs.RateLimit
 
+  test "a credential burst cannot cross an epoch-aligned window boundary" do
+    key = {:password_verification_identity, "boundary-user"}
+
+    for _attempt <- 1..5 do
+      assert CommsWeb.RateLimiter.allow_at?(key, 5, 60, 59)
+    end
+
+    refute CommsWeb.RateLimiter.allow_at?(key, 5, 60, 60)
+    assert CommsWeb.RateLimiter.allow_at?(key, 5, 60, 119)
+  end
+
+  test "concurrent requests cannot admit more than the configured limit" do
+    key = {:password_verification_identity, "concurrent-user"}
+    parent = self()
+
+    tasks =
+      for _request <- 1..32 do
+        Task.async(fn ->
+          send(parent, {:ready, self()})
+
+          receive do
+            :start -> CommsWeb.RateLimiter.allow_at?(key, 5, 60, 1_000)
+          end
+        end)
+      end
+
+    task_pids =
+      for _request <- 1..32 do
+        assert_receive {:ready, task_pid}, 1_000
+        task_pid
+      end
+
+    Enum.each(task_pids, &send(&1, :start))
+
+    assert tasks
+           |> Task.await_many()
+           |> Enum.count(& &1) == 5
+  end
+
   test "IP-wide authentication limit cannot be bypassed by rotating account identifiers" do
     suffix = rem(System.unique_integer([:positive, :monotonic]), 200) + 20
     remote_ip = {198, 51, 100, suffix}
@@ -26,7 +65,13 @@ defmodule CommsWeb.RateLimitTest do
     refute second.halted
     assert third.halted
     assert third.status == 429
-    assert Jason.decode!(third.resp_body)["error"]["code"] == "rate_limited"
+    assert get_resp_header(third, "retry-after") == ["60"]
+
+    assert %{
+             "code" => "rate_limited",
+             "detail" => "Too many requests",
+             "retry_after" => 60
+           } = Jason.decode!(third.resp_body)["error"]
   end
 
   test "service and password admission buckets do not consume each other's capacity" do
@@ -50,6 +95,46 @@ defmodule CommsWeb.RateLimitTest do
              window: 60,
              scope: :service_authentication_ip
            ).halted
+  end
+
+  test "guest account conversion enforces independent five-per-minute IP and identity limits" do
+    remote_ip = {198, 51, 100, 203}
+
+    for attempt <- 1..5 do
+      conn =
+        remote_ip
+        |> guest_conversion_conn("guest-ip-#{attempt}")
+        |> RateLimit.call(limit: 5, window: 60, scope: :guest_account_conversion_ip)
+
+      refute conn.halted
+    end
+
+    assert remote_ip
+           |> guest_conversion_conn("guest-ip-6")
+           |> RateLimit.call(limit: 5, window: 60, scope: :guest_account_conversion_ip)
+           |> Map.fetch!(:halted)
+
+    for attempt <- 1..5 do
+      conn =
+        {203, 0, 113, attempt}
+        |> guest_conversion_conn("same-guest")
+        |> RateLimit.call(
+          limit: 5,
+          window: 60,
+          scope: :guest_account_conversion_identity
+        )
+
+      refute conn.halted
+    end
+
+    assert {203, 0, 113, 6}
+           |> guest_conversion_conn("same-guest")
+           |> RateLimit.call(
+             limit: 5,
+             window: 60,
+             scope: :guest_account_conversion_identity
+           )
+           |> Map.fetch!(:halted)
   end
 
   test "password verification stops a credential-guessing burst after five attempts" do
@@ -112,6 +197,11 @@ defmodule CommsWeb.RateLimitTest do
 
   defp authenticated_conn(token),
     do: build_conn() |> put_req_header("authorization", "Bearer #{token}")
+
+  defp guest_conversion_conn(remote_ip, user_id) do
+    conn = build_conn() |> Plug.Conn.assign(:current_subject, %{user_id: user_id})
+    %{conn | remote_ip: remote_ip}
+  end
 
   defp service_conn(remote_ip, credential) do
     conn = build_conn() |> put_req_header("authorization", "Bearer #{credential}")

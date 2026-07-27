@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("admin creates, rotates, and revokes a scoped bot with one-time credential guards", async ({ page }) => {
   const session = {

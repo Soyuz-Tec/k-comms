@@ -92,6 +92,28 @@ defmodule CommsWeb.ConversationController do
     end
   end
 
+  def create_direct(conn, %{"user_id" => user_id}) do
+    with {:ok, result} <-
+           Conversations.get_or_create_direct_view(user_id, conn.assigns.current_subject) do
+      if result.created do
+        CommsWeb.Broadcast.conversation_memberships(
+          result.conversation.tenant_id,
+          result.conversation.id,
+          "added"
+        )
+      end
+
+      conn
+      |> put_status(if(result.created, do: :created, else: :ok))
+      |> json(%{
+        data: Presenter.conversation(result.conversation),
+        created: result.created
+      })
+    end
+  end
+
+  def create_direct(_conn, _params), do: {:error, {:missing_fields, ["user_id"]}}
+
   def show(conn, %{"id" => id}) do
     with {:ok, result} <- Conversations.get_for_user_view(id, conn.assigns.current_subject) do
       json(conn, %{data: Presenter.conversation(result)})

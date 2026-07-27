@@ -5,6 +5,7 @@ defmodule CommsCore.Accounts.SessionView do
     :user_id,
     :device_id,
     :expires_at,
+    :absolute_expires_at,
     :last_used_at,
     :revoked_at,
     :inserted_at,

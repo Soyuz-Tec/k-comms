@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 type Role = "member" | "moderator" | "compliance_admin" | "security_admin" | "owner";
@@ -35,18 +35,14 @@ async function mockWorkspace(page: Page, role: Role, conversations: unknown[] = 
 }
 
 async function openClientRoute(page: Page, path: string) {
-  await page.goto("/app/");
-  await page.evaluate((nextPath) => {
-    window.history.pushState({}, "", nextPath);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
+  await page.goto(path);
 }
 
 test("protected product routes enforce the client role matrix", async ({ page }) => {
   await mockWorkspace(page, "member");
   await openClientRoute(page, "/admin");
   await expect(page).toHaveURL(/\/app/);
-  await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
 });
 
 test("moderators can load moderation without owner-only attachment administration", async ({ page }) => {

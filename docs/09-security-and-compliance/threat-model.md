@@ -7,7 +7,8 @@ required before production traffic.
 ## High-value assets
 
 - Passwords, password-recovery links, access/refresh tokens, sessions, devices,
-  one-time socket tickets, and signing keys
+  one-time socket tickets, guest-link tokens and digests, guest admissions, and
+  signing keys
 - Tenant membership, roles, platform roles, admission quotas, and authorization
   policy
 - Message bodies, drafts, private attachments, exact object version IDs, and
@@ -33,8 +34,8 @@ required before production traffic.
 4. Tenant A data and authority to Tenant B data and authority.
 5. Member, moderator, tenant administrator, compliance/security administrator,
    and separately granted platform operator.
-6. Human bearer tokens, one-time socket tickets, service credentials, and
-   release-operation credentials.
+6. Human bearer tokens, conversation-scoped guest bearer tokens, one-time
+   socket tickets, service credentials, and release-operation credentials.
 7. Application database identity to backup, restore, and infrastructure
    operator identities.
 8. Development/local-proof adapters and credentials to any staging or
@@ -70,6 +71,7 @@ required before production traffic.
 | T-020 | Media traffic, reconnect storms, camera resolution, screen sharing, oversized rooms, recording, or provider failure causes denial of service or privacy harm | Calls are isolated from durable text readiness; production must qualify group size, participants, token lifetime, bandwidth/adaptation, recording-disabled policy, and retries and expose content-blind quality/capacity signals | Expected peak plus headroom, three-or-more participant video, forced-TURN, UDP-blocked fallback, provider interruption, privacy approval, and stop-condition exercises remain pending |
 | T-021 | A session, device, user, membership, conversation, or tenant loses access while an admitted media participant remains connected or reconnects with a cached token | The authoritative access change and admission invalidation commit independently of provider I/O; durable media-queue work retries idempotent participant removal, repeats self-hosted enforcement for a 660-1,800 second minimum horizon, retains failures after it, and completes only after a removal succeeds at or after the horizon, without storing JWTs or secrets | Measure the exact access-change-to-disconnect SLO and cached-token replay bound in the provider composition. The self-hosted adapter does not promise instant token invalidation; stricter policy requires separately implemented and qualified LiveKit Cloud token revocation or whole-room deletion, which disconnects everyone |
 | T-022 | Camera starts without informed action, background capture survives teardown, or screen sharing exposes unrelated applications or notifications | Video prejoin defaults camera/microphone off; Permissions Policy restricts capture to the first-party origin; screen sharing requires separate browser source selection and persistent stop control; every local track stops on leave/end/session loss/native track end/teardown; no recording, snapshot, transcript, or media persistence is authorized | Manual browser/privacy review, permission-revocation tests, OS/browser capture-indicator checks, screen-track cleanup, and internal-pilot consent feedback are launch gates |
+| T-023 | A leaked, guessed, replayed, cross-tenant, expired, or revoked guest link grants wider or longer access than intended, reveals internal tenant/conversation metadata before admission, or enrolls an unauthorized permanent tenant identity | UUID-plus-256-bit random link secret with hash-only persistence, fragment transport and immediate client scrubbing, POST-only exchange, uniform unavailable response, a closed four-field preview with no tenant/conversation IDs or activity metadata, bounded TTL/use count, row-locked atomic redemption, same-conversation foreign keys, quota and membership enforcement, immutable history start, separate guest token purpose and route allow-list, conversation-bound socket tickets, durable expiry and call eviction, immediate revocation disconnect, and token-free audit evidence. Permanent conversion is disabled by default and requires an owner/admin step-up, one preauthorized email, a single-use link, a second independent 256-bit verification code kept out of the QR/share URL, a domain-bound hash-only verifier on the exact link row, locked tenant/link/admission/email binding, constant-time verification, normal password/uniqueness checks, and a separate password-work rate limit | Verify ingress/log redaction, exact minimal preview shape, QR/share and separate-code delivery behavior, concurrent final-use redemption, revocation during active message/media sessions, scheduled expiry/refresh behavior, pre-admission realtime filtering, conversion-email mismatch, missing/wrong conversion-code uniformity, conversion privilege/step-up, one-time conversion, and password-work throttling against the exact release composition |
 
 ## Review rule
 

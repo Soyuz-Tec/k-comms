@@ -23,6 +23,7 @@ from validate_architecture import (
     discover_schemas,
     generated_report_errors,
     main,
+    public_spec_operations,
     qualified_function_calls,
     read_yaml,
     strict_deferral_rejection_reason,
@@ -33,6 +34,22 @@ from validate_architecture import (
 
 
 class ValidateArchitectureTest(unittest.TestCase):
+    def test_public_specs_recognize_elixir_predicate_and_bang_functions(self) -> None:
+        source = """
+        defmodule CommsCore.Example do
+          @spec allow?(binary(), pos_integer()) :: boolean()
+          def allow?(_key, _limit), do: true
+
+          @spec enforce!(binary()) :: :ok
+          def enforce!(_key), do: :ok
+        end
+        """
+
+        self.assertEqual(
+            public_spec_operations(source),
+            {("allow?", 2), ("enforce!", 1)},
+        )
+
     def test_accepts_the_documented_dependency_and_repo_policy(self) -> None:
         with self.repository_fixture() as root:
             self.assertEqual(validate(root), [])
@@ -590,6 +607,152 @@ class ValidateArchitectureTest(unittest.TestCase):
             ],
         )
 
+    def test_repository_keeps_guest_access_owner_pure_and_one_way(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
+        schemas = discover_schemas(root)
+        identity = manifest["contexts"]["identity_access"]
+        conversations = manifest["contexts"]["conversations"]
+
+        self.assertIn("CommsCore.Accounts.AccessGrant", identity["public_contracts"])
+        self.assertNotIn(
+            "CommsCore.Accounts.GuestAccessGrant",
+            identity["public_contracts"],
+        )
+        self.assertTrue(
+            {
+                "CommsCore.Conversations.GuestLinkView",
+                "CommsCore.Conversations.GuestLinkPreviewView",
+                "CommsCore.Conversations.GuestAdmissionView",
+            }.issubset(set(conversations["public_contracts"]))
+        )
+        self.assertNotIn("conversations", identity["allowed_dependencies"])
+        self.assertIn("identity_access", conversations["allowed_dependencies"])
+
+        expected_tables = {
+            "conversation_guest_links": {
+                "owner": "conversations",
+                "canonical_schema": "CommsCore.Conversations.GuestLink",
+                "role": "source",
+            },
+            "conversation_guest_admissions": {
+                "owner": "conversations",
+                "canonical_schema": "CommsCore.Conversations.GuestAdmission",
+                "role": "source",
+            },
+        }
+        for table, declaration in expected_tables.items():
+            with self.subTest(table=table):
+                self.assertEqual(manifest["tables"][table], declaration)
+                self.assertEqual(
+                    schemas[table],
+                    [
+                        (
+                            declaration["canonical_schema"],
+                            "apps/comms_core/lib/comms_core/conversations/"
+                            + (
+                                "guest_link.ex"
+                                if table == "conversation_guest_links"
+                                else "guest_admission.ex"
+                            ),
+                        )
+                    ],
+                )
+
+        accounts_rule = next(
+            rule
+            for rule in manifest["namespace_dependency_rules"]
+            if rule["id"] == "accounts-do-not-depend-on-conversations"
+        )
+        self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
+        self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
+
+        transitions = {
+            transition["id"]: transition
+            for transition in manifest["enforcement"]["reviewed_manifest_transitions"]
+        }
+        self.assertEqual(
+            set(transitions),
+            {"add-mobile-read-guest-access-and-instant-rooms"},
+        )
+        transition = transitions["add-mobile-read-guest-access-and-instant-rooms"]
+        self.assertEqual(
+            transition["adr"],
+            "docs/02-architecture/adr/0052-retained-message-sender-labels.md",
+        )
+        self.assertEqual(
+            set(transition["approved_changes"]),
+            {
+                "context:calls:public_contracts:add:"
+                "CommsCore.AudioCalls.CallSessionView",
+                "context:conversation_content:public_contracts:add:"
+                "CommsCore.Attachments.FileView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.EphemeralRoomView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestAdmissionView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestLinkPreviewView",
+                "context:conversations:public_contracts:add:"
+                "CommsCore.Conversations.GuestLinkView",
+                "context:conversations:publishes:add:"
+                "ephemeral_room.created.v1",
+                "context:conversations:publishes:add:"
+                "ephemeral_room.expired.v1",
+                "context:conversations:publishes:add:"
+                "ephemeral_room.idle.v1",
+                "context:conversations:publishes:add:"
+                "ephemeral_room.owner_upgraded.v1",
+                "context:conversations:publishes:add:"
+                "ephemeral_room.reactivated.v1",
+                "context:identity_access:public_contracts:add:"
+                "CommsCore.Accounts.DirectoryPersonView",
+                "context:identity_access:public_contracts:add:"
+                "CommsCore.Accounts.RetainedSenderLabelView",
+                "context:platform_runtime:owned_modules:add:"
+                "CommsCore.PlatformRateLimits",
+                "context:platform_runtime:owned_modules:add:"
+                "CommsCore.PlatformRateLimits.Bucket",
+                "context:platform_runtime:public_contracts:add:"
+                "CommsCore.PlatformRateLimits.Decision",
+                "context:platform_runtime:public_facades:add:"
+                "CommsCore.PlatformRateLimits",
+                "runtime_collaborations:conversation-call-lifecycle:"
+                'callers:add:"CommsCore.Conversations.EphemeralRooms"',
+                "table:conversation_ephemeral_join_receipts:add:"
+                '{"canonical_schema":"CommsCore.Conversations.'
+                'EphemeralJoinReceipt","owner":"conversations","role":"source"}',
+                "table:conversation_ephemeral_presence_leases:add:"
+                '{"canonical_schema":"CommsCore.Conversations.'
+                'EphemeralPresenceLease","owner":"conversations","role":"source"}',
+                "table:conversation_ephemeral_rooms:add:"
+                '{"canonical_schema":"CommsCore.Conversations.EphemeralRoom",'
+                '"owner":"conversations","role":"source"}',
+                "table:conversation_guest_admissions:add:"
+                '{"canonical_schema":"CommsCore.Conversations.GuestAdmission",'
+                '"owner":"conversations","role":"source"}',
+                "table:conversation_guest_links:add:"
+                '{"canonical_schema":"CommsCore.Conversations.GuestLink",'
+                '"owner":"conversations","role":"source"}',
+                "table:public_rate_limit_buckets:add:"
+                '{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket",'
+                '"owner":"platform_runtime","role":"technical"}',
+                "technical_interfaces:web-distributed-public-rate-limit:add:"
+                '{"callers":["CommsWeb.InstantRoomMessageRateLimit",'
+                '"CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web '
+                "adapters supply only a supported scope, an HMAC-SHA-256 "
+                "network or identity digest, and positive limit/window values; "
+                "PlatformRateLimits owns the PostgreSQL-clock fixed-window "
+                "decision and bounded expired-bucket cleanup without retaining "
+                'raw network addresses or bearer material.","contracts":'
+                '["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct",'
+                '"id":"web-distributed-public-rate-limit","interface":'
+                '"CommsCore.PlatformRateLimits","operations":[{"arity":4,'
+                '"name":"allow?"}],"owner":"platform_runtime","transaction":'
+                '"independent"}',
+            },
+        )
+
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
@@ -827,12 +990,39 @@ class ValidateArchitectureTest(unittest.TestCase):
         source = (root / "apps/comms_core/lib/comms_core/messaging.ex").read_text(
             encoding="utf-8"
         )
+        attachments_source = (
+            root / "apps/comms_core/lib/comms_core/attachments.ex"
+        ).read_text(encoding="utf-8")
+        calls_source = (
+            root / "apps/comms_core/lib/comms_core/audio_calls.ex"
+        ).read_text(encoding="utf-8")
+        conversations_source = (
+            root / "apps/comms_core/lib/comms_core/conversations.ex"
+        ).read_text(encoding="utf-8")
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         references = core_module_references(source)
 
         self.assertIn("Conversations.reserve_message_slot", source)
         self.assertIn("Conversations.validate_active_members", source)
-        self.assertIn("Conversations.active_conversation_ids", source)
+        self.assertIn("def active_membership_authorization_query(", conversations_source)
+        self.assertIn(
+            "def active_service_membership_authorization_query(",
+            conversations_source,
+        )
+
+        for owner_name, owner_source in {
+            "messaging": source,
+            "attachments": attachments_source,
+            "calls": calls_source,
+        }.items():
+            with self.subTest(owner=owner_name):
+                self.assertIn(
+                    "Conversations.active_membership_authorization_query",
+                    owner_source,
+                )
+                self.assertIn("subquery(authorization_query)", owner_source)
+                self.assertNotIn("active_conversation_ids", owner_source)
+
         self.assertTrue(
             {
                 "CommsCore.Accounts.User",
@@ -980,6 +1170,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "CommsCore.Messaging.ReactionView",
                 "CommsCore.Attachments.AttachmentDeletionObject",
                 "CommsCore.Attachments.AttachmentView",
+                "CommsCore.Attachments.FileView",
                 "CommsCore.Attachments.RestoreCandidate",
                 "CommsCore.Attachments.RestoreContext",
                 "CommsCore.Attachments.RestoreReport",
@@ -1460,6 +1651,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(interfaces),
             {
                 "notification-availability-adapter",
+                "web-distributed-public-rate-limit",
                 "web-validation-error-rendering",
                 "worker-attachment-restore-release",
                 "worker-outbox-publication",
@@ -1507,6 +1699,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         calls = manifest["contexts"]["calls"]
         public_contracts = {
             "CommsCore.AudioCalls.CallView",
+            "CommsCore.AudioCalls.CallSessionView",
             "CommsCore.AudioCalls.CredentialRequest",
             "CommsCore.AudioCalls.EvictionClaim",
             "CommsCore.AudioCalls.EvictionProgress",
@@ -1600,7 +1793,10 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "consumer": "conversations",
                 "port": "CommsCore.Conversations.CallLifecyclePort",
                 "result_contract": ("CommsCore.Conversations.CallLifecycleReceipt"),
-                "callers": ["CommsCore.Conversations"],
+                "callers": [
+                    "CommsCore.Conversations",
+                    "CommsCore.Conversations.EphemeralRooms",
+                ],
                 "operations": [{"name": "revoke_conversation_access", "arity": 1}],
                 "binding_key": "conversation_call_lifecycle_adapter",
             },
@@ -3654,6 +3850,56 @@ class ValidateArchitectureTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assert_rule(root, "unresolved_migration_target")
+
+    def test_migration_parser_attributes_restart_safe_concurrent_index_helper(
+        self,
+    ) -> None:
+        with self.boundary_fixture() as root:
+            migration_root = root / "apps/comms_core/priv/repo/migrations"
+            migration_root.mkdir(parents=True, exist_ok=True)
+            migration = migration_root / "1_concurrent_index.exs"
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS alpha_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS alpha_records_id_index\n"
+                "  ON alpha_records (id)\n"
+                '  """, []) end)\n',
+                encoding="utf-8",
+            )
+            self.assert_not_rule(root, "unresolved_migration_target")
+            self.assert_not_rule(root, "mixed_owner_migration")
+
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, drop_statement, []) end,\n"
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, create_statement, []) end)\n",
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "unresolved_migration_target")
+
+            migration.write_text(
+                "alias CommsCore.Repo\n"
+                'Repo.ensure_valid_concurrent_index!("alpha_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS alpha_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS alpha_records_id_index\n"
+                "  ON alpha_records (id)\n"
+                '  """, []) end)\n'
+                'Repo.ensure_valid_concurrent_index!("beta_records_id_index",\n'
+                "  fn -> Ecto.Adapters.SQL.query!(Repo, "
+                '"DROP INDEX CONCURRENTLY IF EXISTS beta_records_id_index", []) end,\n'
+                '  fn -> Ecto.Adapters.SQL.query!(Repo, """\n'
+                "  CREATE INDEX CONCURRENTLY IF NOT EXISTS beta_records_id_index\n"
+                "  ON beta_records (id)\n"
+                '  """, []) end)\n',
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "mixed_owner_migration")
 
     def test_migration_parser_rejects_parenless_execute_one_and_two(self) -> None:
         variants = (

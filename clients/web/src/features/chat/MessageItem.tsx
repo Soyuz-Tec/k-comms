@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { ConfirmDialog } from "../../components/ActionDialog";
-import type { Attachment, Message, User } from "../../types";
+import type { Attachment, Message } from "../../types";
 import { errorText, formatBytes, formatTime, initials } from "../../lib/format";
 
 const quickReactions = ["👍", "❤️", "🎉", "👀"];
@@ -9,8 +9,8 @@ const quickReactions = ["👍", "❤️", "🎉", "👀"];
 export function MessageItem({
   message,
   currentUserId,
-  sender,
-  replySender,
+  senderName,
+  replySenderName,
   replyPreview,
   seenCount,
   focused,
@@ -24,8 +24,8 @@ export function MessageItem({
 }: {
   message: Message;
   currentUserId: string;
-  sender?: User;
-  replySender?: User;
+  senderName?: string;
+  replySenderName?: string;
   replyPreview?: Message;
   seenCount: number;
   focused: boolean;
@@ -76,14 +76,14 @@ export function MessageItem({
   return (
     <>
     <li id={`message-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
-      {!mine && <span className="avatar small" aria-hidden="true">{initials(sender?.display_name || "Unknown")}</span>}
+      {!mine && <span className="avatar small" aria-hidden="true">{initials(senderName || "Unknown")}</span>}
       <article className="message-content">
         <header>
-          <strong>{mine ? "You" : sender?.display_name || "Unknown user"}</strong>
+          <strong>{mine ? selfIdentifier(senderName) : senderName || "Unknown user"}</strong>
           <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
           {message.edited_at && <span>edited</span>}
         </header>
-        {replyPreview && <div className="reply-preview"><strong>{replyPreview.sender_user_id === currentUserId ? "You" : replySender?.display_name || "Unknown user"}</strong><span>{replyPreview.body || "Message removed"}</span></div>}
+        {replyPreview && <div className="reply-preview"><strong>{replyPreview.sender_user_id === currentUserId ? selfIdentifier(replySenderName) : replySenderName || "Unknown user"}</strong><span>{replyPreview.body || "Message removed"}</span></div>}
         {editing ? (
           <form className="inline-edit" onSubmit={(event) => void saveEdit(event)}>
             <label className="sr-only" htmlFor={`edit-${message.id}`}>Edit message</label>
@@ -107,6 +107,10 @@ export function MessageItem({
     {deleteOpen && <ConfirmDialog title="Delete this message?" description="This removes the message body from the conversation." impact="Conversation members will see that a message was removed. Retention and audit records remain subject to workspace policy." confirmLabel="Delete message" tone="danger" busy={busy} error={deleteError} onCancel={() => { if (!busy) setDeleteOpen(false); }} onConfirm={() => void remove()} />}
     </>
   );
+}
+
+function selfIdentifier(senderName?: string): string {
+  return senderName ? `${senderName} (you)` : "You";
 }
 
 function threadLabel(message: Message): string {

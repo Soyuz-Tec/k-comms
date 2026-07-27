@@ -6,14 +6,23 @@ import unittest
 from pathlib import Path
 
 import yaml
-
-from validate_production_bundle import validate, validate_documents, validate_paths
-
+from validate_production_bundle import (
+    COMMUNICATION_ROLLBACK_CAPABILITIES,
+    COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS,
+    validate,
+    validate_documents,
+    validate_paths,
+)
 
 VAPID_PUBLIC_KEY = "BIdD6B2jZb5v7fwxbXdnpkOpJrsegpqJbZPPoWb3dI6m5jpkSTB_ZekUrAdKVXR4f_s5nU89TSZlDOxcTHJxAFo"
 DIGEST_IMAGE = "ghcr.io/soyuz-tec/k-comms@sha256:" + "a" * 64
 PRODUCTION_NAMESPACE = "k-comms-production"
-WORKER_RELEASE_RPC_COMMAND = [
+WORKER_READY_RPC_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "ERL_AFLAGS= /app/bin/k_comms rpc '{:ok, _latency} = CommsCore.Operations.database_readiness(); pid = Oban.whereis(Oban); true = is_pid(pid); :ok'",
+]
+WORKER_LIVE_RPC_COMMAND = [
     "/bin/sh",
     "-ec",
     "ERL_AFLAGS= /app/bin/k_comms rpc 'System.schedulers_online() > 0'",
@@ -31,6 +40,50 @@ CA_PEM = (
 class ValidateProductionBundleTest(unittest.TestCase):
     def test_accepts_a_fully_composed_provider_bundle(self) -> None:
         self.assertEqual(validate_documents(valid_documents()), [])
+
+    def test_rejects_configuration_only_instant_room_production_enablement(
+        self,
+    ) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config["INSTANT_ROOMS_ENABLED"] = "true"
+        config["INSTANT_ROOM_TENANT_SLUG"] = "production-public"
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "INSTANT_ROOMS_ENABLED must remain false" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "INSTANT_ROOM_TENANT_SLUG must be explicitly empty" in error
+                for error in errors
+            )
+        )
+
+    def test_requires_explicit_closed_instant_room_production_gate(self) -> None:
+        documents = valid_documents()
+        config = documents[0]["data"]
+        config.pop("INSTANT_ROOMS_ENABLED")
+        config.pop("INSTANT_ROOM_TENANT_SLUG")
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "INSTANT_ROOMS_ENABLED must remain false" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "INSTANT_ROOM_TENANT_SLUG must be explicitly empty" in error
+                for error in errors
+            )
+        )
 
     def test_rejects_fail_closed_defaults_placeholders_and_mutable_images(self) -> None:
         documents = valid_documents()
@@ -90,6 +143,131 @@ class ValidateProductionBundleTest(unittest.TestCase):
             any(
                 "Deployment k-comms-edge: K_COMMS_RUNTIME_PURPOSE must be application"
                 in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_blind_or_unbounded_migration_execution(self) -> None:
+        documents = valid_documents()
+        migration = next(
+            document
+            for document in documents
+            if document.get("kind") == "Job"
+            and document.get("metadata", {}).get("name") == "k-comms-migrate"
+        )
+        migration["spec"]["backoffLimit"] = 1
+        container = migration["spec"]["template"]["spec"]["containers"][0]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_MIGRATION_REQUIRE_QUIESCENCE"]["value"] = "false"
+        environment["K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"]["value"] = "30001"
+        environment["K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS"]["value"] = "900000"
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
+        self.assertTrue(
+            any("REQUIRE_QUIESCENCE must be true" in error for error in errors)
+        )
+        self.assertTrue(
+            any("LOCK_TIMEOUT_MS must be 1..30000" in error for error in errors)
+        )
+        self.assertTrue(
+            any("leave at least 30 seconds" in error for error in errors)
+        )
+
+    def test_rejects_unreviewed_migration_runner(self) -> None:
+        documents = valid_documents()
+        migration = next(
+            document
+            for document in documents
+            if document.get("kind") == "Job"
+            and document.get("metadata", {}).get("name") == "k-comms-migrate"
+        )
+        migration["spec"]["template"]["spec"]["containers"][0]["args"] = [
+            "eval",
+            "System.halt(0)",
+        ]
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any("reviewed CommsCore.Release.migrate()" in error for error in errors)
+        )
+
+    def test_requires_identical_guest_rollback_capability_annotations(self) -> None:
+        documents = valid_documents()
+        worker = next(
+            document
+            for document in documents
+            if document.get("kind") == "Deployment"
+            and document.get("metadata", {}).get("name") == "k-comms-worker"
+        )
+        worker["spec"]["template"]["metadata"]["annotations"] = {}
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(
+            any(
+                "k-comms-worker: pod template rollback-capabilities annotation"
+                in error
+                for error in errors
+            )
+        )
+        self.assertTrue(
+            any(
+                "edge/worker rollback-capabilities annotations must be identical"
+                in error
+                for error in errors
+            )
+        )
+
+    def test_instant_room_lifecycle_capability_covers_join_receipts(self) -> None:
+        lifecycle_hazards = COMMUNICATION_ROLLBACK_CAPABILITY_HAZARDS[
+            "instant_room_lifecycle_v1"
+        ]
+
+        self.assertIn("conversation_ephemeral_rooms", lifecycle_hazards)
+        self.assertIn("conversation_ephemeral_join_receipts", lifecycle_hazards)
+
+    def test_accepts_rendered_guest_rollback_preflight_operation(self) -> None:
+        documents = valid_documents()
+        documents.append(guest_rollback_operation())
+
+        self.assertEqual(validate_documents(documents), [])
+
+    def test_rejects_unapproved_guest_rollback_preflight_inputs(self) -> None:
+        documents = valid_documents()
+        operation = guest_rollback_operation()
+        operation["spec"].update(
+            {"backoffLimit": 1, "activeDeadlineSeconds": 301}
+        )
+        container = operation["spec"]["template"]["spec"]["containers"][0]
+        container["args"] = ["eval", "System.halt(0)"]
+        environment = {item["name"]: item for item in container["env"]}
+        environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = (
+            "guest_identity_v1"
+        )
+        environment["K_COMMS_ROLLBACK_TARGET_REVISION"]["value"] = (
+            "REPLACE_WITH_TARGET_REVISION"
+        )
+        environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "false"
+        documents.append(operation)
+
+        errors = validate_documents(documents)
+
+        self.assertTrue(any("backoffLimit must be 0" in error for error in errors))
+        self.assertTrue(any("activeDeadlineSeconds must be 1..300" in error for error in errors))
+        self.assertTrue(
+            any(
+                "assert_communication_rollback_compatible!()" in error
+                for error in errors
+            )
+        )
+        self.assertTrue(any("WRITES_QUIESCED must be true" in error for error in errors))
+        self.assertTrue(any("must identify the exact target" in error for error in errors))
+        self.assertTrue(
+            any(
+                "exact communication-compatible capability set" in error
                 for error in errors
             )
         )
@@ -341,7 +519,8 @@ class ValidateProductionBundleTest(unittest.TestCase):
 
                     self.assertTrue(
                         any(
-                            "exact retained release RPC health-check command" in error
+                            "exact retained release RPC readiness and liveness commands"
+                            in error
                             for error in validate_documents(documents)
                         )
                     )
@@ -877,6 +1056,8 @@ def valid_documents() -> list[dict]:
             "HSTS_ENABLED": "true",
             "IDENTITY_PROVIDER_MODE": "oidc",
             "DIRECTORY_PROVISIONING_MODE": "scim",
+            "INSTANT_ROOMS_ENABLED": "false",
+            "INSTANT_ROOM_TENANT_SLUG": "",
             "OIDC_ISSUER": "https://identity.example.com/tenant/v2.0",
             "OIDC_CLIENT_ID": "k-comms-production",
             "OIDC_PROVIDER_NAME": "approved-corporate-idp",
@@ -971,6 +1152,23 @@ def workload(kind: str, name: str) -> dict:
     container_name = name.removeprefix("k-comms-")
     if kind == "Job":
         environment.append({"name": "K_COMMS_RUNTIME_PURPOSE", "value": "one_shot"})
+        if name == "k-comms-migrate":
+            environment.extend(
+                [
+                    {
+                        "name": "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS",
+                        "value": "5000",
+                    },
+                    {
+                        "name": "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS",
+                        "value": "840000",
+                    },
+                    {
+                        "name": "K_COMMS_MIGRATION_REQUIRE_QUIESCENCE",
+                        "value": "true",
+                    },
+                ]
+            )
     else:
         env_from.append(
             {
@@ -992,7 +1190,12 @@ def workload(kind: str, name: str) -> dict:
         "spec": {
             "template": {
                 "metadata": {
-                    "labels": {"app.kubernetes.io/name": "k-comms"}
+                    "labels": {"app.kubernetes.io/name": "k-comms"},
+                    "annotations": {
+                        "k-comms.soyuz-tec.io/rollback-capabilities": (
+                            COMMUNICATION_ROLLBACK_CAPABILITIES
+                        )
+                    },
                 },
                 "spec": {
                     "serviceAccountName": "k-comms",
@@ -1059,13 +1262,48 @@ def workload(kind: str, name: str) -> dict:
                 }
             )
         else:
-            for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
+            for probe in ("startupProbe", "readinessProbe"):
                 container[probe] = {
-                    "exec": {"command": list(WORKER_RELEASE_RPC_COMMAND)}
+                    "exec": {"command": list(WORKER_READY_RPC_COMMAND)}
                 }
+            container["livenessProbe"] = {
+                "exec": {"command": list(WORKER_LIVE_RPC_COMMAND)}
+            }
     else:
         document["spec"]["template"]["spec"]["restartPolicy"] = "Never"
+        if name == "k-comms-migrate":
+            document["spec"]["backoffLimit"] = 0
+            document["spec"]["activeDeadlineSeconds"] = 900
+            container = document["spec"]["template"]["spec"]["containers"][0]
+            container["command"] = ["/app/bin/k_comms"]
+            container["args"] = ["eval", "CommsCore.Release.migrate()"]
     return document
+
+
+def guest_rollback_operation() -> dict:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "deploy"
+        / "k8s"
+        / "operations"
+        / "guest-rollback-preflight"
+        / "guest-rollback-preflight-job.yaml"
+    )
+    operation = yaml.safe_load(path.read_text(encoding="utf-8"))
+    operation["metadata"]["namespace"] = PRODUCTION_NAMESPACE
+    container = operation["spec"]["template"]["spec"]["containers"][0]
+    container["image"] = DIGEST_IMAGE
+    environment = {item["name"]: item for item in container["env"]}
+    environment["K_COMMS_ROLLBACK_TARGET_CAPABILITIES"]["value"] = None
+    environment["K_COMMS_ROLLBACK_TARGET_REVISION"]["value"] = "legacy-revision"
+    environment["K_COMMS_ROLLBACK_WRITES_QUIESCED"]["value"] = "true"
+    database_ca = next(
+        volume
+        for volume in operation["spec"]["template"]["spec"]["volumes"]
+        if volume["name"] == "database-ca"
+    )
+    database_ca["configMap"]["optional"] = False
+    return operation
 
 
 def autoscaler(name: str, minimum: int) -> dict:

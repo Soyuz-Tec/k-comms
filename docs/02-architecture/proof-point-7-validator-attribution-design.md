@@ -94,7 +94,10 @@ enforced read-model exception.
 The validator test suite keeps repository-level checks that Messaging:
 
 - calls `Conversations.reserve_message_slot/2`,
-  `validate_active_members/3`, and `active_conversation_ids/1`;
+  `validate_active_members/3`, and the composable
+  `active_membership_authorization_query/1`; owner queries join that projection
+  as a database subquery instead of materializing all authorized conversation
+  identifiers;
 - does not reference `CommsCore.Conversations.Conversation`,
   `CommsCore.Conversations.Membership`, or `CommsCore.Accounts.User`; and
 - declares `CommsCore.Conversations.MessageWriteSlot` as a public contract.

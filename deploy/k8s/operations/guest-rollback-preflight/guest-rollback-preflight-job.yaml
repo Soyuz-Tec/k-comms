@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k-comms-guest-rollback-preflight
+  labels:
+    app.kubernetes.io/name: k-comms
+    app.kubernetes.io/part-of: k-comms
+    app.kubernetes.io/component: one-shot-guest-rollback-preflight
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k-comms
+        app.kubernetes.io/part-of: k-comms
+        app.kubernetes.io/component: one-shot-guest-rollback-preflight
+    spec:
+      restartPolicy: Never
+      serviceAccountName: k-comms
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: guest-rollback-preflight
+          # Fail-closed inventory value. Render this operation with the exact
+          # currently deployed digest; never run a rollback target image here.
+          image: ghcr.io/soyuz-tec/k-comms@sha256:REPLACE_WITH_APPROVED_SHA256_DIGEST
+          imagePullPolicy: IfNotPresent
+          command: ["/app/bin/k_comms"]
+          args:
+            - eval
+            - CommsCore.Release.assert_communication_rollback_compatible!()
+          envFrom:
+            - configMapRef:
+                name: k-comms-config
+          env:
+            - name: K_COMMS_ROLE
+              value: worker
+            - name: K_COMMS_RUNTIME_PURPOSE
+              value: one_shot
+            - name: K_COMMS_MIGRATION_LOCK_TIMEOUT_MS
+              value: "5000"
+            - name: K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS
+              value: "60000"
+            - name: K_COMMS_ROLLBACK_TARGET_CAPABILITIES
+              value: REPLACE_WITH_TARGET_CAPABILITIES
+            - name: K_COMMS_ROLLBACK_TARGET_REVISION
+              value: REPLACE_WITH_TARGET_REVISION
+            - name: K_COMMS_ROLLBACK_WRITES_QUIESCED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: k-comms-secrets, key: DATABASE_URL}
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef: {name: k-comms-secrets, key: SECRET_KEY_BASE}
+            - name: PASSWORD_RECOVERY_SIGNING_KEY
+              valueFrom:
+                secretKeyRef: {name: k-comms-secrets, key: PASSWORD_RECOVERY_SIGNING_KEY}
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: k-comms-secrets, key: S3_ACCESS_KEY_ID}
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: k-comms-secrets, key: S3_SECRET_ACCESS_KEY}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: database-ca, mountPath: /etc/k-comms/database-ca, readOnly: true}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        - name: database-ca
+          configMap:
+            name: k-comms-database-ca
+            optional: true
+            defaultMode: 0444
+            items:
+              - {key: ca.crt, path: ca.crt}

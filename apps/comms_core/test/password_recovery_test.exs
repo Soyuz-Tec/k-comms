@@ -83,6 +83,67 @@ defmodule CommsCore.PasswordRecoveryTest do
     refute encoded_audit =~ token
   end
 
+  test "conversation-only humans receive an indistinguishable response without recovery artifacts" do
+    account = Fixtures.account_fixture()
+
+    account.user
+    |> Ecto.Changeset.change(access_scope: :conversation_only)
+    |> Repo.update!()
+
+    recovery_count = Repo.aggregate(PasswordRecoveryRequest, :count)
+    intent_count = Repo.aggregate(Intent, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: account.tenant.slug,
+               email: account.user.email
+             })
+
+    assert Repo.aggregate(PasswordRecoveryRequest, :count) == recovery_count
+    assert Repo.aggregate(Intent, :count) == intent_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+
+    refute Audit.get_by(%{
+             tenant_id: account.tenant.id,
+             action: "password_recovery.request"
+           })
+  end
+
+  test "conversation-only scope invalidates existing recovery delivery and reset authority" do
+    account = Fixtures.account_fixture()
+
+    assert :ok =
+             PasswordRecovery.request(%{
+               tenant_slug: account.tenant.slug,
+               email: account.user.email
+             })
+
+    recovery = latest_recovery()
+    intent = Repo.get_by!(Intent, event_type: PasswordRecovery.event_type())
+    {:ok, delivery} = materialize_recovery(intent)
+    token = token_from_url(delivery.payload["action_url"])
+    old_user = Repo.get!(User, account.user.id)
+
+    old_user
+    |> Ecto.Changeset.change(access_scope: :conversation_only)
+    |> Repo.update!()
+
+    assert {:error, :password_recovery_not_deliverable} =
+             materialize_recovery(intent)
+
+    assert {:error, :invalid_password_recovery_token} =
+             PasswordRecovery.reset(%{
+               token: token,
+               new_password: "correct-horse-conversation-only"
+             })
+
+    assert is_nil(Repo.get!(PasswordRecoveryRequest, recovery.id).consumed_at)
+    assert Repo.get!(User, account.user.id).password_hash == old_user.password_hash
+    assert is_nil(Repo.get!(Session, account.session.id).revoked_at)
+    assert is_nil(Repo.get!(Device, account.device.id).revoked_at)
+  end
+
   test "public recovery responses honor the configured minimum duration" do
     previous_minimum = Application.get_env(:comms_core, :password_recovery_min_response_ms)
     previous_jitter = Application.get_env(:comms_core, :password_recovery_jitter_ms)

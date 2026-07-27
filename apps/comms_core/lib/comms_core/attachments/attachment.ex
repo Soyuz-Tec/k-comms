@@ -34,6 +34,18 @@ defmodule CommsCore.Attachments.Attachment do
     field(:scan_claim_token, Ecto.UUID)
     field(:scan_claimed_at, :utc_datetime_usec)
     field(:uploaded_at, :utc_datetime_usec)
+    field(:upload_expires_at, :utc_datetime_usec)
+
+    field(:cleanup_status, Ecto.Enum,
+      values: [:not_required, :scheduled, :running, :retryable, :failed, :complete],
+      default: :not_required
+    )
+
+    field(:cleanup_attempts, :integer, default: 0)
+    field(:cleanup_next_attempt_at, :utc_datetime_usec)
+    field(:cleanup_claimed_at, :utc_datetime_usec)
+    field(:cleanup_last_error, :string)
+    field(:cleanup_completed_at, :utc_datetime_usec)
     has_many(:scan_attempt_records, CommsCore.Attachments.ScanAttempt)
     timestamps()
   end
@@ -63,7 +75,14 @@ defmodule CommsCore.Attachments.Attachment do
       :scan_generation,
       :scan_claim_token,
       :scan_claimed_at,
-      :uploaded_at
+      :uploaded_at,
+      :upload_expires_at,
+      :cleanup_status,
+      :cleanup_attempts,
+      :cleanup_next_attempt_at,
+      :cleanup_claimed_at,
+      :cleanup_last_error,
+      :cleanup_completed_at
     ])
     |> validate_required([
       :tenant_id,
@@ -74,17 +93,25 @@ defmodule CommsCore.Attachments.Attachment do
       :byte_size,
       :status,
       :scan_status,
-      :scan_attempts
+      :scan_attempts,
+      :cleanup_status,
+      :cleanup_attempts
     ])
     |> validate_number(:byte_size, greater_than: 0, less_than_or_equal_to: 1_073_741_824)
     |> validate_length(:file_name, min: 1, max: 255)
     |> validate_length(:content_type, min: 1, max: 120)
     |> validate_number(:scan_attempts, greater_than_or_equal_to: 0)
     |> validate_number(:scan_generation, greater_than_or_equal_to: 0)
+    |> validate_number(:cleanup_attempts, greater_than_or_equal_to: 0)
+    |> validate_length(:cleanup_last_error, max: 160)
     |> validate_format(:checksum_sha256, ~r/^[a-f0-9]{64}$/)
     |> validate_format(:verified_checksum_sha256, ~r/^[a-f0-9]{64}$/)
     |> unique_constraint(:object_key)
     |> check_constraint(:status, name: :attachments_ready_requires_current_clean_version)
     |> check_constraint(:scan_claim_token, name: :attachments_scan_claim_consistent)
+    |> check_constraint(:cleanup_status, name: :attachments_cleanup_status_allowed)
+    |> check_constraint(:cleanup_attempts, name: :attachments_cleanup_attempts_non_negative)
+    |> check_constraint(:cleanup_claimed_at, name: :attachments_cleanup_claim_consistent)
+    |> check_constraint(:cleanup_completed_at, name: :attachments_cleanup_completion_consistent)
   end
 end

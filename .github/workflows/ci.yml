@@ -149,7 +149,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
       - run: npm run build
 
@@ -166,6 +166,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-validation.txt
       - run: python -m pip install --requirement requirements-validation.txt
+      - run: python scripts/test_validate_contracts.py
       - run: python scripts/validate_contracts.py
       - run: python scripts/validate_docs.py
       - run: python scripts/test_validate_architecture.py
@@ -197,14 +198,59 @@ jobs:
       - run: python scripts/test_validate_staging_secrets.py
       - run: python scripts/test_validate_staging_manifests.py
       - run: python scripts/validate_staging_manifests.py
+      - run: python scripts/test_instant_room_deployment_contracts.py
       - run: python scripts/test_validate_production_bundle.py
       - run: python scripts/test_collect_release_evidence.py
       - run: python scripts/test_validate_compose_exposure.py
       - run: python scripts/validate_compose_exposure.py
+      - run: python scripts/test_validate_local_release.py
+      - run: python scripts/test_qualify_local_release.py
+      - run: python scripts/validate_local_release.py
       - run: python scripts/test_validate_ops_assets.py
       - run: python scripts/validate_ops_assets.py
       - run: python scripts/test_validate_readiness_ledger.py
       - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json
+
+  windows-local-release:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-validation.txt
+      - run: python -m pip install --requirement requirements-validation.txt
+      - name: Parse Windows release scripts
+        run: |
+          $scripts = @(
+              (Join-Path $env:GITHUB_WORKSPACE "scripts\manage_local_release.ps1"),
+              (Join-Path $env:GITHUB_WORKSPACE "scripts\qualify_local_release.ps1")
+          )
+
+          foreach ($script in $scripts) {
+              $tokens = $null
+              $parseErrors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $script,
+                  [ref]$tokens,
+                  [ref]$parseErrors
+              ) | Out-Null
+
+              if ($parseErrors.Count -ne 0) {
+                  $parseErrors | Format-List | Out-String | Write-Host
+                  throw "PowerShell parser rejected $script"
+              }
+          }
+      - name: Run packaged qualifier self-test
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\qualify_local_release.ps1 -SelfTest -BaseUri https://comms.avayaworks.com
+      - run: python scripts/test_validate_local_release.py
+      - run: python scripts/test_qualify_local_release.py
+      - run: python scripts/validate_local_release.py
 
   qualification-scripts:
     runs-on: ubuntu-24.04
@@ -214,7 +260,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
-      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs scripts/score_usability_pilot.test.mjs
+      - run: node --test scripts/staging_acceptance.test.mjs scripts/staging_product_acceptance.test.mjs scripts/staging_load.test.mjs scripts/score_usability_study.test.mjs scripts/score_usability_pilot.test.mjs scripts/lan_release_forwarder.test.mjs
 
   manifests:
     runs-on: ubuntu-24.04

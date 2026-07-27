@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """Validate repository-owned Markdown links using UTF-8 consistently."""
 
-from pathlib import Path
+import os
 import re
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED_PARTS = {".git", "_build", "deps", "node_modules", ".venv", "cover", "doc"}
 errors: list[str] = []
-files = [
-    path
-    for path in ROOT.rglob("*.md")
-    if not any(part in IGNORED_PARTS for part in path.relative_to(ROOT).parts)
-]
+
+
+def markdown_files() -> list[Path]:
+    files: list[Path] = []
+    for directory, child_directories, filenames in os.walk(ROOT, topdown=True):
+        child_directories[:] = [
+            name for name in child_directories if name not in IGNORED_PARTS
+        ]
+        root = Path(directory)
+        files.extend(root / name for name in filenames if name.endswith(".md"))
+    return sorted(files)
+
+
+files = markdown_files()
 
 for path in files:
     text = path.read_text(encoding="utf-8")

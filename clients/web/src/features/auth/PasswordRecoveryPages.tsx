@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { ApiError } from "../../api";
 import { useSession } from "../../app/session";
 import { Brand } from "../../components/Brand";
@@ -11,13 +11,25 @@ const genericRequestMessage =
   "If an account matches those details, password-reset instructions will arrive shortly. For privacy, we cannot confirm whether an account exists.";
 
 export function ForgotPasswordPage() {
-  const { api } = useSession();
+  const {
+    api,
+    transportPolicyReady,
+    accountActionsAllowed
+  } = useSession();
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const accountActionsUnavailable =
+    !transportPolicyReady || !accountActionsAllowed;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (accountActionsUnavailable) {
+      setError(
+        "Password recovery is disabled for this deployment address. Open K-Comms over trusted HTTPS."
+      );
+      return;
+    }
     const values = new FormData(event.currentTarget);
     setBusy(true);
     setError(null);
@@ -40,15 +52,16 @@ export function ForgotPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Check your email</h2>
           <p>{genericRequestMessage}</p>
-          <Link className="button primary full" to="/app">Return to sign in</Link>
+          <Link className="button primary full" to="/sign-in">Return to sign in</Link>
         </div>
       ) : (
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
+          {accountActionsUnavailable && <TransportWarning />}
           {error && <div className="form-error" role="alert">{error}</div>}
           <Field label="Workspace slug" name="tenant_slug" autoComplete="organization" autoFocus required />
-          <Field label="Email address" name="email" type="email" autoComplete="email" required />
-          <button className="button primary full" type="submit" disabled={busy}>{busy ? "Requesting…" : "Send reset instructions"}</button>
-          <Link className="recovery-back-link" to="/app">Back to sign in</Link>
+          <Field label="Email address" name="email" type="email" autoComplete="email" disabled={accountActionsUnavailable} required />
+          <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Requesting…" : "Send reset instructions"}</button>
+          <Link className="recovery-back-link" to="/sign-in">Back to sign in</Link>
         </form>
       )}
     </RecoveryLayout>
@@ -56,13 +69,19 @@ export function ForgotPasswordPage() {
 }
 
 export function ResetPasswordPage() {
-  const { api } = useSession();
+  const {
+    api,
+    transportPolicyReady,
+    accountActionsAllowed
+  } = useSession();
   const tokenRef = useRef(readResetToken());
   const mountedRef = useRef(true);
   const [hasToken, setHasToken] = useState(Boolean(tokenRef.current));
   const [busy, setBusy] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const accountActionsUnavailable =
+    !transportPolicyReady || !accountActionsAllowed;
 
   useLayoutEffect(() => scrubResetToken(), []);
   useEffect(() => {
@@ -77,6 +96,12 @@ export function ResetPasswordPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (accountActionsUnavailable) {
+      setError(
+        "Password reset is disabled for this deployment address. Open K-Comms over trusted HTTPS."
+      );
+      return;
+    }
     const token = tokenRef.current;
     if (!token) return setError("This reset link is invalid or expired. Request a new one.");
     const form = event.currentTarget;
@@ -112,7 +137,7 @@ export function ResetPasswordPage() {
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Password updated</h2>
           <p>Your password has been reset. Sign in again on each device you want to use.</p>
-          <Link className="button primary full" to="/app">Sign in</Link>
+          <Link className="button primary full" to="/sign-in">Sign in</Link>
         </div>
       ) : !hasToken ? (
         <div className="recovery-result" role="alert">
@@ -122,14 +147,24 @@ export function ResetPasswordPage() {
         </div>
       ) : (
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
+          {accountActionsUnavailable && <TransportWarning />}
           {error && <div className="form-error" role="alert">{error}</div>}
-          <Field label="New password" name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters; the server applies the final password policy" autoFocus required />
-          <Field label="Confirm new password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required />
-          <button className="button primary full" type="submit" disabled={busy}>{busy ? "Updating…" : "Update password"}</button>
+          <Field label="New password" name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters; the server applies the final password policy" autoFocus disabled={accountActionsUnavailable} required />
+          <Field label="Confirm new password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" disabled={accountActionsUnavailable} required />
+          <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Updating…" : "Update password"}</button>
           <Link className="recovery-back-link" to="/forgot-password">Request a different reset link</Link>
         </form>
       )}
     </RecoveryLayout>
+  );
+}
+
+function TransportWarning() {
+  return (
+    <div className="transport-warning" role="alert">
+      <strong>HTTPS is required for account recovery.</strong>
+      <span>Secure account actions are unavailable for this deployment address.</span>
+    </div>
   );
 }
 

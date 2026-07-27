@@ -3539,6 +3539,9 @@ MIGRATION_TARGET_CALL_RE = re.compile(
     r"\b(?P<kind>table|index|unique_index|constraint|references)\s*\("
 )
 MIGRATION_EXECUTE_RE = re.compile(r"\bexecute\s*\(")
+MIGRATION_SQL_QUERY_RE = re.compile(
+    r"\bEcto[.]Adapters[.]SQL[.]query!?\s*\("
+)
 MIGRATION_PARENLESS_EXECUTE_RE = re.compile(
     r"(?m)(?<![A-Za-z0-9_.])execute(?!\s*\()(?=\s)"
 )
@@ -3636,6 +3639,7 @@ def migration_targets(text: str, known_tables: set[str]) -> MigrationTargets:
     mutated: set[str] = set()
     referenced: set[str] = set()
     unresolved: set[str] = set()
+    aliases = module_aliases(text)
     for call in MIGRATION_TARGET_CALL_RE.finditer(code):
         parsed = balanced_call_arguments(text, call.end() - 1)
         if not parsed:
@@ -3652,6 +3656,32 @@ def migration_targets(text: str, known_tables: set[str]) -> MigrationTargets:
             referenced.add(target)
         else:
             mutated.add(target)
+
+    for call in MIGRATION_SQL_QUERY_RE.finditer(code):
+        parsed = balanced_call_arguments(text, call.end() - 1)
+        if not parsed:
+            unresolved.add("cannot parse direct SQL migration operation")
+            continue
+        arguments = split_top_level_args(parsed[0])
+        if len(arguments) < 2:
+            unresolved.add("direct SQL migration operation has no SQL argument")
+            continue
+        repo = resolve_module_reference(arguments[0].strip(), aliases)
+        if repo != "CommsCore.Repo":
+            unresolved.add("direct SQL migration repository cannot be attributed")
+            continue
+        sql = _static_sql_expression(text, arguments[1])
+        if sql is None:
+            unresolved.add("direct SQL migration operation uses dynamic SQL")
+            continue
+        sql_mutated, sql_referenced, sql_unresolved = _migration_sql_targets(
+            sql,
+            known_tables,
+        )
+        mutated.update(sql_mutated)
+        referenced.update(sql_referenced)
+        if sql_unresolved:
+            unresolved.add("direct SQL migration target cannot be attributed")
 
     for call in MIGRATION_EXECUTE_RE.finditer(code):
         parsed = balanced_call_arguments(text, call.end() - 1)
@@ -3747,7 +3777,7 @@ def public_spec_operations(text: str) -> set[tuple[str, int]]:
             continue
         following_definition = re.search(
             rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
-            rf"{re.escape(spec.group('function'))}\b",
+            rf"{re.escape(spec.group('function'))}(?![A-Za-z0-9_!?])",
             code[parsed[1] :],
         )
         if following_definition and following_definition.group("kind") == "def":

@@ -6,6 +6,37 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
+  reviewed_manifest_transitions:
+    - id: add-mobile-read-guest-access-and-instant-rooms
+      previous_manifest_sha256: 3a85243b735584c066d79891947ac0a5b8f8780bc71463b0e97bd8177faef1c2
+      approved_changes:
+        - context:calls:public_contracts:add:CommsCore.AudioCalls.CallSessionView
+        - context:conversation_content:public_contracts:add:CommsCore.Attachments.FileView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.EphemeralRoomView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestAdmissionView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkPreviewView
+        - context:conversations:public_contracts:add:CommsCore.Conversations.GuestLinkView
+        - context:conversations:publishes:add:ephemeral_room.created.v1
+        - context:conversations:publishes:add:ephemeral_room.expired.v1
+        - context:conversations:publishes:add:ephemeral_room.idle.v1
+        - context:conversations:publishes:add:ephemeral_room.owner_upgraded.v1
+        - context:conversations:publishes:add:ephemeral_room.reactivated.v1
+        - context:identity_access:public_contracts:add:CommsCore.Accounts.DirectoryPersonView
+        - context:identity_access:public_contracts:add:CommsCore.Accounts.RetainedSenderLabelView
+        - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits
+        - context:platform_runtime:owned_modules:add:CommsCore.PlatformRateLimits.Bucket
+        - context:platform_runtime:public_contracts:add:CommsCore.PlatformRateLimits.Decision
+        - context:platform_runtime:public_facades:add:CommsCore.PlatformRateLimits
+        - 'runtime_collaborations:conversation-call-lifecycle:callers:add:"CommsCore.Conversations.EphemeralRooms"'
+        - 'table:conversation_ephemeral_join_receipts:add:{"canonical_schema":"CommsCore.Conversations.EphemeralJoinReceipt","owner":"conversations","role":"source"}'
+        - 'table:conversation_ephemeral_presence_leases:add:{"canonical_schema":"CommsCore.Conversations.EphemeralPresenceLease","owner":"conversations","role":"source"}'
+        - 'table:conversation_ephemeral_rooms:add:{"canonical_schema":"CommsCore.Conversations.EphemeralRoom","owner":"conversations","role":"source"}'
+        - 'table:conversation_guest_admissions:add:{"canonical_schema":"CommsCore.Conversations.GuestAdmission","owner":"conversations","role":"source"}'
+        - 'table:conversation_guest_links:add:{"canonical_schema":"CommsCore.Conversations.GuestLink","owner":"conversations","role":"source"}'
+        - 'table:public_rate_limit_buckets:add:{"canonical_schema":"CommsCore.PlatformRateLimits.Bucket","owner":"platform_runtime","role":"technical"}'
+        - 'technical_interfaces:web-distributed-public-rate-limit:add:{"callers":["CommsWeb.InstantRoomMessageRateLimit","CommsWeb.Plugs.DistributedRateLimit"],"condition":"The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.","contracts":["CommsCore.PlatformRateLimits.Decision"],"dispatch":"direct","id":"web-distributed-public-rate-limit","interface":"CommsCore.PlatformRateLimits","operations":[{"arity":4,"name":"allow?"}],"owner":"platform_runtime","transaction":"independent"}'
+      adr: docs/02-architecture/adr/0052-retained-message-sender-labels.md
+      removal_condition: Remove after the cumulative ADR-0046 mobile projections, ADR-0049 guest-access contracts and tables, ADR-0050 instant-room ownership and rate-limit boundaries, and ADR-0052 retained sender-label contract are present on the protected branch; this declaration may not authorize later manifest changes.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -223,7 +254,7 @@ enforcement:
 contexts:
   identity_access:
     kind: business
-    responsibility: Human and service identity, credentials, sessions, devices, recovery, and platform grants.
+    responsibility: Human, guest, and service identity, credentials, sessions, devices, recovery, conversion, and platform grants.
     current_contexts: [Accounts, PasswordRecovery, ServiceAccounts]
     fold_in: [PasswordRecovery, ServiceAccounts]
     public_facades: [CommsCore.Accounts, CommsCore.PasswordRecovery, CommsCore.ServiceAccounts]
@@ -236,6 +267,7 @@ contexts:
       - CommsCore.Accounts.CallLifecycleReceipt
       - CommsCore.Accounts.ConversationBootstrapPort
       - CommsCore.Accounts.DeviceView
+      - CommsCore.Accounts.DirectoryPersonView
       - CommsCore.Accounts.InitialConversationCommand
       - CommsCore.Accounts.InitialConversationReceipt
       - CommsCore.Accounts.NotificationCommand
@@ -243,6 +275,7 @@ contexts:
       - CommsCore.Accounts.NotificationRecipient
       - CommsCore.Accounts.NotificationReceipt
       - CommsCore.Accounts.PasswordRecoveryResult
+      - CommsCore.Accounts.RetainedSenderLabelView
       - CommsCore.Accounts.SessionView
       - CommsCore.Accounts.UserView
       - CommsCore.ServiceAccounts.ServiceAccountView
@@ -283,7 +316,7 @@ contexts:
     consumes: []
   conversations:
     kind: business
-    responsibility: Conversation lifecycle, membership, discovery, and read cursors.
+    responsibility: Conversation lifecycle, membership, discovery, guest links and admission, instant rooms, presence leases, bounded join-replay receipts, and read cursors.
     current_contexts: [Conversations]
     fold_in: []
     public_facades: [CommsCore.Conversations]
@@ -295,11 +328,22 @@ contexts:
       - CommsCore.Conversations.CallLifecycleReceipt
       - CommsCore.Conversations.CallMembership
       - CommsCore.Conversations.ConversationView
+      - CommsCore.Conversations.EphemeralRoomView
+      - CommsCore.Conversations.GuestAdmissionView
+      - CommsCore.Conversations.GuestLinkPreviewView
+      - CommsCore.Conversations.GuestLinkView
       - CommsCore.Conversations.MessageWriteSlot
       - CommsCore.Conversations.MembershipView
     internal_namespaces: [CommsCore.Conversations]
     allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
-    publishes: [conversation.created.v1, conversation.membership_changed.v1]
+    publishes:
+      - conversation.created.v1
+      - conversation.membership_changed.v1
+      - ephemeral_room.created.v1
+      - ephemeral_room.reactivated.v1
+      - ephemeral_room.idle.v1
+      - ephemeral_room.expired.v1
+      - ephemeral_room.owner_upgraded.v1
     consumes: []
   conversation_content:
     kind: business
@@ -316,6 +360,7 @@ contexts:
       - CommsCore.Messaging.ReactionView
       - CommsCore.Attachments.AttachmentDeletionObject
       - CommsCore.Attachments.AttachmentView
+      - CommsCore.Attachments.FileView
       - CommsCore.Attachments.RestoreCandidate
       - CommsCore.Attachments.RestoreContext
       - CommsCore.Attachments.RestoreReport
@@ -332,6 +377,7 @@ contexts:
     fold_in: []
     public_facades: [CommsCore.AudioCalls]
     public_contracts:
+      - CommsCore.AudioCalls.CallSessionView
       - CommsCore.AudioCalls.CallView
       - CommsCore.AudioCalls.CredentialRequest
       - CommsCore.AudioCalls.EvictionClaim
@@ -417,13 +463,15 @@ contexts:
   platform_runtime:
     kind: technical
     graph_scope: excluded
-    responsibility: OTP composition, release-only administration, runtime adapter resolution, and stable adapter-facing validation errors.
-    current_contexts: [Application, Release, RuntimePorts, ValidationError]
+    responsibility: OTP composition, release-only administration, runtime adapter resolution, distributed public-admission rate limiting, and stable adapter-facing validation errors.
+    current_contexts: [Application, Release, RuntimePorts, PlatformRateLimits, ValidationError]
     fold_in: []
-    public_facades: [CommsCore.Release, CommsCore.RuntimePorts]
-    public_contracts: [CommsCore.ValidationError]
+    public_facades: [CommsCore.PlatformRateLimits, CommsCore.Release, CommsCore.RuntimePorts]
+    public_contracts: [CommsCore.PlatformRateLimits.Decision, CommsCore.ValidationError]
     owned_modules:
       - CommsCore.Application
+      - CommsCore.PlatformRateLimits
+      - CommsCore.PlatformRateLimits.Bucket
       - CommsCore.Release
       - CommsCore.RuntimePorts
       - CommsCore.ValidationError
@@ -664,7 +712,7 @@ runtime_collaborations:
     port: CommsCore.Conversations.CallLifecyclePort
     result_contract: CommsCore.Conversations.CallLifecycleReceipt
     implementation: CommsCore.AudioCalls
-    callers: [CommsCore.Conversations]
+    callers: [CommsCore.Conversations, CommsCore.Conversations.EphemeralRooms]
     operations:
       - {name: revoke_conversation_access, arity: 1}
     binding:
@@ -679,6 +727,16 @@ runtime_collaborations:
     condition: Conversations owns the exact membership/archive revocation command and receipt while Calls revokes matching admissions on the membership or archive transaction; caller, operation, command variants, receipt, and binding may not grow without architecture review.
 
 technical_interfaces:
+  - id: web-distributed-public-rate-limit
+    owner: platform_runtime
+    interface: CommsCore.PlatformRateLimits
+    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.Plugs.DistributedRateLimit]
+    operations:
+      - {name: "allow?", arity: 4}
+    dispatch: direct
+    contracts: [CommsCore.PlatformRateLimits.Decision]
+    transaction: independent
+    condition: The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
@@ -751,6 +809,11 @@ tables:
   service_accounts: {owner: identity_access, canonical_schema: CommsCore.ServiceAccounts.ServiceAccount, role: source}
   conversations: {owner: conversations, canonical_schema: CommsCore.Conversations.Conversation, role: source}
   conversation_memberships: {owner: conversations, canonical_schema: CommsCore.Conversations.Membership, role: source}
+  conversation_guest_links: {owner: conversations, canonical_schema: CommsCore.Conversations.GuestLink, role: source}
+  conversation_guest_admissions: {owner: conversations, canonical_schema: CommsCore.Conversations.GuestAdmission, role: source}
+  conversation_ephemeral_join_receipts: {owner: conversations, canonical_schema: CommsCore.Conversations.EphemeralJoinReceipt, role: source}
+  conversation_ephemeral_rooms: {owner: conversations, canonical_schema: CommsCore.Conversations.EphemeralRoom, role: source}
+  conversation_ephemeral_presence_leases: {owner: conversations, canonical_schema: CommsCore.Conversations.EphemeralPresenceLease, role: source}
   messages: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Message, role: source}
   message_mentions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageMention, role: source}
   message_reactions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Reaction, role: source}
@@ -773,6 +836,7 @@ tables:
   legal_holds: {owner: trust_governance, canonical_schema: CommsCore.Governance.LegalHold, role: source}
   deletion_requests: {owner: trust_governance, canonical_schema: CommsCore.Governance.DeletionRequest, role: source}
   audit_events: {owner: audit, canonical_schema: CommsCore.Audit.AuditEvent, role: source, access: owner_only, access_namespaces: [CommsCore.Audit]}
+  public_rate_limit_buckets: {owner: platform_runtime, canonical_schema: CommsCore.PlatformRateLimits.Bucket, role: technical}
   oban_jobs: {owner: platform_persistence, canonical_schema: Oban.Job, role: technical, external_schema: true}
   oban_peers: {owner: platform_persistence, canonical_accessor: Oban.Peers.Database, role: technical, external_schema: true}
   outbox_events: {owner: platform_eventing, canonical_schema: CommsCore.Events.OutboxEvent, role: technical}

@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 const session = {
@@ -57,6 +57,7 @@ const message = {
 const representativeStateIds = [
   "sign-in",
   "invitation",
+  "workspace-setup",
   "recovery-request",
   "recovery-invalid-link",
   "empty-workspace",
@@ -66,24 +67,41 @@ const representativeStateIds = [
   "search",
   "thread",
   "notifications",
-  "settings",
+  "calls",
+  "directory",
+  "files",
+  "you",
   "admin",
-  "operations"
+  "operations",
+  "guest-entry",
+  "guest-room"
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(14);
+  expect(new Set(representativeStateIds).size).toBe(20);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
-  await page.goto("/app/");
+  await page.goto("/sign-in");
   await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  const recoveryLink = page.getByRole("link", { name: "Forgot password?" });
+  await expect(recoveryLink).toBeVisible();
+  expect((await recoveryLink.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expectNoWcagFailures(page);
 });
 
 test("invitation acceptance satisfies automated WCAG A and AA checks", async ({ page }) => {
   await page.goto("/app/#invitation_token=synthetic-token&tenant_slug=acme");
-  await expect(page.getByRole("heading", { name: "Accept your invitation" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Join your workspace" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("workspace setup satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: mockServiceStatus({ bootstrap: true })
+  }));
+  await page.goto("/app/?setup=workspace");
+  await expect(page.getByRole("button", { name: "Create workspace" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -102,7 +120,7 @@ test("invalid reset-link state satisfies automated WCAG A and AA checks", async 
 test("empty authenticated workspace satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await page.goto("/app/");
-  await expect(page.getByText("No conversations yet.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bring in your teammate" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 
@@ -146,9 +164,32 @@ test("notification drawer satisfies automated WCAG A and AA checks", async ({ pa
   await expectNoWcagFailures(page);
 });
 
-test("settings satisfies automated WCAG A and AA checks", async ({ page }) => {
+test("calls satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/calls");
+  await expect(page.getByRole("heading", { name: "Calls" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("directory satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/directory");
+  await expect(page.getByRole("heading", { name: "Find people and rooms" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "People" })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("files satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true });
+  await page.goto("/app/files");
+  await expect(page.getByRole("heading", { name: "Files", exact: true })).toBeVisible();
+  await expect(page.getByText("Project-brief.pdf", { exact: true })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
-  await page.goto("/app/settings");
+  await page.goto("/app/you");
   await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
@@ -163,14 +204,19 @@ test("tenant administration satisfies automated WCAG A and AA checks", async ({ 
 test("platform operations satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await openClientRoute(page, "/ops");
-  await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible({
+    timeout: 15_000
+  });
   await expectNoWcagFailures(page);
 });
 
 test("keyboard focus remains visible in forced-colors and reduced-motion modes", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
-  await page.goto("/app/");
-  await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+  await page.goto("/sign-in");
+  const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
+  await expect(heading).not.toHaveCSS("outline-style", "none");
 
   await page.keyboard.press("Tab");
   const focused = page.locator(":focus");
@@ -206,11 +252,7 @@ async function expectNoWcagFailures(page: Page) {
 }
 
 async function openClientRoute(page: Page, path: string) {
-  await page.goto("/app/");
-  await page.evaluate((nextPath) => {
-    window.history.pushState({}, "", nextPath);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, path);
+  await page.goto(path);
 }
 
 async function installAuthenticatedMocks(
@@ -223,14 +265,61 @@ async function installAuthenticatedMocks(
       tenant: session.tenant,
       user: session.user,
       device: session.device,
-      capabilities: { allow_public_channels: true, message_edit_window_seconds: 900, max_attachment_bytes: 25_000_000 }
+      capabilities: {
+        allow_audio_calls: true,
+        allow_video_calls: true,
+        allow_public_channels: true,
+        message_edit_window_seconds: 900,
+        max_attachment_bytes: 25_000_000
+      }
     }
   }));
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: mockServiceStatus({
+      push_notifications: false,
+      realtime: false
+    })
+  }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
+  await page.route("**/api/v1/directory/users**", (route) => route.fulfill({
+    json: {
+      data: [{ id: "user-2", display_name: "Grace Hopper" }],
+      page: { next_cursor: null }
+    }
+  }));
+  await page.route("**/api/v1/channels/discover**", (route) => route.fulfill({
+    json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
+  }));
   await page.route("**/api/v1/conversations", (route) => {
     if (options.workspaceError) return route.fulfill({ status: 503, json: { error: { code: "unavailable", detail: "Synthetic workspace refresh failure" } } });
     return route.fulfill({ json: { data: options.populated ? [conversation] : [] } });
   });
+  await page.route("**/api/v1/calls**", (route) => route.fulfill({
+    json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
+  }));
+  await page.route("**/api/v1/files**", (route) => route.fulfill({
+    json: {
+      data: [{
+        id: "file-1",
+        conversation_id: conversation.id,
+        message_id: message.id,
+        conversation_sequence: message.conversation_sequence,
+        owner_user_id: session.user.id,
+        file_name: "Project-brief.pdf",
+        content_type: "application/pdf",
+        byte_size: 2_048,
+        status: "ready",
+        scan_status: "clean",
+        safety_state: "available",
+        downloadable: true,
+        uploaded_at: "2026-07-14T10:00:00Z",
+        shared_at: "2026-07-14T10:00:00Z",
+        inserted_at: "2026-07-14T10:00:00Z",
+        updated_at: "2026-07-14T10:00:00Z"
+      }],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    }
+  }));
   await page.route("**/api/v1/conversations/conversation-1/messages/message-1/thread**", (route) => route.fulfill({
     json: { data: { root: message, replies: [], reply_count: 0 }, page: { has_more: false, next_before_sequence: null } }
   }));

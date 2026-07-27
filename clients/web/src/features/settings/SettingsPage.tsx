@@ -16,6 +16,11 @@ type PendingRevocation =
   | { kind: "device"; device: Device }
   | { kind: "session"; record: AccountSession };
 
+interface ResourceLoadFailure {
+  resource: string;
+  message: string;
+}
+
 export function SettingsPage() {
   const { api, session, setSession } = useSession();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -24,6 +29,7 @@ export function SettingsPage() {
   const [notifications, setNotifications] = useState<NotificationIntent[]>([]);
   const [attempts, setAttempts] = useState<NotificationAttempt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailures, setLoadFailures] = useState<ResourceLoadFailure[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -31,23 +37,57 @@ export function SettingsPage() {
   const [revocationError, setRevocationError] = useState<string | null>(null);
 
   async function refreshSecurity() {
-    const [nextDevices, nextSessions] = await Promise.all([api.devices(), api.sessions()]);
-    setDevices(nextDevices);
-    setSessions(nextSessions);
+    const [deviceResult, sessionResult] = await Promise.allSettled([
+      api.devices(),
+      api.sessions()
+    ]);
+    const failures: ResourceLoadFailure[] = [];
+    if (deviceResult.status === "fulfilled") {
+      setDevices(deviceResult.value);
+    } else {
+      failures.push({ resource: "Devices", message: errorText(deviceResult.reason) });
+    }
+    if (sessionResult.status === "fulfilled") {
+      setSessions(sessionResult.value);
+    } else {
+      failures.push({ resource: "Sessions", message: errorText(sessionResult.reason) });
+    }
+    setLoadFailures((current) => [
+      ...current.filter(({ resource }) => resource !== "Devices" && resource !== "Sessions"),
+      ...failures
+    ]);
   }
 
   useEffect(() => {
     let current = true;
-    Promise.all([api.devices(), api.sessions(), api.notificationPreference(), api.notifications(), api.notificationAttempts()])
-      .then(([nextDevices, nextSessions, nextPreference, nextNotifications, nextAttempts]) => {
-        if (!current) return;
-        setDevices(nextDevices);
-        setSessions(nextSessions);
-        setPreference(nextPreference);
-        setNotifications(nextNotifications);
-        setAttempts(nextAttempts);
-      })
-      .catch((reason: unknown) => current && setError(errorText(reason)))
+    setLoading(true);
+    setLoadFailures([]);
+
+    function loadResource<T>(
+      resource: string,
+      request: Promise<T>,
+      apply: (value: T) => void
+    ): Promise<void> {
+      return request
+        .then((value) => {
+          if (current) apply(value);
+        })
+        .catch((reason: unknown) => {
+          if (!current) return;
+          setLoadFailures((failures) => [
+            ...failures.filter((failure) => failure.resource !== resource),
+            { resource, message: errorText(reason) }
+          ]);
+        });
+    }
+
+    Promise.allSettled([
+      loadResource("Devices", api.devices(), setDevices),
+      loadResource("Sessions", api.sessions(), setSessions),
+      loadResource("Notification preferences", api.notificationPreference(), setPreference),
+      loadResource("Recent notifications", api.notifications(), setNotifications),
+      loadResource("Notification delivery details", api.notificationAttempts(), setAttempts)
+    ])
       .finally(() => current && setLoading(false));
     return () => { current = false; };
   }, [api]);
@@ -175,6 +215,19 @@ export function SettingsPage() {
       <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
       {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button></div>}
       {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
+      {loadFailures.length > 0 && (
+        <div className="inline-notice settings-load-warning" role="status">
+          <div>
+            <strong>Some settings could not be loaded.</strong>
+            <ul>
+              {loadFailures.map(({ resource, message }) => (
+                <li key={resource}><strong>{resource}:</strong> {message}</li>
+              ))}
+            </ul>
+          </div>
+          <button type="button" aria-label="Dismiss settings load warning" onClick={() => setLoadFailures([])}>×</button>
+        </div>
+      )}
       {pendingRevocation && <ConfirmDialog
         title={pendingRevocation.kind === "device" ? "Revoke device?" : "Revoke session?"}
         description={pendingRevocation.kind === "device" ? pendingRevocation.device.name : `Session ${pendingRevocation.record.id.slice(0, 8)}`}
@@ -190,14 +243,14 @@ export function SettingsPage() {
       />}
 
       <div className="settings-grid">
-        <form className="settings-card" onSubmit={(event) => void updateProfile(event)}>
+        <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
           <div className="card-heading"><h2>Profile</h2><span className="status-pill success">Live API</span></div>
           <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
           <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">This recovery address is read-only until a separate verified email-change flow is available.</small></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
 
-        <form className="settings-card" onSubmit={(event) => void changePassword(event)}>
+        <form className="settings-card" id="password-settings" onSubmit={(event) => void changePassword(event)}>
           <div className="card-heading"><h2>Password</h2><span className="status-pill success">Live API</span></div>
           <label className="field">Current password<input name="current_password" type="password" autoComplete="current-password" required /></label>
           <label className="field">New password<input name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required /></label>
@@ -206,17 +259,17 @@ export function SettingsPage() {
         </form>
       </div>
 
-      <section className="data-card settings-data-card" aria-labelledby="devices-title">
+      <section className="data-card settings-data-card" id="device-settings" aria-labelledby="devices-title">
         <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="devices-title">Devices</h2></div><span className="status-pill success">{loading ? "Loading" : `${devices.length} known`}</span></div>
         <ul className="security-list">{devices.map((device) => <li key={device.id}><div><strong>{device.name}</strong><small>{device.platform} · Last seen {formatDateTime(device.last_seen_at)}{device.id === session.device.id ? " · This device" : ""}</small></div><span className={`status-pill ${device.revoked_at ? "neutral" : "success"}`}>{device.revoked_at ? "Revoked" : "Active"}</span>{!device.revoked_at && <button className="button danger compact" type="button" disabled={busy === `device-${device.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "device", device }); }}>{device.id === session.device.id ? "Revoke and sign out" : "Revoke device"}</button>}</li>)}</ul>
       </section>
 
-      <section className="data-card settings-data-card" aria-labelledby="sessions-title">
+      <section className="data-card settings-data-card" id="session-settings" aria-labelledby="sessions-title">
         <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="sessions-title">Sessions</h2></div><span className="status-pill success">{sessions.filter(({ revoked_at }) => !revoked_at).length} active</span></div>
         <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
       </section>
 
-      {preference && <form className="settings-card notification-settings" onSubmit={(event) => void updateNotifications(event)}>
+      {preference && <form className="settings-card notification-settings" id="notification-settings" onSubmit={(event) => void updateNotifications(event)}>
         <div className="card-heading"><h2>Notification preferences</h2><span className="status-pill success">Live API</span></div>
         <fieldset className="settings-fieldset"><legend>Where should K-Comms notify you?</legend><div className="toggle-grid"><label><input name="in_app_enabled" type="checkbox" defaultChecked={preference.in_app_enabled} />In K-Comms</label><label><input name="email_enabled" type="checkbox" defaultChecked={preference.email_enabled} />By email</label><label><input name="push_enabled" type="checkbox" defaultChecked={preference.push_enabled} />On registered browsers</label></div></fieldset>
         <fieldset className="settings-fieldset"><legend>What should notify you?</legend><div className="toggle-grid">{notificationChoices.map(({ eventType, field, label }) => <label key={eventType}><input name={field} type="checkbox" defaultChecked={!preference.muted_event_types.includes(eventType)} />{label}</label>)}</div></fieldset>
@@ -226,7 +279,7 @@ export function SettingsPage() {
 
       {preference && <PushNotifications api={api} preference={preference} onPreference={setPreference} onNotice={setNotice} onError={setError} />}
 
-      <section className="data-card settings-data-card" aria-labelledby="notification-history-title">
+      <section className="data-card settings-data-card" id="notification-history" aria-labelledby="notification-history-title">
         <div className="card-heading"><div><span className="eyebrow">Delivery visibility</span><h2 id="notification-history-title">Recent notifications</h2></div><span className="status-pill success">{notifications.length} recent</span></div>
         {notifications.length === 0 ? <p className="empty-copy">No recent notification deliveries.</p> : <ul className="security-list">{notifications.slice(0, 20).map((intent) => <li key={intent.id}><div><strong>{notificationName(intent.event_type)}</strong><small>{notificationChannelName(intent.channel)} · {intent.destination_hint || "destination protected"} · {attemptSummary(intent.attempt_count)} · {formatDateTime(intent.inserted_at)}</small></div><span className={`status-pill ${intent.status === "delivered" ? "success" : "neutral"}`}>{notificationStatusName(intent.status)}</span>{canAdministerTenant(session.user.role) && ["failed", "dead_letter"].includes(intent.status) && <button className="button ghost compact" type="button" disabled={busy === `notification-${intent.id}`} onClick={() => void retryNotification(intent)}>Retry</button>}</li>)}</ul>}
         <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>

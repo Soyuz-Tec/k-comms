@@ -4,6 +4,14 @@ defmodule CommsIntegrations.ObjectStorage do
   @callback verify_upload(map()) :: {:ok, map()} | {:error, term()}
   @callback verify_restored_object(map()) :: {:ok, map()} | {:error, term()}
   @callback delete_object(map()) :: :ok | {:error, term()}
+  @callback purge_object_versions(map()) ::
+              {:ok,
+               %{
+                 deleted_versions: non_neg_integer(),
+                 deleted_markers: non_neg_integer(),
+                 verified_empty?: boolean()
+               }}
+              | {:error, term()}
   @callback status() :: map()
 
   def presign_upload(request), do: adapter().presign_upload(request)
@@ -19,6 +27,12 @@ defmodule CommsIntegrations.ObjectStorage do
   def delete_object(request) do
     with :ok <- validate_object_request(request) do
       adapter().delete_object(request)
+    end
+  end
+
+  def purge_object_versions(request) do
+    with :ok <- validate_object_request(request) do
+      adapter().purge_object_versions(request)
     end
   end
 

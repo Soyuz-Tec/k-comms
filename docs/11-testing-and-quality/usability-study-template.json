@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 4,
   "release_revision": "REPLACE_WITH_FULL_GIT_SHA",
   "environment": "internal-staging",
   "study_started_on": "YYYY-MM-DD",
@@ -22,6 +22,321 @@
     "approved_on": null,
     "evidence_reference": null
   },
+  "action_count_receipts": [
+    {
+      "id": "sign-in-inbox",
+      "participant_id": "P01",
+      "baseline": "end_to_end",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "invite-inbox",
+      "participant_id": "P01",
+      "baseline": "end_to_end",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "open-unread",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "directory-direct",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 2,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "directory-room",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 3,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "file-source-return",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 2,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "call-lobby-join",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 3,
+      "maximum_actions": 3,
+      "justified_exception_actions": [],
+      "call_safety": {
+        "microphone_initially_off": false,
+        "camera_initially_off": false,
+        "lobby_observed_before_join": false,
+        "lobby_action_count": 2,
+        "join_or_start_action_count": 1
+      }
+    },
+    {
+      "id": "active-call-rejoin",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 2,
+      "maximum_actions": 2,
+      "justified_exception_actions": [],
+      "call_safety": {
+        "microphone_initially_off": false,
+        "camera_initially_off": false,
+        "lobby_observed_before_join": false,
+        "lobby_action_count": 2,
+        "join_or_start_action_count": 0
+      }
+    },
+    {
+      "id": "you-profile",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "you-devices",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "you-notifications",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "you-settings",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "admin-entry",
+      "participant_id": "P07",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 2,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "ops-entry",
+      "participant_id": "P10",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 2,
+      "justified_exception_actions": []
+    },
+    {
+      "id": "ordinary-recovery",
+      "participant_id": "P01",
+      "baseline": "daily_use",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "justified_exception_actions": []
+    }
+  ],
+  "instant_room_receipts": [
+    {
+      "id": "instant-room-host-start-untitled",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "signed_out",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-host-start-titled",
+      "participant_id": "P02",
+      "journey_role": "host",
+      "baseline": "signed_out",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-copy-link",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-system-share",
+      "participant_id": "P02",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-qr",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-guest-name-join",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "invite_link",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-roster-identity",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_room",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-first-message",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_room",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-host-reload",
+      "participant_id": "P01",
+      "journey_role": "host",
+      "baseline": "active_host",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-guest-rejoin",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "reentry",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 1,
+      "checks": []
+    },
+    {
+      "id": "instant-room-account-conversion-handoff",
+      "participant_id": "P03",
+      "journey_role": "guest",
+      "baseline": "active_guest",
+      "performed_on": "YYYY-MM-DD",
+      "task_completed": false,
+      "unassisted": false,
+      "action_count": 0,
+      "maximum_actions": 3,
+      "checks": []
+    }
+  ],
   "sessions": [
     {
       "participant_id": "P01",
@@ -110,6 +425,18 @@
         {
           "id": "device-revocation",
           "category": "other",
+          "critical": true,
+          "outcome": "failed",
+          "duration_seconds": 0,
+          "critical_errors": 0,
+          "backtracks": 0,
+          "facilitator_interventions": 0,
+          "seq": 1,
+          "unintended_destructive_action": false
+        },
+        {
+          "id": "instant-room-first-contact",
+          "category": "public_room",
           "critical": true,
           "outcome": "failed",
           "duration_seconds": 0,

@@ -10,6 +10,7 @@ defmodule CommsCore.Conversations do
     AdmissionQuotas,
     Outbox,
     Repo,
+    RuntimePorts,
     ServiceAccounts
   }
 
@@ -30,11 +31,72 @@ defmodule CommsCore.Conversations do
     CallMembership,
     Conversation,
     ConversationView,
+    EphemeralJoinReceipt,
+    EphemeralPresenceLease,
+    EphemeralRoom,
+    GuestAdmission,
+    GuestLink,
     Membership,
     MessageWriteSlot
   }
 
   @behaviour ConversationBootstrapPort
+
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      conversations:
+        repo.all(
+          from(conversation in Conversation,
+            where: conversation.tenant_id == ^tenant_id,
+            select: conversation.id
+          )
+        ),
+      memberships:
+        repo.all(
+          from(membership in Membership,
+            where: membership.tenant_id == ^tenant_id,
+            select: membership.id
+          )
+        ),
+      guest_links:
+        repo.all(
+          from(link in GuestLink,
+            where: link.tenant_id == ^tenant_id,
+            select: link.id
+          )
+        ),
+      guest_admissions:
+        repo.all(
+          from(admission in GuestAdmission,
+            where: admission.tenant_id == ^tenant_id,
+            select: admission.id
+          )
+        ),
+      ephemeral_rooms:
+        repo.all(
+          from(room in EphemeralRoom,
+            where: room.tenant_id == ^tenant_id,
+            select: room.id
+          )
+        ),
+      ephemeral_presence_leases:
+        repo.all(
+          from(lease in EphemeralPresenceLease,
+            where: lease.tenant_id == ^tenant_id,
+            select: lease.id
+          )
+        ),
+      ephemeral_join_receipts:
+        repo.all(
+          from(receipt in EphemeralJoinReceipt,
+            where: receipt.tenant_id == ^tenant_id,
+            select: receipt.id
+          )
+        )
+    }
+  end
 
   @doc """
   Implements the IdentityAccess bootstrap port inside the caller's transaction.
@@ -136,7 +198,12 @@ defmodule CommsCore.Conversations do
   """
   @spec authorize_create(map()) :: :ok | {:error, :forbidden}
   def authorize_create(subject) when is_map(subject) do
-    with {:ok, _grant} <- Accounts.access_grant(subject), do: :ok
+    with {:ok, %{account_type: :human, access_scope: :workspace}} <-
+           Accounts.access_grant(subject) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
   end
 
   def authorize_create(_subject), do: {:error, :forbidden}
@@ -148,9 +215,13 @@ defmodule CommsCore.Conversations do
   @spec authorize_discovery(map()) ::
           :ok | {:error, :forbidden | :public_channels_disabled}
   def authorize_discovery(subject) when is_map(subject) do
-    with {:ok, _grant} <- Accounts.access_grant(subject),
+    with {:ok, %{account_type: :human, access_scope: :workspace}} <-
+           Accounts.access_grant(subject),
          :ok <- public_channels_enabled(subject) do
       :ok
+    else
+      {:error, :public_channels_disabled} = error -> error
+      _ -> {:error, :forbidden}
     end
   end
 
@@ -188,6 +259,8 @@ defmodule CommsCore.Conversations do
           {:ok, CallMembership.t()} | {:error, :forbidden}
   def call_membership(tenant_id, conversation_id, user_id)
       when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) do
+    unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
+
     case Repo.one(
            from(membership in Membership,
              join: conversation in Conversation,
@@ -198,7 +271,8 @@ defmodule CommsCore.Conversations do
                membership.tenant_id == ^tenant_id and
                  membership.conversation_id == ^conversation_id and
                  membership.user_id == ^user_id and is_nil(membership.left_at) and
-                 conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at),
+                 conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at) and
+                 conversation.id not in subquery(unavailable_conversations),
              select: %{
                tenant_id: membership.tenant_id,
                conversation_id: membership.conversation_id,
@@ -226,11 +300,14 @@ defmodule CommsCore.Conversations do
   def lock_call_conversation(tenant_id, conversation_id, lock_mode)
       when is_binary(tenant_id) and is_binary(conversation_id) and lock_mode in [:share, :update] do
     if Repo.in_transaction?() do
+      unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
+
       query =
         from(conversation in Conversation,
           where:
             conversation.id == ^conversation_id and conversation.tenant_id == ^tenant_id and
-              is_nil(conversation.archived_at),
+              is_nil(conversation.archived_at) and
+              conversation.id not in subquery(unavailable_conversations),
           select: %{id: conversation.id, tenant_id: conversation.tenant_id}
         )
 
@@ -260,12 +337,15 @@ defmodule CommsCore.Conversations do
   def lock_call_membership(tenant_id, conversation_id, user_id)
       when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) do
     if Repo.in_transaction?() do
+      unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
+
       case Repo.one(
              from(membership in Membership,
                where:
                  membership.tenant_id == ^tenant_id and
                    membership.conversation_id == ^conversation_id and
-                   membership.user_id == ^user_id and is_nil(membership.left_at),
+                   membership.user_id == ^user_id and is_nil(membership.left_at) and
+                   membership.conversation_id not in subquery(unavailable_conversations),
                select: %{
                  tenant_id: membership.tenant_id,
                  conversation_id: membership.conversation_id,
@@ -324,6 +404,180 @@ defmodule CommsCore.Conversations do
   @spec authorize_manage_ownership(Ecto.UUID.t(), map()) :: :ok | {:error, :forbidden}
   def authorize_manage_ownership(conversation_id, subject),
     do: authorize_management(:manage_conversation_ownership, conversation_id, subject)
+
+  @doc """
+  Creates a revocable, expiring guest link for a group or channel.
+
+  The returned token is deliberately available only in this creation result;
+  persisted and subsequently listed projections contain only its digest-free
+  metadata.
+  """
+  def create_guest_link_view(conversation_id, attrs, subject),
+    do: CommsCore.Conversations.GuestAccess.create_link(conversation_id, attrs, subject)
+
+  @doc "Lists secret-free guest-link projections for a managed conversation."
+  def list_guest_link_views(conversation_id, subject),
+    do: CommsCore.Conversations.GuestAccess.list_links(conversation_id, subject)
+
+  @doc "Revokes a guest link and all temporary admissions derived from it."
+  def revoke_guest_link_view(conversation_id, link_id, subject),
+    do:
+      CommsCore.Conversations.GuestAccess.revoke_link(
+        conversation_id,
+        link_id,
+        subject,
+        &revoke_guest_membership_call_access/4
+      )
+
+  @doc "Returns the non-sensitive preview for an available guest link."
+  def preview_guest_link(token),
+    do: CommsCore.Conversations.GuestAccess.preview_link(token)
+
+  @doc "Atomically redeems a guest link into a bounded identity and membership."
+  def redeem_guest_link(token, attrs),
+    do: CommsCore.Conversations.GuestAccess.redeem_link(token, attrs)
+
+  @doc "Resolves an active guest admission without granting ordinary account access."
+  def resolve_guest_access(subject, conversation_id),
+    do: CommsCore.Conversations.GuestAccess.resolve_access(subject, conversation_id)
+
+  @doc "Rehydrates the active conversation scope for a refreshed guest session."
+  def guest_scope_for_session(session_id),
+    do: CommsCore.Conversations.GuestAccess.scope_for_session(session_id)
+
+  @doc "Converts an active guest into a normal account while preserving membership."
+  def convert_guest_account(attrs, guest_subject),
+    do: CommsCore.Conversations.GuestAccess.convert_account(attrs, guest_subject)
+
+  @doc "Atomically revokes a guest session, admission, membership, and active room presence."
+  def logout_guest_session(guest_subject),
+    do:
+      CommsCore.Conversations.GuestAccess.logout_session(
+        guest_subject,
+        &revoke_guest_membership_call_access/4
+      )
+
+  @doc "Creates an instant room for either a trusted public-tenant guest or a workspace human."
+  def create_ephemeral_room(attrs, creator),
+    do: CommsCore.Conversations.EphemeralRooms.create(attrs, creator)
+
+  @doc "Returns the public, non-sensitive preview for an instant-room join token."
+  def preview_ephemeral_room(token),
+    do: CommsCore.Conversations.EphemeralRooms.preview(token)
+
+  @doc "Joins an instant room as either a guest or a same-tenant human."
+  def join_ephemeral_room(token, attrs, joiner),
+    do: CommsCore.Conversations.EphemeralRooms.join(token, attrs, joiner)
+
+  @doc "Opens a durable, cluster-safe presence lease for an authenticated room member."
+  def open_ephemeral_presence(attrs),
+    do: CommsCore.Conversations.EphemeralRooms.open_presence(attrs)
+
+  @doc "Renews an existing durable instant-room presence lease."
+  def heartbeat_ephemeral_presence(attrs),
+    do: CommsCore.Conversations.EphemeralRooms.heartbeat_presence(attrs)
+
+  @doc "Closes a durable presence lease and schedules generation-fenced reconciliation."
+  def close_ephemeral_presence(attrs),
+    do: CommsCore.Conversations.EphemeralRooms.close_presence(attrs)
+
+  @doc "Returns an instant-room projection for an existing conversation membership."
+  def ephemeral_room_for_conversation(conversation_id, subject),
+    do: CommsCore.Conversations.EphemeralRooms.room_for_conversation(conversation_id, subject)
+
+  @doc false
+  @spec reconcile_ephemeral_room(Ecto.UUID.t(), pos_integer(), module()) ::
+          {:ok,
+           :active
+           | :already_terminal
+           | :stale_generation
+           | {:idle, DateTime.t(), pos_integer()}}
+          | {:error, term()}
+  def reconcile_ephemeral_room(room_id, expected_generation, caller),
+    do:
+      CommsCore.Conversations.EphemeralRooms.reconcile(
+        room_id,
+        expected_generation,
+        caller
+      )
+
+  @doc false
+  @spec reconcile_ephemeral_rooms(module()) ::
+          {:ok, %{scanned: non_neg_integer(), reconciled: non_neg_integer()}}
+          | {:error, :forbidden}
+  def reconcile_ephemeral_rooms(caller),
+    do: CommsCore.Conversations.EphemeralRooms.reconcile_all(caller)
+
+  @doc false
+  @spec expire_ephemeral_room(Ecto.UUID.t(), pos_integer(), module()) ::
+          {:ok,
+           :expired
+           | :already_terminal
+           | :active
+           | :stale_generation
+           | {:not_due, pos_integer()}}
+          | {:error, term()}
+  def expire_ephemeral_room(room_id, expected_generation, caller) do
+    CommsCore.Conversations.EphemeralRooms.expire(
+      room_id,
+      expected_generation,
+      caller,
+      &revoke_guest_membership_call_access/4
+    )
+  end
+
+  @doc false
+  def persisted_ephemeral_room_count,
+    do: CommsCore.Conversations.EphemeralRooms.persisted_room_count()
+
+  @doc false
+  def persisted_ephemeral_presence_lease_count,
+    do: CommsCore.Conversations.EphemeralRooms.persisted_presence_lease_count()
+
+  @doc false
+  def persisted_ephemeral_join_receipt_count,
+    do: CommsCore.Conversations.EphemeralRooms.persisted_join_receipt_count()
+
+  @doc false
+  @spec expire_guest_admission(Ecto.UUID.t(), module()) ::
+          {:ok, :expired | :already_terminal | {:not_due, pos_integer()}}
+          | {:error, :forbidden | :guest_admission_not_found | term()}
+  def expire_guest_admission(admission_id, caller) when is_binary(admission_id) do
+    if RuntimePorts.authorized_job_worker?(:guest_admission_expiry, caller) do
+      CommsCore.Conversations.GuestAccess.expire_admission(
+        admission_id,
+        &revoke_guest_membership_call_access/4
+      )
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def expire_guest_admission(_admission_id, _caller), do: {:error, :forbidden}
+
+  @doc false
+  def revoke_guest_membership_call_access(tenant_id, conversation_id, user_id, reason)
+      when is_binary(tenant_id) and is_binary(conversation_id) and is_binary(user_id) and
+             is_binary(reason) do
+    if Repo.in_transaction?() do
+      case tenant_id
+           |> CallLifecycleCommand.membership_revoked(conversation_id, user_id, reason)
+           |> CallLifecyclePort.revoke_conversation_access() do
+        {:ok, %CallLifecycleReceipt{}} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  def revoke_guest_membership_call_access(
+        _tenant_id,
+        _conversation_id,
+        _user_id,
+        _reason
+      ),
+      do: {:error, :forbidden}
 
   @doc """
   Returns conversation-owned capacity counts for approved read-model composition.
@@ -531,28 +785,93 @@ defmodule CommsCore.Conversations do
   end
 
   @doc """
-  Returns the active conversation IDs visible to a subject.
+  Returns the composable active-membership authorization projection for a
+  verified identity grant.
 
-  This is a read projection for content queries; callers do not receive
-  conversation or membership persistence structs.
+  The projection remains owned by Conversations and exposes only the
+  conversation identifier and the caller's current membership role. Dependent
+  contexts join it as a database subquery so authorization remains bounded even
+  when a user belongs to many conversations; no persistence struct or
+  materialized identifier list crosses the boundary.
   """
-  @spec active_conversation_ids(map()) :: [Ecto.UUID.t()]
-  def active_conversation_ids(subject) when is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    user_id = value(subject, :user_id)
+  @spec active_membership_authorization_query(CommsCore.Accounts.AccessGrant.t()) ::
+          Ecto.Query.t()
+  def active_membership_authorization_query(%CommsCore.Accounts.AccessGrant{
+        tenant_id: tenant_id,
+        user_id: user_id
+      }) do
+    active_membership_authorization_query(tenant_id, user_id)
+  end
 
-    Repo.all(
-      from(conversation in Conversation,
-        join: membership in Membership,
-        on:
-          membership.conversation_id == conversation.id and
-            membership.tenant_id == conversation.tenant_id,
-        where:
-          conversation.tenant_id == ^tenant_id and membership.user_id == ^user_id and
-            is_nil(membership.left_at) and is_nil(conversation.archived_at),
-        select: conversation.id
-      )
+  @doc """
+  Returns the same composable authorization projection for a verified service
+  identity.
+
+  IdentityAccess revalidates the durable service credential and requested
+  capability before Conversations exposes its owner-local membership query.
+  Invalid identity facts fail closed before any dependent context can execute
+  the projection.
+  """
+  @spec active_service_membership_authorization_query(map(), String.t()) ::
+          {:ok, Ecto.Query.t()} | {:error, :forbidden}
+  def active_service_membership_authorization_query(subject, required_scope)
+      when is_map(subject) and is_binary(required_scope) do
+    with :ok <- ServiceAccounts.authorize_service(subject, required_scope),
+         {:ok, tenant_id} <- Ecto.UUID.cast(value(subject, :tenant_id)),
+         {:ok, user_id} <- Ecto.UUID.cast(value(subject, :user_id)) do
+      {:ok, active_membership_authorization_query(tenant_id, user_id)}
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  def active_service_membership_authorization_query(_subject, _required_scope),
+    do: {:error, :forbidden}
+
+  defp active_membership_authorization_query(tenant_id, user_id) do
+    unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
+
+    from(conversation in Conversation,
+      join: membership in Membership,
+      on:
+        membership.conversation_id == conversation.id and
+          membership.tenant_id == conversation.tenant_id,
+      where:
+        conversation.tenant_id == ^tenant_id and membership.user_id == ^user_id and
+          is_nil(membership.left_at) and is_nil(conversation.archived_at) and
+          conversation.id not in subquery(unavailable_conversations),
+      select: %{
+        conversation_id: conversation.id,
+        membership_role: membership.role
+      }
     )
+  end
+
+  @doc """
+  Checks one conversation against the same active-membership projection.
+
+  This preserves a fail-closed response for explicitly scoped reads without
+  loading every authorized conversation identifier into application memory.
+  """
+  @spec active_conversation_member?(
+          CommsCore.Accounts.AccessGrant.t(),
+          Ecto.UUID.t()
+        ) :: boolean()
+  def active_conversation_member?(
+        %CommsCore.Accounts.AccessGrant{} = grant,
+        conversation_id
+      ) do
+    case Ecto.UUID.cast(conversation_id) do
+      {:ok, conversation_id} ->
+        grant
+        |> active_membership_authorization_query()
+        |> subquery()
+        |> where([authorization], authorization.conversation_id == ^conversation_id)
+        |> Repo.exists?()
+
+      :error ->
+        false
+    end
   end
 
   @doc false
@@ -561,15 +880,22 @@ defmodule CommsCore.Conversations do
 
   def project(%ConversationView{} = conversation), do: conversation
 
-  def create_view(attrs, subject),
-    do:
-      create(attrs, subject) |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def create_view(attrs, subject) do
+    create(attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
-  def list_for_user_views(subject),
-    do:
-      subject
-      |> list_for_user()
-      |> Enum.map(&CommsCore.Conversations.Projector.user_conversation/1)
+  def list_for_user_views(subject) do
+    results = list_for_user(subject)
+    counterparts = direct_counterparts(results, subject)
+
+    Enum.map(results, fn result ->
+      CommsCore.Conversations.Projector.user_conversation(
+        result,
+        Map.get(counterparts, result.conversation.id)
+      )
+    end)
+  end
 
   def discover_public_channel_views(params, subject) do
     with {:ok, result} <- discover_public_channels(params, subject) do
@@ -588,20 +914,20 @@ defmodule CommsCore.Conversations do
   def leave_public_channel_view(id, attrs, subject),
     do: leave_public_channel(id, attrs, subject) |> project_result(&project_membership_change/1)
 
-  def get_for_user_view(id, subject),
-    do:
-      get_for_user(id, subject)
-      |> project_result(&CommsCore.Conversations.Projector.user_conversation/1)
+  def get_for_user_view(id, subject) do
+    get_for_user(id, subject)
+    |> project_result(&project_authorized_user_conversation(&1, subject))
+  end
 
-  def update_view(id, attrs, subject),
-    do:
-      __MODULE__.update(id, attrs, subject)
-      |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def update_view(id, attrs, subject) do
+    __MODULE__.update(id, attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
-  def archive_view(id, attrs, subject),
-    do:
-      archive(id, attrs, subject)
-      |> project_result(&CommsCore.Conversations.Projector.conversation/1)
+  def archive_view(id, attrs, subject) do
+    archive(id, attrs, subject)
+    |> project_result(&project_authorized_conversation(&1, subject))
+  end
 
   def list_member_views(id, subject) do
     with {:ok, members} <- list_members(id, subject) do
@@ -624,6 +950,78 @@ defmodule CommsCore.Conversations do
       change_member_role(conversation_id, user_id, attrs, subject)
       |> project_result(&CommsCore.Conversations.Projector.membership/1)
 
+  @doc """
+  Returns the caller's active direct conversation with another active human or
+  creates it atomically.
+
+  The tenant admission lock serializes this operation with all other
+  conversation creation and user lifecycle admission. Existing conversations
+  are resolved before quota checks, so reaching capacity never prevents
+  members from resuming an already-authorized direct conversation.
+  """
+  @spec get_or_create_direct_view(Ecto.UUID.t(), map()) ::
+          {:ok, %{conversation: ConversationView.t(), created: boolean()}}
+          | {:error,
+             :active_conversation_quota_exceeded
+             | :conversation_member_quota_exceeded
+             | :direct_conversation_unavailable
+             | :forbidden
+             | :not_found}
+  def get_or_create_direct_view(other_user_id, subject)
+      when is_binary(other_user_id) and is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject),
+         {:ok, other_user_id} <- Ecto.UUID.cast(other_user_id),
+         false <- grant.user_id == other_user_id do
+      Repo.transaction(fn ->
+        policy = admission_policy!(grant.tenant_id)
+        locked_grant = lock_direct_access!(subject, grant)
+        member_ids = Enum.sort([locked_grant.user_id, other_user_id])
+
+        lock_directory_members!(locked_grant.tenant_id, member_ids)
+
+        {:ok, direct_key} = direct_key(:direct, member_ids)
+
+        case lock_direct_conversation(locked_grant.tenant_id, direct_key) do
+          %Conversation{archived_at: nil} = conversation ->
+            ensure_active_direct_memberships!(conversation, member_ids)
+
+            %{conversation: conversation, created: false}
+
+          %Conversation{} ->
+            Repo.rollback(:direct_conversation_unavailable)
+
+          nil ->
+            quota_ok!(
+              AdmissionQuotas.check_conversation_creation(
+                policy,
+                active_conversation_count(locked_grant.tenant_id),
+                2
+              )
+            )
+
+            conversation =
+              create_direct_conversation!(
+                locked_grant.tenant_id,
+                locked_grant.user_id,
+                member_ids,
+                direct_key,
+                subject
+              )
+
+            %{conversation: conversation, created: true}
+        end
+      end)
+      |> transaction_result()
+      |> project_direct_conversation_result(subject)
+    else
+      {:error, _reason} -> {:error, :forbidden}
+      true -> {:error, :not_found}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  def get_or_create_direct_view(_other_user_id, _subject), do: {:error, :not_found}
+
   def create(attrs, subject) when is_map(attrs) and is_map(subject) do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
@@ -632,6 +1030,7 @@ defmodule CommsCore.Conversations do
 
     visibility = enum_value(value(attrs, :visibility), [:private, :tenant], :private)
     visibility = if kind == :direct, do: :private, else: visibility
+    title = if kind == :direct, do: nil, else: value(attrs, :title)
 
     with :ok <- authorize_create(subject),
          :ok <- validate_members(tenant_id, member_ids),
@@ -657,7 +1056,7 @@ defmodule CommsCore.Conversations do
             tenant_id: tenant_id,
             created_by_user_id: user_id,
             kind: kind,
-            title: value(attrs, :title),
+            title: title,
             visibility: visibility,
             direct_key: direct_key,
             next_sequence: 1
@@ -695,13 +1094,15 @@ defmodule CommsCore.Conversations do
   def list_for_user(subject) do
     tenant_id = value(subject, :tenant_id)
     user_id = value(subject, :user_id)
+    unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
 
     from(c in Conversation,
       join: m in Membership,
       on: m.conversation_id == c.id,
       where:
         c.tenant_id == ^tenant_id and m.tenant_id == ^tenant_id and m.user_id == ^user_id and
-          is_nil(m.left_at) and is_nil(c.archived_at),
+          is_nil(m.left_at) and is_nil(c.archived_at) and
+          c.id not in subquery(unavailable_conversations),
       order_by: [desc: c.updated_at],
       select: %{
         conversation: c,
@@ -931,7 +1332,7 @@ defmodule CommsCore.Conversations do
           %{}
           |> maybe_put(:title, value(attrs, :title))
           |> maybe_put(:visibility, normalized_visibility(value(attrs, :visibility)))
-          |> enforce_direct_visibility(conversation)
+          |> enforce_direct_fields(conversation)
 
         requested_visibility = Map.get(changes, :visibility, conversation.visibility)
 
@@ -1309,6 +1710,98 @@ defmodule CommsCore.Conversations do
     [owner_id | ids] |> Enum.filter(&is_binary/1) |> Enum.uniq()
   end
 
+  defp lock_direct_access!(subject, expected_grant) do
+    case Accounts.lock_access_grant(subject) do
+      {:ok, locked_grant}
+      when locked_grant.tenant_id == expected_grant.tenant_id and
+             locked_grant.user_id == expected_grant.user_id ->
+        locked_grant
+
+      _ ->
+        Repo.rollback(:forbidden)
+    end
+  end
+
+  defp lock_directory_members!(tenant_id, member_ids) do
+    case Accounts.lock_active_human_directory_users(tenant_id, member_ids) do
+      {:ok, people} when length(people) == 2 -> :ok
+      _ -> Repo.rollback(:not_found)
+    end
+  end
+
+  defp lock_direct_conversation(tenant_id, direct_key) do
+    Repo.one(
+      from(conversation in Conversation,
+        where:
+          conversation.tenant_id == ^tenant_id and conversation.kind == :direct and
+            conversation.direct_key == ^direct_key,
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp ensure_active_direct_memberships!(conversation, member_ids) do
+    active_member_ids =
+      Repo.all(
+        from(membership in Membership,
+          where:
+            membership.tenant_id == ^conversation.tenant_id and
+              membership.conversation_id == ^conversation.id and
+              membership.user_id in ^member_ids and is_nil(membership.left_at),
+          order_by: [asc: membership.user_id],
+          select: membership.user_id,
+          lock: "FOR SHARE"
+        )
+      )
+
+    if active_member_ids != member_ids, do: Repo.rollback(:direct_conversation_unavailable)
+  end
+
+  defp create_direct_conversation!(
+         tenant_id,
+         actor_user_id,
+         member_ids,
+         direct_key,
+         subject
+       ) do
+    timestamp = now()
+
+    conversation =
+      %Conversation{}
+      |> Conversation.changeset(%{
+        tenant_id: tenant_id,
+        created_by_user_id: actor_user_id,
+        kind: :direct,
+        visibility: :private,
+        direct_key: direct_key,
+        next_sequence: 1
+      })
+      |> insert_or_rollback()
+
+    Enum.each(member_ids, fn member_id ->
+      role = if member_id == actor_user_id, do: :owner, else: :member
+
+      %Membership{}
+      |> Membership.changeset(%{
+        tenant_id: tenant_id,
+        conversation_id: conversation.id,
+        user_id: member_id,
+        role: role,
+        joined_at: timestamp,
+        last_read_sequence: 0
+      })
+      |> insert_or_rollback()
+    end)
+
+    insert_event(conversation, "conversation.created.v1", subject, %{
+      kind: :direct,
+      title: nil,
+      member_ids: member_ids
+    })
+
+    conversation
+  end
+
   defp normalize_channel_search(nil), do: {:ok, nil}
 
   defp normalize_channel_search(value) when is_binary(value) do
@@ -1383,6 +1876,7 @@ defmodule CommsCore.Conversations do
   defp authorize_public_channel(action, conversation_id, subject)
        when action in [:join, :leave] and is_binary(conversation_id) and is_map(subject) do
     with {:ok, grant} <- Accounts.access_grant(subject),
+         :ok <- require_workspace_for_public_join(action, grant),
          {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
          %Conversation{kind: :channel, visibility: :tenant, archived_at: nil} <-
            Repo.get_by(Conversation,
@@ -1461,6 +1955,8 @@ defmodule CommsCore.Conversations do
     do: {:error, :forbidden}
 
   defp active_membership(grant, conversation_id) do
+    unavailable_conversations = unavailable_ephemeral_conversation_ids(now())
+
     Repo.one(
       from(membership in Membership,
         join: conversation in Conversation,
@@ -1472,8 +1968,36 @@ defmodule CommsCore.Conversations do
             membership.user_id == ^grant.user_id and
             membership.tenant_id == ^grant.tenant_id and
             conversation.tenant_id == ^grant.tenant_id and
-            is_nil(membership.left_at) and is_nil(conversation.archived_at)
+            is_nil(membership.left_at) and is_nil(conversation.archived_at) and
+            conversation.id not in subquery(unavailable_conversations)
       )
+    )
+  end
+
+  defp unavailable_ephemeral_conversation_ids(timestamp) do
+    live_presence =
+      from(lease in EphemeralPresenceLease,
+        where:
+          lease.ephemeral_room_id == parent_as(:ephemeral_room).id and
+            is_nil(lease.closed_at) and lease.expires_at > ^timestamp,
+        select: 1
+      )
+
+    from(room in EphemeralRoom,
+      as: :ephemeral_room,
+      where:
+        room.status == :expired or not is_nil(room.expired_at) or
+          (room.status == :idle and
+             (is_nil(room.expires_at) or room.expires_at <= ^timestamp)) or
+          (room.status == :active and
+             fragment(
+               "COALESCE(?, ?) + (? * INTERVAL '1 second') <= ?",
+               room.last_presence_at,
+               room.inserted_at,
+               room.reconnect_grace_seconds,
+               ^timestamp
+             ) and not exists(live_presence)),
+      select: room.conversation_id
     )
   end
 
@@ -1481,6 +2005,12 @@ defmodule CommsCore.Conversations do
     do: public_channels_enabled(subject)
 
   defp maybe_require_public_channels_enabled(:leave, _subject), do: :ok
+
+  defp require_workspace_for_public_join(:join, %{account_type: :human, access_scope: :workspace}),
+       do: :ok
+
+  defp require_workspace_for_public_join(:leave, _grant), do: :ok
+  defp require_workspace_for_public_join(_action, _grant), do: {:error, :forbidden}
 
   defp public_channels_enabled(subject) do
     case Administration.member_capabilities(subject) do
@@ -1625,11 +2155,13 @@ defmodule CommsCore.Conversations do
   defp normalized_visibility(value),
     do: enum_value(value, [:private, :tenant], :invalid_visibility)
 
-  defp enforce_direct_visibility(attrs, %Conversation{kind: :direct}) do
-    Map.put(attrs, :visibility, :private)
+  defp enforce_direct_fields(attrs, %Conversation{kind: :direct}) do
+    attrs
+    |> Map.put(:title, nil)
+    |> Map.put(:visibility, :private)
   end
 
-  defp enforce_direct_visibility(attrs, _), do: attrs
+  defp enforce_direct_fields(attrs, _), do: attrs
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -1638,6 +2170,91 @@ defmodule CommsCore.Conversations do
   defp transaction_result({:error, reason}), do: {:error, reason}
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
+
+  defp project_direct_conversation_result({:ok, result}, subject) do
+    {:ok,
+     %{
+       result
+       | conversation: project_authorized_conversation(result.conversation, subject)
+     }}
+  end
+
+  defp project_direct_conversation_result({:error, _reason} = error, _subject), do: error
+
+  defp project_authorized_user_conversation(result, subject) do
+    counterparts = direct_counterparts([result], subject)
+
+    CommsCore.Conversations.Projector.user_conversation(
+      result,
+      Map.get(counterparts, result.conversation.id)
+    )
+  end
+
+  defp project_authorized_conversation(%Conversation{} = conversation, subject) do
+    counterparts = direct_counterparts([%{conversation: conversation}], subject)
+
+    CommsCore.Conversations.Projector.conversation(
+      conversation,
+      Map.get(counterparts, conversation.id)
+    )
+  end
+
+  defp direct_counterparts(results, subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, grant} -> direct_counterparts_for_grant(results, grant)
+      _ -> %{}
+    end
+  end
+
+  defp direct_counterparts_for_grant(results, grant) do
+    tenant_id = grant.tenant_id
+    user_id = grant.user_id
+
+    direct_ids =
+      results
+      |> Enum.flat_map(fn
+        %{conversation: %Conversation{tenant_id: ^tenant_id, kind: :direct, id: id}} -> [id]
+        _ -> []
+      end)
+      |> Enum.uniq()
+
+    counterpart_memberships =
+      if direct_ids == [] do
+        []
+      else
+        Repo.all(
+          from(membership in Membership,
+            where:
+              membership.tenant_id == ^tenant_id and
+                membership.conversation_id in ^direct_ids and membership.user_id != ^user_id and
+                is_nil(membership.left_at),
+            order_by: [asc: membership.conversation_id, asc: membership.user_id],
+            select: %{
+              conversation_id: membership.conversation_id,
+              user_id: membership.user_id
+            }
+          )
+        )
+      end
+
+    counterpart_users =
+      tenant_id
+      |> Accounts.resolve_user_views(Enum.map(counterpart_memberships, & &1.user_id))
+      |> Map.new(&{&1.id, &1})
+
+    Map.new(counterpart_memberships, fn membership ->
+      counterpart =
+        case Map.get(counterpart_users, membership.user_id) do
+          %{id: id, display_name: display_name} ->
+            %{user_id: id, display_name: display_name}
+
+          nil ->
+            nil
+        end
+
+      {membership.conversation_id, counterpart}
+    end)
+  end
 
   defp project_membership_change(result) do
     %{
@@ -1684,15 +2301,33 @@ defmodule CommsCore.Conversations do
   end
 
   defp admission_usage_counts(tenant_id) do
+    timestamp = now()
+
+    admitted_member_counts =
+      from(membership in Membership,
+        left_join: guest_admission in CommsCore.Conversations.GuestAdmission,
+        on:
+          guest_admission.tenant_id == membership.tenant_id and
+            guest_admission.membership_id == membership.id and
+            is_nil(guest_admission.converted_at),
+        where:
+          membership.tenant_id == ^tenant_id and is_nil(membership.left_at) and
+            (is_nil(guest_admission.id) or
+               (is_nil(guest_admission.revoked_at) and
+                  guest_admission.expires_at > ^timestamp)),
+        group_by: membership.conversation_id,
+        select: %{
+          conversation_id: membership.conversation_id,
+          member_count: count(membership.id)
+        }
+      )
+
     active_member_counts =
       from(conversation in Conversation,
-        left_join: membership in Membership,
-        on:
-          membership.tenant_id == conversation.tenant_id and
-            membership.conversation_id == conversation.id and is_nil(membership.left_at),
+        left_join: counts in subquery(admitted_member_counts),
+        on: counts.conversation_id == conversation.id,
         where: conversation.tenant_id == ^tenant_id and is_nil(conversation.archived_at),
-        group_by: conversation.id,
-        select: %{member_count: count(membership.id)}
+        select: %{member_count: fragment("COALESCE(?, 0)", counts.member_count)}
       )
 
     from(counts in subquery(active_member_counts),
@@ -1702,6 +2337,8 @@ defmodule CommsCore.Conversations do
   end
 
   defp ensure_conversation_member_capacity(policy, %Conversation{} = conversation) do
+    timestamp = now()
+
     current_active_members =
       Membership
       |> join(:inner, [membership], joined_conversation in Conversation,
@@ -1709,12 +2346,23 @@ defmodule CommsCore.Conversations do
           joined_conversation.id == membership.conversation_id and
             joined_conversation.tenant_id == membership.tenant_id
       )
+      |> join(
+        :left,
+        [membership, _joined_conversation],
+        guest_admission in CommsCore.Conversations.GuestAdmission,
+        on:
+          guest_admission.tenant_id == membership.tenant_id and
+            guest_admission.membership_id == membership.id and
+            is_nil(guest_admission.converted_at)
+      )
       |> where(
-        [membership, joined_conversation],
+        [membership, joined_conversation, guest_admission],
         membership.tenant_id == ^conversation.tenant_id and
           membership.conversation_id == ^conversation.id and
           joined_conversation.tenant_id == ^conversation.tenant_id and
-          is_nil(joined_conversation.archived_at) and is_nil(membership.left_at)
+          is_nil(joined_conversation.archived_at) and is_nil(membership.left_at) and
+          (is_nil(guest_admission.id) or
+             (is_nil(guest_admission.revoked_at) and guest_admission.expires_at > ^timestamp))
       )
       |> Repo.aggregate(:count)
 

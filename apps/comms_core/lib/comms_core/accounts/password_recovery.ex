@@ -36,9 +36,10 @@ defmodule CommsCore.Accounts.PasswordRecovery do
   Accepts a recovery request without revealing whether the identity exists.
 
   Every path performs the same password-derivation and HMAC baseline work. For
-  active identities, the durable request, redacted notification intent, and
-  audit event are committed together. Operational failures are logged without
-  tenant, email, token, or request material and still return `:ok` to callers.
+  active workspace identities, the durable request, redacted notification
+  intent, and audit event are committed together. Operational failures are
+  logged without tenant, email, token, or request material and still return
+  `:ok` to callers.
   """
   def request(attrs) do
     started_at = System.monotonic_time(:millisecond)
@@ -80,7 +81,7 @@ defmodule CommsCore.Accounts.PasswordRecovery do
         from(user in User,
           where:
             user.tenant_id == ^tenant_id and user.status == :active and
-              user.account_type == :human and
+              user.account_type == :human and user.access_scope == :workspace and
               fragment("lower(?)", user.email) == ^email,
           limit: 1
         )
@@ -110,7 +111,8 @@ defmodule CommsCore.Accounts.PasswordRecovery do
             from(user in User,
               where:
                 user.id == ^preview.user_id and user.tenant_id == ^preview.tenant_id and
-                  user.status == :active and user.account_type == :human,
+                  user.status == :active and user.account_type == :human and
+                  user.access_scope == :workspace,
               lock: "FOR UPDATE"
             )
           ) || Repo.rollback(:invalid_password_recovery_token)
@@ -199,7 +201,8 @@ defmodule CommsCore.Accounts.PasswordRecovery do
            Repo.get_by(User,
              id: user_id,
              tenant_id: tenant_id,
-             account_type: :human
+             account_type: :human,
+             access_scope: :workspace
            ),
          true <- active_tenant?(tenant_id),
          token <- materialize_token(recovery.id, key),
@@ -233,7 +236,8 @@ defmodule CommsCore.Accounts.PasswordRecovery do
                from(candidate in User,
                  where:
                    candidate.id == ^user.id and candidate.tenant_id == ^user.tenant_id and
-                     candidate.status == :active,
+                     candidate.status == :active and candidate.account_type == :human and
+                     candidate.access_scope == :workspace,
                  lock: "FOR UPDATE"
                )
              ) || Repo.rollback(:not_found)

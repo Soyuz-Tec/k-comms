@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Locator, Page, Route } from "@playwright/test";
 
 const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -19,16 +19,21 @@ test.describe("authenticated mobile web acceptance", () => {
   });
 
   for (const viewport of viewportCases) {
-    test(`${viewport.width}px supports list, messaging, account and product navigation`, async ({ page }) => {
+    test(`${viewport.width}px supports list, messaging, account and product navigation`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       const fixture = await installWorkspace(page);
 
       await page.goto("/app/");
-      await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+      await expect(page.locator(".mobile-workspace-label")).toContainText("K-Comms");
+      await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
       await expect(page.locator("nav.mobile-product-nav")).toBeVisible();
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await expectNoDocumentOverflow(page);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("inbox-390.png"), fullPage: true });
+      }
 
       const conversation = page.getByRole("button", { name: /General/ });
       await expectMinimumTarget(conversation, "conversation row");
@@ -46,6 +51,14 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.goto(`/app/?conversation=${conversationId}`);
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
+      const messageActions = page.locator(".message-actions");
+      await expect(messageActions.getByRole("button", { name: "Start thread" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Reply" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Report" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Edit" })).toBeVisible();
+      await expect(messageActions.getByRole("button", { name: "Delete" })).toBeVisible();
+      await expectMinimumTargets(messageActions.locator("button"), "own-message actions");
+      await expectNoHorizontalOverflow(page.locator(".message-scroll"), "message scroller");
 
       const back = page.getByRole("button", { name: "Back to conversations" });
       const startAudio = page.getByRole("button", { name: "Start audio call" });
@@ -61,6 +74,9 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(attachment, "attachment control");
       await expectMinimumTarget(send, "send control");
       await expectNoDocumentOverflow(page);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("conversation-390.png"), fullPage: true });
+      }
       await expect.poll(() => fixture.readCursorRequests).toBeGreaterThan(0);
 
       await back.click();
@@ -69,17 +85,18 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeFocused();
 
       const mobileNavigation = page.getByRole("navigation", { name: "Mobile product areas" });
-      await mobileNavigation.getByRole("link", { name: "Settings" }).click();
+      await mobileNavigation.getByRole("link", { name: "You" }).click();
       await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await mobileNavigation.getByRole("link", { name: "Admin" }).click();
+      await page.getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await mobileNavigation.getByRole("link", { name: "Ops" }).click();
+      await mobileNavigation.getByRole("link", { name: "You" }).click();
+      await page.getByRole("link", { name: "Service operations" }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);
@@ -87,32 +104,68 @@ test.describe("authenticated mobile web acceptance", () => {
     });
   }
 
-  test("phone sign-in keeps the form above the fold", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.route("**/api/v1/status", (route) => json(route, {
-      service: "k-comms",
-      version: "0.3.0",
-      status: "operational",
-      node: "mobile-test@node",
-      capabilities: { bootstrap: false }
-    }));
+  for (const viewport of [
+    { width: 320, height: 640 },
+    { width: 390, height: 844 }
+  ]) {
+    test(`phone sign-in exposes one complete task at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.route("**/api/v1/status", (route) =>
+        json(route, mockServiceStatus())
+      );
 
-    await page.goto("/app/");
-    const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
-    const workspace = page.getByRole("textbox", { name: "Workspace slug" });
-    await expect(heading).toBeVisible();
-    await expect(workspace).toBeVisible();
+      await page.goto("/sign-in");
+      const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
+      const workspace = page.getByRole("textbox", { name: "Workspace address" });
+      const submit = page.getByRole("button", { name: "Sign in" });
+      await expect(heading).toBeVisible();
+      await expect(workspace).toBeVisible();
+      await expect(submit).toBeVisible();
 
-    const headingBox = await heading.boundingBox();
-    const workspaceBox = await workspace.boundingBox();
-    expect(headingBox).not.toBeNull();
-    expect(workspaceBox).not.toBeNull();
-    expect(headingBox!.y).toBeLessThan(320);
-    expect(workspaceBox!.y + workspaceBox!.height).toBeLessThanOrEqual(844);
+      const headingBox = await heading.boundingBox();
+      const submitBox = await submit.boundingBox();
+      expect(headingBox).not.toBeNull();
+      expect(submitBox).not.toBeNull();
+      expect(headingBox!.y).toBeLessThan(220);
+      expect(submitBox!.y + submitBox!.height).toBeLessThanOrEqual(viewport.height);
+      expect(submitBox!.height).toBeGreaterThanOrEqual(44);
+      await expectNoDocumentOverflow(page);
+    });
+  }
+
+  test("all onboarding paths remain visible in the first 320px phone view", async ({ page }) => {
+    const controlledInputErrors: string[] = [];
+    page.on("console", (message) => {
+      if (
+        message.type() === "error"
+        && message.text().includes("controlled input to be uncontrolled")
+      ) {
+        controlledInputErrors.push(message.text());
+      }
+    });
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.route("**/api/v1/status", (route) =>
+      json(route, mockServiceStatus({ bootstrap: true }))
+    );
+
+    await page.goto("/sign-in");
+    const actions = page.getByRole("group", { name: "Other ways to continue" });
+    const invitation = actions.getByRole("button", { name: "Use invitation code" });
+    const setup = actions.getByRole("button", { name: "Create workspace" });
+
+    await expect(actions).toBeVisible();
+    await expectMinimumTarget(invitation, "invitation entry");
+    await expectMinimumTarget(setup, "workspace setup entry");
+    await expect(setup).toBeInViewport({ ratio: 0.99 });
     await expectNoDocumentOverflow(page);
+
+    await setup.click();
+    await expect(page.getByRole("heading", { name: "Create your workspace" })).toBeVisible();
+    await expect(page.getByLabel("Workspace name")).toBeVisible();
+    expect(controlledInputErrors).toEqual([]);
   });
 
-  test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }) => {
+  test("video prejoin remains contained or independently scrollable on a short phone", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 640 });
     const fixture = await installWorkspace(page);
     await page.goto(`/app/?conversation=${conversationId}`);
@@ -120,8 +173,15 @@ test.describe("authenticated mobile web acceptance", () => {
     await page.getByRole("button", { name: "Start video call" }).click();
     const dialog = page.getByRole("dialog", { name: "Start a video call" });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Ready to join?" })).toBeVisible();
+    await expect(dialog.getByText("Audio", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Video", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use microphone when I join" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use camera when I join" })).toBeVisible();
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({ path: testInfo.outputPath("video-prejoin-390.png"), fullPage: true });
+    }
+    await dialog.getByText("Device settings", { exact: true }).click();
     await expect(dialog.getByRole("combobox", { name: /^Microphone/ })).toBeAttached();
     await expect(dialog.getByRole("combobox", { name: /^Camera/ })).toBeAttached();
 
@@ -234,23 +294,10 @@ async function installWorkspace(page: Page) {
       return json(route, { tenant: session.tenant, user: session.user, device: session.device, capabilities });
     }
     if (method === "GET" && path === "/api/v1/status") {
-      return json(route, {
-        service: "k-comms",
-        version: "0.3.0",
-        status: "operational",
-        node: "mobile-test@node",
-        capabilities: {
-          administration: true,
-          audio_calls: true,
-          video_calls: true,
-          attachment_scanning: true,
-          bootstrap: false,
-          notifications: true,
-          push_notifications: false,
-          realtime: false,
-          webhooks: true
-        }
-      });
+      return json(route, mockServiceStatus({
+        push_notifications: false,
+        realtime: false
+      }));
     }
     if (method === "GET" && path === "/api/v1/users") return json(route, { data: [session.user] });
     if (method === "GET" && path === "/api/v1/conversations") return json(route, { data: [conversation] });
@@ -310,6 +357,12 @@ async function expectNoDocumentOverflow(page: Page) {
     document.documentElement.scrollWidth,
     document.body.scrollWidth
   ) - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+}
+
+async function expectNoHorizontalOverflow(locator: Locator, label: string) {
+  await expect(locator, `${label} should be visible`).toBeVisible();
+  const overflow = await locator.evaluate((element) => element.scrollWidth - element.clientWidth);
+  expect(overflow, `${label} should not scroll horizontally`).toBeLessThanOrEqual(1);
 }
 
 async function expectMinimumTarget(locator: Locator, label: string) {

@@ -58,6 +58,16 @@ describe("PeoplePanel", () => {
     sessionApi.stepUp.mockReset().mockResolvedValue({ step_up_at: "2026-07-14T12:00:00Z" });
   });
 
+  it("gives invitation-load errors a descriptive dismiss control", async () => {
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockRejectedValue(new Error("Invitations unavailable")) });
+
+    const dismiss = await screen.findByRole("button", { name: "Dismiss people error" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Invitations unavailable");
+    await user.click(dismiss);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("turns a one-time invitation token into a copy-ready fragment URL", async () => {
     const invitations = vi.fn().mockResolvedValue([]);
     const createInvitation = vi.fn().mockResolvedValue({ invitation, invitationToken: "one-time-secret" });
@@ -68,6 +78,7 @@ describe("PeoplePanel", () => {
     await user.click(screen.getByRole("button", { name: "Create invitation" }));
 
     expect(createInvitation).toHaveBeenCalledWith({ email: "new.member@example.test", role: "member" });
+    expect(screen.getByRole("region", { name: "Invitations" })).toHaveAttribute("id", "admin-invitations");
     const link = await screen.findByText(/#invitation_token=one-time-secret/);
     expect(link).toHaveTextContent(`${window.location.origin}/app/#invitation_token=one-time-secret&tenant_slug=acme`);
     expect(link).not.toHaveTextContent("?invitation_token=");
@@ -132,8 +143,14 @@ describe("PeoplePanel", () => {
     const user = userEvent.setup();
     renderPanel({ invitations, adminUserSessions, adminRevokeSession });
 
-    await user.click(screen.getByRole("button", { name: "Manage" }));
-    const trigger = await screen.findByRole("button", { name: "Revoke" });
+    await user.click(
+      screen.getByRole("button", {
+        name: "Manage sessions for Taylor Member"
+      })
+    );
+    const trigger = await screen.findByRole("button", {
+      name: "Revoke session session- for Taylor Member"
+    });
     await user.click(trigger);
     expect(screen.getByRole("alertdialog", { name: "Revoke this session?" })).toHaveTextContent("session-");
     expect(adminRevokeSession).not.toHaveBeenCalled();

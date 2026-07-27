@@ -78,6 +78,12 @@ defmodule CommsWeb.AdministrationControllerTest do
       })
       |> json_response(201)
 
+    assert accepted
+           |> Map.fetch!("data")
+           |> Map.keys()
+           |> Enum.sort() ==
+             ~w(account_type display_name email id role status tenant_id version)
+
     member_id = accepted["data"]["id"]
 
     member_session =

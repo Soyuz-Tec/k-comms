@@ -6,12 +6,17 @@ defmodule CommsCore.Accounts.NotificationAccessTest do
   alias CommsCore.Repo
   alias CommsTestSupport.Fixtures
 
-  test "notification recipients are minimal, redacted, active-human tenant projections" do
+  test "notification recipients are minimal, redacted, active-workspace-human tenant projections" do
     account = Fixtures.account_fixture()
     active_member = Fixtures.user_fixture(account).user
     suspended_member = Fixtures.user_fixture(account, %{status: :suspended}).user
+    conversation_only_member = Fixtures.user_fixture(account).user
     service_user = service_user_fixture(account)
     other_account = Fixtures.account_fixture()
+
+    conversation_only_member
+    |> Ecto.Changeset.change(access_scope: :conversation_only)
+    |> Repo.update!()
 
     recipients =
       Accounts.resolve_notification_recipients(account.tenant.id, [
@@ -19,6 +24,7 @@ defmodule CommsCore.Accounts.NotificationAccessTest do
         active_member.id,
         account.user.id,
         active_member.id,
+        conversation_only_member.id,
         suspended_member.id,
         other_account.user.id
       ])

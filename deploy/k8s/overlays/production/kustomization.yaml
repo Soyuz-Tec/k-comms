@@ -6,6 +6,7 @@ resources:
   - namespace.yaml
   - ingress.yaml
   - auth-rate-limit-ingress.yaml
+  - public-admission-rate-limit-ingress.yaml
   - service-auth-rate-limit-ingress.yaml
   - socket-rate-limit-ingress.yaml
   - migration-job.yaml

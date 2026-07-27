@@ -4,18 +4,34 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
   @minimum_ttl_seconds 60
   @maximum_ttl_seconds 300
 
-  def issue(provider_room, media_kind, provider_identity, display_name)
+  def issue(
+        provider_room,
+        media_kind,
+        provider_identity,
+        display_name,
+        authorization_expires_at \\ nil
+      )
+
+  def issue(
+        provider_room,
+        media_kind,
+        provider_identity,
+        display_name,
+        authorization_expires_at
+      )
       when is_binary(provider_room) and media_kind in [:audio, :video, "audio", "video"] and
              is_binary(provider_identity) and is_binary(display_name) do
+    now = System.system_time(:second)
+
     with {:ok, config} <- configuration(),
          {:ok, room} <- required_binary(provider_room),
          {:ok, normalized_media_kind} <- media_kind(media_kind),
          {:ok, identity} <- required_binary(provider_identity),
-         {:ok, name} <- required_binary(display_name) do
-      now = System.system_time(:second)
-
+         {:ok, name} <- required_binary(display_name),
+         {:ok, expires_in} <-
+           effective_ttl(config.ttl_seconds, authorization_expires_at, now) do
       claims = %{
-        "exp" => now + config.ttl_seconds,
+        "exp" => now + expires_in,
         "iss" => config.api_key,
         "jti" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
         "name" => name,
@@ -38,15 +54,19 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
        %{
          server_url: config.server_url,
          participant_token: sign(claims, config.api_secret),
-         expires_in: config.ttl_seconds
+         expires_in: expires_in
        }}
     else
-      {:error, :audio_identity_invalid} = error -> error
-      _ -> {:error, :audio_provider_unavailable}
+      {:error, reason} = error
+      when reason in [:audio_identity_invalid, :call_authorization_expired] ->
+        error
+
+      _ ->
+        {:error, :audio_provider_unavailable}
     end
   end
 
-  def issue(_, _, _, _), do: {:error, :audio_identity_invalid}
+  def issue(_, _, _, _, _), do: {:error, :audio_identity_invalid}
 
   def issue_room_control(provider_room) when is_binary(provider_room) do
     with {:ok, config} <- configuration(),
@@ -100,20 +120,33 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
 
   def issue_room_admin(_), do: {:error, :audio_provider_unavailable}
 
+  @doc false
+  def issue_readiness do
+    with {:ok, config} <- configuration() do
+      now = System.system_time(:second)
+
+      claims = %{
+        "exp" => now + 30,
+        "iss" => config.api_key,
+        "jti" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false),
+        "nbf" => now - 5,
+        "video" => %{"roomList" => true}
+      }
+
+      {:ok,
+       %{
+         api_url: config.api_url,
+         token: sign(claims, config.api_secret)
+       }}
+    else
+      _ -> {:error, :audio_provider_unavailable}
+    end
+  end
+
   def ensure_available do
     case configuration() do
       {:ok, _config} -> :ok
       {:error, _reason} -> {:error, :audio_provider_unavailable}
-    end
-  end
-
-  def status do
-    case configuration() do
-      {:ok, config} ->
-        %{status: :available, adapter: :livekit, server_url: config.server_url}
-
-      {:error, reason} ->
-        %{status: :unavailable, adapter: :disabled, reason: reason}
     end
   end
 
@@ -167,6 +200,21 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
       _ -> {:error, :audio_identity_invalid}
     end
   end
+
+  defp effective_ttl(configured_ttl, nil, _now), do: {:ok, configured_ttl}
+
+  defp effective_ttl(configured_ttl, %DateTime{} = authorization_expires_at, now) do
+    remaining = DateTime.to_unix(authorization_expires_at, :second) - now
+
+    if remaining > 0 do
+      {:ok, min(configured_ttl, remaining)}
+    else
+      {:error, :call_authorization_expired}
+    end
+  end
+
+  defp effective_ttl(_configured_ttl, _authorization_expires_at, _now),
+    do: {:error, :call_authorization_expired}
 
   defp publish_sources(:audio), do: ["microphone"]
 

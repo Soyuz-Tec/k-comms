@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import {

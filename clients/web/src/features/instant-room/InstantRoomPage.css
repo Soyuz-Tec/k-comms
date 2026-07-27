@@ -1,0 +1,349 @@
+.instant-room-entry {
+  min-height: var(--app-viewport-height);
+  display: grid;
+  place-items: center;
+  padding:
+    max(1rem, var(--safe-top))
+    max(1rem, var(--safe-right))
+    max(1rem, var(--safe-bottom))
+    max(1rem, var(--safe-left));
+  background:
+    radial-gradient(circle at 15% 10%, rgb(178 229 214 / 58%), transparent 28rem),
+    radial-gradient(circle at 90% 90%, rgb(246 215 154 / 45%), transparent 26rem),
+    linear-gradient(150deg, #e9f1ed, #fbfaf4 58%, #eef2e9);
+}
+
+.instant-room-launch {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.instant-room-loading,
+.instant-room-error,
+.instant-room-start {
+  width: min(520px, 100%);
+  display: grid;
+  justify-items: start;
+  gap: 1rem;
+  padding: clamp(1.35rem, 6vw, 2.5rem);
+  border: 1px solid #c4d3ca;
+  border-radius: 24px;
+  background: rgb(253 252 247 / 96%);
+  box-shadow: var(--shadow);
+}
+
+.instant-room-loading {
+  justify-items: center;
+  min-height: 320px;
+  align-content: center;
+  text-align: center;
+}
+
+.instant-room-loading h1,
+.instant-room-error h1,
+.instant-room-start h1,
+.instant-room-share h2 {
+  margin: 0;
+  font-family: Georgia, serif;
+}
+
+.instant-room-loading p,
+.instant-room-error p,
+.instant-room-start > p:not(.form-error),
+.instant-room-share p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.instant-room-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+}
+
+.instant-room-brand > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px 11px 11px 3px;
+  color: white;
+  background: var(--forest);
+  font-weight: 900;
+}
+
+.instant-room-kicker {
+  color: #216452;
+  font-size: .75rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.instant-room-entry-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: .7rem;
+}
+
+.instant-room-entry-actions .button {
+  min-height: 48px;
+}
+
+.instant-room-start-form {
+  width: 100%;
+  display: grid;
+  gap: .9rem;
+}
+
+.instant-room-start > .form-error {
+  width: 100%;
+  margin: 0;
+}
+
+.instant-room-start-form input,
+.instant-room-start-form .button {
+  min-height: 48px;
+}
+
+.instant-room-account-identity {
+  display: grid;
+  gap: .15rem;
+  margin: 0;
+  padding: .75rem .85rem;
+  border: 1px solid #c4d3ca;
+  border-radius: 12px;
+  background: #f2f7f3;
+}
+
+.instant-room-account-identity span,
+.instant-room-account-identity small {
+  color: var(--ink-soft);
+}
+
+.instant-room-account-identity strong {
+  overflow-wrap: anywhere;
+}
+
+.instant-room-share {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 190px);
+  align-items: center;
+  gap: clamp(1rem, 4vw, 2rem);
+  padding: 1rem max(1rem, calc((100vw - 960px) / 2));
+  border-bottom: 1px solid #b8cdc2;
+  background: linear-gradient(100deg, #e2f1e9, #f5f4eb);
+}
+
+.instant-room-share-copy {
+  min-width: 0;
+  display: grid;
+  gap: .55rem;
+}
+
+.instant-room-share-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.instant-room-share-heading .button {
+  flex: 0 0 auto;
+}
+
+.instant-room-share h2 {
+  font-size: clamp(1.2rem, 3vw, 1.55rem);
+}
+
+.instant-room-share label {
+  margin-top: .25rem;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.instant-room-link-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: .5rem;
+}
+
+.instant-room-link-row input,
+.instant-room-link-row .button {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.instant-room-link-row input {
+  width: 100%;
+  padding: .65rem .75rem;
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  color: var(--ink);
+  background: white;
+}
+
+.instant-room-share .guest-qr {
+  width: min(190px, 100%);
+  min-height: 150px;
+}
+
+.instant-room-lifetime,
+.instant-room-continuity,
+.instant-room-copy-notice {
+  font-size: var(--text-sm);
+}
+
+.instant-room-copy-notice {
+  color: #216452 !important;
+  font-weight: 750;
+}
+
+.instant-room-share.collapsed {
+  min-height: 76px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  padding-block: .65rem;
+}
+
+.instant-room-share-compact-copy {
+  min-width: 0;
+  display: grid;
+  gap: .12rem;
+}
+
+.instant-room-share-compact-copy > strong,
+.instant-room-share-compact-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instant-room-share-compact-copy > span:not(.instant-room-kicker, .instant-room-copy-notice) {
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+.instant-room-share-actions {
+  display: flex;
+  gap: .5rem;
+}
+
+.instant-room-share-actions .button {
+  min-height: 44px;
+}
+
+.instant-room-share .transport-warning {
+  color: #5c3518;
+}
+
+@media (max-width: 680px) {
+  .instant-room-launch {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+  }
+
+  .instant-room-launch > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .instant-room-share {
+    max-height: min(48vh, 390px);
+    grid-template-columns: minmax(0, 1fr) 112px;
+    align-items: start;
+    gap: .75rem;
+    overflow-y: auto;
+    padding:
+      .75rem max(.75rem, var(--safe-right))
+      .75rem max(.75rem, var(--safe-left));
+  }
+
+  .instant-room-share-copy {
+    gap: .4rem;
+  }
+
+  .instant-room-share-copy > p:not(.instant-room-lifetime, .instant-room-continuity, .instant-room-copy-notice, .transport-warning) {
+    display: none;
+  }
+
+  .instant-room-link-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .instant-room-link-row input {
+    grid-column: 1 / -1;
+  }
+
+  .instant-room-link-row .button {
+    width: 100%;
+  }
+
+  .instant-room-share-heading {
+    align-items: flex-start;
+  }
+
+  .instant-room-share.collapsed {
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    overflow: visible;
+  }
+
+  .instant-room-share-actions {
+    display: grid;
+  }
+
+  .instant-room-share .guest-qr {
+    width: min(144px, 42vw);
+    min-height: min(144px, 42vw);
+    padding: .2rem;
+  }
+
+  .instant-room-lifetime {
+    font-size: .72rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .instant-room-share {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instant-room-share.collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .instant-room-share-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .instant-room-share .guest-qr {
+    width: min(132px, 42vw);
+    min-height: min(132px, 42vw);
+    justify-self: start;
+  }
+
+  .instant-room-entry-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (forced-colors: active) {
+  .instant-room-loading,
+  .instant-room-error,
+  .instant-room-start,
+  .instant-room-share {
+    border: 1px solid CanvasText;
+  }
+}

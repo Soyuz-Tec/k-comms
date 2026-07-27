@@ -21,6 +21,20 @@ defmodule CommsCore.Audit do
     :resource_id
   ]
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id) do
+    %{
+      audit_events:
+        repo.all(
+          from(event in AuditEvent,
+            where: event.tenant_id == ^tenant_id,
+            select: event.id
+          )
+        )
+    }
+  end
+
   @typedoc "Validated input accepted by `record/1` and `append/2`."
   @type record_command :: %{
           required(:tenant_id) => Ecto.UUID.t(),

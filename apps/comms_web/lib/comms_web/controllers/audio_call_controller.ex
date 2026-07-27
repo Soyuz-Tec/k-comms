@@ -3,9 +3,27 @@ defmodule CommsWeb.AudioCallController do
 
   alias CommsCore.AudioCalls
   alias CommsCore.AudioCalls.{CallView, CredentialRequest, ProviderCall}
-  alias CommsIntegrations.Audio.LiveKitToken
+  alias CommsIntegrations.Audio.{LiveKitReadiness, LiveKitToken}
   alias CommsIntegrations.Audio.RoomService
   alias CommsWeb.{Broadcast, Presenter}
+
+  plug(
+    CommsWeb.Plugs.RequireSecureTransport
+    when action in [:create, :create_audio, :join, :join_audio]
+  )
+
+  def index(conn, params) do
+    with {:ok, result} <- AudioCalls.list_sessions(conn.assigns.current_subject, params) do
+      json(conn, %{
+        data: Enum.map(result.calls, &Presenter.call_session/1),
+        page: %{
+          limit: result.limit,
+          has_more: result.has_more,
+          next_cursor: result.next_cursor
+        }
+      })
+    end
+  end
 
   def show(conn, %{"conversation_id" => conversation_id}) do
     with {:ok, call} <- AudioCalls.get_active(conversation_id, conn.assigns.current_subject) do
@@ -38,15 +56,20 @@ defmodule CommsWeb.AudioCallController do
 
   defp create_call(conn, conversation_id, media_kind) do
     subject = conn.assigns.current_subject
+    authorization_expires_at = Map.get(subject, :guest_expires_at)
 
-    with :ok <- LiveKitToken.ensure_available(),
+    with :ok <- LiveKitReadiness.ensure_available(),
          {:ok, call, status, credential} <-
            AudioCalls.start_with_join_authorized(
              conversation_id,
              subject,
              media_kind,
              &delete_provider_room/1,
-             &issue_credential(&1, conn.assigns.current_user.display_name)
+             &issue_credential(
+               &1,
+               conn.assigns.current_user.display_name,
+               authorization_expires_at
+             )
            ) do
       if status == :created do
         broadcast_event(conversation_id, "started", call)
@@ -68,15 +91,20 @@ defmodule CommsWeb.AudioCallController do
 
   defp join_call(conn, conversation_id, call_id, expected_kind) do
     subject = conn.assigns.current_subject
+    authorization_expires_at = Map.get(subject, :guest_expires_at)
 
-    with :ok <- LiveKitToken.ensure_available(),
+    with :ok <- LiveKitReadiness.ensure_available(),
          {:ok, call, credential} <-
            AudioCalls.with_join_authorized(
              conversation_id,
              call_id,
              subject,
              expected_kind,
-             &issue_credential(&1, conn.assigns.current_user.display_name)
+             &issue_credential(
+               &1,
+               conn.assigns.current_user.display_name,
+               authorization_expires_at
+             )
            ) do
       json(conn, %{data: present_call(call), credential: credential})
     end
@@ -150,9 +178,16 @@ defmodule CommsWeb.AudioCallController do
            media_kind: media_kind,
            provider_identity: provider_identity
          },
-         display_name
+         display_name,
+         authorization_expires_at
        ) do
-    LiveKitToken.issue(provider_room, media_kind, provider_identity, display_name)
+    LiveKitToken.issue(
+      provider_room,
+      media_kind,
+      provider_identity,
+      display_name,
+      authorization_expires_at
+    )
   end
 
   defp media_kind(params) do

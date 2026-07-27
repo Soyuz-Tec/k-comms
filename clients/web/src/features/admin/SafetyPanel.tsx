@@ -44,7 +44,7 @@ export function SafetyPanel({ api, canManageAttachments }: { api: ApiClient; can
   }
 
   return <>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss safety error" onClick={() => setError(null)}>×</button></div>}
     {pendingAction && <ActionDialog
       title={`${moderationActionLabel(pendingAction.actionType)} case?`}
       description={pendingAction.value.summary}

@@ -22,6 +22,7 @@ DASHBOARD = Path("ops/dashboards/service-overview.json")
 RUNBOOK_DIR = Path("docs/08-reliability/runbooks")
 EXPECTED_RUNBOOKS = {
     "database-failover.md",
+    "instant-room-degradation.md",
     "object-storage-failure.md",
     "queue-backlog.md",
     "service-degradation.md",

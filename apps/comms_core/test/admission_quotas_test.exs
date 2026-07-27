@@ -339,7 +339,8 @@ defmodule CommsCore.AdmissionQuotasTest do
            } = Conversations.admission_usage(account.tenant.id)
 
     assert_receive {:conversation_admission_usage_query, query}
-    assert query =~ ~s(LEFT OUTER JOIN "conversation_memberships")
+    assert query =~ ~s(FROM "conversation_memberships")
+    assert query =~ ~s(LEFT OUTER JOIN "conversation_guest_admissions")
     refute_receive {:conversation_admission_usage_query, _query}, 50
   end
 

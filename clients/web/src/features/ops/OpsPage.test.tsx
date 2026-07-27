@@ -1,11 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OperationsSnapshot } from "../../types";
+import type { OperationsSnapshot, Session } from "../../types";
 import { OpsPage } from "./OpsPage";
 
 const platformOperations = vi.fn<() => Promise<OperationsSnapshot>>();
-const session = {
+const session: Session = {
   access_token: "access-token",
   refresh_token: "refresh-token",
   token_type: "Bearer",
@@ -15,9 +15,9 @@ const session = {
     id: "operator-1",
     tenant_id: "tenant-1",
     display_name: "Platform Operator",
-    role: "member" as const,
+    role: "member",
     status: "active",
-    platform_role: "platform_operator" as const,
+    platform_role: "platform_operator",
     platform_role_expires_at: "2099-01-01T00:00:00Z"
   },
   device: { id: "device-1", user_id: "operator-1", name: "Browser", platform: "web" }
@@ -28,7 +28,11 @@ vi.mock("../../app/session", () => ({
 }));
 
 describe("OpsPage", () => {
-  beforeEach(() => platformOperations.mockReset());
+  beforeEach(() => {
+    platformOperations.mockReset();
+    session.user.platform_role = "platform_operator";
+    session.user.platform_role_expires_at = "2099-01-01T00:00:00Z";
+  });
 
   it("shows an actionable content-blind triage contract for degraded evidence", async () => {
     platformOperations.mockResolvedValue({
@@ -57,5 +61,14 @@ describe("OpsPage", () => {
     expect(runbooks).toHaveLength(5);
     expect(runbooks[0]).toHaveAttribute("href", expect.stringContaining("a".repeat(40)));
     await waitFor(() => expect(platformOperations).toHaveBeenCalled());
+  });
+
+  it("redirects an unauthorized user without issuing a privileged request", async () => {
+    session.user.platform_role = null;
+
+    render(<MemoryRouter initialEntries={["/ops"]}><OpsPage /></MemoryRouter>);
+
+    await waitFor(() => expect(platformOperations).not.toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Service operations" })).not.toBeInTheDocument();
   });
 });

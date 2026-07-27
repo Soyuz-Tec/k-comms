@@ -6,6 +6,10 @@ import { ConfirmDialog } from "../../components/ActionDialog";
 import { useModalDialog } from "../../components/useModalDialog";
 import type { Conversation, ConversationMembership, User } from "../../types";
 import { conversationTitle, errorText, formatDateTime, initials } from "../../lib/format";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 
 type PendingAction =
   | { kind: "remove"; member: ConversationMembership }
@@ -55,6 +59,10 @@ export function ConversationDetails({
   const canManage = currentMembership?.role === "owner" || currentMembership?.role === "moderator";
   const membershipMutable = canManage && conversation.kind !== "direct";
   const availableUsers = useMemo(() => users.filter((user) => !members.some((member) => member.user.id === user.id)), [members, users]);
+  const duplicateDisplayNames = useMemo(
+    () => duplicateParticipantNames([...users, ...members.map(({ user }) => user)]),
+    [members, users]
+  );
 
   async function add(userId: string) {
     if (!userId) return;
@@ -162,7 +170,7 @@ export function ConversationDetails({
   }
 
   if (pendingAction) {
-    const copy = actionDialogCopy(pendingAction, conversation);
+    const copy = actionDialogCopy(pendingAction, conversation, duplicateDisplayNames);
     return <ConfirmDialog {...copy} tone="danger" busy={actionBusy} error={actionError} onCancel={() => { if (!actionBusy) setPendingAction(null); }} onConfirm={() => void confirmPendingAction()} />;
   }
 
@@ -171,6 +179,7 @@ export function ConversationDetails({
     members={members}
     currentMembership={currentMembership}
     availableUsers={availableUsers}
+    duplicateDisplayNames={duplicateDisplayNames}
     loading={loading}
     busyUserId={busyUserId}
     error={error}
@@ -192,6 +201,7 @@ function ConversationDetailsPanel({
   members,
   currentMembership,
   availableUsers,
+  duplicateDisplayNames,
   loading,
   busyUserId,
   error,
@@ -210,6 +220,7 @@ function ConversationDetailsPanel({
   members: ConversationMembership[];
   currentMembership?: ConversationMembership;
   availableUsers: User[];
+  duplicateDisplayNames: ReadonlySet<string>;
   loading: boolean;
   busyUserId: string | null;
   error: string | null;
@@ -235,19 +246,27 @@ function ConversationDetailsPanel({
         {canManage && conversation.kind !== "direct" && <form className="details-settings" onSubmit={onUpdateConversation}><label className="field">Title<input name="title" defaultValue={conversation.title || ""} maxLength={160} required /></label><label className="field">Visibility<select name="visibility" defaultValue={conversation.visibility}><option value="private">Private</option><option value="tenant">Workspace</option></select></label><div className="form-actions"><button className="button primary compact" type="submit">Save details</button><button className="button danger compact" type="button" data-initial-focus={restoreActionKey === "archive" ? true : undefined} onClick={onArchive}>Archive</button></div></form>}
         <section aria-labelledby="members-title">
           <div className="card-heading"><h3 id="members-title">Members</h3><span className="status-pill neutral">{members.length}</span></div>
-          {loading ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading members…</div> : <ul className="member-list">{members.map((member) => <li key={member.id}><span className="avatar" aria-hidden="true">{initials(member.user.display_name)}</span><span><strong>{member.user.display_name} {member.user.account_type === "service" && <span className="role-chip">Bot</span>}</strong><small>{member.user.account_type === "service" ? "Non-login service identity" : member.user.email}</small></span>{membershipMutable && member.role !== "owner" ? <select aria-label={`Role for ${member.user.display_name}`} value={member.role} disabled={busyUserId === member.user.id} onChange={(event) => onRoleChange(member, event.target.value as ConversationMembership["role"])}><option value="member">Member</option><option value="moderator">Moderator</option></select> : <span className="role-chip">{member.role}</span>}{membershipMutable && member.role !== "owner" && <button className="text-button danger-text" type="button" data-initial-focus={restoreActionKey === `remove:${member.id}` ? true : undefined} disabled={busyUserId === member.user.id} onClick={() => onRemove(member)}>Remove</button>}</li>)}</ul>}
+          {loading ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading members…</div> : <ul className="member-list">{members.map((member) => {
+            const identifier = participantIdentifier(member.user, duplicateDisplayNames);
+            return <li key={member.id}><span className="avatar" aria-hidden="true">{initials(member.user.display_name)}</span><span><strong>{identifier} {member.user.account_type === "service" && <span className="role-chip">Bot</span>}{member.user.account_type === "guest" && <span className="role-chip">Guest</span>}</strong><small>{member.user.account_type === "service" ? "Non-login service identity" : member.user.account_type === "guest" ? "Temporary guest" : member.user.email}</small></span>{membershipMutable && member.role !== "owner" ? <select aria-label={`Role for ${identifier}`} value={member.role} disabled={busyUserId === member.user.id} onChange={(event) => onRoleChange(member, event.target.value as ConversationMembership["role"])}><option value="member">Member</option><option value="moderator">Moderator</option></select> : <span className="role-chip">{member.role}</span>}{membershipMutable && member.role !== "owner" && <button className="text-button danger-text" type="button" aria-label={`Remove ${identifier}`} data-initial-focus={restoreActionKey === `remove:${member.id}` ? true : undefined} disabled={busyUserId === member.user.id} onClick={() => onRemove(member)}>Remove</button>}</li>;
+          })}</ul>}
         </section>
-        {membershipMutable && availableUsers.length > 0 && <label className="field add-member-field">Add a person<select defaultValue="" disabled={Boolean(busyUserId)} onChange={(event) => { const id = event.target.value; event.target.value = ""; onAdd(id); }}><option value="" disabled>Select teammate</option>{availableUsers.map((user) => <option key={user.id} value={user.id}>{user.display_name}</option>)}</select></label>}
+        {membershipMutable && availableUsers.length > 0 && <label className="field add-member-field">Add a person<select defaultValue="" disabled={Boolean(busyUserId)} onChange={(event) => { const id = event.target.value; event.target.value = ""; onAdd(id); }}><option value="" disabled>Select teammate</option>{availableUsers.map((user) => <option key={user.id} value={user.id}>{participantIdentifier(user, duplicateDisplayNames)}</option>)}</select></label>}
         {conversation.kind === "direct" ? <p className="support-note">Direct-message membership is immutable. Start a new direct message for a different participant.</p> : !canManage && <p className="support-note">Only conversation owners and moderators can change membership.</p>}
       </aside>
     </div>
   );
 }
 
-function actionDialogCopy(action: PendingAction, conversation: Conversation) {
+function actionDialogCopy(
+  action: PendingAction,
+  conversation: Conversation,
+  duplicateDisplayNames: ReadonlySet<string>
+) {
   if (action.kind === "remove") {
+    const identifier = participantIdentifier(action.member.user, duplicateDisplayNames);
     return {
-      title: `Remove ${action.member.user.display_name}?`,
+      title: `Remove ${identifier}?`,
       description: `Remove this person from ${conversationTitle(conversation)}?`,
       impact: "They will stop receiving new activity in this conversation. Durable history remains subject to workspace policy.",
       confirmLabel: "Remove member"

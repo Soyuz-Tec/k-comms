@@ -1,6 +1,11 @@
 defmodule CommsWeb.StatusControllerTest do
   use CommsWeb.ConnCase, async: false
 
+  alias CommsIntegrations.Audio.LiveKitReadiness
+  alias CommsCore.Administration.Tenant
+  alias CommsCore.Repo
+  alias CommsTestSupport.Fixtures
+
   test "GET /health/live", %{conn: conn} do
     conn = get(conn, "/health/live")
     assert json_response(conn, 200) == %{"status" => "ok"}
@@ -19,12 +24,27 @@ defmodule CommsWeb.StatusControllerTest do
   end
 
   test "GET /api/v1/status", %{conn: conn} do
+    account = Fixtures.account_fixture()
+    previous_enabled = Application.get_env(:comms_core, :instant_rooms_enabled)
+    previous_slug = Application.get_env(:comms_core, :instant_room_tenant_slug)
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    on_exit(fn ->
+      restore_env(:instant_rooms_enabled, previous_enabled)
+      restore_env(:instant_room_tenant_slug, previous_slug)
+    end)
+
     conn = get(conn, "/api/v1/status")
 
     assert %{
              "service" => "k-comms",
              "capabilities" => %{
                "audio_calls" => audio_available,
+               "guest_links" => true,
+               "instant_rooms" => true,
+               "secure_account_actions" => true,
+               "secure_media_actions" => true,
                "video_calls" => video_available
              }
            } = json_response(conn, 200)
@@ -37,7 +57,201 @@ defmodule CommsWeb.StatusControllerTest do
     assert policy =~ "ws://127.0.0.1:7880"
 
     assert get_resp_header(conn, "permissions-policy") == [
-             "camera=(self), microphone=(self), geolocation=()"
+             "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+           ]
+  end
+
+  test "instant rooms capability fails closed unless enabled and configured", %{conn: conn} do
+    account = Fixtures.account_fixture()
+    previous_enabled = Application.get_env(:comms_core, :instant_rooms_enabled)
+    previous_slug = Application.get_env(:comms_core, :instant_room_tenant_slug)
+
+    on_exit(fn ->
+      restore_env(:instant_rooms_enabled, previous_enabled)
+      restore_env(:instant_room_tenant_slug, previous_slug)
+    end)
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, false)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    assert conn
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, "missing-tenant")
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    account.tenant
+    |> Tenant.changeset(%{status: :suspended})
+    |> Repo.update!()
+
+    Application.put_env(:comms_core, :instant_room_tenant_slug, account.tenant.slug)
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+
+    Application.put_env(:comms_core, :instant_rooms_enabled, true)
+    Application.put_env(:comms_core, :instant_room_tenant_slug, " ")
+
+    assert build_conn()
+           |> get("/api/v1/status")
+           |> json_response(200)
+           |> get_in(["capabilities", "instant_rooms"]) == false
+  end
+
+  test "configured but unreachable LiveKit fails call capabilities closed", %{conn: conn} do
+    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false])
+    {:ok, {_address, port}} = :inet.sockname(socket)
+    :ok = :gen_tcp.close(socket)
+
+    values = %{
+      audio_provider_mode: "livekit",
+      livekit_server_url: "ws://127.0.0.1:#{port}",
+      livekit_api_url: "http://127.0.0.1:#{port}",
+      livekit_api_key: "configured-test-key",
+      livekit_api_secret: "configured-test-secret",
+      audio_token_ttl_seconds: 300
+    }
+
+    previous =
+      Map.new(values, fn {key, _value} -> {key, Application.get_env(:comms_integrations, key)} end)
+
+    Enum.each(values, fn {key, value} -> Application.put_env(:comms_integrations, key, value) end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} ->
+        if is_nil(value),
+          do: Application.delete_env(:comms_integrations, key),
+          else: Application.put_env(:comms_integrations, key, value)
+      end)
+
+      LiveKitReadiness.refresh()
+    end)
+
+    assert :ok = LiveKitReadiness.refresh()
+
+    assert eventually(fn ->
+             LiveKitReadiness.status() == %{
+               status: :unavailable,
+               adapter: :livekit,
+               reason: :provider_unreachable
+             }
+           end)
+
+    response =
+      conn
+      |> get("/api/v1/status")
+      |> json_response(200)
+
+    assert response["capabilities"]["audio_calls"] == false
+    assert response["capabilities"]["video_calls"] == false
+  end
+
+  test "LAN release reports secure account and media actions unavailable on every HTTP host" do
+    previous = Application.get_env(:comms_web, :insecure_lan_release)
+    Application.put_env(:comms_web, :insecure_lan_release, true)
+
+    on_exit(fn ->
+      restore_env(:comms_web, :insecure_lan_release, previous)
+    end)
+
+    for host <- ["127.0.0.1", "localhost", "192.168.1.177"] do
+      capabilities =
+        build_conn()
+        |> Map.put(:host, host)
+        |> get("/api/v1/status")
+        |> json_response(200)
+        |> Map.fetch!("capabilities")
+
+      assert capabilities["secure_account_actions"] == false
+      assert capabilities["secure_media_actions"] == false
+    end
+  end
+
+  test "secure actions remain available for normal development HTTP and HTTPS" do
+    previous = Application.get_env(:comms_web, :insecure_lan_release)
+
+    on_exit(fn ->
+      restore_env(:comms_web, :insecure_lan_release, previous)
+    end)
+
+    Application.put_env(:comms_web, :insecure_lan_release, false)
+
+    development_capabilities =
+      build_conn()
+      |> Map.put(:host, "127.0.0.1")
+      |> get("/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert development_capabilities["secure_account_actions"] == true
+    assert development_capabilities["secure_media_actions"] == true
+
+    Application.put_env(:comms_web, :insecure_lan_release, true)
+
+    https_capabilities =
+      build_conn()
+      |> get("https://comms.example.test/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert https_capabilities["secure_account_actions"] == true
+    assert https_capabilities["secure_media_actions"] == true
+  end
+
+  test "trusted-edge status is secure only after the trusted proxy establishes HTTPS" do
+    values = %{
+      insecure_lan_release: false,
+      secure_transport_required: true,
+      trusted_proxy_cidrs: ["10.89.0.12/32"],
+      hsts: true
+    }
+
+    previous =
+      Map.new(values, fn {key, _value} -> {key, Application.get_env(:comms_web, key)} end)
+
+    Enum.each(values, fn {key, value} -> Application.put_env(:comms_web, key, value) end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} ->
+        restore_env(:comms_web, key, value)
+      end)
+    end)
+
+    direct_capabilities =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> get("/api/v1/status")
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert direct_capabilities["secure_account_actions"] == false
+    assert direct_capabilities["secure_media_actions"] == false
+
+    trusted_response =
+      build_conn()
+      |> Map.put(:remote_ip, {10, 89, 0, 12})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> get("/api/v1/status")
+
+    trusted_capabilities =
+      trusted_response
+      |> json_response(200)
+      |> Map.fetch!("capabilities")
+
+    assert trusted_capabilities["secure_account_actions"] == true
+    assert trusted_capabilities["secure_media_actions"] == true
+
+    assert get_resp_header(trusted_response, "strict-transport-security") == [
+             "max-age=31536000; includeSubDomains"
            ]
   end
 
@@ -73,4 +287,22 @@ defmodule CommsWeb.StatusControllerTest do
     assert [content_type] = get_resp_header(response, "content-type")
     assert content_type =~ "text/html"
   end
+
+  defp eventually(fun, attempts \\ 80)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
+
+  defp restore_env(key, value), do: restore_env(:comms_core, key, value)
+
+  defp restore_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_env(app, key, value), do: Application.put_env(app, key, value)
 end

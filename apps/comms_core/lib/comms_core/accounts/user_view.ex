@@ -1,13 +1,24 @@
 defmodule CommsCore.Accounts.UserView do
   @moduledoc "Stable identity projection for adapter-facing reads."
 
-  @enforce_keys [:id, :tenant_id, :display_name, :account_type, :role, :status, :version]
+  @enforce_keys [
+    :id,
+    :tenant_id,
+    :display_name,
+    :account_type,
+    :access_scope,
+    :role,
+    :status,
+    :version
+  ]
   defstruct [
     :id,
     :tenant_id,
     :display_name,
     :email,
     :account_type,
+    :access_scope,
+    :guest_expires_at,
     :role,
     :status,
     :version,
@@ -21,6 +32,8 @@ defmodule CommsCore.Accounts.UserView do
           display_name: String.t(),
           email: String.t() | nil,
           account_type: atom(),
+          access_scope: :workspace | :conversation_only,
+          guest_expires_at: DateTime.t() | nil,
           role: atom(),
           status: atom(),
           version: pos_integer(),

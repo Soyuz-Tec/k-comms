@@ -1,8 +1,20 @@
 defmodule CommsIntegrations.ObjectStorage.S3 do
   @behaviour CommsIntegrations.ObjectStorage
 
+  alias CommsIntegrations.ObjectStorage.S3.VersionListing
+
   @algorithm "AWS4-HMAC-SHA256"
   @service "s3"
+  @version_page_size 100
+  @max_purge_passes 10
+  @max_version_listing_bytes 262_144
+  @local_development_hosts [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "minio",
+    "host.containers.internal"
+  ]
 
   @impl true
   def presign_upload(attachment) do
@@ -86,9 +98,71 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   def delete_object(request) do
     with :ok <- CommsIntegrations.ObjectStorage.validate_object_request(request),
          {:ok, version} <- required_version(request),
-         query <- version_query(version),
-         {:ok, %{url: url}} <-
-           presign("DELETE", value(request, :object_key), :internal, %{}, query),
+         :ok <- delete_listed_version(value(request, :object_key), version) do
+      :ok
+    end
+  end
+
+  @impl true
+  def purge_object_versions(request) do
+    with :ok <- CommsIntegrations.ObjectStorage.validate_object_request(request) do
+      purge_version_pages(
+        value(request, :object_key),
+        @max_purge_passes,
+        %{deleted_versions: 0, deleted_markers: 0}
+      )
+    end
+  end
+
+  defp purge_version_pages(object_key, remaining, counts) when remaining > 0 do
+    with {:ok, listing} <- list_exact_versions(object_key),
+         :ok <- delete_listed_versions(object_key, listing.entries) do
+      counts = count_deleted(counts, listing.entries)
+
+      cond do
+        listing.entries == [] ->
+          {:ok, Map.put(counts, :verified_empty?, true)}
+
+        remaining == 1 ->
+          with {:ok, verification} <- list_exact_versions(object_key) do
+            {:ok, Map.put(counts, :verified_empty?, verification.entries == [])}
+          end
+
+        true ->
+          purge_version_pages(object_key, remaining - 1, counts)
+      end
+    end
+  end
+
+  defp list_exact_versions(object_key) do
+    query = [
+      {"versions", ""},
+      {"prefix", object_key},
+      {"max-keys", Integer.to_string(@version_page_size)}
+    ]
+
+    with {:ok, %{url: url}} <- presign("GET", "", :internal, %{}, query),
+         request <- Finch.build(:get, url),
+         {:ok, body} <- stream_bounded_body(request, @max_version_listing_bytes),
+         {:ok, listing} <- VersionListing.parse(body) do
+      entries = Enum.filter(listing.entries, &(&1.key == object_key))
+      {:ok, %{listing | entries: entries}}
+    end
+  end
+
+  defp delete_listed_versions(object_key, entries) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case delete_listed_version(object_key, entry.version_id) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp delete_listed_version(object_key, version)
+       when is_binary(object_key) and is_binary(version) and version != "" do
+    with {:ok, %{url: url}} <-
+           presign("DELETE", object_key, :internal, %{}, [{"versionId", version}]),
          http_request <- Finch.build(:delete, url),
          {:ok, %Finch.Response{status: status}} when status in 200..299 or status == 404 <-
            Finch.request(http_request, CommsIntegrations.Finch) do
@@ -98,6 +172,67 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
       {:error, _} = error -> error
       _ -> {:error, :object_deletion_failed}
     end
+  end
+
+  defp delete_listed_version(_object_key, _version),
+    do: {:error, :object_version_listing_invalid}
+
+  defp count_deleted(counts, entries) do
+    Enum.reduce(entries, counts, fn
+      %{kind: :version}, acc ->
+        Map.update!(acc, :deleted_versions, &(&1 + 1))
+
+      %{kind: :delete_marker}, acc ->
+        Map.update!(acc, :deleted_markers, &(&1 + 1))
+    end)
+  end
+
+  defp stream_bounded_body(request, max_bytes) do
+    initial = %{status: nil, bytes: 0, chunks: [], error: nil}
+
+    Finch.stream_while(
+      request,
+      CommsIntegrations.Finch,
+      initial,
+      fn
+        {:status, status}, acc when status in 200..299 ->
+          {:cont, %{acc | status: status}}
+
+        {:status, status}, acc ->
+          {:halt, %{acc | status: status, error: {:object_storage_status, status}}}
+
+        {:headers, _headers}, acc ->
+          {:cont, acc}
+
+        {:data, data}, acc ->
+          bytes = acc.bytes + byte_size(data)
+
+          if bytes <= max_bytes do
+            {:cont, %{acc | bytes: bytes, chunks: [acc.chunks, data]}}
+          else
+            {:halt, %{acc | bytes: bytes, error: :object_version_listing_too_large}}
+          end
+
+        {:trailers, _headers}, acc ->
+          {:cont, acc}
+      end,
+      receive_timeout: 30_000
+    )
+    |> case do
+      {:ok, %{error: nil, status: status, chunks: chunks}} when status in 200..299 ->
+        {:ok, IO.iodata_to_binary(chunks)}
+
+      {:ok, %{error: error}} when not is_nil(error) ->
+        {:error, error}
+
+      {:error, _reason} ->
+        {:error, :object_storage_unavailable}
+
+      _ ->
+        {:error, :object_version_listing_failed}
+    end
+  rescue
+    _ -> {:error, :object_storage_unavailable}
   end
 
   @impl true
@@ -201,7 +336,8 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          approved_origin: "#{scheme}://#{host_header}",
          development_http: scheme == "http",
          headers: request_headers,
-         expires_in: expires_in
+         expires_in: expires_in,
+         expires_at: DateTime.add(now, expires_in, :second)
        }}
     end
   end
@@ -281,7 +417,33 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   defp public_endpoint_allowed?(_, _, _), do: false
 
   defp local_development_host?(host) do
-    host in ["localhost", "127.0.0.1", "::1", "minio", "host.containers.internal"]
+    host in @local_development_hosts or exact_insecure_local_host?(host)
+  end
+
+  defp exact_insecure_local_host?(host) when is_binary(host) do
+    case Application.get_env(:comms_integrations, :insecure_local_object_storage_host) do
+      selected when is_binary(selected) ->
+        selected == host and canonical_rfc1918_ipv4?(selected)
+
+      _other ->
+        false
+    end
+  end
+
+  defp exact_insecure_local_host?(_host), do: false
+
+  defp canonical_rfc1918_ipv4?(value) do
+    with {:ok, address} <- :inet.parse_ipv4_address(String.to_charlist(value)),
+         true <- address |> :inet.ntoa() |> to_string() == value do
+      case address do
+        {10, _, _, _} -> true
+        {172, second, _, _} when second in 16..31 -> true
+        {192, 168, _, _} -> true
+        _other -> false
+      end
+    else
+      _invalid -> false
+    end
   end
 
   defp verify_size(headers, expected) do

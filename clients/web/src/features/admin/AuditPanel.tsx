@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../../api";
 import type { AuditEvent, User } from "../../types";
 import { errorText, formatDateTime } from "../../lib/format";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 
 export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
@@ -12,6 +16,10 @@ export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const { runWithStepUp } = useStepUp();
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const duplicateUserNames = useMemo(
+    () => duplicateParticipantNames(users),
+    [users]
+  );
   useEffect(() => {
     let current = true;
     void runWithStepUp(() => api.auditEvents())
@@ -49,5 +57,11 @@ export function AuditPanel({ api, users }: { api: ApiClient; users: User[] }) {
     }
   }
 
-  return <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Privileged evidence</span><h2>Audit explorer</h2></div><div className="card-actions"><span className="status-pill success">Live API</span><button className="button secondary compact" type="button" disabled={exporting} onClick={() => void exportCsv()}>{exporting ? "Exporting…" : "Export audit CSV"}</button></div></div>{error && <div className="form-error" role="alert">{error}</div>}{exportNotice && <div className="inline-notice" role="status">{exportNotice}</div>}<label className="field audit-filter">Filter loaded events<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Action, resource or actor ID" /></label><div className="responsive-table"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Request</th></tr></thead><tbody>{visible.map((event) => <tr key={event.id}><td>{formatDateTime(event.inserted_at)}</td><td>{event.actor_user_id ? usersById.get(event.actor_user_id)?.display_name || event.actor_user_id.slice(0, 8) : "System"}</td><td><code>{event.action}</code></td><td>{event.resource_type} · {event.resource_id.slice(0, 8)}</td><td>{event.request_id?.slice(0, 12) || "—"}</td></tr>)}</tbody></table></div>{visible.length === 0 && <p className="empty-copy">No matching audit events.</p>}</section>;
+  return <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Privileged evidence</span><h2>Audit explorer</h2></div><div className="card-actions"><span className="status-pill success">Live API</span><button className="button secondary compact" type="button" disabled={exporting} onClick={() => void exportCsv()}>{exporting ? "Exporting…" : "Export audit CSV"}</button></div></div>{error && <div className="form-error" role="alert">{error}</div>}{exportNotice && <div className="inline-notice" role="status">{exportNotice}</div>}<label className="field audit-filter">Filter loaded events<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Action, resource or actor ID" /></label><div className="responsive-table"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Request</th></tr></thead><tbody>{visible.map((event) => {
+    const actor = event.actor_user_id ? usersById.get(event.actor_user_id) : undefined;
+    const actorIdentifier = actor
+      ? participantIdentifier(actor, duplicateUserNames)
+      : event.actor_user_id?.slice(0, 8) || "System";
+    return <tr key={event.id}><td>{formatDateTime(event.inserted_at)}</td><td>{actorIdentifier}</td><td><code>{event.action}</code></td><td>{event.resource_type} · {event.resource_id.slice(0, 8)}</td><td>{event.request_id?.slice(0, 12) || "—"}</td></tr>;
+  })}</tbody></table></div>{visible.length === 0 && <p className="empty-copy">No matching audit events.</p>}</section>;
 }

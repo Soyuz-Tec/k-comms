@@ -2,6 +2,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ConversationMembership, User } from "../../types";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 import { MentionPicker } from "./MentionPicker";
 
 function membership(user: User): ConversationMembership {
@@ -53,5 +57,46 @@ describe("MentionPicker", () => {
 
     await userActions.click(screen.getByRole("checkbox", { name: "Human member" }));
     expect(changed).toHaveBeenCalledWith(["human"]);
+  });
+
+  it("disambiguates duplicate names while selection and removal use user ids", async () => {
+    const changed = vi.fn();
+    const first = user("alex-first", "Alex");
+    const second = user("alex-second", "ALEX");
+    const duplicateNames = duplicateParticipantNames([first, second]);
+    const firstIdentifier = participantIdentifier(first, duplicateNames);
+    const secondIdentifier = participantIdentifier(second, duplicateNames);
+    const userActions = userEvent.setup();
+    const props = {
+      members: [
+        membership(user("current", "Current user")),
+        membership(first),
+        membership(second)
+      ],
+      currentUserId: "current",
+      disabled: false,
+      onChange: changed
+    };
+    const { rerender } = render(
+      <MentionPicker {...props} selectedUserIds={[]} />
+    );
+
+    await userActions.click(screen.getByRole("button", { name: "Mention" }));
+    expect(screen.getByText(firstIdentifier)).toBeVisible();
+    expect(screen.getByText(secondIdentifier)).toBeVisible();
+
+    await userActions.click(
+      screen.getByRole("checkbox", { name: secondIdentifier })
+    );
+    expect(changed).toHaveBeenLastCalledWith([second.id]);
+
+    rerender(<MentionPicker {...props} selectedUserIds={[second.id]} />);
+    expect(screen.getByText(`@${secondIdentifier}`)).toBeVisible();
+    await userActions.click(
+      screen.getByRole("button", {
+        name: `Remove mention ${secondIdentifier}`
+      })
+    );
+    expect(changed).toHaveBeenLastCalledWith([]);
   });
 });

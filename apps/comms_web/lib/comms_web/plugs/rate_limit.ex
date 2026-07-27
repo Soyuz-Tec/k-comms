@@ -11,11 +11,20 @@ defmodule CommsWeb.Plugs.RateLimit do
     if CommsWeb.RateLimiter.allow?(key, limit, window) do
       conn
     else
+      retry_after = max(window, 1)
+
       conn
+      |> put_resp_header("retry-after", Integer.to_string(retry_after))
       |> put_resp_content_type("application/json")
       |> send_resp(
         429,
-        Jason.encode!(%{error: %{code: "rate_limited", detail: "Too many requests"}})
+        Jason.encode!(%{
+          error: %{
+            code: "rate_limited",
+            detail: "Too many requests",
+            retry_after: retry_after
+          }
+        })
       )
       |> halt()
     end
@@ -35,6 +44,26 @@ defmodule CommsWeb.Plugs.RateLimit do
   end
 
   defp client_key(conn, :authentication_ip), do: {:authentication_ip, peer(conn)}
+
+  defp client_key(conn, :guest_admission_ip), do: {:guest_admission_ip, peer(conn)}
+
+  defp client_key(conn, :guest_admission_token) do
+    params = if match?(%Plug.Conn.Unfetched{}, conn.params), do: %{}, else: conn.params
+
+    token =
+      Map.get(params, "token") || Map.get(params, "code") || Map.get(params, "refresh_token")
+
+    digest = :crypto.hash(:sha256, to_string(token || "missing"))
+    {:guest_admission_token, peer(conn), digest}
+  end
+
+  defp client_key(conn, :guest_account_conversion_ip),
+    do: {:guest_account_conversion_ip, peer(conn)}
+
+  defp client_key(conn, :guest_account_conversion_identity) do
+    user_id = conn.assigns[:current_subject] && conn.assigns.current_subject.user_id
+    {:guest_account_conversion_identity, user_id || peer(conn)}
+  end
 
   defp client_key(conn, :service_authentication_ip),
     do: {:service_authentication_ip, peer(conn)}

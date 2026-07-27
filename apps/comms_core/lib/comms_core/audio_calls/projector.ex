@@ -4,6 +4,7 @@ defmodule CommsCore.AudioCalls.Projector do
   alias CommsCore.AudioCalls.{
     AudioCall,
     AudioCallParticipant,
+    CallSessionView,
     CallView,
     CredentialRequest,
     EvictionClaim,
@@ -25,6 +26,26 @@ defmodule CommsCore.AudioCalls.Projector do
       ended_at: call.ended_at,
       end_reason: call.end_reason,
       version: call.lock_version,
+      can_end: can_end
+    })
+  end
+
+  def call_session(%AudioCall{} = call, can_end, %DateTime{} = observed_at)
+      when is_boolean(can_end) do
+    duration_until = call.ended_at || observed_at
+
+    struct!(CallSessionView, %{
+      id: call.id,
+      conversation_id: call.conversation_id,
+      started_by_user_id: call.started_by_user_id,
+      ended_by_user_id: call.ended_by_user_id,
+      media_kind: call.media_kind,
+      status: call.status,
+      started_at: call.started_at,
+      expires_at: call.expires_at,
+      ended_at: call.ended_at,
+      end_reason: call.end_reason,
+      duration_seconds: max(DateTime.diff(duration_until, call.started_at, :second), 0),
       can_end: can_end
     })
   end

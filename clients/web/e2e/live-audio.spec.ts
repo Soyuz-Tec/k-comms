@@ -12,10 +12,8 @@ import type { AccountSession, AudioCall, Conversation, Session, User } from "../
 
 const enabled = process.env.K_COMMS_LIVE_AUDIO_E2E === "true";
 const liveStackURL = process.env.K_COMMS_LIVE_AUDIO_BASE_URL || "http://127.0.0.1:4178";
-
-interface BootstrapResponse extends Session {
-  conversation: Conversation;
-}
+const liveProvisionURL =
+  process.env.K_COMMS_LIVE_PROVISION_BASE_URL || "http://127.0.0.1:4178";
 
 interface DataResponse<T> {
   data: T;
@@ -57,16 +55,32 @@ test.describe("real-stack audio qualification", () => {
 
       await joinWithMicrophone(ownerPage, "Start audio call", "Start an audio call");
 
-      await expect(memberPage.getByRole("button", { name: "Join audio call" })).toBeVisible({
+      const memberAudioAction = memberPage.getByRole("button", {
+        name: /^(Start|Join) audio call$/
+      });
+      await expect(memberAudioAction).toBeVisible({
         timeout: 20_000
       });
-      await joinWithMicrophone(memberPage, "Join audio call", "Join the audio call", memberPageErrors);
+      await joinWithMicrophone(
+        memberPage,
+        /^(Start|Join) audio call$/,
+        "Join the audio call",
+        memberPageErrors
+      );
 
       await Promise.all([
-        expectParticipantRoster(ownerPage, fixture.owner.user.display_name, fixture.member.user.display_name),
-        expectParticipantRoster(memberPage, fixture.member.user.display_name, fixture.owner.user.display_name),
-        expectRemoteAudioStream(ownerPage, "owner"),
-        expectRemoteAudioStream(memberPage, "member")
+        expectParticipantRoster(
+          ownerPage,
+          fixture.owner.user.display_name,
+          [fixture.member.user.display_name]
+        ),
+        expectParticipantRoster(
+          memberPage,
+          fixture.member.user.display_name,
+          [fixture.owner.user.display_name]
+        ),
+        expectRemoteAudioStreams(ownerPage, "owner", 1),
+        expectRemoteAudioStreams(memberPage, "member", 1)
       ]);
 
       const [ownerBaseline, memberBaseline] = await Promise.all([
@@ -110,15 +124,42 @@ test.describe("real-stack audio qualification", () => {
       // This is a whole K-Comms session revocation, not only a call admission
       // revocation. The closed realtime socket forces an authentication retry;
       // once both access and refresh credentials are rejected, the product must
-      // remove the authenticated workspace (including the call) and require a
-      // fresh sign-in. Call-only removals retain their terminal in-call notice
-      // and are covered by AudioCallPanel's component tests.
-      await expect(memberPage.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible({
-        timeout: 20_000
-      });
+      // remove the authenticated workspace (including the call). The public
+      // instant-room front door remains `/`; a revoked authenticated `/app`
+      // session returns to explicit sign-in while retaining the conversation
+      // deep link for a successful re-authentication.
+      await expect(memberPage).toHaveURL(
+        new RegExp(
+          `/sign-in\\?conversation=${fixture.conversation.id}$`
+        ),
+        { timeout: 20_000 }
+      );
+      await expect(memberPage.locator(".app-shell")).toHaveCount(0);
       await expect(memberPage.locator(".audio-call-dock")).toHaveCount(0);
       await expect(memberPage.locator('audio[data-k-comms-call-audio="remote"]')).toHaveCount(0);
       await expect.poll(() => allPeerConnectionsClosed(memberPage), { timeout: 20_000 }).toBe(true);
+
+      const workspace = memberPage.getByLabel("Workspace address");
+      if (await workspace.count()) {
+        await workspace.fill(fixture.memberCredentials.tenantSlug);
+      }
+      await memberPage.getByLabel("Email address").fill(
+        fixture.memberCredentials.email
+      );
+      await memberPage.getByRole("textbox", { name: "Password" }).fill(
+        fixture.memberCredentials.password
+      );
+      await memberPage.getByRole("button", { name: "Sign in" }).click();
+      await expect(memberPage).toHaveURL(
+        new RegExp(
+          `/app/?\\?conversation=${fixture.conversation.id}$`
+        ),
+        { timeout: 20_000 }
+      );
+      await expect(memberPage.locator(".app-shell")).toBeVisible();
+      await expect(memberPage.getByRole("button", {
+        name: /^(Start|Join) audio call$/
+      })).toBeVisible();
 
       const ownerRoster = ownerPage.getByRole("list", { name: "Call participants" });
       await expect(ownerRoster.getByRole("listitem")).toHaveCount(1, { timeout: 20_000 });
@@ -148,73 +189,227 @@ test.describe("real-stack audio qualification", () => {
       const endedCallPayload = await expectJSON<DataResponse<unknown | null>>(endedCall, 200);
       expect(endedCallPayload.data).toBeNull();
     } finally {
-      await Promise.allSettled([ownerContext.close(), memberContext.close()]);
+      await Promise.allSettled([
+        cleanupAudioOwner(request, fixture.owner, fixture.conversation.id),
+        ownerContext.close(),
+        memberContext.close()
+      ]);
+    }
+  });
+
+  test("three humans exchange microphone audio in a group and the owner ends the room", async ({ browser, request }, testInfo) => {
+    const fixture = await provisionDisposableGroupConversation(request);
+    const ownerContext = await audioContext(browser, fixture.owner, testInfo);
+    const memberOneContext = await audioContext(browser, fixture.memberOne, testInfo);
+    const memberTwoContext = await audioContext(browser, fixture.memberTwo, testInfo);
+
+    try {
+      const ownerPage = await ownerContext.newPage();
+      const memberOnePage = await memberOneContext.newPage();
+      const memberTwoPage = await memberTwoContext.newPage();
+      const pages = [ownerPage, memberOnePage, memberTwoPage];
+      const conversationURL = `/app/?conversation=${encodeURIComponent(fixture.conversation.id)}`;
+
+      await Promise.all(pages.map((page) => page.goto(conversationURL)));
+      await Promise.all(pages.map((page) => (
+        expect(page.getByRole("button", { name: "Start audio call" })).toBeVisible({
+          timeout: 20_000
+        })
+      )));
+
+      await joinWithMicrophone(ownerPage, "Start audio call", "Start an audio call");
+      for (const memberPage of [memberOnePage, memberTwoPage]) {
+        await expect(memberPage.getByRole("button", {
+          name: /^(Start|Join) audio call$/
+        })).toBeVisible({
+          timeout: 20_000
+        });
+        await joinWithMicrophone(
+          memberPage,
+          /^(Start|Join) audio call$/,
+          "Join the audio call"
+        );
+      }
+
+      await Promise.all([
+        expectParticipantRoster(ownerPage, fixture.owner.user.display_name, [
+          fixture.memberOne.user.display_name,
+          fixture.memberTwo.user.display_name
+        ]),
+        expectParticipantRoster(memberOnePage, fixture.memberOne.user.display_name, [
+          fixture.owner.user.display_name,
+          fixture.memberTwo.user.display_name
+        ]),
+        expectParticipantRoster(memberTwoPage, fixture.memberTwo.user.display_name, [
+          fixture.owner.user.display_name,
+          fixture.memberOne.user.display_name
+        ]),
+        expectRemoteAudioStreams(ownerPage, "owner", 2),
+        expectRemoteAudioStreams(memberOnePage, "first member", 2),
+        expectRemoteAudioStreams(memberTwoPage, "second member", 2)
+      ]);
+
+      const baselines = await Promise.all(pages.map((page) => inboundAudioStats(page)));
+      await Promise.all(
+        pages.map((page, index) => expectInboundAudioToIncrease(page, baselines[index]!))
+      );
+
+      await ownerPage.getByRole("button", { name: "End for everyone" }).click();
+      await Promise.all(pages.map(async (page) => {
+        await expect(page.locator(".audio-call-dock")).toHaveCount(0, { timeout: 20_000 });
+        await expect(page.locator('audio[data-k-comms-call-audio="remote"]')).toHaveCount(0);
+        await expect.poll(() => allPeerConnectionsClosed(page), { timeout: 20_000 }).toBe(true);
+      }));
+
+      const endedCall = await request.get(
+        `/api/v1/conversations/${encodeURIComponent(fixture.conversation.id)}/call`,
+        { headers: authorization(fixture.owner) }
+      );
+      const endedCallPayload = await expectJSON<DataResponse<unknown | null>>(endedCall, 200);
+      expect(endedCallPayload.data).toBeNull();
+    } finally {
+      await Promise.allSettled([
+        cleanupAudioOwner(request, fixture.owner, fixture.conversation.id),
+        ownerContext.close(),
+        memberOneContext.close(),
+        memberTwoContext.close()
+      ]);
     }
   });
 });
 
 async function provisionDisposableConversation(request: APIRequestContext) {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
-  const tenantSlug = `audio-e2e-${suffix}`;
-  const ownerPassword = strongPassword();
-  const memberPassword = strongPassword();
-
-  const bootstrap = await request.post("/api/v1/bootstrap", {
-    data: {
-      tenant_name: `Audio E2E ${suffix}`,
-      tenant_slug: tenantSlug,
-      display_name: "Audio Owner",
-      email: `audio-owner-${suffix}@example.test`,
-      password: ownerPassword
-    }
-  });
-  const owner = withReceivedAt(await expectJSON<BootstrapResponse>(bootstrap, 201));
-
-  const stepUp = await request.post("/api/v1/me/step-up", {
-    headers: authorization(owner),
-    data: { current_password: ownerPassword }
-  });
-  await expectStatus(stepUp, 200);
-
-  const invitation = await request.post("/api/v1/admin/invitations", {
-    headers: authorization(owner),
-    data: {
-      email: `audio-member-${suffix}@example.test`,
-      role: "member"
-    }
-  });
-  const invitationPayload = await expectJSON<InvitationResponse>(invitation, 201);
-
-  const acceptance = await request.post("/api/v1/invitations/accept", {
-    data: {
-      token: invitationPayload.invitation_token,
-      display_name: "Audio Member",
-      password: memberPassword
-    }
-  });
-  const acceptedUser = (await expectJSON<DataResponse<User>>(acceptance, 201)).data;
-
-  const signIn = await request.post("/api/v1/sessions", {
-    data: {
-      tenant_slug: tenantSlug,
-      email: `audio-member-${suffix}@example.test`,
-      password: memberPassword,
-      device: { name: "Audio E2E member", platform: "playwright" }
-    }
-  });
-  const member = withReceivedAt(await expectJSON<Session>(signIn, 200));
+  const { owner, tenantSlug } = await provisionAudioOwner(request, suffix);
+  const invitedMember = await inviteAndSignInAudioMember(
+    request,
+    owner,
+    tenantSlug,
+    suffix,
+    "member",
+    "Audio Member"
+  );
 
   const conversationResponse = await request.post("/api/v1/conversations", {
     headers: authorization(owner),
     data: {
       kind: "direct",
       visibility: "private",
-      member_ids: [acceptedUser.id]
+      member_ids: [invitedMember.user.id]
     }
   });
   const conversation = (await expectJSON<DataResponse<Conversation>>(conversationResponse, 201)).data;
 
-  return { owner, member, conversation };
+  return {
+    owner,
+    member: invitedMember.session,
+    memberCredentials: invitedMember.credentials,
+    conversation
+  };
+}
+
+async function provisionDisposableGroupConversation(request: APIRequestContext) {
+  const suffix = randomUUID().replaceAll("-", "").slice(0, 16);
+  const { owner, tenantSlug } = await provisionAudioOwner(request, suffix);
+  const memberOne = await inviteAndSignInAudioMember(
+    request,
+    owner,
+    tenantSlug,
+    suffix,
+    "one",
+    "Audio Member One"
+  );
+  const memberTwo = await inviteAndSignInAudioMember(
+    request,
+    owner,
+    tenantSlug,
+    suffix,
+    "two",
+    "Audio Member Two"
+  );
+
+  const conversationResponse = await request.post("/api/v1/conversations", {
+    headers: authorization(owner),
+    data: {
+      kind: "group",
+      visibility: "private",
+      title: "Audio Group",
+      member_ids: [memberOne.user.id, memberTwo.user.id]
+    }
+  });
+  const conversation = (await expectJSON<DataResponse<Conversation>>(conversationResponse, 201)).data;
+
+  return {
+    owner,
+    memberOne: memberOne.session,
+    memberTwo: memberTwo.session,
+    conversation
+  };
+}
+
+async function provisionAudioOwner(request: APIRequestContext, suffix: string) {
+  const {
+    tenantSlug,
+    email: ownerEmail,
+    password: ownerPassword
+  } = sealedOwnerCredentials();
+  const signIn = await request.post(`${liveProvisionURL}/api/v1/sessions`, {
+    data: {
+      tenant_slug: tenantSlug,
+      email: ownerEmail,
+      password: ownerPassword,
+      device: {
+        name: `Sealed audio qualification ${suffix}`,
+        platform: "playwright"
+      }
+    }
+  });
+  const owner = withReceivedAt(await expectJSON<Session>(signIn, 200));
+  const stepUp = await request.post(`${liveProvisionURL}/api/v1/me/step-up`, {
+    headers: authorization(owner),
+    data: { current_password: ownerPassword }
+  });
+  await expectStatus(stepUp, 200);
+  return { owner, tenantSlug };
+}
+
+async function inviteAndSignInAudioMember(
+  request: APIRequestContext,
+  owner: Session,
+  tenantSlug: string,
+  suffix: string,
+  label: string,
+  displayName: string
+) {
+  const email = `audio-member-${label}-${suffix}@example.test`;
+  const password = strongPassword();
+  const invitation = await request.post("/api/v1/admin/invitations", {
+    headers: authorization(owner),
+    data: { email, role: "member" }
+  });
+  const invitationPayload = await expectJSON<InvitationResponse>(invitation, 201);
+  const acceptance = await request.post("/api/v1/invitations/accept", {
+    data: {
+      token: invitationPayload.invitation_token,
+      display_name: displayName,
+      password
+    }
+  });
+  const user = (await expectJSON<DataResponse<User>>(acceptance, 201)).data;
+  const signIn = await request.post("/api/v1/sessions", {
+    data: {
+      tenant_slug: tenantSlug,
+      email,
+      password,
+      device: { name: `${displayName} browser`, platform: "playwright" }
+    }
+  });
+  const session = withReceivedAt(await expectJSON<Session>(signIn, 200));
+  return {
+    session,
+    user,
+    credentials: { tenantSlug, email, password }
+  };
 }
 
 async function audioContext(
@@ -248,7 +443,7 @@ async function audioContext(
 
 async function joinWithMicrophone(
   page: Page,
-  actionName: string,
+  actionName: string | RegExp,
   dialogName: string,
   pageErrors: string[] = []
 ) {
@@ -265,7 +460,19 @@ async function joinWithMicrophone(
     },
     { timeout: 20_000 }
   ).toBe("connected");
+  await expandCall(page);
   await expect(page.getByRole("button", { name: "Mute microphone" })).toBeEnabled();
+}
+
+async function expandCall(page: Page) {
+  const showCall = page.getByRole("button", { name: "Show call" });
+  const minimizeCall = page.getByRole("button", { name: "Minimize" });
+  await expect(
+    showCall.or(minimizeCall),
+    "audio calls should expose either their compact or expanded controls"
+  ).toBeVisible({ timeout: 20_000 });
+  if (await showCall.isVisible()) await showCall.click();
+  await expect(minimizeCall).toBeVisible();
 }
 
 function safePageError(error: Error) {
@@ -288,35 +495,61 @@ async function audioJoinState(page: Page) {
   });
 }
 
-async function expectParticipantRoster(page: Page, localName: string, remoteName: string) {
+async function expectParticipantRoster(page: Page, localName: string, remoteNames: string[]) {
   const roster = page.getByRole("list", { name: "Call participants" });
-  await expect(roster.getByRole("listitem")).toHaveCount(2, { timeout: 20_000 });
+  await expect(roster.getByRole("listitem")).toHaveCount(remoteNames.length + 1, {
+    timeout: 20_000
+  });
   await expect(roster.getByRole("listitem").filter({ hasText: `${localName} (you)` })).toContainText(
     "Microphone on"
   );
-  await expect(roster.getByRole("listitem").filter({ hasText: remoteName })).toContainText(
-    "Microphone on"
-  );
+  for (const remoteName of remoteNames) {
+    await expect(roster.getByRole("listitem").filter({ hasText: remoteName })).toContainText(
+      "Microphone on"
+    );
+  }
 }
 
-async function expectRemoteAudioStream(page: Page, participant: string) {
+async function expectRemoteAudioStreams(page: Page, participant: string, expectedCount: number) {
   const audio = page.locator('audio[data-k-comms-call-audio="remote"]');
-  await expect(audio, `${participant} should attach one remote audio element`).toHaveCount(1, {
-    timeout: 20_000
-  });
+  await expect(
+    audio,
+    `${participant} should attach ${expectedCount} remote audio element(s)`
+  ).toHaveCount(expectedCount, { timeout: 20_000 });
   await expect
     .poll(
       () =>
-        audio.evaluate((element) => {
+        audio.evaluateAll((elements) => elements.every((element) => {
           const stream = (element as HTMLAudioElement).srcObject;
           return (
             stream instanceof MediaStream &&
             stream.getAudioTracks().some((track) => track.readyState === "live")
           );
-        }),
+        })),
       { timeout: 20_000 }
     )
     .toBe(true);
+}
+
+async function endActiveCallIfPresent(
+  request: APIRequestContext,
+  owner: Session,
+  conversationId: string
+) {
+  const activeCallResponse = await request.get(
+    `/api/v1/conversations/${encodeURIComponent(conversationId)}/call`,
+    { headers: authorization(owner) }
+  );
+  if (activeCallResponse.status() !== 200) return;
+
+  const activeCall = (await activeCallResponse.json() as DataResponse<AudioCall | null>).data;
+  if (!activeCall) return;
+
+  const endCallResponse = await request.post(
+    `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(activeCall.id)}/end`,
+    { headers: authorization(owner) }
+  );
+  await expectStatus(endCallResponse, 200);
 }
 
 async function inboundAudioStats(page: Page): Promise<PeerStats> {
@@ -368,6 +601,34 @@ async function allPeerConnectionsClosed(page: Page) {
 
 function authorization(session: Session) {
   return { Authorization: `Bearer ${session.access_token}` };
+}
+
+function sealedOwnerCredentials() {
+  const tenantSlug = process.env.K_COMMS_LIVE_OWNER_TENANT_SLUG;
+  const email = process.env.K_COMMS_LIVE_OWNER_EMAIL;
+  const password = process.env.K_COMMS_LIVE_OWNER_PASSWORD;
+  if (!tenantSlug || !email || !password) {
+    throw new Error(
+      "sealed owner credentials were not supplied by the local-release qualifier"
+    );
+  }
+  return { tenantSlug, email, password };
+}
+
+async function cleanupAudioOwner(
+  request: APIRequestContext,
+  owner: Session,
+  conversationId: string
+) {
+  try {
+    await endActiveCallIfPresent(request, owner, conversationId);
+  } finally {
+    const response = await request.delete(
+      `${liveProvisionURL}/api/v1/sessions/current`,
+      { headers: authorization(owner) }
+    );
+    await expectStatus(response, 204);
+  }
 }
 
 function withReceivedAt<T extends Session>(session: T): T {

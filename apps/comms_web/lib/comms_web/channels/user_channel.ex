@@ -14,9 +14,13 @@ defmodule CommsWeb.UserChannel do
 
   @impl true
   def join("user:" <> user_id, _payload, socket) do
-    case Accounts.authorize_receive_user_events(subject(socket), %{user_id: user_id}) do
-      :ok -> {:ok, %{user_id: user_id}, socket}
-      {:error, _} -> {:error, %{reason: "forbidden"}}
+    if socket.assigns[:account_type] in [:guest, "guest"] do
+      {:error, %{reason: "forbidden"}}
+    else
+      case Accounts.authorize_receive_user_events(subject(socket), %{user_id: user_id}) do
+        :ok -> {:ok, %{user_id: user_id}, socket}
+        {:error, _} -> {:error, %{reason: "forbidden"}}
+      end
     end
   end
 

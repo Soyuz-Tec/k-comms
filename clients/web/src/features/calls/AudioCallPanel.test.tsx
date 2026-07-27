@@ -69,6 +69,8 @@ const conversation: Conversation = {
   tenant_id: "tenant-1",
   kind: "channel",
   title: "General",
+  counterpart_user_id: null,
+  counterpart_display_name: null,
   visibility: "tenant",
   latest_sequence: 0,
   inserted_at: "2026-07-15T10:00:00Z",

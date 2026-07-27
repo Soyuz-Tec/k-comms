@@ -10,9 +10,17 @@ const findingStandards = new Set(["WCAG 2.2 A", "WCAG 2.2 AA", "advisory"]);
 const findingSeverities = new Set(["critical", "serious", "moderate", "minor"]);
 const findingStatuses = new Set(["open", "resolved"]);
 const completionStatuses = new Set(["not_completed", "passed", "failed"]);
+const justifiedActionReasons = new Set([
+  "identity_provider_step",
+  "step_up_authentication",
+  "reason_entry",
+  "destructive_confirmation",
+  "media_consent"
+]);
 const forbiddenEvidenceKeys = new Set([
   "message_body",
   "message_content",
+  "message_text",
   "search_term",
   "email",
   "email_address",
@@ -23,16 +31,24 @@ const forbiddenEvidenceKeys = new Set([
   "raw_user_id",
   "user_id",
   "participant_name",
+  "display_name",
+  "host_display_name",
+  "guest_display_name",
+  "room_title",
   "approver_name",
   "full_name",
   "contact",
   "contact_details",
   "ip_address",
+  "invite_url",
+  "qr_payload",
+  "workspace_address",
+  "sign_in_url",
   "recording_url",
   "qualitative_notes"
 ]);
 
-const taskMatrix = Object.freeze({
+const v3TaskMatrix = Object.freeze({
   member: Object.freeze([
     taskDefinition("invite-first-message", "invite", true),
     taskDefinition("channel-collaboration", "routine", true),
@@ -48,11 +64,119 @@ const taskMatrix = Object.freeze({
   operator: Object.freeze([taskDefinition("ops-triage", "ops_safety", true)])
 });
 
-const taskCatalog = new Map(
-  Object.entries(taskMatrix).flatMap(([cohort, definitions]) =>
-    definitions.map((definition) => [definition.id, { ...definition, cohort }])
-  )
-);
+const v4TaskMatrix = Object.freeze({
+  ...v3TaskMatrix,
+  member: Object.freeze([
+    ...v3TaskMatrix.member,
+    taskDefinition("instant-room-first-contact", "public_room", true)
+  ])
+});
+
+const actionJourneyCatalog = new Map([
+  ["sign-in-inbox", actionJourney("end_to_end", 1, ["member", "admin", "moderator", "compliance", "operator"])],
+  ["invite-inbox", actionJourney("end_to_end", 1, ["member"])],
+  ["open-unread", actionJourney("daily_use", 1, ["member"])],
+  ["directory-direct", actionJourney("daily_use", 2, ["member"])],
+  ["directory-room", actionJourney("daily_use", 3, ["member"])],
+  ["file-source-return", actionJourney("daily_use", 2, ["member"])],
+  ["call-lobby-join", actionJourney("daily_use", 3, ["member"], { lobbyActions: 2, joinActions: 1 })],
+  ["active-call-rejoin", actionJourney("daily_use", 2, ["member"], { lobbyActions: 2, joinActions: 0 })],
+  ["you-profile", actionJourney("daily_use", 1, ["member"])],
+  ["you-devices", actionJourney("daily_use", 1, ["member"])],
+  ["you-notifications", actionJourney("daily_use", 1, ["member"])],
+  ["you-settings", actionJourney("daily_use", 1, ["member"])],
+  ["admin-entry", actionJourney("daily_use", 2, ["admin"])],
+  ["ops-entry", actionJourney("daily_use", 2, ["operator"])],
+  ["ordinary-recovery", actionJourney("daily_use", 1, ["member"])]
+]);
+
+const instantRoomJourneyCatalog = new Map([
+  [
+    "instant-room-host-start-untitled",
+    instantRoomJourney("signed_out", "host", 1, [
+      "host_display_name_entered",
+      "host_name_visible_in_room",
+      "room_title_omitted_without_blocking"
+    ])
+  ],
+  [
+    "instant-room-host-start-titled",
+    instantRoomJourney("signed_out", "host", 1, [
+      "host_display_name_entered",
+      "host_name_visible_in_room",
+      "room_title_entered",
+      "room_title_visible_in_room"
+    ])
+  ],
+  [
+    "instant-room-copy-link",
+    instantRoomJourney("active_host", "host", 1, [
+      "invite_link_copied",
+      "copied_target_matches_invite"
+    ])
+  ],
+  [
+    "instant-room-system-share",
+    instantRoomJourney("active_host", "host", 1, [
+      "system_share_or_fallback_opened",
+      "shared_target_matches_invite"
+    ])
+  ],
+  [
+    "instant-room-qr",
+    instantRoomJourney("active_host", "host", 1, [
+      "qr_code_rendered",
+      "qr_target_matches_invite"
+    ])
+  ],
+  [
+    "instant-room-guest-name-join",
+    instantRoomJourney("invite_link", "guest", 1, [
+      "guest_display_name_entered",
+      "guest_name_visible_in_room"
+    ])
+  ],
+  [
+    "instant-room-roster-identity",
+    instantRoomJourney("active_room", "guest", 1, [
+      "host_and_guest_names_visible",
+      "names_match_chosen_values",
+      "host_and_guest_names_distinct"
+    ])
+  ],
+  [
+    "instant-room-first-message",
+    instantRoomJourney("active_room", "guest", 1, [
+      "message_visible_to_other_participant",
+      "sender_name_matches_chosen_value"
+    ])
+  ],
+  [
+    "instant-room-host-reload",
+    instantRoomJourney("active_host", "host", 1, [
+      "same_room_rejoined",
+      "host_control_restored",
+      "host_name_restored"
+    ])
+  ],
+  [
+    "instant-room-guest-rejoin",
+    instantRoomJourney("reentry", "guest", 1, [
+      "same_room_rejoined",
+      "guest_name_restored",
+      "roster_presence_restored"
+    ])
+  ],
+  [
+    "instant-room-account-conversion-handoff",
+    instantRoomJourney("active_guest", "guest", 3, [
+      "conversion_presented_as_optional",
+      "anonymous_room_remained_usable",
+      "workspace_address_presented",
+      "portable_sign_in_link_presented"
+    ])
+  ]
+]);
 
 const topLevelKeys = new Set([
   "schema_version",
@@ -68,6 +192,8 @@ const topLevelKeys = new Set([
   "manual_accessibility",
   "accessibility_findings",
   "approver_receipt",
+  "action_count_receipts",
+  "instant_room_receipts",
   "sessions"
 ]);
 const sessionKeys = new Set([
@@ -103,6 +229,38 @@ const manualAccessibilityKeys = new Set([
   "completed_on"
 ]);
 const approverReceiptKeys = new Set(["status", "approver_role", "approved_on", "evidence_reference"]);
+const actionCountReceiptKeys = new Set([
+  "id",
+  "participant_id",
+  "baseline",
+  "performed_on",
+  "task_completed",
+  "unassisted",
+  "action_count",
+  "maximum_actions",
+  "justified_exception_actions",
+  "call_safety"
+]);
+const actionExceptionKeys = new Set(["reason", "count"]);
+const callSafetyKeys = new Set([
+  "microphone_initially_off",
+  "camera_initially_off",
+  "lobby_observed_before_join",
+  "lobby_action_count",
+  "join_or_start_action_count"
+]);
+const instantRoomReceiptKeys = new Set([
+  "id",
+  "participant_id",
+  "journey_role",
+  "baseline",
+  "performed_on",
+  "task_completed",
+  "unassisted",
+  "action_count",
+  "maximum_actions",
+  "checks"
+]);
 
 export function scoreStudy(study) {
   validateStudy(study);
@@ -113,6 +271,7 @@ export function scoreStudy(study) {
   const invite = tasks.filter(({ category }) => category === "invite");
   const routine = tasks.filter(({ category }) => category === "routine");
   const adminSafety = tasks.filter(({ category }) => category === "admin_safety");
+  const publicRoom = tasks.filter(({ category }) => category === "public_room");
   const keyboardCritical = critical.filter(({ session }) => ["keyboard", "screen_reader"].includes(session.access_method));
   const successfulInviteDurations = invite
     .filter(({ outcome }) => outcome === "unassisted")
@@ -130,6 +289,50 @@ export function scoreStudy(study) {
     ["WCAG 2.2 A", "WCAG 2.2 AA"].includes(finding.standard) && finding.status !== "resolved"
   );
   const unintendedDestructiveActions = adminSafety.filter(({ unintended_destructive_action: value }) => value).length;
+  const actionCountGates = study.action_count_receipts.map((receipt) => {
+    const definition = actionJourneyCatalog.get(receipt.id);
+    const callSafetyPass = !definition.callSafety ||
+      (receipt.call_safety.microphone_initially_off === true &&
+        receipt.call_safety.camera_initially_off === true &&
+        receipt.call_safety.lobby_observed_before_join === true);
+    return gate(
+      `Low-click journey: ${receipt.id}`,
+      receipt.task_completed === true && receipt.unassisted === true &&
+        receipt.action_count <= definition.maximumActions && callSafetyPass,
+      {
+        task_completed: receipt.task_completed,
+        unassisted: receipt.unassisted,
+        action_count: receipt.action_count,
+        media_defaults_safe: callSafetyPass
+      },
+      `completed unassisted in <= ${definition.maximumActions} measured action${definition.maximumActions === 1 ? "" : "s"}${definition.callSafety ? " with microphone and camera initially off" : ""}`
+    );
+  });
+  const instantRoomGates = study.schema_version === 4
+    ? study.instant_room_receipts.map((receipt) => {
+      const definition = instantRoomJourneyCatalog.get(receipt.id);
+      const requiredChecksObserved = receipt.checks.length === definition.checks.size &&
+        receipt.checks.every((check) => definition.checks.has(check));
+      return gate(
+        `Public instant-room journey: ${receipt.id}`,
+        receipt.task_completed === true &&
+          receipt.unassisted === true &&
+          receipt.action_count <= definition.maximumActions &&
+          requiredChecksObserved,
+        {
+          task_completed: receipt.task_completed,
+          unassisted: receipt.unassisted,
+          action_count: receipt.action_count,
+          required_checks_observed: requiredChecksObserved
+        },
+        `completed unassisted in <= ${definition.maximumActions} measured action${definition.maximumActions === 1 ? "" : "s"} with all ${definition.checks.size} coded observations`
+      );
+    })
+    : [];
+  const justifiedExceptionActionCount = study.action_count_receipts.reduce(
+    (total, receipt) => total + receipt.justified_exception_actions.reduce((sum, exception) => sum + exception.count, 0),
+    0
+  );
 
   const metrics = {
     participant_count: sessions.length,
@@ -146,7 +349,17 @@ export function scoreStudy(study) {
     cohort_mean_sus: cohortSus,
     keyboard_critical_completion_percent: percent(completionRate(keyboardCritical)),
     open_critical_or_serious_accessibility_findings: openSevereAccessibility.length,
-    unresolved_wcag_2_2_a_aa_findings: unresolvedWcag.length
+    unresolved_wcag_2_2_a_aa_findings: unresolvedWcag.length,
+    action_count_targets_passed: actionCountGates.filter(({ pass }) => pass).length,
+    action_count_targets_total: actionCountGates.length,
+    justified_exception_action_count: justifiedExceptionActionCount,
+    ...(study.schema_version === 4
+      ? {
+        instant_room_unassisted_percent: percent(unassistedRate(publicRoom)),
+        instant_room_targets_passed: instantRoomGates.filter(({ pass }) => pass).length,
+        instant_room_targets_total: instantRoomGates.length
+      }
+      : {})
   };
 
   const quantitativeGates = [
@@ -159,7 +372,14 @@ export function scoreStudy(study) {
     gate("Median Single Ease Question", metrics.median_seq >= 5.5, metrics.median_seq, ">= 5.5/7"),
     gate("Mean System Usability Scale", metrics.mean_sus >= 80, metrics.mean_sus, ">= 80"),
     gate("Every role cohort System Usability Scale", Object.values(cohortSus).every((value) => value >= 75), cohortSus, ">= 75 each"),
-    gate("Keyboard and screen-reader critical-task completion", metrics.keyboard_critical_completion_percent === 100, metrics.keyboard_critical_completion_percent, "100%")
+    gate("Keyboard and screen-reader critical-task completion", metrics.keyboard_critical_completion_percent === 100, metrics.keyboard_critical_completion_percent, "100%"),
+    ...actionCountGates,
+    ...(study.schema_version === 4
+      ? [
+        gate("Public instant-room task completed unassisted", metrics.instant_room_unassisted_percent >= 90, metrics.instant_room_unassisted_percent, ">= 90%"),
+        ...instantRoomGates
+      ]
+      : [])
   ];
   const evidenceGates = [
     gate("No open critical/serious accessibility finding", openSevereAccessibility.length === 0, openSevereAccessibility.length, "0"),
@@ -176,11 +396,15 @@ export function scoreStudy(study) {
   const gates = [...quantitativeGates, ...evidenceGates];
 
   return {
-    schema_version: 2,
+    schema_version: study.schema_version,
     release_revision: study.release_revision,
     environment: study.environment,
     study_started_on: study.study_started_on,
     study_completed_on: study.study_completed_on,
+    action_count_pass: actionCountGates.every(({ pass }) => pass),
+    ...(study.schema_version === 4
+      ? { instant_room_pass: instantRoomGates.every(({ pass }) => pass) }
+      : {}),
     quantitative_pass: quantitativeGates.every(({ pass }) => pass),
     pass: gates.every(({ pass }) => pass),
     metrics,
@@ -191,8 +415,10 @@ export function scoreStudy(study) {
 function validateStudy(study) {
   assertRecord(study, "Study evidence");
   rejectSensitiveEvidence(study);
-  assertAllowedKeys(study, topLevelKeys, "study");
-  if (study.schema_version !== 2) throw new Error("schema_version must be 2.");
+  if (![3, 4].includes(study.schema_version)) throw new Error("schema_version must be 3 or 4.");
+  assertAllowedKeys(study, topLevelKeys, "study", study.schema_version);
+  const taskMatrix = taskMatrixForVersion(study.schema_version);
+  const taskCatalog = taskCatalogFor(taskMatrix);
   if (!/^[0-9a-f]{40}$/i.test(study.release_revision || "")) throw new Error("release_revision must be a full 40-character Git SHA.");
   requireNonEmptyString(study.environment, "environment");
   const startedOn = parseIsoDate(study.study_started_on, "study_started_on");
@@ -212,7 +438,7 @@ function validateStudy(study) {
   const participantIds = new Set();
   study.sessions.forEach((session, sessionIndex) => {
     assertRecord(session, `sessions[${sessionIndex}]`);
-    assertAllowedKeys(session, sessionKeys, `sessions[${sessionIndex}]`);
+    assertAllowedKeys(session, sessionKeys, `sessions[${sessionIndex}]`, study.schema_version);
     if (!/^P[0-9A-Za-z_-]+$/.test(session.participant_id || "")) throw new Error(`sessions[${sessionIndex}].participant_id must be a synthetic code beginning with P.`);
     if (participantIds.has(session.participant_id)) throw new Error(`sessions[${sessionIndex}].participant_id must be unique.`);
     participantIds.add(session.participant_id);
@@ -227,7 +453,7 @@ function validateStudy(study) {
     if (!Array.isArray(session.sus_responses) || session.sus_responses.length !== 10 || session.sus_responses.some((value) => !Number.isInteger(value) || value < 1 || value > 5)) {
       throw new Error(`sessions[${sessionIndex}].sus_responses must contain ten integers from 1 to 5.`);
     }
-    validateSessionTasks(session, sessionIndex);
+    validateSessionTasks(session, sessionIndex, taskMatrix, study.schema_version);
   });
 
   const mix = participantMix(study.sessions);
@@ -237,13 +463,146 @@ function validateStudy(study) {
   if (mix.assistive < 4) throw new Error("Participant mix requires at least 4 assistive-technology users.");
   if (mix.mobile_first < 2) throw new Error("Participant mix requires at least 2 mobile-first users.");
 
+  validateActionCountReceipts(study.action_count_receipts, study.sessions, startedOn, completedOn);
+  if (study.schema_version === 4) {
+    validateInstantRoomReceipts(study.instant_room_receipts, study.sessions, startedOn, completedOn);
+  } else if (Object.hasOwn(study, "instant_room_receipts")) {
+    throw new Error("instant_room_receipts is only allowed in usability evidence schema v4.");
+  }
+
   const observedTaskIds = new Set(study.sessions.flatMap(({ tasks }) => tasks.map(({ id }) => id)));
   for (const taskId of taskCatalog.keys()) {
     if (!observedTaskIds.has(taskId)) throw new Error(`Study evidence has no ${taskId} task receipts.`);
   }
 }
 
-function validateSessionTasks(session, sessionIndex) {
+function validateInstantRoomReceipts(receipts, sessions, studyStartedOn, studyCompletedOn) {
+  if (!Array.isArray(receipts) || receipts.length !== instantRoomJourneyCatalog.size) {
+    throw new Error(`instant_room_receipts must contain exactly ${instantRoomJourneyCatalog.size} public journey receipts.`);
+  }
+  const sessionsByParticipant = new Map(sessions.map((session) => [session.participant_id, session]));
+  const observedIds = new Set();
+  receipts.forEach((receipt, receiptIndex) => {
+    const path = `instant_room_receipts[${receiptIndex}]`;
+    assertRecord(receipt, path);
+    assertAllowedKeys(receipt, instantRoomReceiptKeys, path, 4);
+    if (observedIds.has(receipt.id)) throw new Error(`${path}.id must be unique.`);
+    observedIds.add(receipt.id);
+
+    const definition = instantRoomJourneyCatalog.get(receipt.id);
+    if (!definition) throw new Error(`${path}.id is not a recognized v4 public instant-room journey.`);
+    const participant = sessionsByParticipant.get(receipt.participant_id);
+    if (!participant) throw new Error(`${path}.participant_id must reference a study session.`);
+    if (!definition.cohorts.has(participant.cohort)) {
+      throw new Error(`${path}.participant_id must reference one of the allowed cohorts for ${receipt.id}: ${[...definition.cohorts].join(", ")}.`);
+    }
+    if (receipt.journey_role !== definition.role) throw new Error(`${path}.journey_role must be ${definition.role} for ${receipt.id}.`);
+    if (receipt.baseline !== definition.baseline) throw new Error(`${path}.baseline must be ${definition.baseline} for ${receipt.id}.`);
+    if (receipt.maximum_actions !== definition.maximumActions) {
+      throw new Error(`${path}.maximum_actions must be ${definition.maximumActions} for ${receipt.id}.`);
+    }
+    const performedOn = parseIsoDate(receipt.performed_on, `${path}.performed_on`);
+    if (performedOn < studyStartedOn || performedOn > studyCompletedOn) {
+      throw new Error(`${path}.performed_on must fall within the study dates.`);
+    }
+    if (typeof receipt.task_completed !== "boolean") throw new Error(`${path}.task_completed must be boolean.`);
+    if (typeof receipt.unassisted !== "boolean") throw new Error(`${path}.unassisted must be boolean.`);
+    boundedInteger(receipt.action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.action_count`);
+    validateInstantRoomChecks(receipt.checks, definition, path);
+  });
+  for (const journeyId of instantRoomJourneyCatalog.keys()) {
+    if (!observedIds.has(journeyId)) throw new Error(`instant_room_receipts is missing required journey ${journeyId}.`);
+  }
+}
+
+function validateInstantRoomChecks(checks, definition, receiptPath) {
+  const path = `${receiptPath}.checks`;
+  if (!Array.isArray(checks)) throw new Error(`${path} must be an array.`);
+  const observedChecks = new Set(checks);
+  if (observedChecks.size !== checks.length) throw new Error(`${path} must contain unique coded observations.`);
+  if ([...observedChecks].some((check) => !definition.checks.has(check))) {
+    throw new Error(`${path} contains a coded observation that is not required for this journey.`);
+  }
+}
+
+function validateActionCountReceipts(receipts, sessions, studyStartedOn, studyCompletedOn) {
+  if (!Array.isArray(receipts) || receipts.length !== actionJourneyCatalog.size) {
+    throw new Error(`action_count_receipts must contain exactly ${actionJourneyCatalog.size} low-click journey receipts.`);
+  }
+  const sessionsByParticipant = new Map(sessions.map((session) => [session.participant_id, session]));
+  const observedIds = new Set();
+  receipts.forEach((receipt, receiptIndex) => {
+    const path = `action_count_receipts[${receiptIndex}]`;
+    assertRecord(receipt, path);
+    assertAllowedKeys(receipt, actionCountReceiptKeys, path);
+    if (observedIds.has(receipt.id)) throw new Error(`${path}.id must be unique.`);
+    observedIds.add(receipt.id);
+
+    const definition = actionJourneyCatalog.get(receipt.id);
+    if (!definition) throw new Error(`${path}.id is not a recognized v3 low-click journey.`);
+    const participant = sessionsByParticipant.get(receipt.participant_id);
+    if (!participant) throw new Error(`${path}.participant_id must reference a study session.`);
+    if (!definition.cohorts.has(participant.cohort)) {
+      throw new Error(`${path}.participant_id must reference one of the allowed cohorts for ${receipt.id}: ${[...definition.cohorts].join(", ")}.`);
+    }
+    if (receipt.baseline !== definition.baseline) throw new Error(`${path}.baseline must be ${definition.baseline} for ${receipt.id}.`);
+    if (receipt.maximum_actions !== definition.maximumActions) {
+      throw new Error(`${path}.maximum_actions must be ${definition.maximumActions} for ${receipt.id}.`);
+    }
+    const performedOn = parseIsoDate(receipt.performed_on, `${path}.performed_on`);
+    if (performedOn < studyStartedOn || performedOn > studyCompletedOn) {
+      throw new Error(`${path}.performed_on must fall within the study dates.`);
+    }
+    if (typeof receipt.task_completed !== "boolean") throw new Error(`${path}.task_completed must be boolean.`);
+    if (typeof receipt.unassisted !== "boolean") throw new Error(`${path}.unassisted must be boolean.`);
+    boundedInteger(receipt.action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.action_count`);
+    validateJustifiedActionExceptions(receipt.justified_exception_actions, path);
+    validateCallSafety(receipt, definition, path);
+  });
+  for (const journeyId of actionJourneyCatalog.keys()) {
+    if (!observedIds.has(journeyId)) throw new Error(`action_count_receipts is missing required journey ${journeyId}.`);
+  }
+}
+
+function validateJustifiedActionExceptions(exceptions, receiptPath) {
+  const path = `${receiptPath}.justified_exception_actions`;
+  if (!Array.isArray(exceptions)) throw new Error(`${path} must be an array.`);
+  const observedReasons = new Set();
+  exceptions.forEach((exception, exceptionIndex) => {
+    const exceptionPath = `${path}[${exceptionIndex}]`;
+    assertRecord(exception, exceptionPath);
+    assertAllowedKeys(exception, actionExceptionKeys, exceptionPath);
+    if (!justifiedActionReasons.has(exception.reason)) throw new Error(`${exceptionPath}.reason is not an allowed justified exception.`);
+    if (observedReasons.has(exception.reason)) throw new Error(`${exceptionPath}.reason must be unique within the receipt.`);
+    observedReasons.add(exception.reason);
+    boundedInteger(exception.count, 1, Number.MAX_SAFE_INTEGER, `${exceptionPath}.count`);
+  });
+}
+
+function validateCallSafety(receipt, definition, path) {
+  if (!definition.callSafety) {
+    if (Object.hasOwn(receipt, "call_safety")) throw new Error(`${path}.call_safety is only allowed for call journeys.`);
+    return;
+  }
+  assertRecord(receipt.call_safety, `${path}.call_safety`);
+  assertAllowedKeys(receipt.call_safety, callSafetyKeys, `${path}.call_safety`);
+  for (const key of ["microphone_initially_off", "camera_initially_off", "lobby_observed_before_join"]) {
+    if (typeof receipt.call_safety[key] !== "boolean") throw new Error(`${path}.call_safety.${key} must be boolean.`);
+  }
+  boundedInteger(receipt.call_safety.lobby_action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.call_safety.lobby_action_count`);
+  boundedInteger(receipt.call_safety.join_or_start_action_count, 0, Number.MAX_SAFE_INTEGER, `${path}.call_safety.join_or_start_action_count`);
+  if (receipt.call_safety.lobby_action_count !== definition.callSafety.lobbyActions) {
+    throw new Error(`${path}.call_safety.lobby_action_count must be ${definition.callSafety.lobbyActions} for ${receipt.id}.`);
+  }
+  if (receipt.call_safety.join_or_start_action_count !== definition.callSafety.joinActions) {
+    throw new Error(`${path}.call_safety.join_or_start_action_count must be ${definition.callSafety.joinActions} for ${receipt.id}.`);
+  }
+  if (receipt.action_count !== receipt.call_safety.lobby_action_count + receipt.call_safety.join_or_start_action_count) {
+    throw new Error(`${path}.action_count must equal the recorded lobby and join/start actions.`);
+  }
+}
+
+function validateSessionTasks(session, sessionIndex, taskMatrix, schemaVersion) {
   const expected = taskMatrix[session.cohort];
   if (!Array.isArray(session.tasks) || session.tasks.length !== expected.length) {
     throw new Error(`sessions[${sessionIndex}].tasks must contain exactly the ${expected.length} tasks assigned to cohort ${session.cohort}.`);
@@ -253,7 +612,7 @@ function validateSessionTasks(session, sessionIndex) {
   session.tasks.forEach((task, taskIndex) => {
     const path = `sessions[${sessionIndex}].tasks[${taskIndex}]`;
     assertRecord(task, path);
-    assertAllowedKeys(task, taskKeys, path);
+    assertAllowedKeys(task, taskKeys, path, schemaVersion);
     if (taskIds.has(task.id)) throw new Error(`${path}.id must be unique within the session.`);
     taskIds.add(task.id);
     const definition = expectedById.get(task.id);
@@ -351,13 +710,44 @@ function taskDefinition(id, category, critical) {
   return Object.freeze({ id, category, critical });
 }
 
+function taskMatrixForVersion(schemaVersion) {
+  return schemaVersion === 4 ? v4TaskMatrix : v3TaskMatrix;
+}
+
+function taskCatalogFor(taskMatrix) {
+  return new Map(
+    Object.entries(taskMatrix).flatMap(([cohort, definitions]) =>
+      definitions.map((definition) => [definition.id, { ...definition, cohort }])
+    )
+  );
+}
+
+function actionJourney(baseline, maximumActions, cohorts, callSafety = null) {
+  return Object.freeze({
+    baseline,
+    maximumActions,
+    cohorts: new Set(cohorts),
+    callSafety: callSafety ? Object.freeze(callSafety) : null
+  });
+}
+
+function instantRoomJourney(baseline, role, maximumActions, checks) {
+  return Object.freeze({
+    baseline,
+    role,
+    maximumActions,
+    cohorts: new Set(["member"]),
+    checks: new Set(checks)
+  });
+}
+
 function assertRecord(value, path) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be a JSON object.`);
 }
 
-function assertAllowedKeys(value, allowed, path) {
+function assertAllowedKeys(value, allowed, path, schemaVersion = 3) {
   for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new Error(`${path}.${key} is not allowed by usability evidence schema v2.`);
+    if (!allowed.has(key)) throw new Error(`${path}.${key} is not allowed by usability evidence schema v${schemaVersion}.`);
   }
 }
 

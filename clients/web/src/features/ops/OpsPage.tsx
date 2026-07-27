@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate } from "react-router";
 import { useSession } from "../../app/session";
 import type { OperationsSnapshot } from "../../types";
 import { errorText, formatDateTime } from "../../lib/format";
@@ -11,18 +11,31 @@ export function OpsPage() {
   const [snapshot, setSnapshot] = useState<OperationsSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const authorized = Boolean(
+    session &&
+      canOperate(session.user.platform_role, session.user.platform_role_expires_at)
+  );
 
   const refresh = useCallback(async () => {
+    if (!authorized) {
+      setLoading(false);
+      return;
+    }
     setLoading(true); setError(null);
     try { setSnapshot(await api.platformOperations()); } catch (reason: unknown) { setError(errorText(reason)); } finally { setLoading(false); }
-  }, [api]);
+  }, [api, authorized]);
 
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    if (!authorized) return;
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [authorized, refresh]);
 
   if (!session) return null;
-  if (!canOperate(session.user.platform_role, session.user.platform_role_expires_at)) return <Navigate to="/app" replace />;
+  if (!authorized) return <Navigate to="/app" replace />;
 
-  const failures = (snapshot?.notifications.failed || 0) + (snapshot?.notifications.dead_letter || 0) + (snapshot?.webhooks.failed || 0) + (snapshot?.webhooks.dead_letter || 0) + (snapshot?.attachments.failed || 0);
+  const failures = (snapshot?.notifications.failed || 0) + (snapshot?.notifications.dead_letter || 0) + (snapshot?.webhooks.failed || 0) + (snapshot?.webhooks.dead_letter || 0) + (snapshot?.attachments.failed || 0) + (snapshot?.attachments.cleanup_failed || 0);
   const triage = snapshot ? deriveOperationsTriage(snapshot) : [];
   const actionableTriage = triage.filter(({ severity }) => severity !== "healthy").length;
   const releaseBound = /^[0-9a-f]{40}$/.test(snapshot?.release_revision || "");

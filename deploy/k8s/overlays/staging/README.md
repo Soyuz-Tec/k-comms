@@ -21,6 +21,21 @@ the participant-token lifetime. Failed removal attempts remain durable after
 the horizon until one succeeds at or after it. A green
 portable staging run therefore does not claim audio or video readiness.
 
+The portable overlay also keeps `INSTANT_ROOMS_ENABLED=false`,
+`INSTANT_ROOM_TENANT_SLUG=""`, and `TRUSTED_PROXY_CIDRS=""`. Kubernetes
+ingress normally presents the ingress-controller address to the application;
+trusting `X-Forwarded-For` without the controller's exact source networks would
+either collapse every user into one distributed rate-limit identity or trust a
+spoofable header. To qualify instant rooms, the provider-owned staging
+composition must adapt
+`instant-rooms-provider-patch.example.yaml`: replace every placeholder with the
+exact narrow ingress-controller CIDR, keep the ConfigMap list identical to the
+`k-comms-edge-ingress` NetworkPolicy `ipBlock` set, and retain the composed
+validator receipt. Generic RFC1918 blocks, loopback/link-local ranges, and
+configuration-only enablement are rejected. Local immutable-release
+qualification remains enabled because it is loopback-only and has no reverse
+proxy boundary.
+
 ## 1. Configure, validate, and render
 
 Use an immutable promoted image digest. The evidence directory must be
@@ -33,6 +48,9 @@ export OVERLAY=deploy/k8s/overlays/staging
 export NAMESPACE=k-comms-staging
 export IMAGE_DIGEST='<64 hexadecimal characters, without the sha256: prefix>'
 export EVIDENCE_DIR='<encrypted restricted deployment artifact directory>'
+# Leave false for the fail-closed portable package. Set true only when the exact
+# ingress-controller source networks are known and approved.
+export ENABLE_STAGING_INSTANT_ROOMS=false
 
 cp "$OVERLAY/secrets.env.example" "$OVERLAY/secrets.env"
 cp "$OVERLAY/bootstrap-secrets.env.example" "$OVERLAY/bootstrap-secrets.env"
@@ -56,6 +74,21 @@ cp -R deploy/k8s "$RENDER_ROOT/k8s"
 chmod -R go-rwx "$RENDER_ROOT"
 export RENDER_OVERLAY="$RENDER_ROOT/k8s/overlays/staging"
 
+# Provider-composed instant-room qualification is opt-in and modifies only the
+# disposable render tree. Replace the placeholder in both YAML documents with
+# identical exact CIDRs; for multiple ranges, use a comma-separated ConfigMap
+# value and one matching NetworkPolicy ipBlock per range.
+if [ "$ENABLE_STAGING_INSTANT_ROOMS" = true ]; then
+  $EDITOR "$RENDER_OVERLAY/instant-rooms-provider-patch.example.yaml"
+  ! grep -q 'REPLACE_WITH_EXACT_INGRESS_CIDR' \
+    "$RENDER_OVERLAY/instant-rooms-provider-patch.example.yaml"
+  (
+    cd "$RENDER_OVERLAY"
+    kustomize edit add patch \
+      --path instant-rooms-provider-patch.example.yaml
+  )
+fi
+
 # Use standalone Kustomize v5 to pin both release Jobs and workloads.
 for kustomization in "$RENDER_OVERLAY" "$RENDER_OVERLAY/bootstrap"; do
   (cd "$kustomization" && kustomize edit set image \
@@ -67,6 +100,7 @@ export BOOTSTRAP_BUNDLE="$EVIDENCE_DIR/k-comms-bootstrap-${IMAGE_DIGEST}.yaml"
 kustomize build "$RENDER_OVERLAY" > "$APPROVED_BUNDLE"
 kustomize build "$RENDER_OVERLAY/bootstrap" > "$BOOTSTRAP_BUNDLE"
 chmod 0600 "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE"
+python scripts/validate_staging_manifests.py "$APPROVED_BUNDLE"
 sha256sum "$APPROVED_BUNDLE" "$BOOTSTRAP_BUNDLE" > \
   "$EVIDENCE_DIR/rendered-bundles-${IMAGE_DIGEST}.sha256"
 
@@ -104,6 +138,13 @@ kubectl apply --server-side -f "$APPROVED_BUNDLE" \
 
 test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
   -o jsonpath='{.data.ALLOW_BOOTSTRAP}')" = "false"
+if [ "$ENABLE_STAGING_INSTANT_ROOMS" = true ]; then
+  test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
+    -o jsonpath='{.data.INSTANT_ROOMS_ENABLED}')" = "true"
+else
+  test "$(kubectl -n "$NAMESPACE" get configmap k-comms-config \
+    -o jsonpath='{.data.INSTANT_ROOMS_ENABLED}')" = "false"
+fi
 
 kubectl -n "$NAMESPACE" apply \
   -f "$OVERLAY/postgres-service.yaml" \
@@ -354,17 +395,58 @@ return to service.
 
 ## 4. Migrate and run the one-time bootstrap
 
-Delete the prior migration Job because Kubernetes Job pod templates are
-immutable. Do not deploy application pods if migration fails.
+Quiesce every database-writing application pod before migration. Record the
+current replica counts, scale both Deployments to zero, and verify the pods are
+gone. Do not leave an old worker running: admission-expiry work is a writer too.
+The migration runner independently requires quiescence and uses a 5-second
+PostgreSQL lock timeout, a 540-second statement timeout, and a
+600-second Kubernetes deadline. The shorter database bounds leave time for
+failure output and pod termination.
 
 ```bash
+EDGE_REPLICAS="$(kubectl -n "$NAMESPACE" get deployment k-comms-edge \
+  --ignore-not-found -o jsonpath='{.spec.replicas}')"
+WORKER_REPLICAS="$(kubectl -n "$NAMESPACE" get deployment k-comms-worker \
+  --ignore-not-found -o jsonpath='{.spec.replicas}')"
+EDGE_REPLICAS="${EDGE_REPLICAS:-0}"
+WORKER_REPLICAS="${WORKER_REPLICAS:-0}"
+test "$EDGE_REPLICAS" -ge 0
+test "$WORKER_REPLICAS" -ge 0
+
+for deployment in k-comms-edge k-comms-worker; do
+  if kubectl -n "$NAMESPACE" get "deployment/$deployment" >/dev/null 2>&1; then
+    kubectl -n "$NAMESPACE" scale "deployment/$deployment" --replicas=0
+  fi
+done
+kubectl -n "$NAMESPACE" wait --for=delete pod \
+  -l app.kubernetes.io/component=edge --timeout=5m
+kubectl -n "$NAMESPACE" wait --for=delete pod \
+  -l app.kubernetes.io/component=worker --timeout=5m
+test -z "$(kubectl -n "$NAMESPACE" get pods \
+  -l app.kubernetes.io/component=edge -o name)"
+test -z "$(kubectl -n "$NAMESPACE" get pods \
+  -l app.kubernetes.io/component=worker -o name)"
+
+# Job pod templates are immutable. A failed attempt is inspected, never retried
+# automatically; backoffLimit is zero.
 kubectl -n "$NAMESPACE" delete job k-comms-migrate --ignore-not-found
 kubectl apply -f "$APPROVED_BUNDLE" \
   -l app.kubernetes.io/component=migration
-kubectl -n "$NAMESPACE" wait --for=condition=complete \
-  job/k-comms-migrate --timeout=10m
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete \
+  job/k-comms-migrate --timeout=10m; then
+  kubectl -n "$NAMESPACE" describe job/k-comms-migrate
+  kubectl -n "$NAMESPACE" logs job/k-comms-migrate --all-containers=true || true
+  echo "Migration failed; applications remain quiesced. Investigate before recreating the Job." >&2
+  exit 1
+fi
 kubectl -n "$NAMESPACE" logs job/k-comms-migrate
 ```
+
+Retain the recorded replica counts with the change evidence. Section 5
+reapplies the exact approved bundle and therefore restores the reviewed replica
+counts. If migration fails, do not restore application pods until the lock
+holder, timeout, row-integrity failure, or runner quiescence failure has been
+explained and the rerun has a new approved change record.
 
 The initial owner is created by a release Job, never by the staging HTTP API.
 The database operation is serialized and idempotent for the same normalized
@@ -517,6 +599,17 @@ the previous release. Keep the prior approved rendered bundle and its checksum
 in the restricted evidence store. Do not run down migrations automatically and
 do not restore a database merely to test application rollback.
 
+Before applying any prior edge or worker image, run the executable
+[`guest-rollback-preflight`](../../operations/guest-rollback-preflight/README.md)
+from the **current** image against the exact previous bundle. That procedure
+removes any HPAs, scales edge and worker to zero, verifies database quiescence,
+and restores the current approved bundle if the check fails. Missing, partial,
+or mismatched rollback-capability annotations classify the target as legacy.
+After a guest user row or active guest-admission expiry Job exists, a legacy
+target is blocked: retain or deploy a guest-compatible bridge release, or roll
+forward. Do not proceed with the commands below unless the preflight Job
+completed for the exact previous image digest.
+
 ```bash
 export PREVIOUS_RENDERED_BUNDLE='<restricted path to prior approved bundle>'
 test -r "$PREVIOUS_RENDERED_BUNDLE"
@@ -538,7 +631,8 @@ approved artifact and is not an acceptable completed rollback.
 
 For a scheduled rollback drill:
 
-1. Confirm one-release schema compatibility and an on-call owner.
+1. Confirm one-release schema compatibility, an on-call owner, and a successful
+   guest rollback preflight for the exact target digest.
 2. Record current bundle/image checksums and verify both database and MinIO
    restore evidence from section 3.
 3. Apply the previous bundle with the exclusion selector above and run the full

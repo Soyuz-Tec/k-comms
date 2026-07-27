@@ -20,12 +20,35 @@ export interface User {
   tenant_id: string;
   display_name: string;
   email?: string | null;
-  account_type?: "human" | "service";
+  account_type?: "human" | "service" | "guest";
   role: UserRole;
   platform_role?: PlatformRole | null;
   platform_role_expires_at?: string | null;
   status: string;
   version?: number;
+}
+
+export interface DirectoryPerson {
+  id: string;
+  display_name: string;
+}
+
+export interface RetainedSenderLabel {
+  id: string;
+  display_name: string;
+  redacted: boolean;
+}
+
+export interface DirectoryPeoplePage {
+  data: DirectoryPerson[];
+  page: {
+    next_cursor: string | null;
+  };
+}
+
+export interface DirectConversationResponse {
+  data: Conversation;
+  created: boolean;
 }
 
 export interface Device {
@@ -48,11 +71,108 @@ export interface Session {
   device: Device;
 }
 
+export interface GuestLink {
+  id: string;
+  conversation_id: string;
+  expires_at: string;
+  max_uses: number;
+  use_count: number;
+  conversion_enabled?: boolean;
+  email_hint?: string | null;
+  status: "active" | "expired" | "revoked" | "exhausted";
+  revoked_at?: string | null;
+  version?: number;
+  share_url?: string;
+}
+
+export interface GuestCapabilities {
+  allow_audio_calls: boolean;
+  allow_video_calls: boolean;
+  /**
+   * Missing during a rolling upgrade is treated as disabled by the client.
+   * Account conversion is available only on a host-preauthorized, single-use
+   * link and still requires the separately delivered one-time code.
+   */
+  conversion_enabled?: boolean;
+  /**
+   * Instant-room guests can upgrade the identity already in the room without
+   * a host-issued verifier. This is intentionally separate from the stricter
+   * pre-authorized conversion used by ordinary guest invitations.
+   */
+  self_service_conversion?: boolean;
+  /** Masked display hint only; the guest must enter the full authorized email. */
+  email_hint?: string | null;
+}
+
+export interface GuestLinkPreview {
+  room_title: string;
+  expires_at: string;
+  conversion_enabled: boolean;
+  email_hint: string | null;
+}
+
+export interface GuestSession extends Session {
+  conversation: Conversation;
+  capabilities: GuestCapabilities;
+  admission?: {
+    guest_link_id: string;
+    expires_at: string;
+  };
+  instant_room?: InstantRoom;
+  /** The exact public URL returned by the server. Never reconstructed client-side. */
+  share_url?: string;
+}
+
+export type InstantRoomOwnerKind = "guest" | "registered";
+export type InstantRoomStatus = "active" | "idle" | "expired" | "revoked";
+
+export interface InstantRoom {
+  id: string;
+  conversation_id: string;
+  owner_user_id: string;
+  status: InstantRoomStatus;
+  owner_kind: InstantRoomOwnerKind;
+  participant_limit: number;
+  idle_since: string | null;
+  expires_at: string | null;
+  inserted_at: string;
+  updated_at: string;
+}
+
+export interface InstantRoomPreview {
+  room_title: string;
+  status: InstantRoomStatus;
+  expires_at: string | null;
+  participant_limit: number;
+}
+
+export interface InstantRoomResult {
+  room: InstantRoom;
+  conversation: Conversation;
+  /** The exact public URL returned by the server. */
+  share_url?: string;
+  /** Present only when an anonymous visitor was admitted as the room creator. */
+  guest_session?: GuestSession;
+}
+
+export interface SocketHandoff {
+  ticket: string;
+  expires_in: number;
+}
+
+export interface GuestAccountConversionResult {
+  session: Session;
+  conversation: Conversation;
+  socket_handoff?: SocketHandoff;
+}
+
 export interface Conversation {
   id: string;
   tenant_id: string;
   kind: "direct" | "group" | "channel";
   title: string | null;
+  counterpart_user_id: string | null;
+  counterpart_display_name: string | null;
   visibility: "private" | "tenant";
   latest_sequence: number;
   membership_role?: string;
@@ -129,6 +249,50 @@ export interface Attachment {
   uploaded_at?: string | null;
 }
 
+export type FileSafetyState =
+  | "available"
+  | "processing"
+  | "blocked"
+  | "failed"
+  | "unavailable";
+
+export type FilesScope = "recent" | "shared_by_me";
+
+export interface FileSummary {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  conversation_sequence: number;
+  owner_user_id: string;
+  file_name: string;
+  content_type: string;
+  byte_size: number;
+  status: Exclude<Attachment["status"], "deleted">;
+  scan_status: NonNullable<Attachment["scan_status"]>;
+  safety_state: FileSafetyState;
+  downloadable: boolean;
+  uploaded_at: string | null;
+  shared_at: string;
+  inserted_at: string;
+  updated_at: string;
+}
+
+export interface FilesPageResponse {
+  data: FileSummary[];
+  page: {
+    limit: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
+export interface FilesQueryOptions {
+  scope?: FilesScope;
+  conversation_id?: string;
+  limit?: number;
+  cursor?: string | null;
+}
+
 export interface Message {
   id: string;
   tenant_id: string;
@@ -156,6 +320,9 @@ export interface MessageThread {
     root: Message;
     replies: Message[];
     reply_count: number;
+  };
+  included?: {
+    sender_labels: RetainedSenderLabel[];
   };
   page: {
     has_more: boolean;
@@ -218,6 +385,39 @@ export interface CallSessionResponse {
   credential: CallCredential;
 }
 
+export type CallsScope = "active" | "recent";
+
+export interface CallSummary {
+  id: string;
+  conversation_id: string;
+  started_by_user_id: string;
+  ended_by_user_id: string | null;
+  media_kind: CallMediaKind;
+  status: "active" | "ending" | "ended";
+  started_at: string;
+  expires_at: string;
+  ended_at: string | null;
+  end_reason: string | null;
+  duration_seconds: number;
+  can_end: boolean;
+}
+
+export interface CallsPageResponse {
+  data: CallSummary[];
+  page: {
+    limit: number;
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+}
+
+export interface CallsQueryOptions {
+  scope?: CallsScope;
+  media_kind?: CallMediaKind;
+  limit?: number;
+  cursor?: string | null;
+}
+
 /** Compatibility aliases for consumers migrating from the audio-only surface. */
 export type AudioCall = Call;
 export type AudioCallRealtimeEvent = CallRealtimeEvent;
@@ -240,11 +440,15 @@ export interface UploadDescriptor {
   headers?: Record<string, string>;
   fields?: Record<string, string>;
   expires_in?: number;
+  expires_at?: string;
   approved_origin?: string;
 }
 
 export interface MessagePage {
   data: Message[];
+  included?: {
+    sender_labels: RetainedSenderLabel[];
+  };
   page: {
     has_more: boolean;
     next_after_sequence: number | null;
@@ -263,6 +467,9 @@ export interface MessageSearchOptions {
 
 export interface MessageSearchPage {
   data: Message[];
+  included?: {
+    sender_labels: RetainedSenderLabel[];
+  };
   page: {
     limit: number;
     has_more: boolean;
@@ -281,9 +488,13 @@ export interface ServiceStatus {
     video_calls?: boolean;
     attachment_scanning: boolean;
     bootstrap: boolean;
+    guest_links: boolean;
+    instant_rooms: boolean;
     notifications: boolean;
     push_notifications?: boolean;
     realtime: boolean;
+    secure_account_actions: boolean;
+    secure_media_actions: boolean;
     webhooks: boolean;
   };
 }

@@ -2,9 +2,13 @@ import { ApiError } from "../api";
 import type { Conversation } from "../types";
 
 export function conversationTitle(conversation: Conversation): string {
+  if (conversation.kind === "direct") {
+    return conversation.counterpart_display_name?.trim() || "Direct message";
+  }
+
   return (
     conversation.title?.trim() ||
-    (conversation.kind === "direct" ? "Direct message" : "Untitled conversation")
+    "Untitled conversation"
   );
 }
 

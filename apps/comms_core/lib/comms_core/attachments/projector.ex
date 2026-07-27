@@ -1,7 +1,13 @@
 defmodule CommsCore.Attachments.Projector do
   @moduledoc false
 
-  alias CommsCore.Attachments.{Attachment, AttachmentView, ScanAttempt, ScanAttemptView}
+  alias CommsCore.Attachments.{
+    Attachment,
+    AttachmentView,
+    FileView,
+    ScanAttempt,
+    ScanAttemptView
+  }
 
   def attachment(%Attachment{} = attachment) do
     %AttachmentView{
@@ -29,6 +35,13 @@ defmodule CommsCore.Attachments.Projector do
       scan_claim_token: attachment.scan_claim_token,
       scan_claimed_at: attachment.scan_claimed_at,
       uploaded_at: attachment.uploaded_at,
+      upload_expires_at: attachment.upload_expires_at,
+      cleanup_status: attachment.cleanup_status,
+      cleanup_attempts: attachment.cleanup_attempts,
+      cleanup_next_attempt_at: attachment.cleanup_next_attempt_at,
+      cleanup_claimed_at: attachment.cleanup_claimed_at,
+      cleanup_last_error: attachment.cleanup_last_error,
+      cleanup_completed_at: attachment.cleanup_completed_at,
       inserted_at: attachment.inserted_at,
       updated_at: attachment.updated_at,
       scan_attempt_records: scan_attempts(attachment.scan_attempt_records)
@@ -37,6 +50,36 @@ defmodule CommsCore.Attachments.Projector do
 
   def attachment(nil), do: nil
   def attachments(values) when is_list(values), do: Enum.map(values, &attachment/1)
+
+  def file(%{
+        attachment: %Attachment{} = attachment,
+        conversation_id: conversation_id,
+        conversation_sequence: conversation_sequence,
+        shared_at: shared_at
+      }) do
+    downloadable = downloadable?(attachment)
+
+    struct!(FileView, %{
+      id: attachment.id,
+      conversation_id: conversation_id,
+      message_id: attachment.message_id,
+      conversation_sequence: conversation_sequence,
+      owner_user_id: attachment.owner_user_id,
+      file_name: attachment.file_name,
+      content_type: attachment.content_type,
+      byte_size: attachment.byte_size,
+      status: attachment.status,
+      scan_status: attachment.scan_status,
+      safety_state: safety_state(attachment, downloadable),
+      downloadable: downloadable,
+      uploaded_at: attachment.uploaded_at,
+      shared_at: shared_at,
+      inserted_at: attachment.inserted_at,
+      updated_at: attachment.updated_at
+    })
+  end
+
+  def files(values) when is_list(values), do: Enum.map(values, &file/1)
 
   defp scan_attempts(%Ecto.Association.NotLoaded{}), do: []
   defp scan_attempts(values) when is_list(values), do: Enum.map(values, &scan_attempt/1)
@@ -56,4 +99,25 @@ defmodule CommsCore.Attachments.Projector do
       completed_at: attempt.completed_at
     }
   end
+
+  defp downloadable?(%Attachment{} = attachment) do
+    attachment.status == :ready and attachment.scan_status == :clean and
+      is_binary(attachment.object_version_id) and attachment.object_version_id != "" and
+      is_binary(attachment.object_etag) and attachment.object_etag != "" and
+      is_binary(attachment.verified_checksum_sha256) and
+      attachment.verified_checksum_sha256 == attachment.checksum_sha256
+  end
+
+  defp safety_state(_attachment, true), do: :available
+
+  defp safety_state(%Attachment{status: :quarantined}, false), do: :blocked
+  defp safety_state(%Attachment{scan_status: :blocked}, false), do: :blocked
+  defp safety_state(%Attachment{status: :scan_failed}, false), do: :failed
+  defp safety_state(%Attachment{scan_status: :failed}, false), do: :failed
+
+  defp safety_state(%Attachment{scan_status: scan_status}, false)
+       when scan_status in [:pending, :scanning],
+       do: :processing
+
+  defp safety_state(_attachment, false), do: :unavailable
 end

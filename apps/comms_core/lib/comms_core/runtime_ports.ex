@@ -10,8 +10,13 @@ defmodule CommsCore.RuntimePorts do
   @job_kinds [
     :audio_call_expiry,
     :audio_participant_eviction,
+    :attachment_abandon,
+    :attachment_abandon_reconciler,
     :attachment_scan,
     :deletion,
+    :ephemeral_room_lifecycle,
+    :ephemeral_room_reconciler,
+    :guest_admission_expiry,
     :notification_delivery,
     :outbox_publication,
     :retention,

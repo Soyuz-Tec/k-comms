@@ -49,5 +49,14 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0043 | Complete the Calls boundary and retire the authorization kernel | Accepted |
 | 0044 | Retrospectively accept the full PR #16 endgame scope | Accepted |
 | 0045 | Harden zero-baseline architecture assurance | Accepted |
+| 0046 | Add owner-projected mobile member read contracts | Accepted |
+| 0047 | Qualify an immutable loopback-only local release | Accepted |
+| 0048 | Make abandoned upload cleanup durable and convergent | Accepted |
+| 0049 | Add conversation guest links and convertible guest identities | Accepted |
+| 0050 | Add self-service instant rooms | Accepted for implementation; production enablement gated |
+| 0051 | Use a host forwarder for explicit private-LAN release access | Accepted |
+| 0052 | Retain message sender labels as an authorized history sidecar | Accepted |
+| 0053 | Provision the local-release tenant through a sealed one-shot command | Accepted |
+| 0054 | Use a Cloudflare trusted edge for same-LAN browser media | Accepted for controlled same-LAN qualification; not production |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

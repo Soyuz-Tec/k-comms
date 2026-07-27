@@ -8,6 +8,8 @@ servers:
 tags:
   - name: System
   - name: Sessions
+  - name: Guest Access
+  - name: Instant Rooms
   - name: Users
   - name: Conversations
   - name: Calls
@@ -78,6 +80,8 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/sessions:
     post:
       tags: [Sessions]
@@ -96,6 +100,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
+          $ref: '#/components/responses/Error'
+        '426':
           $ref: '#/components/responses/Error'
   /api/v1/sessions/refresh:
     post:
@@ -120,6 +126,8 @@ paths:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/password-recovery/requests:
     post:
       tags: [Sessions]
@@ -140,6 +148,8 @@ paths:
                 $ref: '#/components/schemas/PasswordRecoveryAccepted'
         '429':
           $ref: '#/components/responses/Error'
+        '426':
+          $ref: '#/components/responses/Error'
   /api/v1/password-recovery/resets:
     post:
       tags: [Sessions]
@@ -156,6 +166,7 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/sessions/current:
     delete:
@@ -165,6 +176,426 @@ paths:
       responses:
         '204': {description: Session revoked}
         '401': {$ref: '#/components/responses/Error'}
+  /api/v1/instant-rooms:
+    post:
+      tags: [Instant Rooms]
+      operationId: createInstantRoom
+      summary: Create a feature-gated communication room in the configured public tenant
+      description: Accepts no bearer or one valid human bearer. Invalid, guest, service, malformed, or duplicate Authorization values fail closed. A same-tenant human with workspace or conversation-only scope becomes the registered owner; only a valid human from another tenant is represented by a distinct conversation-only guest in the configured tenant, without cross-tenant linking or authority widening. Every caller supplies the exact trusted Origin and application/json. Exact idempotent replay within ten minutes reissues the usable encrypted response and never creates another room or identity.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredIdempotencyKey'
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInstantRoomRequest'}
+      responses:
+        '200':
+          description: Exact idempotent replay of the existing room and usable bounded credentials
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomCreationResponse'}
+        '201':
+          description: Instant room, unique join link, and anonymous guest session when applicable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomCreationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/InstantRoomConflict'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, replay encryption, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
+  /api/v1/instant-rooms/preview:
+    post:
+      tags: [Instant Rooms]
+      operationId: previewInstantRoom
+      summary: Resolve display-safe metadata for one available instant-room token
+      description: Accepts no bearer or one valid human bearer; supplied invalid, guest, service, malformed, or duplicate Authorization values fail closed. Every caller supplies the exact trusted Origin and application/json. The response never reveals the configured tenant, room id, conversation id, lifecycle generation, token, or replay metadata.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InstantRoomTokenRequest'}
+      responses:
+        '200':
+          description: Display-safe room preview
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomPreviewResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404':
+          description: The room token is malformed, unknown, expired, exhausted, revoked, or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomUnavailableError'}
+        '415': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
+  /api/v1/instant-room-sessions:
+    post:
+      tags: [Instant Rooms]
+      operationId: joinInstantRoom
+      summary: Join one instant room as a scoped guest or the authenticated human
+      description: Accepts no bearer or one valid human bearer; supplied invalid, guest, service, malformed, or duplicate Authorization values fail closed. Every caller supplies the exact trusted Origin, application/json, and a distinct idempotency key. A same-tenant human with workspace or conversation-only scope joins directly; only a valid human from another tenant uses a distinct conversation-only guest, without cross-tenant linking or authority widening. Guest replay resumes the same identity and admission with newly bounded credentials; signed-in replay never creates a duplicate membership.
+      security: [{}, {bearerAuth: []}]
+      parameters:
+        - $ref: '#/components/parameters/RequiredIdempotencyKey'
+        - $ref: '#/components/parameters/RequiredTrustedOrigin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInstantRoomSessionRequest'}
+      responses:
+        '200':
+          description: Exact idempotent replay for the existing admission
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomSessionResponse'}
+        '201':
+          description: Guest session or authenticated-human membership created for one room
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomSessionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404':
+          description: The room token is malformed, unknown, expired, exhausted, revoked, or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomUnavailableError'}
+        '409': {$ref: '#/components/responses/InstantRoomConflict'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '503':
+          description: Instant-room feature, tenant, replay state, or required public dependency unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
+  /api/v1/guest-links/preview:
+    post:
+      tags: [Guest Access]
+      operationId: previewGuestLink
+      summary: Resolve the non-sensitive destination of an available guest link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GuestLinkTokenRequest'}
+      responses:
+        '200':
+          description: Available link destination; the raw token is never echoed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkPreviewResponse'}
+        '404':
+          description: The link is unknown, malformed, expired, exhausted, or revoked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkUnavailableError'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/v1/guest-sessions:
+    post:
+      tags: [Guest Access]
+      operationId: createGuestSession
+      summary: Atomically redeem a guest link and create its scoped guest session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateGuestSessionRequest'}
+      responses:
+        '201':
+          description: Guest admitted to exactly one conversation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestSessionResponse'}
+        '404':
+          description: The link is unknown, malformed, expired, exhausted, or revoked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkUnavailableError'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/sessions/refresh:
+    post:
+      tags: [Guest Access]
+      operationId: refreshGuestSession
+      summary: Rotate guest credentials without extending the immutable admission deadline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshTokenRequest'}
+      responses:
+        '200':
+          description: Rotated guest credentials bounded by the original admission expiry
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestSessionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/sessions/current:
+    delete:
+      tags: [Guest Access]
+      operationId: revokeCurrentGuestSession
+      security: [{guestBearerAuth: []}]
+      responses:
+        '204':
+          description: Guest session, admission, membership, active room presence, and derived call authority atomically revoked; retained content is not deleted
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation:
+    get:
+      tags: [Guest Access]
+      operationId: getGuestConversation
+      security: [{guestBearerAuth: []}]
+      responses:
+        '200':
+          description: The one conversation bound to the guest admission
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestConversationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/members:
+    get:
+      tags: [Guest Access]
+      operationId: listGuestConversationMembers
+      security: [{guestBearerAuth: []}]
+      responses:
+        '200':
+          description: Sanitized active members of the admitted conversation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestMemberListResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/messages:
+    get:
+      tags: [Guest Access]
+      operationId: listGuestConversationMessages
+      summary: Read only messages at or after the immutable admission history boundary
+      security: [{guestBearerAuth: []}]
+      parameters:
+        - name: after_sequence
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: before_sequence
+          in: query
+          schema: {type: integer, minimum: 1}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized page
+          schema: {type: string, enum: [sender_labels]}
+      responses:
+        '200':
+          description: Ordered message page clipped to the admission history boundary
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessagePage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Guest Access]
+      operationId: createGuestConversationMessage
+      security: [{guestBearerAuth: []}]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SendMessageRequest'}
+      responses:
+        '201':
+          description: Canonical committed guest message
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/message-sender-labels:
+    post:
+      tags: [Guest Access]
+      operationId: refreshGuestMessageSenderLabels
+      summary: Refresh labels for rendered authors inside the guest admission history boundary
+      security: [{guestBearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SenderLabelRefreshRequest'}
+      responses:
+        '200':
+          description: Labels derived only from requested messages inside guest-visible history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SenderLabelRefreshResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/read-cursor:
+    put:
+      tags: [Guest Access]
+      operationId: updateGuestConversationReadCursor
+      security: [{guestBearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReadCursorRequest'}
+      responses:
+        '200':
+          description: Stored monotonic read cursor at or after the admission boundary
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReadCursorResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/socket-tickets:
+    post:
+      tags: [Guest Access]
+      operationId: createGuestSocketTicket
+      security: [{guestBearerAuth: []}]
+      responses:
+        '201':
+          description: One-time socket ticket restricted to the admitted conversation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SocketTicketResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/call:
+    get:
+      tags: [Guest Access]
+      operationId: getGuestActiveCall
+      security: [{guestBearerAuth: []}]
+      responses:
+        '200':
+          description: Active call in the admitted conversation or null
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallLookupResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/calls:
+    post:
+      tags: [Guest Access]
+      operationId: startGuestCall
+      security: [{guestBearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StartCallRequest'}
+      responses:
+        '200':
+          description: Existing call of the requested media kind with a fresh credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestAudioCallCredentialResponse'}
+        '201':
+          description: Call created with a fresh credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestAudioCallCredentialResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/GuestCallForbidden'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/calls/{callId}/join:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Guest Access]
+      operationId: joinGuestCall
+      security: [{guestBearerAuth: []}]
+      responses:
+        '200':
+          description: Guest admitted with a fresh participant credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestAudioCallCredentialResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/GuestCallForbidden'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/conversation/calls/{callId}/end:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Guest Access]
+      operationId: endGuestCall
+      security: [{guestBearerAuth: []}]
+      responses:
+        '200':
+          description: Guest-started call ended
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AudioCallResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/guest/account:
+    post:
+      tags: [Guest Access]
+      operationId: convertGuestAccount
+      summary: Convert the current guest in place and issue a fresh human session
+      security: [{guestBearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConvertGuestAccountRequest'}
+      responses:
+        '200':
+          description: Same user converted to a permanent human account
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestAccountConversionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/GuestConversionForbidden'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/InstantRoomRateLimited'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503':
+          description: Instant-room account conversion is feature-disabled or unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstantRoomsUnavailableError'}
   /api/v1/me:
     get:
       tags: [Users]
@@ -180,6 +611,32 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '200': {description: Tenant users}
+  /api/v1/directory/users:
+    get:
+      tags: [Users]
+      operationId: listDirectoryUsers
+      summary: List active human users visible to the current member
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: q
+          in: query
+          schema: {type: string, maxLength: 120}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Bounded tenant-scoped active-human directory with no email, role, or lifecycle data
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectoryPersonPage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations:
     get:
       tags: [Conversations]
@@ -200,6 +657,33 @@ paths:
       responses:
         '201': {description: Conversation created}
         '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/direct-conversations:
+    post:
+      tags: [Conversations]
+      operationId: getOrCreateDirectConversation
+      summary: Resume or atomically create a direct conversation with one active human
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DirectConversationRequest'}
+      responses:
+        '200':
+          description: Existing authorized direct conversation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectConversationResponse'}
+        '201':
+          description: Direct conversation created atomically
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectConversationResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/channels/discover:
@@ -333,6 +817,89 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/guest-links:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Conversations]
+      operationId: listConversationGuestLinks
+      summary: List redacted guest links managed by a conversation owner or moderator
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Guest-link views without raw tokens or token digests
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkListResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Conversations]
+      operationId: createConversationGuestLink
+      summary: Create an expiring bounded-use link and return its raw token once
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateGuestLinkRequest'}
+      responses:
+        '201':
+          description: Guest link created; token and share URL are disclosed in this response only
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkCreationResponse'}
+        '403': {$ref: '#/components/responses/GuestLinkForbidden'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/GuestLinkUnprocessable'}
+        '428': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/guest-links/{guestLinkId}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/GuestLinkId'
+    delete:
+      tags: [Conversations]
+      operationId: revokeConversationGuestLink
+      summary: Revoke a link and the active guest admissions derived from it
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Revoked redacted guest-link view
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GuestLinkResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/calls:
+    get:
+      tags: [Calls]
+      operationId: listCallSessions
+      summary: List truthful active or recent room-session lifecycle facts
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: scope
+          in: query
+          schema: {enum: [active, recent], default: recent}
+        - name: media_kind
+          in: query
+          schema: {enum: [audio, video]}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Membership-filtered room sessions; no ringing, answer, missed, declined, scheduled, provider, or credential claims
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallSessionPage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/call:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -374,6 +941,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/calls/{callId}/join:
     parameters:
@@ -392,6 +960,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/calls/{callId}/end:
     parameters:
@@ -454,6 +1023,7 @@ paths:
               schema: {$ref: '#/components/schemas/AudioCallCredentialResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/audio-calls/{callId}/join:
     parameters:
@@ -473,6 +1043,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/audio-calls/{callId}/end:
     parameters:
@@ -555,6 +1126,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 200, default: 100}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Ordered durable message page with an explicit continuation state
@@ -580,6 +1155,27 @@ paths:
               $ref: '#/components/schemas/SendMessageRequest'
       responses:
         '201': {description: Canonical committed message}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/message-sender-labels:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    post:
+      tags: [Messages]
+      operationId: refreshMessageSenderLabels
+      summary: Refresh labels for rendered authors inside the caller's authorized history
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SenderLabelRefreshRequest'}
+      responses:
+        '200':
+          description: Labels derived only from requested messages inside authorized history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SenderLabelRefreshResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/read-cursor:
@@ -616,6 +1212,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by the root and this authorized reply page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Canonical thread root and ascending bounded reply page
@@ -723,12 +1323,46 @@ paths:
           in: query
           description: Exclusive upper bound for message creation time
           schema: {type: string, format: date-time}
+        - name: include
+          in: query
+          description: Opt in to privacy-minimal labels for senders referenced by this authorized result page
+          schema: {type: string, enum: [sender_labels]}
       responses:
         '200':
           description: Membership-filtered message matches with an opaque continuation cursor
           content:
             application/json:
               schema: {$ref: '#/components/schemas/MessageSearchPage'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/files:
+    get:
+      tags: [Attachments]
+      operationId: listFiles
+      summary: List message-owned files visible through active conversation membership
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: scope
+          in: query
+          schema: {enum: [recent, shared_by_me], default: recent}
+        - name: conversation_id
+          in: query
+          description: Restrict results to one actively joined conversation
+          schema: {type: string, format: uuid}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the previous page
+          schema: {type: string}
+      responses:
+        '200':
+          description: Bounded authorized file page without storage identity, checksum, or download URL
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilePage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
   /api/v1/attachments:
     post:
@@ -781,6 +1415,16 @@ paths:
                   data: {type: object}
                   download: {$ref: '#/components/schemas/PresignDescriptor'}
         '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [Attachments]
+      operationId: abandonAttachmentIntent
+      security: [{bearerAuth: []}]
+      responses:
+        '204':
+          description: Unclaimed attachment abandoned; exact-version cleanup durably scheduled
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /api/v1/invitations/accept:
     post:
       tags: [Sessions]
@@ -797,10 +1441,32 @@ paths:
                 display_name: {type: string, minLength: 1, maxLength: 120}
                 password: {type: string, minLength: 12, maxLength: 256}
       responses:
-        '201': {description: Invitation accepted and session created}
+        '201':
+          description: Invitation accepted and user activated; authenticate through the sessions endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [id, tenant_id, display_name, email, account_type, role, status, version]
+                    properties:
+                      id: {type: string, format: uuid}
+                      tenant_id: {type: string, format: uuid}
+                      display_name: {type: string, minLength: 1, maxLength: 120}
+                      email: {type: string, format: email}
+                      account_type: {const: human}
+                      role: {enum: [member, moderator, admin, compliance_admin, security_admin, owner]}
+                      status: {const: active}
+                      version: {type: integer, minimum: 1}
         '401': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
   /api/v1/socket-tickets:
     post:
       tags: [Sessions]
@@ -840,6 +1506,7 @@ paths:
         '200': {description: Session elevated for a bounded sensitive-operation window}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
 
   /api/v1/me/profile:
     patch:
@@ -872,6 +1539,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
   /api/v1/me/devices:
     get:
       tags: [Users]
@@ -1740,6 +2408,11 @@ components:
       scheme: bearer
       bearerFormat: kcsa_<uuid>.<one-time-secret>
       description: Dedicated service credential; never accepted on human, admin, platform, refresh, or WebSocket routes.
+    guestBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: K-Comms guest access token
+      description: Conversation-scoped guest credential; rejected by human, admin, operations, service, and normal refresh routes.
   parameters:
     ChannelId:
       name: channelId
@@ -1748,6 +2421,11 @@ components:
       schema: {type: string, format: uuid}
     ConversationId:
       name: conversationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    GuestLinkId:
+      name: guestLinkId
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -1766,6 +2444,22 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    RequiredIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Exact canonical 256-bit unpadded Base64URL replay key. Create stores its SHA-256 digest and a ten-minute AES-GCM secret-response capsule; join stores a digest, request fingerprint, and bounded replay receipt and mints fresh bounded authentication. A changed request fingerprint under the same key conflicts.
+      schema:
+        type: string
+        minLength: 43
+        maxLength: 43
+        pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+    RequiredTrustedOrigin:
+      name: Origin
+      in: header
+      required: true
+      description: Exact configured trusted origin. Browser and non-browser callers supply one value; this CSRF boundary is not authentication and never selects the public tenant.
+      schema: {type: string, format: uri, minLength: 1, maxLength: 2048}
     OptionalIdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1779,6 +2473,91 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    InstantRoomConflict:
+      description: Instant-room idempotency conflict or expired replay window
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            fingerprint_conflict:
+              value:
+                error:
+                  code: idempotency_conflict
+                  detail: The idempotency key was already used with a different request
+            replay_expired:
+              value:
+                error:
+                  code: idempotency_replay_expired
+                  detail: The idempotency replay window has expired
+    InstantRoomRateLimited:
+      description: Shared public-admission or communication limit exceeded
+      headers:
+        Retry-After:
+          description: Whole seconds before the client should retry.
+          required: true
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/InstantRoomRateLimitedError'}
+    GuestCallForbidden:
+      description: Guest call access is forbidden or its bounded authorization has expired
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            authorization_expired:
+              value:
+                error:
+                  code: call_authorization_expired
+                  detail: Call access is no longer authorized
+    GuestConversionForbidden:
+      description: The guest link did not authorize conversion for the supplied email or verification code
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            conversion_not_enabled:
+              value:
+                error:
+                  code: guest_account_conversion_not_enabled
+                  detail: Account creation is not permitted for this guest link
+            conversion_email_mismatch:
+              value:
+                error:
+                  code: guest_account_conversion_email_mismatch
+                  detail: Account creation is not permitted for the supplied email
+            conversion_verification_failed:
+              value:
+                error:
+                  code: guest_account_conversion_verification_failed
+                  detail: Account conversion verification failed
+    GuestLinkForbidden:
+      description: Guest-link creation or account-conversion preauthorization is forbidden
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            conversion_forbidden:
+              value:
+                error:
+                  code: guest_account_conversion_forbidden
+                  detail: Account creation is not permitted for this guest link
+    GuestLinkUnprocessable:
+      description: Guest-link settings are invalid or incompatible
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            conversion_requires_single_use:
+              value:
+                error:
+                  code: guest_account_conversion_requires_single_use
+                  detail: Account-enabled guest links must allow exactly one use
+            invalid_conversion_email:
+              value:
+                error:
+                  code: invalid_guest_conversion_email
+                  detail: The account conversion email is invalid
   schemas:
     StatusResponse:
       type: object
@@ -1791,16 +2570,30 @@ components:
         capabilities:
           type: object
           additionalProperties: false
-          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, notifications, push_notifications, realtime, webhooks]
+          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, secure_account_actions, secure_media_actions, webhooks]
           properties:
             administration: {type: boolean}
-            audio_calls: {type: boolean}
-            video_calls: {type: boolean}
+            audio_calls:
+              type: boolean
+              description: True only while the cached, bounded LiveKit control-plane readiness probe is fresh and successful.
+            video_calls:
+              type: boolean
+              description: True only while the cached, bounded LiveKit control-plane readiness probe is fresh and successful.
             attachment_scanning: {type: boolean}
             bootstrap: {type: boolean}
+            guest_links: {type: boolean}
+            instant_rooms:
+              type: boolean
+              description: False unless instant rooms are enabled and the configured public tenant slug resolves to one active tenant. Production still requires verification, adaptive distributed abuse controls, privacy, provider, and operations approval.
             notifications: {type: boolean}
             push_notifications: {type: boolean}
             realtime: {type: boolean}
+            secure_account_actions:
+              type: boolean
+              description: False for clear-text HTTP requests handled by the explicit LAN text-only release, regardless of the request Host. Clients must fail closed until this value is known.
+            secure_media_actions:
+              type: boolean
+              description: False when call credential and media-control operations require a trusted HTTPS request. Clients combine this value with audio_calls or video_calls.
             webhooks: {type: boolean}
     Error:
       type: object
@@ -1839,6 +2632,537 @@ components:
             id: {type: string, format: uuid}
             name: {type: string}
             platform: {type: string}
+    RefreshTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token: {type: string, minLength: 40, maxLength: 512, writeOnly: true}
+    InstantRoomDevice:
+      type: object
+      additionalProperties: false
+      required: [name, platform]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        platform: {type: string, minLength: 1, maxLength: 40}
+    CreateInstantRoomRequest:
+      type: object
+      additionalProperties: false
+      description: Anonymous creation requires a complete device and a chosen display_name. A same-tenant human with workspace or conversation-only scope uses only title and its trusted profile identity. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
+      properties:
+        title: {type: string, minLength: 1, maxLength: 160}
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Required for an anonymous creator; ignored for a same-tenant authenticated human.
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
+    InstantRoomTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          writeOnly: true
+          description: Opaque 256-bit join token captured from the client-side URL fragment.
+    CreateInstantRoomSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      description: Anonymous join requires display_name and a complete device. A same-tenant human with workspace or conversation-only scope uses only token. For a valid human from another tenant, the adapter supplies trusted current profile/device defaults for the distinct conversation-only guest fallback.
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          writeOnly: true
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Required when joining anonymously; ignored for an authenticated human.
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
+    InstantRoom:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, owner_user_id, owner_kind, status, participant_limit, idle_since, expires_at, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        owner_user_id: {type: string, format: uuid}
+        owner_kind: {enum: [guest, registered]}
+        status: {enum: [active, idle, expired]}
+        participant_limit: {type: integer, minimum: 2, maximum: 25}
+        idle_since: {type: [string, 'null'], format: date-time}
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: Authoritative idle-expiry deadline once the room is idle; null while active.
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    InstantRoomCreationResponse:
+      type: object
+      additionalProperties: false
+      required: [room, conversation, token, share_url, replayed]
+      properties:
+        room: {$ref: '#/components/schemas/InstantRoom'}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$'
+          readOnly: true
+          description: Freshly disclosed or exact-replay-decrypted join token; never returned by preview or room reads.
+        share_url:
+          type: string
+          format: uri
+          pattern: '/join#guest='
+          readOnly: true
+        replayed: {type: boolean}
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant:
+          type: object
+          description: Present only for the anonymous creator session.
+        user: {$ref: '#/components/schemas/GuestUser'}
+        device: {type: object}
+        admission: {$ref: '#/components/schemas/GuestAdmission'}
+        membership: {$ref: '#/components/schemas/MembershipSummary'}
+        capabilities: {$ref: '#/components/schemas/GuestCapabilities'}
+    InstantRoomPreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [room_title, status, expires_at, participant_limit]
+          properties:
+            room_title: {type: string, minLength: 1, maxLength: 160}
+            status: {enum: [active, idle]}
+            expires_at:
+              type: [string, 'null']
+              format: date-time
+              description: Idle-expiry deadline, or null while the room is active.
+            participant_limit: {type: integer, minimum: 2, maximum: 25}
+    InstantRoomSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [room, conversation, replayed]
+      properties:
+        room: {$ref: '#/components/schemas/InstantRoom'}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        replayed: {type: boolean}
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant:
+          type: object
+          description: Present only for an anonymous guest join.
+        user: {$ref: '#/components/schemas/GuestUser'}
+        device: {type: object}
+        admission: {$ref: '#/components/schemas/GuestAdmission'}
+        membership: {$ref: '#/components/schemas/MembershipSummary'}
+        capabilities: {$ref: '#/components/schemas/GuestCapabilities'}
+    InstantRoomUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail]
+          properties:
+            code: {const: instant_room_unavailable}
+            detail: {const: This instant communication room is unavailable}
+    InstantRoomsUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail]
+          properties:
+            code: {const: instant_rooms_unavailable}
+            detail: {const: Instant communication rooms are unavailable}
+    InstantRoomRateLimitedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail, retry_after]
+          properties:
+            code: {const: rate_limited}
+            detail: {const: Too many requests}
+            retry_after: {type: integer, minimum: 1}
+    CreateGuestLinkRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        expires_in_seconds:
+          type: integer
+          minimum: 900
+          maximum: 86400
+          default: 86400
+        max_uses:
+          type: integer
+          minimum: 1
+          maximum: 25
+          default: 10
+        conversion_email:
+          type: [string, 'null']
+          format: email
+          maxLength: 320
+          writeOnly: true
+          description: Optional exact email pre-authorized for in-place account conversion; requires a single-use link and recent host step-up.
+    GuestLinkTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 80
+          maxLength: 80
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$'
+          writeOnly: true
+          description: One-time-disclosed link secret read from the client-side URL fragment.
+    CreateGuestSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [token, display_name]
+      properties:
+        token:
+          type: string
+          minLength: 80
+          maxLength: 80
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$'
+          writeOnly: true
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        device:
+          type: object
+          additionalProperties: false
+          properties:
+            name: {type: string, minLength: 1, maxLength: 120}
+            platform: {type: string, minLength: 1, maxLength: 40}
+    ConvertGuestAccountRequest:
+      description: Selects the verification-bound standard-link conversion or the production-gated, conversation-only instant-room conversion from server-authoritative admission purpose. The instant-room email is not a verified-email claim.
+      oneOf:
+        - $ref: '#/components/schemas/ConvertVerifiedGuestAccountRequest'
+        - $ref: '#/components/schemas/ConvertInstantRoomGuestAccountRequest'
+    ConvertVerifiedGuestAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [email, verification_code, password]
+      properties:
+        email: {type: string, format: email, maxLength: 320}
+        verification_code:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          writeOnly: true
+          description: Independently generated one-time conversion verification code disclosed only to the authenticated link creator.
+        password: {type: string, minLength: 12, maxLength: 256, writeOnly: true}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        device:
+          type: object
+          additionalProperties: false
+          properties:
+            name: {type: string, minLength: 1, maxLength: 120}
+            platform: {type: string, minLength: 1, maxLength: 40}
+    ConvertInstantRoomGuestAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      description: Converts only an ephemeral-room guest into a conversation-only human. This request does not verify email ownership and must remain production-disabled until an approved verification provider and workflow are composed.
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Unverified login identifier; never a verified-email or recovery claim.
+        password: {type: string, minLength: 12, maxLength: 256, writeOnly: true}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        device: {$ref: '#/components/schemas/InstantRoomDevice'}
+    GuestCapabilities:
+      type: object
+      additionalProperties: false
+      required: [allow_audio_calls, allow_video_calls, conversion_enabled, email_hint]
+      properties:
+        allow_audio_calls: {type: boolean}
+        allow_video_calls: {type: boolean}
+        conversion_enabled: {type: boolean}
+        self_service_conversion:
+          type: boolean
+          description: Present and true only for an instant-room guest eligible for conversation-only conversion; it is not evidence of verified email.
+        email_hint:
+          type: [string, 'null']
+          maxLength: 320
+          description: Non-reversible masked hint for the pre-authorized conversion email, or null when conversion is disabled.
+    GuestLink:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, conversation_id, created_by_user_id, expires_at, max_uses, use_count, remaining_uses, conversion_enabled, email_hint, status, revoked_at, version, inserted_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        created_by_user_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+        max_uses: {type: integer, minimum: 1, maximum: 25}
+        use_count: {type: integer, minimum: 0}
+        remaining_uses: {type: integer, minimum: 0}
+        conversion_enabled: {type: boolean}
+        email_hint:
+          type: [string, 'null']
+          maxLength: 320
+          description: Non-reversible masked hint for the pre-authorized conversion email, or null when conversion is disabled.
+        status: {enum: [active, expired, revoked, exhausted]}
+        revoked_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+        inserted_at: {type: string, format: date-time}
+    GuestAdmission:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, guest_link_id, admitted_at, expires_at, history_from_sequence, converted_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        guest_link_id: {type: string, format: uuid}
+        admitted_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        history_from_sequence: {type: integer, minimum: 1}
+        converted_at: {type: [string, 'null'], format: date-time}
+    GuestLinkResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/GuestLink'}
+    GuestLinkListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/GuestLink'}
+    GuestLinkCreationResponse:
+      type: object
+      additionalProperties: false
+      required: [data, token, share_url]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [id, tenant_id, conversation_id, created_by_user_id, expires_at, max_uses, use_count, remaining_uses, conversion_enabled, email_hint, status, revoked_at, version, inserted_at, share_url]
+          properties:
+            id: {type: string, format: uuid}
+            tenant_id: {type: string, format: uuid}
+            conversation_id: {type: string, format: uuid}
+            created_by_user_id: {type: string, format: uuid}
+            expires_at: {type: string, format: date-time}
+            max_uses: {type: integer, minimum: 1, maximum: 25}
+            use_count: {type: integer, minimum: 0}
+            remaining_uses: {type: integer, minimum: 0}
+            conversion_enabled: {type: boolean}
+            email_hint:
+              type: [string, 'null']
+              maxLength: 320
+              description: Non-reversible masked hint for the pre-authorized conversion email, or null when conversion is disabled.
+            status: {enum: [active, expired, revoked, exhausted]}
+            revoked_at: {type: [string, 'null'], format: date-time}
+            version: {type: integer, minimum: 1}
+            inserted_at: {type: string, format: date-time}
+            share_url:
+              type: string
+              format: uri
+              pattern: '/join#guest='
+              readOnly: true
+        token:
+          type: string
+          minLength: 80
+          maxLength: 80
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$'
+          readOnly: true
+          description: Raw link token returned once and never available from list or revoke.
+        share_url:
+          type: string
+          format: uri
+          pattern: '/join#guest='
+          readOnly: true
+          description: Complete share URL returned only with the one-time raw token.
+        conversion_verification_code:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          readOnly: true
+          description: Returned once only for a conversion-enabled link; keep separate from the QR and share URL.
+    GuestLinkPreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [room_title, expires_at, conversion_enabled, email_hint]
+          properties:
+            room_title:
+              type: string
+              minLength: 1
+              maxLength: 160
+              description: Display-only room title; no tenant or conversation identifier is disclosed before admission.
+            expires_at: {type: string, format: date-time}
+            conversion_enabled: {type: boolean}
+            email_hint:
+              type: [string, 'null']
+              maxLength: 320
+              description: Non-reversible masked hint for the pre-authorized conversion email, or null when conversion is disabled.
+    GuestLinkUnavailableError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, detail]
+          properties:
+            code: {const: guest_link_unavailable}
+            detail: {type: string}
+    GuestUser:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, display_name, account_type, access_scope, role, status, guest_expires_at]
+      properties:
+        id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        account_type: {const: guest}
+        access_scope: {const: conversation_only}
+        role: {const: member}
+        status: {const: active}
+        guest_expires_at: {type: string, format: date-time}
+    GuestSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device, conversation, admission, capabilities]
+      properties:
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
+        token_type: {const: Bearer}
+        expires_in: {type: integer, minimum: 1}
+        tenant: {type: object}
+        user: {$ref: '#/components/schemas/GuestUser'}
+        device: {type: object}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        admission: {$ref: '#/components/schemas/GuestAdmission'}
+        capabilities: {$ref: '#/components/schemas/GuestCapabilities'}
+    GuestAccountConversionResponse:
+      type: object
+      additionalProperties: false
+      required: [authentication, conversation]
+      properties:
+        authentication: {$ref: '#/components/schemas/TokenResponse'}
+        conversation: {$ref: '#/components/schemas/Conversation'}
+        socket_handoff:
+          type: object
+          additionalProperties: false
+          required: [ticket, expires_in]
+          properties:
+            ticket: {type: string, readOnly: true}
+            expires_in: {type: integer, minimum: 1, maximum: 120}
+          description: Optional one-time handoff for instant-room conversion so the existing socket can reconnect under the new conversation-only human session.
+    GuestConversationResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Conversation'}
+    GuestMember:
+      type: object
+      additionalProperties: false
+      required: [id, role, joined_at, left_at, last_read_sequence, version, user]
+      properties:
+        id: {type: string, format: uuid}
+        role: {enum: [member, moderator, owner]}
+        joined_at: {type: string, format: date-time}
+        left_at: {type: [string, 'null'], format: date-time}
+        last_read_sequence: {type: integer, minimum: 0}
+        version: {type: integer, minimum: 1}
+        user:
+          type: object
+          additionalProperties: false
+          required: [id, display_name, account_type, role, status]
+          properties:
+            id: {type: string, format: uuid}
+            display_name: {type: string, minLength: 1, maxLength: 120}
+            account_type: {enum: [human, guest, service]}
+            role: {enum: [member, moderator, owner, admin, compliance_admin, security_admin]}
+            status: {enum: [active, suspended, deleted]}
+    GuestMemberListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/GuestMember'}
+    ReadCursorRequest:
+      type: object
+      additionalProperties: false
+      required: [sequence]
+      properties:
+        sequence: {type: integer, minimum: 0}
+    ReadCursorResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [user_id, sequence]
+          properties:
+            user_id: {type: string, format: uuid}
+            sequence: {type: integer, minimum: 0}
+    MessageResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/Message'}
+    SocketTicketResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [ticket, expires_in]
+          properties:
+            ticket: {type: string, minLength: 40, readOnly: true}
+            expires_in: {type: integer, minimum: 1, maximum: 120}
     PasswordRecoveryRequest:
       type: object
       additionalProperties: false
@@ -2343,14 +3667,84 @@ components:
           type: array
           uniqueItems: true
           items: {type: string, format: uuid}
+    DirectoryPerson:
+      type: object
+      additionalProperties: false
+      required: [id, display_name]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+    RetainedSenderLabel:
+      type: object
+      additionalProperties: false
+      required: [id, display_name, redacted]
+      properties:
+        id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 120}
+        redacted: {type: boolean}
+    SenderLabelRefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [message_ids]
+      properties:
+        message_ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          uniqueItems: true
+          items: {type: string, format: uuid}
+    SenderLabelRefreshResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          maxItems: 200
+          items: {$ref: '#/components/schemas/RetainedSenderLabel'}
+    DirectoryPersonPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/DirectoryPerson'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [next_cursor]
+          properties:
+            next_cursor: {type: [string, 'null']}
+    DirectConversationRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id]
+      properties:
+        user_id: {type: string, format: uuid}
+    DirectConversationResponse:
+      type: object
+      additionalProperties: false
+      required: [data, created]
+      properties:
+        data: {$ref: '#/components/schemas/Conversation'}
+        created: {type: boolean}
     Conversation:
       type: object
-      required: [id, tenant_id, kind, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
+      required: [id, tenant_id, kind, title, counterpart_user_id, counterpart_display_name, visibility, latest_sequence, archived_at, version, inserted_at, updated_at]
       properties:
         id: {type: string, format: uuid}
         tenant_id: {type: string, format: uuid}
         kind: {enum: [direct, group, channel]}
         title: {type: [string, 'null'], maxLength: 160}
+        counterpart_user_id:
+          type: [string, 'null']
+          format: uuid
+          description: Server-derived current counterpart identifier for an authorized direct conversation; null for non-direct conversations.
+        counterpart_display_name:
+          type: [string, 'null']
+          maxLength: 120
+          description: Server-derived current counterpart label for an authorized direct conversation; null for non-direct conversations.
         visibility: {enum: [private, tenant]}
         latest_sequence: {type: integer, minimum: 0}
         archived_at: {type: [string, 'null'], format: date-time}
@@ -2387,8 +3781,16 @@ components:
       required: [server_url, participant_token, expires_in]
       properties:
         server_url: {type: string, pattern: '^wss?://'}
-        participant_token: {type: string, writeOnly: true}
+        participant_token: {type: string, readOnly: true}
         expires_in: {type: integer, minimum: 60, maximum: 300}
+    GuestAudioCallCredential:
+      type: object
+      additionalProperties: false
+      required: [server_url, participant_token, expires_in]
+      properties:
+        server_url: {type: string, pattern: '^wss?://'}
+        participant_token: {type: string, readOnly: true}
+        expires_in: {type: integer, minimum: 1, maximum: 300}
     AudioCallLookupResponse:
       type: object
       additionalProperties: false
@@ -2411,6 +3813,39 @@ components:
       properties:
         data: {$ref: '#/components/schemas/AudioCall'}
         credential: {$ref: '#/components/schemas/AudioCallCredential'}
+    GuestAudioCallCredentialResponse:
+      type: object
+      additionalProperties: false
+      required: [data, credential]
+      properties:
+        data: {$ref: '#/components/schemas/AudioCall'}
+        credential: {$ref: '#/components/schemas/GuestAudioCallCredential'}
+    CallSession:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, started_by_user_id, ended_by_user_id, media_kind, status, started_at, expires_at, ended_at, end_reason, duration_seconds, can_end]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        started_by_user_id: {type: string, format: uuid}
+        ended_by_user_id: {type: [string, 'null'], format: uuid}
+        media_kind: {enum: [audio, video]}
+        status: {enum: [active, ending, ended]}
+        started_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        ended_at: {type: [string, 'null'], format: date-time}
+        end_reason: {type: [string, 'null'], maxLength: 120}
+        duration_seconds: {type: integer, minimum: 0}
+        can_end: {type: boolean}
+    CallSessionPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CallSession'}
+        page: {$ref: '#/components/schemas/CursorPage'}
     MembershipSummary:
       type: object
       additionalProperties: false
@@ -2516,6 +3951,15 @@ components:
         data:
           type: array
           items: {$ref: '#/components/schemas/Message'}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           required: [has_more, reset_required]
@@ -2531,6 +3975,15 @@ components:
         data:
           type: array
           items: {$ref: '#/components/schemas/Message'}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           additionalProperties: false
@@ -2554,6 +4007,15 @@ components:
               type: array
               items: {$ref: '#/components/schemas/Message'}
             reply_count: {type: integer, minimum: 0}
+        included:
+          type: object
+          additionalProperties: false
+          required: [sender_labels]
+          properties:
+            sender_labels:
+              type: array
+              maxItems: 200
+              items: {$ref: '#/components/schemas/RetainedSenderLabel'}
         page:
           type: object
           additionalProperties: false
@@ -2627,10 +4089,48 @@ components:
         content_type: {type: string, minLength: 1, maxLength: 120}
         byte_size: {type: integer, minimum: 1, maximum: 1073741824}
         checksum_sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+    FileSummary:
+      type: object
+      additionalProperties: false
+      required: [id, conversation_id, message_id, conversation_sequence, owner_user_id, file_name, content_type, byte_size, status, scan_status, safety_state, downloadable, uploaded_at, shared_at, inserted_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        message_id: {type: string, format: uuid}
+        conversation_sequence: {type: integer, minimum: 1}
+        owner_user_id: {type: string, format: uuid}
+        file_name: {type: string, minLength: 1, maxLength: 255}
+        content_type: {type: string, minLength: 1, maxLength: 120}
+        byte_size: {type: integer, minimum: 1, maximum: 1073741824}
+        status: {enum: [pending, uploaded, ready, quarantined, scan_failed]}
+        scan_status: {enum: [pending, scanning, clean, blocked, failed]}
+        safety_state: {enum: [available, processing, blocked, failed, unavailable]}
+        downloadable: {type: boolean}
+        uploaded_at: {type: [string, 'null'], format: date-time}
+        shared_at: {type: string, format: date-time}
+        inserted_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CursorPage:
+      type: object
+      additionalProperties: false
+      required: [limit, has_more, next_cursor]
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 100}
+        has_more: {type: boolean}
+        next_cursor: {type: [string, 'null']}
+    FilePage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/FileSummary'}
+        page: {$ref: '#/components/schemas/CursorPage'}
     PresignDescriptor:
       type: object
       additionalProperties: false
-      required: [method, url, approved_origin, development_http, headers, expires_in]
+      required: [method, url, approved_origin, development_http, headers, expires_in, expires_at]
       properties:
         method: {type: string, enum: [GET, PUT, DELETE]}
         url: {type: string, format: uri}
@@ -2640,6 +4140,7 @@ components:
           type: object
           additionalProperties: {type: string}
         expires_in: {type: integer, minimum: 1, maximum: 3600}
+        expires_at: {type: string, format: date-time}
     NotificationPreferences:
       type: object
       additionalProperties: false
@@ -2715,16 +4216,18 @@ components:
         replayed: {type: boolean}
     TokenResponse:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device, capabilities]
+      required: [access_token, refresh_token, token_type, expires_in, tenant, user, device]
       properties:
-        access_token: {type: string}
-        refresh_token: {type: string}
+        access_token: {type: string, readOnly: true}
+        refresh_token: {type: string, readOnly: true}
         token_type: {const: Bearer}
         expires_in: {type: integer, minimum: 1}
         tenant: {type: object}
         user:
           type: object
+          required: [access_scope]
           properties:
+            access_scope: {enum: [workspace, conversation_only]}
             platform_role:
               type: [string, 'null']
               enum: [platform_operator, support_operator, security_operator, null]
@@ -2732,4 +4235,3 @@ components:
               type: [string, 'null']
               format: date-time
         device: {type: object}
-        capabilities: {$ref: '#/components/schemas/UserCapabilities'}

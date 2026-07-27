@@ -130,6 +130,7 @@ same validator:
 python scripts/validate_production_bundle.py \
   '<restricted-path>/production.yaml' \
   '<restricted-path>/platform-role.yaml' \
+  '<restricted-path>/guest-rollback-preflight.yaml' \
   '<restricted-path>/attachment-restore-remap.yaml'
 ```
 
@@ -137,7 +138,9 @@ The operation manifests intentionally contain an unusable
 `REPLACE_WITH_APPROVED_SHA256_DIGEST` image value. The provider composition must
 replace it with the exact immutable image reference used by edge, worker, and
 migration, set the same production namespace, and make the database CA volume
-non-optional. Validate only the operation being run; both files above simply
+non-optional. The guest rollback operation must instead use the exact
+**currently deployed** image and derive its target revision/capabilities from
+the retained target bundle. Validate only the operation being run; the files above simply
 demonstrate the combined validation path.
 
 The semantic preflight requires every namespaced object to target
@@ -171,6 +174,88 @@ audio/video/screen quality, group capacity, call privacy, or the revocation SLO.
 The portable PostgreSQL egress rule deliberately excludes link-local addresses
 but permits TCP 5432 globally. The provider composition must narrow it to the
 managed database network and enforce the same destination through its firewall.
+
+## Migration execution
+
+The migration Job is deliberately non-retrying (`backoffLimit: 0`). It runs the
+reviewed `CommsCore.Release.migrate()` boundary with
+`K_COMMS_MIGRATION_REQUIRE_QUIESCENCE=true`, a 5-second PostgreSQL lock
+timeout, an 840-second statement timeout, and a 900-second Job deadline. A
+failed attempt is evidence to inspect, not permission for Kubernetes to rerun
+DDL blindly.
+
+Production HPAs must be removed before scaling the Deployments down; otherwise
+their minimum replicas can undo quiescence. Preserve the exact approved bundle
+and current HPA/replica evidence first, then execute:
+
+```bash
+export NAMESPACE=k-comms-production
+export APPROVED_BUNDLE='<restricted path to exact approved production bundle>'
+test -r "$APPROVED_BUNDLE"
+
+kubectl -n "$NAMESPACE" get hpa/k-comms-edge hpa/k-comms-worker -o yaml \
+  --ignore-not-found > '<restricted evidence path>/pre-migration-hpas.yaml'
+kubectl -n "$NAMESPACE" get deployment/k-comms-edge deployment/k-comms-worker \
+  --ignore-not-found \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.spec.replicas}{"\n"}{end}' \
+  > '<restricted evidence path>/pre-migration-replicas.txt'
+
+kubectl -n "$NAMESPACE" delete hpa/k-comms-edge hpa/k-comms-worker \
+  --ignore-not-found
+for deployment in k-comms-edge k-comms-worker; do
+  if kubectl -n "$NAMESPACE" get "deployment/$deployment" >/dev/null 2>&1; then
+    kubectl -n "$NAMESPACE" scale "deployment/$deployment" --replicas=0
+  fi
+done
+kubectl -n "$NAMESPACE" wait --for=delete pod \
+  -l app.kubernetes.io/component=edge --timeout=10m
+kubectl -n "$NAMESPACE" wait --for=delete pod \
+  -l app.kubernetes.io/component=worker --timeout=10m
+test -z "$(kubectl -n "$NAMESPACE" get pods \
+  -l app.kubernetes.io/component=edge -o name)"
+test -z "$(kubectl -n "$NAMESPACE" get pods \
+  -l app.kubernetes.io/component=worker -o name)"
+
+kubectl -n "$NAMESPACE" delete job/k-comms-migrate --ignore-not-found
+kubectl apply --server-side -f "$APPROVED_BUNDLE" \
+  -l app.kubernetes.io/component=migration
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete \
+  job/k-comms-migrate --timeout=15m; then
+  kubectl -n "$NAMESPACE" describe job/k-comms-migrate
+  kubectl -n "$NAMESPACE" logs job/k-comms-migrate --all-containers=true || true
+  echo "Migration failed; HPAs remain removed and applications remain quiesced." >&2
+  exit 1
+fi
+kubectl -n "$NAMESPACE" logs job/k-comms-migrate
+```
+
+Only after migration succeeds may the exact approved bundle restore
+Deployments and HPAs. Wait for both rollouts and HPA readiness. On failure,
+leave the writers quiesced, retain Job description/logs and database lock
+evidence, and investigate before explicitly deleting and recreating the Job.
+Never run down migrations as an automatic recovery action.
+
+## Rollback compatibility gate
+
+Every application rollback must follow
+[`deploy/k8s/operations/guest-rollback-preflight`](../../operations/guest-rollback-preflight/README.md)
+before a target bundle is applied. The procedure records the current image,
+derives the exact target digest and the identical edge/worker
+`k-comms.soyuz-tec.io/rollback-capabilities` annotation, deletes both HPAs,
+scales edge and worker to zero, verifies no writer pods remain, and runs
+`CommsCore.Release.assert_guest_rollback_compatible!()` from the current image.
+Pass the rendered operation beside the current production bundle to
+`scripts/validate_production_bundle.py` before applying it.
+
+Missing, partial, unknown, or mismatched target annotations are fail-closed
+legacy classification. If PostgreSQL contains any persisted guest identity or
+active guest-admission expiry Job, the operation blocks that legacy target and
+the procedure restores the exact current bundle, Deployments, and HPAs. The
+only supported recovery is an approved target that declares both
+`guest_identity_v1` and `guest_admission_expiry_worker_v1`, normally a retained
+guest-compatible bridge, or a roll-forward release. Do not delete/convert guest
+rows, discard expiry Jobs, run down migrations, or restore an old database to
+force a rollback.
 
 ## Promotion gate
 

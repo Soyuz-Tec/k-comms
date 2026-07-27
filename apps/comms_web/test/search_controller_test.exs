@@ -30,6 +30,19 @@ defmodule CommsWeb.SearchControllerTest do
     assert page_one["page"]["has_more"]
     assert is_binary(page_one["page"]["next_cursor"])
     assert length(page_one["data"]) == 1
+    refute Map.has_key?(page_one, "included")
+
+    page_one_with_labels =
+      authenticated_conn(first.token)
+      |> get("/api/v1/search?#{query}&include=sender_labels")
+      |> json_response(200)
+
+    assert page_one_with_labels["data"] == page_one["data"]
+    assert page_one_with_labels["page"] == page_one["page"]
+
+    assert page_one_with_labels["included"]["sender_labels"] == [
+             %{"id" => first.user_id, "display_name" => "Search Owner", "redacted" => false}
+           ]
 
     page_two =
       authenticated_conn(first.token)

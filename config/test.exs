@@ -8,6 +8,14 @@ config :comms_core, CommsCore.Repo,
 config :comms_core, Oban, testing: :manual, queues: false, plugins: false
 
 config :comms_core,
+  instant_rooms_enabled: false,
+  instant_room_tenant_slug: nil,
+  instant_room_guest_idle_ttl_seconds: 60,
+  instant_room_registered_idle_ttl_seconds: 120,
+  instant_room_presence_heartbeat_seconds: 1,
+  instant_room_presence_lease_seconds: 3,
+  instant_room_reconnect_grace_seconds: 3,
+  instant_room_max_participants: 5,
   webhook_secret_encryption_key: "0123456789abcdef0123456789abcdef",
   push_subscription_encryption_key: "push-subscription-test-key-32byt",
   push_delivery_status: :degraded,
@@ -31,7 +39,8 @@ config :comms_web,
   allow_bootstrap: true,
   access_token_ttl_seconds: 900,
   auth_adapter: CommsWeb.Auth.Token,
-  metrics_allow_unauthenticated: true
+  metrics_allow_unauthenticated: true,
+  public_share_origin: "http://localhost:5173"
 
 config :comms_web, CommsWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

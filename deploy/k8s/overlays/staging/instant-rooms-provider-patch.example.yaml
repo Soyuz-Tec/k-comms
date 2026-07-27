@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k-comms-config
+data:
+  # Copy this file into the provider-owned staging composition and replace the
+  # placeholder with the exact ingress-controller source CIDR. For multiple
+  # source ranges, use a comma-separated TRUSTED_PROXY_CIDRS value and add one
+  # matching ipBlock entry per range below. Never use a generic RFC1918 block.
+  INSTANT_ROOMS_ENABLED: "true"
+  INSTANT_ROOM_TENANT_SLUG: k-comms-staging
+  TRUSTED_PROXY_CIDRS: REPLACE_WITH_EXACT_INGRESS_CIDR
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k-comms-edge-ingress
+spec:
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: REPLACE_WITH_EXACT_INGRESS_CIDR
+      ports:
+        - protocol: TCP
+          port: 4000

@@ -104,6 +104,14 @@ compiled into the production release and are outside the runtime source rule.
 - **User workspace (`/app`):** tenant-scoped text, one-to-one/group audio and
   video communication, screen sharing, search, files, notifications, profile,
   and personal device/session controls.
+- **Instant room entry (`/` and `/join`):** feature-gated, conversation-only
+  text, audio, and video communication created from the minimal front page or
+  reached through one fragment-bearing link or locally rendered QR. Every
+  instant-room create and admission resolves only the
+  server-configured public tenant; request data and bearer claims can never
+  select or override that tenant. The production flag defaults off until email
+  verification, distributed abuse controls, privacy review, capacity evidence,
+  and operating approval are complete.
 - **Tenant administration (`/admin`):** people, channels, policy, moderation,
   audit, retention, integrations, storage, and tenant security.
 - **Platform operations (`/ops`):** separately authorized, content-blind health,
@@ -119,6 +127,16 @@ service principals in `/admin`, while credentials authenticate only the
 `/api/v1/service/*` namespace. Service principals have no browser, refresh,
 WebSocket, tenant-admin, or platform-operations session and remain constrained
 by tenant membership plus explicit scopes.
+
+Instant-room guests and self-service accounts form a fifth,
+conversation-only identity surface rather than workspace membership.
+`users.access_scope` remains `conversation_only` after optional
+guest-to-human conversion. Server-side authorization excludes directory,
+discovery, unrelated conversations, conversation creation, administration,
+operations, integrations, and service credentials. A later workspace
+invitation is a separate identity-proof and authority-widening workflow. The
+self-service email is not a verified-email claim; production enablement
+requires an approved verification provider and workflow.
 
 ## Data systems
 
@@ -161,6 +179,27 @@ Calls revocation through exact consumer-owned, transaction-required lifecycle
 ports. Calls implements those ports without giving the consumers a compiled
 dependency on Calls. Released web, worker, and integration adapters receive
 only Calls-owned Ecto-free views and provider-work contracts.
+
+Conversations also owns `conversation_ephemeral_rooms` and durable
+`conversation_ephemeral_presence_leases`. Phoenix Presence accelerates display
+but does not decide lifecycle. Thirty-second renewals create ninety-second
+leases and a ninety-second reconnect grace. Generation-fenced, idempotent
+workers expire guest-owned rooms after one hour of authoritative inactivity
+and registered-owner rooms after twenty-four hours. Expiry revokes room
+authority and call access; ConversationContent, Calls, Audit, and Governance
+retain their existing ownership and retention responsibilities.
+
+The controlled non-production instant-room profile uses shared
+PostgreSQL-backed controls for create, join (with preview sharing that bucket),
+conversion, and message send. Refresh remains credential-bounded,
+server-generated presence is lease-bounded, and calls retain existing
+authenticated/guest policy and rate controls. Production remains off until
+adaptive abuse controls across the whole public journey are qualified and any
+threat-model-required distinct shared scopes are added. Process-local counters
+are never the production authority. Missing public-tenant configuration,
+abuse-control state, or required production verification capability fails the
+public surface closed without making normal workspace communication
+unavailable.
 
 Tenant identity, conversation, and membership growth passes through one
 `AdmissionQuotas` domain boundary. Admission checks and tenant-limit updates

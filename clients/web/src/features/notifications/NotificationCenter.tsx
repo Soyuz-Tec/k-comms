@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatTime } from "../../lib/format";

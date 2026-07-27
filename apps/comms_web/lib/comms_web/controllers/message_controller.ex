@@ -6,29 +6,36 @@ defmodule CommsWeb.MessageController do
 
   def index(conn, %{"conversation_id" => conversation_id} = params) do
     limit = params["limit"] |> integer(100) |> max(1) |> min(200)
+    include_sender_labels = params["include"] == "sender_labels"
 
     opts = [
       after_sequence: params["after_sequence"] || 0,
       before_sequence: params["before_sequence"],
-      limit: limit + 1
+      limit: limit,
+      include_sender_labels: include_sender_labels
     ]
 
-    with {:ok, messages} <-
-           Messaging.list_history(conversation_id, conn.assigns.current_subject, opts) do
-      has_more = length(messages) > limit
-      page = Enum.take(messages, limit)
-
-      next_sequence =
-        page |> List.last() |> then(&if(&1, do: &1.conversation_sequence, else: nil))
-
-      json(conn, %{
-        data: Enum.map(page, &Presenter.message/1),
+    with {:ok, result} <-
+           Messaging.list_history_page(conversation_id, conn.assigns.current_subject, opts) do
+      response = %{
+        data: Enum.map(result.messages, &Presenter.message/1),
         page: %{
-          has_more: has_more,
-          next_after_sequence: next_sequence,
+          has_more: result.has_more,
+          next_after_sequence: result.next_after_sequence,
           reset_required: false
         }
-      })
+      }
+
+      response =
+        if include_sender_labels do
+          Map.put(response, :included, %{
+            sender_labels: Enum.map(result.sender_labels, &Presenter.retained_sender_label/1)
+          })
+        else
+          response
+        end
+
+      json(conn, response)
     end
   end
 
@@ -36,7 +43,12 @@ defmodule CommsWeb.MessageController do
     subject = conn.assigns.current_subject
     started_at = System.monotonic_time()
 
-    with [idempotency_key] <- get_req_header(conn, "idempotency-key"),
+    with :ok <-
+           CommsWeb.InstantRoomMessageRateLimit.check(
+             conversation_id,
+             subject
+           ),
+         [idempotency_key] <- get_req_header(conn, "idempotency-key"),
          true <- byte_size(idempotency_key) in 8..128 || {:error, :invalid_idempotency_key},
          attrs <-
            Map.merge(params, %{
@@ -76,19 +88,22 @@ defmodule CommsWeb.MessageController do
     else
       [] -> {:error, :idempotency_key_required}
       [_ | _] -> {:error, :invalid_idempotency_key}
+      {:error, :rate_limited, retry_after} -> rate_limited(conn, retry_after)
       {:error, _} = error -> error
     end
   end
 
   def thread(conn, %{"conversation_id" => conversation_id, "message_id" => message_id} = params) do
     limit = params["limit"] |> integer(50) |> max(1) |> min(100)
+    include_sender_labels = params["include"] == "sender_labels"
 
     with {:ok, result} <-
            Messaging.get_thread(conversation_id, message_id, conn.assigns.current_subject,
              before_sequence: params["before_sequence"],
-             limit: limit
+             limit: limit,
+             include_sender_labels: include_sender_labels
            ) do
-      json(conn, %{
+      response = %{
         data: %{
           root: Presenter.message(result.root),
           replies: Enum.map(result.replies, &Presenter.message/1),
@@ -98,9 +113,39 @@ defmodule CommsWeb.MessageController do
           has_more: result.has_more,
           next_before_sequence: result.next_before_sequence
         }
-      })
+      }
+
+      response =
+        if include_sender_labels do
+          Map.put(response, :included, %{
+            sender_labels: Enum.map(result.sender_labels, &Presenter.retained_sender_label/1)
+          })
+        else
+          response
+        end
+
+      json(conn, response)
     end
   end
+
+  def sender_labels(
+        conn,
+        %{
+          "conversation_id" => conversation_id,
+          "message_ids" => message_ids
+        }
+      ) do
+    with {:ok, labels} <-
+           Messaging.refresh_sender_labels(
+             conversation_id,
+             message_ids,
+             conn.assigns.current_subject
+           ) do
+      json(conn, %{data: Enum.map(labels, &Presenter.retained_sender_label/1)})
+    end
+  end
+
+  def sender_labels(_conn, _params), do: {:error, :invalid_message_ids}
 
   def update(conn, %{"id" => id, "body" => body}) do
     with {:ok, message} <- Messaging.edit_message(id, body, conn.assigns.current_subject) do
@@ -144,4 +189,19 @@ defmodule CommsWeb.MessageController do
   end
 
   defp integer(_, default), do: default
+
+  defp rate_limited(conn, retry_after) do
+    retry_after = max(retry_after, 1)
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> put_status(:too_many_requests)
+    |> json(%{
+      error: %{
+        code: "rate_limited",
+        detail: "Too many requests",
+        retry_after: retry_after
+      }
+    })
+  end
 end

@@ -28,12 +28,147 @@ parse_keyring = fn value, environment_name ->
   end
 end
 
+parse_bounded_integer = fn value, environment_name, allowed_range ->
+  case Integer.parse(value) do
+    {parsed, ""} ->
+      unless parsed in allowed_range do
+        raise "#{environment_name} must be between #{allowed_range.first} and #{allowed_range.last}"
+      end
+
+      parsed
+
+    _ ->
+      raise "#{environment_name} must be an integer"
+  end
+end
+
+parse_boolean = fn value, environment_name ->
+  case value |> to_string() |> String.trim() |> String.downcase() do
+    "true" -> true
+    "false" -> false
+    _ -> raise "#{environment_name} must be true or false"
+  end
+end
+
 if config_env() == :prod do
   database_url = System.fetch_env!("DATABASE_URL")
   secret_key_base = System.fetch_env!("SECRET_KEY_BASE")
   role = System.get_env("K_COMMS_ROLE", "all")
   runtime_purpose = System.get_env("K_COMMS_RUNTIME_PURPOSE", "application")
   development_adapters? = System.get_env("ALLOW_DEVELOPMENT_ADAPTERS", "false") == "true"
+  local_release? = System.get_env("K_COMMS_LOCAL_RELEASE", "false") == "true"
+  release_exposure_mode = System.get_env("K_COMMS_RELEASE_EXPOSURE_MODE")
+
+  trusted_edge_confirmation =
+    case System.get_env("K_COMMS_TRUSTED_EDGE_CONFIRMATION") do
+      nil -> nil
+      "" -> nil
+      value -> value
+    end
+
+  trusted_edge_release? =
+    local_release? and release_exposure_mode == "cloudflare_trusted_edge"
+
+  allow_bootstrap? = System.get_env("ALLOW_BOOTSTRAP", "false") == "true"
+  qualification_app_origin = System.get_env("K_COMMS_QUALIFICATION_APP_ORIGIN")
+
+  qualification_app_confirmation =
+    System.get_env("K_COMMS_QUALIFICATION_APP_CONFIRMATION")
+
+  qualification_share_origin =
+    System.get_env("K_COMMS_QUALIFICATION_SHARE_ORIGIN")
+
+  local_release_host =
+    case System.get_env("K_COMMS_LOCAL_RELEASE_HOST") do
+      nil -> nil
+      value -> if String.trim(value) == "", do: nil, else: value
+    end
+
+  instant_rooms_enabled? =
+    parse_boolean.(
+      System.get_env("INSTANT_ROOMS_ENABLED", "false"),
+      "INSTANT_ROOMS_ENABLED"
+    )
+
+  instant_room_tenant_slug =
+    case System.get_env("INSTANT_ROOM_TENANT_SLUG") do
+      nil -> nil
+      value -> String.trim(value)
+    end
+
+  instant_room_guest_idle_ttl_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS", "3600"),
+      "INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS",
+      60..3_600
+    )
+
+  instant_room_registered_idle_ttl_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS", "86400"),
+      "INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS",
+      60..86_400
+    )
+
+  instant_room_presence_heartbeat_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS", "30"),
+      "INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS",
+      1..60
+    )
+
+  instant_room_presence_lease_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_PRESENCE_LEASE_SECONDS", "90"),
+      "INSTANT_ROOM_PRESENCE_LEASE_SECONDS",
+      3..300
+    )
+
+  instant_room_reconnect_grace_seconds =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_RECONNECT_GRACE_SECONDS", "90"),
+      "INSTANT_ROOM_RECONNECT_GRACE_SECONDS",
+      3..300
+    )
+
+  instant_room_max_participants =
+    parse_bounded_integer.(
+      System.get_env("INSTANT_ROOM_MAX_PARTICIPANTS", "25"),
+      "INSTANT_ROOM_MAX_PARTICIPANTS",
+      2..25
+    )
+
+  if instant_room_presence_lease_seconds < instant_room_presence_heartbeat_seconds * 3 do
+    raise "INSTANT_ROOM_PRESENCE_LEASE_SECONDS must be at least three times " <>
+            "INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS"
+  end
+
+  if instant_room_reconnect_grace_seconds < instant_room_presence_lease_seconds do
+    raise "INSTANT_ROOM_RECONNECT_GRACE_SECONDS must be greater than or equal to " <>
+            "INSTANT_ROOM_PRESENCE_LEASE_SECONDS"
+  end
+
+  if instant_rooms_enabled? do
+    unless is_binary(instant_room_tenant_slug) and
+             byte_size(instant_room_tenant_slug) in 2..80 and
+             Regex.match?(
+               ~r/^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+               instant_room_tenant_slug
+             ) do
+      raise "INSTANT_ROOM_TENANT_SLUG must be a configured lowercase tenant slug " <>
+              "when instant rooms are enabled"
+    end
+
+    unless local_release? or
+             {instant_room_guest_idle_ttl_seconds, instant_room_registered_idle_ttl_seconds,
+              instant_room_presence_heartbeat_seconds, instant_room_presence_lease_seconds,
+              instant_room_reconnect_grace_seconds, instant_room_max_participants} ==
+               {3_600, 86_400, 30, 90, 90, 25} do
+      raise "production instant-room lifecycle values must be exactly " <>
+              "guest_idle=3600, registered_idle=86400, heartbeat=30, lease=90, " <>
+              "reconnect_grace=90, max_participants=25"
+    end
+  end
 
   audio_provider_mode =
     System.get_env("AUDIO_PROVIDER_MODE", "disabled") |> String.trim() |> String.downcase()
@@ -75,6 +210,66 @@ if config_env() == :prod do
     raise "K_COMMS_RUNTIME_PURPOSE must be application or one_shot"
   end
 
+  instance_id =
+    System.get_env("K_COMMS_INSTANCE_ID") ||
+      System.get_env("HOSTNAME") ||
+      System.get_env("COMPUTERNAME")
+
+  unless is_binary(instance_id) and String.trim(instance_id) != "" do
+    raise "K_COMMS_INSTANCE_ID or the platform hostname must identify this runtime"
+  end
+
+  instance_digest =
+    :sha256
+    |> :crypto.hash(instance_id)
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 12)
+
+  role_label =
+    role
+    |> String.replace(~r/[^A-Za-z0-9_.-]/, "_")
+    |> String.slice(0, 12)
+
+  # Runtime configuration is evaluated once per BEAM boot. Every Repo pool
+  # connection in this runtime therefore shares this cryptographically random
+  # nonce, while a concurrent boot on the same host receives a different one.
+  boot_nonce =
+    12
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64(padding: false)
+
+  database_application_name =
+    "k_comms/#{runtime_purpose}/#{role_label}/#{boot_nonce}/#{instance_digest}"
+
+  unless byte_size(database_application_name) <= 63 do
+    raise "PostgreSQL application_name must not exceed 63 bytes"
+  end
+
+  {migration_lock_timeout_ms, migration_statement_timeout_ms} =
+    if runtime_purpose == "one_shot" do
+      lock_timeout_ms =
+        parse_bounded_integer.(
+          System.get_env("K_COMMS_MIGRATION_LOCK_TIMEOUT_MS", "5000"),
+          "K_COMMS_MIGRATION_LOCK_TIMEOUT_MS",
+          1_000..30_000
+        )
+
+      statement_timeout_ms =
+        parse_bounded_integer.(
+          System.get_env("K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS", "300000"),
+          "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS",
+          60_000..900_000
+        )
+
+      if statement_timeout_ms <= lock_timeout_ms do
+        raise "K_COMMS_MIGRATION_STATEMENT_TIMEOUT_MS must exceed K_COMMS_MIGRATION_LOCK_TIMEOUT_MS"
+      end
+
+      {lock_timeout_ms, statement_timeout_ms}
+    else
+      {nil, nil}
+    end
+
   unless audio_provider_mode in ["disabled", "livekit"] do
     raise "AUDIO_PROVIDER_MODE must be disabled or livekit"
   end
@@ -82,6 +277,47 @@ if config_env() == :prod do
   csp_connect_sources =
     System.get_env("CSP_CONNECT_SOURCES", "'self' wss://#{host} https://#{host}")
     |> String.split(" ", trim: true)
+
+  cors_origins =
+    System.get_env("CORS_ORIGINS", "https://#{host}")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+
+  s3_public_endpoint = System.get_env("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
+
+  hsts? = System.get_env("HSTS_ENABLED", "true") == "true"
+
+  trusted_proxy_cidrs =
+    System.get_env("TRUSTED_PROXY_CIDRS", "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+
+  CommsIntegrations.LocalReleaseGuard.validate!(
+    enabled?: local_release?,
+    development_adapters?: development_adapters?,
+    exposure_mode: release_exposure_mode,
+    trusted_edge_confirmation: trusted_edge_confirmation,
+    role: role,
+    runtime_purpose: runtime_purpose,
+    allow_bootstrap?: allow_bootstrap?,
+    audio_provider_mode: audio_provider_mode,
+    local_release_host: local_release_host,
+    instant_room_tenant_slug: instant_room_tenant_slug,
+    qualification_app_origin: qualification_app_origin,
+    qualification_app_confirmation: qualification_app_confirmation,
+    qualification_share_origin: qualification_share_origin,
+    phx_host: host,
+    public_app_url: public_app_url,
+    livekit_server_url: livekit_server_url,
+    livekit_api_url: livekit_api_url,
+    s3_public_endpoint: s3_public_endpoint,
+    cors_origins: cors_origins,
+    csp_connect_sources: csp_connect_sources,
+    hsts?: hsts?,
+    trusted_proxy_cidrs: trusted_proxy_cidrs
+  )
+
+  public_share_origin = qualification_share_origin || public_app_url
 
   if runtime_purpose == "application" and audio_provider_mode == "disabled" and
        not development_adapters? do
@@ -92,20 +328,23 @@ if config_env() == :prod do
     livekit_uri = URI.parse(livekit_server_url || "")
     livekit_api_uri = URI.parse(livekit_api_url || "")
 
-    unless livekit_uri.scheme == "wss" and is_binary(livekit_uri.host) and
-             livekit_uri.port in [nil, 443] and livekit_uri.path in [nil, "", "/"] and
-             is_nil(livekit_uri.userinfo) and is_nil(livekit_uri.query) and
-             is_nil(livekit_uri.fragment) and
-             not String.ends_with?(String.downcase(livekit_uri.host), ".invalid") do
-      raise "LIVEKIT_SERVER_URL must be an exact WSS origin on port 443 in production"
-    end
+    unless local_release? do
+      unless livekit_uri.scheme == "wss" and is_binary(livekit_uri.host) and
+               livekit_uri.port in [nil, 443] and livekit_uri.path in [nil, "", "/"] and
+               is_nil(livekit_uri.userinfo) and is_nil(livekit_uri.query) and
+               is_nil(livekit_uri.fragment) and
+               not String.ends_with?(String.downcase(livekit_uri.host), ".invalid") do
+        raise "LIVEKIT_SERVER_URL must be an exact WSS origin on port 443 in production"
+      end
 
-    unless livekit_api_uri.scheme == "https" and is_binary(livekit_api_uri.host) and
-             livekit_api_uri.port in [nil, 443] and livekit_api_uri.path in [nil, "", "/"] and
-             is_nil(livekit_api_uri.userinfo) and is_nil(livekit_api_uri.query) and
-             is_nil(livekit_api_uri.fragment) and
-             not String.ends_with?(String.downcase(livekit_api_uri.host), ".invalid") do
-      raise "LIVEKIT_API_URL must be an exact HTTPS origin on port 443 in production"
+      unless livekit_api_uri.scheme == "https" and is_binary(livekit_api_uri.host) and
+               livekit_api_uri.port in [nil, 443] and
+               livekit_api_uri.path in [nil, "", "/"] and
+               is_nil(livekit_api_uri.userinfo) and is_nil(livekit_api_uri.query) and
+               is_nil(livekit_api_uri.fragment) and
+               not String.ends_with?(String.downcase(livekit_api_uri.host), ".invalid") do
+        raise "LIVEKIT_API_URL must be an exact HTTPS origin on port 443 in production"
+      end
     end
 
     for {name, value, minimum_bytes} <- [
@@ -130,14 +369,15 @@ if config_env() == :prod do
       raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be greater than or equal to AUDIO_TOKEN_TTL_SECONDS"
     end
 
-    unless livekit_server_url in csp_connect_sources do
+    unless trusted_edge_release? or livekit_server_url in csp_connect_sources do
       raise "CSP_CONNECT_SOURCES must contain the exact LIVEKIT_SERVER_URL origin"
     end
   end
 
-  unless public_app_uri.scheme == "https" and is_binary(public_app_uri.host) and
-           public_app_uri.path in [nil, "", "/"] and is_nil(public_app_uri.userinfo) and
-           is_nil(public_app_uri.query) and is_nil(public_app_uri.fragment) do
+  unless local_release? or
+           (public_app_uri.scheme == "https" and is_binary(public_app_uri.host) and
+              public_app_uri.path in [nil, "", "/"] and is_nil(public_app_uri.userinfo) and
+              is_nil(public_app_uri.query) and is_nil(public_app_uri.fragment)) do
     raise "PUBLIC_APP_URL must be an absolute HTTPS origin in production"
   end
 
@@ -170,6 +410,14 @@ if config_env() == :prod do
     audio_participant_eviction_enforcement_seconds:
       audio_participant_eviction_enforcement_seconds,
     cluster_topologies: topologies,
+    instant_rooms_enabled: instant_rooms_enabled?,
+    instant_room_tenant_slug: instant_room_tenant_slug,
+    instant_room_guest_idle_ttl_seconds: instant_room_guest_idle_ttl_seconds,
+    instant_room_registered_idle_ttl_seconds: instant_room_registered_idle_ttl_seconds,
+    instant_room_presence_heartbeat_seconds: instant_room_presence_heartbeat_seconds,
+    instant_room_presence_lease_seconds: instant_room_presence_lease_seconds,
+    instant_room_reconnect_grace_seconds: instant_room_reconnect_grace_seconds,
+    instant_room_max_participants: instant_room_max_participants,
     session_ttl_seconds: String.to_integer(System.get_env("SESSION_TTL_SECONDS", "2592000")),
     session_absolute_ttl_seconds:
       String.to_integer(System.get_env("SESSION_ABSOLUTE_TTL_SECONDS", "2592000")),
@@ -212,7 +460,18 @@ if config_env() == :prod do
   database_options =
     [
       url: database_url,
-      pool_size: String.to_integer(System.get_env("POOL_SIZE", "20"))
+      pool_size: String.to_integer(System.get_env("POOL_SIZE", "20")),
+      parameters:
+        [
+          application_name: database_application_name
+        ] ++
+          if(runtime_purpose == "one_shot",
+            do: [
+              lock_timeout: "#{migration_lock_timeout_ms}ms",
+              statement_timeout: "#{migration_statement_timeout_ms}ms"
+            ],
+            else: []
+          )
     ] ++ database_tls_options
 
   config :comms_core, CommsCore.Repo, database_options
@@ -221,22 +480,24 @@ if config_env() == :prod do
     queues:
       if(role == "edge",
         do: false,
-        else: [default: 20, notifications: 20, webhooks: 20, media: 10, outbox: 20]
+        else: [
+          default: 20,
+          lifecycle: 20,
+          notifications: 20,
+          webhooks: 20,
+          media: 10,
+          outbox: 20
+        ]
       )
 
-  cors_origins =
-    System.get_env("CORS_ORIGINS", "https://#{host}")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-
-  trusted_proxy_cidrs =
-    System.get_env("TRUSTED_PROXY_CIDRS", "")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-
   config :comms_web,
-    allow_bootstrap: System.get_env("ALLOW_BOOTSTRAP", "false") == "true",
-    hsts: System.get_env("HSTS_ENABLED", "true") == "true",
+    allow_bootstrap: allow_bootstrap?,
+    public_share_origin: public_share_origin,
+    insecure_lan_release:
+      local_release? and public_app_uri.scheme == "http" and
+        public_app_uri.host not in ["127.0.0.1", "localhost", "::1"],
+    secure_transport_required: trusted_edge_release?,
+    hsts: hsts?,
     metrics_allow_unauthenticated: false,
     metrics_bearer_token: System.get_env("METRICS_BEARER_TOKEN"),
     csp_connect_sources: csp_connect_sources,
@@ -253,7 +514,7 @@ if config_env() == :prod do
     server: role in ["all", "edge"]
 
   {s3_scheme, s3_host, s3_port} =
-    parse_endpoint.(System.get_env("S3_PUBLIC_ENDPOINT", "http://localhost:9000"))
+    parse_endpoint.(s3_public_endpoint)
 
   {s3_internal_scheme, s3_internal_host, s3_internal_port} =
     parse_endpoint.(
@@ -325,6 +586,9 @@ if config_env() == :prod do
     livekit_api_key: livekit_api_key,
     livekit_api_secret: livekit_api_secret,
     audio_token_ttl_seconds: audio_token_ttl_seconds,
+    allow_insecure_local_object_storage: local_release? and development_adapters?,
+    insecure_local_object_storage_host:
+      if(local_release? and development_adapters?, do: local_release_host, else: nil),
     object_storage_adapter: CommsIntegrations.ObjectStorage.S3,
     notification_adapter: provider_runtime.notification_adapter,
     notification_http: notification_http,

@@ -39,6 +39,12 @@ defmodule CommsIntegrations.ObjectStorageTest do
                object_key: "tenant/file name.txt",
                object_version_id: "memory-v1"
              })
+
+    assert {:ok, %{deleted_versions: 0, deleted_markers: 0, verified_empty?: true}} =
+             CommsIntegrations.ObjectStorage.Memory.purge_object_versions(%{
+               tenant_id: "tenant",
+               object_key: "tenant/file name.txt"
+             })
   end
 
   test "S3 adapter emits a SigV4 URL without exposing its secret" do
@@ -155,6 +161,143 @@ defmodule CommsIntegrations.ObjectStorageTest do
     assert URI.parse(url).userinfo == nil
   end
 
+  test "HTTP public object-store origin permits only the exact selected RFC1918 host" do
+    previous_s3 = Application.get_env(:comms_integrations, :s3)
+
+    previous_allow =
+      Application.get_env(:comms_integrations, :allow_insecure_local_object_storage)
+
+    previous_host =
+      Application.get_env(:comms_integrations, :insecure_local_object_storage_host)
+
+    attachment =
+      attachment(%{
+        tenant_id: "tenant",
+        object_key: "tenant/file.txt",
+        content_type: "text/plain",
+        checksum_sha256: String.duplicate("a", 64)
+      })
+
+    on_exit(fn ->
+      restore_env(:s3, previous_s3)
+      restore_env(:allow_insecure_local_object_storage, previous_allow)
+      restore_env(:insecure_local_object_storage_host, previous_host)
+    end)
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_object_storage, true)
+
+    Application.put_env(
+      :comms_integrations,
+      :insecure_local_object_storage_host,
+      "192.168.1.177"
+    )
+
+    Application.put_env(:comms_integrations, :s3,
+      scheme: "http",
+      host: "192.168.1.177",
+      port: 5900,
+      bucket: "k-comms",
+      region: "us-east-1",
+      access_key_id: "access-key",
+      secret_access_key: "secret-key"
+    )
+
+    assert {:ok,
+            %{
+              approved_origin: "http://192.168.1.177:5900",
+              development_http: true
+            }} = CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
+
+    for other_private_host <- ["192.168.1.178", "10.0.0.1", "172.16.0.1"] do
+      Application.put_env(
+        :comms_integrations,
+        :s3,
+        scheme: "http",
+        host: other_private_host,
+        port: 5900,
+        bucket: "k-comms",
+        region: "us-east-1",
+        access_key_id: "access-key",
+        secret_access_key: "secret-key"
+      )
+
+      assert {:error, :insecure_public_object_storage_endpoint} =
+               CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
+    end
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_object_storage, false)
+
+    Application.put_env(:comms_integrations, :s3,
+      scheme: "http",
+      host: "192.168.1.177",
+      port: 5900,
+      bucket: "k-comms",
+      region: "us-east-1",
+      access_key_id: "access-key",
+      secret_access_key: "secret-key"
+    )
+
+    assert {:error, :insecure_public_object_storage_endpoint} =
+             CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
+  end
+
+  test "HTTP object-store selector rejects public reserved wildcard and malformed hosts" do
+    previous_s3 = Application.get_env(:comms_integrations, :s3)
+
+    previous_allow =
+      Application.get_env(:comms_integrations, :allow_insecure_local_object_storage)
+
+    previous_host =
+      Application.get_env(:comms_integrations, :insecure_local_object_storage_host)
+
+    attachment =
+      attachment(%{
+        tenant_id: "tenant",
+        object_key: "tenant/file.txt",
+        content_type: "text/plain",
+        checksum_sha256: String.duplicate("a", 64)
+      })
+
+    on_exit(fn ->
+      restore_env(:s3, previous_s3)
+      restore_env(:allow_insecure_local_object_storage, previous_allow)
+      restore_env(:insecure_local_object_storage_host, previous_host)
+    end)
+
+    Application.put_env(:comms_integrations, :allow_insecure_local_object_storage, true)
+
+    for invalid_host <- [
+          "0.0.0.0",
+          "8.8.8.8",
+          "100.64.0.10",
+          "169.254.0.10",
+          "192.0.2.10",
+          "192.168.001.177",
+          "objects.internal"
+        ] do
+      Application.put_env(
+        :comms_integrations,
+        :insecure_local_object_storage_host,
+        invalid_host
+      )
+
+      Application.put_env(
+        :comms_integrations,
+        :s3,
+        scheme: "http",
+        host: invalid_host,
+        port: 5900,
+        bucket: "k-comms",
+        region: "us-east-1",
+        access_key_id: "access-key",
+        secret_access_key: "secret-key"
+      )
+
+      assert {:error, :insecure_public_object_storage_endpoint} =
+               CommsIntegrations.ObjectStorage.S3.presign_upload(attachment)
+    end
+  end
+
   test "object deletion rejects cross-tenant and unsafe object keys before reaching an adapter" do
     previous = Application.get_env(:comms_integrations, :object_storage_adapter)
 
@@ -178,7 +321,19 @@ defmodule CommsIntegrations.ObjectStorageTest do
                  tenant_id: "tenant-a",
                  object_key: key
                })
+
+      assert {:error, :invalid_object_key} =
+               CommsIntegrations.ObjectStorage.purge_object_versions(%{
+                 tenant_id: "tenant-a",
+                 object_key: key
+               })
     end
+
+    assert {:error, :object_tenant_mismatch} =
+             CommsIntegrations.ObjectStorage.purge_object_versions(%{
+               tenant_id: "tenant-a",
+               object_key: "tenant-b/file.txt"
+             })
   end
 
   test "S3 deletion fails closed on missing configuration and provider failure" do
@@ -261,6 +416,65 @@ defmodule CommsIntegrations.ObjectStorageTest do
                tenant_id: tenant_id,
                object_key: object_key,
                object_version_id: identity.object_version_id
+             })
+  end
+
+  test "S3 abandonment purge deletes and verifies every version under the exact key" do
+    previous = Application.get_env(:comms_integrations, :s3)
+    tenant_id = "purge-tenant-#{System.unique_integer([:positive, :monotonic])}"
+    object_key = "#{tenant_id}/purge-#{System.unique_integer([:positive])}/evidence.txt"
+
+    Application.put_env(:comms_integrations, :s3, s3_integration_config())
+
+    on_exit(fn -> restore_env(:s3, previous) end)
+
+    versions =
+      for body <- ["first-version", "second-version", "third-version"] do
+        candidate =
+          attachment(%{
+            tenant_id: tenant_id,
+            object_key: object_key,
+            content_type: "text/plain",
+            byte_size: byte_size(body),
+            checksum_sha256: sha256(body)
+          })
+
+        assert :ok = upload(candidate, body)
+        assert {:ok, identity} = CommsIntegrations.ObjectStorage.S3.verify_upload(candidate)
+        identity
+      end
+
+    assert {:ok,
+            %{
+              deleted_versions: deleted_versions,
+              verified_empty?: true
+            }} =
+             CommsIntegrations.ObjectStorage.S3.purge_object_versions(%{
+               tenant_id: tenant_id,
+               object_key: object_key
+             })
+
+    assert deleted_versions >= 3
+
+    for identity <- versions do
+      versioned =
+        attachment(%{
+          tenant_id: tenant_id,
+          object_key: object_key,
+          object_version_id: identity.object_version_id
+        })
+
+      assert {:ok, descriptor} =
+               CommsIntegrations.ObjectStorage.S3.presign_download(versioned)
+
+      request = Finch.build(:get, descriptor.url, Map.to_list(descriptor.headers))
+      assert {:ok, %Finch.Response{status: 404}} = Finch.request(request, CommsIntegrations.Finch)
+    end
+
+    assert {:ok, %{deleted_versions: 0, deleted_markers: 0, verified_empty?: true}} =
+             CommsIntegrations.ObjectStorage.S3.purge_object_versions(%{
+               tenant_id: tenant_id,
+               object_key: object_key
              })
   end
 

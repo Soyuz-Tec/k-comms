@@ -6,6 +6,7 @@ defmodule CommsCore.Accounts.Projector do
     AuthenticationResult,
     Device,
     DeviceView,
+    DirectoryPersonView,
     PlatformAccess,
     Session,
     SessionView,
@@ -27,14 +28,23 @@ defmodule CommsCore.Accounts.Projector do
     struct!(UserView, %{
       id: user.id,
       tenant_id: user.tenant_id,
-      display_name: user.display_name,
-      email: if(user.account_type == :service, do: nil, else: user.email),
+      display_name: visible_display_name(user),
+      email: if(user.account_type in [:service, :guest], do: nil, else: user.email),
       account_type: user.account_type,
+      access_scope: user.access_scope,
+      guest_expires_at: user.guest_expires_at,
       role: user.role,
       status: user.status,
       version: user.lock_version,
       platform_role: platform_access.platform_role,
       platform_role_expires_at: platform_access.platform_role_expires_at
+    })
+  end
+
+  def directory_person(%User{} = user) do
+    struct!(DirectoryPersonView, %{
+      id: user.id,
+      display_name: visible_display_name(user)
     })
   end
 
@@ -61,6 +71,7 @@ defmodule CommsCore.Accounts.Projector do
       user_id: session.user_id,
       device_id: session.device_id,
       expires_at: session.expires_at,
+      absolute_expires_at: session.absolute_expires_at,
       last_used_at: session.last_used_at,
       revoked_at: session.revoked_at,
       inserted_at: session.inserted_at,
@@ -90,4 +101,7 @@ defmodule CommsCore.Accounts.Projector do
       device: device(session.device)
     })
   end
+
+  defp visible_display_name(%User{status: :deleted}), do: "Deleted user"
+  defp visible_display_name(%User{display_name: display_name}), do: display_name
 end

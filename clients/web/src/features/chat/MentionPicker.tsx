@@ -1,5 +1,9 @@
 import { useId, useMemo, useState } from "react";
 import type { ConversationMembership } from "../../types";
+import {
+  duplicateParticipantNames,
+  participantIdentifier
+} from "../../lib/participantIdentity";
 
 const maxMentions = 50;
 
@@ -28,9 +32,19 @@ export function MentionPicker({
         .sort((left, right) => left.user.display_name.localeCompare(right.user.display_name)),
     [currentUserId, members]
   );
-  const byId = useMemo(
-    () => new Map(available.map(({ user }) => [user.id, user])),
+  const duplicateDisplayNames = useMemo(
+    () => duplicateParticipantNames(available.map(({ user }) => user)),
     [available]
+  );
+  const identifierById = useMemo(
+    () =>
+      new Map(
+        available.map(({ user }) => [
+          user.id,
+          participantIdentifier(user, duplicateDisplayNames)
+        ])
+      ),
+    [available, duplicateDisplayNames]
   );
 
   function toggle(userId: string) {
@@ -60,6 +74,7 @@ export function MentionPicker({
           <div className="mention-options">
             {available.map(({ user }) => {
               const selected = selectedUserIds.includes(user.id);
+              const identifier = identifierById.get(user.id) || user.display_name;
               return (
                 <label key={user.id}>
                   <input
@@ -68,7 +83,7 @@ export function MentionPicker({
                     disabled={!selected && selectedUserIds.length >= maxMentions}
                     onChange={() => toggle(user.id)}
                   />
-                  <span>{user.display_name}</span>
+                  <span>{identifier}</span>
                 </label>
               );
             })}
@@ -79,8 +94,8 @@ export function MentionPicker({
         <div className="mention-chips" aria-label="People mentioned">
           {selectedUserIds.map((userId) => (
             <span key={userId}>
-              @{byId.get(userId)?.display_name || "Member"}
-              <button type="button" aria-label={`Remove mention ${byId.get(userId)?.display_name || "member"}`} onClick={() => toggle(userId)}>×</button>
+              @{identifierById.get(userId) || "Member"}
+              <button type="button" aria-label={`Remove mention ${identifierById.get(userId) || "member"}`} onClick={() => toggle(userId)}>×</button>
             </span>
           ))}
         </div>

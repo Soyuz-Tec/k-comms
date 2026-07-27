@@ -3,6 +3,11 @@ defmodule CommsCore.Outbox do
   alias CommsCore.Outbox.Event
   alias CommsCore.RuntimePorts
 
+  @doc false
+  def release_tenant_fingerprint_fragment(repo, tenant_id)
+      when is_atom(repo) and is_binary(tenant_id),
+      do: OutboxStore.release_tenant_fingerprint_fragment(repo, tenant_id)
+
   @doc """
   Atomically appends a durable event and schedules its publication.
 

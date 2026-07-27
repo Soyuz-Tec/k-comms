@@ -253,6 +253,37 @@ class ApiClient {
   }
 }
 
+async function assertInstantRoomCapabilityAndEndpoint(api, serviceStatus, baseUrl) {
+  const capabilities = assertRecord(serviceStatus.capabilities, "service capabilities");
+  assert(
+    capabilities.instant_rooms === true,
+    "instant_rooms capability is not enabled"
+  );
+
+  const invalidToken = createHash("sha256")
+    .update(`staging-instant-room-probe:${randomUUID()}`)
+    .digest("base64url");
+  const preview = await api.request("/api/v1/instant-rooms/preview", {
+    method: "POST",
+    headers: { Origin: baseUrl.origin },
+    body: { token: invalidToken },
+    expected: 404
+  });
+  const error = assertRecord(
+    assertRecord(preview.payload, "instant-room preview response").error,
+    "instant-room preview error"
+  );
+  assert(
+    error.code === "instant_room_unavailable",
+    "instant-room preview did not return the uniform unavailable response"
+  );
+
+  return {
+    capability: true,
+    unavailable_preview_contract: true
+  };
+}
+
 class PhoenixChannel {
   constructor(socketUrl, socketTicket, timeoutMs) {
     this.timeoutMs = timeoutMs;
@@ -811,7 +842,8 @@ async function runAcceptance(env = process.env) {
       assertRecord(serviceStatus.capabilities, "service capabilities").administration === true,
       "administration capability is not enabled"
     );
-    console.log("ok - public capability status");
+    await assertInstantRoomCapabilityAndEndpoint(api, serviceStatus, config.baseUrl);
+    console.log("ok - public capability status and no-write instant-room endpoint probe");
 
     const login = await api.request("/api/v1/sessions", {
       method: "POST",
@@ -1046,6 +1078,7 @@ export {
   ApiClient,
   PhoenixChannel,
   assert,
+  assertInstantRoomCapabilityAndEndpoint,
   assertMessage,
   assertNoSensitiveValues,
   assertRecord,
