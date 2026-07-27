@@ -3,14 +3,14 @@
   display: grid;
   place-items: center;
   padding:
-    max(1rem, var(--safe-top))
-    max(1rem, var(--safe-right))
-    max(1rem, var(--safe-bottom))
-    max(1rem, var(--safe-left));
+    max(1.5rem, var(--safe-top))
+    max(1.5rem, var(--safe-right))
+    max(1.5rem, var(--safe-bottom))
+    max(1.5rem, var(--safe-left));
   background:
-    radial-gradient(circle at 15% 10%, rgb(178 229 214 / 58%), transparent 28rem),
-    radial-gradient(circle at 90% 90%, rgb(246 215 154 / 45%), transparent 26rem),
-    linear-gradient(150deg, #e9f1ed, #fbfaf4 58%, #eef2e9);
+    radial-gradient(circle at 0 0, #eaf2ff 0 10rem, transparent 10.1rem),
+    radial-gradient(circle at 100% 100%, #e8f5f1 0 12rem, transparent 12.1rem),
+    #f8fafc;
 }
 
 .instant-room-launch {
@@ -21,15 +21,15 @@
 .instant-room-loading,
 .instant-room-error,
 .instant-room-start {
-  width: min(520px, 100%);
+  width: min(480px, 100%);
   display: grid;
   justify-items: start;
-  gap: 1rem;
-  padding: clamp(1.35rem, 6vw, 2.5rem);
-  border: 1px solid #c4d3ca;
-  border-radius: 24px;
-  background: rgb(253 252 247 / 96%);
-  box-shadow: var(--shadow);
+  gap: .8rem;
+  padding: clamp(1.75rem, 5vw, 3rem);
+  border: 1px solid #e0e7ec;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 26px 80px rgb(35 53 78 / 10%);
 }
 
 .instant-room-loading {
@@ -41,7 +41,15 @@
 
 .instant-room-loading h1,
 .instant-room-error h1,
-.instant-room-start h1,
+.instant-room-start h1 {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: clamp(2rem, 5vw, 2.55rem);
+  font-weight: 680;
+  letter-spacing: -.045em;
+  line-height: 1.08;
+}
+
 .instant-room-share h2 {
   margin: 0;
   font-family: Georgia, serif;
@@ -56,48 +64,96 @@
   line-height: 1.5;
 }
 
+.instant-room-start > p:not(.form-error) {
+  max-width: 35rem;
+  font-size: .96rem;
+}
+
 .instant-room-brand {
   display: inline-flex;
   align-items: center;
-  gap: .65rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .08em;
+  gap: .7rem;
+  margin-bottom: .65rem;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: .9rem;
+  letter-spacing: .04em;
 }
 
 .instant-room-brand > span {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  border-radius: 11px 11px 11px 3px;
+  border-radius: 10px;
   color: white;
   background: var(--forest);
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .instant-room-kicker {
-  color: #216452;
-  font-size: .75rem;
-  font-weight: 850;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  padding: .28rem .55rem;
+  border-radius: 999px;
+  color: #176667;
+  background: #eaf6f5;
+  font-size: .7rem;
+  font-weight: 750;
+  letter-spacing: .035em;
 }
 
 .instant-room-entry-actions {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: .7rem;
+  justify-items: center;
+  gap: .35rem;
+  padding-top: .1rem;
 }
 
 .instant-room-entry-actions .button {
-  min-height: 48px;
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: .5rem .6rem;
+  border: 0;
+  color: #286c70;
+  background: transparent;
+  box-shadow: none;
+  font-size: .86rem;
+  font-weight: 650;
+}
+
+.instant-room-entry-actions .button:hover {
+  color: #0e5559;
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+  transform: none;
 }
 
 .instant-room-start-form {
   width: 100%;
   display: grid;
-  gap: .9rem;
+  gap: .8rem;
+  margin-top: .55rem;
+}
+
+.instant-room-start-form .field {
+  gap: .42rem;
+  font-size: .78rem;
+  font-weight: 680;
+}
+
+.instant-room-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.instant-room-field-label .optional {
+  color: #71827e;
+  font-size: .72rem;
+  font-weight: 550;
+  white-space: nowrap;
 }
 
 .instant-room-start > .form-error {
@@ -107,7 +163,58 @@
 
 .instant-room-start-form input,
 .instant-room-start-form .button {
-  min-height: 48px;
+  min-height: 50px;
+}
+
+.instant-room-input {
+  position: relative;
+  display: block;
+}
+
+.instant-room-field-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: .9rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: #82939f;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.instant-room-start-form .instant-room-input input {
+  padding: .78rem .9rem .78rem 2.7rem;
+  border-color: #d7e0e7;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: inset 0 1px 1px rgb(35 53 78 / 2%);
+  font-size: .94rem;
+  font-weight: 500;
+}
+
+.instant-room-start-form .instant-room-input input::placeholder {
+  color: #7b8c87;
+  opacity: 1;
+  font-weight: 450;
+}
+
+.instant-room-start-form .instant-room-input input:focus {
+  border-color: #298486;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgb(41 132 134 / 10%);
+}
+
+.instant-room-start-form .button.primary {
+  margin-top: .25rem;
+  border-radius: 12px;
+  background: #08777a;
+  box-shadow: 0 9px 22px rgb(8 119 122 / 18%);
+  font-size: .94rem;
+}
+
+.instant-room-start-form .button.primary:not(:disabled):hover {
+  background: #09676b;
 }
 
 .instant-room-account-identity {
@@ -246,7 +353,9 @@
   .instant-room-entry {
     place-items: start stretch;
     padding: 0;
-    background: white;
+    background:
+      radial-gradient(circle at 100% 0, #edf3ff 0 7rem, transparent 7.1rem),
+      #fbfcfe;
   }
 
   .instant-room-start,
@@ -255,44 +364,40 @@
     width: 100%;
     min-height: var(--app-viewport-height);
     align-content: start;
-    gap: .85rem;
+    gap: .72rem;
     padding:
-      max(1rem, var(--safe-top))
-      max(1rem, var(--safe-right))
-      max(1rem, var(--safe-bottom))
-      max(1rem, var(--safe-left));
+      max(1.5rem, var(--safe-top))
+      max(1.25rem, var(--safe-right))
+      max(1.5rem, var(--safe-bottom))
+      max(1.25rem, var(--safe-left));
     border: 0;
     border-radius: 0;
-    background: linear-gradient(180deg, #e9f8f6 0, white 170px);
+    background: transparent;
     box-shadow: none;
   }
 
   .instant-room-start h1 {
-    max-width: 18rem;
-    margin-top: .5rem;
+    max-width: 19rem;
+    margin-top: .25rem;
     color: #0b1220;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-    font-size: clamp(1.9rem, 10vw, 2.45rem);
-    font-weight: 760;
+    font-size: clamp(2rem, 10vw, 2.4rem);
+    font-weight: 680;
     letter-spacing: -.045em;
-    line-height: 1.04;
+    line-height: 1.06;
   }
 
   .instant-room-start-form {
     gap: .75rem;
-    margin-top: .25rem;
-    padding: .9rem;
-    border: 1px solid #d8e6e4;
-    border-radius: 18px;
-    background: rgb(255 255 255 / 94%);
-    box-shadow: 0 12px 36px rgb(15 83 84 / 8%);
+    margin-top: .55rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
-  .instant-room-start-form input {
+  .instant-room-start-form .instant-room-input input {
     min-height: 50px;
-    border-color: #cbd9df;
-    border-radius: 13px;
-    background: #fbfcfd;
+    border-radius: 12px;
   }
 
   .instant-room-launch {
