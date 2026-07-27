@@ -22,6 +22,7 @@ defmodule CommsIntegrations.Audio.LiveKitTokenTest do
     Application.put_env(:comms_integrations, :livekit_api_key, "test-api-key")
     Application.put_env(:comms_integrations, :livekit_api_secret, "test-api-secret")
     Application.put_env(:comms_integrations, :audio_token_ttl_seconds, 300)
+    Application.put_env(:comms_integrations, :allow_insecure_local_media, false)
 
     on_exit(fn ->
       Enum.each(previous, fn {key, value} ->
