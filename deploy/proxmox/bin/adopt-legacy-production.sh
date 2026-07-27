@@ -159,14 +159,16 @@ append_env_if_missing S3_SECRET_ACCESS_KEY \
 
 if [[ -e "$K_COMMS_RUNTIME_ENV" ]]; then
   assert_secure_runtime_env
-  [[ "$(configured_environment)" == production ]] ||
-    die "existing prepared runtime is not bound to production"
-  [[ "$(configured_storage_mode)" == adopted ]] ||
-    die "existing prepared runtime does not use adopted storage"
-  [[ "$(configured_postgres_volume)" == "$postgres_volume" ]] ||
-    die "existing prepared PostgreSQL volume does not match the adoption request"
-  [[ "$(configured_minio_volume)" == "$minio_volume" ]] ||
-    die "existing prepared MinIO volume does not match the adoption request"
+  if [[ -e "$K_COMMS_ENVIRONMENT_FILE" ]]; then
+    [[ "$(configured_environment)" == production ]] ||
+      die "existing prepared runtime is not bound to production"
+    [[ "$(configured_storage_mode)" == adopted ]] ||
+      die "existing prepared runtime does not use adopted storage"
+    [[ "$(configured_postgres_volume)" == "$postgres_volume" ]] ||
+      die "existing prepared PostgreSQL volume does not match the adoption request"
+    [[ "$(configured_minio_volume)" == "$minio_volume" ]] ||
+      die "existing prepared MinIO volume does not match the adoption request"
+  fi
   for name in POSTGRES_PASSWORD LIVEKIT_API_SECRET MINIO_ROOT_PASSWORD; do
     [[ "$(read_env_value "$K_COMMS_RUNTIME_ENV" "$name")" == \
       "$(read_env_value "$runtime_source" "$name")" ]] ||
@@ -178,7 +180,7 @@ else
   assert_secure_runtime_env
 fi
 
-"${SCRIPT_DIR}/install.sh" \
+bash "${SCRIPT_DIR}/install.sh" \
   --environment production \
   --bind-address 127.0.0.1 \
   --media-address 192.168.1.22 \
@@ -268,16 +270,17 @@ systemctl start \
   k-comms-minio.service \
   k-comms-livekit.service \
   k-comms-app.service
-"${SCRIPT_DIR}/verify.sh" --environment production
+bash "${SCRIPT_DIR}/verify.sh" --environment production
 
-"${SCRIPT_DIR}/install.sh" \
+bash "${SCRIPT_DIR}/install.sh" \
   --environment production \
   --bind-address 127.0.0.1 \
   --media-address 192.168.1.22 \
   --storage-mode adopted \
   --postgres-volume "$postgres_volume" \
   --minio-volume "$minio_volume"
-"${SCRIPT_DIR}/verify.sh" --environment production
+bash "${SCRIPT_DIR}/sync-assets.sh"
+bash "${SCRIPT_DIR}/verify.sh" --environment production
 
 receipt="${K_COMMS_RECEIPT_DIR}/${timestamp}-legacy-adoption.json"
 jq -n \

@@ -117,6 +117,22 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_direct_execution_of_transferred_installer(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'bash "${SCRIPT_DIR}/install.sh"',
+                '"${SCRIPT_DIR}/install.sh"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
