@@ -363,7 +363,9 @@ systemctl start \
   k-comms-livekit.service \
   k-comms-app.service
 start_tunnel_if_installed
-bash "${SCRIPT_DIR}/verify.sh" --environment production
+bash "${SCRIPT_DIR}/verify.sh" \
+  --environment production \
+  --skip-host-tuning
 
 bash "${SCRIPT_DIR}/install.sh" \
   --environment production \

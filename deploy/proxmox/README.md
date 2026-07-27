@@ -141,6 +141,12 @@ Both initial installation and every reviewed asset synchronization install
 this connector unit explicitly; it is intentionally outside the
 `k-comms-*` systemd filename glob.
 
+The host contract also persists `net.core.rmem_max=5000000` under
+`/etc/sysctl.d` and applies it during installation and asset synchronization.
+This matches the minimum production receive-buffer ceiling reported by the
+pinned LiveKit server. Production verification fails if the effective value
+is lower.
+
 The protected configuration conversion accounts for the Compose-to-Podman
 environment-file parsing boundary. It removes only optional outer double
 quotes from `CSP_CONNECT_SOURCES`, then requires the normalized value to be

@@ -115,7 +115,8 @@ described by ADR-0012 and the production runbooks.
   rehearses rollback, and reactivates the candidate.
 - Production qualification verifies the retained public endpoints, Cloudflare
   connector, exact running digest/revision, timers, backup location, listeners,
-  and authoritative record counts without copying or mutating production data.
+  LiveKit UDP receive-buffer tuning, and authoritative record counts without
+  copying or mutating production data.
 - One-time production adoption verifies exact legacy mounts, PostgreSQL and
   MinIO format markers, a pre-cutover logical/object backup, unchanged
   application identity, disabled legacy service startup, suppressed

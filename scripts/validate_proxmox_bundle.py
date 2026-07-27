@@ -15,6 +15,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/inventory.json",
     "deploy/proxmox/runtime.env.example",
     "deploy/proxmox/nftables.conf.in",
+    "deploy/proxmox/sysctl/99-k-comms-livekit.conf",
     "deploy/proxmox/quadlet/k-comms.network.in",
     "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in",
     "deploy/proxmox/quadlet/k-comms-minio-data.volume.in",
@@ -305,6 +306,7 @@ def validate(root: Path) -> list[str]:
         'systemctl enable --now "${legacy_auxiliary_units[@]}"',
         "--preflight-only",
         "--prepare-only",
+        "--skip-host-tuning",
         "verify.sh",
     ):
         if required not in adoption:
@@ -326,9 +328,25 @@ def validate(root: Path) -> list[str]:
         "an adopted local image requires the adopted storage identity",
         "adopted local image source label does not match",
         "adopted local image revision label does not match",
+        "LiveKit UDP receive-buffer ceiling is below 5000000 bytes",
     ):
         if required not in verifier:
             errors.append(f"verify.sh is missing adopted-image control: {required}")
+
+    livekit_sysctl = read(root, "deploy/proxmox/sysctl/99-k-comms-livekit.conf")
+    if "net.core.rmem_max = 5000000" not in livekit_sysctl:
+        errors.append("LiveKit UDP receive-buffer tuning is missing")
+    for location in (
+        "deploy/proxmox/bin/install.sh",
+        "deploy/proxmox/bin/sync-assets.sh",
+    ):
+        document = read(root, location)
+        for required in (
+            "99-k-comms-livekit.conf",
+            "sysctl --load /etc/sysctl.d/99-k-comms-livekit.conf",
+        ):
+            if required not in document:
+                errors.append(f"{location} is missing LiveKit host tuning: {required}")
 
     tunnel_unit = read(
         root, "deploy/proxmox/systemd/cloudflared-kcomms.service"

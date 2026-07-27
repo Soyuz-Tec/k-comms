@@ -56,9 +56,9 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   aardvark-dns ca-certificates curl jq nftables openssl podman postgresql-client \
-  qemu-guest-agent tar
+  procps qemu-guest-agent tar
 
-for command in curl flock jq nft podman sha256sum systemctl; do
+for command in curl flock jq nft podman sha256sum sysctl systemctl; do
   require_command "$command"
 done
 
@@ -74,6 +74,8 @@ install -d -m 0750 "$K_COMMS_CONFIG_DIR"
 install -m 0755 "${BUNDLE_DIR}"/bin/*.sh "${K_COMMS_INSTALL_DIR}/bin/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.in "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/nftables.conf.in" "$K_COMMS_TEMPLATE_DIR/"
+install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \
+  "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/k-comms-postgres.container "$K_COMMS_QUADLET_DIR/"
 
 render_template \
@@ -118,6 +120,9 @@ if [[ "$prepare_only" == false ]]; then
     cp --preserve=mode,timestamps /etc/nftables.conf /etc/nftables.conf.pre-k-comms
   fi
   install -m 0644 /etc/nftables.conf.k-comms /etc/nftables.conf
+  install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \
+    /etc/sysctl.d/
+  sysctl --load /etc/sysctl.d/99-k-comms-livekit.conf >/dev/null
 fi
 
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.service /etc/systemd/system/
