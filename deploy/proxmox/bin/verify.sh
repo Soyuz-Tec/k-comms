@@ -58,8 +58,31 @@ curl --silent --show-error --max-time 5 "http://${bind_address}:7980/" >/dev/nul
 
 release_image="$(read_env_value "$K_COMMS_RELEASE_ENV" K_COMMS_RELEASE_IMAGE)"
 release_revision="$(read_env_value "$K_COMMS_RELEASE_ENV" K_COMMS_RELEASE_REVISION)"
-validate_image_ref "$release_image"
 validate_revision "$release_revision"
+release_image_class="$(classify_image_ref "$release_image")"
+case "$release_image_class" in
+  immutable-ghcr)
+    validate_image_ref "$release_image"
+    ;;
+  adopted-local)
+    [[ "$environment" == production ]] ||
+      die "an adopted local image is accepted only in production"
+    [[ "$(configured_storage_mode)" == adopted ]] ||
+      die "an adopted local image requires the adopted storage identity"
+    validate_adopted_local_image_ref "$release_image"
+    adopted_source="$(podman image inspect "$release_image" \
+      --format '{{index .Labels "org.opencontainers.image.source"}}')"
+    adopted_revision="$(podman image inspect "$release_image" \
+      --format '{{index .Labels "org.opencontainers.image.revision"}}')"
+    [[ "$adopted_source" == "$K_COMMS_SOURCE" ]] ||
+      die "adopted local image source label does not match ${K_COMMS_SOURCE}"
+    [[ "$adopted_revision" == "$release_revision" ]] ||
+      die "adopted local image revision label does not match the release identity"
+    ;;
+  *)
+    die "unsupported release image identity: ${release_image}"
+    ;;
+esac
 
 actual_image="$(podman inspect k-comms-app --format '{{.ImageName}}')"
 actual_revision="$(podman inspect k-comms-app --format '{{index .Config.Labels "io.k-comms.revision"}}')"

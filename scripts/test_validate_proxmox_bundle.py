@@ -163,6 +163,22 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("legacy production adoption is missing control" in error for error in errors)
         )
 
+    def test_rejects_unscoped_adopted_image_verification(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/verify.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "an adopted local image is accepted only in production",
+                "adopted image accepted",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("verify.sh is missing adopted-image control" in error for error in errors)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

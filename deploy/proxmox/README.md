@@ -135,6 +135,12 @@ rollback seam. Do not delete that image until a later production deployment
 and rollback rehearsal have both succeeded. The application image and source
 revision do not change during adoption.
 
+Until that first digest promotion, `verify.sh` accepts the retained local image
+only for the production VM with `adopted` storage and only when its OCI source
+and full revision labels match this repository and the installed release
+identity. Staging and normal production deployment inputs remain immutable
+GHCR digests.
+
 ## Promotion sequence
 
 1. Merge a reviewed PR into protected `main`.
