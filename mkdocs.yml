@@ -19,4 +19,5 @@ nav:
   - Development: 12-development-guides/getting-started.md
   - Delivery: 13-delivery-plan/implementation-roadmap.md
   - Operations: 14-operations/operations-handbook.md
+  - Completion Standard: 14-operations/development-to-production-completion-standard.md
 markdown_extensions: [tables, admonition]

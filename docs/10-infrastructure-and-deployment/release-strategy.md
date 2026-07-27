@@ -1,5 +1,11 @@
 # Release and Migration Strategy
 
+The required end-to-end procedure after implementation is the
+[development-to-production completion standard](../14-operations/development-to-production-completion-standard.md).
+It defines the default continuation from local completion through protected
+merge, immutable publication, staging qualification, production promotion, and
+final evidence.
+
 ## Release properties
 
 - Rolling or blue/green deployment.

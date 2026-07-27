@@ -173,6 +173,11 @@ GHCR digests.
 
 ## Promotion sequence
 
+Use the repository-wide
+[development-to-production completion standard](../../docs/14-operations/development-to-production-completion-standard.md)
+after every completed runtime feature or update. The sequence below is the
+Proxmox implementation of that standard.
+
 1. Merge a reviewed PR into protected `main`.
 2. Wait for CI and the Container workflow to pass.
 3. Copy the registry digest from the successful publication job.

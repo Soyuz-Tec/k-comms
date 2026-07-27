@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 REQUIRED_FILES = (
+    "AGENTS.md",
     ".github/workflows/deploy-proxmox.yml",
     "deploy/proxmox/README.md",
     "deploy/proxmox/inventory.json",
@@ -41,6 +42,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
+    "docs/14-operations/development-to-production-completion-standard.md",
 )
 
 PINNED_INFRA_IMAGES = {
@@ -98,6 +100,32 @@ def validate(root: Path) -> list[str]:
     errors.extend(f"missing required Proxmox asset: {relative}" for relative in missing)
     if missing:
         return errors
+
+    agents = read(root, "AGENTS.md")
+    completion_standard = read(
+        root,
+        "docs/14-operations/development-to-production-completion-standard.md",
+    )
+    for required in (
+        "without waiting for another instruction",
+        "protected staging",
+        "production approval",
+        "deployment of the same digest",
+    ):
+        if required not in agents:
+            errors.append(f"AGENTS.md is missing completion control: {required}")
+    for required in (
+        "Once acceptance criteria are met",
+        "Same immutable digest qualified in staging and production",
+        "Never bypass branch protection",
+        "If a critical check fails, roll back first and investigate second",
+        "Completion evidence template",
+    ):
+        if required not in completion_standard:
+            errors.append(
+                "development-to-production completion standard is missing "
+                f"control: {required}"
+            )
 
     bundle_root = root / "deploy/proxmox"
     all_documents = {
