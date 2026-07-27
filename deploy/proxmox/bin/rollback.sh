@@ -47,15 +47,28 @@ current_image="$(jq -r '.image' "$receipt")"
 target_image="$(jq -r '.previous.image' "$receipt")"
 target_revision="$(jq -r '.previous.revision' "$receipt")"
 target_capabilities="$(jq -r '.previous.rollback_capabilities // ""' "$receipt")"
+target_image_class="$(jq -r '.previous.image_class // "immutable-ghcr"' "$receipt")"
 validate_environment "$environment"
 validate_image_ref "$current_image"
-validate_image_ref "$target_image"
 validate_revision "$target_revision"
+case "$target_image_class" in
+  immutable-ghcr)
+    validate_image_ref "$target_image"
+    podman image exists "$target_image" || podman pull "$target_image"
+    ;;
+  adopted-local)
+    validate_adopted_local_image_ref "$target_image"
+    podman image exists "$target_image" ||
+      die "the one-time adopted rollback image is no longer present locally"
+    ;;
+  *)
+    die "unsupported rollback image class: ${target_image_class}"
+    ;;
+esac
 [[ "$(current_app_image)" == "$current_image" ]] ||
   die "receipt does not describe the currently running image"
 
 podman image exists "$current_image" || podman pull "$current_image"
-podman image exists "$target_image" || podman pull "$target_image"
 target_source="$(podman image inspect "$target_image" \
   --format '{{index .Labels "org.opencontainers.image.source"}}')"
 target_label_revision="$(podman image inspect "$target_image" \

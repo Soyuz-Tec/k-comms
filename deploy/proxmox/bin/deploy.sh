@@ -33,12 +33,14 @@ assert_secure_runtime_env
 [[ "$(configured_environment)" == "$environment" ]] ||
   die "requested environment does not match the installed VM identity"
 acquire_deploy_lock
+assert_adopted_storage_ready_for_activation
 
 bind_address="$(configured_bind_address)"
 validate_ipv4 "$bind_address"
 previous_image="$(current_app_image)"
 previous_revision="$(current_app_revision)"
 previous_capabilities="$(current_app_capabilities)"
+previous_image_class="$(classify_image_ref "$previous_image")"
 previous_active=false
 unit_active k-comms-app.service && previous_active=true
 
@@ -70,6 +72,8 @@ systemctl start \
   k-comms-postgres.service \
   k-comms-minio.service \
   k-comms-livekit.service
+assert_postgres_volume_path >/dev/null
+assert_minio_volume_path >/dev/null
 wait_for_url "http://${bind_address}:5900/minio/health/ready" 60 2
 
 if [[ "$previous_active" == true ]]; then
@@ -189,6 +193,7 @@ jq -n \
   --arg previous_image "$previous_image" \
   --arg previous_revision "$previous_revision" \
   --arg previous_capabilities "$previous_capabilities" \
+  --arg previous_image_class "$previous_image_class" \
   --arg backup_path "$backup_path" \
   '{
     schema: $schema,
@@ -200,7 +205,8 @@ jq -n \
     previous: {
       image: $previous_image,
       revision: $previous_revision,
-      rollback_capabilities: $previous_capabilities
+      rollback_capabilities: $previous_capabilities,
+      image_class: $previous_image_class
     },
     backup_path: $backup_path
   }' >"$receipt"

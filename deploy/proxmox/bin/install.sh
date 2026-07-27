@@ -9,12 +9,20 @@ source "${SCRIPT_DIR}/common.sh"
 environment=
 bind_address=
 media_address=
+postgres_volume=k-comms-postgres-data
+minio_volume=k-comms-minio-data
+storage_mode=fresh
+prepare_only=false
 
 while (($#)); do
   case "$1" in
     --environment) environment=${2:-}; shift 2 ;;
     --bind-address) bind_address=${2:-}; shift 2 ;;
     --media-address) media_address=${2:-}; shift 2 ;;
+    --postgres-volume) postgres_volume=${2:-}; shift 2 ;;
+    --minio-volume) minio_volume=${2:-}; shift 2 ;;
+    --storage-mode) storage_mode=${2:-}; shift 2 ;;
+    --prepare-only) prepare_only=true; shift ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -23,6 +31,15 @@ require_root
 validate_environment "$environment"
 validate_ipv4 "$bind_address"
 validate_ipv4 "$media_address"
+validate_volume_name "$postgres_volume"
+validate_volume_name "$minio_volume"
+validate_storage_mode "$storage_mode"
+[[ "$postgres_volume" != "$minio_volume" ]] ||
+  die "PostgreSQL and MinIO must use different volumes"
+if [[ "$environment" == production ]]; then
+  [[ "$storage_mode" == adopted ]] ||
+    die "this production VM must explicitly adopt its authoritative volumes"
+fi
 assert_secure_runtime_env
 
 export DEBIAN_FRONTEND=noninteractive
@@ -48,9 +65,16 @@ install -m 0755 "${BUNDLE_DIR}"/bin/*.sh "${K_COMMS_INSTALL_DIR}/bin/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.in "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/nftables.conf.in" "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.network "$K_COMMS_QUADLET_DIR/"
-install -m 0644 "${BUNDLE_DIR}"/quadlet/*.volume "$K_COMMS_QUADLET_DIR/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/k-comms-postgres.container "$K_COMMS_QUADLET_DIR/"
 
+render_template \
+  "${BUNDLE_DIR}/quadlet/k-comms-postgres-data.volume.in" \
+  "${K_COMMS_QUADLET_DIR}/k-comms-postgres-data.volume" \
+  POSTGRES_VOLUME "$postgres_volume"
+render_template \
+  "${BUNDLE_DIR}/quadlet/k-comms-minio-data.volume.in" \
+  "${K_COMMS_QUADLET_DIR}/k-comms-minio-data.volume" \
+  MINIO_VOLUME "$minio_volume"
 render_template \
   "${BUNDLE_DIR}/quadlet/k-comms-minio.container.in" \
   "${K_COMMS_QUADLET_DIR}/k-comms-minio.container" \
@@ -72,11 +96,13 @@ render_template \
   MEDIA_ADDRESS "$media_address" \
   STAGING_LAN_RULES "$staging_rules"
 
-if [[ -f /etc/nftables.conf && ! -f /etc/nftables.conf.pre-k-comms ]]; then
-  cp --preserve=mode,timestamps /etc/nftables.conf /etc/nftables.conf.pre-k-comms
+nft --check --file /etc/nftables.conf.k-comms
+if [[ "$prepare_only" == false ]]; then
+  if [[ -f /etc/nftables.conf && ! -f /etc/nftables.conf.pre-k-comms ]]; then
+    cp --preserve=mode,timestamps /etc/nftables.conf /etc/nftables.conf.pre-k-comms
+  fi
+  install -m 0644 /etc/nftables.conf.k-comms /etc/nftables.conf
 fi
-install -m 0644 /etc/nftables.conf.k-comms /etc/nftables.conf
-nft --check --file /etc/nftables.conf
 
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.service /etc/systemd/system/
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.timer /etc/systemd/system/
@@ -85,9 +111,16 @@ install -m 0600 /dev/null "$K_COMMS_ENVIRONMENT_FILE"
   printf 'K_COMMS_ENVIRONMENT=%s\n' "$environment"
   printf 'K_COMMS_BIND_ADDRESS=%s\n' "$bind_address"
   printf 'K_COMMS_MEDIA_ADDRESS=%s\n' "$media_address"
+  printf 'K_COMMS_STORAGE_MODE=%s\n' "$storage_mode"
+  printf 'K_COMMS_POSTGRES_VOLUME=%s\n' "$postgres_volume"
+  printf 'K_COMMS_MINIO_VOLUME=%s\n' "$minio_volume"
 } >"$K_COMMS_ENVIRONMENT_FILE"
 
 systemctl daemon-reload
+if [[ "$prepare_only" == true ]]; then
+  log "prepared the ${environment} deployment contract without activating host controls"
+  exit 0
+fi
 systemctl enable --now nftables.service
 systemctl start qemu-guest-agent.service
 systemctl enable k-comms-health.timer k-comms-backup.timer

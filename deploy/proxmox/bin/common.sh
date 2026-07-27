@@ -51,6 +51,21 @@ validate_revision() {
     die "revision must be a 40-character lowercase Git commit"
 }
 
+validate_volume_name() {
+  [[ "$1" =~ ^[a-z0-9][a-z0-9_.-]{0,127}$ ]] ||
+    die "invalid rootful Podman volume name: $1"
+}
+
+validate_storage_mode() {
+  [[ "$1" == fresh || "$1" == adopted ]] ||
+    die "storage mode must be fresh or adopted"
+}
+
+validate_adopted_local_image_ref() {
+  [[ "$1" =~ ^localhost/k-comms:proxmox-[0-9a-f]{7,40}$ ]] ||
+    die "adopted local image must be localhost/k-comms:proxmox-<revision>"
+}
+
 validate_ipv4() {
   local address=$1
   local octet
@@ -165,20 +180,117 @@ configured_environment() {
   read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_ENVIRONMENT
 }
 
-expected_minio_volume_path() {
-  printf '/var/lib/containers/storage/volumes/k-comms-minio-data/_data'
+configured_storage_mode() {
+  read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_STORAGE_MODE
 }
 
-assert_minio_volume_path() {
+configured_postgres_volume() {
+  read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_POSTGRES_VOLUME
+}
+
+configured_minio_volume() {
+  read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_MINIO_VOLUME
+}
+
+classify_image_ref() {
+  local image=${1:-}
+
+  if [[ "$image" =~ ^ghcr\.io/soyuz-tec/k-comms@sha256:[0-9a-f]{64}$ ]]; then
+    printf 'immutable-ghcr'
+  elif [[ "$image" =~ ^localhost/k-comms:proxmox-[0-9a-f]{7,40}$ ]]; then
+    printf 'adopted-local'
+  elif [[ -n "$image" ]]; then
+    printf 'unknown'
+  fi
+}
+
+expected_volume_path() {
+  local volume=$1
+
+  validate_volume_name "$volume"
+  printf '/var/lib/containers/storage/volumes/%s/_data' "$volume"
+}
+
+assert_volume_path() {
+  local volume=$1
   local actual
   local expected
 
+  validate_volume_name "$volume"
+  expected="$(expected_volume_path "$volume")"
+  actual="$(podman volume inspect "$volume" --format '{{.Mountpoint}}')"
+  [[ "$actual" == "$expected" ]] ||
+    die "refusing storage operation: expected ${expected}, found ${actual}"
+  [[ -d "$actual" ]] || die "volume path does not exist: ${actual}"
+  printf '%s' "$actual"
+}
+
+assert_no_foreign_running_mount() {
+  local volume=$1
+  local expected_container=$2
+  local container_id
+  local container_name
+  local mounts
+
+  while IFS= read -r container_id; do
+    [[ -n "$container_id" ]] || continue
+    container_name="$(podman inspect "$container_id" --format '{{.Name}}')"
+    [[ "$container_name" == "$expected_container" ]] && continue
+    mounts="$(podman inspect "$container_id" \
+      --format '{{range .Mounts}}{{.Name}}:{{.Destination}};{{end}}')"
+    [[ "$mounts" != *"${volume}:"* ]] ||
+      die "volume ${volume} is still mounted by running container ${container_name}"
+  done < <(podman ps --quiet)
+}
+
+assert_postgres_volume_path() {
+  local volume
+  local path
+
+  volume="$(configured_postgres_volume)"
+  validate_volume_name "$volume"
+  path="$(assert_volume_path "$volume")"
+  [[ -f "${path}/PG_VERSION" ]] ||
+    die "PostgreSQL volume is missing PG_VERSION: ${volume}"
+  printf '%s' "$path"
+}
+
+expected_minio_volume_path() {
+  expected_volume_path "$(configured_minio_volume)"
+}
+
+assert_minio_volume_path() {
+  local volume
+  local actual
+  local expected
+
+  volume="$(configured_minio_volume)"
+  validate_volume_name "$volume"
   expected="$(expected_minio_volume_path)"
-  actual="$(podman volume inspect k-comms-minio-data --format '{{.Mountpoint}}')"
+  actual="$(podman volume inspect "$volume" --format '{{.Mountpoint}}')"
   [[ "$actual" == "$expected" ]] ||
     die "refusing object-storage operation: expected ${expected}, found ${actual}"
   [[ -d "$actual" ]] || die "MinIO volume path does not exist: ${actual}"
+  [[ -f "${actual}/.minio.sys/format.json" ]] ||
+    die "MinIO volume is missing its format marker: ${volume}"
   printf '%s' "$actual"
+}
+
+assert_adopted_storage_ready_for_activation() {
+  local storage_mode
+  local postgres_volume
+  local minio_volume
+
+  storage_mode="$(configured_storage_mode)"
+  validate_storage_mode "$storage_mode"
+  [[ "$storage_mode" == adopted ]] || return 0
+
+  postgres_volume="$(configured_postgres_volume)"
+  minio_volume="$(configured_minio_volume)"
+  assert_postgres_volume_path >/dev/null
+  assert_minio_volume_path >/dev/null
+  assert_no_foreign_running_mount "$postgres_volume" k-comms-postgres
+  assert_no_foreign_running_mount "$minio_volume" k-comms-minio
 }
 
 current_app_image() {

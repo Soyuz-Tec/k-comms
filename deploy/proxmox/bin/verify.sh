@@ -47,6 +47,10 @@ for container in k-comms-postgres k-comms-minio k-comms-app; do
     die "container is not healthy: $container"
 done
 
+assert_postgres_volume_path >/dev/null
+assert_minio_volume_path >/dev/null
+assert_adopted_storage_ready_for_activation
+
 wait_for_url "http://${bind_address}:4188/health/ready" 3 1
 wait_for_url "http://${bind_address}:5900/minio/health/ready" 3 1
 curl --silent --show-error --max-time 5 "http://${bind_address}:7980/" >/dev/null ||

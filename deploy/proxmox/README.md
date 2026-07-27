@@ -31,6 +31,13 @@ application, signaling, object API, and ICE ports only to the same LAN.
 `runtime.env` and the Cloudflare tunnel token are always mode `0600`, remain
 outside Git, and are never included in receipts or logs.
 
+The protected `/etc/k-comms/environment` file also records the storage
+identity. Fresh staging uses `k-comms-postgres-data` and
+`k-comms-minio-data`. Production is explicitly marked `adopted` and names its
+pre-existing authoritative volumes. A production deploy refuses to start if
+either volume is absent, lacks its PostgreSQL or MinIO format marker, or is
+still mounted by a running legacy container.
+
 The pinned PostgreSQL image starts its entrypoint as root only long enough to
 initialize/chown the managed volume and drop to its `postgres` user. Its
 Quadlet therefore cannot set Linux `no-new-privileges`; a staging regression
@@ -83,6 +90,38 @@ On a fresh dedicated Debian VM:
 Production uses `127.0.0.1` for the application, signaling, and object bind
 address and `192.168.1.22` for LiveKit ICE.
 
+## One-time legacy production adoption
+
+The current production VM was originally installed as the
+`k-comms-release` Compose project. Before the next application update, migrate
+service ownership to the reviewed Quadlets without copying, renaming, or
+reinitializing its authoritative volumes:
+
+```bash
+sudo ./bin/adopt-legacy-production.sh \
+  --runtime-source /opt/k-comms/release.env \
+  --confirmation adopt-k-comms-production-v1
+```
+
+The adoption gate proves the legacy containers are healthy, proves their exact
+volume mounts and on-disk format markers, converts the existing protected
+configuration without printing secrets, and stages all host assets without
+activating them. It then stops writers, creates a PostgreSQL logical dump and
+stopped MinIO snapshot, disables the legacy service, starts the same
+application image under Quadlets, and runs production verification. If any
+activation gate fails, the new units are stopped and the retained legacy
+service is restarted automatically.
+
+Before the maintenance action, the same gate can be exercised read-only by
+adding `--preflight-only`; it exits before creating or changing any file,
+service, firewall rule, container, or volume.
+
+The operation records a `k-comms-legacy-adoption-receipt-v1` receipt and keeps
+the stopped legacy containers plus their local image for the first-update
+rollback seam. Do not delete that image until a later production deployment
+and rollback rehearsal have both succeeded. The application image and source
+revision do not change during adoption.
+
 ## Promotion sequence
 
 1. Merge a reviewed PR into protected `main`.
@@ -94,6 +133,10 @@ address and `192.168.1.22` for LiveKit ICE.
 7. Approve the protected GitHub `production` environment.
 8. Deploy the same digest to production.
 9. Retain the deployment receipt, backup manifest, and post-deploy evidence.
+
+For this VM, the one-time legacy adoption above must already have completed.
+Normal production deployments never create a new authoritative volume and do
+not need an adoption flag.
 
 The deploy script takes an application-consistent backup before replacing a
 running application. It stops writers, verifies the PostgreSQL dump, snapshots

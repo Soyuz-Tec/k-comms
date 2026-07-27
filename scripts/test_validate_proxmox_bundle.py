@@ -87,6 +87,36 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         errors = validate(root)
         self.assertTrue(any("base64 -d | bash" in error for error in errors))
 
+    def test_rejects_fixed_production_volume_identity(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/quadlet/k-comms-postgres-data.volume.in"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "VolumeName=@@POSTGRES_VOLUME@@",
+                "VolumeName=k-comms-postgres-data",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("configurable volume identity" in error for error in errors))
+
+    def test_rejects_missing_adoption_fallback(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "adoption failed; restoring the retained legacy service",
+                "adoption failed",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("legacy production adoption is missing control" in error for error in errors)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
