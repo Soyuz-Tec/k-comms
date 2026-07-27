@@ -1,4 +1,5 @@
 import type { Attachment } from "../../types";
+import { AppIcon } from "../../components/AppIcon";
 
 export type AttachmentUploadPhase =
   | "hashing"
@@ -40,7 +41,10 @@ export function AttachmentUploadList({
         return (
           <article className={`attachment-queue-item phase-${item.phase}`} key={item.clientId}>
             <span className="attachment-queue-mark" aria-hidden="true">
-              {item.phase === "ready" ? "✓" : ["blocked", "retryable_error", "scan_delayed"].includes(item.phase) ? "!" : "…"}
+              <AppIcon
+                className={item.phase === "ready" ? "" : ["blocked", "retryable_error", "scan_delayed"].includes(item.phase) ? "" : "spin"}
+                name={item.phase === "ready" ? "check" : ["blocked", "retryable_error", "scan_delayed"].includes(item.phase) ? "triangleAlert" : "loader"}
+              />
             </span>
             <span className="attachment-queue-copy">
               <strong>{item.localName}</strong>
@@ -60,7 +64,7 @@ export function AttachmentUploadList({
                 aria-label={`${busy ? "Cancel attaching" : "Remove"} ${item.localName}`}
                 onClick={() => onCancel(item.clientId)}
               >
-                ×
+                <AppIcon name="x" />
               </button>
             </span>
           </article>

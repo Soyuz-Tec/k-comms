@@ -5,6 +5,7 @@ import type { WebhookDelivery, WebhookEndpoint } from "../../types";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { stepUpWasCancelled, useStepUp } from "../../app/step-up";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 import { ServiceAccountsPanel } from "./ServiceAccountsPanel";
 
 type PendingEndpointAction = { kind: "rotate" | "disable"; endpoint: WebhookEndpoint };
@@ -65,7 +66,7 @@ export function IntegrationsPanel({ api, onServiceAccountLifecycleChanged }: { a
   }
 
   return <>
-    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss integrations error" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss integrations error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
     {pendingAction && <ActionDialog
       title={pendingAction.kind === "rotate" ? "Rotate signing secret?" : "Disable webhook endpoint?"}
       description={pendingAction.endpoint.name}

@@ -407,9 +407,9 @@
     font-size: 0;
   }
 
-  .calls-page-heading .button::before {
-    content: "↻";
-    font-size: 1.15rem;
+  .calls-page-heading .button .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .calls-history {
@@ -597,14 +597,9 @@
     font-size: 0;
   }
 
-  .call-session-actions a::before {
-    content: "↩";
-    font-size: 1.05rem;
-  }
-
-  .call-session-actions button::before {
-    content: "↗";
-    font-size: 1.05rem;
+  .call-session-actions .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .call-media-mark {
@@ -769,21 +764,9 @@
     font-size: 0;
   }
 
-  .calls-quick-actions a::before,
-  .calls-quick-actions button::before {
-    font-size: 1rem;
-  }
-
-  .calls-quick-actions a::before {
-    content: "⌁";
-  }
-
-  .calls-quick-actions button:nth-child(2)::before {
-    content: "◔";
-  }
-
-  .calls-quick-actions button:last-child::before {
-    content: "▣";
+  .calls-quick-actions .app-icon {
+    width: 19px;
+    height: 19px;
   }
 
   .call-session-list {

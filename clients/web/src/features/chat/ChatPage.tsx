@@ -17,6 +17,7 @@ import { useSession } from "../../app/session";
 import { useStepUp } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 import {
   CallLaunchActions,
   useCallSession
@@ -1724,13 +1725,13 @@ export function ChatPage() {
 
   return (
     <main className={`workspace-grid mobile-${mobilePane}`} id="main-content">
-      {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button></div>}
+      {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       <aside className="conversation-sidebar" aria-label="Conversations">
         <div className="sidebar-heading">
           <div>
             <span className="eyebrow">Messages and rooms</span>
             <h1>Inbox</h1>
-            <span className="mobile-workspace-label">K-Comms <span aria-hidden="true">⌄</span></span>
+            <span className="mobile-workspace-label">K-Comms <AppIcon name="chevronDown" /></span>
           </div>
           <div className="sidebar-tools">
             <button
@@ -1744,9 +1745,7 @@ export function ChatPage() {
                 setShowDetails(false);
               }}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 5h16l-6.2 7.2v5.3l-3.6 1.8v-7.1L4 5Z" />
-              </svg>
+              <AppIcon name="filter" />
             </button>
             <button
               className="icon-button inbox-search-trigger"
@@ -1759,7 +1758,7 @@ export function ChatPage() {
                 setShowDetails(false);
               }}
             >
-              ⌕
+              <AppIcon name="search" />
             </button>
             <button
               className="icon-button inbox-new-button"
@@ -1768,7 +1767,7 @@ export function ChatPage() {
               aria-expanded={showCreateConversation}
               onClick={() => setShowCreateConversation((visible) => !visible)}
             >
-              <span aria-hidden="true">＋</span>
+              <AppIcon name="plus" />
               <span>New</span>
             </button>
           </div>
@@ -1793,7 +1792,7 @@ export function ChatPage() {
                 aria-label="Dismiss welcome guide"
                 onClick={dismissOnboarding}
               >
-                ×
+                <AppIcon name="x" />
               </button>
             </div>
             <p>
@@ -1886,10 +1885,10 @@ export function ChatPage() {
             >
               <span className={`conversation-icon ${conversation.kind}`} aria-hidden="true">
                 {conversation.kind === "channel"
-                  ? "#"
+                  ? <AppIcon name="hash" />
                   : conversation.kind === "direct"
                     ? conversationInitials(conversationIdentifier(conversation))
-                    : "◇"}
+                    : <AppIcon name="users" />}
               </span>
               <span className="conversation-copy">
                 <span className="conversation-title-line">
@@ -1906,10 +1905,10 @@ export function ChatPage() {
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationIdentifier(activeConversation) : "Messages"}>
         {activeConversation ? <>
-          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations">←</button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationIdentifier(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4" /><path d="m15.5 15.5 4.2 4.2" /></svg></button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} />{(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}>Invite guest</button>}<button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}>Details</button></div></header>
+          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations"><AppIcon name="arrowLeft" /></button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationIdentifier(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}><AppIcon name="search" /></button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} />{(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}><AppIcon name="userPlus" />Invite guest</button>}<button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}><AppIcon name="more" />Details</button></div></header>
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
-            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true">✦</span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
+            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
             <div ref={messagesEndRef} />
           </div>
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}.` : ""}</p>
@@ -1917,13 +1916,13 @@ export function ChatPage() {
           <div className="typing-line" aria-live="polite">{activeTyping.length > 0 ? `${activeTyping.join(", ")} ${activeTyping.length === 1 ? "is" : "are"} typing…` : "\u00a0"}</div>
           <form className="composer" onSubmit={(event) => void sendMessage(event)}>
             {failedSend && <div className="failed-send" role="alert"><span>Message not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
-            {replyTo && <div className="composer-reply"><span>Replying to <strong>{replyTo.sender_user_id === session.user.id ? "yourself" : visibleSenderIdentifier(replyTo.sender_user_id) || "a message"}</strong><small>{replyTo.body}</small></span><button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}>×</button></div>}
+            {replyTo && <div className="composer-reply"><span>Replying to <strong>{replyTo.sender_user_id === session.user.id ? "yourself" : visibleSenderIdentifier(replyTo.sender_user_id) || "a message"}</strong><small>{replyTo.body}</small></span><button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}><AppIcon name="x" /></button></div>}
             {pendingAttachments.length > 0 && <AttachmentUploadList items={pendingAttachments} onCancel={cancelAttachment} onRetry={retryAttachment} />}
             <MentionPicker members={conversationMembers} currentUserId={session.user.id} selectedUserIds={mentionedUserIds} disabled={sending} onChange={setMentionedUserIds} />
             <label className="sr-only" htmlFor="message-composer">Message</label><textarea id="message-composer" value={composer} onChange={composerChanged} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={2} maxLength={65_535} placeholder={`Message ${conversationIdentifier(activeConversation)}`} disabled={sending} />
-            <div className="composer-actions"><label className={`attachment-button ${sending ? "disabled" : ""}`}><input type="file" multiple disabled={sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" aria-label="Attach files" /><span aria-hidden="true">＋</span>Attach</label><span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span><button className="button primary send-button" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Send"}<span aria-hidden="true">↗</span></button></div>
+            <div className="composer-actions"><label className={`attachment-button ${sending ? "disabled" : ""}`}><input type="file" multiple disabled={sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" aria-label="Attach files" /><AppIcon name="paperclip" />Attach</label><span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span><button className="button primary send-button" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Send"}<AppIcon name="send" /></button></div>
           </form>
-        </> : <div className="empty-state full-height"><span className="empty-mark" aria-hidden="true">◇</span><h2>Select a conversation</h2><p>Choose a direct message, group or channel.</p></div>}
+        </> : <div className="empty-state full-height"><span className="empty-mark" aria-hidden="true"><AppIcon name="message" /></span><h2>Select a conversation</h2><p>Choose a direct message, group or channel.</p></div>}
       </section>
 
       {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { ConfirmDialog } from "../../components/ActionDialog";
+import { AppIcon } from "../../components/AppIcon";
 import type { Attachment, Message } from "../../types";
 import { errorText, formatBytes, formatTime, initials } from "../../lib/format";
 
@@ -107,7 +108,7 @@ export function MessageItem({
             aria-expanded={actionsOpen}
             onClick={() => setActionsOpen((open) => !open)}
           >
-            <span aria-hidden="true">•••</span>
+            <AppIcon name="more" />
           </button>
           <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button><button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>{mine && <button type="button" onClick={() => { setActionsOpen(false); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
@@ -132,7 +133,7 @@ function threadLabel(message: Message): string {
 function AttachmentButton({ attachment, onOpen }: { attachment: Attachment; onOpen: (attachment: Attachment) => void }) {
   const ready = attachment.status === "ready";
   const unsafe = attachment.status === "quarantined" || attachment.status === "scan_failed";
-  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true">{ready ? "▤" : unsafe ? "!" : "…"}</span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentState(attachment)}</small></span></button>;
+  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "file" : unsafe ? "triangleAlert" : "loader"} /></span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentState(attachment)}</small></span></button>;
 }
 
 function attachmentState(attachment: Attachment): string {

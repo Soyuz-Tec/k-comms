@@ -54,6 +54,10 @@ button, label[for], select { cursor: pointer; }
   vertical-align: middle;
 }
 
+.app-icon.spin {
+  animation: spin .75s linear infinite;
+}
+
 .icon-button .app-icon,
 .button .app-icon {
   width: 1.2rem;
@@ -1743,15 +1747,9 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     stroke-width: 1.8;
   }
 
-  .conversation-header-actions > .button::before {
-    content: "⌁";
-    font-size: 1.05rem;
-  }
-
-  .conversation-header-actions > .button:last-child::before {
-    content: "•••";
-    font-size: .85rem;
-    letter-spacing: -.08em;
+  .conversation-header-actions > .button .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .conversation-header-actions .audio-call-control {
@@ -2162,27 +2160,9 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     font-size: 0;
   }
 
-  .video-call-dock .audio-call-actions .button::before {
-    font-size: 1.05rem;
-  }
-
-  .video-call-dock .call-action-microphone::before {
-    content: "◉";
-  }
-
-  .video-call-dock .call-action-camera::before {
-    content: "▣";
-  }
-
-  .video-call-dock .call-action-screen::before {
-    content: "▱";
-  }
-
-  .video-call-dock .call-action-leave::before,
-  .video-call-dock .call-action-end::before {
-    content: "⌕";
-    display: inline-block;
-    transform: rotate(135deg);
+  .video-call-dock .audio-call-actions .button .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .video-call-dock .audio-call-actions .button.danger {
@@ -2563,10 +2543,9 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     font-size: 0;
   }
 
-  .composer .mention-trigger::before {
-    content: "@";
-    font-size: 1rem;
-    font-weight: 800;
+  .composer .mention-trigger .app-icon {
+    width: 19px;
+    height: 19px;
   }
 
   .composer textarea {
@@ -2699,9 +2678,9 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     font-size: 0;
   }
 
-  .video-call-dock:not(.minimized) .call-dock-heading-actions .button::before {
-    content: "⌄";
-    font-size: 1.05rem;
+  .video-call-dock:not(.minimized) .call-dock-heading-actions .button .app-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .video-call-dock:not(.minimized) .active-call-details {
@@ -2799,9 +2778,8 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     flex: 0 1 52px;
   }
 
-  .video-call-dock .call-action-more::before {
-    content: "•••";
-    font-size: .8rem;
-    letter-spacing: -.08em;
+  .video-call-dock .call-action-more .app-icon {
+    width: 20px;
+    height: 20px;
   }
 }

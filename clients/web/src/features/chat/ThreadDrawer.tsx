@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { downloadUrl, sha256, uploadToPresignedTarget } from "../../api";
 import type { ApiClient, SendMessageInput } from "../../api";
 import { useModalDialog } from "../../components/useModalDialog";
+import { AppIcon } from "../../components/AppIcon";
 import { loadThreadDraft, storeThreadDraft } from "../../lib/drafts";
 import { clientMessageId, errorText, formatBytes, formatTime } from "../../lib/format";
 import {
@@ -637,7 +638,7 @@ export function ThreadDrawer({
       <aside ref={dialogRef} className="thread-drawer" role="dialog" aria-modal="true" aria-labelledby="thread-title">
         <header>
           <div><span className="eyebrow">Conversation thread</span><h2 id="thread-title">Thread</h2></div>
-          <button className="icon-button" type="button" aria-label="Close thread" onClick={onClose}>×</button>
+          <button className="icon-button" type="button" aria-label="Close thread" onClick={onClose}><AppIcon name="x" /></button>
         </header>
         {error && <div className="form-error" role="alert">{error}</div>}
         {loading ? <div className="inline-loading" aria-busy="true"><span className="spinner" aria-hidden="true" />Loading thread…</div> : root && (
@@ -650,12 +651,12 @@ export function ThreadDrawer({
             </ol>
             <form className="thread-composer" aria-busy={sending || uploading} onSubmit={(event) => void send(event)}>
               {failedSend && <div className="failed-send" role="alert" style={{ gridColumn: "1 / -1" }}><span>Reply not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
-              {pendingAttachments.length > 0 && <div className="pending-files" aria-label="Files being attached to this thread" style={{ gridColumn: "1 / -1" }}>{pendingAttachments.map(({ attachment, localName }) => <span className={`file-chip attachment-${attachment.status}`} key={attachment.id}><span aria-hidden="true">{attachment.status === "ready" ? "✓" : ["quarantined", "scan_failed"].includes(attachment.status) ? "!" : "…"}</span><span>{localName}<small>{attachmentLabel(attachment)}</small></span><button type="button" aria-label={`Remove ${localName}`} onClick={() => removePendingAttachment(attachment)}>×</button></span>)}</div>}
+              {pendingAttachments.length > 0 && <div className="pending-files" aria-label="Files being attached to this thread" style={{ gridColumn: "1 / -1" }}>{pendingAttachments.map(({ attachment, localName }) => { const unsafe = ["quarantined", "scan_failed"].includes(attachment.status); const ready = attachment.status === "ready"; return <span className={`file-chip attachment-${attachment.status}`} key={attachment.id}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "check" : unsafe ? "triangleAlert" : "loader"} /></span><span>{localName}<small>{attachmentLabel(attachment)}</small></span><button type="button" aria-label={`Remove ${localName}`} onClick={() => removePendingAttachment(attachment)}><AppIcon name="x" /></button></span>; })}</div>}
               <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{attachmentAnnouncement}</p>
               <MentionPicker members={members} currentUserId={currentUserId} selectedUserIds={mentionedUserIds} disabled={sending} onChange={setMentionedUserIds} />
               <label htmlFor="thread-composer">Reply in thread</label>
               <textarea id="thread-composer" rows={3} value={composer} onChange={(event) => { composerRef.current = event.target.value; setComposer(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} maxLength={65_535} disabled={sending} data-initial-focus />
-              <label className={`attachment-button ${uploading ? "disabled" : ""}`}><input type="file" aria-label="Attach files to this thread" multiple disabled={uploading || sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" /><span aria-hidden="true">＋</span>{uploading ? "Uploading…" : "Attach"}</label>
+              <label className={`attachment-button ${uploading ? "disabled" : ""}`}><input type="file" aria-label="Attach files to this thread" multiple disabled={uploading || sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" /><AppIcon name="paperclip" />{uploading ? "Uploading…" : "Attach"}</label>
               <span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span>
               <button className="button primary compact" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Reply"}</button>
             </form>
@@ -679,7 +680,7 @@ function ThreadMessage({ message, senderName, onAttachment, root = false }: { me
 function ThreadAttachment({ attachment, onOpen }: { attachment: Attachment; onOpen: (attachment: Attachment) => void }) {
   const ready = attachment.status === "ready";
   const unsafe = attachment.status === "quarantined" || attachment.status === "scan_failed";
-  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true">{ready ? "▤" : unsafe ? "!" : "…"}</span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentLabel(attachment)}</small></span></button>;
+  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "file" : unsafe ? "triangleAlert" : "loader"} /></span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentLabel(attachment)}</small></span></button>;
 }
 
 function attachmentLabel(attachment: Attachment): string {

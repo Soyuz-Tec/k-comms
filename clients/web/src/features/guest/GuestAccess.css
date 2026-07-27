@@ -955,26 +955,14 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     font-size: 0;
   }
 
-  .guest-shell-actions .button::before {
-    font-size: 1rem;
-  }
-
-  .guest-shell-actions .button:first-child::before {
-    content: "☆";
-  }
-
-  .guest-shell-actions a.button::before {
-    content: "↪";
+  .guest-shell-actions .button .app-icon {
+    width: 19px;
+    height: 19px;
   }
 
   .guest-shell-actions .button.danger {
     color: #b42318;
     background: #fff1f0;
-  }
-
-  .guest-shell-actions .button.danger::before {
-    content: "×";
-    font-size: 1.3rem;
   }
 
   .guest-participant-roster {

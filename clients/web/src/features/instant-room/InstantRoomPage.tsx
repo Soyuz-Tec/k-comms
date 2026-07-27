@@ -9,6 +9,7 @@ import {
   storeGuestSession
 } from "../../api";
 import { useSession } from "../../app/session";
+import { AppIcon } from "../../components/AppIcon";
 import { browserName, formatDateTime } from "../../lib/format";
 import {
   isEncryptedUrl
@@ -974,28 +975,5 @@ function KCommsMark() {
 }
 
 function EntryFieldIcon({ kind }: { kind: "person" | "room" }) {
-  return (
-    <svg
-      className="instant-room-field-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {kind === "person" ? (
-        <>
-          <circle cx="12" cy="8" r="3.25" />
-          <path d="M5.75 19c.55-3.45 2.63-5.2 6.25-5.2s5.7 1.75 6.25 5.2" />
-        </>
-      ) : (
-        <>
-          <rect x="4.25" y="5.25" width="15.5" height="13.5" rx="2.25" />
-          <path d="M8 9h8M8 13h5" />
-        </>
-      )}
-    </svg>
-  );
+  return <AppIcon className="instant-room-field-icon" name={kind === "person" ? "user" : "messages"} />;
 }

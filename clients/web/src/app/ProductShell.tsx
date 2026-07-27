@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
+import { AppIcon } from "../components/AppIcon";
 import { Brand } from "../components/Brand";
 import { MemberAreaLinks, MobileBottomNav } from "../components/MobileBottomNav";
 import { initials } from "../lib/format";
@@ -96,7 +97,7 @@ function ProductShellContent() {
               navigate("/");
             }}
           >
-            <span aria-hidden="true">＋</span>
+            <AppIcon name="plus" />
           </button>
           <div className="desktop-rail-spacer" />
           <NotificationCenter />
@@ -143,7 +144,7 @@ function ProductShellContent() {
               navigate("/");
             }}
           >
-            <span aria-hidden="true">＋</span>
+            <AppIcon name="plus" />
             <span>Start instant room</span>
           </button>
           <NotificationCenter />
@@ -180,7 +181,7 @@ function ProductShellContent() {
           <div className="banner error-banner" role="alert">
             <span><strong>Workspace could not refresh.</strong> {error}</span>
             <button className="button ghost compact" type="button" disabled={retrying} onClick={() => { setRetrying(true); void refreshAll().finally(() => setRetrying(false)); }}>{retrying ? "Retrying…" : "Retry"}</button>
-            <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button>
+            <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button>
           </div>
         )}
         <Outlet />
