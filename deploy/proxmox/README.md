@@ -68,6 +68,13 @@ account and `SYSTEM`, and confirm it is online before promotion. Artifact
 provenance and SBOM verification stay on a GitHub-hosted runner before the
 protected environment releases any SSH material to the deployment job.
 
+Each environment also defines the secret
+`K_COMMS_LIVEKIT_CLOUD_CREDENTIAL` as one JSON object with exactly `url`,
+`apiKey`, and `apiSecret`. Staging and production use different LiveKit
+projects and keys. The workflow validates the value without printing it,
+restricts the temporary file ACL, transfers it with mode `0600`, and deletes
+the runner and VM copies after deployment.
+
 ## Initial VM installation
 
 On a fresh dedicated Debian VM:
@@ -199,6 +206,14 @@ digest into the application Quadlet, starts the service, and records a
 non-secret receipt. A failed health gate restores the previous application
 Quadlet. Database recovery remains an explicit, separately confirmed
 `restore.sh` operation.
+
+Every protected deployment also applies the environment's managed LiveKit
+credential transactionally. The candidate runtime uses the exact matching
+`wss://<project>.livekit.cloud` and `https://<project>.livekit.cloud`
+endpoints, records only `managed_cloud` in the non-secret receipt, and restores
+the previous protected runtime file if activation fails. The LAN-only
+self-hosted LiveKit Quadlet remains active as a rollback standby; no public
+media port is opened on the VM.
 
 ## Rollback rules
 

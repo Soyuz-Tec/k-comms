@@ -10,6 +10,7 @@ image=
 revision=
 bootstrap=false
 skip_backup=false
+livekit_credential=
 
 while (($#)); do
   case "$1" in
@@ -18,6 +19,7 @@ while (($#)); do
     --revision) revision=${2:-}; shift 2 ;;
     --bootstrap) bootstrap=true; shift ;;
     --skip-backup) skip_backup=true; shift ;;
+    --livekit-credential) livekit_credential=${2:-}; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -55,6 +57,13 @@ if [[ -f "${K_COMMS_QUADLET_DIR}/k-comms-app.container" ]]; then
 fi
 if [[ -f "$K_COMMS_RELEASE_ENV" ]]; then
   cp "$K_COMMS_RELEASE_ENV" "${rollback_dir}/release.env"
+fi
+cp "$K_COMMS_RUNTIME_ENV" "${rollback_dir}/runtime.env"
+
+runtime_candidate=
+if [[ -n "$livekit_credential" ]]; then
+  runtime_candidate="${rollback_dir}/runtime.env.candidate"
+  write_managed_livekit_runtime_env "$livekit_credential" "$runtime_candidate"
 fi
 
 log "pulling immutable application image"
@@ -156,11 +165,16 @@ render_template \
   IMAGE_REF "$image" \
   REVISION "$revision" \
   BIND_ADDRESS "$bind_address"
-install -m 0600 "$release_candidate" "$K_COMMS_RELEASE_ENV"
-systemctl daemon-reload
 
 activation_failed=false
-if ! systemctl start k-comms-app.service; then
+if [[ -n "$runtime_candidate" ]] &&
+  ! install -m 0600 "$runtime_candidate" "$K_COMMS_RUNTIME_ENV"; then
+  activation_failed=true
+elif ! install -m 0600 "$release_candidate" "$K_COMMS_RELEASE_ENV"; then
+  activation_failed=true
+elif ! systemctl daemon-reload; then
+  activation_failed=true
+elif ! systemctl start k-comms-app.service; then
   activation_failed=true
 elif ! "${SCRIPT_DIR}/verify.sh" --environment "$environment"; then
   activation_failed=true
@@ -169,6 +183,7 @@ fi
 if [[ "$activation_failed" == true ]]; then
   log "activation failed; restoring the previous application unit"
   systemctl stop k-comms-app.service || true
+  install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"
   if [[ -f "${rollback_dir}/app.container" && -f "${rollback_dir}/release.env" ]]; then
     install -m 0644 "${rollback_dir}/app.container" \
       "${K_COMMS_QUADLET_DIR}/k-comms-app.container"
@@ -182,6 +197,7 @@ if [[ "$activation_failed" == true ]]; then
   die "deployment health gate failed; the previous application unit was restored"
 fi
 
+media_topology="$(configured_livekit_topology)"
 receipt="${K_COMMS_RECEIPT_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-${revision}.json"
 jq -n \
   --arg schema k-comms-deployment-receipt-v1 \
@@ -195,6 +211,7 @@ jq -n \
   --arg previous_capabilities "$previous_capabilities" \
   --arg previous_image_class "$previous_image_class" \
   --arg backup_path "$backup_path" \
+  --arg media_topology "$media_topology" \
   '{
     schema: $schema,
     environment: $environment,
@@ -208,7 +225,8 @@ jq -n \
       rollback_capabilities: $previous_capabilities,
       image_class: $previous_image_class
     },
-    backup_path: $backup_path
+    backup_path: $backup_path,
+    media_topology: $media_topology
   }' >"$receipt"
 chmod 0600 "$receipt"
 ln -sfn "$(basename "$receipt")" "${K_COMMS_RECEIPT_DIR}/current.json"

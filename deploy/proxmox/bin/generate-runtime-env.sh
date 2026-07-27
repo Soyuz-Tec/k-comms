@@ -112,6 +112,8 @@ install -m 0600 /dev/null "$output"
   printf 'LIVEKIT_API_KEY=%s\n' "$livekit_key"
   printf 'LIVEKIT_API_SECRET=%s\n' "$livekit_secret"
   printf 'LIVEKIT_KEYS=%s: %s\n' "$livekit_key" "$livekit_secret"
+  printf 'K_COMMS_LIVEKIT_TOPOLOGY=local_sidecar\n'
+  printf 'K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=\n'
   printf 'AUDIO_PROVIDER_MODE=livekit\n'
   printf 'AUDIO_TOKEN_TTL_SECONDS=300\n'
   printf 'AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS=660\n'

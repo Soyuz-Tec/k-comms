@@ -20,12 +20,19 @@ defmodule CommsIntegrations.LocalReleaseGuard do
   @qualification_app_port_range 1_024..65_535
   @trusted_edge_exposure_mode "cloudflare_trusted_edge"
   @trusted_edge_confirmation "cloudflare-tunnel-v1"
+  @local_livekit_topology "local_sidecar"
+  @managed_livekit_topology "managed_cloud"
+  @managed_livekit_confirmation "livekit-cloud-v1"
 
   @spec validate!(keyword()) :: :ok
   def validate!(options) do
     enabled? = Keyword.fetch!(options, :enabled?)
     exposure_mode = Keyword.get(options, :exposure_mode)
     trusted_edge_confirmation = Keyword.get(options, :trusted_edge_confirmation)
+    livekit_topology = Keyword.get(options, :livekit_topology, @local_livekit_topology)
+    managed_livekit_confirmation = Keyword.get(options, :managed_livekit_confirmation)
+
+    validate_livekit_topology!(livekit_topology, managed_livekit_confirmation)
 
     unless exposure_mode in [nil, "", @trusted_edge_exposure_mode] do
       raise ArgumentError,
@@ -40,7 +47,12 @@ defmodule CommsIntegrations.LocalReleaseGuard do
                 "K_COMMS_LOCAL_RELEASE=true"
 
       enabled? ->
-        validate_enabled!(options, exposure_mode, trusted_edge_confirmation)
+        validate_enabled!(
+          options,
+          exposure_mode,
+          trusted_edge_confirmation,
+          livekit_topology
+        )
 
       qualification_app_requested?(options) ->
         raise ArgumentError,
@@ -58,7 +70,12 @@ defmodule CommsIntegrations.LocalReleaseGuard do
     :ok
   end
 
-  defp validate_enabled!(options, exposure_mode, trusted_edge_confirmation) do
+  defp validate_enabled!(
+         options,
+         exposure_mode,
+         trusted_edge_confirmation,
+         livekit_topology
+       ) do
     unless Keyword.fetch!(options, :development_adapters?) do
       raise ArgumentError,
             "K_COMMS_LOCAL_RELEASE=true requires ALLOW_DEVELOPMENT_ADAPTERS=true"
@@ -75,7 +92,11 @@ defmodule CommsIntegrations.LocalReleaseGuard do
     end
 
     if exposure_mode == @trusted_edge_exposure_mode do
-      validate_trusted_edge!(options, trusted_edge_confirmation)
+      validate_trusted_edge!(
+        options,
+        trusted_edge_confirmation,
+        livekit_topology
+      )
     else
       unless trusted_edge_confirmation in [nil, ""] do
         raise ArgumentError,
@@ -83,11 +104,11 @@ defmodule CommsIntegrations.LocalReleaseGuard do
                 "K_COMMS_RELEASE_EXPOSURE_MODE=#{@trusted_edge_exposure_mode}"
       end
 
-      validate_direct_release!(options)
+      validate_direct_release!(options, livekit_topology)
     end
   end
 
-  defp validate_direct_release!(options) do
+  defp validate_direct_release!(options, livekit_topology) do
     qualification_app_origin = qualification_app_origin!(options)
     public_hosts = release_hosts!(Keyword.fetch!(options, :local_release_host))
 
@@ -104,20 +125,12 @@ defmodule CommsIntegrations.LocalReleaseGuard do
       public_hosts
     )
 
-    require_origin!(
-      Keyword.fetch!(options, :livekit_server_url),
-      "LIVEKIT_SERVER_URL",
-      ["ws"],
-      public_hosts
-    )
-
-    require_origin!(
-      Keyword.fetch!(options, :livekit_api_url),
-      "LIVEKIT_API_URL",
-      ["http"],
-      ["livekit"],
-      required_port: 7880
-    )
+    livekit_origin =
+      require_livekit_topology_origins!(
+        options,
+        livekit_topology,
+        public_hosts
+      )
 
     require_origin!(
       Keyword.fetch!(options, :s3_public_endpoint),
@@ -134,16 +147,28 @@ defmodule CommsIntegrations.LocalReleaseGuard do
       require_origin_list!(cors_origins, "CORS_ORIGINS", ["http"], public_hosts)
     end
 
-    Keyword.fetch!(options, :csp_connect_sources)
-    |> Enum.reject(&(&1 == "'self'"))
-    |> require_origin_list!(
-      "CSP_CONNECT_SOURCES",
-      ["http", "ws"],
-      public_hosts
-    )
+    csp_connect_sources =
+      options
+      |> Keyword.fetch!(:csp_connect_sources)
+      |> Enum.reject(&(&1 == "'self'"))
+
+    if livekit_topology == @managed_livekit_topology do
+      require_managed_livekit_csp!(
+        csp_connect_sources,
+        livekit_origin,
+        public_hosts
+      )
+    else
+      require_origin_list!(
+        csp_connect_sources,
+        "CSP_CONNECT_SOURCES",
+        ["http", "ws"],
+        public_hosts
+      )
+    end
   end
 
-  defp validate_trusted_edge!(options, confirmation) do
+  defp validate_trusted_edge!(options, confirmation, livekit_topology) do
     unless confirmation == @trusted_edge_confirmation do
       raise ArgumentError,
             "K_COMMS_TRUSTED_EDGE_CONFIRMATION must exactly equal " <>
@@ -182,12 +207,10 @@ defmodule CommsIntegrations.LocalReleaseGuard do
         "wss"
       )
 
-    require_origin!(
+    require_livekit_api_origin!(
       Keyword.fetch!(options, :livekit_api_url),
-      "LIVEKIT_API_URL",
-      ["http"],
-      ["livekit"],
-      required_port: 7880
+      livekit_origin,
+      livekit_topology
     )
 
     object_origin =
@@ -215,6 +238,131 @@ defmodule CommsIntegrations.LocalReleaseGuard do
     end
 
     require_exact_trusted_proxy_cidr!(Keyword.get(options, :trusted_proxy_cidrs, []))
+  end
+
+  defp validate_livekit_topology!(
+         @local_livekit_topology,
+         confirmation
+       )
+       when confirmation in [nil, ""],
+       do: :ok
+
+  defp validate_livekit_topology!(@local_livekit_topology, _confirmation) do
+    raise ArgumentError,
+          "K_COMMS_MANAGED_LIVEKIT_CONFIRMATION is valid only when " <>
+            "K_COMMS_LIVEKIT_TOPOLOGY=#{@managed_livekit_topology}"
+  end
+
+  defp validate_livekit_topology!(
+         @managed_livekit_topology,
+         @managed_livekit_confirmation
+       ),
+       do: :ok
+
+  defp validate_livekit_topology!(@managed_livekit_topology, _confirmation) do
+    raise ArgumentError,
+          "K_COMMS_MANAGED_LIVEKIT_CONFIRMATION must exactly equal " <>
+            @managed_livekit_confirmation
+  end
+
+  defp validate_livekit_topology!(_topology, _confirmation) do
+    raise ArgumentError,
+          "K_COMMS_LIVEKIT_TOPOLOGY must be exactly " <>
+            "#{@local_livekit_topology} or #{@managed_livekit_topology}"
+  end
+
+  defp require_livekit_topology_origins!(
+         options,
+         @local_livekit_topology,
+         public_hosts
+       ) do
+    require_origin!(
+      Keyword.fetch!(options, :livekit_server_url),
+      "LIVEKIT_SERVER_URL",
+      ["ws"],
+      public_hosts
+    )
+
+    require_origin!(
+      Keyword.fetch!(options, :livekit_api_url),
+      "LIVEKIT_API_URL",
+      ["http"],
+      ["livekit"],
+      required_port: 7880
+    )
+
+    nil
+  end
+
+  defp require_livekit_topology_origins!(
+         options,
+         @managed_livekit_topology,
+         _public_hosts
+       ) do
+    livekit_origin =
+      require_public_origin!(
+        Keyword.fetch!(options, :livekit_server_url),
+        "LIVEKIT_SERVER_URL",
+        "wss"
+      )
+
+    require_livekit_api_origin!(
+      Keyword.fetch!(options, :livekit_api_url),
+      livekit_origin,
+      @managed_livekit_topology
+    )
+
+    livekit_origin
+  end
+
+  defp require_livekit_api_origin!(
+         value,
+         _livekit_origin,
+         @local_livekit_topology
+       ) do
+    require_origin!(
+      value,
+      "LIVEKIT_API_URL",
+      ["http"],
+      ["livekit"],
+      required_port: 7880
+    )
+  end
+
+  defp require_livekit_api_origin!(
+         value,
+         {_scheme, livekit_host, _port},
+         @managed_livekit_topology
+       ) do
+    case require_public_origin!(value, "LIVEKIT_API_URL", "https") do
+      {"https", ^livekit_host, 443} ->
+        :ok
+
+      _ ->
+        raise ArgumentError,
+              "LIVEKIT_API_URL must use the same public host as " <>
+                "LIVEKIT_SERVER_URL in managed-cloud mode"
+    end
+  end
+
+  defp require_managed_livekit_csp!(values, livekit_origin, public_hosts) do
+    {livekit_values, local_values} =
+      Enum.split_with(values, fn value ->
+        origin_identity(value, "wss") == {:ok, livekit_origin}
+      end)
+
+    unless length(livekit_values) == 1 do
+      raise ArgumentError,
+            "CSP_CONNECT_SOURCES must contain LIVEKIT_SERVER_URL exactly once " <>
+              "in managed-cloud mode"
+    end
+
+    require_origin_list!(
+      local_values,
+      "CSP_CONNECT_SOURCES",
+      ["http", "ws"],
+      public_hosts
+    )
   end
 
   defp require_public_origin!(value, name, scheme) do

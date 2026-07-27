@@ -32,6 +32,9 @@ param(
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })]
     [string]$BundlePath,
 
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
+    [string]$LiveKitCredentialPath,
+
     [switch]$Bootstrap
 )
 
@@ -47,12 +50,19 @@ foreach ($command in @("scp.exe", "ssh.exe", "tar.exe")) {
 $resolvedBundle = (Resolve-Path -LiteralPath $BundlePath).Path
 $resolvedKey = (Resolve-Path -LiteralPath $SshKeyPath).Path
 $resolvedKnownHosts = (Resolve-Path -LiteralPath $KnownHostsPath).Path
+$resolvedLiveKitCredential = if ($LiveKitCredentialPath) {
+    (Resolve-Path -LiteralPath $LiveKitCredentialPath).Path
+}
+else {
+    $null
+}
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
     "k-comms-deploy-" + [guid]::NewGuid().ToString("N")
 )
 $archive = Join-Path $temporaryRoot "k-comms-proxmox.tar.gz"
 $remoteArchive = "/tmp/k-comms-proxmox-$Revision.tar.gz"
 $remoteDirectory = "/tmp/k-comms-proxmox-$Revision"
+$remoteLiveKitCredential = "/tmp/k-comms-livekit-$Revision.json"
 $target = "$DeployUser@$DeployHost"
 
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
@@ -69,21 +79,44 @@ try {
         throw "Failed to upload the deployment bundle"
     }
 
+    if ($resolvedLiveKitCredential) {
+        & scp.exe -q -i $resolvedKey -o BatchMode=yes -o StrictHostKeyChecking=yes `
+            -o "UserKnownHostsFile=$resolvedKnownHosts" `
+            $resolvedLiveKitCredential "${target}:$remoteLiveKitCredential"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload the protected LiveKit credential"
+        }
+    }
+
     $bootstrapArgument = if ($Bootstrap) { " --bootstrap" } else { "" }
+    $liveKitArgument = if ($resolvedLiveKitCredential) {
+        " --livekit-credential '$remoteLiveKitCredential'"
+    }
+    else {
+        ""
+    }
     $remoteScript = @(
         "set -Eeuo pipefail"
+        (
+            "cleanup() { rm -f '$remoteArchive' '$remoteLiveKitCredential';" +
+            " rm -rf '$remoteDirectory'; }"
+        )
+        "trap cleanup EXIT"
         "rm -rf '$remoteDirectory'"
         "install -d -m 0755 '$remoteDirectory'"
         "tar -xzf '$remoteArchive' -C '$remoteDirectory'"
+        $(if ($resolvedLiveKitCredential) {
+            "chmod 0600 '$remoteLiveKitCredential'"
+        })
         "sudo bash '$remoteDirectory/bin/sync-assets.sh'"
         (
             "sudo /opt/k-comms/bin/deploy.sh" +
             " --environment '$Environment'" +
             " --image '$Image'" +
             " --revision '$Revision'" +
-            $bootstrapArgument
+            $bootstrapArgument +
+            $liveKitArgument
         )
-        "rm -f '$remoteArchive'"
     ) -join "`n"
     $encodedRemoteScript = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($remoteScript)

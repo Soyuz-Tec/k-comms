@@ -14,6 +14,9 @@ K_COMMS_LOCK_FILE=/run/lock/k-comms-deploy.lock
 K_COMMS_SOURCE=https://github.com/Soyuz-Tec/k-comms
 K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
 K_COMMS_MINIO_MC_IMAGE=docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
+K_COMMS_LOCAL_LIVEKIT_TOPOLOGY=local_sidecar
+K_COMMS_MANAGED_LIVEKIT_TOPOLOGY=managed_cloud
+K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=livekit-cloud-v1
 
 log() {
   printf '[k-comms] %s\n' "$*" >&2
@@ -89,6 +92,17 @@ validate_ipv4_24_subnet() {
     die "Podman /24 subnet must use its network address: ${cidr}"
 }
 
+validate_livekit_topology() {
+  [[ "$1" == "$K_COMMS_LOCAL_LIVEKIT_TOPOLOGY" ||
+    "$1" == "$K_COMMS_MANAGED_LIVEKIT_TOPOLOGY" ]] ||
+    die "LiveKit topology must be local_sidecar or managed_cloud"
+}
+
+validate_managed_livekit_url() {
+  [[ "$1" =~ ^wss://[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.livekit\.cloud$ ]] ||
+    die "managed LiveKit URL must be an exact wss://<project>.livekit.cloud origin"
+}
+
 read_env_value() {
   local file=$1
   local name=$2
@@ -117,6 +131,134 @@ assert_secure_runtime_env() {
     die "${K_COMMS_RUNTIME_ENV} must have mode 0600"
   ! grep -q 'CHANGE_ME' "$K_COMMS_RUNTIME_ENV" ||
     die "${K_COMMS_RUNTIME_ENV} still contains CHANGE_ME placeholders"
+}
+
+configured_livekit_topology() {
+  local value
+
+  value="$(read_optional_env_value "$K_COMMS_RUNTIME_ENV" K_COMMS_LIVEKIT_TOPOLOGY)"
+  printf '%s' "${value:-$K_COMMS_LOCAL_LIVEKIT_TOPOLOGY}"
+}
+
+assert_managed_livekit_runtime() {
+  local topology
+  local confirmation
+  local server_url
+  local api_url
+
+  topology="$(configured_livekit_topology)"
+  validate_livekit_topology "$topology"
+  [[ "$topology" == "$K_COMMS_MANAGED_LIVEKIT_TOPOLOGY" ]] || return 0
+
+  confirmation="$(
+    read_env_value "$K_COMMS_RUNTIME_ENV" K_COMMS_MANAGED_LIVEKIT_CONFIRMATION
+  )"
+  [[ "$confirmation" == "$K_COMMS_MANAGED_LIVEKIT_CONFIRMATION" ]] ||
+    die "managed LiveKit confirmation is missing or invalid"
+
+  server_url="$(read_env_value "$K_COMMS_RUNTIME_ENV" LIVEKIT_SERVER_URL)"
+  api_url="$(read_env_value "$K_COMMS_RUNTIME_ENV" LIVEKIT_API_URL)"
+  validate_managed_livekit_url "$server_url"
+  [[ "$api_url" == "https://${server_url#wss://}" ]] ||
+    die "managed LiveKit API URL must match the signaling host"
+}
+
+write_managed_livekit_runtime_env() {
+  local credential_file=$1
+  local destination=$2
+  local server_url
+  local api_url
+  local api_key
+  local api_secret
+  local current_server_url
+  local current_csp
+  local candidate_csp
+  local csp_prefix
+  local csp_suffix
+  local line
+  local name
+  local seen_topology=false
+  local seen_confirmation=false
+
+  require_file "$credential_file"
+  [[ ! -L "$credential_file" ]] ||
+    die "managed LiveKit credential must not be a symbolic link"
+  [[ "$(stat -c '%a' "$credential_file")" == 600 ]] ||
+    die "managed LiveKit credential must have mode 0600"
+
+  server_url="$(
+    jq -er '
+      if ((keys | sort) == ["apiKey", "apiSecret", "url"]) and
+         (.url | type) == "string"
+      then .url else empty end
+    ' "$credential_file"
+  )" || die "managed LiveKit credential has an invalid URL field"
+  api_key="$(
+    jq -er '
+      if ((keys | sort) == ["apiKey", "apiSecret", "url"]) and
+         (.apiKey | type) == "string"
+      then .apiKey else empty end
+    ' "$credential_file"
+  )" || die "managed LiveKit credential has an invalid API key field"
+  api_secret="$(
+    jq -er '
+      if ((keys | sort) == ["apiKey", "apiSecret", "url"]) and
+         (.apiSecret | type) == "string"
+      then .apiSecret else empty end
+    ' "$credential_file"
+  )" || die "managed LiveKit credential has an invalid API secret field"
+
+  validate_managed_livekit_url "$server_url"
+  [[ "$api_key" =~ ^API[A-Za-z0-9_-]{8,}$ ]] ||
+    die "managed LiveKit API key has an invalid shape"
+  [[ "$api_secret" =~ ^[A-Za-z0-9_-]{32,}$ ]] ||
+    die "managed LiveKit API secret has an invalid shape"
+
+  api_url="https://${server_url#wss://}"
+  current_server_url="$(read_env_value "$K_COMMS_RUNTIME_ENV" LIVEKIT_SERVER_URL)"
+  current_csp="$(read_env_value "$K_COMMS_RUNTIME_ENV" CSP_CONNECT_SOURCES)"
+  [[ "$current_csp" == *"$current_server_url"* ]] ||
+    die "CSP_CONNECT_SOURCES does not contain the current LiveKit origin"
+  csp_prefix="${current_csp%%"$current_server_url"*}"
+  csp_suffix="${current_csp#*"$current_server_url"}"
+  [[ "$csp_suffix" != *"$current_server_url"* ]] ||
+    die "CSP_CONNECT_SOURCES contains the current LiveKit origin more than once"
+  candidate_csp="${csp_prefix}${server_url}${csp_suffix}"
+
+  install -m 0600 /dev/null "$destination"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    name=${line%%=*}
+    case "$name" in
+      LIVEKIT_SERVER_URL) printf 'LIVEKIT_SERVER_URL=%s\n' "$server_url" ;;
+      LIVEKIT_API_URL) printf 'LIVEKIT_API_URL=%s\n' "$api_url" ;;
+      LIVEKIT_API_KEY) printf 'LIVEKIT_API_KEY=%s\n' "$api_key" ;;
+      LIVEKIT_API_SECRET) printf 'LIVEKIT_API_SECRET=%s\n' "$api_secret" ;;
+      CSP_CONNECT_SOURCES) printf 'CSP_CONNECT_SOURCES=%s\n' "$candidate_csp" ;;
+      K_COMMS_LIVEKIT_TOPOLOGY)
+        printf 'K_COMMS_LIVEKIT_TOPOLOGY=%s\n' "$K_COMMS_MANAGED_LIVEKIT_TOPOLOGY"
+        seen_topology=true
+        ;;
+      K_COMMS_MANAGED_LIVEKIT_CONFIRMATION)
+        printf 'K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=%s\n' \
+          "$K_COMMS_MANAGED_LIVEKIT_CONFIRMATION"
+        seen_confirmation=true
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <"$K_COMMS_RUNTIME_ENV" >"$destination"
+
+  if [[ "$seen_topology" == false ]]; then
+    printf 'K_COMMS_LIVEKIT_TOPOLOGY=%s\n' \
+      "$K_COMMS_MANAGED_LIVEKIT_TOPOLOGY" >>"$destination"
+  fi
+  if [[ "$seen_confirmation" == false ]]; then
+    printf 'K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=%s\n' \
+      "$K_COMMS_MANAGED_LIVEKIT_CONFIRMATION" >>"$destination"
+  fi
+
+  chmod 0600 "$destination"
+  ! grep -q 'CHANGE_ME' "$destination" ||
+    die "candidate runtime configuration contains placeholders"
 }
 
 render_template() {
