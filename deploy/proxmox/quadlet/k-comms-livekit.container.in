@@ -1,0 +1,26 @@
+[Unit]
+Description=K-Comms LiveKit media plane
+Requires=k-comms-network.service
+After=k-comms-network.service
+
+[Container]
+ContainerName=k-comms-livekit
+Image=docker.io/livekit/livekit-server:v1.12.0@sha256:b1281e66e35e8f9749ffbcf0fe6ab4d40d1438aa00f36c2ea7e6975e5e261e2e
+Network=k-comms.network
+NetworkAlias=livekit
+EnvironmentFile=/etc/k-comms/runtime.env
+Exec=--bind 0.0.0.0 --node-ip @@MEDIA_ADDRESS@@ --rtc.tcp_port 7981 --udp-port 7982
+PublishPort=@@BIND_ADDRESS@@:7980:7880/tcp
+PublishPort=@@MEDIA_ADDRESS@@:7981:7981/tcp
+PublishPort=@@MEDIA_ADDRESS@@:7982:7982/udp
+NoNewPrivileges=true
+Label=io.k-comms.managed=true
+Label=io.k-comms.role=media
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

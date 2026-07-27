@@ -1,0 +1,8 @@
+[Unit]
+Description=Verify the K-Comms Proxmox deployment
+After=k-comms-app.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/k-comms/bin/verify.sh --environment-file /etc/k-comms/environment
+User=root

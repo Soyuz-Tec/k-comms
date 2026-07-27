@@ -1,0 +1,7 @@
+[Unit]
+Description=K-Comms PostgreSQL data
+
+[Volume]
+VolumeName=k-comms-postgres-data
+Label=io.k-comms.managed=true
+Label=io.k-comms.data-class=authoritative

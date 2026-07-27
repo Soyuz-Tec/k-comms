@@ -1,0 +1,31 @@
+[Unit]
+Description=K-Comms object storage
+Requires=k-comms-network.service k-comms-minio-data-volume.service
+After=k-comms-network.service k-comms-minio-data-volume.service
+
+[Container]
+ContainerName=k-comms-minio
+Image=docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+Network=k-comms.network
+NetworkAlias=minio
+EnvironmentFile=/etc/k-comms/runtime.env
+Exec=server /data --console-address :9001
+PublishPort=@@BIND_ADDRESS@@:5900:9000/tcp
+PublishPort=127.0.0.1:5901:9001/tcp
+Volume=k-comms-minio-data.volume:/data
+HealthCmd=curl --fail --silent http://127.0.0.1:9000/minio/health/live
+HealthInterval=5s
+HealthTimeout=5s
+HealthRetries=20
+Notify=healthy
+NoNewPrivileges=true
+Label=io.k-comms.managed=true
+Label=io.k-comms.role=object-storage
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

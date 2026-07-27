@@ -1,0 +1,27 @@
+[Unit]
+Description=K-Comms PostgreSQL
+Requires=k-comms-network.service k-comms-postgres-data-volume.service
+After=k-comms-network.service k-comms-postgres-data-volume.service
+
+[Container]
+ContainerName=k-comms-postgres
+Image=docker.io/library/postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+Network=k-comms.network
+NetworkAlias=postgres
+EnvironmentFile=/etc/k-comms/runtime.env
+Volume=k-comms-postgres-data.volume:/var/lib/postgresql/data
+HealthCmd=pg_isready -U kcomms -d k_comms_release
+HealthInterval=5s
+HealthTimeout=5s
+HealthRetries=20
+Notify=healthy
+Label=io.k-comms.managed=true
+Label=io.k-comms.role=database
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

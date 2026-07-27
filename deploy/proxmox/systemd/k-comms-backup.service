@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a quiesced K-Comms application backup
+After=k-comms-app.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/k-comms/bin/quiesced-backup.sh
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
