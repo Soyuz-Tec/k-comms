@@ -128,6 +128,9 @@ The connector's systemd lifecycle remains independent from the application
 unit. It stays available across application restarts and cutovers, while
 `verify.sh` still requires both the connector and the selected application
 origin to be active and ready before adoption or deployment succeeds.
+Both initial installation and every reviewed asset synchronization install
+this connector unit explicitly; it is intentionally outside the
+`k-comms-*` systemd filename glob.
 
 The protected configuration conversion accounts for the Compose-to-Podman
 environment-file parsing boundary. It removes only optional outer double

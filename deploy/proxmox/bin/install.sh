@@ -122,6 +122,8 @@ fi
 
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.service /etc/systemd/system/
 install -m 0644 "${BUNDLE_DIR}"/systemd/k-comms-*.timer /etc/systemd/system/
+install -m 0644 "${BUNDLE_DIR}/systemd/cloudflared-kcomms.service" \
+  /etc/systemd/system/
 install -m 0600 /dev/null "$K_COMMS_ENVIRONMENT_FILE"
 {
   printf 'K_COMMS_ENVIRONMENT=%s\n' "$environment"

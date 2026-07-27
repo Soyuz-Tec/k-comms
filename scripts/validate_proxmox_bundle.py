@@ -239,6 +239,12 @@ def validate(root: Path) -> list[str]:
     ):
         if required not in installer:
             errors.append(f"install.sh is missing Proxmox guest integration: {required}")
+    for location in (
+        "deploy/proxmox/bin/install.sh",
+        "deploy/proxmox/bin/sync-assets.sh",
+    ):
+        if "systemd/cloudflared-kcomms.service" not in read(root, location):
+            errors.append(f"{location} must install the Cloudflare connector unit")
 
     common = read(root, "deploy/proxmox/bin/common.sh")
     for required in (
