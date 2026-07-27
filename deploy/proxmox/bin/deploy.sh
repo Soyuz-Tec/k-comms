@@ -94,7 +94,11 @@ podman run --rm \
     mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
     mc mb --ignore-existing "local/$S3_BUCKET"
     mc version enable "local/$S3_BUCKET"
-    mc version info "local/$S3_BUCKET" | grep -q "versioning is enabled"
+    version_info="$(mc version info "local/$S3_BUCKET")"
+    case "$version_info" in
+      *"versioning is enabled"*) ;;
+      *) printf "%s\n" "$version_info" >&2; exit 1 ;;
+    esac
   '
 
 run_one_shot() {
@@ -152,7 +156,7 @@ install -m 0600 "$release_candidate" "$K_COMMS_RELEASE_ENV"
 systemctl daemon-reload
 
 activation_failed=false
-if ! systemctl enable --now k-comms-app.service; then
+if ! systemctl start k-comms-app.service; then
   activation_failed=true
 elif ! "${SCRIPT_DIR}/verify.sh" --environment "$environment"; then
   activation_failed=true

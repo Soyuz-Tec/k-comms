@@ -16,7 +16,7 @@ K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_
 K_COMMS_MINIO_MC_IMAGE=docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
 
 log() {
-  printf '[k-comms] %s\n' "$*"
+  printf '[k-comms] %s\n' "$*" >&2
 }
 
 die() {

@@ -8,6 +8,7 @@ table inet k_comms_filter {
     ip protocol icmp accept
     ip6 nexthdr ipv6-icmp accept
     ip saddr 192.168.1.0/24 tcp dport 22 accept
+    ip saddr 10.89.0.0/24 ip daddr 10.89.0.1 meta l4proto { tcp, udp } th dport 53 accept
     ip saddr 192.168.1.0/24 ip daddr @@MEDIA_ADDRESS@@ tcp dport 7981 accept
     ip saddr 192.168.1.0/24 ip daddr @@MEDIA_ADDRESS@@ udp dport 7982 accept
     @@STAGING_LAN_RULES@@

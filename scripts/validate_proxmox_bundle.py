@@ -120,6 +120,14 @@ def validate(root: Path) -> list[str]:
         if expected not in read(root, location):
             errors.append(f"{location}: expected pinned {name} image is missing")
 
+    postgres_quadlet = read(
+        root, "deploy/proxmox/quadlet/k-comms-postgres.container"
+    )
+    if "NoNewPrivileges=true" in postgres_quadlet:
+        errors.append(
+            "PostgreSQL Quadlet must permit its pinned entrypoint to drop from root"
+        )
+
     app = read(root, "deploy/proxmox/quadlet/k-comms-app.container.in")
     for required in (
         "Image=@@IMAGE_REF@@",
@@ -170,6 +178,8 @@ def validate(root: Path) -> list[str]:
     for required in (
         "policy drop",
         "ip saddr 192.168.1.0/24 tcp dport 22 accept",
+        "ip saddr 10.89.0.0/24 ip daddr 10.89.0.1",
+        "th dport 53 accept",
         "tcp dport 7981 accept",
         "udp dport 7982 accept",
         "@@STAGING_LAN_RULES@@",
@@ -187,6 +197,10 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{relative}: strict Bash preamble is required")
         if re.search(r"(?:source|\.)\s+[\"']?/etc/k-comms/runtime\.env", document):
             errors.append(f"{relative}: runtime secrets must not be sourced as shell code")
+    if "printf '[k-comms] %s\\n' \"$*\" >&2" not in read(
+        root, "deploy/proxmox/bin/common.sh"
+    ):
+        errors.append("common.sh logs must use stderr so command substitutions stay clean")
 
     deploy = read(root, "deploy/proxmox/bin/deploy.sh")
     for required in (
@@ -194,12 +208,30 @@ def validate(root: Path) -> list[str]:
         "org.opencontainers.image.source",
         "org.opencontainers.image.revision",
         "CommsCore.Release.migrate()",
+        'case "$version_info" in',
         "backup.sh",
         "verify.sh",
         "k-comms-deployment-receipt-v1",
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
+    if "enable --now k-comms-app.service" in deploy:
+        errors.append("deploy.sh must not try to enable a generated Quadlet unit")
+
+    generator = read(root, "deploy/proxmox/bin/generate-runtime-env.sh")
+    if "CSP_CONNECT_SOURCES='self' %s %s %s %s" not in generator:
+        errors.append(
+            "staging CSP must use the runtime's space-delimited exact-origin contract"
+        )
+
+    installer = read(root, "deploy/proxmox/bin/install.sh")
+    for required in (
+        "aardvark-dns",
+        "qemu-guest-agent",
+        "start qemu-guest-agent.service",
+    ):
+        if required not in installer:
+            errors.append(f"install.sh is missing Proxmox guest integration: {required}")
 
     rollback = read(root, "deploy/proxmox/bin/rollback.sh")
     for required in (

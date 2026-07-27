@@ -10,12 +10,11 @@ Network=k-comms.network
 NetworkAlias=postgres
 EnvironmentFile=/etc/k-comms/runtime.env
 Volume=k-comms-postgres-data.volume:/var/lib/postgresql/data
-HealthCmd=pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+HealthCmd=pg_isready -U kcomms -d k_comms_release
 HealthInterval=5s
 HealthTimeout=5s
 HealthRetries=20
 Notify=healthy
-NoNewPrivileges=true
 Label=io.k-comms.managed=true
 Label=io.k-comms.role=database
 

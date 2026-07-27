@@ -75,7 +75,11 @@ install -m 0600 /dev/null "$output"
   printf 'K_COMMS_RELEASE_EXPOSURE_MODE=\n'
   printf 'K_COMMS_TRUSTED_EDGE_CONFIRMATION=\n'
   printf 'CORS_ORIGINS=%s\n' "$app_origin"
-  printf "CSP_CONNECT_SOURCES='self',%s,%s\n" "$livekit_origin" "$object_origin"
+  printf "CSP_CONNECT_SOURCES='self' %s %s %s %s\n" \
+    "$app_origin" \
+    "ws://${bind_address}:4188" \
+    "$livekit_origin" \
+    "$object_origin"
   printf 'HSTS_ENABLED=false\n'
   printf 'TRUSTED_PROXY_CIDRS=\n'
   printf 'ALLOW_BOOTSTRAP=false\n'

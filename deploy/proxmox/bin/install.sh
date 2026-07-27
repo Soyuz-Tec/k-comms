@@ -28,7 +28,8 @@ assert_secure_runtime_env
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl jq nftables openssl podman postgresql-client tar
+  aardvark-dns ca-certificates curl jq nftables openssl podman postgresql-client \
+  qemu-guest-agent tar
 
 for command in curl flock jq nft podman sha256sum systemctl; do
   require_command "$command"
@@ -88,6 +89,7 @@ install -m 0600 /dev/null "$K_COMMS_ENVIRONMENT_FILE"
 
 systemctl daemon-reload
 systemctl enable --now nftables.service
+systemctl start qemu-guest-agent.service
 systemctl enable k-comms-health.timer k-comms-backup.timer
 
 log "installed the ${environment} Proxmox deployment contract"

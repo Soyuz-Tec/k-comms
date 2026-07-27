@@ -31,6 +31,12 @@ application, signaling, object API, and ICE ports only to the same LAN.
 `runtime.env` and the Cloudflare tunnel token are always mode `0600`, remain
 outside Git, and are never included in receipts or logs.
 
+The pinned PostgreSQL image starts its entrypoint as root only long enough to
+initialize/chown the managed volume and drop to its `postgres` user. Its
+Quadlet therefore cannot set Linux `no-new-privileges`; a staging regression
+test proved that doing so traps `gosu` before database startup. The application
+retains read-only rootfs, dropped capabilities, and no-new-privileges controls.
+
 ## Initial VM installation
 
 On a fresh dedicated Debian VM:
