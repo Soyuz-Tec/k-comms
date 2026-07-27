@@ -1,5 +1,13 @@
 # Developer Getting Started
 
+On the managed Windows workstation, begin in the canonical checkout:
+
+`C:\Users\vasan\OneDrive\Documents\k-comms`
+
+Use a registered Git worktree when isolation from an active change is required;
+do not create an independent duplicate clone. See the
+[development environment standard](../10-infrastructure-and-deployment/environments/development.md).
+
 ## Expected workflow
 
 1. Install the repository-pinned Erlang/OTP and Elixir versions.
