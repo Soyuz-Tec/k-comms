@@ -42,6 +42,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
+    "docs/10-infrastructure-and-deployment/environments/development.md",
     "docs/14-operations/development-to-production-completion-standard.md",
 )
 
@@ -106,11 +107,17 @@ def validate(root: Path) -> list[str]:
         root,
         "docs/14-operations/development-to-production-completion-standard.md",
     )
+    development_environment = read(
+        root,
+        "docs/10-infrastructure-and-deployment/environments/development.md",
+    )
     for required in (
+        r"`C:\Users\vasan\OneDrive\Documents\k-comms`",
         "without waiting for another instruction",
         "protected staging",
         "production approval",
         "deployment of the same digest",
+        "Do not create independent duplicate clones",
     ):
         if required not in agents:
             errors.append(f"AGENTS.md is missing completion control: {required}")
@@ -125,6 +132,17 @@ def validate(root: Path) -> list[str]:
             errors.append(
                 "development-to-production completion standard is missing "
                 f"control: {required}"
+            )
+    for required in (
+        r"`C:\Users\vasan\OneDrive\Documents\k-comms`",
+        "There is no separate Proxmox development VM",
+        "git worktree remove",
+        "Do not create independent duplicate clones",
+    ):
+        if required not in development_environment:
+            errors.append(
+                "development environment standard is missing control: "
+                f"{required}"
             )
 
     bundle_root = root / "deploy/proxmox"

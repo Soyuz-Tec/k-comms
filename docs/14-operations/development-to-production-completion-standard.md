@@ -62,17 +62,20 @@ flowchart LR
 
 Before editing:
 
-1. Confirm the repository root, current branch, target branch, and remote.
-2. Read `AGENTS.md`, the relevant architecture documents, ADRs, runbooks, and
+1. Start from the canonical development workspace defined in
+   `docs/10-infrastructure-and-deployment/environments/development.md`, or a
+   registered temporary worktree created from it.
+2. Confirm the repository root, current branch, target branch, and remote.
+3. Read `AGENTS.md`, the relevant architecture documents, ADRs, runbooks, and
    tests.
-3. Inspect the worktree. Preserve unrelated user changes and use a clean
+4. Inspect the worktree. Preserve unrelated user changes and use a clean
    worktree when the active checkout is dirty.
-4. Confirm the active development runtime and deployment targets from
+5. Confirm the active development runtime and deployment targets from
    repository inventory and live evidence.
-5. Record the current production image, revision, receipt, service health,
+6. Record the current production image, revision, receipt, service health,
    authoritative storage identity, and rollback target when runtime work is
    planned.
-6. Define acceptance criteria, risk, observability, migration, rollout, and
+7. Define acceptance criteria, risk, observability, migration, rollout, and
    rollback before implementation.
 
 Do not act from remembered topology or an old chat transcript when current

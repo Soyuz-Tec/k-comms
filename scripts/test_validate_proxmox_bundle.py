@@ -36,6 +36,28 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("completion standard is missing control" in error for error in errors)
         )
 
+    def test_rejects_noncanonical_windows_development_workspace(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = (
+            root
+            / "docs/10-infrastructure-and-deployment/environments/development.md"
+        )
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                r"C:\Users\vasan\OneDrive\Documents\k-comms",
+                r"C:\Users\vasan\OneDrive\Documents\k-comms 2",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "development environment standard is missing control" in error
+                for error in errors
+            )
+        )
+
     def copied_contract(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
