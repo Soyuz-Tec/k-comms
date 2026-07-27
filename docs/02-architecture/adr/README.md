@@ -61,5 +61,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0055 | Operate a digest-promoted K-Comms release on dedicated Proxmox VMs | Accepted for the single-site internal production profile |
 | 0056 | Harden cryptographic policy enforcement | Accepted |
 | 0057 | Use managed LiveKit Cloud for Internet media transport | Accepted |
+| 0058 | Automate protected merge-to-production promotion | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

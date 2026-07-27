@@ -187,13 +187,18 @@ Proxmox implementation of that standard.
 
 1. Merge a reviewed PR into protected `main`.
 2. Wait for CI and the Container workflow to pass.
-3. Copy the registry digest from the successful publication job.
-4. Verify both SLSA provenance and the CycloneDX SBOM attestation.
-5. Deploy the digest to staging and run `verify.sh`.
-6. Rehearse `rollback.sh` and an isolated `restore.sh`.
-7. Approve the protected GitHub `production` environment.
-8. Deploy the same digest to production.
-9. Retain the deployment receipt, backup manifest, and post-deploy evidence.
+3. The Container workflow records the registry digest, verifies both SLSA
+   provenance and the CycloneDX SBOM attestation, and automatically queues the
+   exact candidate for staging.
+4. Staging deploys the digest, runs `verify.sh`, rehearses `rollback.sh`,
+   reactivates the candidate, and runs an isolated restore rehearsal against
+   the retained PostgreSQL and MinIO backup.
+5. The same workflow automatically queues production and waits until the
+   required reviewer approves the protected GitHub `production` environment.
+6. Production rechecks protected `main`, takes a quiesced backup, and deploys
+   the same digest qualified in staging.
+7. The workflow retains non-secret deployment evidence and verifies the public
+   application, media, and object-storage endpoints.
 
 For this VM, the one-time legacy adoption above must already have completed.
 Normal production deployments never create a new authoritative volume and do
@@ -206,6 +211,12 @@ digest into the application Quadlet, starts the service, and records a
 non-secret receipt. A failed health gate restores the previous application
 Quadlet. Database recovery remains an explicit, separately confirmed
 `restore.sh` operation.
+
+`restore-rehearsal.sh` is staging-only. It verifies checksums and archive
+readability, restores PostgreSQL into a temporary database, extracts the MinIO
+snapshot into a temporary directory, validates both restored targets, records
+a non-secret receipt, and removes the temporary targets. It never replaces the
+active staging or production data.
 
 Every protected deployment also applies the environment's managed LiveKit
 credential transactionally. The candidate runtime uses the exact matching

@@ -133,6 +133,70 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             )
         )
 
+    def test_rejects_nonreusable_protected_deployment_workflow(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "  workflow_call:\n",
+                "  workflow_call_removed:\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("workflow_call:" in error for error in errors))
+
+    def test_rejects_production_that_does_not_need_staging(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/container.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "    needs: [publish, staging]\n",
+                "    needs: publish\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("needs: [publish, staging]" in error for error in errors)
+        )
+
+    def test_rejects_cancelling_an_in_progress_main_release(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/container.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+                "cancel-in-progress: true",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("cancel-in-progress:" in error for error in errors)
+        )
+
+    def test_rejects_missing_isolated_restore_rehearsal(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/restore-rehearsal.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "k-comms-restore-rehearsal-receipt-v1",
+                "restore-complete",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("restore-rehearsal.sh is missing control" in error for error in errors)
+        )
+
     def test_rejects_missing_livekit_runtime_rollback(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

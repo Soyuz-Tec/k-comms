@@ -1,6 +1,24 @@
 name: Deploy Proxmox
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Protected deployment environment
+        required: true
+        type: string
+      image:
+        description: Immutable GHCR image digest reference
+        required: true
+        type: string
+      revision:
+        description: Exact 40-character main commit
+        required: true
+        type: string
+      bootstrap:
+        description: Idempotently create the synthetic staging tenant
+        required: true
+        type: boolean
   workflow_dispatch:
     inputs:
       environment:
@@ -50,6 +68,7 @@ jobs:
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -Eeuo pipefail
+          [[ "$DEPLOY_ENVIRONMENT" == staging || "$DEPLOY_ENVIRONMENT" == production ]]
           [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE" =~ ^ghcr\.io/soyuz-tec/k-comms@sha256:[0-9a-f]{64}$ ]]
           [[ "$(git rev-parse HEAD)" == "$REVISION" ]]
@@ -111,6 +130,18 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.revision }}
+      - name: Reconfirm the approved revision is still protected main
+        shell: powershell
+        run: |
+          git fetch --no-tags origin main
+          $head = (git rev-parse HEAD).Trim()
+          $main = (git rev-parse origin/main).Trim()
+          if (
+              $head -ne "${{ inputs.revision }}" -or
+              $main -ne "${{ inputs.revision }}"
+          ) {
+              throw "The approved revision is no longer the current protected main"
+          }
       - name: Materialize protected SSH inputs
         shell: powershell
         env:
@@ -180,6 +211,59 @@ jobs:
               $arguments.Bootstrap = $true
           }
           & (Join-Path $env:GITHUB_WORKSPACE "scripts\proxmox\deploy-remote.ps1") @arguments
+      - name: Rehearse staging rollback, reactivation, and isolated restore
+        if: inputs.environment == 'staging'
+        shell: powershell
+        env:
+          DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
+        run: |
+          & (
+              Join-Path $env:GITHUB_WORKSPACE `
+                  "scripts\proxmox\qualify-staging-remote.ps1"
+          ) `
+              -DeployHost $env:DEPLOY_HOST `
+              -DeployUser $env:DEPLOY_USER `
+              -SshKeyPath $env:DEPLOY_KEY_PATH `
+              -KnownHostsPath $env:DEPLOY_KNOWN_HOSTS_PATH `
+              -Image "${{ inputs.image }}" `
+              -Revision "${{ inputs.revision }}"
+      - name: Export non-secret deployment evidence
+        shell: powershell
+        env:
+          DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
+        run: |
+          $evidencePath = Join-Path `
+              $env:RUNNER_TEMP `
+              "k-comms-${{ inputs.environment }}-${{ inputs.revision }}.json"
+          & (
+              Join-Path $env:GITHUB_WORKSPACE `
+                  "scripts\proxmox\export-deployment-evidence.ps1"
+          ) `
+              -Environment "${{ inputs.environment }}" `
+              -DeployHost $env:DEPLOY_HOST `
+              -DeployUser $env:DEPLOY_USER `
+              -SshKeyPath $env:DEPLOY_KEY_PATH `
+              -KnownHostsPath $env:DEPLOY_KNOWN_HOSTS_PATH `
+              -Revision "${{ inputs.revision }}" `
+              -OutputPath $evidencePath
+          "DEPLOYMENT_EVIDENCE_PATH=$evidencePath" |
+              Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          @"
+          ### ${{ inputs.environment }} deployment evidence
+
+          - Revision: ${{ inputs.revision }}
+          - Image: ${{ inputs.image }}
+          - Evidence artifact: k-comms-${{ inputs.environment }}-${{ inputs.revision }}
+          "@ | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+      - name: Retain deployment evidence with the workflow run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: k-comms-${{ inputs.environment }}-${{ inputs.revision }}
+          path: ${{ env.DEPLOYMENT_EVIDENCE_PATH }}
+          if-no-files-found: error
+          retention-days: 90
       - name: Remove protected SSH inputs
         if: always()
         shell: powershell

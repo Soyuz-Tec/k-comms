@@ -13,15 +13,25 @@ on:
       - "apps/**"
       - "clients/web/**"
       - "config/**"
+      - "deploy/proxmox/**"
       - "scripts/container_smoke.sh"
+      - "scripts/proxmox/**"
+      - "scripts/validate_proxmox_bundle.py"
+      - "scripts/test_validate_proxmox_bundle.py"
       - "scripts/validate_compose_exposure.py"
       - "scripts/test_validate_compose_exposure.py"
       - ".github/workflows/container.yml"
+      - ".github/workflows/deploy-proxmox.yml"
   workflow_dispatch:
+
+permissions:
+  attestations: read
+  contents: read
+  packages: read
 
 concurrency:
   group: container-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pull-request-smoke:
@@ -46,11 +56,15 @@ jobs:
           while IFS= read -r path; do
             case "$path" in
               .dockerignore|Dockerfile|compose.yaml|mix.exs|mix.lock|\
-              apps/*|clients/web/*|config/*|deploy/k8s/*|\
+              apps/*|clients/web/*|config/*|deploy/k8s/*|deploy/proxmox/*|\
               scripts/container_smoke.sh|\
+              scripts/proxmox/*|\
+              scripts/validate_proxmox_bundle.py|\
+              scripts/test_validate_proxmox_bundle.py|\
               scripts/validate_compose_exposure.py|\
               scripts/test_validate_compose_exposure.py|\
-              .github/workflows/container.yml)
+              .github/workflows/container.yml|\
+              .github/workflows/deploy-proxmox.yml)
                 runtime_required=true
                 break
                 ;;
@@ -96,6 +110,9 @@ jobs:
       packages: write
     env:
       TRIVY_IMAGE: docker.io/aquasec/trivy:0.72.0@sha256:c6e969c5662a546ad5de4a73c2a6b7a7c627f86d916903e175aa623af5b97ada
+    outputs:
+      image: ${{ steps.release.outputs.image }}
+      revision: ${{ steps.release.outputs.revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Validate local Compose exposure policy
@@ -203,3 +220,111 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           sbom-path: ${{ steps.sbom.outputs.path }}
           push-to-registry: true
+      - name: Record the only promotable release candidate
+        id: release
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          REPOSITORY: ${{ steps.image.outputs.repository }}
+        run: |
+          set -euo pipefail
+          image="${REPOSITORY}@${DIGEST}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "revision=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Immutable release candidate"
+            echo
+            echo "- Revision: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${image}\`"
+            echo "- Next: protected staging qualification, then protected production"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  staging:
+    name: Qualify the immutable release in staging
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.publish.result == 'success'
+    needs: publish
+    uses: ./.github/workflows/deploy-proxmox.yml
+    with:
+      environment: staging
+      image: ${{ needs.publish.outputs.image }}
+      revision: ${{ needs.publish.outputs.revision }}
+      bootstrap: true
+    secrets: inherit
+
+  production:
+    name: Promote the staging-qualified release to production
+    needs: [publish, staging]
+    uses: ./.github/workflows/deploy-proxmox.yml
+    with:
+      environment: production
+      image: ${{ needs.publish.outputs.image }}
+      revision: ${{ needs.publish.outputs.revision }}
+      bootstrap: false
+    secrets: inherit
+
+  verify-public-production:
+    name: Verify public production and finalize release evidence
+    needs: [publish, staging, production]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify every configured public production endpoint
+        shell: bash
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          REVISION: ${{ needs.publish.outputs.revision }}
+        run: |
+          set -euo pipefail
+          curl_checked() {
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              "$1"
+          }
+
+          app_status="$(curl_checked https://comms.avayaworks.com/api/v1/status)"
+          root_status="$(curl_checked https://avayaworks.com/api/v1/status)"
+          app_readiness="$(curl_checked https://comms.avayaworks.com/health/ready)"
+          root_readiness="$(curl_checked https://avayaworks.com/health/ready)"
+          curl_checked https://media.avayaworks.com >/dev/null
+          curl_checked \
+            https://kcomms-files.avayaworks.com/minio/health/ready \
+            >/dev/null
+
+          for document in \
+            "$app_status" \
+            "$root_status"; do
+            jq -e '
+              .status == "operational" and
+              .service == "k-comms"
+            ' <<<"$document" >/dev/null
+          done
+          for document in \
+            "$app_readiness" \
+            "$root_readiness"; do
+            jq -e '
+              .status == "ready" and
+              .checks.runtime.status == "ok" and
+              .checks.database.status == "ok" and
+              .checks.object_storage.status == "configured"
+            ' <<<"$document" >/dev/null
+          done
+
+          {
+            echo "### Production release completed"
+            echo
+            echo "- Revision: \`${REVISION}\`"
+            echo "- Image: \`${IMAGE}\`"
+            echo "- Staging: deployment, backup, rollback, reactivation, and isolated restore passed"
+            echo "- Production: protected approval, backup, same-digest deployment, and host verification passed"
+            echo "- Public application, media, and object-storage endpoints passed"
+            echo "- Evidence artifacts: \`k-comms-staging-${REVISION}\`, \`k-comms-production-${REVISION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
