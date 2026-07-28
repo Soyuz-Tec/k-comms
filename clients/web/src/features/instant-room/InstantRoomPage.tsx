@@ -63,9 +63,8 @@ export function InstantRoomPage() {
     mediaActionsAllowed
   } = useSession();
   const secureActionsUnavailable =
-    !transportPolicyReady ||
-    !accountActionsAllowed ||
-    !mediaActionsAllowed;
+    transportPolicyReady &&
+    (!accountActionsAllowed || !mediaActionsAllowed);
   const initialStateRef = useRef<{
     guest: GuestSession | null;
     member: MemberInstantRoomContinuity | null;
@@ -434,12 +433,22 @@ export function InstantRoomPage() {
               ? "Create it with your workspace identity, then share the link."
               : "Add your name, share one link, and start talking."}
           </p>
+          {!transportPolicyReady && (
+            <div className="transport-warning" role="status">
+              <strong>Checking the secure connection…</strong>
+              <span>
+                Secure account and media controls remain unavailable until
+                K-Comms verifies this deployment.
+              </span>
+            </div>
+          )}
           {secureActionsUnavailable && (
             <div className="transport-warning" role="alert">
-              <strong>Text-only evaluation on this HTTP address.</strong>
+              <strong>Text-only mode is active.</strong>
               <span>
-                Use non-sensitive content only. Account actions, microphone,
-                camera, and screen sharing require trusted HTTPS.
+                K-Comms could not verify a trusted HTTPS path to this
+                deployment. Use non-sensitive content only. Account actions,
+                microphone, camera, and screen sharing remain disabled.
               </span>
             </div>
           )}
