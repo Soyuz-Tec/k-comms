@@ -1186,18 +1186,20 @@ def validate_local_release(
         not in current_network_observation_body
         or "assert-releasenetworkobservationmatches" not in receipt_topology_body
         or '"bindaddress"' not in network_observation_match_body
-        or '"interfaceindex"' not in network_observation_match_body
+        or '"interfaceindex"' in network_observation_match_body
         or '"interfacealias"' not in network_observation_match_body
         or '"networkname"' not in network_observation_match_body
         or '"networkcategory"' not in network_observation_match_body
+        or "$renumberedobservation.interfaceindex = 13"
+        not in _compact(bind_address_self_test_body)
         or "network-profile self-test accepted drift"
         not in bind_address_self_test_body
         or "assert-releasenetworkobservationcurrent" not in deploy_body
         or deploy_body.count("assert-releasenetworkobservationcurrent") < 3
     ):
         errors.append(
-            "LAN deployment must revalidate the selected interface and network "
-            "profile before activation and before sealing its receipt"
+            "LAN deployment must revalidate stable interface and network-profile "
+            "identity while treating the Windows interface index as diagnostic"
         )
     if (
         '$podmanbindaddress = "127.0.0.1"' not in _compact(runner_document)
