@@ -701,13 +701,16 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   font-size: .86rem;
 }
 
-.compact-room-layout .guest-participant-toggle span {
-  min-width: 0;
+.compact-room-layout .guest-participant-toggle .app-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
   color: #64748b;
-  font-size: .72rem;
-  line-height: 1.25;
-  text-align: right;
-  white-space: normal;
+  transition: transform 160ms ease;
+}
+
+.compact-room-layout .guest-participant-toggle[aria-expanded="true"] .app-icon {
+  transform: rotate(180deg);
 }
 
 .compact-room-layout .guest-participant-roster.compact ul {
@@ -721,9 +724,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .compact-room-layout .guest-live-tools {
+  justify-content: center;
   align-items: stretch;
   flex-direction: row;
-  padding: .4rem .75rem;
+  padding: .65rem .75rem;
   border-inline: 0;
   border-bottom-color: #e6ebf0;
   background: white;
@@ -735,14 +739,32 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .compact-room-layout .guest-live-tools .audio-call-control {
   width: 100%;
-  justify-content: stretch;
+  max-width: 19.75rem;
+  justify-content: center;
+  align-items: stretch;
+  gap: .75rem;
 }
 
-.compact-room-layout .guest-live-tools .audio-call-control .button {
+.compact-room-layout .guest-live-tools .audio-call-control .call-launch-button {
   min-width: 0;
-  min-height: 44px;
+  width: auto;
+  max-width: 9.5rem;
+  min-height: 82px;
   flex: 1 1 0;
-  padding-inline: .55rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: .35rem;
+  padding: .7rem .55rem;
+  border-radius: 18px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+}
+
+.compact-room-layout .guest-live-tools .audio-call-control .call-launch-button .app-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
 }
 
 .compact-room-layout .guest-room {

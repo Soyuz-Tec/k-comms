@@ -589,6 +589,19 @@ export function InstantRoomPage() {
     activeRoom.room && activeRoom.shareUrl ? (
       (participantCount: number) => (
         <InstantRoomSharePanel
+          placement="banner"
+          room={activeRoom.room!}
+          shareUrl={activeRoom.shareUrl!}
+          title={activeRoom.session.conversation.title || "Instant room"}
+          participantCount={participantCount}
+        />
+      )
+    ) : undefined;
+  const shareMenu =
+    activeRoom.room && activeRoom.shareUrl ? (
+      (participantCount: number) => (
+        <InstantRoomSharePanel
+          placement="menu"
           room={activeRoom.room!}
           shareUrl={activeRoom.shareUrl!}
           title={activeRoom.session.conversation.title || "Instant room"}
@@ -610,6 +623,7 @@ export function InstantRoomPage() {
       identityLabel={activeRoom.mode === "guest" ? "Host" : "Member"}
       initialPresenceCount={1}
       roomBanner={shareBanner}
+      roomMenuInvite={shareMenu}
       onAccessEnded={() => {
         clearMemberInstantRoomContinuity();
         storeGuestSession(null);
@@ -745,11 +759,13 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 function InstantRoomSharePanel({
+  placement = "banner",
   room,
   shareUrl,
   title,
   participantCount
 }: {
+  placement?: "banner" | "menu";
   room: InstantRoom;
   shareUrl: string;
   title: string;
@@ -761,15 +777,18 @@ function InstantRoomSharePanel({
   const [showQr, setShowQr] = useState(false);
   const secureLink = isEncryptedUrl(shareUrl);
   const lifetime = instantRoomLifetime(room);
-  const dialogRef = useModalDialog(closeDetails, expanded);
+  const dialogRef = useModalDialog(
+    closeDetails,
+    placement === "banner" && expanded
+  );
 
   useEffect(() => {
-    if (participantCount > 1) {
+    if (placement === "banner" && participantCount > 1) {
       setExpanded(false);
       setLinkRevealed(false);
       setShowQr(false);
     }
-  }, [participantCount]);
+  }, [participantCount, placement]);
 
   function closeDetails() {
     setExpanded(false);
@@ -781,8 +800,13 @@ function InstantRoomSharePanel({
     try {
       await copyText(shareUrl);
       setNotice(`${secureLink ? "Secure link" : "Invite link"} copied.`);
-      closeDetails();
+      if (placement === "banner") closeDetails();
     } catch {
+      if (placement === "menu") {
+        setLinkRevealed(true);
+        setNotice("Copy failed. The full link is visible so you can copy it manually.");
+        return;
+      }
       setLinkRevealed(true);
       setShowQr(false);
       setExpanded(true);
@@ -802,15 +826,92 @@ function InstantRoomSharePanel({
         url: shareUrl
       });
       setNotice("Share sheet opened.");
-      closeDetails();
+      if (placement === "banner") closeDetails();
     } catch (reason: unknown) {
       if (
         !(reason instanceof DOMException) ||
         reason.name !== "AbortError"
       ) {
-        setNotice("Sharing was not completed. The link is still available below.");
+        if (placement === "menu") setLinkRevealed(true);
+        setNotice(
+          placement === "menu"
+            ? "Sharing was not completed. The full link is visible so you can copy it manually."
+            : "Sharing was not completed. The link is still available below."
+        );
       }
     }
+  }
+
+  if (placement === "menu") {
+    return (
+      <section
+        className="instant-room-menu-invite"
+        aria-labelledby="instant-room-menu-invite-title"
+      >
+        <div className="instant-room-menu-invite-heading">
+          <span className="instant-room-kicker">Invite people</span>
+          <h3 id="instant-room-menu-invite-title">Scan to join</h3>
+          <p>Open this menu when someone is ready to join your room.</p>
+        </div>
+        <div className="instant-room-menu-qr">
+          <QrCode value={shareUrl} label={`Scan to join ${title}`} />
+          <p>Anyone who scans this code can use the room invite.</p>
+        </div>
+        <label htmlFor="instant-room-menu-share-url">
+          {secureLink ? "Secure room link" : "Room invite link"}
+        </label>
+        <div className="instant-room-menu-link-row">
+          <input
+            id="instant-room-menu-share-url"
+            type="text"
+            value={linkRevealed ? shareUrl : maskedShareUrl(shareUrl)}
+            readOnly
+            spellCheck={false}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <button
+            className="button ghost"
+            type="button"
+            aria-pressed={linkRevealed}
+            onClick={() => setLinkRevealed((current) => !current)}
+          >
+            {linkRevealed ? "Hide" : "Reveal"}
+          </button>
+        </div>
+        <div className="instant-room-menu-invite-actions">
+          <button
+            className="button primary"
+            type="button"
+            aria-label="Copy invite link"
+            onClick={() => void copyLink()}
+          >
+            Copy link
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            aria-label="Share invite link"
+            onClick={() => void shareLink()}
+          >
+            Share
+          </button>
+        </div>
+        <p className="instant-room-lifetime">{lifetime}</p>
+        {!secureLink && (
+          <p className="transport-warning" role="note">
+            <strong>This invite uses unencrypted HTTP.</strong>
+            <span>Share it only on a trusted test network.</span>
+          </p>
+        )}
+        <p
+          className={`instant-room-copy-notice${notice ? "" : " sr-only"}`}
+          role="status"
+          aria-live="polite"
+        >
+          {notice || "Invite QR ready."}
+        </p>
+      </section>
+    );
   }
 
   return (

@@ -429,18 +429,39 @@ describe("GuestAccessPage", () => {
           onLeave={onLeave}
           onConverted={vi.fn()}
           identityLabel="Host"
+          roomBanner={<section aria-label="Standalone invite">Standalone invite controls</section>}
+          roomMenuInvite={(
+            <section aria-label="Invite QR">
+              <h3>Scan to join</h3>
+              <div>Room QR code</div>
+            </section>
+          )}
         />
       </BrowserRouter>
     );
 
     await screen.findByRole("heading", { name: "Launch room" });
+    const mobilePresence = document.querySelector(".guest-room-heading p");
+    expect(mobilePresence).toHaveAttribute("role", "status");
+    expect(mobilePresence).toHaveAttribute("aria-live", "polite");
+    expect(mobilePresence).toHaveAttribute("aria-atomic", "true");
+    expect(document.querySelector(".guest-connection")).not.toHaveAttribute(
+      "role",
+      "status"
+    );
     const trigger = screen.getByRole("button", { name: "Open room menu" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "Standalone invite" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Invite QR" }))
+      .not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Leave" })).not.toBeInTheDocument();
 
     await user.click(trigger);
     const menu = screen.getByRole("dialog", { name: "Room menu" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(within(menu).getByRole("region", { name: "Invite QR" })).toBeVisible();
+    expect(within(menu).getByRole("heading", { name: "Scan to join" })).toBeVisible();
     expect(within(menu).getByRole("button", { name: /Save this room/ })).toBeVisible();
     expect(within(menu).getByRole("link", { name: /Sign in to a workspace/ })).toBeVisible();
     expect(within(menu).getByRole("button", { name: /Leave room/ })).toHaveTextContent(
@@ -450,6 +471,12 @@ describe("GuestAccessPage", () => {
       expect(within(menu).getByRole("button", { name: "Close" })).toHaveFocus()
     );
 
+    await user.click(within(menu).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Room menu" })).toBeVisible();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
@@ -2559,6 +2586,13 @@ describe("GuestAccessPage", () => {
     renderPage();
     const roster = await screen.findByRole("list", { name: "Room participants" });
     await within(roster).findByText("Taylor", { exact: false });
+    const headerPresence = document.querySelector(".guest-room-heading p");
+    expect(headerPresence).not.toHaveAttribute("role", "status");
+    expect(headerPresence).not.toHaveAttribute("aria-live");
+    const desktopConnection = document.querySelector(".guest-connection");
+    expect(desktopConnection).toHaveAttribute("role", "status");
+    expect(desktopConnection).toHaveAttribute("aria-live", "polite");
+    expect(desktopConnection).toHaveAttribute("aria-atomic", "true");
 
     act(() => {
       realtimeHarness.callbacks?.onPresence(1, [guestSession.user.id]);

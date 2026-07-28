@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ConversationMembership } from "../../types";
 import { initials } from "../../lib/format";
+import { AppIcon } from "../../components/AppIcon";
 import {
   duplicateParticipantNames,
   participantIdentifier
@@ -146,7 +147,7 @@ export function ParticipantRoster({
             onClick={() => setExpanded((current) => !current)}
           >
             <strong>Participants</strong>
-            <span aria-live="polite">{presenceSummary}</span>
+            <AppIcon name="chevronDown" />
           </button>
           {expanded && participantList}
         </>
