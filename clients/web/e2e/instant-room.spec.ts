@@ -5,17 +5,101 @@ const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const guestId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const conversationId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const roomId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const entryViewports = [
+  { width: 320, height: 640 },
+  { width: 390, height: 844 }
+] as const;
 
 test.describe("instant-room front door", () => {
-  test.beforeEach(({ page }, testInfo) => {
-    void page;
-    test.skip(
-      testInfo.project.name !== "chromium",
-      "deterministic front-door flow runs once in Chromium"
-    );
-  });
+  for (const viewport of entryViewports) {
+    test(`keeps the empty entry form usable at ${viewport.width}px`, async ({
+      page
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      const fixture = await installInstantRoomFixture(page);
+
+      await page.goto("/");
+
+      const heading = page.getByRole("heading", {
+        name: "Start an instant room"
+      });
+      const displayName = page.getByRole("textbox", {
+        name: "Your display name"
+      });
+      const roomName = page.getByRole("textbox", { name: /Room name/ });
+      const start = page.getByRole("button", { name: "Start instant room" });
+      const signIn = page.getByRole("link", {
+        name: "Have a workspace? Sign in"
+      });
+
+      await expect(heading).toBeVisible();
+      await expect(displayName).toBeVisible();
+      await expect(roomName).toBeVisible();
+      await expect(start).toBeVisible();
+      await expect(start).toBeEnabled();
+      await expect(signIn).toBeVisible();
+      await expect(heading).toBeFocused();
+      await expect(displayName).toHaveCSS("font-size", "16px");
+      await expect(roomName).toHaveCSS("font-size", "16px");
+      await expectMinimumTarget(displayName);
+      await expectMinimumTarget(roomName);
+      await expectMinimumTarget(start);
+      await expectMinimumTarget(signIn);
+      await expectContained(displayName, viewport);
+      await expectContained(roomName, viewport);
+      await expectContained(start, viewport);
+      await expectContained(signIn, viewport);
+      await expectNoDocumentOverflow(page);
+      expect(fixture.createRequests).toHaveLength(0);
+
+      if (
+        process.env.K_COMMS_VISUAL_CAPTURE === "1" &&
+        testInfo.project.name === "chromium" &&
+        viewport.width === 390
+      ) {
+        await page.screenshot({
+          path: testInfo.outputPath("instant-room-entry-390.png"),
+          fullPage: true
+        });
+      }
+
+      await page.keyboard.press("Tab");
+      await expect(displayName).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(roomName).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(start).toBeFocused();
+      await page.keyboard.press("Enter");
+
+      await expect(
+        page.getByText("Enter your display name to continue.")
+      ).toBeVisible();
+      await expect(displayName).toBeFocused();
+      await expect(displayName).toHaveAttribute("aria-invalid", "true");
+      expect(fixture.createRequests).toHaveLength(0);
+
+      await displayName.fill("Taylor Host");
+      await expect(displayName).toHaveAttribute("aria-invalid", "false");
+      await page.keyboard.press("Tab");
+      await expect(roomName).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(start).toBeFocused();
+      if (testInfo.project.name === "webkit") {
+        expect(await signIn.evaluate((element) => element.tabIndex))
+          .toBeGreaterThanOrEqual(0);
+        await signIn.focus();
+      } else {
+        await page.keyboard.press("Tab");
+      }
+      await expect(signIn).toBeFocused();
+    });
+  }
 
   test("creates once and exposes a one-step shareable room at 320px", async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "deterministic create flow runs once in Chromium"
+    );
     await page.setViewportSize({ width: 320, height: 700 });
     const fixture = await installInstantRoomFixture(page);
 
@@ -216,9 +300,30 @@ async function expectNoOverlap(left: Locator, right: Locator) {
 
 async function expectNoDocumentOverflow(page: Page) {
   const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    () => Math.max(
+      document.documentElement.scrollWidth,
+      document.body.scrollWidth
+    ) - document.documentElement.clientWidth
   );
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectMinimumTarget(locator: Locator) {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+}
+
+async function expectContained(
+  locator: Locator,
+  viewport: { width: number; height: number }
+) {
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
 }
 
 function json(route: Route, body: unknown, status = 200) {

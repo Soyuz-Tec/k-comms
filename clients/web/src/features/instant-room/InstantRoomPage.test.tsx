@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { BrowserRouter } from "react-router";
@@ -236,6 +236,65 @@ describe("InstantRoomPage", () => {
     });
   });
 
+  it("guides an empty anonymous start with associated validation and focus recovery", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(ApiClient.prototype, "createInstantRoom")
+      .mockResolvedValue(result);
+
+    renderPage();
+    const displayName = screen.getByRole("textbox", {
+      name: "Your display name"
+    });
+    const roomName = screen.getByRole("textbox", { name: /Room name/ });
+    const start = screen.getByRole("button", { name: "Start instant room" });
+
+    expect(displayName).toBeRequired();
+    expect(roomName).not.toBeRequired();
+    expect(displayName).not.toHaveFocus();
+    expect(displayName).toHaveAccessibleDescription(
+      "Visible to everyone in the room."
+    );
+    expect(roomName).toHaveAccessibleDescription(
+      "Defaults to “Instant room”."
+    );
+    expect(screen.getByText("Required")).toBeVisible();
+    expect(screen.getByText("Optional")).toBeVisible();
+    expect(screen.getByText("Defaults to “Instant room”.")).toBeVisible();
+    expect(start).toBeEnabled();
+
+    await user.click(start);
+
+    const validation = screen.getByRole("alert");
+    expect(validation).toHaveTextContent(
+      "Enter your display name to continue."
+    );
+    expect(displayName).toHaveFocus();
+    expect(displayName).toHaveAttribute("aria-invalid", "true");
+    expect(displayName).toHaveAttribute(
+      "aria-describedby",
+      "instant-room-display-name-help instant-room-display-name-error"
+    );
+    expect(create).not.toHaveBeenCalled();
+
+    await user.type(displayName, "   ");
+    await user.click(start);
+    expect(create).not.toHaveBeenCalled();
+    expect(displayName).toHaveFocus();
+
+    await user.type(displayName, "Taylor Host");
+    expect(screen.queryByText("Enter your display name to continue."))
+      .not.toBeInTheDocument();
+    expect(displayName).toHaveAttribute("aria-invalid", "false");
+    await user.click(start);
+
+    expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      display_name: "Taylor Host"
+    }));
+  });
+
   it("creates once under StrictMode, enters the room and shares the exact server URL", async () => {
     const user = userEvent.setup();
     const create = vi
@@ -282,6 +341,44 @@ describe("InstantRoomPage", () => {
     const stored = window.sessionStorage.getItem("k-comms.guest-session.v1") || "";
     expect(stored).toContain("guest-access");
     expect(window.localStorage.getItem("k-comms.guest-session.v1")).toBeNull();
+  });
+
+  it("keeps the progress control focused and guarded while creation is pending", async () => {
+    const user = userEvent.setup();
+    let finishCreation!: (value: InstantRoomResult) => void;
+    const pendingCreation = new Promise<InstantRoomResult>((resolve) => {
+      finishCreation = resolve;
+    });
+    const create = vi
+      .spyOn(ApiClient.prototype, "createInstantRoom")
+      .mockReturnValue(pendingCreation);
+
+    renderPage();
+    const displayName = screen.getByRole("textbox", {
+      name: "Your display name"
+    });
+    await user.type(displayName, "Taylor Host");
+    await user.click(
+      screen.getByRole("button", { name: "Start instant room" })
+    );
+
+    const progress = screen.getByRole("button", { name: "Opening room…" });
+    expect(progress).toHaveFocus();
+    expect(progress).toHaveAttribute("aria-disabled", "true");
+    expect(displayName).toBeDisabled();
+    expect(
+      screen.getByText("Opening your room. Please wait.")
+    ).toBeInTheDocument();
+
+    await user.click(progress);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveFocus();
+
+    await act(async () => {
+      finishCreation(result);
+      await pendingCreation;
+    });
+    expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
   });
 
   it("reports a denied secure policy without mislabeling the browser address as HTTP", async () => {
@@ -372,7 +469,9 @@ describe("InstantRoomPage", () => {
     expect(
       await screen.findByText(/Room creation is rate-limited/i)
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: /Try again in/ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Try again in/ })
+    ).toHaveAttribute("aria-disabled", "true");
   });
 
   it("reuses the same key when a manual retry follows the bounded transient retry", async () => {

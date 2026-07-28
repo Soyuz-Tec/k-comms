@@ -9,7 +9,6 @@ import {
   storeGuestSession
 } from "../../api";
 import { useSession } from "../../app/session";
-import { AppIcon } from "../../components/AppIcon";
 import { browserName, formatDateTime } from "../../lib/format";
 import {
   isEncryptedUrl
@@ -108,7 +107,9 @@ export function InstantRoomPage() {
   const [displayName, setDisplayName] = useState(
     accountSession?.user.display_name || ""
   );
+  const [displayNameError, setDisplayNameError] = useState("");
   const [roomTitle, setRoomTitle] = useState("");
+  const displayNameInputRef = useRef<HTMLInputElement>(null);
   const guestApiRef = useRef<GuestApiClient | null>(null);
   const accountSessionRef = useRef(accountSession);
   const restoredMemberSessionRef = useRef<string | null>(
@@ -306,7 +307,12 @@ export function InstantRoomPage() {
     const chosenName =
       accountSession?.user.display_name.trim() || displayName.trim();
     const chosenTitle = roomTitle.trim();
-    if (!chosenName || loading || retrySeconds > 0) return;
+    if (!chosenName) {
+      setDisplayNameError("Enter your display name to continue.");
+      displayNameInputRef.current?.focus();
+      return;
+    }
+    if (loading || retrySeconds > 0) return;
 
     if (leftRoom || memberContinuity) {
       clearMemberInstantRoomContinuity();
@@ -318,6 +324,7 @@ export function InstantRoomPage() {
     const key = instantRoomIdempotencyKey();
     setLoading(true);
     setError("");
+    setDisplayNameError("");
     setRetryAt(null);
 
     try {
@@ -401,7 +408,7 @@ export function InstantRoomPage() {
   stableRoomApi.setDelegate(selectedRoomApi);
   const roomApi = activeRoom ? stableRoomApi : null;
 
-  if (loading && !activeRoom) {
+  if (loading && !activeRoom && memberContinuity) {
     return (
       <main className="instant-room-entry" id="main-content" aria-busy="true">
         <section className="instant-room-loading" aria-labelledby="instant-room-title">
@@ -454,6 +461,8 @@ export function InstantRoomPage() {
           <form
             className="instant-room-start-form"
             onSubmit={(event) => void startInstantRoom(event)}
+            aria-busy={loading}
+            noValidate
           >
             {accountSession ? (
               <p className="instant-room-account-identity">
@@ -462,53 +471,79 @@ export function InstantRoomPage() {
                 <small>Managed by your workspace profile</small>
               </p>
             ) : (
-              <label className="field">
-                <span className="instant-room-field-label">
+              <div className="field">
+                <label
+                  className="instant-room-field-label"
+                  htmlFor="instant-room-display-name"
+                >
                   Your display name
-                </span>
-                <span className="instant-room-input">
-                  <EntryFieldIcon kind="person" />
-                  <input
-                    name="display_name"
-                    type="text"
-                    minLength={1}
-                    maxLength={120}
-                    autoComplete="name"
-                    value={displayName}
-                    onChange={(event) => setDisplayName(event.target.value)}
-                    placeholder="Your name"
-                    required
-                    autoFocus
-                  />
-                </span>
-              </label>
-            )}
-            <label className="field">
-              <span className="instant-room-field-label">
-                Room name <span className="optional">Optional</span>
-              </span>
-              <span className="instant-room-input">
-                <EntryFieldIcon kind="room" />
+                  <span className="required" aria-hidden="true">Required</span>
+                </label>
                 <input
-                  name="title"
+                  ref={displayNameInputRef}
+                  id="instant-room-display-name"
+                  name="display_name"
                   type="text"
-                  maxLength={160}
-                  autoComplete="off"
-                  value={roomTitle}
-                  onChange={(event) => setRoomTitle(event.target.value)}
-                  placeholder="Daily check-in"
-                  autoFocus={Boolean(accountSession)}
+                  minLength={1}
+                  maxLength={120}
+                  autoComplete="name"
+                  value={displayName}
+                  onChange={(event) => {
+                    setDisplayName(event.target.value);
+                    if (event.target.value.trim()) setDisplayNameError("");
+                  }}
+                  placeholder="Your name"
+                  aria-describedby={[
+                    "instant-room-display-name-help",
+                    displayNameError
+                      ? "instant-room-display-name-error"
+                      : ""
+                  ].filter(Boolean).join(" ")}
+                  aria-invalid={Boolean(displayNameError)}
+                  disabled={loading}
+                  required
                 />
-              </span>
-            </label>
+                <small id="instant-room-display-name-help">
+                  Visible to everyone in the room.
+                </small>
+                {displayNameError && (
+                  <small
+                    className="instant-room-field-error"
+                    id="instant-room-display-name-error"
+                    role="alert"
+                  >
+                    {displayNameError}
+                  </small>
+                )}
+              </div>
+            )}
+            <div className="field">
+              <label
+                className="instant-room-field-label"
+                htmlFor="instant-room-title"
+              >
+                Room name <span className="optional">Optional</span>
+              </label>
+              <input
+                id="instant-room-title"
+                name="title"
+                type="text"
+                maxLength={160}
+                autoComplete="off"
+                value={roomTitle}
+                onChange={(event) => setRoomTitle(event.target.value)}
+                placeholder="Daily check-in"
+                aria-describedby="instant-room-title-help"
+                disabled={loading}
+              />
+              <small id="instant-room-title-help">
+                Defaults to “Instant room”.
+              </small>
+            </div>
             <button
               className="button primary full"
               type="submit"
-              disabled={
-                loading ||
-                retrySeconds > 0 ||
-                !(accountSession?.user.display_name || displayName).trim()
-              }
+              aria-disabled={loading || retrySeconds > 0}
             >
               {loading
                 ? "Opening room…"
@@ -519,6 +554,9 @@ export function InstantRoomPage() {
                   : "Start instant room"}
             </button>
           </form>
+          <span className="sr-only" role="status" aria-live="polite">
+            {loading ? "Opening your room. Please wait." : ""}
+          </span>
           {memberContinuity && error && (
             <button
               className="button ghost full"
@@ -970,8 +1008,4 @@ function instantRoomError(reason: unknown): {
         ? reason.message
         : "K-Comms could not open the room. Try again."
   };
-}
-
-function EntryFieldIcon({ kind }: { kind: "person" | "room" }) {
-  return <AppIcon className="instant-room-field-icon" name={kind === "person" ? "user" : "messages"} />;
 }
