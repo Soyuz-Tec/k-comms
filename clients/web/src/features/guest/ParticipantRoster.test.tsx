@@ -22,7 +22,7 @@ function member(id: string, displayName: string, accountType: User["account_type
 }
 
 describe("ParticipantRoster", () => {
-  it("uses a collapsed participant summary in the compact room layout", async () => {
+  it("uses a collapsed participant control without repeating the online summary", async () => {
     const user = userEvent.setup();
     render(
       <ParticipantRoster
@@ -36,8 +36,9 @@ describe("ParticipantRoster", () => {
       />
     );
 
-    const toggle = screen.getByRole("button", { name: /Participants.*2 online.*2 total/ });
+    const toggle = screen.getByRole("button", { name: "Participants" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("2 online · 2 total")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("list", { name: "Room participants" })
     ).not.toBeInTheDocument();

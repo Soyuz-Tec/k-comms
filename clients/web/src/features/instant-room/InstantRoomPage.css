@@ -384,6 +384,121 @@
   color: #5c3518;
 }
 
+.instant-room-menu-invite {
+  display: grid;
+  gap: .7rem;
+  padding: .8rem;
+  border: 1px solid #c6dfdc;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #edf9f7, #f8fbfa);
+}
+
+.instant-room-menu-invite-heading {
+  display: grid;
+  gap: .18rem;
+}
+
+.instant-room-menu-invite-heading h3,
+.instant-room-menu-invite-heading p,
+.instant-room-menu-qr p,
+.instant-room-menu-invite .instant-room-lifetime {
+  margin: 0;
+}
+
+.instant-room-menu-invite-heading h3 {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 780;
+  letter-spacing: -.02em;
+}
+
+.instant-room-menu-invite-heading p,
+.instant-room-menu-qr p,
+.instant-room-menu-invite .instant-room-lifetime {
+  color: var(--ink-soft);
+  font-size: .75rem;
+  line-height: 1.4;
+}
+
+.instant-room-menu-qr {
+  display: grid;
+  justify-items: center;
+  gap: .4rem;
+}
+
+.instant-room-menu-qr .guest-qr {
+  width: min(148px, 48vw);
+  min-height: auto;
+  padding: .25rem;
+  border-radius: 14px;
+  background: white;
+}
+
+.instant-room-menu-qr p,
+.instant-room-menu-invite .instant-room-lifetime {
+  text-align: center;
+}
+
+.instant-room-menu-invite > label {
+  margin: 0;
+  font-size: .75rem;
+  font-weight: 800;
+}
+
+.instant-room-menu-link-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .5rem;
+}
+
+.instant-room-menu-link-row input,
+.instant-room-menu-link-row .button {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.instant-room-menu-link-row input {
+  width: 100%;
+  padding: .55rem .65rem;
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  color: var(--ink);
+  background: white;
+  font-size: 1rem;
+}
+
+.instant-room-menu-link-row .button {
+  padding-inline: .65rem;
+}
+
+.instant-room-menu-invite-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+}
+
+.instant-room-menu-invite-actions .button {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: .55rem;
+}
+
+.instant-room-menu-invite .transport-warning {
+  gap: .2rem;
+  margin: 0;
+  padding: .55rem .65rem;
+  font-size: .72rem;
+  line-height: 1.35;
+}
+
+.instant-room-menu-invite .instant-room-copy-notice {
+  margin: 0;
+  text-align: center;
+  white-space: normal;
+}
+
 @media (max-width: 680px) {
   .instant-room-entry {
     place-items: start stretch;

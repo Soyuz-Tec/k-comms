@@ -1381,7 +1381,7 @@ function CallActions({
 }
 
 function CallAction({ kind, label, active, disabled, onOpen }: { kind: CallMediaKind; label: string; active: boolean; disabled: boolean; onOpen: (kind: CallMediaKind) => void }) {
-  return <button className={`button compact ${active ? "audio-call-active" : "ghost"}`} type="button" disabled={disabled} aria-haspopup="dialog" onClick={() => onOpen(kind)}><AppIcon name={kind === "video" ? "video" : "phone"} />{label}</button>;
+  return <button className={`button compact call-launch-button ${active ? "audio-call-active" : "ghost"}`} type="button" disabled={disabled} aria-haspopup="dialog" onClick={() => onOpen(kind)}><AppIcon name={kind === "video" ? "video" : "phone"} />{label}</button>;
 }
 
 function CallPrejoinDialog({

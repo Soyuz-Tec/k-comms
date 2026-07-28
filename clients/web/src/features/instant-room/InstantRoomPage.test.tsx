@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { BrowserRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -40,14 +40,17 @@ vi.mock("../guest/GuestAccessPage", () => ({
     initialSession,
     onConverted,
     onLeave,
-    roomBanner
+    roomBanner,
+    roomMenuInvite
   }: {
     api: { socketTicket: () => Promise<{ ticket: string; expires_in: number }> };
     initialSession: GuestSession;
     onConverted: (session: GuestSession, conversation: Conversation) => void;
     onLeave: () => void;
     roomBanner?: React.ReactNode | ((participantCount: number) => React.ReactNode);
+    roomMenuInvite?: React.ReactNode | ((participantCount: number) => React.ReactNode);
   }) => {
+    const [roomMenuOpen, setRoomMenuOpen] = useState(false);
     uiHarness.shellRenders += 1;
     uiHarness.roomApis.push(api);
     return (
@@ -86,7 +89,24 @@ vi.mock("../guest/GuestAccessPage", () => ({
         <button type="button" onClick={onLeave}>
           Leave room
         </button>
+        <button
+          type="button"
+          aria-expanded={roomMenuOpen}
+          onClick={() => setRoomMenuOpen(true)}
+        >
+          Open room menu
+        </button>
         {typeof roomBanner === "function" ? roomBanner(1) : roomBanner}
+        {roomMenuOpen && (
+          <aside role="dialog" aria-label="Room menu">
+            <button type="button" onClick={() => setRoomMenuOpen(false)}>
+              Close
+            </button>
+            {typeof roomMenuInvite === "function"
+              ? roomMenuInvite(1)
+              : roomMenuInvite}
+          </aside>
+        )}
       </main>
     );
   }
@@ -370,6 +390,68 @@ describe("InstantRoomPage", () => {
     const stored = window.sessionStorage.getItem("k-comms.guest-session.v1") || "";
     expect(stored).toContain("guest-access");
     expect(window.localStorage.getItem("k-comms.guest-session.v1")).toBeNull();
+  });
+
+  it("renders the invite QR immediately inside the room menu only after it opens", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    renderPage();
+    await startRoom(user);
+    expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
+    expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+
+    const menuTrigger = screen.getByRole("button", { name: "Open room menu" });
+    expect(menuTrigger).toHaveAttribute("aria-expanded", "false");
+    await user.click(menuTrigger);
+
+    const menu = screen.getByRole("dialog", { name: "Room menu" });
+    expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
+    expect(within(menu).getByRole("heading", { name: "Scan to join" })).toBeVisible();
+    expect(within(menu).getByLabelText("Local QR")).toHaveTextContent(shareUrl);
+    expect(within(menu).getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(within(menu).getByRole("button", { name: "Copy invite link" })).toBeVisible();
+    expect(within(menu).getByRole("button", { name: "Share invite link" })).toBeVisible();
+    expect(uiHarness.qrValue).toBe(shareUrl);
+
+    await user.click(within(menu).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+  });
+
+  it("reveals a manual menu link when sharing falls back to a rejected clipboard", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: undefined
+    });
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    renderPage();
+    await startRoom(user);
+    await user.click(
+      await screen.findByRole("button", { name: "Open room menu" })
+    );
+
+    const menu = screen.getByRole("dialog", { name: "Room menu" });
+    const link = within(menu).getByLabelText("Secure room link");
+    expect(link).not.toHaveValue(shareUrl);
+    await user.click(
+      within(menu).getByRole("button", { name: "Share invite link" })
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(shareUrl));
+    expect(link).toHaveValue(shareUrl);
+    expect(
+      within(menu).getByText(
+        "Copy failed. The full link is visible so you can copy it manually."
+      )
+    ).toHaveAttribute("role", "status");
   });
 
   it("keeps the progress control focused and guarded while creation is pending", async () => {

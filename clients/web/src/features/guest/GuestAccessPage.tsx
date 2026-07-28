@@ -871,6 +871,7 @@ function useMobileRoomLayout() {
 function GuestRoomMenu({
   canKeepRoom,
   identityLabel,
+  inviteContent,
   leaving,
   onClose,
   onKeepRoom,
@@ -879,6 +880,7 @@ function GuestRoomMenu({
 }: {
   canKeepRoom: boolean;
   identityLabel: "Guest" | "Host" | "Member";
+  inviteContent?: ReactNode;
   leaving: boolean;
   onClose: () => void;
   onKeepRoom: () => void;
@@ -913,6 +915,7 @@ function GuestRoomMenu({
             Close
           </button>
         </header>
+        {inviteContent}
         <div className="guest-room-menu-actions">
           {canKeepRoom && (
             <button className="guest-room-menu-action" type="button" onClick={onKeepRoom}>
@@ -958,6 +961,7 @@ export function GuestShell({
   onAccessEnded,
   onConverted,
   roomBanner,
+  roomMenuInvite,
   identityLabel = "Guest",
   initialPresenceCount = 1,
   onPresenceChange
@@ -974,6 +978,7 @@ export function GuestShell({
     socketHandoff?: SocketHandoff
   ) => void;
   roomBanner?: ReactNode | ((participantCount: number) => ReactNode);
+  roomMenuInvite?: ReactNode | ((participantCount: number) => ReactNode);
   identityLabel?: "Guest" | "Host" | "Member";
   initialPresenceCount?: number;
   onPresenceChange?: (count: number) => void;
@@ -1800,7 +1805,11 @@ export function GuestShell({
             <h1 ref={roomHeadingRef} tabIndex={-1}>
               {conversationTitle(conversation)}
             </h1>
-            <p>
+            <p
+              role={mobileRoomLayout ? "status" : undefined}
+              aria-live={mobileRoomLayout ? "polite" : undefined}
+              aria-atomic={mobileRoomLayout ? "true" : undefined}
+            >
               <span className="guest-room-workspace">
                 {initialSession.tenant.name} ·{" "}
               </span>
@@ -1810,9 +1819,9 @@ export function GuestShell({
               ·{" "}
               <span
                 className={`guest-connection ${connectionStatus}`}
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
+                role={mobileRoomLayout ? undefined : "status"}
+                aria-live={mobileRoomLayout ? undefined : "polite"}
+                aria-atomic={mobileRoomLayout ? undefined : "true"}
               >
                 {connectionStatus}
               </span>
@@ -1825,6 +1834,7 @@ export function GuestShell({
             className="guest-room-menu-trigger"
             type="button"
             aria-label="Open room menu"
+            aria-haspopup="dialog"
             aria-expanded={showRoomMenu}
             aria-controls="guest-room-menu"
             onFocus={() => {
@@ -1872,6 +1882,11 @@ export function GuestShell({
         <GuestRoomMenu
           canKeepRoom={conversionEnabled && !conversionReceipt}
           identityLabel={identityLabel}
+          inviteContent={
+            typeof roomMenuInvite === "function"
+              ? roomMenuInvite(members.length)
+              : roomMenuInvite
+          }
           leaving={leaving}
           onClose={() => setShowRoomMenu(false)}
           onKeepRoom={() => {
@@ -1927,7 +1942,10 @@ export function GuestShell({
         </section>
       )}
 
-      {typeof roomBanner === "function" ? roomBanner(members.length) : roomBanner}
+      {(!mobileRoomLayout || !roomMenuInvite) &&
+        (typeof roomBanner === "function"
+          ? roomBanner(members.length)
+          : roomBanner)}
       {(!accountActionsAllowed || !mediaActionsAllowed) && (
         <div className="guest-transport-warning transport-warning" role="alert">
           <strong>Secure account and media actions are unavailable.</strong>
