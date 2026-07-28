@@ -1196,14 +1196,35 @@ export function CallPanel({
           tabIndex={expandedCallModal ? -1 : undefined}
         >
           <div className="audio-call-dock-heading">
-            <div>
+            <div className={`call-heading-summary ${phase === "connected" ? "" : "has-call-status"}`}>
               <span className="eyebrow">{mediaLabel(joinedKind)} call</span>
-              <h2 id="call-title">{conversation.title || "Conversation call"}</h2>
+              <h2 className="call-room-title" id="call-title">
+                {conversation.title || "Conversation call"}
+              </h2>
               <div className="call-progress-meta" aria-label="Call progress">
-                <span>{formatCallDuration(elapsedSeconds)}</span>
-                <span>{participantCountLabel}</span>
+                <span className="call-progress-duration">
+                  {formatCallDuration(elapsedSeconds)}
+                </span>
+                <span className="call-progress-separator" aria-hidden="true">·</span>
                 <span
-                  className={`status-pill ${phase === "connected" ? "success" : "neutral"}`}
+                  className="call-participant-count"
+                  role="status"
+                  aria-label={participantCountLabel}
+                >
+                  <span className="call-participant-count-visual" aria-hidden="true">
+                    <span className="call-participant-count-number">
+                      {participants.length}
+                    </span>
+                    <span className="call-participant-count-word">
+                      {participants.length === 1 ? "participant" : "participants"}
+                    </span>
+                    <span className="call-participant-count-icon">
+                      <AppIcon name="users" />
+                    </span>
+                  </span>
+                </span>
+                <span
+                  className={`status-pill ${phase === "connected" ? "success call-status-connected" : "neutral"}`}
                   aria-live="polite"
                 >
                   {callStatusLabel}
