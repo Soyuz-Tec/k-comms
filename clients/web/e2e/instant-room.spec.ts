@@ -39,12 +39,29 @@ test.describe("instant-room front door", () => {
       await expect(start).toBeEnabled();
       await expect(signIn).toBeVisible();
       await expect(heading).toBeFocused();
+      const headingMetrics = await heading.evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          height: rect.height,
+          lineHeight: Number.parseFloat(style.lineHeight),
+          scrollWidth: element.scrollWidth,
+          clientWidth: element.clientWidth
+        };
+      });
+      expect(headingMetrics.height).toBeLessThanOrEqual(
+        headingMetrics.lineHeight * 1.1
+      );
+      expect(headingMetrics.scrollWidth).toBeLessThanOrEqual(
+        headingMetrics.clientWidth + 1
+      );
       await expect(displayName).toHaveCSS("font-size", "16px");
       await expect(roomName).toHaveCSS("font-size", "16px");
       await expectMinimumTarget(displayName);
       await expectMinimumTarget(roomName);
       await expectMinimumTarget(start);
       await expectMinimumTarget(signIn);
+      await expectContained(heading, viewport);
       await expectContained(displayName, viewport);
       await expectContained(roomName, viewport);
       await expectContained(start, viewport);

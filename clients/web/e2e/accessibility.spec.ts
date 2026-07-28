@@ -241,6 +241,17 @@ test("instant-room entry and empty-name guidance satisfy automated WCAG A and AA
   await expect(displayName).toBeFocused();
   await expect(displayName).toHaveAttribute("aria-invalid", "true");
   await expectNoWcagFailures(page);
+
+  await page.addStyleTag({
+    content: "h1, p, label, small, button, input, a { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }"
+  });
+  const overflow = await page.evaluate(
+    () => Math.max(
+      document.documentElement.scrollWidth,
+      document.body.scrollWidth
+    ) - document.documentElement.clientWidth
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 
 test("keyboard focus remains visible in forced-colors and reduced-motion modes", async ({ page }) => {
