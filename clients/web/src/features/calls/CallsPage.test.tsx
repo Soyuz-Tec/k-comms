@@ -49,7 +49,11 @@ const harness = vi.hoisted(() => {
   return {
     calls,
     launchCall: vi.fn(),
+    refreshCallAvailability: vi.fn(),
     api: { calls },
+    audioCallsAvailable: true,
+    videoCallsAvailable: true,
+    workspaceLoading: false,
     capabilities: {
       allow_audio_calls: true,
       allow_video_calls: true,
@@ -66,18 +70,21 @@ vi.mock("./CallSessionProvider", () => ({
     className,
     conversation: target,
     kind,
-    ariaLabel
+    ariaLabel,
+    disabled
   }: {
     children: ReactNode;
     className?: string;
     conversation: Conversation;
     kind: "audio" | "video";
     ariaLabel?: string;
+    disabled?: boolean;
   }) => (
     <button
       className={className}
       type="button"
       aria-label={ariaLabel}
+      disabled={disabled}
       onClick={() => harness.launchCall(target, kind)}
     >
       {children}
@@ -99,8 +106,10 @@ vi.mock("../../app/workspace-data", () => ({
     conversations: [conversation],
     users: [starter],
     capabilities: harness.capabilities,
-    audioCallsAvailable: true,
-    videoCallsAvailable: true
+    audioCallsAvailable: harness.audioCallsAvailable,
+    videoCallsAvailable: harness.videoCallsAvailable,
+    loading: harness.workspaceLoading,
+    refreshCallAvailability: harness.refreshCallAvailability
   })
 }));
 
@@ -111,6 +120,12 @@ describe("CallsPage", () => {
       page: { limit: 25, has_more: false, next_cursor: null }
     });
     harness.launchCall.mockReset();
+    harness.refreshCallAvailability.mockReset().mockResolvedValue(undefined);
+    harness.audioCallsAvailable = true;
+    harness.videoCallsAvailable = true;
+    harness.workspaceLoading = false;
+    harness.capabilities.allow_audio_calls = true;
+    harness.capabilities.allow_video_calls = true;
   });
 
   it("shows truthful room-session state and one-click conversation lobby links", async () => {
@@ -165,5 +180,74 @@ describe("CallsPage", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("No active call rooms")).toBeVisible();
     expect(harness.calls).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes both call sessions and current call availability", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+    await screen.findByText("Active room");
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(harness.calls).toHaveBeenCalledTimes(2);
+      expect(harness.refreshCallAvailability).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("explains policy-disabled calling and disables history launch actions", async () => {
+    harness.capabilities.allow_audio_calls = false;
+    harness.capabilities.allow_video_calls = false;
+
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Calling is disabled by workspace policy/)).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Join video call for Execution room (unavailable)"
+    })).toBeDisabled();
+  });
+
+  it("explains runtime-unavailable calling and disables the affected history action", async () => {
+    harness.videoCallsAvailable = false;
+
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Video calling is temporarily unavailable/)).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Join video call for Execution room (unavailable)"
+    })).toBeDisabled();
+  });
+
+  it("shows a distinct availability check and keeps history launch actions disabled while loading", async () => {
+    harness.workspaceLoading = true;
+
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    expect(await screen.findByText("Checking call availability…")).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Join video call for Execution room (checking availability)"
+    })).toBeDisabled();
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
+  });
+
+  it("uses a Start label for ended room actions", async () => {
+    harness.calls.mockResolvedValue({
+      data: [{
+        ...activeCall,
+        id: "call-ended",
+        media_kind: "audio",
+        status: "ended",
+        ended_at: "2026-07-24T10:04:32Z"
+      }],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    });
+
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    const row = (await screen.findByText("Ended room")).closest("li");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByRole("button", {
+      name: "Start audio call for Execution room"
+    })).toHaveTextContent("Start audio");
   });
 });

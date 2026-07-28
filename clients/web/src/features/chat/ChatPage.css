@@ -127,10 +127,6 @@
   outline-offset: 1px;
 }
 
-.mobile-workspace-label {
-  display: none;
-}
-
 .sidebar-tools .inbox-filter-trigger svg {
   width: 1.2rem;
   height: 1.2rem;
@@ -144,17 +140,7 @@
   display: none;
 }
 
-@media (max-width: 760px) {
-  .mobile-workspace-label {
-    display: inline-flex;
-    align-items: center;
-    gap: .15rem;
-    margin-top: .14rem;
-    color: #64748b;
-    font-size: .72rem;
-    font-weight: 650;
-  }
-
+@media (max-width: 760px), (max-height: 560px) {
   .sidebar-tools .inbox-search-trigger {
     display: none;
   }

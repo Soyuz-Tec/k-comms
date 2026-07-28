@@ -1002,6 +1002,10 @@ describe("ChatPage durable sequence recovery", () => {
 
     expect(await screen.findByRole("button", { name: "Audio calls disabled" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Video calls disabled" })).toBeDisabled();
+    expect(screen.getByText(
+      "Calling is temporarily unavailable. Keep messaging and refresh call availability from Calls."
+    )).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Calls" })).toHaveAttribute("href", "/app/calls");
     expect(harness.api.audioCall).not.toHaveBeenCalled();
   });
 

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { createPortal } from "react-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
-import { Brand } from "../components/Brand";
-import { MemberAreaLinks, MobileBottomNav } from "../components/MobileBottomNav";
+import { MemberAreaLinks } from "../components/MemberAreaLinks";
+import { useModalDialog } from "../components/useModalDialog";
 import { initials } from "../lib/format";
 import { canAccessAdmin, canOperate } from "../lib/roles";
 import {
@@ -27,25 +28,30 @@ export function ProductShell() {
 
 function ProductShellContent() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { error, setError, refreshAll } = useWorkspaceData();
   const [retrying, setRetrying] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const desktopShell = useDesktopShell();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
-  const mobileAccountRef = useRef<HTMLDetailsElement | null>(null);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [desktopShell, location.pathname, location.search]);
 
   useEffect(() => {
     function closeOutside(event: PointerEvent) {
       if (!(event.target instanceof Node)) return;
-      for (const menu of [desktopAccountRef.current, mobileAccountRef.current]) {
+      for (const menu of [desktopAccountRef.current]) {
         if (menu?.open && !menu.contains(event.target)) menu.open = false;
       }
     }
 
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      for (const menu of [desktopAccountRef.current, mobileAccountRef.current]) {
+      for (const menu of [desktopAccountRef.current]) {
         if (!menu?.open) continue;
         menu.open = false;
         menu.querySelector<HTMLElement>("summary")?.focus();
@@ -74,9 +80,6 @@ function ProductShellContent() {
     <div className="app-shell">
         <a className="skip-link" href="#main-content">Skip to content</a>
         {desktopShell && <aside className="desktop-workspace-rail" aria-label="Workspace navigation">
-          <div className="desktop-rail-brand">
-            <Brand compact />
-          </div>
           <div
             className="desktop-workspace-identity"
             title={session.tenant.name}
@@ -128,17 +131,24 @@ function ProductShellContent() {
           </details>
         </aside>}
         {!desktopShell && <header className="topbar">
-          <Brand compact />
-          <div className="workspace-name">
-            <span className="eyebrow">Workspace</span>
+          <button
+            className="mobile-menu-trigger"
+            type="button"
+            aria-label="Open main menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-product-menu"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <AppIcon name="menu" />
+          </button>
+          <div className="mobile-workspace-heading">
+            <span>Workspace</span>
             <strong>{session.tenant.name}</strong>
           </div>
-          <nav className="product-nav member-product-nav" aria-label="Member areas">
-            <MemberAreaLinks />
-          </nav>
           <button
             className="button primary compact instant-room-launch"
             type="button"
+            aria-label="Start instant room"
             onClick={() => {
               beginNewInstantRoomVisit();
               navigate("/");
@@ -148,34 +158,27 @@ function ProductShellContent() {
             <span>Start instant room</span>
           </button>
           <NotificationCenter />
-          <div className="account-menu">
-            <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
-            <span className="account-copy">
-              <strong>{session.user.display_name}</strong>
-              <small>{session.user.role}</small>
-            </span>
-            <button className="button ghost compact" type="button" onClick={signOut}>Sign out</button>
-          </div>
-          <details ref={mobileAccountRef} className="mobile-account-menu">
-            <summary className="mobile-account-trigger" aria-label="Account menu">
-              <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
-            </summary>
-            <section className="mobile-account-panel" aria-label="Signed-in account">
-              <dl className="mobile-account-details">
-                <div><dt>User</dt><dd>{session.user.display_name}</dd></div>
-                <div><dt>Workspace</dt><dd>{session.tenant.name}</dd></div>
-                <div><dt>Role</dt><dd>{session.user.role}</dd></div>
-              </dl>
-              {(showAdmin || showOperations) && (
-                <nav className="mobile-role-links" aria-label="Role tools">
-                  {showAdmin && <NavLink to="/admin" onClick={() => { if (mobileAccountRef.current) mobileAccountRef.current.open = false; }}>Workspace administration</NavLink>}
-                  {showOperations && <NavLink to="/ops" onClick={() => { if (mobileAccountRef.current) mobileAccountRef.current.open = false; }}>Service operations</NavLink>}
-                </nav>
-              )}
-              <button className="button ghost compact mobile-signout" type="button" onClick={signOut}>Sign out</button>
-            </section>
-          </details>
         </header>}
+        {!desktopShell && mobileMenuOpen && createPortal(
+          <MobileProductMenu
+            showAdmin={showAdmin}
+            showOperations={showOperations}
+            tenantName={session.tenant.name}
+            userName={session.user.display_name}
+            userRole={session.user.role}
+            onClose={() => setMobileMenuOpen(false)}
+            onInstantRoom={() => {
+              setMobileMenuOpen(false);
+              beginNewInstantRoomVisit();
+              navigate("/");
+            }}
+            onSignOut={() => {
+              setMobileMenuOpen(false);
+              signOut();
+            }}
+          />,
+          document.body
+        )}
 
         {error && (
           <div className="banner error-banner" role="alert">
@@ -185,7 +188,87 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
-        <MobileBottomNav />
+    </div>
+  );
+}
+
+function MobileProductMenu({
+  showAdmin,
+  showOperations,
+  tenantName,
+  userName,
+  userRole,
+  onClose,
+  onInstantRoom,
+  onSignOut
+}: {
+  showAdmin: boolean;
+  showOperations: boolean;
+  tenantName: string;
+  userName: string;
+  userRole: string;
+  onClose: () => void;
+  onInstantRoom: () => void;
+  onSignOut: () => void;
+}) {
+  const dialogRef = useModalDialog(onClose);
+
+  return (
+    <div
+      className="mobile-menu-backdrop"
+      onPointerDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <aside
+        ref={dialogRef}
+        className="mobile-product-menu"
+        id="mobile-product-menu"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-product-menu-title"
+      >
+        <header>
+          <div>
+            <span className="eyebrow">Workspace menu</span>
+            <h2 id="mobile-product-menu-title">{tenantName}</h2>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            data-initial-focus
+            aria-label="Close main menu"
+            onClick={onClose}
+          >
+            <AppIcon name="x" />
+          </button>
+        </header>
+        <nav
+          className="mobile-menu-member-links"
+          aria-label="All product areas"
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest("a")) onClose();
+          }}
+        >
+          <MemberAreaLinks />
+        </nav>
+        <button className="mobile-menu-action" type="button" onClick={onInstantRoom}>
+          Start instant room
+        </button>
+        {(showAdmin || showOperations) && (
+          <nav className="mobile-menu-role-links" aria-label="Role tools">
+            {showAdmin && <NavLink to="/admin" onClick={onClose}>Workspace administration</NavLink>}
+            {showOperations && <NavLink to="/ops" onClick={onClose}>Service operations</NavLink>}
+          </nav>
+        )}
+        <section className="mobile-menu-account" aria-label="Signed-in account">
+          <dl>
+            <div><dt>User</dt><dd>{userName}</dd></div>
+            <div><dt>Role</dt><dd>{userRole}</dd></div>
+          </dl>
+          <button className="button ghost mobile-signout" type="button" onClick={onSignOut}>Sign out</button>
+        </section>
+      </aside>
     </div>
   );
 }
@@ -194,12 +277,12 @@ function useDesktopShell() {
   const [desktop, setDesktop] = useState(() =>
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia("(min-width: 761px)").matches
+    window.matchMedia("(min-width: 761px) and (min-height: 561px)").matches
   );
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(min-width: 761px)");
+    const media = window.matchMedia("(min-width: 761px) and (min-height: 561px)");
     const update = () => setDesktop(media.matches);
     update();
     media.addEventListener("change", update);

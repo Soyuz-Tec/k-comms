@@ -69,27 +69,6 @@
   font-size: .96rem;
 }
 
-.instant-room-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: .7rem;
-  margin-bottom: .65rem;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: .9rem;
-  letter-spacing: .04em;
-}
-
-.instant-room-brand > span {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: white;
-  background: var(--forest);
-  font-weight: 800;
-}
-
 .instant-room-kicker {
   padding: .28rem .55rem;
   border-radius: 999px;

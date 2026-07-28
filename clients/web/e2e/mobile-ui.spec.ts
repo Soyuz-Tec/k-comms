@@ -25,10 +25,10 @@ test.describe("authenticated mobile web acceptance", () => {
 
       await page.goto("/app/");
       await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
-      await expect(page.locator(".mobile-workspace-label")).toContainText("K-Comms");
       await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
-      await expect(page.locator("nav.mobile-product-nav")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Open main menu" })).toBeVisible();
+      await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await expectNoDocumentOverflow(page);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
@@ -37,22 +37,80 @@ test.describe("authenticated mobile web acceptance", () => {
 
       const conversation = page.getByRole("button", { name: /General/ });
       await expectMinimumTarget(conversation, "conversation row");
-      await expectMinimumTargets(page.locator("nav.mobile-product-nav a"), "mobile product navigation");
-      await expectMinimumTarget(page.getByRole("button", { name: "Notifications" }), "notification control");
+      const menuTrigger = page.getByRole("button", { name: "Open main menu" });
+      const notificationTrigger = page.getByRole("button", { name: "Notifications" });
+      await expectMinimumTarget(menuTrigger, "main menu control");
+      await expectMinimumTarget(notificationTrigger, "notification control");
+
+      await menuTrigger.click();
+      const productMenu = page.getByRole("dialog", { name: "Acme Workspace" });
+      await expect(productMenu).toBeVisible();
+      await expectMinimumTargets(
+        productMenu.getByRole("navigation", { name: "All product areas" }).locator("a"),
+        "all product menu"
+      );
+      await expect(productMenu.getByRole("link", { name: "Workspace administration" })).toBeVisible();
+      await expect(productMenu.getByRole("link", { name: "Service operations" })).toBeVisible();
+      await expect(productMenu.getByRole("button", { name: "Sign out" })).toBeVisible();
+      await expectMinimumTargets(
+        productMenu.locator("a, button"),
+        "complete mobile menu"
+      );
+      await expectNoDocumentOverflow(page);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("menu-390.png"), fullPage: true });
+      }
+      await productMenu.getByRole("button", { name: "Close main menu" }).click();
+      await expect(productMenu).toHaveCount(0);
+      await expect(menuTrigger).toBeFocused();
+      await menuTrigger.click();
+      await page.keyboard.press("Escape");
+      await expect(productMenu).toHaveCount(0);
+      await expect(menuTrigger).toBeFocused();
+
+      await notificationTrigger.click();
+      const notificationDialog = page.getByRole("dialog", { name: "Notifications" });
+      await expect(notificationDialog).toBeVisible();
+      const notificationBox = await notificationDialog.boundingBox();
+      expect(notificationBox).not.toBeNull();
+      expect(notificationBox!.y).toBeGreaterThanOrEqual(0);
+      expect(notificationBox!.x).toBeGreaterThanOrEqual(0);
+      expect(notificationBox!.x + notificationBox!.width).toBeLessThanOrEqual(viewport.width + 1);
+      expect(notificationBox!.y + notificationBox!.height).toBeLessThanOrEqual(viewport.height + 1);
+      expect(notificationBox!.height).toBeGreaterThan(viewport.height * .6);
+      await expectNoDocumentOverflow(page);
+      const finalNotification = notificationDialog.getByText("Mobile notification 18", { exact: true });
+      await expect(finalNotification).toBeAttached();
+      await finalNotification.scrollIntoViewIfNeeded();
+      await expect(finalNotification).toBeInViewport();
+      const notificationScroll = await notificationDialog.evaluate((element) => ({
+        overflowY: window.getComputedStyle(element).overflowY,
+        scrollable: element.scrollHeight > element.clientHeight,
+        scrollTop: element.scrollTop
+      }));
+      expect(["auto", "scroll"]).toContain(notificationScroll.overflowY);
+      expect(notificationScroll.scrollable).toBe(true);
+      expect(notificationScroll.scrollTop).toBeGreaterThan(0);
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
+        await page.screenshot({ path: testInfo.outputPath("notifications-390.png"), fullPage: true });
+      }
+      await expectMinimumTarget(
+        notificationDialog.getByRole("button", { name: "Close notifications" }),
+        "notification close control"
+      );
+      await notificationDialog.getByRole("button", { name: "Close notifications" }).click();
+      await expect(notificationDialog).toHaveCount(0);
+      await expect(notificationTrigger).toBeFocused();
 
       await page.waitForTimeout(650);
       expect(fixture.readCursorRequests).toBe(0);
 
-      const accountControl = page.locator('summary[aria-label="Account menu"]');
-      await expectMinimumTarget(accountControl, "mobile account control");
-      await accountControl.click();
-      await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-
       await page.goto(`/app/?conversation=${conversationId}`);
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
-      await expect(page.locator("nav.mobile-product-nav")).toBeHidden();
+      await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
       const moreMessageActions = page.getByRole("button", { name: "More message actions" });
+      await expectMinimumTarget(moreMessageActions, "more-message-actions control");
       await moreMessageActions.click();
       const messageActions = page.locator(".message-actions");
       await expect(messageActions.getByRole("button", { name: "Start thread" })).toBeVisible();
@@ -68,6 +126,7 @@ test.describe("authenticated mobile web acceptance", () => {
       const startVideo = page.getByRole("button", { name: "Start video call" });
       const details = page.getByRole("button", { name: "Details" });
       const attachment = page.locator(".composer .attachment-button");
+      const mention = page.locator(".composer .mention-trigger");
       const send = page.locator(".composer .send-button");
 
       await expectMinimumTarget(back, "conversation back control");
@@ -75,6 +134,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(startVideo, "video-call control");
       await expectMinimumTarget(details, "conversation details control");
       await expectMinimumTarget(attachment, "attachment control");
+      await expectMinimumTarget(mention, "mention control");
       await expectMinimumTarget(send, "send control");
       await moreMessageActions.click();
       await expectNoDocumentOverflow(page);
@@ -88,25 +148,85 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeVisible();
       await expect(conversation).toBeFocused();
 
-      const mobileNavigation = page.getByRole("navigation", { name: "Mobile product areas" });
-      await mobileNavigation.getByRole("link", { name: "You" }).click();
+      await page.getByRole("button", { name: "Open main menu" }).click();
+      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "You" }).click();
       await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
+      await page.addStyleTag({ content: "html { overflow-y: scroll; scrollbar-gutter: stable; }" });
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("link", { name: "Workspace administration" }).click();
+      await page.getByRole("button", { name: "Open main menu" }).click();
+      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await mobileNavigation.getByRole("link", { name: "You" }).click();
-      await page.getByRole("link", { name: "Service operations" }).click();
+      await page.getByRole("button", { name: "Open main menu" }).click();
+      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "Service operations" }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);
       expect(fixture.unexpectedRequests).toEqual([]);
     });
   }
+
+  test("desktop notification portal remains beside the workspace rail", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await installWorkspace(page);
+    await page.goto("/app/");
+
+    const rail = page.getByRole("complementary", { name: "Workspace navigation" });
+    const trigger = page.getByRole("button", { name: /Notifications/ });
+    await expect(rail).toBeVisible();
+    const railBox = await rail.boundingBox();
+    await trigger.click();
+
+    const dialog = page.getByRole("dialog", { name: "Notifications" });
+    await expect(dialog).toBeVisible();
+    const dialogBox = await dialog.boundingBox();
+    expect(railBox).not.toBeNull();
+    expect(dialogBox).not.toBeNull();
+    expect(dialogBox!.x).toBeGreaterThanOrEqual(railBox!.x + railBox!.width);
+    expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(1281);
+    expect(Math.abs((dialogBox!.y + dialogBox!.height) - (800 - 16))).toBeLessThanOrEqual(2);
+    await expectNoDocumentOverflow(page);
+  });
+
+  test("short landscape phones keep the hamburger and contain long workspace names", async ({ page }) => {
+    const longWorkspaceName = "Workspace".repeat(15);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await installWorkspace(page, { tenantName: longWorkspaceName });
+    await page.goto("/app/");
+
+    const trigger = page.getByRole("button", { name: "Open main menu" });
+    await expect(trigger).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Workspace navigation" })).toHaveCount(0);
+    await trigger.click();
+
+    const menu = page.getByRole("dialog", { name: longWorkspaceName });
+    await expect(menu).toBeVisible();
+    await expectMinimumTargets(menu.locator("a, button"), "landscape mobile menu");
+    await expectNoDocumentOverflow(page);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(menu).toHaveCount(0);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+
+  test("browser history closes an open mobile menu", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installWorkspace(page);
+    await page.goto("/app/");
+    await page.goto("/app/settings");
+    await page.getByRole("button", { name: "Open main menu" }).click();
+    await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toBeVisible();
+
+    await page.goBack();
+
+    await expect(page).toHaveURL(/\/app\/?$/);
+    await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toHaveCount(0);
+  });
 
   for (const viewport of [
     { width: 320, height: 640 },
@@ -182,7 +302,7 @@ test.describe("authenticated mobile web acceptance", () => {
     await expect(dialog.getByText("Video", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use microphone when I join" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use camera when I join" })).toBeVisible();
-    await expect(page.locator("nav.mobile-product-nav")).toBeHidden();
+    await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
     await expect(page.locator(".composer")).toBeHidden();
     if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
       await page.screenshot({ path: testInfo.outputPath("video-prejoin-390.png"), fullPage: true });
@@ -215,7 +335,10 @@ test.describe("authenticated mobile web acceptance", () => {
   });
 });
 
-async function installWorkspace(page: Page) {
+async function installWorkspace(
+  page: Page,
+  options: { tenantName?: string } = {}
+) {
   const state = { readCursorRequests: 0, unexpectedRequests: [] as string[] };
   const session = {
     access_token: "access-token",
@@ -223,7 +346,12 @@ async function installWorkspace(page: Page) {
     token_type: "Bearer",
     expires_in: 3_600,
     received_at: Date.now(),
-    tenant: { id: tenantId, name: "Acme Workspace", slug: "acme", status: "active" },
+    tenant: {
+      id: tenantId,
+      name: options.tenantName || "Acme Workspace",
+      slug: "acme",
+      status: "active"
+    },
     user: {
       id: userId,
       tenant_id: tenantId,
@@ -282,6 +410,17 @@ async function installWorkspace(page: Page) {
     message_edit_window_seconds: 900,
     max_attachment_bytes: 25_000_000
   };
+  const notifications = Array.from({ length: 18 }, (_, index) => ({
+    id: `mobile-notification-${index + 1}`,
+    event_type: "message.created.v1",
+    title: `Mobile notification ${index + 1}`,
+    body: `Notification body ${index + 1} verifies the scrollable phone drawer.`,
+    conversation_id: conversationId,
+    message_id: messageId,
+    action_url: null,
+    read_at: null,
+    inserted_at: `2026-07-15T12:${String(index).padStart(2, "0")}:00Z`
+  }));
 
   await page.addInitScript(({ storedSession, onboardingKey }) => {
     sessionStorage.setItem("k-comms.session.v1", JSON.stringify(storedSession));
@@ -319,7 +458,11 @@ async function installWorkspace(page: Page) {
     }
     if (method === "GET" && path === `/api/v1/conversations/${conversationId}/call`) return json(route, { data: null });
     if (method === "GET" && path === "/api/v1/in-app-notifications") {
-      return json(route, { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } });
+      return json(route, {
+        data: notifications,
+        page: { limit: 50, has_more: false, next_cursor: null },
+        meta: { unread_count: notifications.length }
+      });
     }
     if (method === "GET" && path === "/api/v1/me/devices") return json(route, { data: [session.device] });
     if (method === "GET" && path === "/api/v1/me/sessions") {

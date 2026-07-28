@@ -22,6 +22,7 @@ import {
   CallLaunchActions,
   useCallSession
 } from "../calls/CallSessionProvider";
+import { callAvailabilityGuidance } from "../calls/callAvailability";
 import {
   clientMessageId,
   conversationTitle,
@@ -1717,6 +1718,14 @@ export function ChatPage() {
   const showOnboardingSpotlight =
     showOnboarding &&
     (needsFirstTeammate || needsTeammateAccessReview || conversations.length === 0);
+  const callGuidance = capabilities
+    ? callAvailabilityGuidance({
+        allowAudio: capabilities.allow_audio_calls === true,
+        allowVideo: capabilities.allow_video_calls === true,
+        audioAvailable: audioCallsAvailable,
+        videoAvailable: videoCallsAvailable
+      })
+    : null;
 
   function dismissOnboarding() {
     try { window.localStorage.setItem(onboardingStorageKey, "dismissed"); } catch { /* Private or constrained storage must not block dismissal. */ }
@@ -1731,7 +1740,6 @@ export function ChatPage() {
           <div>
             <span className="eyebrow">Messages and rooms</span>
             <h1>Inbox</h1>
-            <span className="mobile-workspace-label">K-Comms <AppIcon name="chevronDown" /></span>
           </div>
           <div className="sidebar-tools">
             <button
@@ -1905,7 +1913,31 @@ export function ChatPage() {
 
       <section className="conversation-pane" aria-label={activeConversation ? conversationIdentifier(activeConversation) : "Messages"}>
         {activeConversation ? <>
-          <header className="conversation-header"><button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations"><AppIcon name="arrowLeft" /></button><div><span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span><h2 data-route-focus>{conversationIdentifier(activeConversation)}</h2></div><div className="conversation-header-actions"><div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div><button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}><AppIcon name="search" /></button><CallLaunchActions conversation={activeConversation} audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable} videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable} />{(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}><AppIcon name="userPlus" />Invite guest</button>}<button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}><AppIcon name="more" />Details</button></div></header>
+          <header className="conversation-header">
+            <button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations"><AppIcon name="arrowLeft" /></button>
+            <div>
+              <span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span>
+              <h2 data-route-focus>{conversationIdentifier(activeConversation)}</h2>
+            </div>
+            <div className="conversation-header-actions">
+              <div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div>
+              <button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}><AppIcon name="search" /></button>
+              <CallLaunchActions
+                conversation={activeConversation}
+                audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable}
+                videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable}
+                availabilityDescriptionId={callGuidance ? "conversation-call-availability" : undefined}
+              />
+              {(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}><AppIcon name="userPlus" />Invite guest</button>}
+              <button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}><AppIcon name="more" />Details</button>
+            </div>
+          </header>
+          {callGuidance && (
+            <p className="call-availability-guidance conversation-call-guidance" id="conversation-call-availability" role="status">
+              <span>{callGuidance}</span>
+              <Link to="/app/calls">Open Calls</Link>
+            </p>
+          )}
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
             {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}

@@ -10,6 +10,7 @@ import {
   duplicateParticipantNames,
   participantIdentifier
 } from "../../lib/participantIdentity";
+import { callAvailabilityGuidance } from "./callAvailability";
 import { CallLaunchButton } from "./CallSessionProvider";
 import type {
   CallMediaKind,
@@ -31,6 +32,8 @@ export function CallsPage() {
     users,
     capabilities,
     audioCallsAvailable,
+    loading: workspaceLoading,
+    refreshCallAvailability,
     videoCallsAvailable
   } = useWorkspaceData();
   const [scope, setScope] = useState<CallsScope>("active");
@@ -121,8 +124,20 @@ export function CallsPage() {
 
   if (!session) return null;
 
-  const canUseAudio = capabilities?.allow_audio_calls === true && audioCallsAvailable;
-  const canUseVideo = capabilities?.allow_video_calls === true && videoCallsAvailable;
+  const canUseAudio = !workspaceLoading
+    && capabilities?.allow_audio_calls === true
+    && audioCallsAvailable;
+  const canUseVideo = !workspaceLoading
+    && capabilities?.allow_video_calls === true
+    && videoCallsAvailable;
+  const callGuidance = !workspaceLoading && capabilities
+    ? callAvailabilityGuidance({
+        allowAudio: capabilities.allow_audio_calls === true,
+        allowVideo: capabilities.allow_video_calls === true,
+        audioAvailable: audioCallsAvailable,
+        videoAvailable: videoCallsAvailable
+      })
+    : null;
 
   return (
     <main className="page-shell calls-page" id="main-content">
@@ -136,7 +151,12 @@ export function CallsPage() {
           className="button ghost"
           type="button"
           disabled={loading}
-          onClick={() => void loadCalls("replace")}
+          onClick={() => {
+            void Promise.allSettled([
+              loadCalls("replace"),
+              refreshCallAvailability()
+            ]);
+          }}
         >
           <AppIcon name="refresh" />
           {loading ? "Refreshing…" : "Refresh"}
@@ -175,9 +195,16 @@ export function CallsPage() {
             />
           </label>
         </div>
-        {!canUseAudio && !canUseVideo ? (
-          <p className="calls-availability-note">Calling is unavailable for this workspace or environment.</p>
-        ) : callableConversations.length === 0 ? (
+        {workspaceLoading ? (
+          <p className="calls-availability-note call-availability-guidance" role="status">
+            <span>Checking call availability…</span>
+          </p>
+        ) : callGuidance ? (
+          <p className="calls-availability-note call-availability-guidance" role="status">
+            <span>{callGuidance}</span>
+          </p>
+        ) : null}
+        {!canUseAudio && !canUseVideo ? null : callableConversations.length === 0 ? (
           <p className="empty-copy">No matching conversations.</p>
         ) : (
           <ul className="calls-launch-list">
@@ -282,6 +309,9 @@ export function CallsPage() {
                 startedBy={userById.get(call.started_by_user_id)}
                 duplicateDirectNames={duplicateDirectNames}
                 duplicateUserNames={duplicateUserNames}
+                audioEnabled={canUseAudio}
+                videoEnabled={canUseVideo}
+                availabilityChecking={workspaceLoading}
               />
             ))}
           </ol>
@@ -307,13 +337,19 @@ function CallSessionRow({
   conversation,
   startedBy,
   duplicateDirectNames,
-  duplicateUserNames
+  duplicateUserNames,
+  audioEnabled,
+  videoEnabled,
+  availabilityChecking
 }: {
   call: CallSummary;
   conversation?: Conversation;
   startedBy?: User;
   duplicateDirectNames: ReadonlySet<string>;
   duplicateUserNames: ReadonlySet<string>;
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  availabilityChecking: boolean;
 }) {
   const title = conversation
     ? conversationParticipantIdentifier(conversation, duplicateDirectNames)
@@ -323,7 +359,14 @@ function CallSessionRow({
     : "a member";
   const active = call.status === "active";
   const ending = call.status === "ending";
+  const mediaEnabled = call.media_kind === "audio" ? audioEnabled : videoEnabled;
   const time = active || ending ? call.started_at : call.ended_at || call.started_at;
+  const action = active ? "Join" : "Start";
+  const availabilitySuffix = availabilityChecking
+    ? " (checking availability)"
+    : mediaEnabled
+      ? ""
+      : " (unavailable)";
   return (
     <li className="call-session-row">
       <div className={`call-media-mark ${call.media_kind}`} aria-hidden="true">
@@ -362,10 +405,11 @@ function CallSessionRow({
             className="primary"
             conversation={conversation}
             kind={call.media_kind}
-            ariaLabel={`${active ? "Join" : "Open"} ${call.media_kind} call for ${title}`}
+            disabled={availabilityChecking || !mediaEnabled}
+            ariaLabel={`${action} ${call.media_kind} call for ${title}${availabilitySuffix}`}
           >
             <AppIcon name={call.media_kind === "video" ? "video" : "phone"} />
-            {active ? `Join ${call.media_kind}` : `Start ${call.media_kind}`}
+            {action} {call.media_kind}
           </CallLaunchButton>
         ) : (
           <span className="call-ending-note">Conversation unavailable</span>

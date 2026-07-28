@@ -59,6 +59,11 @@ const harness = vi.hoisted(() => {
     },
     setConversations: vi.fn(),
     launchCall: vi.fn(),
+    allowAudioCalls: true,
+    allowVideoCalls: true,
+    audioCallsAvailable: true,
+    videoCallsAvailable: true,
+    workspaceLoading: false,
     userRole: "member" as "member" | "owner"
   };
 });
@@ -87,15 +92,16 @@ vi.mock("../../app/session", () => ({
 
 vi.mock("../../app/workspace-data", () => ({
   useWorkspaceData: () => ({
-    audioCallsAvailable: true,
+    audioCallsAvailable: harness.audioCallsAvailable,
     capabilities: {
-      allow_audio_calls: true,
-      allow_video_calls: true,
+      allow_audio_calls: harness.allowAudioCalls,
+      allow_video_calls: harness.allowVideoCalls,
       allow_public_channels: true
     },
     conversations: [room],
+    loading: harness.workspaceLoading,
     setConversations: harness.setConversations,
-    videoCallsAvailable: true
+    videoCallsAvailable: harness.videoCallsAvailable
   })
 }));
 
@@ -117,6 +123,11 @@ describe("DirectoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     harness.userRole = "member";
+    harness.allowAudioCalls = true;
+    harness.allowVideoCalls = true;
+    harness.audioCallsAvailable = true;
+    harness.videoCallsAvailable = true;
+    harness.workspaceLoading = false;
     harness.launchCall.mockReturnValue(true);
     harness.directoryUsers.mockResolvedValue({
       data: [person],
@@ -182,6 +193,41 @@ describe("DirectoryPage", () => {
       "video"
     );
     expect(screen.getByLabelText("location")).toHaveTextContent("/app/directory");
+  });
+
+  it("shows touch-visible guidance when the call provider is unavailable", async () => {
+    harness.audioCallsAvailable = false;
+    harness.videoCallsAvailable = false;
+    renderDirectory();
+
+    await screen.findByRole("list", { name: "People" });
+    expect(screen.getByText(
+      "Calling is temporarily unavailable. Keep messaging and refresh call availability from Calls."
+    )).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Calls" })).toHaveAttribute("href", "/app/calls");
+    expect(screen.getByRole("button", { name: "Audio call unavailable for Grace Hopper" }))
+      .toHaveAttribute("aria-describedby", "directory-call-availability");
+    expect(screen.getByRole("button", { name: "Video call unavailable for Grace Hopper" }))
+      .toHaveAttribute("aria-describedby", "directory-call-availability");
+  });
+
+  it("announces a checking state without mislabeling disabled calls as unavailable", async () => {
+    harness.workspaceLoading = true;
+    renderDirectory();
+
+    await screen.findByRole("list", { name: "People" });
+    expect(screen.getByText("Checking call availability…")).toBeVisible();
+    const audio = screen.getByRole("button", {
+      name: "Checking audio call availability for Grace Hopper"
+    });
+    const video = screen.getByRole("button", {
+      name: "Checking video call availability for Grace Hopper"
+    });
+    expect(audio).toBeDisabled();
+    expect(video).toBeDisabled();
+    expect(audio).not.toHaveAttribute("aria-describedby");
+    expect(video).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
   });
 
   it("joins and opens a discoverable public room in one action", async () => {

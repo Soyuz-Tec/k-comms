@@ -29,19 +29,27 @@ const secondConversation: Conversation = {
 
 const harness = vi.hoisted(() => ({
   mounts: 0,
-  unmounts: 0
+  unmounts: 0,
+  allowAudio: true,
+  allowVideo: true,
+  audioAvailable: true,
+  videoAvailable: true,
+  workspaceLoading: false
 }));
 
 vi.mock("./CallPanel", async () => {
   const { useEffect } = await import("react");
   return {
     CallPanel: ({
+      audioEnabled,
       conversation,
       launchRequest,
       launchRequestId,
       onLaunchRequestConsumed,
-      onSessionStateChange
+      onSessionStateChange,
+      videoEnabled
     }: {
+      audioEnabled: boolean;
       conversation: Conversation;
       launchRequest?: CallMediaKind | null;
       launchRequestId?: number;
@@ -58,6 +66,7 @@ vi.mock("./CallPanel", async () => {
         canEnd: boolean;
         accessRevoked: boolean;
       }) => void;
+      videoEnabled: boolean;
     }) => {
       useEffect(() => {
         harness.mounts += 1;
@@ -87,7 +96,15 @@ vi.mock("./CallPanel", async () => {
         onLaunchRequestConsumed,
         onSessionStateChange
       ]);
-      return <output aria-label="persistent call owner">{conversation.id}</output>;
+      return (
+        <output
+          aria-label="persistent call owner"
+          data-audio-enabled={audioEnabled}
+          data-video-enabled={videoEnabled}
+        >
+          {conversation.id}
+        </output>
+      );
     }
   };
 });
@@ -103,11 +120,12 @@ vi.mock("../../app/session", () => ({
 
 vi.mock("../../app/workspace-data", () => ({
   useWorkspaceData: () => ({
-    audioCallsAvailable: true,
-    videoCallsAvailable: true,
+    audioCallsAvailable: harness.audioAvailable,
+    videoCallsAvailable: harness.videoAvailable,
+    loading: harness.workspaceLoading,
     capabilities: {
-      allow_audio_calls: true,
-      allow_video_calls: true
+      allow_audio_calls: harness.allowAudio,
+      allow_video_calls: harness.allowVideo
     }
   })
 }));
@@ -157,6 +175,11 @@ describe("CallSessionProvider", () => {
   beforeEach(() => {
     harness.mounts = 0;
     harness.unmounts = 0;
+    harness.allowAudio = true;
+    harness.allowVideo = true;
+    harness.audioAvailable = true;
+    harness.videoAvailable = true;
+    harness.workspaceLoading = false;
   });
 
   it("keeps one call owner mounted while feature routes change and blocks another target", async () => {
@@ -193,5 +216,71 @@ describe("CallSessionProvider", () => {
     expect(screen.getByText(
       "Finish or cancel the current audio call lobby first."
     )).toBeVisible();
+  });
+
+  it("blocks direct launches when workspace policy disables the media kind", async () => {
+    harness.allowAudio = false;
+    const user = userEvent.setup();
+    renderProvider();
+
+    await user.click(screen.getByRole("button", { name: "Call execution" }));
+
+    expect(screen.getByLabelText("target")).toHaveTextContent("none");
+    expect(screen.queryByLabelText("persistent call owner")).not.toBeInTheDocument();
+    expect(screen.getByText(/Audio calling is disabled by workspace policy/)).toBeVisible();
+  });
+
+  it("blocks direct launches while the provider is unavailable", async () => {
+    harness.audioAvailable = false;
+    const user = userEvent.setup();
+    renderProvider();
+
+    await user.click(screen.getByRole("button", { name: "Call execution" }));
+
+    expect(screen.getByLabelText("target")).toHaveTextContent("none");
+    expect(screen.queryByLabelText("persistent call owner")).not.toBeInTheDocument();
+    expect(screen.getByText(/Audio calling is temporarily unavailable/)).toBeVisible();
+  });
+
+  it("blocks direct launches while availability is still loading", async () => {
+    harness.workspaceLoading = true;
+    const user = userEvent.setup();
+    renderProvider();
+
+    await user.click(screen.getByRole("button", { name: "Call execution" }));
+
+    expect(screen.getByLabelText("target")).toHaveTextContent("none");
+    expect(screen.getByText(/Call availability is still being checked/)).toBeVisible();
+  });
+
+  it("does not turn a transient provider-readiness loss into active-call policy revocation", async () => {
+    const user = userEvent.setup();
+    const view = renderProvider();
+    await user.click(screen.getByRole("button", { name: "Call execution" }));
+    expect(await screen.findByLabelText("persistent call owner"))
+      .toHaveAttribute("data-audio-enabled", "true");
+
+    harness.audioAvailable = false;
+    view.rerender(
+      <MemoryRouter initialEntries={["/app"]}>
+        <CallSessionProvider>
+          <Harness />
+        </CallSessionProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByLabelText("persistent call owner"))
+      .toHaveAttribute("data-audio-enabled", "true");
+
+    harness.allowAudio = false;
+    view.rerender(
+      <MemoryRouter initialEntries={["/app"]}>
+        <CallSessionProvider>
+          <Harness />
+        </CallSessionProvider>
+      </MemoryRouter>
+    );
+    expect(screen.getByLabelText("persistent call owner"))
+      .toHaveAttribute("data-audio-enabled", "false");
   });
 });

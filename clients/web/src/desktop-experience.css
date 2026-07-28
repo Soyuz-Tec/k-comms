@@ -8,7 +8,7 @@
   display: none;
 }
 
-@media (min-width: 761px) {
+@media (min-width: 761px) and (min-height: 561px) {
   :root {
     --desktop-rail-width: 80px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
@@ -40,31 +40,6 @@
     border-right: 1px solid #164440;
     color: #eaf6f4;
     background: #0d3533;
-  }
-
-  .desktop-rail-brand {
-    min-height: 42px;
-    display: grid;
-    place-items: center;
-    margin-bottom: .55rem;
-  }
-
-  .desktop-rail-brand .brand {
-    display: grid;
-    place-items: center;
-  }
-
-  .desktop-rail-brand .brand > span:last-child {
-    display: none;
-  }
-
-  .desktop-rail-brand .brand-mark {
-    width: 34px;
-    height: 34px;
-    border-color: #61bfba;
-    border-radius: 10px;
-    background: #0b7774;
-    box-shadow: none;
   }
 
   .desktop-workspace-identity,
@@ -154,7 +129,7 @@
     border-color: #0d3533;
   }
 
-  .desktop-workspace-rail .notification-panel {
+  body > .notification-panel {
     top: auto;
     right: auto;
     bottom: 1rem;
@@ -558,7 +533,7 @@
   }
 }
 
-@media (min-width: 761px) and (max-width: 1040px) {
+@media (min-width: 761px) and (max-width: 1040px) and (min-height: 561px) {
   :root {
     --desktop-rail-width: 68px;
     --desktop-sidebar-width: 300px;
