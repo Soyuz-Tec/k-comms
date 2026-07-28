@@ -129,10 +129,13 @@ network profile for that interface.
 
 Keep the selected server address stable by reserving it in DHCP/router policy
 or by using another correctly administered fixed assignment. The receipt
-intentionally pins that exact address and interface: after a lease change,
-adapter change, or reboot that moves the address, Start and Status fail their
-topology check instead of silently publishing on the new IP. Deploy a new
-receipt only after the intended replacement address is stable.
+intentionally pins the exact address, adapter alias, network name/category,
+and override authorization. The observed Windows interface index is retained
+for diagnostics but is not an identity control because Windows can renumber it
+after a reboot or adapter restart. After a lease, adapter, or network-profile
+change that alters an enforced field, Start and Status fail their topology
+check instead of silently publishing on the new IP. Deploy a new receipt only
+after the intended replacement topology is stable.
 
 Open:
 
@@ -162,12 +165,13 @@ directly.
 
 `Start` and `Rollback` use the public address sealed in their retained receipt
 rather than the current command line. They fail before activation if the
-address, interface index/alias, network name, or profile category no longer
-matches, or if the address is no longer exactly `Preferred`. Local dependency
-and application health are proved through `127.0.0.1` before the forwarder can
-become ready. The manager then requires the current process identity,
-readiness token, configuration hash, and exact five-listener set to match the
-receipt before probing the public address.
+address, interface alias, network name, profile category, or override-use state
+no longer matches, or if the address is no longer exactly `Preferred`. A
+numeric interface-index change alone does not invalidate the receipt. Local
+dependency and application health are proved through `127.0.0.1` before the
+forwarder can become ready. The manager then requires the current process
+identity, readiness token, configuration hash, and exact five-listener set to
+match the receipt before probing the public address.
 
 `Status` re-observes the Windows network facts and prints
 `Observed network topology matches receipt: True` only for an exact match. A

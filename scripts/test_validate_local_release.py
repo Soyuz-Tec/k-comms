@@ -665,8 +665,24 @@ Write-Output "sealed Compose environment runtime self-test passed"
         )
         errors = validate_local_release(self.compose, runner)
         self.assertIn(
-            "LAN deployment must revalidate the selected interface and network "
-            "profile before activation and before sealing its receipt",
+            "LAN deployment must revalidate stable interface and network-profile "
+            "identity while treating the Windows interface index as diagnostic",
+            errors,
+        )
+
+    def test_rejects_interface_index_as_stable_network_identity(self) -> None:
+        runner = self.runner.replace(
+            '@("bindAddress", [string]$Expected.BindAddress, '
+            "[string]$Observed.BindAddress),",
+            '@("interfaceIndex", [int]$Expected.InterfaceIndex, '
+            "[int]$Observed.InterfaceIndex),\n"
+            '        @("bindAddress", [string]$Expected.BindAddress, '
+            "[string]$Observed.BindAddress),",
+        )
+        errors = validate_local_release(self.compose, runner)
+        self.assertIn(
+            "LAN deployment must revalidate stable interface and network-profile "
+            "identity while treating the Windows interface index as diagnostic",
             errors,
         )
 
@@ -680,8 +696,8 @@ Write-Output "sealed Compose environment runtime self-test passed"
         )
         errors = validate_local_release(self.compose, runner)
         self.assertIn(
-            "LAN deployment must revalidate the selected interface and network "
-            "profile before activation and before sealing its receipt",
+            "LAN deployment must revalidate stable interface and network-profile "
+            "identity while treating the Windows interface index as diagnostic",
             errors,
         )
         self.assertIn(

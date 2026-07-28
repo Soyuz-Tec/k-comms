@@ -1386,7 +1386,6 @@ function Assert-ReleaseNetworkObservationMatches {
 
     foreach ($comparison in @(
         @("bindAddress", [string]$Expected.BindAddress, [string]$Observed.BindAddress),
-        @("interfaceIndex", [int]$Expected.InterfaceIndex, [int]$Observed.InterfaceIndex),
         @("interfaceAlias", [string]$Expected.InterfaceAlias, [string]$Observed.InterfaceAlias),
         @("networkName", [string]$Expected.NetworkName, [string]$Observed.NetworkName),
         @("networkCategory", [string]$Expected.NetworkCategory, [string]$Observed.NetworkCategory),
@@ -9026,9 +9025,18 @@ function Invoke-BindAddressSelfTest {
         -Expected $expectedObservation `
         -Observed $matchingObservation `
         -Context "Network-profile self-test"
+    $renumberedObservation = (
+        $expectedObservation |
+            ConvertTo-Json -Depth 4 |
+            ConvertFrom-Json
+    )
+    $renumberedObservation.InterfaceIndex = 13
+    Assert-ReleaseNetworkObservationMatches `
+        -Expected $expectedObservation `
+        -Observed $renumberedObservation `
+        -Context "Network-profile self-test"
     foreach ($drift in @(
         @("BindAddress", "192.168.50.13"),
-        @("InterfaceIndex", 13),
         @("InterfaceAlias", "Wi-Fi"),
         @("NetworkName", "Different network"),
         @("NetworkCategory", "Public"),
