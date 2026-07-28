@@ -116,13 +116,33 @@ test.describe("real-stack instant-room acceptance", () => {
         accountType: "guest",
         tenantSlug
       });
+      await expect(
+        qualificationPage.getByRole("textbox", {
+          name: /(?:Secure room|Room invite) link/
+        })
+      ).toHaveCount(0);
+      await expect(qualificationPage.locator(".guest-qr")).toHaveCount(0);
+      await qualificationPage
+        .getByRole("button", { name: "Invite people" })
+        .click();
+      await expect(
+        qualificationPage.getByRole("dialog", { name: "Invite someone" })
+      ).toBeVisible();
       const shareField = qualificationPage.getByRole("textbox", {
         name: /(?:Secure room|Room invite) link/
       });
+      await expect(shareField).toHaveValue(/#guest=••••••••••••$/);
+      await qualificationPage
+        .getByRole("button", { name: "Reveal" })
+        .click();
       const shareURL = await shareField.inputValue();
       assertInstantRoomShareURL(shareURL, publicOrigin);
 
       const shareFingerprint = qrValueFingerprint(shareURL);
+      await expect(qualificationPage.locator(".guest-qr")).toHaveCount(0);
+      await qualificationPage
+        .getByRole("button", { name: "Show QR code" })
+        .click();
       const qr = qualificationPage.locator(".guest-qr");
       await redactShareField(qualificationPage);
       await expect(qr).toHaveAttribute(
@@ -422,13 +442,15 @@ async function captureGuestSessionForHandoff(page: Page): Promise<string> {
 }
 
 async function redactShareField(page: Page) {
-  await page
-    .getByRole("textbox", { name: /(?:Secure room|Room invite) link/ })
-    .evaluate((element) => {
+  const shareField = page.getByRole("textbox", {
+    name: /(?:Secure room|Room invite) link/
+  });
+  if (await shareField.count() === 0) return;
+  await shareField.evaluate((element) => {
       const input = element as HTMLInputElement;
       input.value = "[redacted secure room link]";
       input.setAttribute("value", "[redacted secure room link]");
-    });
+  });
 }
 
 function assertInstantRoomShareURL(value: string, publicOrigin: string) {

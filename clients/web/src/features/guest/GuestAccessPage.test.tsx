@@ -198,6 +198,22 @@ function SessionLossControl() {
   );
 }
 
+function setMobileRoomLayout(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(max-width: 768px)" ? matches : false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  });
+}
+
 describe("GuestAccessPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -207,6 +223,7 @@ describe("GuestAccessPage", () => {
     realtimeHarness.disconnects = 0;
     transportHarness.insecureNetworkOrigin = false;
     callPanelHarness.props = null;
+    setMobileRoomLayout(false);
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible"
@@ -393,6 +410,67 @@ describe("GuestAccessPage", () => {
       resolveLogout();
       await pendingLogout;
     });
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves mobile room actions into a labelled, dismissible menu", async () => {
+    setMobileRoomLayout(true);
+    const user = userEvent.setup();
+    const onLeave = vi.fn();
+    const api = new GuestApiClient("", guestSession, vi.fn());
+
+    render(
+      <BrowserRouter>
+        <GuestShell
+          api={api}
+          initialSession={guestSession}
+          accountActionsAllowed
+          mediaActionsAllowed
+          onLeave={onLeave}
+          onConverted={vi.fn()}
+          identityLabel="Host"
+        />
+      </BrowserRouter>
+    );
+
+    await screen.findByRole("heading", { name: "Launch room" });
+    const trigger = screen.getByRole("button", { name: "Open room menu" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Leave" })).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    const menu = screen.getByRole("dialog", { name: "Room menu" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(within(menu).getByRole("button", { name: /Save this room/ })).toBeVisible();
+    expect(within(menu).getByRole("link", { name: /Sign in to a workspace/ })).toBeVisible();
+    expect(within(menu).getByRole("button", { name: /Leave room/ })).toHaveTextContent(
+      "Leaving clears this guest host session."
+    );
+    await waitFor(() =>
+      expect(within(menu).getByRole("button", { name: "Close" })).toHaveFocus()
+    );
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Room menu" }))
+        .getByRole("button", { name: /Save this room/ })
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Work email" })).toHaveFocus()
+    );
+    await user.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Room menu" }))
+        .getByRole("button", { name: /Leave room/ })
+    );
+    expect(GuestApiClient.prototype.logout).toHaveBeenCalled();
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
@@ -931,7 +1009,7 @@ describe("GuestAccessPage", () => {
     expect(composer).toHaveAttribute("readonly");
     expect(composer).toHaveAttribute("aria-disabled", "true");
     expect(
-      screen.queryByRole("heading", { name: "Start the conversation" })
+      screen.queryByRole("heading", { name: "No messages yet" })
     ).not.toBeInTheDocument();
 
     await user.click(
@@ -939,7 +1017,7 @@ describe("GuestAccessPage", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Start the conversation" })
+      await screen.findByRole("heading", { name: "No messages yet" })
     ).toBeVisible();
     expect(composer).not.toHaveAttribute("readonly");
     expect(conversationLookup).toHaveBeenCalledTimes(2);
@@ -1511,9 +1589,17 @@ describe("GuestAccessPage", () => {
 
     expect(composer).toHaveFocus();
     expect(composer).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Sending message" })).toHaveAttribute(
+      "aria-busy",
+      "true"
+    );
     act(() => resolveSend?.(message(1, guestSession.user.id)));
     await waitFor(() => expect(composer).not.toHaveAttribute("readonly"));
     expect(composer).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAttribute(
+      "aria-busy",
+      "false"
+    );
   });
 
   it("shows live participants and uses the same display names in chat", async () => {

@@ -11,6 +11,26 @@ config :comms_core, CommsCore.Repo,
 config :comms_core,
   audio_participant_eviction_enforcement_seconds:
     String.to_integer(System.get_env("AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS", "660")),
+  instant_rooms_enabled:
+    System.get_env("INSTANT_ROOMS_ENABLED", "false")
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.==("true"),
+  instant_room_tenant_slug:
+    System.get_env("INSTANT_ROOM_TENANT_SLUG", "k-comms-development")
+    |> String.trim(),
+  instant_room_guest_idle_ttl_seconds:
+    String.to_integer(System.get_env("INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS", "3600")),
+  instant_room_registered_idle_ttl_seconds:
+    String.to_integer(System.get_env("INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS", "86400")),
+  instant_room_presence_heartbeat_seconds:
+    String.to_integer(System.get_env("INSTANT_ROOM_PRESENCE_HEARTBEAT_SECONDS", "30")),
+  instant_room_presence_lease_seconds:
+    String.to_integer(System.get_env("INSTANT_ROOM_PRESENCE_LEASE_SECONDS", "90")),
+  instant_room_reconnect_grace_seconds:
+    String.to_integer(System.get_env("INSTANT_ROOM_RECONNECT_GRACE_SECONDS", "90")),
+  instant_room_max_participants:
+    String.to_integer(System.get_env("INSTANT_ROOM_MAX_PARTICIPANTS", "25")),
   webhook_secret_encryption_key: "development-only-webhook-key-32b",
   push_subscription_encryption_key: "push-subscription-test-key-32byt",
   push_delivery_status: :degraded,

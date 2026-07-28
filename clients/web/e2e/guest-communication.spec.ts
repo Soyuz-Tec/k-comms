@@ -179,10 +179,19 @@ test.describe("guest communication by secure link or QR", () => {
     await join.click();
 
     await expect(page.getByRole("heading", { name: "Partner room" })).toBeVisible();
+    const roomMenu = page.getByRole("button", { name: "Open room menu" });
+    await expect(roomMenu).toBeVisible();
+    await roomMenu.click();
+    const menuDialog = page.getByRole("dialog", { name: "Room menu" });
     await expect(
-      page.getByRole("button", { name: "Keep this conversation" })
+      menuDialog.getByRole("button", { name: /Keep this conversation/ })
     ).toBeVisible();
+    await menuDialog.getByRole("button", { name: "Close" }).click();
+    await expect(roomMenu).toBeFocused();
     await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+    const participants = page.getByRole("button", { name: /Participants/ });
+    await expect(participants).toHaveAttribute("aria-expanded", "false");
+    await participants.click();
     await expect(
       page.getByRole("list", { name: "Room participants" })
     ).toBeVisible();
