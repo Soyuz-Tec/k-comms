@@ -405,7 +405,6 @@ export function InstantRoomPage() {
     return (
       <main className="instant-room-entry" id="main-content" aria-busy="true">
         <section className="instant-room-loading" aria-labelledby="instant-room-title">
-          <KCommsMark />
           <span className="spinner" aria-hidden="true" />
           <h1 id="instant-room-title">Opening your room…</h1>
           <p>Your invite link and QR code will be ready in a moment.</p>
@@ -421,7 +420,6 @@ export function InstantRoomPage() {
           className="instant-room-start"
           aria-labelledby="instant-room-start-title"
         >
-          <KCommsMark />
           <span className="instant-room-kicker">
             {leftRoom ? "Start again" : "No account needed"}
           </span>
@@ -972,15 +970,6 @@ function instantRoomError(reason: unknown): {
         ? reason.message
         : "K-Comms could not open the room. Try again."
   };
-}
-
-function KCommsMark() {
-  return (
-    <div className="instant-room-brand" aria-label="K-Comms">
-      <span aria-hidden="true">K</span>
-      <strong>K-Comms</strong>
-    </div>
-  );
 }
 
 function EntryFieldIcon({ kind }: { kind: "person" | "room" }) {

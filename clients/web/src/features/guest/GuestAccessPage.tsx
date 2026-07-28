@@ -316,7 +316,6 @@ export function GuestAccessPage() {
           className="guest-entry-card"
           aria-labelledby="member-room-recovery-title"
         >
-          <KCommsGuestBrand />
           <span className="guest-badge">Member room</span>
           <h1 id="member-room-recovery-title">Reopening your conversation…</h1>
           {continuityError ? (
@@ -621,7 +620,6 @@ function GuestJoin({
   return (
     <main className="guest-entry" id="main-content">
       <section className="guest-entry-card" aria-labelledby="guest-entry-title">
-        <KCommsGuestBrand />
         {(!accountActionsAllowed || !mediaActionsAllowed) && (
           <div className="transport-warning" role="alert">
             <strong>Secure account and media actions are unavailable.</strong>
@@ -1648,7 +1646,6 @@ export function GuestShell({
   return (
     <main className="guest-shell" id="main-content">
       <header className="guest-shell-header">
-        <KCommsGuestBrand />
         <div className="guest-room-heading">
             <span className="guest-badge">{identityLabel}</span>
           <div>
@@ -2082,15 +2079,6 @@ function recordSenderLabelRefresh(
     delayIndex,
     nextAttemptAt: Date.now() + delayMs
   };
-}
-
-function KCommsGuestBrand() {
-  return (
-    <div className="guest-brand" aria-label="K-Comms">
-      <span aria-hidden="true">K</span>
-      <strong>K-Comms</strong>
-    </div>
-  );
 }
 
 function guestLinkError(reason: unknown): string {

@@ -239,26 +239,6 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   line-height: 1.08;
 }
 
-.guest-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: .65rem;
-  margin-bottom: 1.5rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .08em;
-}
-
-.guest-brand > span {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px 10px 10px 3px;
-  color: white;
-  background: var(--forest);
-  font-weight: 900;
-}
-
 .guest-badge {
   display: inline-flex;
   min-height: 28px;
@@ -327,16 +307,12 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-shell-header {
   min-height: 76px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
   padding: .8rem max(1rem, var(--safe-right)) .8rem max(1rem, var(--safe-left));
   border-bottom: 1px solid var(--line);
   background: var(--paper);
-}
-
-.guest-shell-header .guest-brand {
-  margin: 0;
 }
 
 .guest-room-heading {
@@ -745,10 +721,6 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-shell-header {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
-  }
-
-  .guest-shell-header > .guest-brand {
-    display: none;
   }
 
   .guest-shell-actions {

@@ -89,6 +89,36 @@ describe("NotificationCenter", () => {
     expect(screen.getByLabelText("location")).toHaveTextContent("/app");
   });
 
+  it("portals the modal outside the topbar and restores focus after close or Escape", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <MemoryRouter initialEntries={["/app"]}>
+        <div className="topbar"><NotificationCenter /></div>
+      </MemoryRouter>
+    );
+    const trigger = await screen.findByRole("button", { name: /Notifications, 1 unread/i });
+
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Notifications" });
+    const close = screen.getByRole("button", { name: "Close notifications" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(container).toHaveAttribute("aria-hidden", "true");
+    expect(container.inert).toBe(true);
+    await waitFor(() => expect(close).toHaveFocus());
+
+    await user.click(close);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument());
+    expect(container).not.toHaveAttribute("aria-hidden");
+    expect(container.inert).toBe(false);
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close notifications" })).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
   it("rejects external, admin, and path-confusion action URLs", () => {
     expect(notificationDestination(notification({ action_url: "https://evil.example/app", conversation_id: null, message_id: null }))).toBe("/app");
     expect(notificationDestination(notification({ action_url: "/admin", conversation_id: null, message_id: null }))).toBe("/app");

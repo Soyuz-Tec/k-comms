@@ -53,8 +53,11 @@ function tenantAdministration() {
 test("user and tenant-admin routes are independently navigable", async ({ page }) => {
   await page.goto("/app/");
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  const openMenu = page.getByRole("button", { name: "Open main menu" });
+  if (await openMenu.isVisible()) await openMenu.click();
   await page.getByRole("link", { name: "You", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+  if (await openMenu.isVisible()) await openMenu.click();
   await page.getByRole("link", { name: "Workspace administration" }).click();
   await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
   await page.getByRole("button", { name: "People" }).click();

@@ -35,8 +35,8 @@ test.describe("low-click member information architecture", () => {
         await expect(page.getByRole("heading", { name: route.heading, exact: true })).toBeVisible();
         await expectNoDocumentOverflow(page);
         await expectMinimumTargets(
-          page.locator("nav.mobile-product-nav a"),
-          `${route.heading} mobile navigation`
+          page.getByRole("button", { name: "Open main menu" }),
+          `${route.heading} main menu control`
         );
         if (
           process.env.K_COMMS_VISUAL_CAPTURE === "1"
@@ -54,13 +54,14 @@ test.describe("low-click member information architecture", () => {
     });
   }
 
-  test("a direct message starts from Inbox in no more than two actions", async ({ page }) => {
+  test("a direct message starts from Inbox in no more than three actions", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
 
     let actions = 0;
-    await countedClick(page.getByRole("link", { name: "Directory" }), () => actions += 1);
+    const menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Directory" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Find people and rooms" })).toBeVisible();
     await countedClick(
       page.getByRole("button", { name: "Message Grace Hopper" }),
@@ -69,19 +70,20 @@ test.describe("low-click member information architecture", () => {
 
     await expect(page).toHaveURL(new RegExp(`conversation=${directConversationId}`));
     await expect(page.getByRole("heading", { name: "Grace Hopper" })).toBeVisible();
-    expect(actions).toBe(2);
-    expect(actions).toBeLessThanOrEqual(2);
+    expect(actions).toBe(3);
+    expect(actions).toBeLessThanOrEqual(3);
     expect(fixture.directConversationRequests).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("a public room joins and opens from Inbox in no more than three actions", async ({ page }) => {
+  test("a public room joins and opens from Inbox in no more than four actions", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
 
     let actions = 0;
-    await countedClick(page.getByRole("link", { name: "Directory" }), () => actions += 1);
+    const menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Directory" }), () => actions += 1);
     await expect(page.getByRole("button", { name: "People" })).toHaveAttribute("aria-pressed", "true");
     const roomsButton = page.getByRole("button", { name: "Rooms" });
     await countedClick(roomsButton, () => actions += 1);
@@ -94,19 +96,20 @@ test.describe("low-click member information architecture", () => {
 
     await expect(page).toHaveURL(new RegExp(`conversation=${publicRoomId}`));
     await expect(page.getByRole("heading", { name: "Execution room" })).toBeVisible();
-    expect(actions).toBe(3);
-    expect(actions).toBeLessThanOrEqual(3);
+    expect(actions).toBe(4);
+    expect(actions).toBeLessThanOrEqual(4);
     expect(fixture.joinRoomRequests).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("a shared file returns to its exact source message in two actions", async ({ page }) => {
+  test("a shared file returns to its exact source message in three actions", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
 
     let actions = 0;
-    await countedClick(page.getByRole("link", { name: "Files" }), () => actions += 1);
+    const menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Files" }), () => actions += 1);
     await expect(page.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Documents" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Images" })).toBeVisible();
@@ -118,18 +121,19 @@ test.describe("low-click member information architecture", () => {
 
     await expect(page).toHaveURL(new RegExp(`search_message=${sourceMessageId}`));
     await expect(page.getByText("The source message for the shared plan.", { exact: true })).toBeVisible();
-    expect(actions).toBe(2);
-    expect(actions).toBeLessThanOrEqual(2);
+    expect(actions).toBe(3);
+    expect(actions).toBeLessThanOrEqual(3);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("a video call starts in three actions with an explicit default-off join", async ({ page }) => {
+  test("a video call starts in four actions with an explicit default-off join", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
 
     let actions = 0;
-    await countedClick(page.getByRole("link", { name: "Calls" }), () => actions += 1);
+    const menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Calls" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Start from a conversation" })).toBeVisible();
     await countedClick(page.getByRole("button", { name: "Video" }), () => actions += 1);
 
@@ -142,34 +146,36 @@ test.describe("low-click member information architecture", () => {
       () => actions += 1
     );
     await expect(page.getByRole("alert")).toContainText("Unable to join the video call");
-    expect(actions).toBe(3);
-    expect(actions).toBeLessThanOrEqual(3);
+    expect(actions).toBe(4);
+    expect(actions).toBeLessThanOrEqual(4);
     expect(fixture.startCallRequests).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("You is one action and role tools are no more than two actions from Inbox", async ({ page }) => {
+  test("You and role tools are each no more than two actions from Inbox", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
 
     let actions = 0;
-    await countedClick(page.getByRole("link", { name: "You" }), () => actions += 1);
+    let menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "You" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
-    expect(actions).toBe(1);
+    expect(actions).toBe(2);
+    expect(actions).toBeLessThanOrEqual(2);
 
-    await countedClick(
-      page.getByRole("link", { name: "Workspace administration" }),
-      () => actions += 1
-    );
+    await page.goto("/app/");
+    actions = 0;
+    menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Workspace administration" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
     expect(actions).toBe(2);
     expect(actions).toBeLessThanOrEqual(2);
 
     await page.goto("/app/");
     actions = 0;
-    await countedClick(page.getByRole("link", { name: "You" }), () => actions += 1);
-    await countedClick(page.getByRole("link", { name: "Service operations" }), () => actions += 1);
+    menu = await openMainMenu(page, () => actions += 1);
+    await countedClick(menu.getByRole("link", { name: "Service operations" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
     expect(actions).toBe(2);
     expect(actions).toBeLessThanOrEqual(2);
@@ -522,6 +528,13 @@ async function countedClick(locator: Locator, count: () => void) {
   await expect(locator).toBeVisible();
   await locator.click();
   count();
+}
+
+async function openMainMenu(page: Page, count: () => void) {
+  await countedClick(page.getByRole("button", { name: "Open main menu" }), count);
+  const menu = page.getByRole("dialog", { name: "Acme Workspace" });
+  await expect(menu).toBeVisible();
+  return menu;
 }
 
 async function expectNoDocumentOverflow(page: Page) {

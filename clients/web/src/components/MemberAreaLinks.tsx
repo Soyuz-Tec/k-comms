@@ -35,15 +35,7 @@ export const memberDestinations: MemberDestination[] = [
   }
 ];
 
-export function MemberAreaLinks({
-  mobile = false,
-  compact = false
-}: {
-  mobile?: boolean;
-  compact?: boolean;
-}) {
-  const showIcons = mobile || compact;
-
+export function MemberAreaLinks({ compact = false }: { compact?: boolean }) {
   return (
     <>
       {memberDestinations.map(({ icon, label, path }) => {
@@ -56,24 +48,11 @@ export function MemberAreaLinks({
             aria-label={compact ? label : undefined}
             title={compact ? label : undefined}
           >
-            {showIcons && (
-              <AppIcon
-                name={icon}
-                className="member-nav-icon"
-              />
-            )}
+            {compact && <AppIcon name={icon} className="member-nav-icon" />}
             <span className={compact ? "visually-hidden" : undefined}>{label}</span>
           </NavLink>
         );
       })}
     </>
-  );
-}
-
-export function MobileBottomNav() {
-  return (
-    <nav className="mobile-product-nav member-bottom-nav" aria-label="Mobile product areas">
-      <MemberAreaLinks mobile />
-    </nav>
   );
 }

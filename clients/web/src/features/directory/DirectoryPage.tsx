@@ -17,6 +17,7 @@ import type {
   PublicChannel
 } from "../../types";
 import { useCallSession } from "../calls/CallSessionProvider";
+import { callAvailabilityGuidance } from "../calls/callAvailability";
 
 type DirectorySection = "people" | "rooms";
 type StartMode = "message" | CallMediaKind;
@@ -37,6 +38,7 @@ export function DirectoryPage() {
     audioCallsAvailable,
     capabilities,
     conversations,
+    loading: workspaceLoading,
     setConversations,
     videoCallsAvailable
   } = useWorkspaceData();
@@ -111,6 +113,18 @@ export function DirectoryPage() {
     capabilities?.allow_audio_calls === true && audioCallsAvailable;
   const videoEnabled =
     capabilities?.allow_video_calls === true && videoCallsAvailable;
+  const callGuidance = !workspaceLoading && capabilities
+    ? callAvailabilityGuidance({
+        allowAudio: capabilities.allow_audio_calls === true,
+        allowVideo: capabilities.allow_video_calls === true,
+        audioAvailable: audioCallsAvailable,
+        videoAvailable: videoCallsAvailable
+      })
+    : null;
+  const callAvailabilityChecking = workspaceLoading || !capabilities;
+  const callAvailabilityDescriptionId = callGuidance
+    ? "directory-call-availability"
+    : undefined;
 
   function openConversation(conversation: Conversation, mode: StartMode) {
     if (mode !== "message") {
@@ -212,6 +226,18 @@ export function DirectoryPage() {
         </div>
       </header>
 
+      {callGuidance && (
+        <p className="call-availability-guidance" id="directory-call-availability" role="status">
+          <span>{callGuidance}</span>
+          <Link to="/app/calls">Open Calls</Link>
+        </p>
+      )}
+      {callAvailabilityChecking && (
+        <p className="call-availability-guidance" role="status">
+          Checking call availability…
+        </p>
+      )}
+
       {error && (
         <div className="inline-notice error directory-notice" role="alert">
           <span>{error}</span>
@@ -266,6 +292,8 @@ export function DirectoryPage() {
           busyAction={busyAction}
           audioEnabled={audioEnabled}
           videoEnabled={videoEnabled}
+          callAvailabilityChecking={callAvailabilityChecking}
+          availabilityDescriptionId={callAvailabilityDescriptionId}
           showInvite={canInviteTeammates && query.trim().length === 0}
           onStart={startWithPerson}
         />
@@ -275,6 +303,8 @@ export function DirectoryPage() {
           busyAction={busyAction}
           audioEnabled={audioEnabled}
           videoEnabled={videoEnabled}
+          callAvailabilityChecking={callAvailabilityChecking}
+          availabilityDescriptionId={callAvailabilityDescriptionId}
           publicDiscoveryEnabled={allowPublicRooms}
           onOpen={openRoom}
         />
@@ -299,6 +329,8 @@ function DirectoryPeople({
   busyAction,
   audioEnabled,
   videoEnabled,
+  callAvailabilityChecking,
+  availabilityDescriptionId,
   showInvite,
   onStart
 }: {
@@ -306,6 +338,8 @@ function DirectoryPeople({
   busyAction: string | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  callAvailabilityChecking: boolean;
+  availabilityDescriptionId?: string;
   showInvite: boolean;
   onStart: (person: DirectoryPerson, mode: StartMode) => Promise<void>;
 }) {
@@ -339,6 +373,8 @@ function DirectoryPeople({
             actionPrefix={person.id}
             audioEnabled={audioEnabled}
             videoEnabled={videoEnabled}
+            callAvailabilityChecking={callAvailabilityChecking}
+            availabilityDescriptionId={availabilityDescriptionId}
             onAction={(mode) => void onStart(person, mode)}
           />
         </li>
@@ -352,6 +388,8 @@ function DirectoryRooms({
   busyAction,
   audioEnabled,
   videoEnabled,
+  callAvailabilityChecking,
+  availabilityDescriptionId,
   publicDiscoveryEnabled,
   onOpen
 }: {
@@ -359,6 +397,8 @@ function DirectoryRooms({
   busyAction: string | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  callAvailabilityChecking: boolean;
+  availabilityDescriptionId?: string;
   publicDiscoveryEnabled: boolean;
   onOpen: (room: DirectoryRoom, mode: StartMode) => Promise<void>;
 }) {
@@ -391,6 +431,8 @@ function DirectoryRooms({
               busyAction={busyAction}
               audioEnabled={audioEnabled}
               videoEnabled={videoEnabled}
+              callAvailabilityChecking={callAvailabilityChecking}
+              availabilityDescriptionId={availabilityDescriptionId}
               messageLabel={room.joined ? "Message" : "Join & open"}
               onAction={(mode) => void onOpen(room, mode)}
             />
@@ -407,6 +449,8 @@ function QuickActions({
   busyAction,
   audioEnabled,
   videoEnabled,
+  callAvailabilityChecking,
+  availabilityDescriptionId,
   messageLabel = "Message",
   onAction
 }: {
@@ -415,6 +459,8 @@ function QuickActions({
   busyAction?: string | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  callAvailabilityChecking: boolean;
+  availabilityDescriptionId?: string;
   messageLabel?: string;
   onAction: (mode: StartMode) => void;
 }) {
@@ -433,9 +479,18 @@ function QuickActions({
       <button
         className="directory-action icon"
         type="button"
-        disabled={!audioEnabled || busy}
-        aria-label={`Audio call ${name}`}
-        title={audioEnabled ? `Audio call ${name}` : "Audio calls are unavailable"}
+        disabled={callAvailabilityChecking || !audioEnabled || busy}
+        aria-label={callAvailabilityChecking
+          ? `Checking audio call availability for ${name}`
+          : audioEnabled
+            ? `Audio call ${name}`
+            : `Audio call unavailable for ${name}`}
+        aria-describedby={!callAvailabilityChecking && !audioEnabled ? availabilityDescriptionId : undefined}
+        title={callAvailabilityChecking
+          ? "Checking audio call availability"
+          : audioEnabled
+            ? `Audio call ${name}`
+            : "Audio calls are unavailable"}
         onClick={() => onAction("audio")}
       >
         <AppIcon name="phone" />
@@ -443,9 +498,18 @@ function QuickActions({
       <button
         className="directory-action icon"
         type="button"
-        disabled={!videoEnabled || busy}
-        aria-label={`Video call ${name}`}
-        title={videoEnabled ? `Video call ${name}` : "Video calls are unavailable"}
+        disabled={callAvailabilityChecking || !videoEnabled || busy}
+        aria-label={callAvailabilityChecking
+          ? `Checking video call availability for ${name}`
+          : videoEnabled
+            ? `Video call ${name}`
+            : `Video call unavailable for ${name}`}
+        aria-describedby={!callAvailabilityChecking && !videoEnabled ? availabilityDescriptionId : undefined}
+        title={callAvailabilityChecking
+          ? "Checking video call availability"
+          : videoEnabled
+            ? `Video call ${name}`
+            : "Video calls are unavailable"}
         onClick={() => onAction("video")}
       >
         <AppIcon name="video" />

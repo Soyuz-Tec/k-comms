@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
@@ -57,7 +58,7 @@ export function NotificationCenter() {
         <AppIcon name="bell" />
         {unreadCount > 0 && <span className="notification-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
       </button>
-      {open && (
+      {open && createPortal(
         <NotificationPanel
           notifications={notifications}
           unreadCount={unreadCount}
@@ -84,7 +85,8 @@ export function NotificationCenter() {
             setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at || timestamp })));
             setUnreadCount(result.unread_count);
           }}
-        />
+        />,
+        document.body
       )}
     </div>
   );

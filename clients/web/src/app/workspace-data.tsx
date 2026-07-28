@@ -26,6 +26,7 @@ interface WorkspaceDataValue {
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
   setCapabilities: React.Dispatch<React.SetStateAction<UserCapabilities | null>>;
   refreshAll: () => Promise<void>;
+  refreshCallAvailability: () => Promise<void>;
   refreshConversations: () => Promise<void>;
   createConversation: (input: CreateConversationInput) => Promise<Conversation>;
   startDirectConversation: (userId: string) => Promise<Conversation>;
@@ -48,15 +49,25 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
     setConversations(available);
   }, [api]);
 
+  const refreshCallAvailability = useCallback(async () => {
+    try {
+      const serviceStatus = await api.status();
+      setAudioCallsAvailable(serviceStatus.capabilities?.audio_calls === true);
+      setVideoCallsAvailable(serviceStatus.capabilities?.video_calls === true);
+    } catch {
+      // Preserve the last known readiness when the status request fails transiently.
+    }
+  }, [api]);
+
   const refreshAll = useCallback(async () => {
     if (!session) return;
     setError(null);
     try {
-      const [identity, tenantUsers, available, serviceStatus] = await Promise.all([
+      const [identity, tenantUsers, available] = await Promise.all([
         api.me(),
         api.users(),
         api.conversations(),
-        api.status().catch(() => null)
+        refreshCallAvailability()
       ]);
       setSession({
         ...session,
@@ -67,14 +78,12 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       setUsers(tenantUsers);
       setConversations(available);
       setCapabilities(identity.capabilities);
-      setAudioCallsAvailable(serviceStatus?.capabilities?.audio_calls === true);
-      setVideoCallsAvailable(serviceStatus?.capabilities?.video_calls === true);
     } catch (reason: unknown) {
       setError(errorText(reason));
     } finally {
       setLoading(false);
     }
-  }, [api, session?.access_token, setSession]);
+  }, [api, refreshCallAvailability, session?.access_token, setSession]);
 
   useEffect(() => {
     void refreshAll();
@@ -82,7 +91,11 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") void refreshConversations().catch(() => undefined);
+      if (document.visibilityState !== "visible") return;
+      void Promise.allSettled([
+        refreshConversations(),
+        refreshCallAvailability()
+      ]);
     };
     const timer = window.setInterval(refreshIfVisible, 15_000);
     window.addEventListener("focus", refreshIfVisible);
@@ -92,7 +105,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", refreshIfVisible);
       document.removeEventListener("visibilitychange", refreshIfVisible);
     };
-  }, [refreshConversations]);
+  }, [refreshCallAvailability, refreshConversations]);
 
   useEffect(() => {
     if (!session?.user.id || import.meta.env.VITE_DISABLE_REALTIME === "true") return;
@@ -201,6 +214,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       setUsers,
       setCapabilities,
       refreshAll,
+      refreshCallAvailability,
       refreshConversations,
       createConversation,
       startDirectConversation
@@ -214,6 +228,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       error,
       loading,
       refreshAll,
+      refreshCallAvailability,
       refreshConversations,
       startDirectConversation,
       users

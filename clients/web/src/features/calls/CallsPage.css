@@ -363,7 +363,7 @@
   margin-top: .75rem;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 560px) {
   .calls-page {
     gap: .72rem;
     padding: .72rem 1rem calc(1rem + var(--safe-bottom));
@@ -647,7 +647,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 560px) {
   .calls-page {
     min-height: calc(var(--app-viewport-height) - var(--mobile-topbar-total) - var(--mobile-nav-total));
     align-content: start;

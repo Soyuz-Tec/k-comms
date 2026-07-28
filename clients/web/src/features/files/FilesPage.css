@@ -397,7 +397,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 560px) {
   .files-page {
     gap: .8rem;
     padding: .85rem 1rem calc(1rem + var(--safe-bottom));

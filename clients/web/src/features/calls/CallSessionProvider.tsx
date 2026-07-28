@@ -47,6 +47,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const {
     audioCallsAvailable,
     capabilities,
+    loading: workspaceLoading,
     videoCallsAvailable
   } = useWorkspaceData();
   const [targetConversation, setTargetConversation] = useState<Conversation | null>(null);
@@ -60,6 +61,29 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const launchRequestRef = useRef<LaunchRequest | null>(null);
 
   const launchCall = useCallback((conversation: Conversation, kind: CallMediaKind) => {
+    if (workspaceLoading || !capabilities) {
+      setNotice("Call availability is still being checked. Try again shortly.");
+      return false;
+    }
+    const allowed = kind === "audio"
+      ? capabilities.allow_audio_calls === true
+      : capabilities.allow_video_calls === true;
+    if (!allowed) {
+      setNotice(
+        `${kind === "audio" ? "Audio" : "Video"} calling is disabled by workspace policy. Keep messaging or ask a workspace administrator.`
+      );
+      return false;
+    }
+    const available = kind === "audio"
+      ? audioCallsAvailable
+      : videoCallsAvailable;
+    if (!available) {
+      setNotice(
+        `${kind === "audio" ? "Audio" : "Video"} calling is temporarily unavailable. Open Calls and refresh call availability.`
+      );
+      return false;
+    }
+
     const currentTarget = targetConversationRef.current;
     const currentState = sessionStateRef.current;
     const pendingRequest = launchRequestRef.current;
@@ -89,7 +113,12 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     setNotice(null);
     setLaunchRequest(request);
     return true;
-  }, []);
+  }, [
+    audioCallsAvailable,
+    capabilities,
+    videoCallsAvailable,
+    workspaceLoading
+  ]);
 
   const publishRealtimeEvent = useCallback((event: CallRealtimeEvent) => {
     if (targetConversationRef.current?.id === event.conversation_id) {
@@ -126,10 +155,11 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     ]
   );
 
-  const audioEnabled =
-    capabilities?.allow_audio_calls === true && audioCallsAvailable;
-  const videoEnabled =
-    capabilities?.allow_video_calls === true && videoCallsAvailable;
+  // Provider readiness is a new-launch guard. Once a room is open, only an
+  // explicit workspace-policy revocation should tear it down; a transient
+  // readiness probe must not eject an otherwise connected participant.
+  const audioPolicyEnabled = capabilities?.allow_audio_calls === true;
+  const videoPolicyEnabled = capabilities?.allow_video_calls === true;
 
   return (
     <CallSessionContext.Provider value={value}>
@@ -140,8 +170,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
             key={targetConversation.id}
             api={api}
             conversation={targetConversation}
-            audioEnabled={audioEnabled}
-            videoEnabled={videoEnabled}
+            audioEnabled={audioPolicyEnabled}
+            videoEnabled={videoPolicyEnabled}
             currentUserDisplayName={session.user.display_name}
             realtimeEvent={realtimeEvent}
             launchRequest={launchRequest?.kind}
@@ -177,12 +207,14 @@ export function CallLaunchActions({
   conversation,
   audioEnabled,
   videoEnabled,
-  showVideoAction = true
+  showVideoAction = true,
+  availabilityDescriptionId
 }: {
   conversation: Conversation;
   audioEnabled: boolean;
   videoEnabled: boolean;
   showVideoAction?: boolean;
+  availabilityDescriptionId?: string;
 }) {
   const { launchCall, launchRequest, sessionState, targetConversation } = useCallSession();
   const current = targetConversation?.id === conversation.id;
@@ -201,14 +233,15 @@ export function CallLaunchActions({
         className={`button compact ${currentBusyKind === "audio" ? "audio-call-active" : "ghost"}`}
         type="button"
         disabled={!audioEnabled || blockedByAnotherConversation}
-        title={blockedTitle}
+        title={!audioEnabled ? "Audio calling is unavailable. See the adjacent guidance." : blockedTitle}
+        aria-describedby={!audioEnabled ? availabilityDescriptionId : undefined}
         aria-haspopup="dialog"
         aria-pressed={currentBusyKind === "audio"}
         onClick={() => launchCall(conversation, "audio")}
       >
         <span aria-hidden="true"><CallKindIcon kind="audio" /></span>
         {!audioEnabled
-          ? "Audio calls disabled"
+          ? "Audio calling unavailable"
           : currentBusyKind === "audio"
             ? sessionState?.joined ? "In audio call" : "Opening audio call…"
             : "Start audio call"}
@@ -218,14 +251,15 @@ export function CallLaunchActions({
           className={`button compact ${currentBusyKind === "video" ? "audio-call-active" : "ghost"}`}
           type="button"
           disabled={!videoEnabled || blockedByAnotherConversation}
-          title={blockedTitle}
+          title={!videoEnabled ? "Video calling is unavailable. See the adjacent guidance." : blockedTitle}
+          aria-describedby={!videoEnabled ? availabilityDescriptionId : undefined}
           aria-haspopup="dialog"
           aria-pressed={currentBusyKind === "video"}
           onClick={() => launchCall(conversation, "video")}
         >
           <span aria-hidden="true"><CallKindIcon kind="video" /></span>
           {!videoEnabled
-            ? "Video calls disabled"
+            ? "Video calling unavailable"
             : currentBusyKind === "video"
               ? sessionState?.joined ? "In video call" : "Opening video call…"
               : "Start video call"}

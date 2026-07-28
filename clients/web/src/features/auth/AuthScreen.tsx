@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import type { FormEvent, InputHTMLAttributes } from "react";
 import { Link, useNavigate } from "react-router";
 import type { BootstrapInput, LoginInput } from "../../api";
-import { Brand } from "../../components/Brand";
 import { Field } from "../../components/Field";
 import { browserName, errorText, stringValue } from "../../lib/format";
 import {
@@ -269,7 +268,6 @@ export function AuthScreen() {
         {authModeTitle(mode)} view
       </span>
       <section className="auth-story" aria-labelledby="welcome-title">
-        <Brand />
         <div className="auth-story-copy">
           <span className="eyebrow light">One place for your team</span>
           <h1 id="welcome-title">

@@ -3,7 +3,6 @@ import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../../api";
 import { useSession } from "../../app/session";
-import { Brand } from "../../components/Brand";
 import { Field } from "../../components/Field";
 import { stringValue } from "../../lib/format";
 
@@ -172,7 +171,6 @@ function RecoveryLayout({ title, description, children }: { title: string; descr
   return (
     <main className="recovery-page">
       <section className="recovery-shell" aria-labelledby="recovery-title">
-        <Brand />
         <span className="eyebrow">Account recovery</span>
         <h1 id="recovery-title">{title}</h1>
         <p className="muted">{description}</p>
