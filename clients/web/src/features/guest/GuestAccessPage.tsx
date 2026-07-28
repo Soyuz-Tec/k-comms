@@ -2165,7 +2165,11 @@ export function GuestShell({
             aria-busy={sending}
             aria-disabled={loading || Boolean(loadError)}
             autoFocus={!roomBanner}
-            placeholder={`Message ${conversationTitle(conversation)}`}
+            placeholder={
+              mobileRoomLayout
+                ? "Write a message"
+                : `Message ${conversationTitle(conversation)}`
+            }
             onChange={(event) => setComposer(event.target.value)}
             onKeyDown={(event) => {
               if (
