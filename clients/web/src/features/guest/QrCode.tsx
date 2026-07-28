@@ -1,36 +1,42 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { sha256Hex } from "../../lib/sha256";
 import { isEncryptedUrl } from "../../lib/transportSecurity";
 
 export function QrCode({
   value,
-  label
+  label,
+  onReady
 }: {
   value: string;
   label: string;
+  onReady?: (source: string) => void;
 }) {
   const [source, setSource] = useState("");
   const [fingerprint, setFingerprint] = useState("");
   const [failed, setFailed] = useState(false);
+  const onReadyRef = useRef(onReady);
+
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   useEffect(() => {
     let current = true;
     setSource("");
     setFingerprint("");
     setFailed(false);
-    void QRCode.toDataURL(value, {
-      errorCorrectionLevel: "M",
-      margin: 2,
-      width: 256,
-      color: {
-        dark: "#12302d",
-        light: "#ffffff"
+    onReadyRef.current?.("");
+    void createQrDataUrl(value).then((result) => {
+      if (current) {
+        setSource(result);
+        onReadyRef.current?.(result);
       }
-    }).then((result) => {
-      if (current) setSource(result);
     }).catch(() => {
-      if (current) setFailed(true);
+      if (current) {
+        setFailed(true);
+        onReadyRef.current?.("");
+      }
     });
     void qrValueFingerprint(value).then((result) => {
       if (current) setFingerprint(result);
@@ -64,6 +70,18 @@ export function QrCode({
       )}
     </div>
   );
+}
+
+export function createQrDataUrl(value: string): Promise<string> {
+  return QRCode.toDataURL(value, {
+    errorCorrectionLevel: "H",
+    margin: 4,
+    width: 320,
+    color: {
+      dark: "#0b1220",
+      light: "#ffffff"
+    }
+  });
 }
 
 export async function qrValueFingerprint(value: string): Promise<string> {

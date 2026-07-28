@@ -21,14 +21,30 @@ describe("QrCode", () => {
 
   it("encodes the exact guest URL with no mutation", async () => {
     const value = "https://comms.example.test/join#guest=one%2Btoken";
-    render(<QrCode value={value} label="Scan to join Project room" />);
+    const onReady = vi.fn();
+    render(
+      <QrCode
+        value={value}
+        label="Scan to join Project room"
+        onReady={onReady}
+      />
+    );
 
     await waitFor(() => expect(qrHarness.toDataURL).toHaveBeenCalled());
 
     expect(qrHarness.toDataURL).toHaveBeenCalledWith(
       value,
-      expect.objectContaining({ errorCorrectionLevel: "M", width: 256 })
+      expect.objectContaining({
+        errorCorrectionLevel: "H",
+        margin: 4,
+        width: 320,
+        color: {
+          dark: "#0b1220",
+          light: "#ffffff"
+        }
+      })
     );
+    expect(onReady).toHaveBeenLastCalledWith("data:image/png;base64,qr");
     expect(await screen.findByRole("img", { name: "Scan to join Project room" })).toHaveAttribute(
       "src",
       "data:image/png;base64,qr"
@@ -62,17 +78,37 @@ describe("QrCode", () => {
       .toBeInTheDocument();
   });
 
+  it("does not regenerate when a consumer supplies a new callback identity", async () => {
+    const value = "https://comms.example.test/join#guest=stable-token";
+    const firstReady = vi.fn();
+    const secondReady = vi.fn();
+    const { rerender } = render(
+      <QrCode value={value} label="Scan to join Stable room" onReady={firstReady} />
+    );
+    await screen.findByRole("img", { name: "Scan to join Stable room" });
+    expect(qrHarness.toDataURL).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <QrCode value={value} label="Scan to join Stable room" onReady={secondReady} />
+    );
+
+    expect(qrHarness.toDataURL).toHaveBeenCalledTimes(1);
+  });
+
   it("does not call an HTTP invitation secure when QR generation fails", async () => {
     qrHarness.toDataURL.mockRejectedValue(new Error("QR failed"));
+    const onReady = vi.fn();
     render(
       <QrCode
         value="http://192.168.1.177:4188/join#guest=lan-token"
         label="Scan to join LAN room"
+        onReady={onReady}
       />
     );
 
     expect(
       await screen.findByText("QR unavailable. Copy the invite link instead.")
     ).toBeVisible();
+    expect(onReady).toHaveBeenLastCalledWith("");
   });
 });
