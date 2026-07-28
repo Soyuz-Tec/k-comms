@@ -19,6 +19,7 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
+import { useModalDialog } from "../../components/useModalDialog";
 import {
   browserName,
   clientMessageId,
@@ -850,6 +851,104 @@ function isDefinitiveRoomUnavailable(reason: unknown): boolean {
   );
 }
 
+function useMobileRoomLayout() {
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia?.("(max-width: 768px)").matches ?? false
+  );
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const query = window.matchMedia("(max-width: 768px)");
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  return mobile;
+}
+
+function GuestRoomMenu({
+  canKeepRoom,
+  identityLabel,
+  leaving,
+  onClose,
+  onKeepRoom,
+  onLeave,
+  warnsOfGuestHostLoss
+}: {
+  canKeepRoom: boolean;
+  identityLabel: "Guest" | "Host" | "Member";
+  leaving: boolean;
+  onClose: () => void;
+  onKeepRoom: () => void;
+  onLeave: () => void;
+  warnsOfGuestHostLoss: boolean;
+}) {
+  const dialogRef = useModalDialog(onClose);
+
+  return (
+    <div
+      className="guest-room-menu-backdrop"
+      onPointerDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <aside
+        ref={dialogRef}
+        className="guest-room-menu"
+        id="guest-room-menu"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="guest-room-menu-title"
+      >
+        <header>
+          <h2 id="guest-room-menu-title">Room menu</h2>
+          <button
+            className="button ghost compact"
+            type="button"
+            data-initial-focus
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </header>
+        <div className="guest-room-menu-actions">
+          {canKeepRoom && (
+            <button className="guest-room-menu-action" type="button" onClick={onKeepRoom}>
+              <strong>
+                {identityLabel === "Host"
+                  ? "Save this room"
+                  : "Keep this conversation"}
+              </strong>
+              <span>Continue from another device with an account.</span>
+            </button>
+          )}
+          {identityLabel === "Host" && (
+            <Link className="guest-room-menu-action" to="/sign-in" onClick={onClose}>
+              <strong>Sign in to a workspace</strong>
+              <span>Use an existing K-Comms account.</span>
+            </Link>
+          )}
+          <button
+            className="guest-room-menu-action danger"
+            type="button"
+            disabled={leaving}
+            onClick={onLeave}
+          >
+            <strong>{leaving ? "Leaving room…" : "Leave room"}</strong>
+            <span>
+              {warnsOfGuestHostLoss
+                ? "Leaving clears this guest host session. Copy the invite to rejoin, or save the room first to keep management access."
+                : "This ends only your session on this device."}
+            </span>
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export function GuestShell({
   api,
   initialSession,
@@ -903,6 +1002,7 @@ export function GuestShell({
   const [realtimeHandoffVersion, setRealtimeHandoffVersion] = useState(0);
   const [error, setError] = useState("");
   const [showAccount, setShowAccount] = useState(false);
+  const [showRoomMenu, setShowRoomMenu] = useState(false);
   const [converting, setConverting] = useState(false);
   const [conversionNotice, setConversionNotice] = useState("");
   const [conversionReceipt, setConversionReceipt] =
@@ -945,8 +1045,13 @@ export function GuestShell({
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const accountToggleRef = useRef<HTMLButtonElement | null>(null);
+  const accountReturnFocusRef = useRef<HTMLButtonElement | null>(null);
+  const roomMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const roomHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const accountEmailRef = useRef<HTMLInputElement | null>(null);
   const accountWasOpenRef = useRef(false);
+  const restoreRoomHeadingFocusRef = useRef(false);
+  const roomMenuTriggerFocusedRef = useRef(false);
   const onAccessEndedRef = useRef(onAccessEnded);
   onAccessEndedRef.current = onAccessEnded;
   const selfServiceConversion =
@@ -954,6 +1059,41 @@ export function GuestShell({
   const conversionEnabled =
     initialSession.capabilities.conversion_enabled === true ||
     selfServiceConversion;
+  const mobileRoomLayout = useMobileRoomLayout();
+
+  useEffect(() => {
+    const clearRoomMenuTriggerFocus = (event: FocusEvent) => {
+      if (event.target !== roomMenuTriggerRef.current) {
+        roomMenuTriggerFocusedRef.current = false;
+      }
+    };
+    document.addEventListener("focusin", clearRoomMenuTriggerFocus);
+    return () =>
+      document.removeEventListener("focusin", clearRoomMenuTriggerFocus);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileRoomLayout && showRoomMenu) {
+      restoreRoomHeadingFocusRef.current = true;
+      setShowRoomMenu(false);
+    } else if (!mobileRoomLayout && roomMenuTriggerFocusedRef.current) {
+      roomMenuTriggerFocusedRef.current = false;
+      roomHeadingRef.current?.focus();
+    }
+  }, [mobileRoomLayout, showRoomMenu]);
+
+  useLayoutEffect(() => {
+    if (!mobileRoomLayout && !showRoomMenu && restoreRoomHeadingFocusRef.current) {
+      restoreRoomHeadingFocusRef.current = false;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (roomHeadingRef.current?.isConnected) {
+            roomHeadingRef.current.focus();
+          }
+        });
+      });
+    }
+  }, [mobileRoomLayout, showRoomMenu]);
 
   const markLatestRead = useCallback(() => {
     const latest = latestSequenceRef.current;
@@ -1467,7 +1607,12 @@ export function GuestShell({
       accountEmailRef.current?.focus();
     } else if (accountWasOpenRef.current) {
       accountWasOpenRef.current = false;
-      accountToggleRef.current?.focus();
+      const returnTarget = [
+        accountReturnFocusRef.current,
+        accountToggleRef.current,
+        roomMenuTriggerRef.current
+      ].find((element) => element?.isConnected);
+      returnTarget?.focus();
     }
   }, [showAccount]);
 
@@ -1644,14 +1789,21 @@ export function GuestShell({
   }, []);
 
   return (
-    <main className="guest-shell" id="main-content">
+    <main
+      className={`guest-shell${mobileRoomLayout ? " compact-room-layout" : ""}`}
+      id="main-content"
+    >
       <header className="guest-shell-header">
         <div className="guest-room-heading">
-            <span className="guest-badge">{identityLabel}</span>
+          <span className="guest-badge">{identityLabel}</span>
           <div>
-            <h1>{conversationTitle(conversation)}</h1>
+            <h1 ref={roomHeadingRef} tabIndex={-1}>
+              {conversationTitle(conversation)}
+            </h1>
             <p>
-              {initialSession.tenant.name} ·{" "}
+              <span className="guest-room-workspace">
+                {initialSession.tenant.name} ·{" "}
+              </span>
               {presenceKnown
                 ? `${onlineUsers} ${onlineUsers === 1 ? "person" : "people"} online`
                 : "presence unknown"}{" "}
@@ -1667,34 +1819,75 @@ export function GuestShell({
             </p>
           </div>
         </div>
-        <div className="guest-shell-actions">
-          {conversionEnabled && !conversionReceipt && (
-            <button
-              ref={accountToggleRef}
-              className="button ghost"
-              type="button"
-              aria-expanded={showAccount}
-              aria-controls="guest-account-conversion"
-              onClick={() => setShowAccount((value) => !value)}
-            >
-              <AppIcon name="bookmark" />
-              {identityLabel === "Host"
-                ? "Save this room"
-                : "Keep this conversation"}
-            </button>
-          )}
-          {identityLabel === "Host" && (
-            <Link className="button ghost" to="/sign-in">
-              <AppIcon name="logIn" />
-              Sign in
-            </Link>
-          )}
-          <button className="button danger" type="button" disabled={leaving} onClick={leave}>
-            <AppIcon name="logOut" />
-            {leaving ? "Leaving…" : "Leave"}
+        {mobileRoomLayout ? (
+          <button
+            ref={roomMenuTriggerRef}
+            className="guest-room-menu-trigger"
+            type="button"
+            aria-label="Open room menu"
+            aria-expanded={showRoomMenu}
+            aria-controls="guest-room-menu"
+            onFocus={() => {
+              roomMenuTriggerFocusedRef.current = true;
+            }}
+            onClick={() => setShowRoomMenu(true)}
+          >
+            <AppIcon name="menu" />
           </button>
-        </div>
+        ) : (
+          <div className="guest-shell-actions">
+            {conversionEnabled && !conversionReceipt && (
+              <button
+                ref={accountToggleRef}
+                className="button ghost"
+                type="button"
+                aria-expanded={showAccount}
+                aria-controls="guest-account-conversion"
+                onClick={(event) => {
+                  accountReturnFocusRef.current = event.currentTarget;
+                  setShowAccount((value) => !value);
+                }}
+              >
+                <AppIcon name="bookmark" />
+                {identityLabel === "Host"
+                  ? "Save this room"
+                  : "Keep this conversation"}
+              </button>
+            )}
+            {identityLabel === "Host" && (
+              <Link className="button ghost" to="/sign-in">
+                <AppIcon name="logIn" />
+                Sign in
+              </Link>
+            )}
+            <button className="button danger" type="button" disabled={leaving} onClick={leave}>
+              <AppIcon name="logOut" />
+              {leaving ? "Leaving…" : "Leave"}
+            </button>
+          </div>
+        )}
       </header>
+
+      {showRoomMenu && (
+        <GuestRoomMenu
+          canKeepRoom={conversionEnabled && !conversionReceipt}
+          identityLabel={identityLabel}
+          leaving={leaving}
+          onClose={() => setShowRoomMenu(false)}
+          onKeepRoom={() => {
+            accountReturnFocusRef.current = roomMenuTriggerRef.current;
+            setShowRoomMenu(false);
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => setShowAccount(true));
+            });
+          }}
+          onLeave={leave}
+          warnsOfGuestHostLoss={
+            identityLabel === "Host" &&
+            initialSession.user.account_type === "guest"
+          }
+        />
+      )}
 
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {conversionNotice}
@@ -1848,6 +2041,7 @@ export function GuestShell({
         onlineUserIds={onlineUserIds}
         currentUserId={initialSession.user.id}
         presenceKnown={presenceKnown}
+        compact={mobileRoomLayout}
       />
 
       <section className="guest-live-tools" aria-label="Room call">
@@ -1903,14 +2097,13 @@ export function GuestShell({
               </button>
             </div>
           ) : messages.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span>
-              <h2>Start the conversation</h2>
+            <div className="empty-state guest-message-empty">
+              <h2>No messages yet</h2>
               <p>
                 {identityLabel === "Guest"
                   ? "You joined as a guest. "
                   : "Your room is ready. "}
-                Send a message whenever you’re ready.
+                Send a message when you’re ready.
               </p>
             </div>
           ) : (
@@ -1965,7 +2158,7 @@ export function GuestShell({
           <textarea
             ref={composerRef}
             id="guest-message-composer"
-            rows={2}
+            rows={mobileRoomLayout ? 1 : 2}
             maxLength={65_535}
             value={composer}
             readOnly={sending || loading || Boolean(loadError)}
@@ -1988,10 +2181,17 @@ export function GuestShell({
           <button
             className="button primary"
             type="submit"
+            aria-busy={sending}
+            aria-label={sending ? "Sending message" : "Send"}
             disabled={sending || loading || Boolean(loadError) || !composer.trim()}
           >
-            <AppIcon name="send" />
-            {sending ? "Sending…" : "Send"}
+            <AppIcon
+              name={sending ? "loader" : "send"}
+              className={sending ? "spin" : ""}
+            />
+            <span className="guest-send-label">
+              {sending ? "Sending…" : "Send"}
+            </span>
           </button>
         </form>
       </section>

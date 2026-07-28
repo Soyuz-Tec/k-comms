@@ -235,6 +235,52 @@
   background: linear-gradient(100deg, #e2f1e9, #f5f4eb);
 }
 
+.instant-room-invite-backdrop {
+  position: fixed;
+  z-index: 62;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(1rem, var(--safe-top)) max(1rem, var(--safe-right))
+    max(1rem, var(--safe-bottom)) max(1rem, var(--safe-left));
+  background: rgb(12 32 30 / 52%);
+}
+
+.instant-room-share.instant-room-invite-dialog {
+  width: min(760px, 100%);
+  max-height: min(760px, calc(var(--app-viewport-height) - 2rem));
+  overflow-y: auto;
+  padding: clamp(1rem, 3vw, 1.4rem);
+  border: 1px solid #b8cdc2;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 28px 80px rgb(10 30 28 / 28%);
+}
+
+.instant-room-share.instant-room-invite-dialog:not(.has-qr) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.instant-room-qr-toggle {
+  justify-self: start;
+  min-height: 44px;
+}
+
+.instant-room-qr-panel {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: .55rem;
+}
+
+.instant-room-qr-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: .75rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .instant-room-share-copy {
   min-width: 0;
   display: grid;
@@ -301,10 +347,10 @@
 }
 
 .instant-room-share.collapsed {
-  min-height: 76px;
+  min-height: 64px;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 1rem;
-  padding-block: .65rem;
+  padding-block: .5rem;
 }
 
 .instant-room-share-compact-copy {
@@ -417,6 +463,28 @@
     background: linear-gradient(115deg, #edf9f7, #f8fbfa);
   }
 
+  .instant-room-invite-backdrop {
+    place-items: end center;
+    padding: 0;
+  }
+
+  .instant-room-share.instant-room-invite-dialog,
+  .instant-room-share.instant-room-invite-dialog.has-qr {
+    width: 100%;
+    max-height: calc(var(--app-viewport-height) - var(--safe-top));
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding:
+      1rem max(1rem, var(--safe-right))
+      calc(1rem + var(--safe-bottom)) max(1rem, var(--safe-left));
+    border: 1px solid #b8cdc2;
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--paper);
+  }
+
   .instant-room-share-copy {
     gap: .34rem;
   }
@@ -435,7 +503,13 @@
     white-space: nowrap;
   }
 
-  .instant-room-share-copy > p:not(.instant-room-lifetime, .instant-room-continuity, .instant-room-copy-notice, .transport-warning) {
+  .instant-room-invite-dialog h2 {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .instant-room-share-copy > p:not(.instant-room-share-guidance, .instant-room-lifetime, .instant-room-continuity, .instant-room-copy-notice, .transport-warning) {
     display: none;
   }
 
@@ -471,7 +545,14 @@
   }
 
   .instant-room-share-actions {
-    display: grid;
+    display: flex;
+    gap: .35rem;
+  }
+
+  .instant-room-share-actions .button {
+    min-height: 44px;
+    padding: .45rem .62rem;
+    font-size: .78rem;
   }
 
   .instant-room-share .guest-qr {
@@ -490,6 +571,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  .instant-room-invite-dialog .instant-room-lifetime,
+  .instant-room-invite-dialog .instant-room-continuity,
+  .instant-room-invite-dialog .instant-room-copy-notice {
+    overflow: visible;
+    font-size: .75rem;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .instant-room-invite-dialog .instant-room-qr-panel {
+    width: 100%;
+  }
 }
 
 @media (max-width: 360px) {
@@ -498,11 +592,11 @@
   }
 
   .instant-room-share.collapsed {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .instant-room-share-actions {
-    grid-template-columns: 1fr 1fr;
+    display: flex;
   }
 
   .instant-room-share .guest-qr {
@@ -512,6 +606,11 @@
 
   .instant-room-entry-actions {
     grid-template-columns: 1fr;
+  }
+
+  .instant-room-share.instant-room-invite-dialog,
+  .instant-room-share.instant-room-invite-dialog.has-qr {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

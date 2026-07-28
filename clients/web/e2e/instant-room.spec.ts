@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Locator, Page, Route } from "@playwright/test";
 
@@ -135,14 +136,75 @@ test.describe("instant-room front door", () => {
     await page.getByRole("button", { name: "Start instant room" }).click();
 
     await expect(page.getByRole("heading", { name: "Instant room" })).toBeVisible();
+    const invite = page.getByRole("button", { name: "Invite people" });
+    await expect(invite).toBeVisible();
+    await expect(invite).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByLabel("Room invite link")).toHaveCount(0);
+    await expect(
+      page.getByRole("img", { name: "Scan to join Instant room" })
+    ).toHaveCount(0);
+    await expectMinimumTarget(invite);
+    await expectMinimumTarget(page.getByRole("button", { name: "Copy invite link" }));
+
+    const roomMenu = page.getByRole("button", { name: "Open room menu" });
+    await expect(roomMenu).toBeVisible();
+    await expectMinimumTarget(roomMenu);
+    await roomMenu.click();
+    const menuDialog = page.getByRole("dialog", { name: "Room menu" });
+    await expect(menuDialog).toBeVisible();
+    await expect(menuDialog.getByRole("button", { name: "Close" })).toBeFocused();
+    await expect(menuDialog.getByRole("button", { name: /Leave room/ })).toBeVisible();
+    await menuDialog.getByRole("button", { name: "Close" }).click();
+    await expect(roomMenu).toBeFocused();
+
+    const participants = page.getByRole("button", { name: /Participants/ });
+    await expect(participants).toHaveAttribute("aria-expanded", "false");
+    await expectMinimumTarget(participants);
+    await participants.click();
+    await expect(
+      page
+        .getByRole("list", { name: "Room participants" })
+        .getByText("Taylor Host", { exact: false })
+    ).toContainText("Taylor Host (you)");
+    await participants.click();
+    await expect(page.getByRole("list", { name: "Room participants" })).toHaveCount(0);
+
+    const audio = page.getByRole("button", { name: "Start audio call" });
+    const video = page.getByRole("button", { name: "Start video call" });
+    await expect(audio).toBeVisible();
+    await expect(video).toBeVisible();
+    await expectMinimumTarget(audio);
+    await expectMinimumTarget(video);
+    const composer = page.getByRole("textbox", { name: "Message" });
+    const send = page.getByRole("button", { name: "Send" });
+    await expect(composer).toBeVisible();
+    await expect(composer).toHaveCSS("font-size", "16px");
+    await expect(send).toBeVisible();
+    await expectMinimumTarget(send);
+    await expectContained(composer, { width: 320, height: 700 });
+    await expectContained(send, { width: 320, height: 700 });
+    await expectOnlyMessageScroller(page);
+    await expectNoDocumentOverflow(page);
+    await expectNoWcagFailures(page);
+
+    await invite.click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite someone" });
+    await expect(inviteDialog).toBeVisible();
+    await expect(
+      inviteDialog.getByRole("heading", { name: "Invite someone" })
+    ).toBeFocused();
     const inviteLink = page.getByLabel("Room invite link");
     await expect(inviteLink).not.toHaveValue(fixture.shareUrl);
     await expect(inviteLink).toHaveValue(/#guest=••••••••••••$/);
-    await page.getByRole("button", { name: "Reveal" }).click();
-    await expect(inviteLink).toHaveValue(fixture.shareUrl);
+    await expect(
+      page.getByRole("img", { name: "Scan to join Instant room" })
+    ).toHaveCount(0);
+    await inviteDialog.getByRole("button", { name: "Show QR code" }).click();
     await expect(
       page.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
+    await page.getByRole("button", { name: "Reveal" }).click();
+    await expect(inviteLink).toHaveValue(fixture.shareUrl);
     await expect(page.getByRole("button", { name: "Hide", exact: true })).toHaveCSS(
       "min-height",
       "44px"
@@ -155,22 +217,24 @@ test.describe("instant-room front door", () => {
       "min-height",
       "44px"
     );
-    await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
-    await expect(page.getByText("Presence unknown · 1 total")).toBeVisible();
-    await expect(
-      page
-        .getByRole("list", { name: "Room participants" })
-        .getByText("Taylor Host", { exact: false })
-    ).toContainText("Taylor Host (you)");
-    await expectNoOverlap(
-      page.locator(".instant-room-share-copy"),
-      page.getByRole("img", { name: "Scan to join Instant room" })
-    );
+    await expectContained(inviteDialog, { width: 320, height: 700 });
     await expectNoDocumentOverflow(page);
+    await expectNoWcagFailures(page);
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("instant-room-invite-320.png"),
+        fullPage: false
+      });
+    }
+    await inviteDialog.getByRole("button", { name: "Hide invite details" }).click();
+    await expect(inviteDialog).toHaveCount(0);
+    await expect(invite).toBeFocused();
+    await expectContained(composer, { width: 320, height: 700 });
+    await expectContained(send, { width: 320, height: 700 });
     if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
       await page.screenshot({
         path: testInfo.outputPath("instant-room-320.png"),
-        fullPage: true
+        fullPage: false
       });
     }
 
@@ -188,6 +252,104 @@ test.describe("instant-room front door", () => {
     expect(storage.session).toContain("guest-access");
     expect(storage.persistent).toBeNull();
   });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 600, height: 900 },
+    { width: 768, height: 900 }
+  ]) {
+    test(`keeps the compact live-room workspace contained at ${viewport.width}px`, async ({
+      page
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "chromium",
+        "deterministic create flow runs once in Chromium"
+      );
+      await page.setViewportSize(viewport);
+      const fixture = await installInstantRoomFixture(page);
+      await page.goto("/");
+      await page
+        .getByRole("textbox", { name: "Your display name" })
+        .fill("Taylor Host");
+      await page.getByRole("button", { name: "Start instant room" }).click();
+
+      const controls = [
+        page.getByRole("button", { name: "Open room menu" }),
+        page.getByRole("button", { name: "Invite people" }),
+        page.getByRole("button", { name: "Copy invite link" }),
+        page.getByRole("button", { name: /Participants/ }),
+        page.getByRole("button", { name: "Start audio call" }),
+        page.getByRole("button", { name: "Start video call" }),
+        page.getByRole("button", { name: "Send" })
+      ];
+      for (const control of controls) {
+        await expect(control).toBeVisible();
+        await expectMinimumTarget(control);
+        await expectContained(control, viewport);
+      }
+      await expectContained(
+        page.getByRole("textbox", { name: "Message" }),
+        viewport
+      );
+      await expectOnlyMessageScroller(page);
+      await expectNoDocumentOverflow(page);
+      expect(fixture.createRequests).toHaveLength(1);
+
+      if (
+        process.env.K_COMMS_VISUAL_CAPTURE === "1" &&
+        viewport.width === 390
+      ) {
+        await page.screenshot({
+          path: testInfo.outputPath("instant-room-workspace-390.png"),
+          fullPage: false
+        });
+      }
+
+      if (viewport.width === 390) {
+        await page.addStyleTag({ content: "html { font-size: 200%; }" });
+        await expectNoDocumentOverflow(page);
+        await expectContained(
+          page.getByRole("button", { name: /Participants/ }),
+          viewport
+        );
+        await expectContained(
+          page.getByRole("textbox", { name: "Message" }),
+          viewport
+        );
+        await expectContained(
+          page.getByRole("button", { name: "Send" }),
+          viewport
+        );
+      }
+
+      if (viewport.width === 768) {
+        const menuTrigger = page.getByRole("button", {
+          name: "Open room menu"
+        });
+        await menuTrigger.click();
+        await expect(
+          page.getByRole("dialog", { name: "Room menu" })
+        ).toBeVisible();
+        await page.setViewportSize({ width: 769, height: viewport.height });
+        await expect(
+          page.getByRole("dialog", { name: "Room menu" })
+        ).toHaveCount(0);
+        await expect(
+          page.getByRole("heading", { name: "Instant room" })
+        ).toBeFocused();
+
+        await page.setViewportSize(viewport);
+        const participantToggle = page.getByRole("button", {
+          name: /Participants/
+        });
+        await participantToggle.focus();
+        await page.setViewportSize({ width: 769, height: viewport.height });
+        await expect(
+          page.getByRole("heading", { name: "Participants" })
+        ).toBeFocused();
+      }
+    });
+  }
 });
 
 async function installInstantRoomFixture(page: Page) {
@@ -308,13 +470,6 @@ async function installInstantRoomFixture(page: Page) {
   return { createRequests, idempotencyKeys, shareUrl };
 }
 
-async function expectNoOverlap(left: Locator, right: Locator) {
-  const [leftBox, rightBox] = await Promise.all([left.boundingBox(), right.boundingBox()]);
-  expect(leftBox).not.toBeNull();
-  expect(rightBox).not.toBeNull();
-  expect(leftBox!.x + leftBox!.width).toBeLessThanOrEqual(rightBox!.x + 1);
-}
-
 async function expectNoDocumentOverflow(page: Page) {
   const overflow = await page.evaluate(
     () => Math.max(
@@ -323,6 +478,37 @@ async function expectNoDocumentOverflow(page: Page) {
     ) - document.documentElement.clientWidth
   );
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectOnlyMessageScroller(page: Page) {
+  const activeScrollers = await page.locator("body *").evaluateAll((elements) =>
+    elements
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+        return ["auto", "scroll"].includes(style.overflowY)
+          && element.scrollHeight > element.clientHeight + 1;
+      })
+      .map((element) => element.className)
+  );
+  expect(
+    activeScrollers.every((className) =>
+      typeof className === "string" && className.includes("guest-message-scroll")
+    )
+  ).toBe(true);
+}
+
+async function expectNoWcagFailures(page: Page) {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(
+    results.violations.map(({ id, impact, tags, nodes }) => ({
+      id,
+      impact,
+      tags,
+      targets: nodes.map((node) => node.target)
+    }))
+  ).toEqual([]);
 }
 
 async function expectMinimumTarget(locator: Locator) {

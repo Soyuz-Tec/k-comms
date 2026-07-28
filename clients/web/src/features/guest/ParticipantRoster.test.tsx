@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { ConversationMembership, User } from "../../types";
 import { ParticipantRoster } from "./ParticipantRoster";
@@ -21,6 +22,48 @@ function member(id: string, displayName: string, accountType: User["account_type
 }
 
 describe("ParticipantRoster", () => {
+  it("uses a collapsed participant summary in the compact room layout", async () => {
+    const user = userEvent.setup();
+    render(
+      <ParticipantRoster
+        compact
+        currentUserId="host"
+        members={[
+          member("guest", "Jordan Guest", "guest"),
+          member("host", "Taylor Host", "guest")
+        ]}
+        onlineUserIds={new Set(["host", "guest"])}
+      />
+    );
+
+    const toggle = screen.getByRole("button", { name: /Participants.*2 online.*2 total/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("list", { name: "Room participants" })
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(screen.getByRole("list", { name: "Room participants" }))
+        .getAllByRole("listitem")
+    ).toHaveLength(2);
+  });
+
+  it("hands focus to the desktop heading when the compact breakpoint closes", () => {
+    const props = {
+      currentUserId: "host",
+      members: [member("host", "Taylor Host", "guest")],
+      onlineUserIds: new Set(["host"])
+    };
+    const { rerender } = render(<ParticipantRoster compact {...props} />);
+    screen.getByRole("button", { name: /Participants/ }).focus();
+
+    rerender(<ParticipantRoster {...props} />);
+
+    expect(screen.getByRole("heading", { name: "Participants" })).toHaveFocus();
+  });
+
   it("shows stable display-name identifiers, current identity and presence", () => {
     render(
       <ParticipantRoster

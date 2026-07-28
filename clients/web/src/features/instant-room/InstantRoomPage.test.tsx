@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { BrowserRouter } from "react-router";
@@ -205,6 +205,19 @@ async function startRoom(
   );
 }
 
+async function openInviteDetails(
+  user: ReturnType<typeof userEvent.setup>
+) {
+  const invite = screen.getByRole("button", { name: "Invite people" });
+  expect(invite).toHaveAttribute("aria-expanded", "false");
+  expect(invite).toHaveAttribute("aria-controls", "instant-room-invite-dialog");
+  await user.click(invite);
+  expect(
+    await screen.findByRole("dialog", { name: "Invite someone" })
+  ).toBeVisible();
+  expect(invite).toHaveAttribute("aria-expanded", "true");
+}
+
 describe("InstantRoomPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -320,22 +333,38 @@ describe("InstantRoomPage", () => {
       device: expect.objectContaining({ platform: "web" })
     }));
     expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(screen.getByRole("region", { name: "Invite people" })).toBeVisible();
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+    await openInviteDetails(user);
     expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
-    expect(uiHarness.qrValue).toBe(shareUrl);
-    expect(screen.getByText(/available for 1 hour after everyone leaves/i)).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "Invite someone in one step" })
+      within(screen.getByRole("dialog", { name: "Invite someone" }))
+        .getByText(/available for 1 hour after everyone leaves/i)
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Invite someone" })
     ).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Show QR code" }));
+    expect(screen.getByLabelText("Local QR")).toHaveTextContent(shareUrl);
+    expect(uiHarness.qrValue).toBe(shareUrl);
     await user.click(screen.getByRole("button", { name: "Reveal" }));
     expect(screen.getByLabelText("Secure room link")).toHaveValue(shareUrl);
     await user.click(screen.getByRole("button", { name: "Hide invite details" }));
     expect(screen.getByRole("region", { name: "Invite people" })).toBeVisible();
     expect(
-      screen.queryByRole("heading", { name: "Invite someone in one step" })
+      screen.queryByRole("heading", { name: "Invite someone" })
     ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Invite people" })
+      ).toHaveFocus()
+    );
     await user.click(screen.getByRole("button", { name: "Invite people" }));
     expect(
-      screen.getByRole("heading", { name: "Invite someone in one step" })
+      screen.getByRole("heading", { name: "Invite someone" })
     ).toBeVisible();
 
     const stored = window.sessionStorage.getItem("k-comms.guest-session.v1") || "";
@@ -508,7 +537,7 @@ describe("InstantRoomPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
-    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
   });
 
   it("preserves a cross-workspace account while using its guest room fallback", async () => {
@@ -575,7 +604,7 @@ describe("InstantRoomPage", () => {
     );
 
     await waitFor(() => expect(screen.getByText("human")).toBeVisible());
-    expect(screen.getByText(/available for 24 hours after everyone leaves/i)).toBeVisible();
+    expect(screen.getByText("1 participant")).toBeVisible();
     expect(uiHarness.roomApis.length).toBeGreaterThan(1);
     expect(uiHarness.roomApis.every((api) => api === firstApi)).toBe(true);
     await user.click(
@@ -586,7 +615,7 @@ describe("InstantRoomPage", () => {
     );
     expect(memberSocketTicket).toHaveBeenCalledTimes(1);
     expect(window.location.pathname).toBe("/");
-    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
   });
 
   it("restores a converted member room and exact link without creating again", async () => {
@@ -636,7 +665,7 @@ describe("InstantRoomPage", () => {
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
     expect(conversationLookup).toHaveBeenCalledWith(conversation.id);
-    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
     expect(screen.getByText("human")).toBeVisible();
   });
 
@@ -695,7 +724,7 @@ describe("InstantRoomPage", () => {
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
     expect(conversationLookup).toHaveBeenCalledWith(conversation.id);
-    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(screen.queryByLabelText("Secure room link")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Leave room" }));
     expect(
       window.sessionStorage.getItem("k-comms.member-instant-room.v1")
@@ -823,11 +852,13 @@ describe("InstantRoomPage", () => {
     renderPage();
     await startRoom(user);
     await screen.findByRole("heading", { name: "Live room" });
+    await openInviteDetails(user);
     await user.click(screen.getByRole("button", { name: "Share" }));
 
     await waitFor(() =>
       expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl)
     );
-    expect(uiHarness.qrValue).toBe(shareUrl);
+    expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+    expect(uiHarness.qrValue).toBe("");
   });
 });
