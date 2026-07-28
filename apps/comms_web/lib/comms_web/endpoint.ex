@@ -10,6 +10,8 @@ defmodule CommsWeb.Endpoint do
   # the effective request scheme.
   plug(CommsWeb.Plugs.TrustedProxy)
   plug(CommsWeb.Plugs.SecurityHeaders)
+  plug(CommsWeb.Plugs.StaticCacheHeaders)
+  plug(CommsWeb.Plugs.SpaEntryPoint)
 
   plug(Plug.Static,
     at: "/",

@@ -63,7 +63,7 @@ describe("NotificationCenter", () => {
 
   it("marks the item read and navigates to the exact conversation thread", async () => {
     const user = userEvent.setup();
-    render(<MemoryRouter initialEntries={["/app"]}><NotificationCenter /><LocationProbe /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={["/app/"]}><NotificationCenter /><LocationProbe /></MemoryRouter>);
 
     await user.click(await screen.findByRole("button", { name: /Notifications, 1 unread/i }));
     await user.click(screen.getByRole("button", { name: /^New mention/i }));
@@ -71,7 +71,7 @@ describe("NotificationCenter", () => {
     await waitFor(() => expect(harness.api.markInAppNotificationRead).toHaveBeenCalledWith("notification-1"));
     await waitFor(() =>
       expect(screen.getByLabelText("location")).toHaveTextContent(
-        `/app?conversation=${conversationId}&message=${messageId}`
+        `/app/?conversation=${conversationId}&message=${messageId}`
       )
     );
   });
@@ -79,20 +79,20 @@ describe("NotificationCenter", () => {
   it("keeps the panel open and reports failed actions without navigating", async () => {
     const user = userEvent.setup();
     harness.api.markInAppNotificationRead.mockRejectedValueOnce(new Error("read failed"));
-    render(<MemoryRouter initialEntries={["/app"]}><NotificationCenter /><LocationProbe /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={["/app/"]}><NotificationCenter /><LocationProbe /></MemoryRouter>);
 
     await user.click(await screen.findByRole("button", { name: /Notifications, 1 unread/i }));
     await user.click(screen.getByRole("button", { name: /^New mention/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("read failed");
     expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
-    expect(screen.getByLabelText("location")).toHaveTextContent("/app");
+    expect(screen.getByLabelText("location")).toHaveTextContent("/app/");
   });
 
   it("portals the modal outside the topbar and restores focus after close or Escape", async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <MemoryRouter initialEntries={["/app"]}>
+      <MemoryRouter initialEntries={["/app/"]}>
         <div className="topbar"><NotificationCenter /></div>
       </MemoryRouter>
     );
@@ -120,10 +120,14 @@ describe("NotificationCenter", () => {
   });
 
   it("rejects external, admin, and path-confusion action URLs", () => {
-    expect(notificationDestination(notification({ action_url: "https://evil.example/app", conversation_id: null, message_id: null }))).toBe("/app");
-    expect(notificationDestination(notification({ action_url: "/admin", conversation_id: null, message_id: null }))).toBe("/app");
-    expect(notificationDestination(notification({ action_url: "/application", conversation_id: null, message_id: null }))).toBe("/app");
-    expect(notificationDestination(notification({ action_url: "//evil.example/app", conversation_id: null, message_id: null }))).toBe("/app");
-    expect(notificationDestination(notification({ action_url: "/app?conversation=safe" }))).toBe("/app?conversation=safe");
+    expect(notificationDestination(notification({ action_url: "https://evil.example/app", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/admin", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/application", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "//evil.example/app", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/app/../admin", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/app/%2f../admin", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/app", conversation_id: null, message_id: null }))).toBe("/app/");
+    expect(notificationDestination(notification({ action_url: "/app?conversation=legacy" }))).toBe("/app/?conversation=legacy");
+    expect(notificationDestination(notification({ action_url: "/app/?conversation=safe" }))).toBe("/app/?conversation=safe");
   });
 });

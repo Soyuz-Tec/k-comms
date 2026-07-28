@@ -7,6 +7,16 @@
 - Stable device ID
 - Pending local commands and idempotency keys
 
+These synchronization records describe application reconciliation, not a
+service-worker data cache. The install-scoped PWA worker stores only the fixed
+offline document and revisioned static application assets. It must not cache
+sessions, tokens, API responses, sockets, messages, drafts, contacts,
+attachments, signed URLs, invitation material, call state, or media.
+
+K-Comms does not currently provide an offline send queue or background message
+sync. A disconnected installed client shows the fixed offline state and
+reconciles from the authoritative server after connectivity returns.
+
 ## Reconnect algorithm
 
 1. Reauthenticate or refresh session.

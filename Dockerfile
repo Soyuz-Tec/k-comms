@@ -26,6 +26,8 @@ RUN mix deps.get --check-locked
 CMD ["mix", "phx.server"]
 
 FROM ${NODE_IMAGE} AS web-build
+ARG OCI_REVISION
+ENV VITE_K_COMMS_RELEASE_REVISION=${OCI_REVISION}
 WORKDIR /workspace/clients/web
 COPY clients/web/package.json clients/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -48,7 +50,8 @@ ARG OCI_REVISION
 ARG OCI_VERSION
 LABEL org.opencontainers.image.source="${OCI_SOURCE}" \
       org.opencontainers.image.revision="${OCI_REVISION}" \
-      org.opencontainers.image.version="${OCI_VERSION}"
+      org.opencontainers.image.version="${OCI_VERSION}" \
+      io.k-comms.pwa="1"
 ENV LANG=C.UTF-8 \
     HOME=/tmp \
     PORT=4000 \

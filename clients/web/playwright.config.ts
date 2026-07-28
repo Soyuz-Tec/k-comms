@@ -22,6 +22,9 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: liveMediaE2E ? liveMediaBaseURL : mockedBaseURL,
+    // Route-mocked tests must not let a registered worker bypass page.route.
+    // The dedicated PWA spec explicitly enables service workers.
+    serviceWorkers: "block",
     trace: "on-first-retry"
   },
   projects: [

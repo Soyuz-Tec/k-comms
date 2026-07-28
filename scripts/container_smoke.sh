@@ -48,6 +48,7 @@ assert_image_label() {
 assert_image_label "org.opencontainers.image.source" "${oci_source}"
 assert_image_label "org.opencontainers.image.revision" "${oci_revision}"
 assert_image_label "org.opencontainers.image.version" "${oci_version}"
+assert_image_label "io.k-comms.pwa" "1"
 
 pull_postgres_image() {
   local attempt
@@ -182,12 +183,92 @@ fi
   http://127.0.0.1:4000/health/ready >/dev/null
 "${engine}" exec "${app}" curl --fail --silent --show-error \
   http://127.0.0.1:4000/app/index.html >/dev/null
-"${engine}" exec "${app}" sh -lc '
+"${engine}" exec --env "K_COMMS_SMOKE_REVISION=${oci_revision}" "${app}" sh -lc '
+  set -eu
+  worker_url="http://127.0.0.1:4000/app/k-comms-sw.js?revision=${K_COMMS_SMOKE_REVISION}"
   curl --fail --silent --show-error --dump-header /tmp/k-comms-sw.headers \
-    --output /tmp/k-comms-sw.js http://127.0.0.1:4000/app/k-comms-sw.js
-  grep -Eiq "^content-type: (text|application)/javascript" /tmp/k-comms-sw.headers
+    --output /tmp/k-comms-sw.js "${worker_url}"
+  tr -d "\r" < /tmp/k-comms-sw.headers > /tmp/k-comms-sw.headers.normalized
+  grep -Eiq "^content-type: (text|application)/javascript" \
+    /tmp/k-comms-sw.headers.normalized
+  grep -Eiq "^cache-control: no-store, max-age=0, must-revalidate$" \
+    /tmp/k-comms-sw.headers.normalized
+  grep -Eiq "^service-worker-allowed: /app/$" \
+    /tmp/k-comms-sw.headers.normalized
   grep -Fq "safeActionUrl" /tmp/k-comms-sw.js
+  grep -Fq "${K_COMMS_SMOKE_REVISION}" /tmp/k-comms-sw.js
   ! grep -Eiq "<!doctype html|<html" /tmp/k-comms-sw.js
+  curl --fail --silent --show-error --dump-header /tmp/k-comms-manifest.headers \
+    --output /tmp/k-comms-manifest.webmanifest \
+    http://127.0.0.1:4000/app/manifest.webmanifest
+  tr -d "\r" < /tmp/k-comms-manifest.headers \
+    > /tmp/k-comms-manifest.headers.normalized
+  grep -Eiq "^content-type: application/manifest\+json" \
+    /tmp/k-comms-manifest.headers.normalized
+  grep -Eiq "^cache-control: no-cache, max-age=0, must-revalidate$" \
+    /tmp/k-comms-manifest.headers.normalized
+  grep -Fq "\"start_url\": \"/app/\"" /tmp/k-comms-manifest.webmanifest
+  curl --fail --silent --show-error \
+    http://127.0.0.1:4000/app/offline.html | grep -Fq "K-Comms is offline"
+  for icon in \
+    pwa-192.png \
+    pwa-512.png \
+    pwa-maskable-512.png \
+    apple-touch-icon.png; do
+    curl --fail --silent --show-error \
+      --output "/tmp/${icon}" "http://127.0.0.1:4000/app/icons/${icon}"
+    test -s "/tmp/${icon}"
+    ! grep -Eiq "<!doctype html|<html" "/tmp/${icon}"
+  done
+
+  curl --fail --silent --show-error --dump-header /tmp/k-comms-index.headers \
+    --output /tmp/k-comms-index.html http://127.0.0.1:4000/app/
+  tr -d "\r" < /tmp/k-comms-index.headers \
+    > /tmp/k-comms-index.headers.normalized
+  grep -Eiq "^cache-control: no-store, max-age=0, must-revalidate$" \
+    /tmp/k-comms-index.headers.normalized
+  asset_path="$(
+    grep -Eo "(/app/|\./)assets/[^\"[:space:]]+\.(js|css)" \
+      /tmp/k-comms-index.html |
+      awk "NR == 1 {print}"
+  )"
+  test -n "${asset_path}"
+  case "${asset_path}" in
+    ./*) asset_path="/app/${asset_path#./}" ;;
+  esac
+  if ! printf "%s\n" "${asset_path}" |
+    grep -Eq "^/app/assets/[A-Za-z0-9._-]+-[A-Za-z0-9_-]{8,}\.(js|css)$"; then
+    echo "Application index asset is not content-revisioned: ${asset_path}" >&2
+    exit 1
+  fi
+  curl --fail --silent --show-error --dump-header /tmp/k-comms-asset.headers \
+    --output /tmp/k-comms-asset.body "http://127.0.0.1:4000${asset_path}"
+  tr -d "\r" < /tmp/k-comms-asset.headers > /tmp/k-comms-asset.headers.normalized
+  grep -Eiq "^cache-control: public, max-age=31536000, immutable$" \
+    /tmp/k-comms-asset.headers.normalized
+  case "${asset_path}" in
+    *.js)
+      grep -Eiq "^content-type: (text|application)/javascript" \
+        /tmp/k-comms-asset.headers.normalized
+      ;;
+    *)
+      grep -Eiq "^content-type: text/css" /tmp/k-comms-asset.headers.normalized
+      ;;
+  esac
+  test -s /tmp/k-comms-asset.body
+
+  missing_status="$(
+    curl --silent --show-error --dump-header /tmp/k-comms-missing.headers \
+      --output /tmp/k-comms-missing.body --write-out "%{http_code}" \
+      http://127.0.0.1:4000/app/assets/missing-A1b2C3d4.js
+  )"
+  test "${missing_status}" = "404"
+  tr -d "\r" < /tmp/k-comms-missing.headers \
+    > /tmp/k-comms-missing.headers.normalized
+  grep -Eiq "^content-type: text/plain" /tmp/k-comms-missing.headers.normalized
+  grep -Eiq "^cache-control: no-store, max-age=0, must-revalidate$" \
+    /tmp/k-comms-missing.headers.normalized
+  grep -Fq "Static application asset not found" /tmp/k-comms-missing.body
 '
 
 bootstrap_payload='{"tenant_name":"Container Smoke","tenant_slug":"container-smoke","display_name":"Smoke Owner","email":"owner@container-smoke.test","password":"correct-horse-battery-smoke"}'

@@ -137,7 +137,7 @@ describe("CallsPage", () => {
     expect(within(row as HTMLElement).getByText(/4m 32s room duration/)).toBeVisible();
     expect(within(row as HTMLElement).getByRole("link", { name: "Open chat for Execution room" })).toHaveAttribute(
       "href",
-      `/app?conversation=${conversationId}`
+      `/app/?conversation=${conversationId}`
     );
     const user = userEvent.setup();
     await user.click(within(row as HTMLElement).getByRole("button", { name: "Join video call for Execution room" }));

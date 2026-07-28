@@ -116,10 +116,11 @@ describe("application route priority", () => {
       memberAppTarget(
         "?conversation=conversation-1&message=message-2&invitation_token=secret"
       )
-    ).toBe("/app?conversation=conversation-1&message=message-2");
+    ).toBe("/app/?conversation=conversation-1&message=message-2");
+    expect(memberAppTarget("?invitation_token=secret")).toBe("/app/");
   });
 
-  it("does not redirect an account route while transport policy is unresolved", () => {
+  it("canonicalizes a legacy account root before waiting for transport policy", async () => {
     appHarness.session = null;
     appHarness.transportPolicyReady = false;
     window.history.replaceState({}, "", "/app");
@@ -127,9 +128,9 @@ describe("application route priority", () => {
     render(<App />);
 
     expect(
-      screen.getByRole("heading", { name: "Loading K-Comms…" })
+      await screen.findByRole("heading", { name: "Loading K-Comms…" })
     ).toBeVisible();
-    expect(window.location.pathname).toBe("/app");
+    expect(window.location.pathname).toBe("/app/");
   });
 
   it("mounts and scrubs a reset token while transport policy is unresolved", () => {

@@ -327,6 +327,7 @@ defmodule CommsWeb.Router do
   end
 
   scope "/", CommsWeb do
+    get("/app", SpaController, :canonical_app)
     get("/*path", SpaController, :index)
   end
 end

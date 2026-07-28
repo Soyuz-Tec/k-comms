@@ -299,6 +299,168 @@ jobs:
             https://kcomms-files.avayaworks.com/minio/health/ready \
             >/dev/null
 
+          pwa_worker_status="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --max-redirs 0 \
+              --dump-header pwa-worker.headers \
+              --output pwa-worker.js \
+              --write-out '%{http_code}' \
+              "https://comms.avayaworks.com/app/k-comms-sw.js?revision=${REVISION}"
+          )"
+          test "$pwa_worker_status" = "200"
+          pwa_worker_headers="$(tr -d '\r' < pwa-worker.headers)"
+          pwa_worker_headers_lower="${pwa_worker_headers,,}"
+          grep -Fqx \
+            "cache-control: no-store, max-age=0, must-revalidate" \
+            <<<"$pwa_worker_headers_lower"
+          grep -Fqx "service-worker-allowed: /app/" \
+            <<<"$pwa_worker_headers_lower"
+          cf_cache_status="$(
+            sed -n 's/^cf-cache-status: //p' \
+              <<<"$pwa_worker_headers_lower" |
+              tail -n 1
+          )"
+          case "$cf_cache_status" in
+            ""|bypass|dynamic) ;;
+            *)
+              echo "service worker was eligible for or served from edge cache: ${cf_cache_status}" >&2
+              exit 1
+              ;;
+          esac
+          grep -Fq "$REVISION" pwa-worker.js
+
+          pwa_manifest_headers="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --dump-header - \
+              --output pwa-manifest.webmanifest \
+              https://comms.avayaworks.com/app/manifest.webmanifest |
+              tr -d '\r'
+          )"
+          pwa_manifest_headers_lower="${pwa_manifest_headers,,}"
+          grep -Fqx \
+            "cache-control: no-cache, max-age=0, must-revalidate" \
+            <<<"$pwa_manifest_headers_lower"
+          grep -Eq '^content-type: application/manifest\+json' \
+            <<<"$pwa_manifest_headers_lower"
+          jq -e '
+            .id == "/" and
+            .start_url == "/app/" and
+            .scope == "/" and
+            .display == "standalone" and
+            .prefer_related_applications == false
+          ' pwa-manifest.webmanifest >/dev/null
+          curl_checked https://comms.avayaworks.com/app/offline.html |
+            grep -Fq "K-Comms is offline"
+          for icon in \
+            pwa-192.png \
+            pwa-512.png \
+            pwa-maskable-512.png \
+            apple-touch-icon.png; do
+            curl_checked \
+              "https://comms.avayaworks.com/app/icons/${icon}" \
+              >/dev/null
+          done
+
+          pwa_index_headers="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --dump-header - \
+              --output pwa-index.html \
+              https://comms.avayaworks.com/app/ |
+              tr -d '\r'
+          )"
+          grep -Fqx \
+            "cache-control: no-store, max-age=0, must-revalidate" \
+            <<<"${pwa_index_headers,,}"
+          pwa_asset_path="$(
+            grep -Eo \
+              '(/app/|\./)assets/[^"[:space:]]+\.(js|css)' \
+              pwa-index.html |
+              awk 'NR == 1 {print}'
+          )"
+          test -n "$pwa_asset_path"
+          if [[ "$pwa_asset_path" == ./* ]]; then
+            pwa_asset_path="/app/${pwa_asset_path#./}"
+          fi
+          if ! grep -Eq \
+            '^/app/assets/[A-Za-z0-9._-]+-[A-Za-z0-9_-]{8,}\.(js|css)$' \
+            <<<"$pwa_asset_path"; then
+            echo "Public PWA asset is not content-revisioned: $pwa_asset_path" >&2
+            exit 1
+          fi
+          pwa_asset_headers="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --dump-header - \
+              --output pwa-asset.body \
+              "https://comms.avayaworks.com${pwa_asset_path}" |
+              tr -d '\r'
+          )"
+          pwa_asset_headers_lower="${pwa_asset_headers,,}"
+          grep -Fqx \
+            "cache-control: public, max-age=31536000, immutable" \
+            <<<"$pwa_asset_headers_lower"
+          if [[ "$pwa_asset_path" == *.js ]]; then
+            grep -Eq '^content-type: (text|application)/javascript' \
+              <<<"$pwa_asset_headers_lower"
+          else
+            grep -Eq '^content-type: text/css' \
+              <<<"$pwa_asset_headers_lower"
+          fi
+          test -s pwa-asset.body
+
+          missing_status="$(
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --dump-header pwa-missing.headers \
+              --output pwa-missing.body \
+              --write-out '%{http_code}' \
+              https://comms.avayaworks.com/app/assets/missing-A1b2C3d4.js
+          )"
+          test "$missing_status" = "404"
+          tr -d '\r' < pwa-missing.headers |
+            tr '[:upper:]' '[:lower:]' > pwa-missing.headers.lower
+          grep -Eq '^content-type: text/plain' pwa-missing.headers.lower
+          grep -Fqx \
+            "cache-control: no-store, max-age=0, must-revalidate" \
+            pwa-missing.headers.lower
+          grep -Fq "Static application asset not found" pwa-missing.body
+
           for document in \
             "$app_status" \
             "$root_status"; do

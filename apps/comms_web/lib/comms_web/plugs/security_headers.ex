@@ -11,7 +11,8 @@ defmodule CommsWeb.Plugs.SecurityHeaders do
     content_security_policy =
       "default-src 'self'; " <>
         "base-uri 'self'; frame-ancestors 'none'; form-action 'self'; " <>
-        "object-src 'none'; script-src 'self'; style-src 'self'; " <>
+        "object-src 'none'; script-src 'self'; worker-src 'self'; " <>
+        "manifest-src 'self'; style-src 'self'; " <>
         "img-src 'self' data: blob:; font-src 'self'; connect-src #{connect_sources}"
 
     conn

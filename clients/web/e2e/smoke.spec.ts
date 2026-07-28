@@ -64,3 +64,16 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
   await expect(page.getByRole("heading", { name: "People, roles and sessions" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Ada Lovelace ada@example.test" })).toBeVisible();
 });
+
+test("legacy member navigation canonicalizes inside the service-worker scope", async ({ page }) => {
+  await page.goto("/app/");
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+
+  await page.evaluate(() => {
+    window.history.pushState({}, "", "/app");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+
+  await expect(page).toHaveURL(/\/app\/$/);
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+});

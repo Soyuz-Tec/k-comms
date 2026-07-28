@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { NotificationPreference, PushSubscriptionRecord } from "../../types";
+import { resetPwaRegistrationForTests } from "../../pwa/registration";
 import { PushNotifications } from "./PushNotifications";
 
 const preference: NotificationPreference = {
@@ -13,10 +14,14 @@ const preference: NotificationPreference = {
   updated_at: "2026-07-12T10:00:00Z"
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  resetPwaRegistrationForTests();
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, "serviceWorker");
+});
 
 describe("browser push settings", () => {
-  it("does not prompt automatically and registers a module service worker only after explicit consent", async () => {
+  it("reuses the eagerly registered PWA worker without prompting automatically", async () => {
     const requestPermission = vi.fn().mockResolvedValue("granted");
     const browserSubscription = fakeBrowserSubscription();
     const subscribe = vi.fn().mockResolvedValue(browserSubscription);
@@ -30,19 +35,30 @@ describe("browser push settings", () => {
 
     await screen.findByRole("button", { name: "Enable on this browser" });
     expect(requestPermission).not.toHaveBeenCalled();
-    expect(register).not.toHaveBeenCalled();
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledWith(
+      "/app/k-comms-sw.js?revision=development",
+      {
+        scope: "/app/",
+        type: "module",
+        updateViaCache: "none"
+      }
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Enable on this browser" }));
 
     await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
-    expect(register).toHaveBeenCalledWith("/app/k-comms-sw.js", { scope: "/app/", type: "module" });
+    expect(register).toHaveBeenCalledTimes(1);
     expect(subscribe).toHaveBeenCalledWith(expect.objectContaining({ userVisibleOnly: true }));
     expect(api.registerPushSubscription).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "https://push.example.test/send/browser" }));
   });
 
-  it("does not register after permission denial", async () => {
+  it("does not create a push subscription after permission denial", async () => {
     const requestPermission = vi.fn().mockResolvedValue("denied");
-    const register = vi.fn();
+    const registration = {
+      pushManager: { getSubscription: vi.fn().mockResolvedValue(null) }
+    };
+    const register = vi.fn().mockResolvedValue(registration);
     installPushBrowser({ permission: "default", requestPermission, register, getRegistration: vi.fn().mockResolvedValue(undefined) });
     const api = pushApi();
     renderPush(api);
@@ -50,8 +66,44 @@ describe("browser push settings", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Enable on this browser" }));
 
     await screen.findByText(/blocked by this browser/i);
-    expect(register).not.toHaveBeenCalled();
+    expect(register).toHaveBeenCalledTimes(1);
     expect(api.registerPushSubscription).not.toHaveBeenCalled();
+  });
+
+  it("does not consume notification permission when worker registration fails", async () => {
+    const requestPermission = vi.fn().mockResolvedValue("granted");
+    const registration = {
+      pushManager: { getSubscription: vi.fn().mockResolvedValue(null) }
+    };
+    const register = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("service worker unavailable"))
+      .mockResolvedValue(registration);
+    installPushBrowser({
+      permission: "default",
+      requestPermission,
+      register,
+      getRegistration: vi.fn().mockResolvedValue(undefined)
+    });
+    const api = pushApi();
+    renderPush(api);
+
+    expect(
+      await screen.findByText(/could not register the service worker/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Enable on this browser" })
+    ).toBeDisabled();
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(api.registerPushSubscription).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new Event("online"));
+
+    await waitFor(() => expect(register).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("button", { name: "Enable on this browser" })
+    ).toBeEnabled();
+    expect(requestPermission).not.toHaveBeenCalled();
   });
 
   it("shows unsupported UX without calling the server", () => {

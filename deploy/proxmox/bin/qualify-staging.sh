@@ -31,7 +31,7 @@ if [[ -f "$existing_qualification" ]] &&
   [[ "$(current_app_revision)" == "$revision" ]] &&
   [[ "$(jq -r '.image' "$existing_qualification")" == "$image" ]] &&
   [[ "$(jq -r '.revision' "$existing_qualification")" == "$revision" ]]; then
-  "${SCRIPT_DIR}/verify.sh" --environment staging
+  "${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa
   log "the exact release already has a retained staging qualification receipt"
   readlink -f "$existing_qualification"
   exit 0
@@ -92,7 +92,7 @@ log "reactivating the exact candidate after rollback rehearsal"
   --image "$image" \
   --revision "$revision" \
   --bootstrap
-"${SCRIPT_DIR}/verify.sh" --environment staging
+"${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa
 final_deployment_receipt="$(readlink -f "${K_COMMS_RECEIPT_DIR}/current.json")"
 [[ "$(jq -r '.image' "$final_deployment_receipt")" == "$image" ]] ||
   die "reactivated staging image does not match the candidate"
@@ -103,7 +103,7 @@ restore_receipt="$(
   "${SCRIPT_DIR}/restore-rehearsal.sh" --backup "$initial_backup"
 )"
 require_file "$restore_receipt"
-"${SCRIPT_DIR}/verify.sh" --environment staging
+"${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa
 
 qualification_receipt="$(
   printf '%s/%s-%s-staging-qualification.json' \

@@ -145,7 +145,7 @@ test.describe("guest communication by secure link or QR", () => {
     await expectNoWcagFailures(page);
     await accountCard.getByRole("button", { name: "Create account", exact: true }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app\\?conversation=${conversationId}$`));
+    await expect(page).toHaveURL(new RegExp(`/app/\\?conversation=${conversationId}$`));
     expect(fixture.conversionInput).toEqual({
       email: "jordan@example.test",
       verification_code: conversionVerificationCode,

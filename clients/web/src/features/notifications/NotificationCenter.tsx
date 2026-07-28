@@ -157,19 +157,34 @@ function NotificationPanel({
 }
 
 export function notificationDestination(notification: InAppNotification): string {
-  if (safeInternalPath(notification.action_url)) return notification.action_url as string;
-  if (!safeUuid(notification.conversation_id)) return "/app";
+  const actionPath = canonicalInternalPath(notification.action_url);
+  if (actionPath) return actionPath;
+  if (!safeUuid(notification.conversation_id)) return "/app/";
   const query = new URLSearchParams({ conversation: notification.conversation_id as string });
   if (safeUuid(notification.message_id)) query.set("message", notification.message_id as string);
-  return `/app?${query.toString()}`;
+  return `/app/?${query.toString()}`;
 }
 
-function safeInternalPath(value?: string | null): boolean {
-  return Boolean(
-    value &&
-      (value === "/app" || value.startsWith("/app?") || value.startsWith("/app/")) &&
-      !value.startsWith("//")
-  );
+function canonicalInternalPath(value?: string | null): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  try {
+    const origin = "https://k-comms.invalid";
+    const url = new URL(value, origin);
+    const decodedPath = decodeURIComponent(url.pathname);
+    const pathSegments = decodedPath.split("/");
+    if (
+      url.origin !== origin ||
+      pathSegments.some((segment) => segment === "." || segment === "..") ||
+      decodedPath.includes("\\") ||
+      (decodedPath !== "/app" && !decodedPath.startsWith("/app/"))
+    ) {
+      return null;
+    }
+    const path = url.pathname === "/app" ? "/app/" : url.pathname;
+    return `${path}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
 }
 
 function safeUuid(value?: string | null): boolean {

@@ -114,6 +114,7 @@ function New-ExpectedContentSecurityPolicy {
         }
     "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; " +
         "form-action 'self'; object-src 'none'; script-src 'self'; " +
+        "worker-src 'self'; manifest-src 'self'; " +
         "style-src 'self'; img-src 'self' data: blob:; font-src 'self'; " +
         "connect-src $connectSources"
 }

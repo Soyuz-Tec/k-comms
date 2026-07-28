@@ -132,7 +132,7 @@ export function DirectoryPage() {
       return;
     }
     const params = new URLSearchParams({ conversation: conversation.id });
-    navigate(`/app?${params.toString()}`);
+    navigate(`/app/?${params.toString()}`);
   }
 
   function retainConversation(conversation: Conversation) {

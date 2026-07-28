@@ -70,7 +70,7 @@ continue through conversation-scoped commands.
 The source-message navigation contract is:
 
 ```text
-/app?conversation=<id>&search_message=<id>&search_sequence=<n>
+/app/?conversation=<id>&search_message=<id>&search_sequence=<n>
 ```
 
 The client fetches a bounded message window when the source is not already

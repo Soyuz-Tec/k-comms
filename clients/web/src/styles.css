@@ -610,6 +610,74 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .modal-dialog { width: min(440px, 100%); padding: 1.25rem; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); box-shadow: 0 24px 80px rgb(5 25 23 / 35%); }
 .modal-dialog h2 { margin: 0 0 .4rem; font-family: Georgia, serif; }
 .modal-dialog p { margin: 0 0 1rem; color: var(--ink-soft); font-size: .78rem; line-height: 1.5; }
+.pwa-update-banner {
+  position: sticky;
+  z-index: 20;
+  top: max(.75rem, var(--safe-top));
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin:
+    .75rem
+    max(clamp(.75rem, 2vw, 1.5rem), var(--safe-right))
+    0
+    max(clamp(.75rem, 2vw, 1.5rem), var(--safe-left));
+  padding: .8rem 1rem;
+  border: 1px solid #93bbb5;
+  border-radius: 12px;
+  color: var(--ink);
+  background: #e8f5f2;
+  box-shadow: 0 8px 24px rgb(15 74 74 / 10%);
+}
+.pwa-update-banner > div:first-child { min-width: 0; }
+.pwa-update-banner strong { display: block; color: var(--forest); font-size: var(--text-sm); }
+.pwa-update-banner p { margin: .18rem 0 0; color: var(--ink-soft); font-size: var(--text-xs); line-height: 1.45; }
+.pwa-update-actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
+.pwa-update-actions .button { min-height: 44px; }
+.pwa-install-backdrop {
+  z-index: 80;
+  padding:
+    max(1rem, var(--safe-top))
+    max(1rem, var(--safe-right))
+    max(1rem, var(--safe-bottom))
+    max(1rem, var(--safe-left));
+}
+.pwa-install-dialog {
+  width: min(30rem, 100%);
+  max-height: calc(
+    var(--app-viewport-height)
+    - max(1rem, var(--safe-top))
+    - max(1rem, var(--safe-bottom))
+  );
+  overflow-y: auto;
+}
+.pwa-install-dialog-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: .8rem;
+}
+.pwa-install-dialog-heading > div { min-width: 0; }
+.pwa-install-dialog-heading h2 { margin: .15rem 0 0; overflow-wrap: anywhere; }
+.pwa-install-dialog-heading .icon-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
+}
+.pwa-install-dialog p { font-size: var(--text-sm); line-height: 1.65; }
+.pwa-install-dialog strong { color: var(--forest); }
+.pwa-install-done { width: 100%; min-height: 48px; }
+.pwa-install-card { margin-top: 1rem; }
+.pwa-install-card .card-heading > div { min-width: 0; }
+.pwa-install-card h2 { margin-top: .15rem; }
+.pwa-install-card > p { max-width: 48rem; margin: .8rem 0; font-size: var(--text-sm); }
+.pwa-install-card .button { min-height: 44px; }
 .expanded-row > td { padding: 0 !important; }
 .responsive-table select { min-height: 34px; padding: .3rem; border: 1px solid var(--control-border); border-radius: 7px; background: white; font-size: .68rem; }
 .case-list > li { padding: .75rem; border: 1px solid #dce1d8; border-radius: 11px; }
@@ -2794,5 +2862,41 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   .video-call-dock .call-action-more .app-icon {
     width: 20px;
     height: 20px;
+  }
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .pwa-update-banner {
+    align-items: stretch;
+    flex-direction: column;
+    top: calc(var(--mobile-topbar-total) + .5rem);
+    margin:
+      .6rem
+      max(.75rem, var(--safe-right))
+      0
+      max(.75rem, var(--safe-left));
+    padding: .75rem;
+  }
+
+  .pwa-update-actions {
+    width: 100%;
+  }
+
+  .pwa-update-actions .button {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .pwa-install-dialog {
+    padding: 1rem;
+  }
+
+  .pwa-install-card .card-heading {
+    align-items: flex-start;
+  }
+
+  .pwa-install-card .form-actions,
+  .pwa-install-card .button {
+    width: 100%;
   }
 }

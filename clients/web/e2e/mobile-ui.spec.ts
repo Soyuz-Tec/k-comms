@@ -30,6 +30,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.getByRole("button", { name: "Open main menu" })).toBeVisible();
       await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
       await expect(page.locator("nav.product-nav")).toBeHidden();
+      await exposeInstallPrompt(page);
       await expectNoDocumentOverflow(page);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
         await page.screenshot({ path: testInfo.outputPath("inbox-390.png"), fullPage: true });
@@ -51,6 +52,7 @@ test.describe("authenticated mobile web acceptance", () => {
       );
       await expect(productMenu.getByRole("link", { name: "Workspace administration" })).toBeVisible();
       await expect(productMenu.getByRole("link", { name: "Service operations" })).toBeVisible();
+      await expect(productMenu.getByRole("button", { name: "Install K-Comms" })).toBeVisible();
       await expect(productMenu.getByRole("button", { name: "Sign out" })).toBeVisible();
       await expectMinimumTargets(
         productMenu.locator("a, button"),
@@ -224,7 +226,7 @@ test.describe("authenticated mobile web acceptance", () => {
 
     await page.goBack();
 
-    await expect(page).toHaveURL(/\/app\/?$/);
+    await expect(page).toHaveURL(/\/app\/$/);
     await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toHaveCount(0);
   });
 
@@ -498,6 +500,24 @@ async function installDeterministicMediaDevices(page: Page) {
       configurable: true,
       value: async () => devices
     });
+  });
+}
+
+async function exposeInstallPrompt(page: Page) {
+  // Route-mocked specs block workers; the PWA spec separately proves the real
+  // worker while this event keeps the install-menu acceptance deterministic.
+  await page.evaluate(() => {
+    const installPrompt = new Event("beforeinstallprompt", {
+      cancelable: true
+    });
+    Object.assign(installPrompt, {
+      prompt: () => Promise.resolve(),
+      userChoice: Promise.resolve({
+        outcome: "dismissed",
+        platform: "web"
+      })
+    });
+    window.dispatchEvent(installPrompt);
   });
 }
 

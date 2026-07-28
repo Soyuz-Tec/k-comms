@@ -37,6 +37,18 @@ const harness = vi.hoisted(() => {
       revokeSession: vi.fn(),
       updateProfile: vi.fn()
     },
+    pwa: {
+      installMode: "unavailable" as
+        | "native-prompt"
+        | "manual-ios"
+        | "manual-browser"
+        | "installed"
+        | "unavailable",
+      updateAvailable: false,
+      requestInstall: vi.fn(),
+      applyUpdate: vi.fn(),
+      dismissUpdate: vi.fn()
+    },
     setSession: vi.fn()
   };
 });
@@ -47,6 +59,10 @@ vi.mock("../../app/session", () => ({
     session: harness.currentSession,
     setSession: harness.setSession
   })
+}));
+
+vi.mock("../../pwa/PwaProvider", () => ({
+  usePwa: () => harness.pwa
 }));
 
 describe("profile settings", () => {
@@ -75,6 +91,8 @@ describe("profile settings", () => {
       ...harness.initialSession.user,
       display_name: "Updated Name"
     });
+    harness.pwa.installMode = "unavailable";
+    harness.pwa.requestInstall.mockResolvedValue("accepted");
   });
 
   it("renders the recovery email read-only and submits only the display name", async () => {
@@ -224,6 +242,72 @@ describe("profile settings", () => {
     expect(container.querySelector("#profile-settings")).toBeVisible();
     expect(container.querySelector("#password-settings")).toBeVisible();
     expect(container.querySelector("#notification-settings")).toBeVisible();
+  });
+
+  it("shows installed status without offering another install action", async () => {
+    harness.pwa.installMode = "installed";
+    render(<SettingsPage />);
+
+    await screen.findByText("0 known");
+    const card = screen.getByRole("heading", { name: "Install K-Comms" }).closest("section");
+    expect(card).toHaveTextContent("Installed");
+    expect(card).toHaveTextContent("opened from your home screen or app launcher");
+    expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
+  });
+
+  it("opens iPhone and iPad install help with trapped focus and restores the trigger", async () => {
+    harness.pwa.installMode = "manual-ios";
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await screen.findByText("0 known");
+    const trigger = screen.getByRole("button", { name: "Show install steps" });
+    trigger.focus();
+    await user.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "Install K-Comms" });
+    expect(dialog).toHaveTextContent("Share → Add to Home Screen");
+    expect(dialog).toHaveTextContent("Open as Web App");
+    const close = screen.getByRole("button", { name: "Close install instructions" });
+    await waitFor(() => expect(close).toHaveFocus());
+
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Done" })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+
+    await user.click(close);
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(harness.pwa.requestInstall).not.toHaveBeenCalled();
+  });
+
+  it("uses the native prompt and offers manual browser steps after dismissal", async () => {
+    harness.pwa.installMode = "native-prompt";
+    harness.pwa.requestInstall.mockResolvedValue("dismissed");
+    const user = userEvent.setup();
+    const view = render(<SettingsPage />);
+
+    await screen.findByText("0 known");
+    await user.click(screen.getByRole("button", { name: "Install K-Comms" }));
+
+    await waitFor(() => expect(harness.pwa.requestInstall).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog", { name: "Install K-Comms" })).not.toBeInTheDocument();
+
+    harness.pwa.installMode = "manual-browser";
+    view.rerender(<SettingsPage />);
+    await user.click(screen.getByRole("button", { name: "Show install steps" }));
+    expect(await screen.findByRole("dialog", { name: "Install K-Comms" })).toHaveTextContent(
+      "Install app or Add to Home screen"
+    );
+  });
+
+  it("hides install settings when this browser cannot support installation", async () => {
+    harness.pwa.installMode = "unavailable";
+    render(<SettingsPage />);
+
+    await screen.findByText("0 known");
+    expect(screen.queryByRole("heading", { name: "Install K-Comms" })).not.toBeInTheDocument();
   });
 
   it("reviews device revocation in an accessible dialog before calling the API", async () => {

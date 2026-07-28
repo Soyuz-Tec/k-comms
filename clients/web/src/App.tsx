@@ -48,6 +48,14 @@ export default function App() {
 function ApplicationRoutes() {
   const { session, transportPolicyReady } = useSession();
   const location = useLocation();
+  if (location.pathname === "/app") {
+    return (
+      <Navigate
+        to={`/app/${location.search}${location.hash}`}
+        replace
+      />
+    );
+  }
   const normalizedPathname =
     location.pathname === "/"
       ? "/"
@@ -94,7 +102,7 @@ function ApplicationRoutes() {
         <Route path="/reset-password" element={<><RouteOrientation authenticated={false} /><ResetPasswordPage /></>} />
         <Route path="/sign-in" element={<AuthScreen />} />
         <Route
-          path="/app"
+          path="/app/"
           element={
             <Navigate
               to={`/sign-in${location.search}${location.hash}`}
@@ -115,7 +123,7 @@ function ApplicationRoutes() {
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route element={<ProductShell />}>
-                <Route path="/app" element={<ChatPage />} />
+                <Route path="/app/" element={<ChatPage />} />
                 <Route path="/app/calls" element={<CallsPage />} />
                 <Route path="/app/directory" element={<DirectoryPage />} />
                 <Route path="/app/files" element={<FilesPage />} />
@@ -133,7 +141,7 @@ function ApplicationRoutes() {
                   />
                 }
               />
-              <Route path="*" element={<Navigate to="/app" replace />} />
+              <Route path="*" element={<Navigate to="/app/" replace />} />
             </Routes>
           </Suspense>
         </StepUpProvider>
@@ -163,7 +171,7 @@ export function memberAppTarget(search: string): string {
     if (value) target.set(name, value);
   }
   const query = target.toString();
-  return query ? `/app?${query}` : "/app";
+  return query ? `/app/?${query}` : "/app/";
 }
 
 function RouteLoading() {

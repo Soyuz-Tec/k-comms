@@ -662,7 +662,7 @@ describe("GuestAccessPage", () => {
       expect.stringMatching(/^[A-Za-z0-9_-]{43}$/)
     ));
     expect(guestJoin).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe("/app");
+    expect(window.location.pathname).toBe("/app/");
     expect(window.location.search).toBe("?conversation=conversation-1");
     expect(
       window.sessionStorage.getItem("k-comms.member-instant-room.v1")
@@ -730,7 +730,7 @@ describe("GuestAccessPage", () => {
     expect(
       screen.queryByRole("textbox", { name: "Your display name" })
     ).not.toBeInTheDocument();
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/"));
   });
 
   it("rotates an expired signed-in join replay once and completes admission", async () => {
@@ -788,7 +788,7 @@ describe("GuestAccessPage", () => {
     expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(
       joinInstantRoom.mock.calls[0]![1]
     );
-    expect(window.location.pathname).toBe("/app");
+    expect(window.location.pathname).toBe("/app/");
   });
 
   it("rotates an expired guest join replay once and completes admission", async () => {
@@ -952,7 +952,7 @@ describe("GuestAccessPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Leave" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/"));
     expect(
       window.sessionStorage.getItem("k-comms.session.v1")
     ).toContain("member-access");
@@ -1109,7 +1109,7 @@ describe("GuestAccessPage", () => {
       verification_code: "V".repeat(43),
       password: "correct horse battery staple"
     }));
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/"));
     expect(window.location.search).toBe("?conversation=conversation-1");
     expect(window.sessionStorage.getItem("k-comms.guest-session.v1")).toBeNull();
   });
@@ -1414,7 +1414,7 @@ describe("GuestAccessPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/"));
     expect(window.location.search).toBe(
       `?conversation=${encodeURIComponent(conversation.id)}`
     );

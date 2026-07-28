@@ -33,7 +33,7 @@ export function OpsPage() {
   }, [authorized, refresh]);
 
   if (!session) return null;
-  if (!authorized) return <Navigate to="/app" replace />;
+  if (!authorized) return <Navigate to="/app/" replace />;
 
   const failures = (snapshot?.notifications.failed || 0) + (snapshot?.notifications.dead_letter || 0) + (snapshot?.webhooks.failed || 0) + (snapshot?.webhooks.dead_letter || 0) + (snapshot?.attachments.failed || 0) + (snapshot?.attachments.cleanup_failed || 0);
   const triage = snapshot ? deriveOperationsTriage(snapshot) : [];

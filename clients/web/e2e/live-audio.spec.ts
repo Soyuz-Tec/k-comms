@@ -152,7 +152,7 @@ test.describe("real-stack audio qualification", () => {
       await memberPage.getByRole("button", { name: "Sign in" }).click();
       await expect(memberPage).toHaveURL(
         new RegExp(
-          `/app/?\\?conversation=${fixture.conversation.id}$`
+          `/app/\\?conversation=${fixture.conversation.id}$`
         ),
         { timeout: 20_000 }
       );

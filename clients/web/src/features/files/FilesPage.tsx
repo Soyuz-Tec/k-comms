@@ -351,7 +351,7 @@ function sourceMessagePath(file: FileSummary): string {
     search_message: file.message_id,
     search_sequence: String(file.conversation_sequence)
   });
-  return `/app?${query.toString()}`;
+  return `/app/?${query.toString()}`;
 }
 
 function fileExtension(fileName: string): string {

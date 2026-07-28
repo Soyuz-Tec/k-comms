@@ -262,7 +262,7 @@ export function GuestAccessPage() {
           return;
         }
         navigate(
-          `/app?conversation=${encodeURIComponent(conversation.id)}`,
+          `/app/?conversation=${encodeURIComponent(conversation.id)}`,
           { replace: true }
         );
         setMemberContinuity(null);
@@ -354,7 +354,7 @@ export function GuestAccessPage() {
             setAccessEnded(false);
             setGuestSession(null);
             setContinuedSession(null);
-            navigate("/app", { replace: true });
+            navigate("/app/", { replace: true });
             return;
           }
           setGuestSession(null, "access_ended");
@@ -366,7 +366,7 @@ export function GuestAccessPage() {
             setGuestSession(null);
             if (continuedSession) {
               navigate(
-                `/app?conversation=${encodeURIComponent(
+                `/app/?conversation=${encodeURIComponent(
                   continuedSession.conversation.id
                 )}`,
                 { replace: true }
@@ -374,7 +374,7 @@ export function GuestAccessPage() {
               return;
             }
             navigate(
-              "/app",
+              "/app/",
               { replace: true }
             );
             return;
@@ -423,7 +423,7 @@ export function GuestAccessPage() {
           }
           setGuestSession(null);
           setAccountSession(session);
-          navigate(`/app?conversation=${encodeURIComponent(conversation.id)}`, {
+          navigate(`/app/?conversation=${encodeURIComponent(conversation.id)}`, {
             replace: true
           });
         }}
@@ -459,7 +459,7 @@ export function GuestAccessPage() {
               share_url: entryShareUrl
             });
           }
-          navigate(`/app?conversation=${encodeURIComponent(result.conversation.id)}`, {
+          navigate(`/app/?conversation=${encodeURIComponent(result.conversation.id)}`, {
             replace: true
           });
         }}

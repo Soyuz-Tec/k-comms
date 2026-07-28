@@ -661,7 +661,7 @@ describe("InstantRoomPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Leave room" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/app"));
+    await waitFor(() => expect(window.location.pathname).toBe("/app/"));
     expect(
       window.sessionStorage.getItem("k-comms.session.v1")
     ).toContain("member-access");
