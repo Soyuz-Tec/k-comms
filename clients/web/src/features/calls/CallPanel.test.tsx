@@ -109,19 +109,16 @@ const activeVideoCall: Call = {
   can_end: true
 };
 
+const activeAudioCall: Call = {
+  ...activeVideoCall,
+  id: "audio-call-1",
+  media_kind: "audio"
+};
+
 const secondConversation: Conversation = {
   ...conversation,
   id: "conversation-2",
   title: "Operations group"
-};
-
-const joined = {
-  data: activeVideoCall,
-  credential: {
-    server_url: "wss://media.example.test",
-    participant_token: "memory-only-video-token",
-    expires_in: 300
-  }
 };
 
 function device(kind: MediaDeviceKind, deviceId: string, label: string): MediaDeviceInfo {
@@ -129,11 +126,20 @@ function device(kind: MediaDeviceKind, deviceId: string, label: string): MediaDe
 }
 
 function apiWith(active: Call | null) {
+  const responseCall = active || activeVideoCall;
+  const joined = {
+    data: responseCall,
+    credential: {
+      server_url: "wss://media.example.test",
+      participant_token: "memory-only-call-token",
+      expires_in: 300
+    }
+  };
   return {
     call: vi.fn().mockResolvedValue(active),
     startCall: vi.fn().mockResolvedValue(joined),
     joinCall: vi.fn().mockResolvedValue(joined),
-    endCall: vi.fn().mockResolvedValue({ ...activeVideoCall, status: "ended" })
+    endCall: vi.fn().mockResolvedValue({ ...responseCall, status: "ended" })
   } as unknown as ApiClient;
 }
 
@@ -150,7 +156,11 @@ function previewStream(id: string) {
   return { stop, stream };
 }
 
-function remoteParticipant(id: string, name: string) {
+function remoteParticipant(
+  id: string,
+  name: string,
+  options: { speaking?: boolean; screenSharing?: boolean } = {}
+) {
   const element = document.createElement("video");
   const track = {
     sid: `${id}-camera-track`,
@@ -166,8 +176,8 @@ function remoteParticipant(id: string, name: string) {
       isLocal: false,
       isMicrophoneEnabled: true,
       isCameraEnabled: true,
-      isScreenShareEnabled: false,
-      isSpeaking: false,
+      isScreenShareEnabled: options.screenSharing ?? false,
+      isSpeaking: options.speaking ?? false,
       audioTrackPublications: new Map(),
       videoTrackPublications: new Map([
         ["camera", { trackSid: `${id}-camera-publication`, source: "camera", videoTrack: track }]
@@ -178,7 +188,18 @@ function remoteParticipant(id: string, name: string) {
   };
 }
 
-describe("CallPanel video calls", () => {
+function useMobileCallLayout() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    })
+  });
+}
+
+describe("CallPanel calls", () => {
   beforeEach(() => {
     livekit.callbacks.clear();
     livekit.remoteParticipants.clear();
@@ -215,6 +236,279 @@ describe("CallPanel video calls", () => {
         removeEventListener: vi.fn()
       })
     });
+  });
+
+  it("keeps a mobile audio call expanded with an avatar stage, visible controls, and closable menus", async () => {
+    useMobileCallLayout();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    expect(activeCall).toHaveAttribute("aria-modal", "true");
+    expect(activeCall).toHaveClass("active-call-screen", "audio-call-screen");
+    expect(activeCall).not.toHaveClass("minimized");
+    expect(within(activeCall).getByLabelText("Call progress"))
+      .toHaveTextContent("1 participant");
+    expect(within(activeCall).getByLabelText("Call progress"))
+      .toHaveTextContent("Connected");
+
+    const participantStage = within(activeCall).getByRole("region", {
+      name: "Audio call participants"
+    });
+    expect(within(participantStage).getByRole("listitem", {
+      name: "Ada (you), Muted"
+    })).toBeVisible();
+    expect(within(participantStage).getByText("Only you are in the call."))
+      .toBeVisible();
+    expect(participantStage.querySelector(".audio-participant-avatar"))
+      .toHaveTextContent("A");
+
+    const actions = activeCall.querySelector(".audio-call-actions") as HTMLElement;
+    expect(within(actions).getAllByRole("button")).toHaveLength(3);
+    expect(Array.from(actions.querySelectorAll(".call-action-label"))
+      .map((label) => label.textContent)).toEqual(["Mic", "People", "Leave"]);
+    expect(within(actions).getByRole("button", { name: "Unmute microphone" }))
+      .toBeVisible();
+    expect(within(actions).getByRole("button", { name: "People" })).toBeVisible();
+    expect(within(actions).getByRole("button", { name: "Leave call" })).toBeVisible();
+    expect(within(actions).queryByRole("button", { name: "End for everyone" }))
+      .not.toBeInTheDocument();
+
+    const menuTrigger = within(activeCall).getByRole("button", {
+      name: "Open call menu"
+    });
+    await user.click(menuTrigger);
+    expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
+    let callMenu = within(activeCall).getByRole("dialog", { name: "Call menu" });
+    const closeMenu = within(callMenu).getByRole("button", {
+      name: "Close call menu"
+    });
+    await waitFor(() => expect(closeMenu).toHaveFocus());
+    await user.keyboard("{Escape}");
+    expect(menuTrigger).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(menuTrigger).toHaveFocus());
+
+    const people = within(actions).getByRole("button", { name: "People" });
+    await user.click(people);
+    expect(people).toHaveAttribute("aria-expanded", "true");
+    callMenu = within(activeCall).getByRole("dialog", { name: "Call menu" });
+    expect(within(
+      within(callMenu).getByRole("navigation", { name: "Call workspace" })
+    ).getByRole("button", { name: "People" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(within(callMenu).getByText("Ada (you)")).toBeVisible();
+    await user.click(within(callMenu).getByRole("button", {
+      name: "Close call menu"
+    }));
+    expect(people).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(people).toHaveFocus());
+  });
+
+  it("moves owner-only ending into the mobile menu and requires confirmation", async () => {
+    useMobileCallLayout();
+    const api = apiWith(activeAudioCall);
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={api}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    const actions = activeCall.querySelector(".audio-call-actions") as HTMLElement;
+    expect(within(actions).queryByRole("button", { name: "End for everyone" }))
+      .not.toBeInTheDocument();
+
+    await user.click(within(activeCall).getByRole("button", {
+      name: "Open call menu"
+    }));
+    await user.click(within(activeCall).getByRole("button", {
+      name: "End for everyone"
+    }));
+    let confirmation = screen.getByRole("dialog", {
+      name: "End call for everyone?"
+    });
+    expect(confirmation).toHaveTextContent(
+      "This ends the call for every participant."
+    );
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    expect(api.endCall).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "End call for everyone?" }))
+      .not.toBeInTheDocument();
+    const callMenu = screen.getByRole("dialog", { name: "Call menu" });
+    const endForEveryone = within(callMenu).getByRole("button", {
+      name: "End for everyone"
+    });
+    await waitFor(() => expect(endForEveryone).toHaveFocus());
+
+    await user.click(endForEveryone);
+    confirmation = screen.getByRole("dialog", { name: "End call for everyone?" });
+    await user.click(within(confirmation).getByRole("button", {
+      name: "End for everyone"
+    }));
+
+    await waitFor(() =>
+      expect(api.endCall).toHaveBeenCalledWith(conversation.id, activeAudioCall.id)
+    );
+    expect(livekit.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it("expands a desktop-minimized audio call when the viewport becomes mobile", async () => {
+    let changeListener: (() => void) | undefined;
+    const query = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        changeListener = listener;
+      }),
+      removeEventListener: vi.fn()
+    };
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue(query)
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    expect(await screen.findByRole("region", { name: "Design group" }))
+      .toHaveClass("minimized");
+
+    act(() => {
+      query.matches = true;
+      changeListener?.();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Design group" }))
+        .not.toHaveClass("minimized")
+    );
+    expect(screen.getByRole("button", { name: "Open call menu" })).toBeVisible();
+  });
+
+  it("announces reconnecting and restores mobile audio controls after reconnection", async () => {
+    useMobileCallLayout();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    const progress = within(activeCall).getByLabelText("Call progress");
+    const microphone = within(activeCall).getByRole("button", {
+      name: "Unmute microphone"
+    });
+
+    act(() => livekit.callbacks.get(livekit.events.Reconnecting)?.());
+    expect(within(progress).getByText("Reconnecting"))
+      .toHaveAttribute("aria-live", "polite");
+    expect(microphone).toBeDisabled();
+    expect(within(activeCall).getByRole("button", { name: "Leave call" }))
+      .toBeEnabled();
+
+    act(() => livekit.callbacks.get(livekit.events.Reconnected)?.());
+    expect(within(progress).getByText("Connected")).toBeVisible();
+    expect(microphone).toBeEnabled();
+  });
+
+  it("shows five labeled mobile video controls and prioritizes sharing and speaking participants", async () => {
+    useMobileCallLayout();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeVideoCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the video call" }))
+        .getByRole("button", { name: "Join video call" })
+    );
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    const actions = activeCall.querySelector(".audio-call-actions") as HTMLElement;
+    expect(within(actions).getAllByRole("button")).toHaveLength(5);
+    expect(Array.from(actions.querySelectorAll(".call-action-label"))
+      .map((label) => label.textContent))
+      .toEqual(["Mic", "Camera", "Screen", "People", "Leave"]);
+    expect(within(actions).getByRole("button", { name: "Unmute microphone" }))
+      .toBeVisible();
+    const camera = within(actions).getByRole("button", { name: "Turn camera on" });
+    expect(camera).toBeVisible();
+    await user.click(camera);
+    expect(await within(activeCall).findByText("Waiting for video")).toBeVisible();
+    expect(within(actions).getByRole("button", { name: "Share screen" }))
+      .toBeVisible();
+
+    const grace = remoteParticipant("user-2", "Grace", { speaking: true });
+    const linus = remoteParticipant("user-3", "Linus", { screenSharing: true });
+    livekit.remoteParticipants.set("user-2", grace.participant);
+    livekit.remoteParticipants.set("user-3", linus.participant);
+    act(() => livekit.callbacks.get(livekit.events.ParticipantConnected)?.());
+
+    const progress = within(activeCall).getByLabelText("Call progress");
+    expect(progress).toHaveTextContent("3 participants");
+    const participantIds = within(activeCall)
+      .getAllByRole("listitem")
+      .filter((item) => item.hasAttribute("data-participant-id"))
+      .map((item) => item.getAttribute("data-participant-id"));
+    expect(participantIds).toEqual(["user-3", "user-2", "user-1"]);
+    expect(within(activeCall).getByRole("listitem", {
+      name: "Grace, Speaking"
+    })).toBeVisible();
   });
 
   it("offers distinct actions and stops every preview track on camera switch and cancel", async () => {
@@ -504,22 +798,27 @@ describe("CallPanel video calls", () => {
     const activeCall = await screen.findByRole("dialog", { name: "Design group" });
     expect(activeCall).toHaveAttribute("aria-modal", "true");
     expect(backgroundAction.closest('[aria-hidden="true"]')).not.toBeNull();
-    const more = within(activeCall).getByRole("button", { name: "More" });
+    const more = within(activeCall).getByRole("button", {
+      name: "Open call menu"
+    });
     const workspace = within(activeCall).getByRole("region", { name: "Call workspace" });
     expect(more).toHaveAttribute("aria-expanded", "false");
     expect(workspace).not.toHaveClass("mobile-open");
     await user.click(more);
     expect(more).toHaveAttribute("aria-expanded", "true");
     expect(workspace).toHaveClass("mobile-open");
+    const callMenu = within(activeCall).getByRole("dialog", { name: "Call menu" });
     await waitFor(() =>
-      expect(activeCall).toContainElement(document.activeElement as HTMLElement)
+      expect(callMenu).toContainElement(document.activeElement as HTMLElement)
     );
 
     backgroundAction.focus();
-    expect(activeCall).toContainElement(document.activeElement as HTMLElement);
+    expect(callMenu).toContainElement(document.activeElement as HTMLElement);
     await user.tab();
-    expect(activeCall).toContainElement(document.activeElement as HTMLElement);
+    expect(callMenu).toContainElement(document.activeElement as HTMLElement);
 
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(more).toHaveFocus());
     await user.click(within(activeCall).getByRole("button", { name: "Minimize" }));
     expect(await screen.findByRole("region", { name: "Design group" })).toBeVisible();
     expect(backgroundAction.closest('[aria-hidden="true"]')).toBeNull();

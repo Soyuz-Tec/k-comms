@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
@@ -248,6 +248,20 @@ describe("AudioCallPanel", () => {
     expect(livekit.startAudio).toHaveBeenCalledTimes(2);
 
     await user.click(screen.getByRole("button", { name: "End for everyone" }));
+    let confirmation = screen.getByRole("dialog", {
+      name: "End call for everyone?"
+    });
+    expect(api.endAudioCall).not.toHaveBeenCalled();
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "End call for everyone?" }))
+      .not.toBeInTheDocument();
+    expect(api.endAudioCall).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "End for everyone" }));
+    confirmation = screen.getByRole("dialog", { name: "End call for everyone?" });
+    await user.click(
+      within(confirmation).getByRole("button", { name: "End for everyone" })
+    );
     await waitFor(() => expect(api.endAudioCall).toHaveBeenCalledWith("conversation-1", "call-1"));
     expect(livekit.disconnect).toHaveBeenCalledWith(true);
   });
