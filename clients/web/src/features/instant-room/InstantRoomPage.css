@@ -7,10 +7,7 @@
     max(1.5rem, var(--safe-right))
     max(1.5rem, var(--safe-bottom))
     max(1.5rem, var(--safe-left));
-  background:
-    radial-gradient(circle at 0 0, #eaf2ff 0 10rem, transparent 10.1rem),
-    radial-gradient(circle at 100% 100%, #e8f5f1 0 12rem, transparent 12.1rem),
-    #f8fafc;
+  background: #f8fafc;
 }
 
 .instant-room-launch {
@@ -67,6 +64,12 @@
 .instant-room-start > p:not(.form-error) {
   max-width: 35rem;
   font-size: .96rem;
+}
+
+@media (forced-colors: none) {
+  .instant-room-start [data-route-focus][tabindex="-1"]:focus {
+    outline: none;
+  }
 }
 
 .instant-room-kicker {
@@ -128,11 +131,16 @@
   gap: .75rem;
 }
 
-.instant-room-field-label .optional {
-  color: #71827e;
+.instant-room-field-label .optional,
+.instant-room-field-label .required {
+  color: var(--ink-soft);
   font-size: .72rem;
-  font-weight: 550;
+  font-weight: 650;
   white-space: nowrap;
+}
+
+.instant-room-field-label .required {
+  color: #7b302c;
 }
 
 .instant-room-start > .form-error {
@@ -145,43 +153,35 @@
   min-height: 50px;
 }
 
-.instant-room-input {
-  position: relative;
-  display: block;
-}
-
-.instant-room-field-icon {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: .9rem;
-  width: 1.15rem;
-  height: 1.15rem;
-  color: #82939f;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.instant-room-start-form .instant-room-input input {
-  padding: .78rem .9rem .78rem 2.7rem;
-  border-color: #d7e0e7;
+.instant-room-start-form input {
+  padding: .78rem .9rem;
+  border-color: var(--control-border);
   border-radius: 12px;
   background: #fff;
   box-shadow: inset 0 1px 1px rgb(35 53 78 / 2%);
-  font-size: .94rem;
+  font-size: 1rem;
   font-weight: 500;
 }
 
-.instant-room-start-form .instant-room-input input::placeholder {
-  color: #7b8c87;
+.instant-room-start-form input::placeholder {
+  color: var(--ink-soft);
   opacity: 1;
   font-weight: 450;
 }
 
-.instant-room-start-form .instant-room-input input:focus {
+.instant-room-start-form input:focus {
   border-color: #298486;
   background: #fff;
   box-shadow: 0 0 0 3px rgb(41 132 134 / 10%);
+}
+
+.instant-room-start-form .field > small {
+  line-height: 1.45;
+}
+
+.instant-room-start-form .instant-room-field-error {
+  color: #7b302c;
+  font-weight: 650;
 }
 
 .instant-room-start-form .button.primary {
@@ -192,8 +192,18 @@
   font-size: .94rem;
 }
 
-.instant-room-start-form .button.primary:not(:disabled):hover {
+.instant-room-start-form .button.primary:not([aria-disabled="true"]):hover {
   background: #09676b;
+}
+
+.instant-room-start-form .button.primary[aria-disabled="true"] {
+  border-color: #a8b7b2;
+  color: #314b47;
+  background: #dbe3e0;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none;
 }
 
 .instant-room-account-identity {
@@ -332,9 +342,7 @@
   .instant-room-entry {
     place-items: start stretch;
     padding: 0;
-    background:
-      radial-gradient(circle at 100% 0, #edf3ff 0 7rem, transparent 7.1rem),
-      #fbfcfe;
+    background: #fbfcfe;
   }
 
   .instant-room-start,
@@ -374,9 +382,10 @@
     box-shadow: none;
   }
 
-  .instant-room-start-form .instant-room-input input {
+  .instant-room-start-form input {
     min-height: 50px;
     border-radius: 12px;
+    font-size: 1rem;
   }
 
   .instant-room-launch {

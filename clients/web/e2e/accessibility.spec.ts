@@ -214,6 +214,35 @@ test("platform operations satisfies automated WCAG A and AA checks", async ({ pa
   await expectNoWcagFailures(page);
 });
 
+test("instant-room entry and empty-name guidance satisfy automated WCAG A and AA checks", async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: mockServiceStatus()
+  }));
+  await page.goto("/");
+
+  const heading = page.getByRole("heading", {
+    name: "Start an instant room"
+  });
+  const displayName = page.getByRole("textbox", {
+    name: "Your display name"
+  });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
+  await expect(displayName).toHaveCSS("font-size", "16px");
+  await expectNoWcagFailures(page);
+
+  await page.getByRole("button", { name: "Start instant room" }).click();
+  await expect(
+    page.getByText("Enter your display name to continue.")
+  ).toBeVisible();
+  await expect(displayName).toBeFocused();
+  await expect(displayName).toHaveAttribute("aria-invalid", "true");
+  await expectNoWcagFailures(page);
+});
+
 test("keyboard focus remains visible in forced-colors and reduced-motion modes", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   await page.goto("/sign-in");
