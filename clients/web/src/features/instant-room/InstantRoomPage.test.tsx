@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { BrowserRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -28,8 +28,17 @@ const uiHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("../guest/QrCode", () => ({
-  QrCode: ({ value }: { value: string }) => {
+  QrCode: ({
+    value,
+    onReady
+  }: {
+    value: string;
+    onReady?: (source: string) => void;
+  }) => {
     uiHarness.qrValue = value;
+    useEffect(() => {
+      onReady?.("data:image/png;base64,iVBORw0KGgo=");
+    }, [onReady, value]);
     return <div aria-label="Local QR">{value}</div>;
   }
 }));
@@ -240,13 +249,13 @@ async function openInviteDetails(
 
 describe("InstantRoomPage", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/");
     uiHarness.qrValue = "";
     uiHarness.shellRenders = 0;
     uiHarness.roomApis = [];
     uiHarness.delegatedTicket = "";
-    vi.restoreAllMocks();
     vi.spyOn(ApiClient.prototype, "status").mockResolvedValue({
       service: "k-comms",
       version: "test",
@@ -409,14 +418,79 @@ describe("InstantRoomPage", () => {
     expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
     expect(within(menu).getByRole("heading", { name: "Scan to join" })).toBeVisible();
     expect(within(menu).getByLabelText("Local QR")).toHaveTextContent(shareUrl);
-    expect(within(menu).getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    expect(within(menu).queryByLabelText("Secure room link")).not.toBeInTheDocument();
+    expect(within(menu).getByText("Secure room invite")).toBeVisible();
     expect(within(menu).getByRole("button", { name: "Copy invite link" })).toBeVisible();
+    expect(within(menu).getByRole("button", { name: "Download QR code" })).toBeEnabled();
     expect(within(menu).getByRole("button", { name: "Share invite link" })).toBeVisible();
+    expect(within(menu).getByRole("group", { name: "Invite actions" })).toBeVisible();
     expect(uiHarness.qrValue).toBe(shareUrl);
 
     await user.click(within(menu).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Local QR")).not.toBeInTheDocument();
+  });
+
+  it("copies and shares the exact invite only after explicit menu actions", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const share = vi.fn().mockResolvedValue(undefined);
+    const originalClipboard = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard"
+    );
+    const originalShare = Object.getOwnPropertyDescriptor(navigator, "share");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: share
+    });
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    try {
+      renderPage();
+      await startRoom(user);
+      await user.click(
+        await screen.findByRole("button", { name: "Open room menu" })
+      );
+      const menu = screen.getByRole("dialog", { name: "Room menu" });
+
+      await user.click(
+        within(menu).getByRole("button", { name: "Copy invite link" })
+      );
+      expect(writeText).toHaveBeenCalledOnce();
+      expect(writeText).toHaveBeenCalledWith(shareUrl);
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "Secure link copied."
+      );
+
+      await user.click(
+        within(menu).getByRole("button", { name: "Share invite link" })
+      );
+      expect(share).toHaveBeenCalledOnce();
+      expect(share).toHaveBeenCalledWith({
+        title: "Instant room on K-Comms",
+        text: "Join my K-Comms room. No account is required.",
+        url: shareUrl
+      });
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "Share sheet opened."
+      );
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, "clipboard", originalClipboard);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+      if (originalShare) {
+        Object.defineProperty(navigator, "share", originalShare);
+      } else {
+        Reflect.deleteProperty(navigator, "share");
+      }
+    }
   });
 
   it("reveals a manual menu link when sharing falls back to a rejected clipboard", async () => {
@@ -439,19 +513,227 @@ describe("InstantRoomPage", () => {
     );
 
     const menu = screen.getByRole("dialog", { name: "Room menu" });
-    const link = within(menu).getByLabelText("Secure room link");
-    expect(link).not.toHaveValue(shareUrl);
+    expect(within(menu).queryByLabelText("Secure room link")).not.toBeInTheDocument();
     await user.click(
       within(menu).getByRole("button", { name: "Share invite link" })
     );
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(shareUrl));
+    const link = within(menu).getByLabelText("Secure room link");
     expect(link).toHaveValue(shareUrl);
     expect(
       within(menu).getByText(
         "Copy failed. The full link is visible so you can copy it manually."
       )
     ).toHaveAttribute("role", "status");
+  });
+
+  it("downloads the prepared QR as a generically named PNG", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn().mockReturnValue("blob:k-comms-room-invite");
+    const revokeObjectURL = vi.fn();
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
+      URL,
+      "createObjectURL"
+    );
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(
+      URL,
+      "revokeObjectURL"
+    );
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL
+    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    try {
+      renderPage();
+      await startRoom(user);
+      await user.click(
+        await screen.findByRole("button", { name: "Open room menu" })
+      );
+      const menu = screen.getByRole("dialog", { name: "Room menu" });
+      const download = within(menu).getByRole("button", {
+        name: "Download QR code"
+      });
+      await waitFor(() => expect(download).toBeEnabled());
+      let releaseObjectUrl: TimerHandler | undefined;
+      const schedule = vi
+        .spyOn(window, "setTimeout")
+        .mockImplementation((handler, delay) => {
+          expect(delay).toBe(30_000);
+          releaseObjectUrl = handler;
+          return 1 as unknown as ReturnType<typeof window.setTimeout>;
+        });
+      act(() => download.click());
+
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      const blob = createObjectURL.mock.calls[0]![0] as Blob;
+      expect(blob.type).toBe("image/png");
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        137, 80, 78, 71, 13, 10, 26, 10
+      ]);
+      expect(click).toHaveBeenCalledOnce();
+      const anchor = click.mock.instances[0] as HTMLAnchorElement;
+      expect(anchor.download).toBe("k-comms-room-invite-qr.png");
+      expect(anchor.href).toBe("blob:k-comms-room-invite");
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+      expect(schedule).toHaveBeenCalledWith(expect.any(Function), 30_000);
+      act(() => {
+        if (typeof releaseObjectUrl === "function") releaseObjectUrl();
+      });
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:k-comms-room-invite");
+      schedule.mockRestore();
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "QR code downloaded."
+      );
+    } finally {
+      if (originalCreateObjectURL) {
+        Object.defineProperty(URL, "createObjectURL", originalCreateObjectURL);
+      } else {
+        Reflect.deleteProperty(URL, "createObjectURL");
+      }
+      if (originalRevokeObjectURL) {
+        Object.defineProperty(URL, "revokeObjectURL", originalRevokeObjectURL);
+      } else {
+        Reflect.deleteProperty(URL, "revokeObjectURL");
+      }
+    }
+  });
+
+  it("opens the native save sheet for a QR image on Apple mobile browsers", async () => {
+    const user = userEvent.setup();
+    const canShare = vi.fn().mockReturnValue(true);
+    const share = vi.fn().mockResolvedValue(undefined);
+    const createObjectURL = vi.fn();
+    const originalUserAgent = Object.getOwnPropertyDescriptor(
+      navigator,
+      "userAgent"
+    );
+    const originalCanShare = Object.getOwnPropertyDescriptor(
+      navigator,
+      "canShare"
+    );
+    const originalShare = Object.getOwnPropertyDescriptor(navigator, "share");
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
+      URL,
+      "createObjectURL"
+    );
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X)"
+    });
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      value: canShare
+    });
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: share
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL
+    });
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    try {
+      renderPage();
+      await startRoom(user);
+      await user.click(
+        await screen.findByRole("button", { name: "Open room menu" })
+      );
+      const menu = screen.getByRole("dialog", { name: "Room menu" });
+      const download = within(menu).getByRole("button", {
+        name: "Download QR code"
+      });
+      await waitFor(() => expect(download).toBeEnabled());
+      await user.click(download);
+
+      expect(canShare).toHaveBeenCalledOnce();
+      expect(share).toHaveBeenCalledOnce();
+      const payload = share.mock.calls[0]![0] as ShareData;
+      expect(payload.title).toBe("Room invite QR code");
+      expect(payload.files).toHaveLength(1);
+      expect(payload.files![0]).toEqual(
+        expect.objectContaining({
+          name: "k-comms-room-invite-qr.png",
+          type: "image/png"
+        })
+      );
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "QR code save sheet opened."
+      );
+    } finally {
+      if (originalUserAgent) {
+        Object.defineProperty(navigator, "userAgent", originalUserAgent);
+      } else {
+        Reflect.deleteProperty(navigator, "userAgent");
+      }
+      if (originalCanShare) {
+        Object.defineProperty(navigator, "canShare", originalCanShare);
+      } else {
+        Reflect.deleteProperty(navigator, "canShare");
+      }
+      if (originalShare) {
+        Object.defineProperty(navigator, "share", originalShare);
+      } else {
+        Reflect.deleteProperty(navigator, "share");
+      }
+      if (originalCreateObjectURL) {
+        Object.defineProperty(URL, "createObjectURL", originalCreateObjectURL);
+      } else {
+        Reflect.deleteProperty(URL, "createObjectURL");
+      }
+    }
+  });
+
+  it("reveals the manual link when native sharing fails without cancellation", async () => {
+    const user = userEvent.setup();
+    const share = vi.fn().mockRejectedValue(new Error("share unavailable"));
+    const originalShare = Object.getOwnPropertyDescriptor(navigator, "share");
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: share
+    });
+    vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
+
+    try {
+      renderPage();
+      await startRoom(user);
+      await user.click(
+        await screen.findByRole("button", { name: "Open room menu" })
+      );
+      const menu = screen.getByRole("dialog", { name: "Room menu" });
+      expect(
+        within(menu).queryByLabelText("Secure room link")
+      ).not.toBeInTheDocument();
+
+      await user.click(
+        within(menu).getByRole("button", { name: "Share invite link" })
+      );
+
+      expect(share).toHaveBeenCalledOnce();
+      expect(await within(menu).findByLabelText("Secure room link"))
+        .toHaveValue(shareUrl);
+      expect(within(menu).getByRole("status")).toHaveTextContent(
+        "Sharing was not completed. The full link is visible so you can copy it manually."
+      );
+    } finally {
+      if (originalShare) {
+        Object.defineProperty(navigator, "share", originalShare);
+      } else {
+        Reflect.deleteProperty(navigator, "share");
+      }
+    }
   });
 
   it("keeps the progress control focused and guarded while creation is pending", async () => {

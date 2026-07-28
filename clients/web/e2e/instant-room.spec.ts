@@ -168,20 +168,65 @@ test.describe("instant-room front door", () => {
     await expect(
       menuDialog.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
-    const menuLink = menuDialog.getByLabel("Room invite link");
-    await expect(menuLink).not.toHaveValue(fixture.shareUrl);
-    await expect(menuLink).toHaveValue(/#guest=••••••••••••$/);
-    await expect(menuLink).toHaveCSS("font-size", "16px");
+    await expect(menuDialog.getByLabel("Room invite link")).toHaveCount(0);
+    const inviteIdentifier = menuDialog.locator(
+      ".instant-room-menu-invite-id"
+    );
+    await expect(inviteIdentifier).toBeVisible();
+    await expect(inviteIdentifier).not.toContainText(fixture.shareUrl);
+    const qr = menuDialog.locator(".instant-room-menu-qr-card .guest-qr");
+    const qrBox = await qr.boundingBox();
+    expect(qrBox).not.toBeNull();
+    expect(qrBox!.width).toBeGreaterThanOrEqual(220);
     const menuCopy = menuDialog.getByRole("button", {
       name: "Copy invite link"
+    });
+    const menuDownload = menuDialog.getByRole("button", {
+      name: "Download QR code"
     });
     const menuShare = menuDialog.getByRole("button", {
       name: "Share invite link"
     });
     await expect(menuCopy).toBeVisible();
+    await expect(menuDownload).toBeEnabled();
     await expect(menuShare).toBeVisible();
     await expectMinimumTarget(menuCopy);
+    await expectMinimumTarget(menuDownload);
     await expectMinimumTarget(menuShare);
+    await expect(menuCopy.locator("svg.lucide-copy")).toHaveCount(1);
+    await expect(menuDownload.locator("svg.lucide-download")).toHaveCount(1);
+    await expect(menuShare.locator("svg.lucide-share")).toHaveCount(1);
+    const downloadPromise = page.waitForEvent("download");
+    await menuDownload.click();
+    const qrDownload = await downloadPromise;
+    expect(qrDownload.suggestedFilename()).toBe(
+      "k-comms-room-invite-qr.png"
+    );
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "200%";
+    });
+    const scaledActions = [menuCopy, menuDownload, menuShare];
+    for (const action of scaledActions) {
+      await action.scrollIntoViewIfNeeded();
+      await expect(action).toBeVisible();
+      await expectContained(action, { width: 320, height: 700 });
+    }
+    const actionColumns = await menuDialog
+      .locator(".instant-room-menu-invite-actions")
+      .evaluate((element) =>
+        getComputedStyle(element).gridTemplateColumns
+          .split(" ")
+          .filter(Boolean).length
+      );
+    expect(actionColumns).toBe(1);
+    await qr.scrollIntoViewIfNeeded();
+    const scaledQrBox = await qr.boundingBox();
+    expect(scaledQrBox).not.toBeNull();
+    expect(scaledQrBox!.width).toBeGreaterThanOrEqual(220);
+    await expectNoDocumentOverflow(page);
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "";
+    });
     await expect(
       page.getByRole("dialog", { name: "Invite someone" })
     ).toHaveCount(0);
@@ -195,7 +240,9 @@ test.describe("instant-room front door", () => {
     await expectContained(menuDialog, { width: 320, height: 700 });
     await expectNoDocumentOverflow(page);
     await expectNoWcagFailures(page);
-    await menuDialog.getByRole("button", { name: "Close" }).click();
+    const closeMenu = menuDialog.getByRole("button", { name: "Close" });
+    await closeMenu.scrollIntoViewIfNeeded();
+    await closeMenu.click();
     await expect(menuDialog).toHaveCount(0);
     await expect(roomMenu).toHaveAttribute("aria-expanded", "false");
     await expect(roomMenu).toBeFocused();
@@ -270,6 +317,7 @@ test.describe("instant-room front door", () => {
 
   for (const viewport of [
     { width: 390, height: 844 },
+    { width: 430, height: 860 },
     { width: 600, height: 900 },
     { width: 768, height: 900 }
   ]) {
@@ -350,9 +398,18 @@ test.describe("instant-room front door", () => {
       await expect(
         menuDialog.getByRole("button", { name: "Copy invite link" })
       ).toBeVisible();
+      const downloadQr = menuDialog.getByRole("button", {
+        name: "Download QR code"
+      });
+      await expect(downloadQr).toBeEnabled();
+      await expectMinimumTarget(downloadQr);
+      await expectContained(downloadQr, viewport);
       await expect(
         menuDialog.getByRole("button", { name: "Share invite link" })
       ).toBeVisible();
+      const qrCard = menuDialog.locator(".instant-room-menu-qr-card");
+      await expect(qrCard).toBeVisible();
+      await expectContained(qrCard, viewport);
       await expect(
         page.getByRole("dialog", { name: "Invite someone" })
       ).toHaveCount(0);

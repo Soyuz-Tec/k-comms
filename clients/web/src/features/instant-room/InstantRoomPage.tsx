@@ -9,6 +9,7 @@ import {
   storeGuestSession
 } from "../../api";
 import { useSession } from "../../app/session";
+import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
 import { browserName, formatDateTime } from "../../lib/format";
 import {
@@ -775,6 +776,18 @@ function InstantRoomSharePanel({
   const [expanded, setExpanded] = useState(false);
   const [linkRevealed, setLinkRevealed] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [qrDownload, setQrDownload] = useState<Blob | null>(null);
+  const handleQrReady = useCallback((source: string) => {
+    if (!source) {
+      setQrDownload(null);
+      return;
+    }
+    try {
+      setQrDownload(pngDataUrlToBlob(source));
+    } catch {
+      setQrDownload(null);
+    }
+  }, []);
   const secureLink = isEncryptedUrl(shareUrl);
   const lifetime = instantRoomLifetime(room);
   const dialogRef = useModalDialog(
@@ -842,6 +855,34 @@ function InstantRoomSharePanel({
     }
   }
 
+  async function downloadQrCode() {
+    if (!qrDownload) {
+      setNotice("The QR code is still being prepared.");
+      return;
+    }
+    const filename = "k-comms-room-invite-qr.png";
+    const saveSheetFile = appleMobileSaveSheetFile(qrDownload, filename);
+    if (saveSheetFile) {
+      try {
+        await navigator.share({
+          files: [saveSheetFile],
+          title: "Room invite QR code"
+        });
+        setNotice("QR code save sheet opened.");
+        return;
+      } catch (reason: unknown) {
+        if (
+          reason instanceof DOMException &&
+          reason.name === "AbortError"
+        ) {
+          return;
+        }
+      }
+    }
+    downloadBlob(qrDownload, filename);
+    setNotice("QR code downloaded.");
+  }
+
   if (placement === "menu") {
     return (
       <section
@@ -851,51 +892,84 @@ function InstantRoomSharePanel({
         <div className="instant-room-menu-invite-heading">
           <span className="instant-room-kicker">Invite people</span>
           <h3 id="instant-room-menu-invite-title">Scan to join</h3>
-          <p>Open this menu when someone is ready to join your room.</p>
+          <p>Let someone scan this code, or send the invite.</p>
         </div>
-        <div className="instant-room-menu-qr">
-          <QrCode value={shareUrl} label={`Scan to join ${title}`} />
-          <p>Anyone who scans this code can use the room invite.</p>
+        <div className="instant-room-menu-qr-card">
+          <div className="instant-room-menu-qr">
+            <QrCode
+              value={shareUrl}
+              label={`Scan to join ${title}`}
+              onReady={handleQrReady}
+            />
+          </div>
+          <p className="instant-room-menu-invite-id" dir="ltr">
+            {secureLink ? "Secure room invite" : "Test-network room invite"}
+          </p>
         </div>
-        <label htmlFor="instant-room-menu-share-url">
-          {secureLink ? "Secure room link" : "Room invite link"}
-        </label>
-        <div className="instant-room-menu-link-row">
-          <input
-            id="instant-room-menu-share-url"
-            type="text"
-            value={linkRevealed ? shareUrl : maskedShareUrl(shareUrl)}
-            readOnly
-            spellCheck={false}
-            onFocus={(event) => event.currentTarget.select()}
-          />
+        <div
+          className="instant-room-menu-invite-actions"
+          role="group"
+          aria-label="Invite actions"
+        >
           <button
-            className="button ghost"
-            type="button"
-            aria-pressed={linkRevealed}
-            onClick={() => setLinkRevealed((current) => !current)}
-          >
-            {linkRevealed ? "Hide" : "Reveal"}
-          </button>
-        </div>
-        <div className="instant-room-menu-invite-actions">
-          <button
-            className="button primary"
+            className="instant-room-menu-invite-action"
             type="button"
             aria-label="Copy invite link"
             onClick={() => void copyLink()}
           >
-            Copy link
+            <span className="instant-room-menu-invite-action-icon">
+              <AppIcon name="copy" />
+            </span>
+            <span>Copy</span>
           </button>
           <button
-            className="button ghost"
+            className="instant-room-menu-invite-action"
+            type="button"
+            aria-label="Download QR code"
+            disabled={!qrDownload}
+            onClick={() => void downloadQrCode()}
+          >
+            <span className="instant-room-menu-invite-action-icon">
+              <AppIcon name="download" />
+            </span>
+            <span>Download</span>
+          </button>
+          <button
+            className="instant-room-menu-invite-action"
             type="button"
             aria-label="Share invite link"
             onClick={() => void shareLink()}
           >
-            Share
+            <span className="instant-room-menu-invite-action-icon">
+              <AppIcon name="share" />
+            </span>
+            <span>Share</span>
           </button>
         </div>
+        {linkRevealed && (
+          <div className="instant-room-menu-link-recovery">
+            <label htmlFor="instant-room-menu-share-url">
+              {secureLink ? "Secure room link" : "Room invite link"}
+            </label>
+            <div className="instant-room-menu-link-row">
+              <input
+                id="instant-room-menu-share-url"
+                type="text"
+                value={shareUrl}
+                readOnly
+                spellCheck={false}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => setLinkRevealed(false)}
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+        )}
         <p className="instant-room-lifetime">{lifetime}</p>
         {!secureLink && (
           <p className="transport-warning" role="note">
@@ -1055,6 +1129,47 @@ function maskedShareUrl(shareUrl: string): string {
   const fragmentIndex = shareUrl.indexOf("#");
   if (fragmentIndex < 0) return shareUrl;
   return `${shareUrl.slice(0, fragmentIndex)}#guest=••••••••••••`;
+}
+
+function pngDataUrlToBlob(source: string): Blob {
+  const [, payload = ""] = source.split(",", 2);
+  if (!source.startsWith("data:image/png;base64,") || !payload) {
+    throw new Error("Invalid QR image");
+  }
+  const binary = window.atob(payload);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new Blob([bytes], { type: "image/png" });
+}
+
+function appleMobileSaveSheetFile(
+  blob: Blob,
+  filename: string
+): File | null {
+  const appleMobile =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (
+    !appleMobile ||
+    typeof navigator.share !== "function" ||
+    typeof navigator.canShare !== "function"
+  ) {
+    return null;
+  }
+  const file = new File([blob], filename, { type: "image/png" });
+  return navigator.canShare({ files: [file] }) ? file : null;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const source = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = source;
+  link.download = filename;
+  link.rel = "noopener";
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(source), 30_000);
 }
 
 async function copyText(value: string): Promise<void> {
