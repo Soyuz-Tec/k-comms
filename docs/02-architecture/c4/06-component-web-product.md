@@ -9,6 +9,8 @@ flowchart LR
     API[Typed REST Client]
     Realtime[Realtime and Replay Client]
     Local[Draft and Offline State]
+    PWA[PWA Install and Update Client]
+    Worker[Install-scoped Service Worker\nPush + Static Offline Shell]
     Design[Accessible Design System]
     Media[Call Client\nConsent + Grid + Screen Share + LiveKit]
 
@@ -18,6 +20,8 @@ flowchart LR
     User --> API
     User --> Realtime
     User --> Local
+    Shell --> PWA
+    PWA --> Worker
     User --> Media
     Media --> API
     Admin --> API
@@ -33,6 +37,14 @@ flowchart LR
   actions; hidden controls are not an authorization boundary.
 - Durable messages and read state reconcile from server cursors after every
   reconnect. Local drafts and retries never become authoritative history.
+- PWA installation is an explicit browser-mediated action. Service-worker
+  registration never requests notification permission, and a waiting update
+  activates only after the user chooses Reload.
+- The `/app/` service worker may cache only the fixed offline document and
+  revisioned same-origin static application assets. API, authentication,
+  socket, message, file, attachment, invitation, call, media, and signed-URL
+  traffic remains network-only; Cache Storage is not a conversation store or
+  outbox.
 - The user workspace may render authorized message content. Tenant-admin and
   operations queries return only the content required by their explicit policy.
 - Shared API, error, loading, keyboard, focus, responsive, and accessibility

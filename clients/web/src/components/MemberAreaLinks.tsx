@@ -10,7 +10,7 @@ type MemberDestination = {
 export const memberDestinations: MemberDestination[] = [
   {
     label: "Inbox",
-    path: "/app",
+    path: "/app/",
     icon: "message"
   },
   {
@@ -38,21 +38,18 @@ export const memberDestinations: MemberDestination[] = [
 export function MemberAreaLinks({ compact = false }: { compact?: boolean }) {
   return (
     <>
-      {memberDestinations.map(({ icon, label, path }) => {
-        const targetPath = path === "/app" ? "/app/" : path;
-        return (
-          <NavLink
-            key={path}
-            to={targetPath}
-            end={path === "/app"}
-            aria-label={compact ? label : undefined}
-            title={compact ? label : undefined}
-          >
-            {compact && <AppIcon name={icon} className="member-nav-icon" />}
-            <span className={compact ? "visually-hidden" : undefined}>{label}</span>
-          </NavLink>
-        );
-      })}
+      {memberDestinations.map(({ icon, label, path }) => (
+        <NavLink
+          key={path}
+          to={path}
+          end={path === "/app/"}
+          aria-label={compact ? label : undefined}
+          title={compact ? label : undefined}
+        >
+          {compact && <AppIcon name={icon} className="member-nav-icon" />}
+          <span className={compact ? "visually-hidden" : undefined}>{label}</span>
+        </NavLink>
+      ))}
     </>
   );
 }

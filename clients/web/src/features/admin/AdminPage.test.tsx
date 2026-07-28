@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "./AdminPage";
 
 const session = {
@@ -15,7 +15,7 @@ const session = {
     tenant_id: "tenant-1",
     display_name: "Workspace Owner",
     email: "owner@example.test",
-    role: "owner" as const,
+    role: "owner" as "owner" | "member",
     status: "active",
     platform_role: null,
     platform_role_expires_at: null
@@ -45,6 +45,10 @@ vi.mock("./IntegrationsPanel", () => ({ IntegrationsPanel: () => <h2>Integration
 vi.mock("./AuditPanel", () => ({ AuditPanel: () => <h2>Audit evidence</h2> }));
 
 describe("AdminPage section routing", () => {
+  beforeEach(() => {
+    session.user.role = "owner";
+  });
+
   it("opens a section from the URL and preserves other query parameters when navigating", async () => {
     const user = userEvent.setup();
     render(
@@ -75,9 +79,29 @@ describe("AdminPage section routing", () => {
     expect(screen.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("section=workspace"));
   });
+
+  it("returns an unauthorized member to the canonical inbox root", async () => {
+    session.user.role = "member";
+
+    render(
+      <MemoryRouter initialEntries={["/admin"]}>
+        <AdminPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search")).toHaveTextContent("/app/")
+    );
+  });
 });
 
 function LocationProbe() {
   const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
+  return (
+    <output data-testid="location-search">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
 }

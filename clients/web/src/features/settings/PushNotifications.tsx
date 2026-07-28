@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ApiClient } from "../../api";
 import type { NotificationPreference, PushSubscriptionConfig, PushSubscriptionInput, PushSubscriptionRecord } from "../../types";
 import { errorText } from "../../lib/format";
+import { ensurePwaRegistration } from "../../pwa";
 
 type PushState = "loading" | "unsupported" | "unavailable" | "denied" | "ready";
 
@@ -26,32 +27,66 @@ export function PushNotifications({
 
   useEffect(() => {
     let current = true;
+    let loading = false;
+    let retryNeeded = false;
 
     if (!supportsPush()) {
       setState("unsupported");
       return () => { current = false; };
     }
 
-    Promise.all([
-      api.pushSubscriptionConfig(),
-      api.pushSubscriptions(),
-      navigator.serviceWorker.getRegistration("/app/")
-    ])
-      .then(async ([nextConfig, nextSubscriptions, registration]) => {
-        const browserSubscription = registration ? await registration.pushManager.getSubscription() : null;
-        if (!current) return;
-        setConfig(nextConfig);
-        setSubscriptions(nextSubscriptions);
-        setLocalSubscription(browserSubscription);
-        setState(!nextConfig.available ? "unavailable" : Notification.permission === "denied" ? "denied" : "ready");
-      })
-      .catch((reason: unknown) => {
-        if (!current) return;
-        setState("unavailable");
-        onError(errorText(reason));
-      });
+    const load = () => {
+      if (loading) return;
+      loading = true;
 
-    return () => { current = false; };
+      void Promise.all([
+        api.pushSubscriptionConfig(),
+        api.pushSubscriptions(),
+        ensurePwaRegistration()
+      ])
+        .then(async ([nextConfig, nextSubscriptions, registration]) => {
+          const browserSubscription = registration
+            ? await registration.pushManager.getSubscription()
+            : null;
+          retryNeeded = !registration;
+          if (!current) return;
+          setConfig(nextConfig);
+          setSubscriptions(nextSubscriptions);
+          setLocalSubscription(browserSubscription);
+          setState(
+            !nextConfig.available || !registration
+              ? "unavailable"
+              : Notification.permission === "denied"
+                ? "denied"
+                : "ready"
+          );
+        })
+        .catch((reason: unknown) => {
+          retryNeeded = true;
+          if (!current) return;
+          setState("unavailable");
+          onError(errorText(reason));
+        })
+        .finally(() => {
+          loading = false;
+        });
+    };
+    const retry = () => {
+      if (retryNeeded) load();
+    };
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") retry();
+    };
+
+    load();
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+
+    return () => {
+      current = false;
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
   }, [api, onError]);
 
   const activeSubscriptions = subscriptions.filter(({ status }) => status === "active");
@@ -63,17 +98,17 @@ export function PushNotifications({
     onError("");
 
     try {
+      const registration = await ensurePwaRegistration();
+      if (!registration) {
+        throw new Error("Service worker registration is unavailable.");
+      }
+
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setState("denied");
         onNotice("Browser notification permission was not granted. No push subscription was created.");
         return;
       }
-
-      const registration = await navigator.serviceWorker.register("/app/k-comms-sw.js", {
-        scope: "/app/",
-        type: "module"
-      });
 
       let browserSubscription = await registration.pushManager.getSubscription();
       if (!browserSubscription) {
@@ -134,7 +169,7 @@ export function PushNotifications({
       </div>
 
       {state === "unsupported" && <p>This browser does not support service-worker push notifications.</p>}
-      {state === "unavailable" && <p>Push registration is unavailable because the server-side Web Push configuration is incomplete.</p>}
+      {state === "unavailable" && <p>Push registration is unavailable because this browser could not register the service worker or the server-side Web Push configuration is incomplete.</p>}
       {state === "denied" && <p>Notifications are blocked by this browser. Allow notifications in site settings before trying again.</p>}
       {state === "ready" && <p>{enabledOnBrowser ? `Registered through ${activeSubscriptions[0]?.endpoint_hint || "your push provider"}.` : activeSubscriptions.length > 0 && localSubscription && !preference.push_enabled ? "This browser is registered, but your global push preference is off. Select Enable to turn delivery on." : "Enable push explicitly for this browser. Permission is requested only after you select Enable."}</p>}
 

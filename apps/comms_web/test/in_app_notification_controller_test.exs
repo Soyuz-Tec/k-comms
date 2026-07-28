@@ -19,7 +19,7 @@ defmodule CommsWeb.InAppNotificationControllerTest do
 
     first = insert_intent(account, "mention.created.v1", "https://evil.example/leave")
     second = insert_intent(account, "message.created.v1", "/app?conversation=safe")
-    admin_path = insert_intent(account, "message.created.v1", "/admin")
+    admin_path = insert_intent(account, "message.created.v1", "/app/../admin")
 
     listed =
       authenticated_conn(token)
@@ -37,7 +37,7 @@ defmodule CommsWeb.InAppNotificationControllerTest do
     refute Map.has_key?(mention, "payload")
 
     safe = Enum.find(listed["data"], &(&1["id"] == second.id))
-    assert safe["action_url"] == "/app?conversation=safe"
+    assert safe["action_url"] == "/app/?conversation=safe"
 
     restricted = Enum.find(listed["data"], &(&1["id"] == admin_path.id))
     assert restricted["action_url"] == nil

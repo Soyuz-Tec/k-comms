@@ -31,7 +31,8 @@ authorization, media teardown, or modular-monolith boundaries.
 | Scheduled filter | Do not expose until a scheduling aggregate exists | A non-functional affordance would be misleading. |
 | Missed/declined labels | Do not infer from ended calls; add only after durable invitation/provider facts exist | Existing call rows do not prove ringing or answer state. |
 | Recording, transcription, and captions | Excluded from this delivery | ADR-0025 requires a separate security and architecture decision. |
-| Native mobile application | Excluded | This delivery is a responsive web application. |
+| Native App Store application | Excluded | Mobile delivery is the responsive, browser-installable PWA; no store package or native wrapper is required. |
+| Progressive web application | Included | Users can install from the browser; private communication data remains network-only and is not an offline cache. |
 | Large client rewrite | Incremental vertical slices with compatibility routes | Protects sequencing, read cursors, deep links, media cleanup, and accessibility behavior. |
 
 ## Click-friction targets
@@ -92,7 +93,8 @@ known-teammate direct message are each one action from Inbox.
 
 1. Characterize the current Inbox, deep-link, upload, call, teardown, and focus
    behavior in tests.
-2. Preserve `/app?conversation=<id>` notification and bookmark links.
+2. Preserve legacy `/app?conversation=<id>` notification and bookmark links by
+   normalizing them to the canonical `/app/?conversation=<id>` route.
 3. Keep `/app/settings` as a compatibility redirect to `/app/you`.
 4. Add route-level lazy loading so LiveKit, Admin, and Operations code do not
    block the initial Inbox shell.
@@ -130,7 +132,7 @@ known-teammate direct message are each one action from Inbox.
    sequence, safety state, owner, and timestamps.
 3. Add `GET /api/v1/files` with bounded, deterministic pagination.
 4. Deep-link each file with the established
-   `/app?conversation=<id>&search_message=<id>&search_sequence=<n>` contract and
+   `/app/?conversation=<id>&search_message=<id>&search_sequence=<n>` contract and
    fetch a bounded window around the source message when it is not loaded.
    Downloads continue through the existing authorized attachment endpoint.
 5. Add per-file upload progress, cancellation, retry, policy rejection, scan
@@ -202,6 +204,24 @@ same digest → observation window → restore the prior bundle on abort. The
 repository must not claim that this chain is executable until deployment
 environments, credentials, and rollback automation exist.
 
+### Slice 6A — Browser installation and safe offline shell
+
+1. Add a standards-based manifest, neutral launcher icons, Apple touch icon,
+   standalone display, and an `/app/` start URL.
+2. Register the existing push-capable module service worker eagerly without
+   requesting notification permission.
+3. Offer an explicit Install K-Comms action. Use the native Chromium prompt
+   when available and accessible manual Add to Home Screen instructions on
+   iOS and other browsers.
+4. Cache only a fixed offline document and revisioned same-origin static
+   application assets. Keep authentication, API, socket, message, file,
+   attachment, invitation, call, media, and signed-URL requests network-only.
+5. Let a new worker wait and offer a user-controlled Reload action. Never
+   interrupt an active draft or call with automatic activation or reload.
+6. Serve the worker with no-store and its explicit `/app/` allowance, revalidate
+   the manifest, and verify the exact OCI revision through packaged-image and
+   public-edge checks.
+
 ### Slice 7 — Post-deployment fine-tuning
 
 1. Measure task actions, first-load bundle size, render timing, UI errors,
@@ -247,6 +267,9 @@ environments, credentials, and rollback automation exist.
 - Active calls survive in-app route changes and terminate all local tracks on
   Leave, End, logout, revocation, or provider end.
 - Admin and Operations remain role-gated.
+- The mobile web client installs from supported browsers without an App Store,
+  starts at `/app/`, and preserves notification consent as a separate explicit
+  action.
 
 ### Accessibility and usability
 
@@ -280,6 +303,9 @@ environments, credentials, and rollback automation exist.
   failure, call join failure, and reconnect rate. Owners, retention, dashboards,
   alerts, cohort comparison, and numeric abort thresholds are recorded before
   pilot expansion.
+- Offline PWA proof shows only the fixed offline state and static assets in
+  Cache Storage, no private communication or credential-bearing response. An
+  available worker update waits for the user's Reload action.
 
 ## Rollout and stop conditions
 
@@ -311,6 +337,7 @@ or usability regression.
 | WP-8 Full qualification | QA + Security + Accessibility | WP-2–WP-7 | 3–6 engineer-days plus human/device gates | `make check`, `make web-check`, architecture/contracts, exact-image synthetics, live media | All automated gates green and manual exceptions recorded |
 | WP-9 Formative tuning and RC freeze | Product + Web + QA | WP-8 | 1–3 engineer-days | action-count comparison, bundle/performance evidence, regression rerun | Final candidate frozen with no unresolved P0/P1 usability defect |
 | WP-10 Pilot and production promotion | Product + Accessibility + Security + Operations | WP-9 and external environment readiness | minimum 14 elapsed days | completed readiness ledger, pilot scorer, approvals, same-digest promotion/rollback evidence | All application, environment, and people gates signed |
+| WP-11 Installable PWA | Web client + Security + Operations | WP-2, WP-7 | 2–4 engineer-days plus physical devices | manifest/worker unit and browser tests, packaged-image headers, offline proof, Chromium and iOS/Android install/update launch receipts | Browser installation works without a store; caches contain no private communication data; updates remain user controlled |
 
 ## Definition of done
 

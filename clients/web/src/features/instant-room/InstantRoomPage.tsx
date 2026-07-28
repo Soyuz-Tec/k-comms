@@ -573,7 +573,7 @@ export function InstantRoomPage() {
           <div className="instant-room-entry-actions">
             <Link
               className="button ghost"
-              to={accountSession ? "/app" : "/sign-in"}
+              to={accountSession ? "/app/" : "/sign-in"}
             >
               {accountSession
                 ? "Return to workspace"
@@ -639,7 +639,7 @@ export function InstantRoomPage() {
           storeGuestSession(null);
           setActiveRoom(null);
           setLeftRoom(true);
-          navigate("/app", { replace: true });
+          navigate("/app/", { replace: true });
         } else {
           clearMemberInstantRoomContinuity();
           storeGuestSession(null);

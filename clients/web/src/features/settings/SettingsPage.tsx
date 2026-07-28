@@ -7,6 +7,10 @@ import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { PushNotifications } from "./PushNotifications";
+import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
+import { PwaInstallHelpDialog } from "../../app/ProductShell";
+
+type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -24,6 +28,7 @@ interface ResourceLoadFailure {
 
 export function SettingsPage() {
   const { api, session, setSession } = useSession();
+  const { installMode, requestInstall } = usePwa();
   const [devices, setDevices] = useState<Device[]>([]);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [preference, setPreference] = useState<NotificationPreference | null>(null);
@@ -36,6 +41,7 @@ export function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
   const [revocationError, setRevocationError] = useState<string | null>(null);
+  const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
 
   async function refreshSecurity() {
     const [deviceResult, sessionResult] = await Promise.allSettled([
@@ -211,6 +217,18 @@ export function SettingsPage() {
     }
   }
 
+  async function installKComms() {
+    if (installMode === "manual-ios" || installMode === "manual-browser") {
+      setInstallHelpMode(installMode);
+      return;
+    }
+    if (installMode !== "native-prompt") return;
+    const result = await requestInstall();
+    if (result === "manual-ios" || result === "manual-browser") {
+      setInstallHelpMode(result);
+    }
+  }
+
   return (
     <main className="page-shell" id="main-content">
       <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
@@ -242,6 +260,12 @@ export function SettingsPage() {
         onCancel={closeRevocationDialog}
         onConfirm={() => void confirmRevocation()}
       />}
+      {installHelpMode && (
+        <PwaInstallHelpDialog
+          mode={installHelpMode}
+          onClose={() => setInstallHelpMode(null)}
+        />
+      )}
 
       <div className="settings-grid">
         <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
@@ -259,6 +283,36 @@ export function SettingsPage() {
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "password"}>{busy === "password" ? "Changing…" : "Change password"}</button></div>
         </form>
       </div>
+
+      {installMode !== "unavailable" && (
+        <section
+          className="settings-card pwa-install-card"
+          id="install-settings"
+          aria-labelledby="install-settings-title"
+        >
+          <div className="card-heading">
+            <div>
+              <span className="eyebrow">No App Store needed</span>
+              <h2 id="install-settings-title">Install K-Comms</h2>
+            </div>
+            <span className={`status-pill ${installMode === "installed" ? "success" : "neutral"}`}>
+              {installMode === "installed" ? "Installed" : "Available"}
+            </span>
+          </div>
+          <p>{installDescription(installMode)}</p>
+          {installMode !== "installed" && (
+            <div className="form-actions">
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => void installKComms()}
+              >
+                {installMode === "native-prompt" ? "Install K-Comms" : "Show install steps"}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="data-card settings-data-card" id="device-settings" aria-labelledby="devices-title">
         <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="devices-title">Devices</h2></div><span className="status-pill success">{loading ? "Loading" : `${devices.length} known`}</span></div>
@@ -287,6 +341,19 @@ export function SettingsPage() {
       </section>
     </main>
   );
+}
+
+function installDescription(installMode: PwaInstallMode): string {
+  if (installMode === "installed") {
+    return "K-Comms is installed on this device and can be opened from your home screen or app launcher.";
+  }
+  if (installMode === "manual-ios") {
+    return "Add K-Comms to your iPhone or iPad Home Screen so it opens like an app.";
+  }
+  if (installMode === "manual-browser") {
+    return "Add K-Comms from your browser menu for app-like access from this device.";
+  }
+  return "Install K-Comms on this device for quick access from your home screen or app launcher.";
 }
 
 function notificationName(eventType: string): string {

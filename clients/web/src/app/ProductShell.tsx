@@ -15,6 +15,9 @@ import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
 import { beginNewInstantRoomVisit } from "../features/instant-room/idempotency";
 import { clearMemberInstantRoomContinuity } from "../features/instant-room/memberContinuity";
+import { usePwa, type PwaInstallMode } from "../pwa/PwaProvider";
+
+type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
 
 export function ProductShell() {
   const { session } = useSession();
@@ -32,8 +35,16 @@ function ProductShellContent() {
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { error, setError, refreshAll } = useWorkspaceData();
+  const {
+    installMode,
+    updateAvailable,
+    requestInstall,
+    applyUpdate,
+    dismissUpdate
+  } = usePwa();
   const [retrying, setRetrying] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
   const desktopShell = useDesktopShell();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
 
@@ -75,6 +86,18 @@ function ProductShellContent() {
       navigate("/sign-in", { replace: true });
     });
   };
+  const installKComms = async () => {
+    if (installMode === "manual-ios" || installMode === "manual-browser") {
+      setInstallHelpMode(installMode);
+      return;
+    }
+    if (installMode !== "native-prompt") return;
+    const result = await requestInstall();
+    if (result === "manual-ios" || result === "manual-browser") {
+      setInstallHelpMode(result);
+    }
+  };
+  const showInstallAction = installMode !== "installed" && installMode !== "unavailable";
 
   return (
     <div className="app-shell">
@@ -172,6 +195,8 @@ function ProductShellContent() {
               beginNewInstantRoomVisit();
               navigate("/");
             }}
+            showInstall={showInstallAction}
+            onInstall={() => void installKComms()}
             onSignOut={() => {
               setMobileMenuOpen(false);
               signOut();
@@ -180,6 +205,34 @@ function ProductShellContent() {
           document.body
         )}
 
+        {updateAvailable && (
+          <section
+            className="pwa-update-banner"
+            role="status"
+            aria-labelledby="pwa-update-title"
+          >
+            <div>
+              <strong id="pwa-update-title">Update ready</strong>
+              <p>Finish active calls and save any drafts before reloading K-Comms.</p>
+            </div>
+            <div className="pwa-update-actions">
+              <button
+                className="button primary compact"
+                type="button"
+                onClick={() => void applyUpdate()}
+              >
+                Reload
+              </button>
+              <button
+                className="button ghost compact"
+                type="button"
+                onClick={dismissUpdate}
+              >
+                Later
+              </button>
+            </div>
+          </section>
+        )}
         {error && (
           <div className="banner error-banner" role="alert">
             <span><strong>Workspace could not refresh.</strong> {error}</span>
@@ -188,6 +241,12 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
+        {installHelpMode && (
+          <PwaInstallHelpDialog
+            mode={installHelpMode}
+            onClose={() => setInstallHelpMode(null)}
+          />
+        )}
     </div>
   );
 }
@@ -200,6 +259,8 @@ function MobileProductMenu({
   userRole,
   onClose,
   onInstantRoom,
+  showInstall,
+  onInstall,
   onSignOut
 }: {
   showAdmin: boolean;
@@ -209,6 +270,8 @@ function MobileProductMenu({
   userRole: string;
   onClose: () => void;
   onInstantRoom: () => void;
+  showInstall: boolean;
+  onInstall: () => void;
   onSignOut: () => void;
 }) {
   const dialogRef = useModalDialog(onClose);
@@ -255,6 +318,11 @@ function MobileProductMenu({
         <button className="mobile-menu-action" type="button" onClick={onInstantRoom}>
           Start instant room
         </button>
+        {showInstall && (
+          <button className="mobile-menu-action" type="button" onClick={onInstall}>
+            Install K-Comms
+          </button>
+        )}
         {(showAdmin || showOperations) && (
           <nav className="mobile-menu-role-links" aria-label="Role tools">
             {showAdmin && <NavLink to="/admin" onClick={onClose}>Workspace administration</NavLink>}
@@ -270,6 +338,65 @@ function MobileProductMenu({
         </section>
       </aside>
     </div>
+  );
+}
+
+export function PwaInstallHelpDialog({
+  mode,
+  onClose
+}: {
+  mode: ManualInstallMode;
+  onClose: () => void;
+}) {
+  const dialogRef = useModalDialog(onClose);
+
+  return createPortal(
+    <div
+      className="modal-backdrop pwa-install-backdrop"
+      onPointerDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="modal-dialog pwa-install-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pwa-install-help-title"
+        aria-describedby="pwa-install-help-copy"
+      >
+        <div className="pwa-install-dialog-heading">
+          <div>
+            <span className="eyebrow">No App Store needed</span>
+            <h2 id="pwa-install-help-title">Install K-Comms</h2>
+          </div>
+          <button
+            className="icon-button"
+            type="button"
+            data-initial-focus
+            aria-label="Close install instructions"
+            onClick={onClose}
+          >
+            <AppIcon name="x" />
+          </button>
+        </div>
+        {mode === "manual-ios" ? (
+          <p id="pwa-install-help-copy">
+            On iPhone or iPad, tap <strong>Share → Add to Home Screen</strong>.
+            Keep <strong>Open as Web App</strong> enabled, then tap Add.
+          </p>
+        ) : (
+          <p id="pwa-install-help-copy">
+            Open your browser menu, then choose <strong>Install app</strong> or{" "}
+            <strong>Add to Home screen</strong>.
+          </p>
+        )}
+        <button className="button primary pwa-install-done" type="button" onClick={onClose}>
+          Done
+        </button>
+      </section>
+    </div>,
+    document.body
   );
 }
 

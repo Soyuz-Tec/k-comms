@@ -185,7 +185,7 @@ export function CallPanel({
     setCallWorkspaceTab("chat");
     setMinimized(true);
     if (onNavigate) {
-      onNavigate(`/app?conversation=${encodeURIComponent(conversation.id)}`);
+      onNavigate(`/app/?conversation=${encodeURIComponent(conversation.id)}`);
     } else {
       onOpenChat?.();
     }

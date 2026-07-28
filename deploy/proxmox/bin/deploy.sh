@@ -176,7 +176,9 @@ elif ! systemctl daemon-reload; then
   activation_failed=true
 elif ! systemctl start k-comms-app.service; then
   activation_failed=true
-elif ! "${SCRIPT_DIR}/verify.sh" --environment "$environment"; then
+elif ! "${SCRIPT_DIR}/verify.sh" \
+  --environment "$environment" \
+  --require-pwa; then
   activation_failed=true
 fi
 

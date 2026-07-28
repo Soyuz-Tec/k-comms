@@ -53,7 +53,7 @@ export function AdminPage() {
   }
 
   if (!session) return null;
-  if (!authorized) return <Navigate to="/app" replace />;
+  if (!authorized) return <Navigate to="/app/" replace />;
 
   return (
     <main className="page-shell" id="main-content">

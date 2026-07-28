@@ -171,7 +171,7 @@ describe("DirectoryPage", () => {
     await user.click(screen.getByRole("button", { name: "Rooms" }));
     await user.click(await screen.findByRole("button", { name: "Message Execution room" }));
     expect(screen.getByLabelText("location")).toHaveTextContent(
-      "/app?conversation=room-1"
+      "/app/?conversation=room-1"
     );
     expect(harness.joinPublicChannel).not.toHaveBeenCalled();
   });
@@ -246,7 +246,7 @@ describe("DirectoryPage", () => {
     expect(harness.setConversations).toHaveBeenCalledWith(expect.any(Function));
     await waitFor(() => {
       expect(screen.getByLabelText("location")).toHaveTextContent(
-        "/app?conversation=room-public"
+        "/app/?conversation=room-public"
       );
     });
   });

@@ -18,6 +18,21 @@
 - The user, tenant-admin, and platform-operations web surfaces pass unit,
   accessibility-oriented component, desktop/mobile browser, lint, typecheck, and
   production build checks.
+- The packaged web client exposes a valid root visual-scope install manifest
+  with 192- and 512-pixel launcher icons, a maskable icon, an Apple touch icon,
+  an `/app/` start URL, standalone display, and no related App Store
+  preference. Its service worker remains separately scoped to `/app/`.
+- The module service worker registers eagerly without notification permission,
+  preserves Web Push behavior, is served with no-store and
+  `Service-Worker-Allowed: /app/`, and never caches authentication, API,
+  socket, message, file, attachment, invitation, call, media, signed-URL, or
+  non-GET traffic.
+- An activated packaged worker serves the fixed offline document for failed
+  `/app/` navigations without user or tenant data. A replacement worker waits
+  until the user selects Reload, and the client reloads after controller change.
+- Chromium native install, iOS manual Add to Home Screen guidance, installed
+  mode, 320 CSS-pixel reflow, 200% text, keyboard/focus behavior, and physical
+  iOS/Android install-launch-update behavior are qualified.
 - Automated WCAG A/AA checks cover the named sign-in, invitation, recovery,
   empty, populated, error, offline, search, thread, notification, settings,
   administration, and operations states on desktop and mobile, including 320

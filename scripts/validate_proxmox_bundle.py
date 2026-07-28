@@ -11,6 +11,7 @@ from pathlib import Path
 
 REQUIRED_FILES = (
     "AGENTS.md",
+    "Dockerfile",
     ".github/workflows/container.yml",
     ".github/workflows/deploy-proxmox.yml",
     "deploy/proxmox/README.md",
@@ -263,6 +264,13 @@ def validate(root: Path) -> list[str]:
     ):
         errors.append("common.sh logs must use stderr so command substitutions stay clean")
 
+    dockerfile = read(root, "Dockerfile")
+    runtime_dockerfile = dockerfile.partition(
+        "FROM ${RUNTIME_IMAGE} AS runtime"
+    )[2]
+    if 'io.k-comms.pwa="1"' not in runtime_dockerfile:
+        errors.append("Dockerfile runtime image is missing io.k-comms.pwa=1")
+
     deploy = read(root, "deploy/proxmox/bin/deploy.sh")
     for required in (
         "validate_image_ref",
@@ -277,6 +285,7 @@ def validate(root: Path) -> list[str]:
         "write_managed_livekit_runtime_env",
         'install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"',
         "--arg media_topology",
+        "--require-pwa; then",
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
@@ -382,6 +391,10 @@ def validate(root: Path) -> list[str]:
             "legacy production adoption must start the tunnel after activation "
             "and fallback"
         )
+    if "--require-pwa" in adoption:
+        errors.append(
+            "legacy production adoption must permit verification of a pre-PWA image"
+        )
 
     deploy = read(root, "deploy/proxmox/bin/deploy.sh")
     if "assert_adopted_storage_ready_for_activation" not in deploy:
@@ -400,6 +413,23 @@ def validate(root: Path) -> list[str]:
     ):
         if required not in verifier:
             errors.append(f"verify.sh is missing adopted-image control: {required}")
+    for required in (
+        "--require-pwa) require_pwa=true; shift ;;",
+        'podman image inspect "$actual_image"',
+        'io.k-comms.pwa"}}',
+        '"$require_pwa" == true && "$pwa_capability" != 1',
+        '"$pwa_capability" == 1',
+        "PWA verification was required but the running image lacks io.k-comms.pwa=1",
+        'worker_url="${pwa_origin}/k-comms-sw.js?revision=${release_revision}"',
+        "PWA application index has no revisioned JavaScript bundle",
+        "cache-control: public, max-age=31536000, immutable",
+        "PWA hashed asset content type is invalid",
+        "PWA missing hash-shaped asset did not return HTTP 404",
+        "PWA missing hash-shaped asset cache policy is unsafe",
+        "PWA missing hash-shaped asset content type is invalid",
+    ):
+        if required not in verifier:
+            errors.append(f"verify.sh is missing PWA control: {required}")
 
     livekit_sysctl = read(root, "deploy/proxmox/sysctl/99-k-comms-livekit.conf")
     if "net.core.rmem_max = 5000000" not in livekit_sysctl:
@@ -441,6 +471,10 @@ def validate(root: Path) -> list[str]:
     ):
         if required not in rollback:
             errors.append(f"rollback.sh is missing control: {required}")
+    if "--require-pwa" in rollback:
+        errors.append(
+            "rollback.sh must permit feature-aware verification of a pre-PWA image"
+        )
 
     restore = read(root, "deploy/proxmox/bin/restore.sh")
     for required in (
@@ -485,6 +519,25 @@ def validate(root: Path) -> list[str]:
             errors.append(
                 f"qualify-staging.sh is missing control: {required}"
             )
+    if (
+        staging_qualification.count(
+            '"${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa'
+        )
+        != 3
+    ):
+        errors.append(
+            "qualify-staging.sh must require PWA verification for retained, "
+            "reactivated, and post-restore candidates"
+        )
+    if (
+        '"${SCRIPT_DIR}/rollback.sh" --receipt "$candidate_receipt"\n'
+        '"${SCRIPT_DIR}/verify.sh" --environment staging\n'
+        not in staging_qualification
+    ):
+        errors.append(
+            "qualify-staging.sh must verify the rollback target without "
+            "requiring a PWA capability"
+        )
 
     workflow = read(root, ".github/workflows/deploy-proxmox.yml")
     for required in (
@@ -581,6 +634,13 @@ def validate(root: Path) -> list[str]:
         "Verify public production and finalize release evidence",
         "https://comms.avayaworks.com/api/v1/status",
         "https://kcomms-files.avayaworks.com/minio/health/ready",
+        "https://comms.avayaworks.com/app/k-comms-sw.js?revision=${REVISION}",
+        "--max-redirs 0",
+        'test "$pwa_worker_status" = "200"',
+        '""|bypass|dynamic) ;;',
+        "service worker was eligible for or served from edge cache",
+        "cache-control: public, max-age=31536000, immutable",
+        "https://comms.avayaworks.com/app/assets/missing-A1b2C3d4.js",
     ):
         if required not in container_workflow:
             errors.append(

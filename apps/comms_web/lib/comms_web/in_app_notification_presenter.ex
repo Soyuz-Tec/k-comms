@@ -34,18 +34,32 @@ defmodule CommsWeb.InAppNotificationPresenter do
   defp safe_action_url(value) when is_binary(value) do
     uri = URI.parse(value)
 
-    if app_path?(value) and not String.starts_with?(value, "//") and
-         is_nil(uri.scheme) and is_nil(uri.host),
-       do: String.slice(value, 0, 1_000),
-       else: nil
+    if not String.starts_with?(value, "//") and is_nil(uri.scheme) and is_nil(uri.host) and
+         safe_app_path?(uri.path) do
+      uri
+      |> Map.put(:path, canonical_app_path(uri.path))
+      |> URI.to_string()
+      |> String.slice(0, 1_000)
+    end
   end
 
   defp safe_action_url(_), do: nil
 
-  defp app_path?(value),
-    do:
-      value == "/app" or String.starts_with?(value, "/app?") or
-        String.starts_with?(value, "/app/")
+  defp safe_app_path?(path) when is_binary(path) do
+    decoded = URI.decode(path)
+    segments = String.split(decoded, "/")
+
+    (decoded == "/app" or String.starts_with?(decoded, "/app/")) and
+      not String.contains?(decoded, "\\") and
+      Enum.all?(segments, &(&1 not in [".", ".."]))
+  rescue
+    ArgumentError -> false
+  end
+
+  defp safe_app_path?(_), do: false
+
+  defp canonical_app_path("/app"), do: "/app/"
+  defp canonical_app_path(value), do: value
 
   defp payload_value(payload, key) when is_map(payload),
     do: Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))

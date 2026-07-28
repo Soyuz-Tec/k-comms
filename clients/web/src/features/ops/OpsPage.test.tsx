@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OperationsSnapshot, Session } from "../../types";
 import { OpsPage } from "./OpsPage";
@@ -66,9 +66,20 @@ describe("OpsPage", () => {
   it("redirects an unauthorized user without issuing a privileged request", async () => {
     session.user.platform_role = null;
 
-    render(<MemoryRouter initialEntries={["/ops"]}><OpsPage /></MemoryRouter>);
+    render(
+      <MemoryRouter initialEntries={["/ops"]}>
+        <OpsPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
 
     await waitFor(() => expect(platformOperations).not.toHaveBeenCalled());
     expect(screen.queryByRole("heading", { name: "Service operations" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("location")).toHaveTextContent("/app/");
   });
 });
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="location">{location.pathname}</output>;
+}

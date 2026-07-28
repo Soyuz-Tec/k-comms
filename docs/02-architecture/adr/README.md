@@ -63,5 +63,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0057 | Use managed LiveKit Cloud for Internet media transport | Accepted |
 | 0058 | Automate protected merge-to-production promotion | Accepted |
 | 0059 | Treat Windows interface indices as diagnostic local-release evidence | Accepted |
+| 0060 | Add an install-scoped progressive web application | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -429,6 +429,160 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("verify.sh is missing adopted-image control" in error for error in errors)
         )
 
+    def test_rejects_runtime_image_without_pwa_capability_label(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "Dockerfile"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                '      io.k-comms.pwa="1"',
+                '      io.k-comms.pwa="0"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn("Dockerfile runtime image is missing io.k-comms.pwa=1", errors)
+
+    def test_rejects_verifier_without_required_pwa_gate(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/verify.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "--require-pwa) require_pwa=true; shift ;;",
+                "--pwa-optional) require_pwa=false; shift ;;",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("verify.sh is missing PWA control" in error for error in errors)
+        )
+
+    def test_rejects_unrevisioned_worker_deployment_probe(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/verify.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'worker_url="${pwa_origin}/k-comms-sw.js?revision=${release_revision}"',
+                'worker_url="${pwa_origin}/k-comms-sw.js"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("verify.sh is missing PWA control" in error for error in errors)
+        )
+
+    def test_rejects_unrevisioned_public_worker_probe(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/container.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "https://comms.avayaworks.com/app/k-comms-sw.js?revision=${REVISION}",
+                "https://comms.avayaworks.com/app/k-comms-sw.js",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "automatic release workflow is missing control" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_missing_hashed_asset_negative_probe(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/verify.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "PWA missing hash-shaped asset did not return HTTP 404",
+                "missing asset ignored",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any("verify.sh is missing PWA control" in error for error in errors)
+        )
+
+    def test_rejects_candidate_deploy_without_required_pwa_verification(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/deploy.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "  --require-pwa; then",
+                "  --skip-host-tuning; then",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "deploy.sh is missing control: --require-pwa; then" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_incomplete_staging_pwa_qualification(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/qualify-staging.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                '"${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa',
+                '"${SCRIPT_DIR}/verify.sh" --environment staging',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "qualify-staging.sh must require PWA verification" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_rollback_that_requires_pwa_capability(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/rollback.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment"',
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn(
+            "rollback.sh must permit feature-aware verification of a pre-PWA image",
+            errors,
+        )
+
+    def test_rejects_legacy_adoption_that_requires_pwa_capability(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/adopt-legacy-production.sh"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                'bash "${SCRIPT_DIR}/verify.sh" --environment production',
+                'bash "${SCRIPT_DIR}/verify.sh" --environment production --require-pwa',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertIn(
+            "legacy production adoption must permit verification of a pre-PWA image",
+            errors,
+        )
+
     def test_rejects_missing_tunnel_recovery(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

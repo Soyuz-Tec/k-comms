@@ -445,7 +445,7 @@ function mergeCalls(current: CallSummary[], incoming: CallSummary[]): CallSummar
 
 function conversationPath(conversationId: string): string {
   const query = new URLSearchParams({ conversation: conversationId });
-  return `/app?${query.toString()}`;
+  return `/app/?${query.toString()}`;
 }
 
 function formatDuration(seconds: number): string {

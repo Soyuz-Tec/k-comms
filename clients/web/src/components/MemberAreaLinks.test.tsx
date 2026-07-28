@@ -23,5 +23,9 @@ describe("MemberAreaLinks", () => {
       "aria-current",
       "page"
     );
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+      "href",
+      "/app/"
+    );
   });
 });

@@ -121,7 +121,7 @@ describe("FilesPage", () => {
     expect(within(row as HTMLElement).getByText("Available")).toBeVisible();
     expect(within(row as HTMLElement).getByRole("link", { name: "View source message for forecast.xlsx" })).toHaveAttribute(
       "href",
-      `/app?conversation=${conversationId}&search_message=${messageId}&search_sequence=42`
+      `/app/?conversation=${conversationId}&search_message=${messageId}&search_sequence=42`
     );
 
     const blockedDownload = screen.getByRole("button", { name: "Download blocked.exe" });
