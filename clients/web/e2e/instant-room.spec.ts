@@ -178,7 +178,15 @@ test.describe("instant-room front door", () => {
     const composer = page.getByRole("textbox", { name: "Message" });
     const send = page.getByRole("button", { name: "Send" });
     await expect(composer).toBeVisible();
+    await expect(composer).toHaveAttribute("placeholder", "Write a message");
     await expect(composer).toHaveCSS("font-size", "16px");
+    const composerTextMetrics = await composer.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight
+    }));
+    expect(composerTextMetrics.scrollHeight).toBeLessThanOrEqual(
+      composerTextMetrics.clientHeight
+    );
     await expect(send).toBeVisible();
     await expectMinimumTarget(send);
     await expectContained(composer, { width: 320, height: 700 });
