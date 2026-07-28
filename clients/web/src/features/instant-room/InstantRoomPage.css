@@ -364,12 +364,12 @@
   }
 
   .instant-room-start h1 {
-    max-width: 19rem;
+    max-width: 100%;
     margin-top: .25rem;
     color: #0b1220;
-    font-size: clamp(2rem, 10vw, 2.4rem);
+    font-size: clamp(1.65rem, 7.2vw, 2rem);
     font-weight: 680;
-    letter-spacing: -.045em;
+    letter-spacing: -.04em;
     line-height: 1.06;
   }
 
