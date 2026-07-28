@@ -261,10 +261,21 @@ describe("CallPanel calls", () => {
     expect(activeCall).toHaveAttribute("aria-modal", "true");
     expect(activeCall).toHaveClass("active-call-screen", "audio-call-screen");
     expect(activeCall).not.toHaveClass("minimized");
-    expect(within(activeCall).getByLabelText("Call progress"))
-      .toHaveTextContent("1 participant");
-    expect(within(activeCall).getByLabelText("Call progress"))
-      .toHaveTextContent("Connected");
+    const progress = within(activeCall).getByLabelText("Call progress");
+    const headingSummary = activeCall.querySelector(".call-heading-summary") as HTMLElement;
+    expect(headingSummary).toContainElement(within(activeCall).getByRole("heading", {
+      name: "Design group"
+    }));
+    expect(within(progress).getByText("·")).toHaveAttribute("aria-hidden", "true");
+    const participantCount = within(progress).getByRole("status", {
+      name: "1 participant"
+    });
+    expect(participantCount.querySelector(".call-participant-count-number"))
+      .toHaveTextContent("1");
+    expect(participantCount.querySelector(".call-participant-count-word"))
+      .toHaveTextContent("participant");
+    expect(within(progress).getByText("Connected"))
+      .toHaveClass("call-status-connected");
 
     const participantStage = within(activeCall).getByRole("region", {
       name: "Audio call participants"
@@ -451,12 +462,17 @@ describe("CallPanel calls", () => {
     act(() => livekit.callbacks.get(livekit.events.Reconnecting)?.());
     expect(within(progress).getByText("Reconnecting"))
       .toHaveAttribute("aria-live", "polite");
+    expect(activeCall.querySelector(".call-heading-summary"))
+      .toHaveClass("has-call-status");
     expect(microphone).toBeDisabled();
     expect(within(activeCall).getByRole("button", { name: "Leave call" }))
       .toBeEnabled();
 
     act(() => livekit.callbacks.get(livekit.events.Reconnected)?.());
-    expect(within(progress).getByText("Connected")).toBeVisible();
+    expect(within(progress).getByText("Connected"))
+      .toHaveClass("call-status-connected");
+    expect(activeCall.querySelector(".call-heading-summary"))
+      .not.toHaveClass("has-call-status");
     expect(microphone).toBeEnabled();
   });
 
@@ -500,7 +516,15 @@ describe("CallPanel calls", () => {
     act(() => livekit.callbacks.get(livekit.events.ParticipantConnected)?.());
 
     const progress = within(activeCall).getByLabelText("Call progress");
-    expect(progress).toHaveTextContent("3 participants");
+    const participantCount = within(progress).getByRole("status", {
+      name: "3 participants"
+    });
+    expect(participantCount.querySelector(".call-participant-count-number"))
+      .toHaveTextContent("3");
+    expect(participantCount.querySelector(".call-participant-count-word"))
+      .toHaveTextContent("participants");
+    expect(participantCount.querySelector(".call-participant-count-icon .app-icon"))
+      .toBeInTheDocument();
     const participantIds = within(activeCall)
       .getAllByRole("listitem")
       .filter((item) => item.hasAttribute("data-participant-id"))
