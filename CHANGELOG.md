@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- Recorded the production two-iPhone cellular audio/video qualification for the
+  managed LiveKit Cloud media plane while retaining the separate forced-relay,
+  group-capacity, screen-share, privacy, outage, and incident gates.
+
 ## [0.3.0] - 2026-07-12
 
 ### Added

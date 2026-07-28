@@ -97,6 +97,12 @@ limitation.
   pass public health/status checks, and prove a two-party call with one
   participant outside the local network.
 
+The production two-party requirement passed on 2026-07-27. Two physical
+iPhones joined with Wi-Fi disabled, published and subscribed to microphone and
+720p camera tracks, and exchanged media over the managed provider's UDP path.
+The retained evidence is
+[Production external-media qualification — 2026-07-27](../../11-testing-and-quality/external-media-qualification-2026-07-27.md).
+
 ## Revisit triggers
 
 - Free-plan quota, concurrency, bandwidth, or retention policy no longer fits
