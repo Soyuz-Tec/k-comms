@@ -761,6 +761,7 @@ if config_env() == :prod do
       region: System.get_env("S3_REGION", "us-east-1"),
       access_key_id: System.fetch_env!("S3_ACCESS_KEY_ID"),
       secret_access_key: System.fetch_env!("S3_SECRET_ACCESS_KEY"),
-      expires_in: String.to_integer(System.get_env("S3_URL_TTL_SECONDS", "900"))
+      expires_in: String.to_integer(System.get_env("S3_URL_TTL_SECONDS", "900")),
+      download_expires_in: String.to_integer(System.get_env("S3_DOWNLOAD_URL_TTL_SECONDS", "120"))
     ]
 end

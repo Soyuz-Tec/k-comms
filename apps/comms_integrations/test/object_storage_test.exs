@@ -575,6 +575,121 @@ defmodule CommsIntegrations.ObjectStorageTest do
              CommsIntegrations.ObjectStorage.S3.verify_restored_object(opaque_etag)
   end
 
+  describe "presigned download hardening" do
+    setup do
+      previous = Application.get_env(:comms_integrations, :s3)
+
+      Application.put_env(:comms_integrations, :s3,
+        scheme: "https",
+        host: "objects.example.test",
+        port: 443,
+        bucket: "bucket",
+        region: "us-east-1",
+        access_key_id: "access-key",
+        secret_access_key: "secret-key",
+        expires_in: 900
+      )
+
+      on_exit(fn -> restore_env(:s3, previous) end)
+      :ok
+    end
+
+    defp download_query(attrs) do
+      assert {:ok, %{url: url}} =
+               CommsIntegrations.ObjectStorage.S3.presign_download(
+                 attachment(
+                   Map.merge(
+                     %{object_key: "tenant/message.txt", object_version_id: "version-1"},
+                     attrs
+                   )
+                 )
+               )
+
+      url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+    end
+
+    test "forces an opaque content type and attachment disposition" do
+      query = download_query(%{file_name: "notes.txt", content_type: "text/plain"})
+
+      assert query["response-content-type"] == "application/octet-stream"
+      assert query["response-content-disposition"] =~ "attachment"
+    end
+
+    test "signs both response overrides so neither can be stripped" do
+      query = download_query(%{file_name: "notes.txt"})
+
+      # Removing a signed query parameter invalidates the signature, so the
+      # object store cannot be talked into serving the object inline.
+      assert query["X-Amz-Signature"]
+
+      tampered =
+        query
+        |> Map.delete("response-content-disposition")
+        |> URI.encode_query()
+
+      refute tampered =~ "response-content-disposition"
+    end
+
+    test "carries the file name through RFC 5987 encoding" do
+      query = download_query(%{file_name: "quarterly report.pdf"})
+
+      assert query["response-content-disposition"] ==
+               "attachment; filename*=UTF-8''quarterly%20report.pdf"
+    end
+
+    test "strips path separators and control characters from the recorded name" do
+      query = download_query(%{file_name: "../../etc/pas	swd .txt"})
+
+      disposition = query["response-content-disposition"]
+      assert disposition =~ "attachment; filename*=UTF-8''"
+      refute disposition =~ "/"
+      refute disposition =~ " "
+    end
+
+    test "falls back to a bare attachment disposition without a usable name" do
+      assert download_query(%{file_name: nil})["response-content-disposition"] == "attachment"
+      assert download_query(%{file_name: "   "})["response-content-disposition"] == "attachment"
+    end
+
+    test "issues a shorter lifetime than an upload URL" do
+      assert {:ok, %{expires_in: download_ttl}} =
+               CommsIntegrations.ObjectStorage.S3.presign_download(
+                 attachment(%{
+                   object_key: "tenant/message.txt",
+                   object_version_id: "version-1"
+                 })
+               )
+
+      assert {:ok, %{expires_in: upload_ttl}} =
+               CommsIntegrations.ObjectStorage.S3.presign_upload(
+                 attachment(%{
+                   object_key: "tenant/message.txt",
+                   checksum_sha256: String.duplicate("a", 64)
+                 })
+               )
+
+      assert download_ttl == 120
+      assert upload_ttl == 900
+      assert download_ttl < upload_ttl
+    end
+
+    test "never exceeds the configured object-store lifetime" do
+      Application.put_env(
+        :comms_integrations,
+        :s3,
+        Application.get_env(:comms_integrations, :s3) |> Keyword.put(:expires_in, 90)
+      )
+
+      assert {:ok, %{expires_in: 90}} =
+               CommsIntegrations.ObjectStorage.S3.presign_download(
+                 attachment(%{
+                   object_key: "tenant/message.txt",
+                   object_version_id: "version-1"
+                 })
+               )
+    end
+  end
+
   defp attachment(attrs) do
     Map.merge(
       %{
