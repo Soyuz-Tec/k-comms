@@ -19,6 +19,10 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
+import {
+  AppMenuCloseButton,
+  AppMenuTrigger
+} from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import {
   browserName,
@@ -852,18 +856,19 @@ function isDefinitiveRoomUnavailable(reason: unknown): boolean {
 }
 
 function useMobileRoomLayout() {
+  const queryText = "(max-width: 760px), (max-height: 560px)";
   const [mobile, setMobile] = useState(
-    () => window.matchMedia?.("(max-width: 768px)").matches ?? false
+    () => window.matchMedia?.(queryText).matches ?? false
   );
 
   useEffect(() => {
     if (!window.matchMedia) return;
-    const query = window.matchMedia("(max-width: 768px)");
+    const query = window.matchMedia(queryText);
     const update = () => setMobile(query.matches);
     update();
     query.addEventListener?.("change", update);
     return () => query.removeEventListener?.("change", update);
-  }, []);
+  }, [queryText]);
 
   return mobile;
 }
@@ -906,31 +911,34 @@ function GuestRoomMenu({
       >
         <header>
           <h2 id="guest-room-menu-title">Room menu</h2>
-          <button
-            className="button ghost compact"
-            type="button"
+          <AppMenuCloseButton
             data-initial-focus
+            accessibleLabel="Close"
             onClick={onClose}
-          >
-            Close
-          </button>
+          />
         </header>
         {inviteContent}
         <div className="guest-room-menu-actions">
           {canKeepRoom && (
             <button className="guest-room-menu-action" type="button" onClick={onKeepRoom}>
-              <strong>
-                {identityLabel === "Host"
-                  ? "Save this room"
-                  : "Keep this conversation"}
-              </strong>
-              <span>Continue from another device with an account.</span>
+              <AppIcon name="bookmark" />
+              <div>
+                <strong>
+                  {identityLabel === "Host"
+                    ? "Save this room"
+                    : "Keep this conversation"}
+                </strong>
+                <span>Continue from another device with an account.</span>
+              </div>
             </button>
           )}
           {identityLabel === "Host" && (
             <Link className="guest-room-menu-action" to="/sign-in" onClick={onClose}>
-              <strong>Sign in to a workspace</strong>
-              <span>Use an existing K-Comms account.</span>
+              <AppIcon name="logIn" />
+              <div>
+                <strong>Sign in to a workspace</strong>
+                <span>Use an existing K-Comms account.</span>
+              </div>
             </Link>
           )}
           <button
@@ -939,12 +947,15 @@ function GuestRoomMenu({
             disabled={leaving}
             onClick={onLeave}
           >
-            <strong>{leaving ? "Leaving room…" : "Leave room"}</strong>
-            <span>
-              {warnsOfGuestHostLoss
-                ? "Leaving clears this guest host session. Copy the invite to rejoin, or save the room first to keep management access."
-                : "This ends only your session on this device."}
-            </span>
+            <AppIcon name="logOut" />
+            <div>
+              <strong>{leaving ? "Leaving room…" : "Leave room"}</strong>
+              <span>
+                {warnsOfGuestHostLoss
+                  ? "Leaving clears this guest host session. Copy the invite to rejoin, or save the room first to keep management access."
+                  : "This ends only your session on this device."}
+              </span>
+            </div>
           </button>
         </div>
       </aside>
@@ -1829,21 +1840,17 @@ export function GuestShell({
           </div>
         </div>
         {mobileRoomLayout ? (
-          <button
+          <AppMenuTrigger
             ref={roomMenuTriggerRef}
             className="guest-room-menu-trigger"
-            type="button"
-            aria-label="Open room menu"
-            aria-haspopup="dialog"
-            aria-expanded={showRoomMenu}
-            aria-controls="guest-room-menu"
+            accessibleLabel="Open room menu"
+            expanded={showRoomMenu}
+            controls="guest-room-menu"
             onFocus={() => {
               roomMenuTriggerFocusedRef.current = true;
             }}
             onClick={() => setShowRoomMenu(true)}
-          >
-            <AppIcon name="menu" />
-          </button>
+          />
         ) : (
           <div className="guest-shell-actions">
             {conversionEnabled && !conversionReceipt && (

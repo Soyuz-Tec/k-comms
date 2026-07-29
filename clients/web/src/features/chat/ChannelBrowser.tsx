@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient } from "../../api";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
-import { AppIcon } from "../../components/AppIcon";
 import { conversationTitle, errorText, stringValue } from "../../lib/format";
 import type { Conversation, PublicChannel } from "../../types";
 
@@ -87,7 +87,14 @@ export function ChannelBrowser({
   return (
     <div className="drawer-backdrop">
       <aside ref={dialogRef} className="search-panel channel-browser-panel" role="dialog" aria-modal="true" aria-labelledby="channel-browser-title">
-        <header><div><span className="eyebrow">Workspace channels</span><h2 id="channel-browser-title">Browse channels</h2></div><button className="icon-button" type="button" aria-label="Close channel browser" onClick={onClose}><AppIcon name="x" /></button></header>
+        <header>
+          <div><span className="eyebrow">Workspace channels</span><h2 id="channel-browser-title">Browse channels</h2></div>
+          <AppSurfaceControlButton
+            accessibleLabel="Close channel browser"
+            kind="close"
+            onClick={onClose}
+          />
+        </header>
         {!enabled ? (
           <div className="empty-state compact-empty" role="status"><h3>Channel discovery is disabled</h3><p>Your workspace policy does not allow tenant-visible public channels.</p></div>
         ) : <>

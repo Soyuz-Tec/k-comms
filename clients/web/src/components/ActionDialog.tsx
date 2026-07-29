@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { createPortal } from "react-dom";
+import { AppSurfaceControlButton } from "./AppMenuControls";
 import { useModalDialog } from "./useModalDialog";
 
 export interface AuditReasonOptions {
@@ -75,7 +76,15 @@ export function ActionDialog({
         aria-describedby={describedBy}
         tabIndex={-1}
       >
-        <h2 id={titleId}>{title}</h2>
+        <header className="app-dialog-heading">
+          <h2 id={titleId}>{title}</h2>
+          <AppSurfaceControlButton
+            accessibleLabel={`Close ${title}`}
+            disabled={busy}
+            kind="close"
+            onClick={onCancel}
+          />
+        </header>
         <p id={descriptionId}>{description}</p>
         {impact && (
           <div className="action-dialog-impact" id={impactId} role="note">

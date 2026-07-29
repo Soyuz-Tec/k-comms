@@ -34,12 +34,17 @@ describe("ActionDialog", () => {
     await user.click(trigger);
     const cancel = screen.getByRole("button", { name: "Cancel" });
     const confirm = screen.getByRole("button", { name: "Remove member" });
+    const close = screen.getByRole("button", {
+      name: "Close Remove this member?"
+    });
     await waitFor(() => expect(cancel).toHaveFocus());
     expect(container).toHaveAttribute("aria-hidden", "true");
     expect((container as HTMLElement).inert).toBe(true);
 
     await user.tab();
     expect(confirm).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
     await user.tab();
     expect(cancel).toHaveFocus();
 

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api";
+import { AppSurfaceControlButton } from "../components/AppMenuControls";
 import { useModalDialog } from "../components/useModalDialog";
 import { errorText, stringValue } from "../lib/format";
 import { useSession } from "./session";
@@ -96,11 +97,21 @@ function StepUpDialog({
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const dialogRef = useModalDialog(onCancel);
+  const dialogRef = useModalDialog(() => {
+    if (!busy) onCancel();
+  });
   return createPortal(
     <div className="modal-backdrop">
       <section ref={dialogRef} className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="step-up-title" aria-describedby="step-up-description">
-        <h2 id="step-up-title">Confirm it is you</h2>
+        <header className="app-dialog-heading">
+          <h2 id="step-up-title">Confirm it is you</h2>
+          <AppSurfaceControlButton
+            accessibleLabel="Close identity confirmation"
+            disabled={busy}
+            kind="close"
+            onClick={onCancel}
+          />
+        </header>
         <p id="step-up-description">Enter your current password to continue this sensitive action. The password is used only for this verification.</p>
         {error && <div className="form-error" role="alert">{error}</div>}
         <form ref={formRef} onSubmit={onSubmit}>
