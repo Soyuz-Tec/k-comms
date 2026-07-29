@@ -474,22 +474,184 @@ describe("presigned URL validation", () => {
 
   it("keeps large object uploads on the caller-controlled signal without an API deadline", async () => {
     const callerController = new AbortController();
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    const { requests, restore } = stubUploadTransport();
+    const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
 
-    await uploadToPresignedTarget(
-      {
-        url: "https://objects.example.test/files/report.pdf?signature=abc",
-        approved_origin: "https://objects.example.test",
-        method: "PUT"
-      },
+    const upload = uploadToPresignedTarget(
+      descriptor(),
       new File(["report"], "report.pdf", { type: "application/pdf" }),
       callerController.signal
     );
+    requests[0]?.succeed(204);
+    await upload;
 
-    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(callerController.signal);
+    // The object transfer must not inherit the API deadline that wraps ordinary
+    // requests: a large file over a slow link would be cut off mid-transfer.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(requests[0]?.aborted).toBe(false);
+    restore();
+  });
+
+  it("aborts the transfer when the caller's signal fires", async () => {
+    const callerController = new AbortController();
+    const { requests, restore } = stubUploadTransport();
+
+    const upload = uploadToPresignedTarget(
+      descriptor(),
+      new File(["report"], "report.pdf", { type: "application/pdf" }),
+      callerController.signal
+    );
+    callerController.abort();
+
+    await expect(upload).rejects.toMatchObject({ name: "AbortError" });
+    expect(requests[0]?.aborted).toBe(true);
+    restore();
+  });
+
+  it("rejects an upload that was already cancelled before it started", async () => {
+    const callerController = new AbortController();
+    callerController.abort();
+    const { requests, restore } = stubUploadTransport();
+
+    await expect(
+      uploadToPresignedTarget(
+        descriptor(),
+        new File(["report"], "report.pdf", { type: "application/pdf" }),
+        callerController.signal
+      )
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(requests).toHaveLength(0);
+    restore();
+  });
+
+  it("reports transferred fractions and settles at one", async () => {
+    const { requests, restore } = stubUploadTransport();
+    const seen: number[] = [];
+
+    const upload = uploadToPresignedTarget(
+      descriptor(),
+      new File(["report"], "report.pdf", { type: "application/pdf" }),
+      undefined,
+      (fraction) => seen.push(fraction)
+    );
+    requests[0]?.progress(25, 100);
+    requests[0]?.progress(50, 100);
+    requests[0]?.succeed(204);
+    await upload;
+
+    expect(seen).toEqual([0.25, 0.5, 1]);
+    restore();
+  });
+
+  it("stays indeterminate when the browser cannot report a total", async () => {
+    const { requests, restore } = stubUploadTransport();
+    const seen: number[] = [];
+
+    const upload = uploadToPresignedTarget(
+      descriptor(),
+      new File(["report"], "report.pdf", { type: "application/pdf" }),
+      undefined,
+      (fraction) => seen.push(fraction)
+    );
+    // A chunked transfer has no computable length; a fabricated fraction would
+    // be worse than none.
+    requests[0]?.progress(25, 0);
+    requests[0]?.succeed(204);
+    await upload;
+
+    expect(seen).toEqual([1]);
+    restore();
+  });
+
+  it("surfaces a non-success status from the object store", async () => {
+    const { requests, restore } = stubUploadTransport();
+
+    const upload = uploadToPresignedTarget(
+      descriptor(),
+      new File(["report"], "report.pdf", { type: "application/pdf" })
+    );
+    requests[0]?.succeed(403);
+
+    await expect(upload).rejects.toThrow("Object upload failed with status 403");
+    restore();
   });
 });
+
+function descriptor() {
+  return {
+    url: "https://objects.example.test/files/report.pdf?signature=abc",
+    approved_origin: "https://objects.example.test",
+    method: "PUT"
+  };
+}
+
+interface FakeUploadRequest {
+  aborted: boolean;
+  progress: (loaded: number, total: number) => void;
+  succeed: (status: number) => void;
+  fail: () => void;
+}
+
+/**
+ * jsdom's XMLHttpRequest performs a real network request, so the transport is
+ * replaced wholesale to drive upload events deterministically.
+ */
+function stubUploadTransport() {
+  const requests: FakeUploadRequest[] = [];
+  const original = globalThis.XMLHttpRequest;
+
+  class FakeXhr {
+    status = 0;
+    upload = new EventTarget();
+    private readonly listeners = new EventTarget();
+    private record: FakeUploadRequest = {
+      aborted: false,
+      progress: () => undefined,
+      succeed: () => undefined,
+      fail: () => undefined
+    };
+
+    open() {
+      /* no transport is opened */
+    }
+    setRequestHeader() {
+      /* headers are irrelevant to the stub */
+    }
+    addEventListener(type: string, listener: EventListener) {
+      this.listeners.addEventListener(type, listener);
+    }
+    abort() {
+      this.record.aborted = true;
+      this.listeners.dispatchEvent(new Event("abort"));
+    }
+    send() {
+      this.record = {
+        aborted: false,
+        progress: (loaded, total) => {
+          const event = new Event("progress") as Event & {
+            lengthComputable: boolean;
+            loaded: number;
+            total: number;
+          };
+          event.lengthComputable = total > 0;
+          event.loaded = loaded;
+          event.total = total;
+          this.upload.dispatchEvent(event);
+        },
+        succeed: (status) => {
+          this.status = status;
+          this.listeners.dispatchEvent(new Event("load"));
+        },
+        fail: () => this.listeners.dispatchEvent(new Event("error"))
+      };
+      requests.push(this.record);
+    }
+  }
+
+  globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+  return { requests, restore: () => { globalThis.XMLHttpRequest = original; } };
+}
 
 describe("public password recovery", () => {
   it("uses non-authenticated request and reset endpoints", async () => {
