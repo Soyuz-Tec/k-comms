@@ -52,13 +52,19 @@ const livekit = vi.hoisted(() => ({
   startVideo: vi.fn(),
   switchActiveDevice: vi.fn(),
   canPlaybackAudio: true,
-  canPlaybackVideo: true
+  canPlaybackVideo: true,
+  supportsVP9: true,
+  roomOptions: [] as Record<string, unknown>[]
 }));
 
 vi.mock("livekit-client", () => ({
   ConnectionState: { Reconnecting: "reconnecting", SignalReconnecting: "signalReconnecting" },
   DisconnectReason: { PARTICIPANT_REMOVED: 4, ROOM_DELETED: 5 },
   RoomEvent: livekit.events,
+  ScreenSharePresets: {
+    h1080fps15: { encoding: { maxBitrate: 2_500_000, maxFramerate: 15, priority: "medium" } }
+  },
+  supportsVP9: () => livekit.supportsVP9,
   Track: {
     Kind: { Audio: "audio", Video: "video" },
     Source: { Camera: "camera", ScreenShare: "screen_share" }
@@ -66,6 +72,9 @@ vi.mock("livekit-client", () => ({
   Room: class MockRoom {
     static getLocalDevices(kind: MediaDeviceKind, requestPermissions?: boolean) {
       return livekit.getLocalDevices(kind, requestPermissions);
+    }
+    constructor(options: Record<string, unknown>) {
+      livekit.roomOptions.push(options);
     }
     remoteParticipants = livekit.remoteParticipants;
     localParticipant = livekit.localParticipant;
@@ -203,6 +212,8 @@ describe("CallPanel calls", () => {
   beforeEach(() => {
     livekit.callbacks.clear();
     livekit.remoteParticipants.clear();
+    livekit.roomOptions.length = 0;
+    livekit.supportsVP9 = true;
     livekit.localParticipant.isMicrophoneEnabled = false;
     livekit.localParticipant.isCameraEnabled = false;
     livekit.localParticipant.isScreenShareEnabled = false;
@@ -619,6 +630,57 @@ describe("CallPanel calls", () => {
     expect(livekit.disconnect).toHaveBeenCalledWith(true);
     expect(grace.track.detach).toHaveBeenCalled();
     expect(linus.track.detach).toHaveBeenCalled();
+  });
+
+  it("publishes VP9 with a VP8 backup and a bandwidth-bounded screen share", async () => {
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    expect(livekit.roomOptions.at(-1)?.publishDefaults).toEqual({
+      videoCodec: "vp9",
+      backupCodec: true,
+      dtx: true,
+      red: true,
+      screenShareEncoding: { maxBitrate: 2_500_000, maxFramerate: 15, priority: "medium" }
+    });
+  });
+
+  it("publishes VP8 when the browser cannot encode VP9", async () => {
+    livekit.supportsVP9 = false;
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    expect(livekit.roomOptions.at(-1)?.publishDefaults).toMatchObject({ videoCodec: "vp8" });
   });
 
   it("ignores old-room device and media failures after switching conversations", async () => {

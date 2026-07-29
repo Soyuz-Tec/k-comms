@@ -5,13 +5,16 @@ import {
   DisconnectReason,
   Room,
   RoomEvent,
-  Track
+  ScreenSharePresets,
+  Track,
+  supportsVP9
 } from "livekit-client";
 import type {
   LocalVideoTrack,
   Participant,
   RemoteTrack,
-  RemoteVideoTrack
+  RemoteVideoTrack,
+  TrackPublishDefaults
 } from "livekit-client";
 import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
@@ -603,7 +606,8 @@ export function CallPanel({
         adaptiveStream: true,
         dynacast: true,
         audioCaptureDefaults: microphoneCaptureOptions(microphoneDeviceId),
-        videoCaptureDefaults: cameraCaptureOptions(cameraDeviceId)
+        videoCaptureDefaults: cameraCaptureOptions(cameraDeviceId),
+        publishDefaults: callPublishDefaults()
       });
       bindRoom(room, kind);
       roomRef.current = room;
@@ -1901,6 +1905,29 @@ function microphoneCaptureOptions(deviceId: string) {
 
 function cameraCaptureOptions(deviceId: string) {
   return { ...(deviceId ? { deviceId } : {}), resolution: { width: 1280, height: 720, frameRate: 30 }, facingMode: "user" as const };
+}
+
+/**
+ * VP9 carries the same perceived quality as the VP8 default at a materially
+ * lower bitrate, and its SVC layers replace simulcast so the publisher encodes
+ * one stream instead of three. `backupCodec` keeps a VP8 track available for
+ * subscribers that cannot decode VP9, so selecting it never excludes a
+ * participant; publishers that cannot encode it stay on VP8.
+ *
+ * Screen content is dominated by resolution rather than motion, so it is
+ * published at 1080p15 instead of the 1080p30 default — half the bitrate for
+ * text that does not move.
+ */
+export function callPublishDefaults(): TrackPublishDefaults {
+  return {
+    videoCodec: supportsVP9() ? "vp9" : "vp8",
+    backupCodec: true,
+    // Both default to enabled for mono tracks. Set explicitly so the bandwidth
+    // and packet-loss behaviour of a call does not move with an SDK default.
+    dtx: true,
+    red: true,
+    screenShareEncoding: ScreenSharePresets.h1080fps15.encoding
+  };
 }
 
 function cameraConstraints(deviceId: string): MediaTrackConstraints {
