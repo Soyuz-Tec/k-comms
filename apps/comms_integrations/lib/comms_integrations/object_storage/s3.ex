@@ -6,6 +6,9 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   @algorithm "AWS4-HMAC-SHA256"
   @service "s3"
   @server_side_encryption "AES256"
+  # Mirrors the database constraint. SVG is excluded because a variant is served
+  # inline and SVG is scriptable.
+  @variant_content_types ["image/webp", "image/jpeg", "image/png"]
   @default_expires_in 900
   @default_download_expires_in 120
   @minimum_expires_in 60
@@ -79,6 +82,116 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     |> String.replace(~r{[/\\]}, "_")
     |> String.trim()
     |> String.slice(0, 200)
+  end
+
+  @impl true
+  def presign_variant_upload(variant) do
+    with {:ok, key} <- required_variant_key(variant),
+         {:ok, content_type} <- required_variant_content_type(variant),
+         {:ok, checksum} <- required_variant_checksum(variant) do
+      # The content type is signed, so the object store rejects an upload that
+      # declares anything else. That is what keeps a variant -- the one
+      # attachment surface served inline -- from being stored as an executable
+      # type regardless of what the client sends.
+      headers = %{
+        "content-type" => content_type,
+        "x-amz-checksum-sha256" => checksum_base64(checksum),
+        "x-amz-meta-sha256" => checksum,
+        "x-amz-server-side-encryption" => @server_side_encryption
+      }
+
+      presign("PUT", key, :public, headers, [])
+    end
+  end
+
+  @impl true
+  def presign_variant_download(variant) do
+    with {:ok, key} <- required_variant_key(variant),
+         {:ok, content_type} <- required_variant_content_type(variant),
+         {:ok, version} <- required_variant_version(variant) do
+      # Inline is the deliberate exception to the attachment disposition forced
+      # on ordinary downloads, and it is safe only because the type is pinned to
+      # a non-executable raster format both here and at upload.
+      presign(
+        "GET",
+        key,
+        :public,
+        %{},
+        [
+          {"versionId", version},
+          {"response-content-type", content_type},
+          {"response-content-disposition", "inline"}
+        ],
+        :download
+      )
+    end
+  end
+
+  @impl true
+  def verify_variant_upload(variant) do
+    checksum_headers = %{"x-amz-checksum-mode" => "ENABLED"}
+
+    with {:ok, key} <- required_variant_key(variant),
+         {:ok, checksum} <- required_variant_checksum(variant),
+         {:ok, expected_size} <- required_variant_size(variant),
+         {:ok, %{url: url, headers: request_headers}} <-
+           presign("HEAD", key, :internal, checksum_headers, []),
+         request <- Finch.build(:head, url, Map.to_list(request_headers)),
+         {:ok, %Finch.Response{status: status, headers: headers}} when status in 200..299 <-
+           Finch.request(request, CommsIntegrations.Finch),
+         :ok <- verify_size(headers, expected_size),
+         :ok <- verify_checksum(headers, checksum),
+         :ok <- verify_encryption(headers),
+         {:ok, version} <- response_version(headers) do
+      {:ok, %{object_version_id: version}}
+    else
+      {:ok, %Finch.Response{status: 404}} -> {:error, :object_not_found}
+      {:ok, %Finch.Response{status: status}} -> {:error, {:object_storage_status, status}}
+      {:error, _} = error -> error
+      _ -> {:error, :object_verification_failed}
+    end
+  end
+
+  defp required_variant_key(variant) do
+    case value(variant, :object_key) do
+      key when is_binary(key) and key != "" -> {:ok, key}
+      _ -> {:error, :variant_object_key_unavailable}
+    end
+  end
+
+  defp required_variant_content_type(variant) do
+    case value(variant, :content_type) do
+      type when type in @variant_content_types -> {:ok, type}
+      _ -> {:error, :unsupported_variant_content_type}
+    end
+  end
+
+  defp required_variant_checksum(variant) do
+    case value(variant, :checksum_sha256) do
+      checksum when is_binary(checksum) ->
+        checksum = String.downcase(checksum)
+
+        if Regex.match?(~r/^[a-f0-9]{64}$/, checksum),
+          do: {:ok, checksum},
+          else: {:error, :variant_checksum_required}
+
+      _ ->
+        {:error, :variant_checksum_required}
+    end
+  end
+
+  defp required_variant_size(variant) do
+    case value(variant, :byte_size) do
+      size when is_integer(size) and size > 0 -> {:ok, size}
+      _ -> {:error, :variant_size_required}
+    end
+  end
+
+  defp required_variant_version(variant) do
+    case value(variant, :object_version_id) do
+      version when is_binary(version) and version not in ["", "null"] -> {:ok, version}
+      _ -> {:error, :variant_version_unavailable}
+    end
   end
 
   @impl true

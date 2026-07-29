@@ -2,6 +2,9 @@ defmodule CommsIntegrations.ObjectStorage do
   @callback presign_upload(map()) :: {:ok, map()} | {:error, term()}
   @callback presign_download(map()) :: {:ok, map()} | {:error, term()}
   @callback verify_upload(map()) :: {:ok, map()} | {:error, term()}
+  @callback presign_variant_upload(map()) :: {:ok, map()} | {:error, term()}
+  @callback presign_variant_download(map()) :: {:ok, map()} | {:error, term()}
+  @callback verify_variant_upload(map()) :: {:ok, map()} | {:error, term()}
   @callback verify_restored_object(map()) :: {:ok, map()} | {:error, term()}
   @callback delete_object(map()) :: :ok | {:error, term()}
   @callback purge_object_versions(map()) ::
@@ -17,6 +20,9 @@ defmodule CommsIntegrations.ObjectStorage do
   def presign_upload(request), do: adapter().presign_upload(request)
   def presign_download(request), do: adapter().presign_download(request)
   def verify_upload(request), do: adapter().verify_upload(request)
+  def presign_variant_upload(request), do: adapter().presign_variant_upload(request)
+  def presign_variant_download(request), do: adapter().presign_variant_download(request)
+  def verify_variant_upload(request), do: adapter().verify_variant_upload(request)
 
   def verify_restored_object(request) do
     with :ok <- validate_object_request(request) do

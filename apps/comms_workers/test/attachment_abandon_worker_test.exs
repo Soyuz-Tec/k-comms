@@ -20,6 +20,15 @@ defmodule CommsWorkers.AttachmentAbandonWorkerTest.Storage do
   def presign_download(_request), do: {:error, :not_used}
 
   @impl true
+  def presign_variant_upload(_variant), do: {:error, :not_used}
+
+  @impl true
+  def presign_variant_download(_variant), do: {:error, :not_used}
+
+  @impl true
+  def verify_variant_upload(_variant), do: {:error, :not_used}
+
+  @impl true
   def verify_restored_object(_request), do: {:error, :not_used}
 
   @impl true

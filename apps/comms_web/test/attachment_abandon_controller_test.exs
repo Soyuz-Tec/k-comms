@@ -11,6 +11,15 @@ defmodule CommsWeb.AttachmentAbandonControllerTest.FailingStorage do
   def verify_upload(_attachment), do: {:error, :not_used}
 
   @impl true
+  def presign_variant_upload(_variant), do: {:error, :not_used}
+
+  @impl true
+  def presign_variant_download(_variant), do: {:error, :not_used}
+
+  @impl true
+  def verify_variant_upload(_variant), do: {:error, :not_used}
+
+  @impl true
   def verify_restored_object(_attachment), do: {:error, :not_used}
 
   @impl true

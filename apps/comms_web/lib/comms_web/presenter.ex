@@ -540,9 +540,21 @@ defmodule CommsWeb.Presenter do
       scan_attempts: attachment.scan_attempts,
       scan_error_code: attachment.scan_error_code,
       scanned_at: attachment.scanned_at,
-      quarantined_at: attachment.quarantined_at
+      quarantined_at: attachment.quarantined_at,
+      # Only the existence of a variant is public. Its object key is internal
+      # addressing, and a client reaches it through a presigned URL rather than
+      # by constructing one.
+      variant_kinds: verified_variant_kinds(attachment)
     }
   end
+
+  defp verified_variant_kinds(%AttachmentView{variants: variants}) when is_list(variants) do
+    variants
+    |> Enum.filter(&is_binary(Map.get(&1, :object_version_id)))
+    |> Enum.map(&Map.get(&1, :kind))
+  end
+
+  defp verified_variant_kinds(_attachment), do: []
 
   def file(%FileView{} = file) do
     %{

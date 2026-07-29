@@ -43,6 +43,39 @@ defmodule CommsWorkers.AttachmentAbandonWorker do
   def perform(_job), do: {:discard, :tenant_and_attachment_id_required}
 
   defp purge(job, target) do
+    # Each variant lives at its own key, and purging is exact-match by key, so
+    # the original's purge cannot reach them. They are purged first: completing
+    # the attachment's cleanup while a derived object survives would record the
+    # key as empty when it is not.
+    case purge_variants(target) do
+      :ok -> purge_object(job, target)
+      {:error, reason} -> fail(job, target, reason)
+    end
+  end
+
+  defp purge_variants(%{variant_object_keys: keys, tenant_id: tenant_id}) when is_list(keys) do
+    Enum.reduce_while(keys, :ok, fn key, :ok ->
+      case purge_variant(tenant_id, key) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp purge_variants(_target), do: :ok
+
+  defp purge_variant(tenant_id, key) when is_binary(key) and key != "" do
+    case ObjectStorage.purge_object_versions(%{tenant_id: tenant_id, object_key: key}) do
+      {:ok, %{verified_empty?: true}} -> :ok
+      {:ok, %{verified_empty?: false}} -> {:error, :variant_versions_remain}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :object_cleanup_invalid_response}
+    end
+  end
+
+  defp purge_variant(_tenant_id, _key), do: {:error, :variant_object_key_invalid}
+
+  defp purge_object(job, target) do
     request = %{tenant_id: target.tenant_id, object_key: target.object_key}
 
     case ObjectStorage.purge_object_versions(request) do
