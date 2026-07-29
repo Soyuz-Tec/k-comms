@@ -1517,13 +1517,16 @@ class ValidateArchitectureTest(unittest.TestCase):
                     self.assertIn(f"field(:{field}, Ecto.UUID)", source)
 
         notifications_source = notification_sources[0].read_text(encoding="utf-8")
+        fanout_source = (
+            root / "apps/comms_core/lib/comms_core/notifications/fanout.ex"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             "|> Conversations.active_member_ids(conversation_id)",
-            notifications_source,
+            fanout_source,
         )
         self.assertIn(
             "Accounts.resolve_notification_recipients(event.tenant_id, user_ids)",
-            notifications_source,
+            fanout_source,
         )
 
         push_source = (
