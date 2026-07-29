@@ -667,9 +667,25 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
+        # Widenings are pinned here so adding an owned table cannot pass as an
+        # incidental edit. Each entry must carry an accepted ADR, the immutable
+        # base hash it was reviewed against, and the condition that retires it.
+        transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
         self.assertEqual(
-            manifest["enforcement"]["reviewed_manifest_transitions"],
-            [],
+            [transition["id"] for transition in transitions],
+            ["attachment-derived-renditions-as-variants"],
+        )
+        self.assertEqual(
+            transitions[0]["adr"],
+            "docs/02-architecture/adr/0061-attachment-derived-renditions-as-variants.md",
+        )
+        self.assertEqual(
+            transitions[0]["approved_changes"],
+            [
+                'table:attachment_variants:add:{"canonical_schema":'
+                '"CommsCore.Attachments.AttachmentVariant",'
+                '"owner":"conversation_content","role":"source"}'
+            ],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:

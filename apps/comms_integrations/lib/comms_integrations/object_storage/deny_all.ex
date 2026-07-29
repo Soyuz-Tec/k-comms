@@ -10,6 +10,15 @@ defmodule CommsIntegrations.ObjectStorage.DenyAll do
   def verify_upload(_request), do: {:error, :object_storage_adapter_not_configured}
 
   @impl true
+  def presign_variant_upload(_request), do: {:error, :object_storage_adapter_not_configured}
+
+  @impl true
+  def presign_variant_download(_request), do: {:error, :object_storage_adapter_not_configured}
+
+  @impl true
+  def verify_variant_upload(_request), do: {:error, :object_storage_adapter_not_configured}
+
+  @impl true
   def verify_restored_object(_request), do: {:error, :object_storage_adapter_not_configured}
 
   @impl true

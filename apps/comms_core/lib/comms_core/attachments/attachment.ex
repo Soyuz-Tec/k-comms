@@ -47,6 +47,12 @@ defmodule CommsCore.Attachments.Attachment do
     field(:cleanup_last_error, :string)
     field(:cleanup_completed_at, :utc_datetime_usec)
     has_many(:scan_attempt_records, CommsCore.Attachments.ScanAttempt)
+
+    has_many(:variants, CommsCore.Attachments.AttachmentVariant,
+      foreign_key: :attachment_id,
+      preload_order: [asc: :kind]
+    )
+
     timestamps()
   end
 

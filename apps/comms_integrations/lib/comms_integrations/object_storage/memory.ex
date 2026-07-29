@@ -32,6 +32,60 @@ defmodule CommsIntegrations.ObjectStorage.Memory do
   end
 
   @impl true
+  def presign_variant_upload(variant) do
+    with {:ok, key} <- variant_key(variant) do
+      {:ok,
+       %{
+         method: "PUT",
+         url: url(key),
+         approved_origin: approved_origin(),
+         development_http: false,
+         headers: %{"content-type" => value(variant, :content_type)},
+         expires_in: 900,
+         expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+       }}
+    end
+  end
+
+  @impl true
+  def presign_variant_download(variant) do
+    with {:ok, key} <- variant_key(variant),
+         {:ok, version} <- variant_version(variant) do
+      {:ok,
+       %{
+         method: "GET",
+         url: url(key) <> "?versionId=#{URI.encode_www_form(version)}",
+         approved_origin: approved_origin(),
+         development_http: false,
+         headers: %{},
+         expires_in: 900,
+         expires_at: DateTime.add(DateTime.utc_now(), 900, :second)
+       }}
+    end
+  end
+
+  @impl true
+  def verify_variant_upload(variant) do
+    with {:ok, _key} <- variant_key(variant) do
+      {:ok, %{object_version_id: "memory-variant-v1"}}
+    end
+  end
+
+  defp variant_key(variant) do
+    case value(variant, :object_key) do
+      key when is_binary(key) and key != "" -> {:ok, key}
+      _ -> {:error, :variant_object_key_unavailable}
+    end
+  end
+
+  defp variant_version(variant) do
+    case value(variant, :object_version_id) do
+      version when is_binary(version) and version not in ["", "null"] -> {:ok, version}
+      _ -> {:error, :variant_version_unavailable}
+    end
+  end
+
+  @impl true
   def verify_upload(attachment) do
     checksum = value(attachment, :checksum_sha256)
 

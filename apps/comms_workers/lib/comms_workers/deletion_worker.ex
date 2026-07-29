@@ -46,12 +46,41 @@ defmodule CommsWorkers.DeletionWorker do
         object_version_id: attachment.object_version_id
       }
 
-      case ObjectStorage.delete_object(request) do
-        :ok -> {:cont, {:ok, count + 1}}
+      # Variants are separate objects under the same attachment. Erasure is only
+      # complete when they go too, so a failure halts the request rather than
+      # leaving a derived preview of erased content behind.
+      with :ok <- delete_variants(attachment),
+           :ok <- ObjectStorage.delete_object(request) do
+        {:cont, {:ok, count + 1}}
+      else
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
+
+  defp delete_variants(%{tenant_id: tenant_id, variants: variants}) when is_list(variants) do
+    Enum.reduce_while(variants, :ok, fn variant, :ok ->
+      case delete_variant(tenant_id, variant) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp delete_variants(_attachment), do: :ok
+
+  defp delete_variant(tenant_id, %{object_key: key, object_version_id: version})
+       when is_binary(key) and is_binary(version) do
+    ObjectStorage.delete_object(%{
+      tenant_id: tenant_id,
+      object_key: key,
+      object_version_id: version
+    })
+  end
+
+  # A declared but never-verified variant has no object version to remove. The
+  # abandonment purge sweeps its key instead.
+  defp delete_variant(_tenant_id, _variant), do: :ok
 
   defp record_failure(request_id, reason) do
     _ = Governance.record_deletion_failure(request_id, reason, __MODULE__)

@@ -1386,6 +1386,13 @@ paths:
                 properties:
                   data: {type: object}
                   upload: {$ref: '#/components/schemas/PresignDescriptor'}
+                  thumbnail_upload:
+                    allOf: [{$ref: '#/components/schemas/PresignDescriptor'}]
+                    description: >-
+                      Present only when a thumbnail variant was declared and
+                      could be authorized. A variant is an enhancement, so its
+                      absence is not an error and the client proceeds without
+                      one.
   /api/v1/attachments/{attachmentId}/complete:
     parameters:
       - $ref: '#/components/parameters/AttachmentId'
@@ -4088,6 +4095,20 @@ components:
         file_name: {type: string, minLength: 1, maxLength: 255}
         content_type: {type: string, minLength: 1, maxLength: 120}
         byte_size: {type: integer, minimum: 1, maximum: 1073741824}
+        checksum_sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
+        thumbnail:
+          $ref: '#/components/schemas/AttachmentThumbnailIntent'
+    AttachmentThumbnailIntent:
+      type: object
+      additionalProperties: false
+      description: >-
+        Optional client-generated preview for an image attachment. The content
+        type is restricted to non-executable raster formats because a thumbnail
+        is the one attachment surface served inline rather than as a download.
+      required: [content_type, byte_size, checksum_sha256]
+      properties:
+        content_type: {enum: [image/webp, image/jpeg, image/png]}
+        byte_size: {type: integer, minimum: 1, maximum: 524288}
         checksum_sha256: {type: string, pattern: '^[a-fA-F0-9]{64}$'}
     FileSummary:
       type: object

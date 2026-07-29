@@ -6,6 +6,7 @@ defmodule CommsCore.Attachments do
   alias CommsCore.Attachments.{
     Attachment,
     AttachmentDeletionObject,
+    AttachmentVariant,
     AttachmentView,
     FileView,
     Projector,
@@ -77,6 +78,7 @@ defmodule CommsCore.Attachments do
         object_version_id: attachment.object_version_id
       })
       |> Repo.all()
+      |> attach_variant_objects()
       |> Enum.map(&struct!(AttachmentDeletionObject, &1))
     else
       _ -> []
@@ -114,6 +116,15 @@ defmodule CommsCore.Attachments do
             ]
           )
 
+        # Variants are derived from the erased content, so their descriptors go
+        # with it. `erasure_objects` handed their keys to the deletion worker
+        # before this runs, so removing the rows cannot strand an object.
+        Repo.delete_all(
+          from(variant in AttachmentVariant,
+            where: variant.tenant_id == ^tenant_id and variant.attachment_id in ^attachment_ids
+          )
+        )
+
         {:ok, %{attachments_deleted: attachments_deleted}}
       end
     else
@@ -132,24 +143,187 @@ defmodule CommsCore.Attachments do
     with {:ok, max_bytes} <- attachment_limit(subject),
          :ok <- validate_type(content_type),
          :ok <- validate_size(byte_size, max_bytes),
-         :ok <- validate_checksum(checksum) do
+         :ok <- validate_checksum(checksum),
+         {:ok, thumbnail} <- thumbnail_intent(attrs, content_type) do
       id = Ecto.UUID.generate()
       file_name = sanitize_file_name(value(attrs, :file_name) || "attachment")
-      object_key = "#{value(subject, :tenant_id)}/#{id}/#{file_name}"
+      tenant_id = value(subject, :tenant_id)
+      object_key = "#{tenant_id}/#{id}/#{file_name}"
 
-      %Attachment{id: id}
-      |> Attachment.changeset(%{
-        tenant_id: value(subject, :tenant_id),
-        owner_user_id: value(subject, :user_id),
-        object_key: object_key,
-        file_name: file_name,
-        content_type: content_type,
-        byte_size: byte_size,
-        checksum_sha256: checksum,
-        status: :pending
-      })
-      |> Repo.insert()
+      Repo.transaction(fn ->
+        attachment =
+          %Attachment{id: id}
+          |> Attachment.changeset(%{
+            tenant_id: tenant_id,
+            owner_user_id: value(subject, :user_id),
+            object_key: object_key,
+            file_name: file_name,
+            content_type: content_type,
+            byte_size: byte_size,
+            checksum_sha256: checksum,
+            status: :pending
+          })
+          |> Repo.insert()
+          |> case do
+            {:ok, inserted} -> inserted
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        # The variant is inserted in the same transaction as the attachment, so
+        # an attachment can never exist alongside a half-declared variant.
+        case insert_variant(attachment, :thumbnail, thumbnail) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+        Repo.preload(attachment, :variants)
+      end)
+      |> unwrap_transaction()
       |> project_result()
+    end
+  end
+
+  defp insert_variant(_attachment, _kind, nil), do: :ok
+
+  defp insert_variant(attachment, kind, declared) do
+    %AttachmentVariant{}
+    |> AttachmentVariant.changeset(%{
+      tenant_id: attachment.tenant_id,
+      attachment_id: attachment.id,
+      kind: kind,
+      # A fixed leaf keeps the variant inside the attachment-unique prefix that
+      # cleanup already reasons about, and keeps the user-supplied file name out
+      # of a second key.
+      object_key: "#{attachment.tenant_id}/#{attachment.id}/#{kind}",
+      content_type: declared.content_type,
+      byte_size: declared.byte_size,
+      checksum_sha256: declared.checksum_sha256
+    })
+    |> Repo.insert()
+    |> case do
+      {:ok, _variant} -> :ok
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  Records a verified variant object against an attachment.
+
+  A variant is an enhancement, so this never gates the attachment: a caller that
+  cannot verify one simply leaves it unrecorded and the attachment completes
+  without it.
+  """
+  @spec record_variant(String.t(), atom(), map(), map()) ::
+          {:ok, AttachmentView.t()} | {:error, term()}
+  def record_variant(id, kind, identity, subject)
+      when is_binary(id) and is_atom(kind) and is_map(identity) do
+    version = value(identity, :object_version_id)
+
+    if is_binary(version) and version not in ["", "null"] do
+      Repo.transaction(fn ->
+        attachment = owned_for_update(id, subject) || Repo.rollback(:not_found)
+
+        variant =
+          Repo.one(
+            from(variant in AttachmentVariant,
+              where:
+                variant.attachment_id == ^attachment.id and
+                  variant.tenant_id == ^attachment.tenant_id and
+                  variant.kind == ^kind,
+              lock: "FOR UPDATE"
+            )
+          ) || Repo.rollback(:variant_not_declared)
+
+        variant
+        |> AttachmentVariant.changeset(%{
+          object_version_id: version,
+          uploaded_at: now()
+        })
+        |> Repo.update!()
+
+        Repo.preload(attachment, :variants, force: true)
+      end)
+      |> unwrap_transaction()
+      |> project_result()
+    else
+      {:error, :variant_version_unavailable}
+    end
+  end
+
+  def record_variant(_id, _kind, _identity, _subject), do: {:error, :variant_version_unavailable}
+
+  @doc """
+  Returns a verified variant of the requested kind, when one may be served.
+
+  A variant never precedes its parent's scan verdict: it is derived from content
+  the scanner has not yet cleared, so it follows exactly the same gate as the
+  download it stands in for.
+  """
+  def servable_variant(attachment, kind) do
+    if downloadable?(attachment) do
+      attachment
+      |> variants()
+      |> Enum.find(fn variant ->
+        variant_kind(variant) == kind and is_binary(value(variant, :object_version_id))
+      end)
+    end
+  end
+
+  defp variants(attachment) do
+    case value(attachment, :variants) do
+      variants when is_list(variants) -> variants
+      _ -> []
+    end
+  end
+
+  defp variant_kind(variant) do
+    case value(variant, :kind) do
+      kind when is_atom(kind) -> kind
+      kind when is_binary(kind) -> String.to_existing_atom(kind)
+      _ -> nil
+    end
+  end
+
+  defp thumbnail_intent(attrs, content_type) do
+    declared = value(attrs, :thumbnail)
+
+    cond do
+      is_nil(declared) ->
+        {:ok, nil}
+
+      not is_map(declared) ->
+        {:error, :invalid_thumbnail}
+
+      # A thumbnail stands in for a preview of the object itself, so it is only
+      # meaningful for content the client could have rendered.
+      not String.starts_with?(content_type, "image/") ->
+        {:error, :thumbnail_not_supported_for_content_type}
+
+      true ->
+        thumbnail_content_type = value(declared, :content_type)
+        thumbnail_byte_size = integer(value(declared, :byte_size))
+        thumbnail_checksum = normalize_checksum(value(declared, :checksum_sha256))
+
+        cond do
+          thumbnail_content_type not in AttachmentVariant.content_types() ->
+            {:error, :unsupported_thumbnail_content_type}
+
+          not (is_integer(thumbnail_byte_size) and thumbnail_byte_size > 0 and
+                   thumbnail_byte_size <= AttachmentVariant.max_bytes()) ->
+            {:error, :invalid_thumbnail_size}
+
+          not (is_binary(thumbnail_checksum) and
+                   Regex.match?(~r/^[a-f0-9]{64}$/, thumbnail_checksum)) ->
+            {:error, :invalid_thumbnail_checksum}
+
+          true ->
+            {:ok,
+             %{
+               content_type: thumbnail_content_type,
+               byte_size: thumbnail_byte_size,
+               checksum_sha256: thumbnail_checksum
+             }}
+        end
     end
   end
 
@@ -905,8 +1079,51 @@ defmodule CommsCore.Attachments do
     %{
       id: attachment.id,
       tenant_id: attachment.tenant_id,
-      object_key: attachment.object_key
+      object_key: attachment.object_key,
+      variant_object_keys: variant_object_keys(attachment)
     }
+  end
+
+  defp variant_object_keys(%Attachment{} = attachment) do
+    Repo.all(
+      from(variant in AttachmentVariant,
+        where:
+          variant.attachment_id == ^attachment.id and
+            variant.tenant_id == ^attachment.tenant_id,
+        order_by: [asc: variant.kind],
+        select: variant.object_key
+      )
+    )
+  end
+
+  # Deletion is per object version, so each variant contributes its own key and
+  # version rather than being reachable through the attachment's key.
+  defp attach_variant_objects([]), do: []
+
+  defp attach_variant_objects(rows) do
+    attachment_ids = Enum.map(rows, & &1.id)
+
+    grouped =
+      from(variant in AttachmentVariant,
+        where: variant.attachment_id in ^attachment_ids,
+        order_by: [asc: variant.kind],
+        select: %{
+          attachment_id: variant.attachment_id,
+          object_key: variant.object_key,
+          object_version_id: variant.object_version_id
+        }
+      )
+      |> Repo.all()
+      |> Enum.group_by(& &1.attachment_id)
+
+    Enum.map(rows, fn row ->
+      variants =
+        grouped
+        |> Map.get(row.id, [])
+        |> Enum.map(&Map.take(&1, [:object_key, :object_version_id]))
+
+      Map.put(row, :variants, variants)
+    end)
   end
 
   defp abandon_attachment!(

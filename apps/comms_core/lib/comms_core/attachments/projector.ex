@@ -23,6 +23,7 @@ defmodule CommsCore.Attachments.Projector do
       object_version_id: attachment.object_version_id,
       object_etag: attachment.object_etag,
       verified_checksum_sha256: attachment.verified_checksum_sha256,
+      variants: project_variants(attachment.variants),
       status: attachment.status,
       scan_status: attachment.scan_status,
       scan_verdict: attachment.scan_verdict,
@@ -49,6 +50,27 @@ defmodule CommsCore.Attachments.Projector do
   end
 
   def attachment(nil), do: nil
+
+  # An unloaded association is reported as absent rather than raising: a caller
+  # that did not ask for variants gets an attachment without them.
+  defp project_variants(%Ecto.Association.NotLoaded{}), do: []
+
+  defp project_variants(variants) when is_list(variants) do
+    Enum.map(variants, fn variant ->
+      %{
+        id: variant.id,
+        kind: variant.kind,
+        object_key: variant.object_key,
+        content_type: variant.content_type,
+        byte_size: variant.byte_size,
+        checksum_sha256: variant.checksum_sha256,
+        object_version_id: variant.object_version_id,
+        uploaded_at: variant.uploaded_at
+      }
+    end)
+  end
+
+  defp project_variants(_variants), do: []
   def attachments(values) when is_list(values), do: Enum.map(values, &attachment/1)
 
   def file(%{

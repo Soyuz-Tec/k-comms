@@ -7,12 +7,18 @@ defmodule CommsCore.Attachments.AttachmentDeletionObject do
   """
 
   @enforce_keys [:id, :tenant_id, :object_key, :object_version_id]
-  defstruct [:id, :tenant_id, :object_key, :object_version_id]
+  defstruct [:id, :tenant_id, :object_key, :object_version_id, variants: []]
+
+  @type variant :: %{
+          object_key: String.t(),
+          object_version_id: String.t() | nil
+        }
 
   @type t :: %__MODULE__{
           id: String.t(),
           tenant_id: String.t(),
           object_key: String.t(),
-          object_version_id: String.t() | nil
+          object_version_id: String.t() | nil,
+          variants: [variant()]
         }
 end

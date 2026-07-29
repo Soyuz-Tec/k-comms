@@ -36,7 +36,8 @@ defmodule CommsCore.Attachments.AttachmentView do
     :cleanup_completed_at,
     :inserted_at,
     :updated_at,
-    scan_attempt_records: []
+    scan_attempt_records: [],
+    variants: []
   ]
 
   @type t :: %__MODULE__{

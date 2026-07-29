@@ -23,7 +23,10 @@ defmodule CommsWeb.AttachmentController do
         {:ok, authorized, upload} ->
           conn
           |> put_status(:created)
-          |> json(%{data: Presenter.attachment(authorized), upload: upload})
+          |> json(
+            %{data: Presenter.attachment(authorized), upload: upload}
+            |> maybe_put_thumbnail_upload(authorized)
+          )
 
         {:error, reason} ->
           _ = Attachments.abandon_intent(attachment.id, conn.assigns.current_subject)
@@ -42,7 +45,9 @@ defmodule CommsWeb.AttachmentController do
              identity,
              conn.assigns.current_subject
            ) do
-      json(conn, %{data: Presenter.attachment(attachment)})
+      json(conn, %{
+        data: Presenter.attachment(record_thumbnail(attachment, conn.assigns.current_subject))
+      })
     end
   end
 
@@ -57,13 +62,55 @@ defmodule CommsWeb.AttachmentController do
     with {:ok, attachment} <- Attachments.get_authorized(id, conn.assigns.current_subject) do
       if Attachments.downloadable?(attachment) do
         with {:ok, download} <- ObjectStorage.presign_download(attachment) do
-          json(conn, %{data: Presenter.attachment(attachment), download: download})
+          json(
+            conn,
+            %{data: Presenter.attachment(attachment), download: download}
+            |> maybe_put_thumbnail_download(attachment)
+          )
         end
       else
         json(conn, %{data: Presenter.attachment(attachment)})
       end
     end
   end
+
+  # A variant is an enhancement, so a failure to authorize or verify one never
+  # fails the attachment it belongs to: the response simply omits it and the
+  # client falls back to the full download it already handles.
+  defp maybe_put_thumbnail_upload(payload, attachment) do
+    with %{} = variant <- declared_thumbnail(attachment),
+         {:ok, upload} <- ObjectStorage.presign_variant_upload(variant) do
+      Map.put(payload, :thumbnail_upload, upload)
+    else
+      _ -> payload
+    end
+  end
+
+  defp maybe_put_thumbnail_download(payload, attachment) do
+    with %{} = variant <- Attachments.servable_variant(attachment, :thumbnail),
+         {:ok, download} <- ObjectStorage.presign_variant_download(variant) do
+      Map.put(payload, :thumbnail_download, download)
+    else
+      _ -> payload
+    end
+  end
+
+  defp record_thumbnail(attachment, subject) do
+    with %{} = variant <- declared_thumbnail(attachment),
+         true <- is_nil(Map.get(variant, :object_version_id)),
+         {:ok, identity} <- ObjectStorage.verify_variant_upload(variant),
+         {:ok, updated} <-
+           Attachments.record_variant(attachment.id, :thumbnail, identity, subject) do
+      updated
+    else
+      _ -> attachment
+    end
+  end
+
+  defp declared_thumbnail(%{variants: variants}) when is_list(variants),
+    do: Enum.find(variants, &(Map.get(&1, :kind) == :thumbnail))
+
+  defp declared_thumbnail(_attachment), do: nil
 
   defp maybe_verify_upload(%{status: :pending} = attachment),
     do: ObjectStorage.verify_upload(attachment)
