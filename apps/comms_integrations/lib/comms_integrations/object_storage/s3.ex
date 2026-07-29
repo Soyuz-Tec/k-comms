@@ -6,6 +6,10 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   @algorithm "AWS4-HMAC-SHA256"
   @service "s3"
   @server_side_encryption "AES256"
+  @default_expires_in 900
+  @default_download_expires_in 120
+  @minimum_expires_in 60
+  @maximum_expires_in 3_600
   @version_page_size 100
   @max_purge_passes 10
   @max_version_listing_bytes 262_144
@@ -34,8 +38,47 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   @impl true
   def presign_download(attachment) do
     with {:ok, version} <- required_version(attachment) do
-      presign("GET", attachment.object_key, :public, %{}, [{"versionId", version}])
+      presign(
+        "GET",
+        attachment.object_key,
+        :public,
+        %{},
+        [{"versionId", version}] ++ download_response_overrides(attachment),
+        :download
+      )
     end
+  end
+
+  # A presigned GET is a bearer capability for whatever the object contains, and
+  # the permitted content types include `text/*`. Without these overrides the
+  # object store would serve that content inline, executing it on the
+  # object-store origin. Forcing an opaque type and attachment disposition makes
+  # every download a download. Both are signed, so neither can be stripped.
+  defp download_response_overrides(attachment) do
+    [
+      {"response-content-type", "application/octet-stream"},
+      {"response-content-disposition", content_disposition(value(attachment, :file_name))}
+    ]
+  end
+
+  defp content_disposition(file_name) when is_binary(file_name) do
+    case sanitized_filename(file_name) do
+      "" -> "attachment"
+      safe -> "attachment; filename*=UTF-8''#{encode(safe)}"
+    end
+  end
+
+  defp content_disposition(_file_name), do: "attachment"
+
+  # Control characters and path separators are removed so the recorded name can
+  # never redirect the write or break out of the header. The value is
+  # percent-encoded for RFC 5987, so the remaining characters are inert.
+  defp sanitized_filename(file_name) do
+    file_name
+    |> String.replace(~r/[\x00-\x1f\x7f]/u, "")
+    |> String.replace(~r{[/\\]}, "_")
+    |> String.trim()
+    |> String.slice(0, 200)
   end
 
   @impl true
@@ -267,12 +310,16 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     end
   end
 
+  defp presign(method, object_key, endpoint, request_headers, extra_query),
+    do: presign(method, object_key, endpoint, request_headers, extra_query, :default)
+
   defp presign(
          method,
          object_key,
          endpoint,
          request_headers,
-         extra_query
+         extra_query,
+         purpose
        ) do
     config = Application.get_env(:comms_integrations, :s3, [])
 
@@ -284,7 +331,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          {:ok, access_key} <- required(config, :access_key_id),
          {:ok, secret_key} <- required(config, :secret_access_key),
          :ok <- validate_endpoint_security(endpoint, scheme, host, port) do
-      expires_in = config |> Keyword.get(:expires_in, 900) |> min(3_600) |> max(60)
+      expires_in = expires_in(config, purpose)
       now = DateTime.utc_now()
       date = Calendar.strftime(now, "%Y%m%d")
       timestamp = Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
@@ -350,6 +397,24 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          expires_at: DateTime.add(now, expires_in, :second)
        }}
     end
+  end
+
+  # A download URL is redirected to immediately, so it does not need the upload
+  # window. Keeping it short bounds how long a leaked or shoulder-surfed URL --
+  # which lands in browser history -- remains replayable.
+  defp expires_in(config, :download) do
+    config
+    |> Keyword.get(:download_expires_in, @default_download_expires_in)
+    |> min(Keyword.get(config, :expires_in, @default_expires_in))
+    |> min(@maximum_expires_in)
+    |> max(@minimum_expires_in)
+  end
+
+  defp expires_in(config, _purpose) do
+    config
+    |> Keyword.get(:expires_in, @default_expires_in)
+    |> min(@maximum_expires_in)
+    |> max(@minimum_expires_in)
   end
 
   defp signing_key(secret, date, region) do
