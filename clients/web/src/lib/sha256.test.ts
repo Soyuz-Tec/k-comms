@@ -89,15 +89,45 @@ describe("browser SHA-256", () => {
       arrayBuffer: wholeBlobArrayBuffer,
       slice
     } as unknown as Blob;
-    const subtleDigest = vi.fn();
-    vi.stubGlobal("crypto", { subtle: { digest: subtleDigest } });
+    vi.stubGlobal("crypto", {});
 
     await expect(sha256BlobHex(blob)).resolves.toBe(
       "0c086025b0bbb57526aa3a8444e22ec65d0ce52e497cfba54e5ac826ee9d1444"
     );
     expect(wholeBlobArrayBuffer).not.toHaveBeenCalled();
-    expect(subtleDigest).not.toHaveBeenCalled();
     expect(sliceLengths).toHaveLength(6);
     expect(Math.max(...sliceLengths)).toBe(1024 * 1024);
+  });
+
+  it("hashes attachment-sized Blobs through SubtleCrypto rather than the JavaScript digest", async () => {
+    const blobSize = 25 * 1024 * 1024;
+    const arrayBuffer = vi.fn(async () => new Uint8Array(0).buffer);
+    const slice = vi.fn(() => {
+      throw new Error("the incremental digest must not run within the WebCrypto bound");
+    });
+    const blob = { size: blobSize, arrayBuffer, slice } as unknown as Blob;
+    const subtleDigest = vi.fn().mockResolvedValue(new Uint8Array(32).fill(0xcd).buffer);
+    vi.stubGlobal("crypto", { subtle: { digest: subtleDigest } });
+
+    await expect(sha256BlobHex(blob)).resolves.toBe("cd".repeat(32));
+    expect(subtleDigest).toHaveBeenCalledWith("SHA-256", expect.any(ArrayBuffer));
+    expect(slice).not.toHaveBeenCalled();
+  });
+
+  it("keeps Blobs beyond the WebCrypto bound on the incremental path", async () => {
+    const blobSize = 64 * 1024 * 1024 + 1;
+    const arrayBuffer = vi.fn<() => Promise<ArrayBuffer>>(() => {
+      throw new Error("whole-blob arrayBuffer must not be called");
+    });
+    const slice = vi.fn(() => {
+      throw new Error("incremental path entered");
+    });
+    const blob = { size: blobSize, arrayBuffer, slice } as unknown as Blob;
+    const subtleDigest = vi.fn();
+    vi.stubGlobal("crypto", { subtle: { digest: subtleDigest } });
+
+    await expect(sha256BlobHex(blob)).rejects.toThrow("incremental path entered");
+    expect(subtleDigest).not.toHaveBeenCalled();
+    expect(arrayBuffer).not.toHaveBeenCalled();
   });
 });
