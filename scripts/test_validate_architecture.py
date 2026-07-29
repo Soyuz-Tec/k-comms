@@ -667,25 +667,15 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # Widenings are pinned here so adding an owned table cannot pass as an
-        # incidental edit. Each entry must carry an accepted ADR, the immutable
-        # base hash it was reviewed against, and the condition that retires it.
-        transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
+        # A manifest transition authorizes one widening against one immutable
+        # base, so it is spent the moment that widening lands. Leaving it in
+        # place makes it stale against the branch it just became part of, which
+        # fails this validator for every later change. The list is pinned empty
+        # so a spent transition cannot be left behind, and so a new widening is
+        # a deliberate edit here rather than an incidental one.
         self.assertEqual(
-            [transition["id"] for transition in transitions],
-            ["attachment-derived-renditions-as-variants"],
-        )
-        self.assertEqual(
-            transitions[0]["adr"],
-            "docs/02-architecture/adr/0061-attachment-derived-renditions-as-variants.md",
-        )
-        self.assertEqual(
-            transitions[0]["approved_changes"],
-            [
-                'table:attachment_variants:add:{"canonical_schema":'
-                '"CommsCore.Attachments.AttachmentVariant",'
-                '"owner":"conversation_content","role":"source"}'
-            ],
+            manifest["enforcement"]["reviewed_manifest_transitions"],
+            [],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:

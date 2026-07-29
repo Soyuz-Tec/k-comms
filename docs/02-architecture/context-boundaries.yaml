@@ -6,15 +6,7 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions:
-    - id: attachment-derived-renditions-as-variants
-      previous_manifest_sha256: 82e6e8c2892e2c7cef81ccabbf726a29e940dc1ae95bf54ffbb4addbd1f7428e
-      approved_changes:
-        - 'table:attachment_variants:add:{"canonical_schema":"CommsCore.Attachments.AttachmentVariant","owner":"conversation_content","role":"source"}'
-      adr: docs/02-architecture/adr/0061-attachment-derived-renditions-as-variants.md
-      removal_condition: >-
-        Remove when attachment_variants is part of the immutable boundary
-        baseline, so the table no longer reads as a widening against it.
+  reviewed_manifest_transitions: []
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
