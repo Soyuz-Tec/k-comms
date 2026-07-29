@@ -38,13 +38,18 @@ const livekit = vi.hoisted(() => ({
   disconnect: vi.fn(),
   startAudio: vi.fn(),
   switchActiveDevice: vi.fn(),
-  canPlaybackAudio: true
+  canPlaybackAudio: true,
+  supportsVP9: true
 }));
 
 vi.mock("livekit-client", () => ({
   ConnectionState: { Connected: "connected", Disconnected: "disconnected", Connecting: "connecting", Reconnecting: "reconnecting", SignalReconnecting: "signalReconnecting" },
   DisconnectReason: { PARTICIPANT_REMOVED: 4, ROOM_DELETED: 5 },
   RoomEvent: livekit.events,
+  ScreenSharePresets: {
+    h1080fps15: { encoding: { maxBitrate: 2_500_000, maxFramerate: 15, priority: "medium" } }
+  },
+  supportsVP9: () => livekit.supportsVP9,
   Track: { Kind: { Audio: "audio", Video: "video" } },
   Room: class MockRoom {
     static getLocalDevices(kind: MediaDeviceKind, requestPermissions?: boolean) {
