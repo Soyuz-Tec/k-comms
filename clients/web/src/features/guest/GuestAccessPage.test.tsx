@@ -202,7 +202,9 @@ function setMobileRoomLayout(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(max-width: 768px)" ? matches : false,
+      matches: query === "(max-width: 760px), (max-height: 560px)"
+        ? matches
+        : false,
       media: query,
       onchange: null,
       addListener: vi.fn(),

@@ -42,10 +42,24 @@ test.describe("authenticated mobile web acceptance", () => {
       const notificationTrigger = page.getByRole("button", { name: "Notifications" });
       await expectMinimumTarget(menuTrigger, "main menu control");
       await expectMinimumTarget(notificationTrigger, "notification control");
+      const menuTriggerBox = await menuTrigger.boundingBox();
+      const notificationTriggerBox = await notificationTrigger.boundingBox();
+      expect(menuTriggerBox).not.toBeNull();
+      expect(notificationTriggerBox).not.toBeNull();
+      expect(menuTriggerBox!.width).toBeGreaterThanOrEqual(52);
+      expect(menuTriggerBox!.height).toBeGreaterThanOrEqual(52);
+      expect(menuTriggerBox!.x).toBeGreaterThan(notificationTriggerBox!.x);
+      expect(menuTriggerBox!.x + menuTriggerBox!.width)
+        .toBeLessThanOrEqual(viewport.width + 1);
 
       await menuTrigger.click();
       const productMenu = page.getByRole("dialog", { name: "Acme Workspace" });
       await expect(productMenu).toBeVisible();
+      const productMenuBox = await productMenu.boundingBox();
+      expect(productMenuBox).not.toBeNull();
+      expect(Math.abs(
+        productMenuBox!.x + productMenuBox!.width - viewport.width
+      )).toBeLessThanOrEqual(1);
       await expectMinimumTargets(
         productMenu.getByRole("navigation", { name: "All product areas" }).locator("a"),
         "all product menu"
@@ -56,13 +70,21 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(productMenu.getByRole("button", { name: "Sign out" })).toBeVisible();
       await expectMinimumTargets(
         productMenu.locator("a, button"),
-        "complete mobile menu"
+        "complete mobile menu",
+        52
       );
+      const closeMainMenu = productMenu.getByRole("button", {
+        name: "Close main menu"
+      });
+      const closeMainMenuBox = await closeMainMenu.boundingBox();
+      expect(closeMainMenuBox).not.toBeNull();
+      expect(closeMainMenuBox!.width).toBeGreaterThanOrEqual(52);
+      expect(closeMainMenuBox!.height).toBeGreaterThanOrEqual(52);
       await expectNoDocumentOverflow(page);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
         await page.screenshot({ path: testInfo.outputPath("menu-390.png"), fullPage: true });
       }
-      await productMenu.getByRole("button", { name: "Close main menu" }).click();
+      await closeMainMenu.click();
       await expect(productMenu).toHaveCount(0);
       await expect(menuTrigger).toBeFocused();
       await menuTrigger.click();
@@ -220,7 +242,7 @@ test.describe("authenticated mobile web acceptance", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installWorkspace(page);
     await page.goto("/app/");
-    await page.goto("/app/settings");
+    await page.goto("/app/you");
     await page.getByRole("button", { name: "Open main menu" }).click();
     await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toBeVisible();
 
@@ -335,7 +357,253 @@ test.describe("authenticated mobile web acceptance", () => {
     await expect(page.getByRole("button", { name: "Start video call" })).toBeFocused();
     expect(fixture.unexpectedRequests).toEqual([]);
   });
+
+  test("active video uses the complete viewport with safe overlay controls", async ({
+    page
+  }, testInfo) => {
+    const viewport = { width: 390, height: 844 };
+    await page.setViewportSize(viewport);
+    await page.goto("/sign-in");
+    const applicationCss = await page.evaluate(() =>
+      Array.from(document.styleSheets)
+        .flatMap((sheet) => {
+          try {
+            return Array.from(sheet.cssRules, (rule) => rule.cssText);
+          } catch {
+            return [];
+          }
+        })
+        .join("\n")
+    );
+    expect(applicationCss.length).toBeGreaterThan(1_000);
+    await page.setContent(activeVideoFixtureMarkup());
+    await page.addStyleTag({ content: applicationCss });
+
+    const call = page.locator(".video-call-screen");
+    await expect.poll(
+      () => call.evaluate((element) => window.getComputedStyle(element).position)
+    ).toBe("fixed");
+
+    for (const locator of [
+      call,
+      call.locator(".active-call-details"),
+      call.locator(".call-stage"),
+      call.locator(".video-participant-grid")
+    ]) {
+      const box = await locator.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeCloseTo(0, 0);
+      expect(box!.y).toBeCloseTo(0, 0);
+      expect(box!.width).toBeCloseTo(viewport.width, 0);
+      expect(box!.height).toBeCloseTo(viewport.height, 0);
+    }
+
+    const edgeTreatment = await call.evaluate((element) => {
+      const root = window.getComputedStyle(element);
+      const grid = window.getComputedStyle(
+        element.querySelector(".video-participant-grid")!
+      );
+      const tile = window.getComputedStyle(
+        element.querySelector(".video-participant-tile")!
+      );
+      const header = window.getComputedStyle(
+        element.querySelector(".audio-call-dock-heading")!
+      );
+      const actions = window.getComputedStyle(
+        element.querySelector(".audio-call-actions")!
+      );
+      const label = window.getComputedStyle(
+        element.querySelector(".call-action-label")!
+      );
+      const caption = window.getComputedStyle(
+        element.querySelector(".video-participant-caption")!
+      );
+      return {
+        rootBorder: root.borderTopWidth,
+        rootPadding: root.paddingTop,
+        rootRadius: root.borderTopLeftRadius,
+        gridGap: grid.gap,
+        gridOverflow: grid.overflowY,
+        tileBorder: tile.borderTopWidth,
+        tileRadius: tile.borderTopLeftRadius,
+        headerPosition: header.position,
+        actionsPosition: actions.position,
+        labelSize: Number.parseFloat(label.fontSize),
+        captionBottom: Number.parseFloat(caption.bottom)
+      };
+    });
+
+    expect(edgeTreatment).toMatchObject({
+      rootBorder: "0px",
+      rootPadding: "0px",
+      rootRadius: "0px",
+      gridGap: "0px",
+      gridOverflow: "hidden",
+      tileBorder: "0px",
+      tileRadius: "0px",
+      headerPosition: "absolute",
+      actionsPosition: "absolute"
+    });
+    expect(edgeTreatment.labelSize).toBeGreaterThanOrEqual(14);
+    expect(edgeTreatment.captionBottom).toBeGreaterThan(100);
+
+    const headingControls = call.locator(".call-dock-heading-actions > button");
+    await expectMinimumTargets(headingControls, "active call window controls", 52);
+    await expectNoDocumentOverflow(page);
+
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("active-video-call-390.png"),
+        fullPage: false
+      });
+    }
+
+    await call.locator(".video-participant-grid").evaluate((grid) => {
+      const tile = grid.querySelector(".video-participant-tile");
+      if (!tile) throw new Error("video fixture tile is unavailable");
+      for (let index = 1; index < 25; index += 1) {
+        const clone = tile.cloneNode(true) as HTMLElement;
+        clone.dataset.participantId = `participant-${index + 1}`;
+        clone.querySelector("strong")!.textContent = `Person ${index + 1}`;
+        grid.append(clone);
+      }
+    });
+    const largeGrid = call.locator(".video-participant-grid");
+    const largeCallLayout = await largeGrid.evaluate((grid) => {
+      const style = window.getComputedStyle(grid);
+      const tile = grid.querySelector<HTMLElement>(".video-participant-tile");
+      return {
+        overflowY: style.overflowY,
+        scrollable: grid.scrollHeight > grid.clientHeight,
+        tileHeight: tile?.getBoundingClientRect().height ?? 0
+      };
+    });
+    expect(largeCallLayout.overflowY).toBe("auto");
+    expect(largeCallLayout.scrollable).toBe(true);
+    expect(largeCallLayout.tileHeight).toBeGreaterThanOrEqual(140);
+
+    await call.locator(".active-call-details").evaluate((details) => {
+      details.insertAdjacentHTML("beforeend", `
+        <section class="call-workspace-sheet mobile-open">
+          <header class="call-menu-header">
+            <h3>Call menu</h3>
+            <button class="app-surface-control app-menu-close" type="button">
+              Close
+            </button>
+          </header>
+          <nav class="call-collaboration-links">
+            <button type="button">Chat</button>
+            <button type="button">People</button>
+          </nav>
+          <div class="call-workspace-body">Call options</div>
+          <div class="call-menu-secondary-actions">
+            <button class="button" type="button">Hide labels</button>
+            <button class="button danger" type="button">Leave call</button>
+          </div>
+        </section>
+      `);
+    });
+    await page.addStyleTag({
+      content: ":root { --safe-top: 24px; --safe-right: 10px; --safe-bottom: 20px; --safe-left: 8px; }"
+    });
+    const safeAreaLayout = await call.locator(".call-workspace-sheet").evaluate(
+      (sheet) => {
+        const close = sheet.querySelector("header button")!.getBoundingClientRect();
+        const actions = sheet.querySelector(".call-menu-secondary-actions")!;
+        const actionsStyle = window.getComputedStyle(actions);
+        return {
+          closeTop: close.top,
+          bottomPadding: Number.parseFloat(actionsStyle.paddingBottom)
+        };
+      }
+    );
+    expect(safeAreaLayout.closeTop).toBeGreaterThanOrEqual(24);
+    expect(safeAreaLayout.bottomPadding).toBeGreaterThanOrEqual(20);
+  });
 });
+
+function activeVideoFixtureMarkup() {
+  return `<!doctype html>
+    <html>
+      <head>
+      </head>
+      <body>
+        <main class="app-shell">Workspace beneath the call</main>
+        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen" data-call-control-labels="visible">
+          <div class="audio-call-dock-heading">
+            <div class="call-heading-summary">
+              <h2 class="call-room-title">Instant room</h2>
+              <div class="call-progress-meta">
+                <span class="call-progress-duration">04:18</span>
+                <span class="call-progress-separator">·</span>
+                <span class="call-participant-count">1 participant</span>
+              </div>
+            </div>
+            <div class="call-dock-heading-actions app-surface-control-cluster">
+              <button class="button ghost compact app-surface-control" type="button" aria-label="Minimize">${callFixtureIcon("minimize")}</button>
+              <button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>
+            </div>
+          </div>
+          <div class="active-call-details">
+            <section class="call-stage">
+              <div class="video-participant-grid participant-count-1">
+                <article class="video-participant-tile" data-participant-id="participant-1">
+                  <div class="video-track-stack">
+                    <div class="video-placeholder">
+                      <span>AL</span>
+                      <small>Camera off</small>
+                    </div>
+                  </div>
+                  <div class="video-participant-caption">
+                    <strong>Ada Lovelace (you)</strong>
+                  </div>
+                </article>
+              </div>
+            </section>
+            <div class="audio-call-actions">
+              ${["Mic", "Camera", "Screen", "People", "Leave"].map((label) => `
+                <button class="button compact ${label === "Leave" ? "danger call-action-leave" : "ghost"}" type="button">
+                  <span class="call-action-glyph" aria-hidden="true">${callFixtureIcon(label.toLowerCase())}</span>
+                  <span class="call-action-label">${label}</span>
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        </section>
+      </body>
+    </html>`;
+}
+
+function callFixtureIcon(name: string) {
+  const paths: Record<string, string> = {
+    minimize: `
+      <polyline points="4 14 10 14 10 20"></polyline>
+      <polyline points="20 10 14 10 14 4"></polyline>
+      <line x1="14" x2="21" y1="10" y2="3"></line>
+      <line x1="3" x2="10" y1="21" y2="14"></line>`,
+    menu: `
+      <line x1="4" x2="20" y1="6" y2="6"></line>
+      <line x1="4" x2="20" y1="12" y2="12"></line>
+      <line x1="4" x2="20" y1="18" y2="18"></line>`,
+    mic: `
+      <rect x="9" y="2" width="6" height="12" rx="3"></rect>
+      <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"></path>`,
+    camera: `
+      <rect x="3" y="6" width="13" height="12" rx="2"></rect>
+      <path d="m16 10 5-3v10l-5-3z"></path>`,
+    screen: `
+      <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+      <path d="M8 21h8M12 17v4"></path>`,
+    people: `
+      <circle cx="9" cy="8" r="3"></circle>
+      <circle cx="17" cy="9" r="2"></circle>
+      <path d="M3 20a6 6 0 0 1 12 0M15 15a5 5 0 0 1 6 5"></path>`,
+    leave: `
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"></path>
+      <path d="m2 2 20 20"></path>`
+  };
+  return `<svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] ?? ""}</svg>`;
+}
 
 async function installWorkspace(
   page: Page,
@@ -542,7 +810,11 @@ async function expectMinimumTarget(locator: Locator, label: string) {
   expect(box!.height, `${label} height`).toBeGreaterThanOrEqual(44);
 }
 
-async function expectMinimumTargets(locator: Locator, label: string) {
+async function expectMinimumTargets(
+  locator: Locator,
+  label: string,
+  minimumSize = 44
+) {
   const boxes = await locator.evaluateAll((elements) => elements
     .filter((element) => element.getClientRects().length > 0)
     .map((element) => {
@@ -551,8 +823,8 @@ async function expectMinimumTargets(locator: Locator, label: string) {
     }));
   expect(boxes.length, `${label} should expose visible controls`).toBeGreaterThan(0);
   for (const box of boxes) {
-    expect(box.width, `${label} ${box.text} width`).toBeGreaterThanOrEqual(44);
-    expect(box.height, `${label} ${box.text} height`).toBeGreaterThanOrEqual(44);
+    expect(box.width, `${label} ${box.text} width`).toBeGreaterThanOrEqual(minimumSize);
+    expect(box.height, `${label} ${box.text} height`).toBeGreaterThanOrEqual(minimumSize);
   }
 }
 

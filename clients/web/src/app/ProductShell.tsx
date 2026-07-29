@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
+import {
+  AppMenuCloseButton,
+  AppMenuTrigger,
+  AppSurfaceControlButton
+} from "../components/AppMenuControls";
 import { MemberAreaLinks } from "../components/MemberAreaLinks";
 import { useModalDialog } from "../components/useModalDialog";
 import { initials } from "../lib/format";
@@ -154,33 +159,32 @@ function ProductShellContent() {
           </details>
         </aside>}
         {!desktopShell && <header className="topbar">
-          <button
-            className="mobile-menu-trigger"
-            type="button"
-            aria-label="Open main menu"
-            aria-expanded={mobileMenuOpen}
-            aria-controls="mobile-product-menu"
-            onClick={() => setMobileMenuOpen(true)}
-          >
-            <AppIcon name="menu" />
-          </button>
           <div className="mobile-workspace-heading">
             <span>Workspace</span>
             <strong>{session.tenant.name}</strong>
           </div>
-          <button
-            className="button primary compact instant-room-launch"
-            type="button"
-            aria-label="Start instant room"
-            onClick={() => {
-              beginNewInstantRoomVisit();
-              navigate("/");
-            }}
-          >
-            <AppIcon name="plus" />
-            <span>Start instant room</span>
-          </button>
-          <NotificationCenter />
+          <div className="topbar-control-cluster">
+            <button
+              className="button primary compact instant-room-launch"
+              type="button"
+              aria-label="Start instant room"
+              onClick={() => {
+                beginNewInstantRoomVisit();
+                navigate("/");
+              }}
+            >
+              <AppIcon name="plus" />
+              <span>Start instant room</span>
+            </button>
+            <NotificationCenter />
+            <AppMenuTrigger
+              className="mobile-menu-trigger"
+              accessibleLabel="Open main menu"
+              expanded={mobileMenuOpen}
+              controls="mobile-product-menu"
+              onClick={() => setMobileMenuOpen(true)}
+            />
+          </div>
         </header>}
         {!desktopShell && mobileMenuOpen && createPortal(
           <MobileProductMenu
@@ -296,15 +300,11 @@ function MobileProductMenu({
             <span className="eyebrow">Workspace menu</span>
             <h2 id="mobile-product-menu-title">{tenantName}</h2>
           </div>
-          <button
-            className="icon-button"
-            type="button"
+          <AppMenuCloseButton
             data-initial-focus
-            aria-label="Close main menu"
+            accessibleLabel="Close main menu"
             onClick={onClose}
-          >
-            <AppIcon name="x" />
-          </button>
+          />
         </header>
         <nav
           className="mobile-menu-member-links"
@@ -316,17 +316,25 @@ function MobileProductMenu({
           <MemberAreaLinks />
         </nav>
         <button className="mobile-menu-action" type="button" onClick={onInstantRoom}>
+          <AppIcon name="plus" />
           Start instant room
         </button>
         {showInstall && (
           <button className="mobile-menu-action" type="button" onClick={onInstall}>
+            <AppIcon name="download" />
             Install K-Comms
           </button>
         )}
         {(showAdmin || showOperations) && (
           <nav className="mobile-menu-role-links" aria-label="Role tools">
-            {showAdmin && <NavLink to="/admin" onClick={onClose}>Workspace administration</NavLink>}
-            {showOperations && <NavLink to="/ops" onClick={onClose}>Service operations</NavLink>}
+            {showAdmin && <NavLink to="/admin" onClick={onClose}>
+              <AppIcon name="settings" />
+              Workspace administration
+            </NavLink>}
+            {showOperations && <NavLink to="/ops" onClick={onClose}>
+              <AppIcon name="activity" />
+              Service operations
+            </NavLink>}
           </nav>
         )}
         <section className="mobile-menu-account" aria-label="Signed-in account">
@@ -334,7 +342,10 @@ function MobileProductMenu({
             <div><dt>User</dt><dd>{userName}</dd></div>
             <div><dt>Role</dt><dd>{userRole}</dd></div>
           </dl>
-          <button className="button ghost mobile-signout" type="button" onClick={onSignOut}>Sign out</button>
+          <button className="button ghost mobile-signout" type="button" onClick={onSignOut}>
+            <AppIcon name="logOut" />
+            Sign out
+          </button>
         </section>
       </aside>
     </div>
@@ -370,15 +381,12 @@ export function PwaInstallHelpDialog({
             <span className="eyebrow">No App Store needed</span>
             <h2 id="pwa-install-help-title">Install K-Comms</h2>
           </div>
-          <button
-            className="icon-button"
-            type="button"
+          <AppSurfaceControlButton
             data-initial-focus
-            aria-label="Close install instructions"
+            accessibleLabel="Close install instructions"
+            kind="close"
             onClick={onClose}
-          >
-            <AppIcon name="x" />
-          </button>
+          />
         </div>
         {mode === "manual-ios" ? (
           <p id="pwa-install-help-copy">

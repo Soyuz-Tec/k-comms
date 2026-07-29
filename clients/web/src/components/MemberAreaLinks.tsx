@@ -46,7 +46,7 @@ export function MemberAreaLinks({ compact = false }: { compact?: boolean }) {
           aria-label={compact ? label : undefined}
           title={compact ? label : undefined}
         >
-          {compact && <AppIcon name={icon} className="member-nav-icon" />}
+          <AppIcon name={icon} className="member-nav-icon" />
           <span className={compact ? "visually-hidden" : undefined}>{label}</span>
         </NavLink>
       ))}

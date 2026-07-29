@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { ApiError } from "../../api";
 import type { ApiClient } from "../../api";
 import { ConfirmDialog } from "../../components/ActionDialog";
-import { AppIcon } from "../../components/AppIcon";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import type { Conversation, ConversationMembership, User } from "../../types";
 import { conversationTitle, errorText, formatDateTime, initials } from "../../lib/format";
@@ -240,7 +240,14 @@ function ConversationDetailsPanel({
   return (
     <div className="drawer-backdrop">
       <aside ref={dialogRef} className="details-panel" role="dialog" aria-modal="true" aria-labelledby="conversation-details-title">
-        <header><div><span className="eyebrow">Conversation details</span><h2 id="conversation-details-title">{conversationTitle(conversation)}</h2></div><button className="icon-button" type="button" aria-label="Close details" onClick={onClose}><AppIcon name="x" /></button></header>
+        <header>
+          <div><span className="eyebrow">Conversation details</span><h2 id="conversation-details-title">{conversationTitle(conversation)}</h2></div>
+          <AppSurfaceControlButton
+            accessibleLabel="Close details"
+            kind="close"
+            onClick={onClose}
+          />
+        </header>
         <dl className="definition-list compact-list"><div><dt>Type</dt><dd>{conversation.kind}</dd></div><div><dt>Visibility</dt><dd>{conversation.visibility}</dd></div><div><dt>Created</dt><dd>{formatDateTime(conversation.inserted_at)}</dd></div></dl>
         {error && <div className="form-error" role="alert">{error}</div>}
         {conversation.kind === "channel" && conversation.visibility === "tenant" && currentMembership && <div className="channel-membership-actions"><button className="button danger compact" type="button" data-initial-focus={restoreActionKey === "leave" ? true : undefined} disabled={busyUserId === "self-leave"} onClick={onLeave}>{busyUserId === "self-leave" ? "Leaving…" : "Leave channel"}</button></div>}

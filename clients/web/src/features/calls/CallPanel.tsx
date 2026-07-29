@@ -14,6 +14,11 @@ import type {
   RemoteVideoTrack
 } from "livekit-client";
 import { AppIcon } from "../../components/AppIcon";
+import {
+  AppMenuCloseButton,
+  AppMenuTrigger,
+  AppSurfaceControlButton
+} from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText } from "../../lib/format";
 import {
@@ -42,6 +47,16 @@ export type CallPhase =
 
 type VideoTrack = LocalVideoTrack | RemoteVideoTrack;
 type CallWorkspaceTab = "chat" | "people" | "files";
+
+const CALL_CONTROL_LABELS_STORAGE_KEY = "k-comms.call-control-labels.v1";
+
+function storedCallControlLabelsVisible(): boolean {
+  try {
+    return window.localStorage.getItem(CALL_CONTROL_LABELS_STORAGE_KEY) !== "hidden";
+  } catch {
+    return true;
+  }
+}
 
 interface VideoTrackView {
   id: string;
@@ -152,6 +167,10 @@ export function CallPanel({
   const [callWorkspaceTab, setCallWorkspaceTab] = useState<CallWorkspaceTab>("chat");
   const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const [endConfirmationOpen, setEndConfirmationOpen] = useState(false);
+  const [callControlLabelsVisible, setCallControlLabelsVisible] = useState(
+    storedCallControlLabelsVisible
+  );
+  const [labelPreferenceAnnouncement, setLabelPreferenceAnnouncement] = useState("");
   const [accessRevoked, setAccessRevoked] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [mobileCallLayout, setMobileCallLayout] = useState(
@@ -195,6 +214,23 @@ export function CallPanel({
         opener.focus({ preventScroll: true });
       }
       callMenuOpenerRef.current = null;
+    });
+  }
+  function toggleCallControlLabels() {
+    setCallControlLabelsVisible((visible) => {
+      const next = !visible;
+      try {
+        window.localStorage.setItem(
+          CALL_CONTROL_LABELS_STORAGE_KEY,
+          next ? "visible" : "hidden"
+        );
+      } catch {
+        // A blocked preference store must not interfere with call controls.
+      }
+      setLabelPreferenceAnnouncement(
+        next ? "Control labels shown" : "Control labels hidden"
+      );
+      return next;
     });
   }
   const callWorkspaceRef = useModalDialog(
@@ -1190,6 +1226,7 @@ export function CallPanel({
         <section
           ref={callDockRef}
           className={`call-dock audio-call-dock active-call-screen ${joinedKind === "video" ? "video-call-dock video-call-screen" : "audio-call-screen"} ${minimized ? "minimized" : ""}`}
+          data-call-control-labels={callControlLabelsVisible ? "visible" : "hidden"}
           role={expandedCallModal ? "dialog" : "region"}
           aria-modal={expandedCallModal || undefined}
           aria-labelledby="call-title"
@@ -1231,39 +1268,50 @@ export function CallPanel({
                 </span>
               </div>
             </div>
-            <div className="call-dock-heading-actions">
-              {mobileCallLayout && !minimized && (
-                <button
-                  ref={callMenuTriggerRef}
-                  className="button ghost compact call-menu-trigger"
-                  type="button"
-                  data-call-focus
-                  aria-label="Open call menu"
-                  aria-expanded={mobileWorkspaceOpen}
-                  aria-controls="call-workspace-sheet"
-                  onClick={(event) => openMobileCallMenu(event.currentTarget)}
-                >
-                  <AppIcon name="menu" />
-                  <span>Call menu</span>
-                </button>
-              )}
-              <button
+            <div
+              className="call-dock-heading-actions app-surface-control-cluster"
+              role="group"
+              aria-label="Call window controls"
+            >
+              <AppSurfaceControlButton
                 className="button ghost compact"
-                type="button"
-                data-call-focus={mobileCallLayout ? undefined : true}
+                data-call-focus
+                accessibleLabel={minimized ? "Show call" : "Minimize"}
+                kind={minimized ? "expand" : "minimize"}
+                label={minimized ? "Show call" : "Minimize"}
                 aria-expanded={!minimized}
                 aria-controls="active-call-details"
                 onClick={() => {
                   setMobileWorkspaceOpen(false);
                   setMinimized((current) => !current);
                 }}
-              >
-                <AppIcon name={minimized ? "maximize" : "minimize"} />
-                {minimized ? "Show call" : "Minimize"}
-              </button>
+              />
+              {mobileCallLayout && !minimized && (
+                <AppMenuTrigger
+                  ref={callMenuTriggerRef}
+                  className="button ghost compact call-menu-trigger"
+                  accessibleLabel="Open call menu"
+                  expanded={mobileWorkspaceOpen}
+                  controls="call-workspace-sheet"
+                  overlay
+                  onClick={(event) => openMobileCallMenu(event.currentTarget)}
+                />
+              )}
             </div>
           </div>
-          <div id="active-call-details" className="active-call-details">
+          <div
+            id="active-call-details"
+            className="active-call-details"
+            onPointerDown={(event) => {
+              if (
+                mobileCallLayout
+                && mobileWorkspaceOpen
+                && event.currentTarget === event.target
+              ) {
+                closeMobileCallMenu();
+              }
+            }}
+          >
             <div className="call-capture-indicator" role="status" aria-label="Local capture status">
               <strong>Capture</strong>
               <span className={microphoneEnabled ? "active" : undefined}>
@@ -1290,19 +1338,17 @@ export function CallPanel({
               aria-label="Call workspace"
               tabIndex={mobileCallLayout && mobileWorkspaceOpen ? -1 : undefined}
             >
-              {mobileCallLayout && (
+              <p className="visually-hidden" role="status" aria-live="polite">
+                {labelPreferenceAnnouncement}
+              </p>
+              {mobileCallLayout && mobileWorkspaceOpen && (
                 <header className="call-menu-header">
                   <h3 id="call-menu-title">Call menu</h3>
-                  <button
-                    className="button ghost compact"
-                    type="button"
+                  <AppMenuCloseButton
                     data-initial-focus
-                    aria-label="Close call menu"
+                    accessibleLabel="Close call menu"
                     onClick={closeMobileCallMenu}
-                  >
-                    <AppIcon name="x" />
-                    <span>Close</span>
-                  </button>
+                  />
                 </header>
               )}
               <nav className="call-collaboration-links" aria-label="Call workspace">
@@ -1312,7 +1358,10 @@ export function CallPanel({
                   } else {
                     setCallWorkspaceTab("chat");
                   }
-                }}>Chat</button>
+                }}>
+                  <AppIcon name="message" />
+                  Chat
+                </button>
                 <button type="button" aria-label={mobileCallLayout ? "People" : "Directory"} aria-pressed={callWorkspaceTab === "people"} onClick={() => {
                   setCallWorkspaceTab("people");
                   if (onNavigate && !mobileCallLayout) {
@@ -1320,14 +1369,20 @@ export function CallPanel({
                     setMinimized(true);
                     onNavigate("/app/directory");
                   }
-                }}>People ({participants.length})</button>
+                }}>
+                  <AppIcon name="users" />
+                  People ({participants.length})
+                </button>
                 {onNavigate && (
                   <button type="button" aria-pressed={callWorkspaceTab === "files"} onClick={() => {
                     setCallWorkspaceTab("files");
                     setMobileWorkspaceOpen(false);
                     setMinimized(true);
                     onNavigate("/app/files");
-                  }}>Files</button>
+                  }}>
+                    <AppIcon name="file" />
+                    Files
+                  </button>
                 )}
               </nav>
               <div className="call-workspace-body">
@@ -1369,9 +1424,26 @@ export function CallPanel({
                   </>
                 )}
               </div>
-              {mobileCallLayout && call?.can_end && (
+              {mobileCallLayout && mobileWorkspaceOpen && (
                 <div className="call-menu-secondary-actions">
                   <button
+                    className="button ghost call-control-label-toggle"
+                    type="button"
+                    onClick={toggleCallControlLabels}
+                  >
+                    <AppIcon name={callControlLabelsVisible ? "eyeOff" : "eye"} />
+                    {callControlLabelsVisible ? "Hide labels" : "Show labels"}
+                  </button>
+                  <button
+                    className="button danger"
+                    type="button"
+                    disabled={phase === "leaving"}
+                    onClick={() => void leave()}
+                  >
+                    <AppIcon name="phoneOff" />
+                    Leave call
+                  </button>
+                  {call?.can_end && <button
                     className="button danger"
                     type="button"
                     disabled={phase === "leaving"}
@@ -1379,7 +1451,7 @@ export function CallPanel({
                   >
                     <AppIcon name="phoneOff" />
                     End for everyone
-                  </button>
+                  </button>}
                 </div>
               )}
             </section>
@@ -1443,7 +1515,7 @@ export function CallPanel({
                   onClick={() => void toggleCamera()}
                 >
                   <span className="call-action-glyph" aria-hidden="true">
-                    <AppIcon name={cameraEnabled ? "camera" : "cameraOff"} />
+                    <AppIcon name={cameraEnabled ? "video" : "videoOff"} />
                   </span>
                   <span className="call-action-label">
                     {mobileCallLayout
@@ -1475,6 +1547,7 @@ export function CallPanel({
                 <button
                   className={`button compact call-action-people call-action-more ${mobileWorkspaceOpen && callWorkspaceTab === "people" ? "primary" : "ghost"}`}
                   type="button"
+                  aria-label="People"
                   aria-expanded={mobileWorkspaceOpen && callWorkspaceTab === "people"}
                   aria-controls="call-workspace-sheet"
                   onClick={(event) => {
@@ -1540,7 +1613,14 @@ export function CallPanel({
             aria-describedby="call-end-confirmation-description"
             tabIndex={-1}
           >
-            <h2 id="call-end-confirmation-title">End call for everyone?</h2>
+            <header className="app-dialog-heading">
+              <h2 id="call-end-confirmation-title">End call for everyone?</h2>
+              <AppSurfaceControlButton
+                accessibleLabel="Close end call confirmation"
+                kind="close"
+                onClick={() => setEndConfirmationOpen(false)}
+              />
+            </header>
             <p id="call-end-confirmation-description">
               This ends the call for every participant. This action cannot be undone.
             </p>
@@ -1698,11 +1778,16 @@ function CallPrejoinDialog({
   return <div className="modal-backdrop">
     <section ref={dialogRef} className="modal-dialog audio-prejoin-dialog call-prejoin-dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
       <header className="prejoin-heading">
-        <button className="prejoin-back" type="button" aria-label="Back" data-initial-focus onClick={onCancel}><AppIcon name="chevronLeft" /></button>
         <div>
           <h2 id="call-prejoin-title">Ready to join?</h2>
           <p>{conversationTitle}</p>
         </div>
+        <AppSurfaceControlButton
+          accessibleLabel="Close call setup"
+          data-initial-focus
+          kind="close"
+          onClick={onCancel}
+        />
       </header>
       <p className="prejoin-intro">{kind === "video" ? "Choose exactly which devices to publish before entering. Camera preview stays on this device until you join." : "Choose whether to publish your microphone. Camera and screen sharing stay off."}</p>
       {error && <div className="form-error" role="alert">{error}</div>}
@@ -1841,13 +1926,23 @@ function VideoParticipantGrid({ participants }: { participants: ParticipantView[
         { id: participant.id, display_name: participant.name },
         duplicateNames
       );
-      return <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""}`} role="listitem" aria-label={`${identifier}${participant.local ? " (you)" : ""}${participant.speaking ? ", Speaking" : ""}`} key={participant.id} data-participant-id={participant.id}>
+      const microphoneStatus = participant.microphoneEnabled ? "Microphone on" : "Muted";
+      const cameraStatus = participant.cameraEnabled ? "Camera on" : "Camera off";
+      return <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""}`} role="listitem" aria-label={`${identifier}${participant.local ? " (you)" : ""}, ${microphoneStatus}, ${cameraStatus}${participant.speaking ? ", Speaking" : ""}`} key={participant.id} data-participant-id={participant.id}>
       <div className="video-track-stack">
         {participant.videoTracks.length > 0
           ? participant.videoTracks.map((video) => <VideoTrackElement key={video.id} video={video} participant={participant} participantIdentifier={identifier} />)
-          : <div className="video-placeholder" aria-hidden="true"><span>{initials(participant.name)}</span><small>{participant.cameraEnabled ? "Waiting for video" : "Camera off"}</small></div>}
+          : <div className="video-placeholder" aria-hidden="true"><span>{initials(participant.name)}</span><small>{participant.cameraEnabled ? "Starting video…" : "Camera off"}</small></div>}
       </div>
-      <div className="video-participant-caption"><strong>{identifier}{participant.local ? " (you)" : ""}</strong><span aria-label={`${participant.microphoneEnabled ? "Microphone on" : "Muted"}; ${participant.cameraEnabled ? "Camera on" : "Camera off"}`}><AppIcon name={participant.microphoneEnabled ? "mic" : "micOff"} /><AppIcon name={participant.cameraEnabled ? "camera" : "cameraOff"} /><span>{participant.cameraEnabled ? "Camera on" : "Camera off"}</span></span></div>
+      <div className="video-participant-caption">
+        <strong>{identifier}{participant.local ? " (you)" : ""}</strong>
+        {(!participant.microphoneEnabled || !participant.cameraEnabled) && (
+          <span className="video-participant-exceptions" aria-hidden="true">
+            {!participant.microphoneEnabled && <AppIcon name="micOff" />}
+            {!participant.cameraEnabled && <AppIcon name="videoOff" />}
+          </span>
+        )}
+      </div>
     </article>;
     })}
   </div>;

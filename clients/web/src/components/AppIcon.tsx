@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowDown,
   ArrowLeft,
   ArrowUpRight,
@@ -14,6 +15,8 @@ import {
   ContactRound,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   ExternalLink,
   FileText,
   Filter,
@@ -40,6 +43,7 @@ import {
   ScreenShare,
   ScreenShareOff,
   Send,
+  Settings2,
   Share,
   SlidersHorizontal,
   Sparkles,
@@ -55,6 +59,7 @@ import {
 } from "lucide-react";
 
 const icons = {
+  activity: Activity,
   arrowDown: ArrowDown,
   arrowLeft: ArrowLeft,
   arrowUpRight: ArrowUpRight,
@@ -70,6 +75,8 @@ const icons = {
   contact: ContactRound,
   copy: Copy,
   download: Download,
+  eye: Eye,
+  eyeOff: EyeOff,
   externalLink: ExternalLink,
   file: FileText,
   filter: Filter,
@@ -96,6 +103,7 @@ const icons = {
   screenShare: ScreenShare,
   screenShareOff: ScreenShareOff,
   send: Send,
+  settings: Settings2,
   share: Share,
   sliders: SlidersHorizontal,
   sparkles: Sparkles,
