@@ -1,6 +1,8 @@
 defmodule CommsIntegrations.Audio.LiveKitToken do
   @moduledoc "Issues short-lived LiveKit credentials for audio and video conversation calls."
 
+  alias CommsIntegrations.Audio.IceServers
+
   @minimum_ttl_seconds 60
   @maximum_ttl_seconds 300
 
@@ -29,7 +31,11 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
          {:ok, identity} <- required_binary(provider_identity),
          {:ok, name} <- required_binary(display_name),
          {:ok, expires_in} <-
-           effective_ttl(config.ttl_seconds, authorization_expires_at, now) do
+           effective_ttl(config.ttl_seconds, authorization_expires_at, now),
+         # A configured-but-invalid relay fails the credential rather than
+         # silently issuing one without it: a silent fallback would drop
+         # restricted-network participants back to the failure this prevents.
+         {:ok, ice_servers} <- IceServers.for_participant(identity) do
       claims = %{
         "exp" => now + expires_in,
         "iss" => config.api_key,
@@ -54,7 +60,8 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
        %{
          server_url: config.server_url,
          participant_token: sign(claims, config.api_secret),
-         expires_in: expires_in
+         expires_in: expires_in,
+         ice_servers: ice_servers
        }}
     else
       {:error, reason} = error

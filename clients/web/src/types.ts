@@ -374,10 +374,17 @@ export interface CallRealtimeEvent {
   end_reason?: string | null;
 }
 
+export interface CallIceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
 export interface CallCredential {
   server_url: string;
   participant_token: string;
   expires_in: number;
+  ice_servers?: CallIceServer[];
 }
 
 export interface CallSessionResponse {

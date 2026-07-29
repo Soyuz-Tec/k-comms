@@ -257,6 +257,28 @@ if config_env() == :prod do
       _ -> raise "AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS must be an integer"
     end
 
+  ice_url_list = fn name ->
+    name
+    |> System.get_env("")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  stun_urls = ice_url_list.("STUN_URLS")
+  turn_urls = ice_url_list.("TURN_URLS")
+  turn_static_auth_secret = System.get_env("TURN_STATIC_AUTH_SECRET")
+
+  turn_credential_ttl_seconds =
+    case Integer.parse(System.get_env("TURN_CREDENTIAL_TTL_SECONDS", "3600")) do
+      {value, ""} -> value
+      _ -> raise "TURN_CREDENTIAL_TTL_SECONDS must be an integer"
+    end
+
+  if turn_urls != [] and (is_nil(turn_static_auth_secret) or turn_static_auth_secret == "") do
+    raise "TURN_STATIC_AUTH_SECRET is required when TURN_URLS is set"
+  end
+
   host = System.get_env("PHX_HOST", "example.invalid")
   port = String.to_integer(System.get_env("PORT", "4000"))
   cluster_query = System.get_env("CLUSTER_DNS_QUERY")
@@ -712,6 +734,10 @@ if config_env() == :prod do
     livekit_api_key: livekit_api_key,
     livekit_api_secret: livekit_api_secret,
     audio_token_ttl_seconds: audio_token_ttl_seconds,
+    stun_urls: stun_urls,
+    turn_urls: turn_urls,
+    turn_static_auth_secret: turn_static_auth_secret,
+    turn_credential_ttl_seconds: turn_credential_ttl_seconds,
     allow_insecure_local_object_storage: local_release? and development_adapters?,
     allow_insecure_local_media: local_release? and development_adapters?,
     insecure_local_object_storage_host:

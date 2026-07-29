@@ -745,6 +745,76 @@ describe("CallPanel calls", () => {
     expect(livekit.roomOptions.at(-1)?.publishDefaults).toMatchObject({ videoCodec: "vp8" });
   });
 
+  it("supplies the server-issued relay to the media session", async () => {
+    const api = apiWith(activeAudioCall);
+    (api.joinCall as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: activeAudioCall,
+      credential: {
+        server_url: "wss://media.example.test",
+        participant_token: "memory-only-call-token",
+        expires_in: 300,
+        ice_servers: [
+          { urls: ["stun:stun.example.test:3478"] },
+          {
+            urls: ["turns:relay.example.test:5349"],
+            username: "1900000000:user-1",
+            credential: "derived-relay-credential"
+          }
+        ]
+      }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={api}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    expect(livekit.roomOptions.at(-1)?.rtcConfig).toEqual({
+      iceServers: [
+        { urls: ["stun:stun.example.test:3478"] },
+        {
+          urls: ["turns:relay.example.test:5349"],
+          username: "1900000000:user-1",
+          credential: "derived-relay-credential"
+        }
+      ]
+    });
+  });
+
+  it("leaves the SDK defaults alone when the server issues no relay", async () => {
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    expect(livekit.roomOptions.at(-1)).not.toHaveProperty("rtcConfig");
+  });
+
   it("ignores old-room device and media failures after switching conversations", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
