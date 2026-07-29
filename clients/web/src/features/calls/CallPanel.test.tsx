@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
@@ -201,6 +201,7 @@ function useMobileCallLayout() {
 
 describe("CallPanel calls", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     livekit.callbacks.clear();
     livekit.remoteParticipants.clear();
     livekit.localParticipant.isMicrophoneEnabled = false;
@@ -505,7 +506,7 @@ describe("CallPanel calls", () => {
     const camera = within(actions).getByRole("button", { name: "Turn camera on" });
     expect(camera).toBeVisible();
     await user.click(camera);
-    expect(await within(activeCall).findByText("Waiting for video")).toBeVisible();
+    expect(await within(activeCall).findByText("Starting video…")).toBeVisible();
     expect(within(actions).getByRole("button", { name: "Share screen" }))
       .toBeVisible();
 
@@ -531,8 +532,69 @@ describe("CallPanel calls", () => {
       .map((item) => item.getAttribute("data-participant-id"));
     expect(participantIds).toEqual(["user-3", "user-2", "user-1"]);
     expect(within(activeCall).getByRole("listitem", {
-      name: "Grace, Speaking"
+      name: "Grace, Microphone on, Camera on, Speaking"
     })).toBeVisible();
+  });
+
+  it("persists the elder-friendly call-control label preference without changing accessible names", async () => {
+    useMobileCallLayout();
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeVideoCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the video call" }))
+        .getByRole("button", { name: "Join video call" })
+    );
+
+    const activeCall = await screen.findByRole("dialog", { name: "Design group" });
+    expect(activeCall).toHaveAttribute("data-call-control-labels", "visible");
+    await user.click(within(activeCall).getByRole("button", {
+      name: "Open call menu"
+    }));
+    const callMenu = within(activeCall).getByRole("dialog", { name: "Call menu" });
+    await user.click(within(callMenu).getByRole("button", {
+      name: "Hide labels"
+    }));
+
+    expect(activeCall).toHaveAttribute("data-call-control-labels", "hidden");
+    expect(window.localStorage.getItem("k-comms.call-control-labels.v1"))
+      .toBe("hidden");
+    expect(within(callMenu).getByRole("button", { name: "Show labels" }))
+      .toBeVisible();
+    expect(within(activeCall).getByRole("button", { name: "People" }))
+      .toBeVisible();
+    expect(within(callMenu).getByText("Control labels hidden"))
+      .toBeInTheDocument();
+    await user.click(within(callMenu).getByRole("button", {
+      name: "Close call menu"
+    }));
+    const callStage = activeCall.querySelector(".call-stage");
+    await waitFor(() => {
+      expect(callStage).not.toHaveAttribute("inert");
+      expect(callStage).not.toHaveAttribute("aria-hidden");
+    });
+    expect(within(activeCall).getByRole("button", {
+      name: "Unmute microphone"
+    })).toBeVisible();
+    expect(within(activeCall).getByRole("button", {
+      name: "Turn camera on"
+    })).toBeVisible();
+
+    await user.click(within(activeCall).getByRole("button", {
+      name: "Open call menu"
+    }));
+    fireEvent.pointerDown(activeCall.querySelector(".active-call-details")!);
+    expect(within(activeCall).queryByRole("dialog", { name: "Call menu" }))
+      .not.toBeInTheDocument();
   });
 
   it("offers distinct actions and stops every preview track on camera switch and cancel", async () => {

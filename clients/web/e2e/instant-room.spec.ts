@@ -157,10 +157,20 @@ test.describe("instant-room front door", () => {
     await expect(roomMenu).toBeVisible();
     await expect(roomMenu).toHaveAttribute("aria-expanded", "false");
     await expectMinimumTarget(roomMenu);
+    const roomMenuBox = await roomMenu.boundingBox();
+    expect(roomMenuBox).not.toBeNull();
+    expect(roomMenuBox!.width).toBeGreaterThanOrEqual(52);
+    expect(roomMenuBox!.height).toBeGreaterThanOrEqual(52);
+    expect(roomMenuBox!.x).toBeGreaterThan(160);
     await roomMenu.click();
     const menuDialog = page.getByRole("dialog", { name: "Room menu" });
     await expect(menuDialog).toHaveCount(1);
     await expect(menuDialog).toBeVisible();
+    const roomMenuDialogBox = await menuDialog.boundingBox();
+    expect(roomMenuDialogBox).not.toBeNull();
+    expect(Math.abs(
+      roomMenuDialogBox!.x + roomMenuDialogBox!.width - 320
+    )).toBeLessThanOrEqual(1);
     await expect(menuDialog.getByRole("button", { name: "Close" })).toBeFocused();
     await expect(
       menuDialog.getByRole("heading", { name: "Scan to join" })
@@ -319,7 +329,8 @@ test.describe("instant-room front door", () => {
     { width: 390, height: 844 },
     { width: 430, height: 860 },
     { width: 600, height: 900 },
-    { width: 768, height: 900 }
+    { width: 760, height: 900 },
+    { width: 844, height: 390 }
   ]) {
     test(`keeps the compact live-room workspace contained at ${viewport.width}px`, async ({
       page
@@ -388,6 +399,11 @@ test.describe("instant-room front door", () => {
       const menuDialog = page.getByRole("dialog", { name: "Room menu" });
       await expect(menuDialog).toHaveCount(1);
       await expect(menuDialog).toBeVisible();
+      const menuDialogBox = await menuDialog.boundingBox();
+      expect(menuDialogBox).not.toBeNull();
+      expect(Math.abs(
+        menuDialogBox!.x + menuDialogBox!.width - viewport.width
+      )).toBeLessThanOrEqual(1);
       await expect(menuDialog.getByRole("button", { name: "Close" })).toBeFocused();
       await expect(
         menuDialog.getByRole("heading", { name: "Scan to join" })
@@ -403,12 +419,14 @@ test.describe("instant-room front door", () => {
       });
       await expect(downloadQr).toBeEnabled();
       await expectMinimumTarget(downloadQr);
+      await downloadQr.scrollIntoViewIfNeeded();
       await expectContained(downloadQr, viewport);
       await expect(
         menuDialog.getByRole("button", { name: "Share invite link" })
       ).toBeVisible();
       const qrCard = menuDialog.locator(".instant-room-menu-qr-card");
       await expect(qrCard).toBeVisible();
+      await qrCard.scrollIntoViewIfNeeded();
       await expectContained(qrCard, viewport);
       await expect(
         page.getByRole("dialog", { name: "Invite someone" })
@@ -453,12 +471,12 @@ test.describe("instant-room front door", () => {
         );
       }
 
-      if (viewport.width === 768) {
+      if (viewport.width === 760) {
         await menuTrigger.click();
         await expect(
           page.getByRole("dialog", { name: "Room menu" })
         ).toBeVisible();
-        await page.setViewportSize({ width: 769, height: viewport.height });
+        await page.setViewportSize({ width: 761, height: viewport.height });
         await expect(
           page.getByRole("dialog", { name: "Room menu" })
         ).toHaveCount(0);
@@ -468,7 +486,7 @@ test.describe("instant-room front door", () => {
 
         await page.setViewportSize(viewport);
         await participantToggle.focus();
-        await page.setViewportSize({ width: 769, height: viewport.height });
+        await page.setViewportSize({ width: 761, height: viewport.height });
         await expect(
           page.getByRole("heading", { name: "Participants" })
         ).toBeFocused();

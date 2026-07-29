@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { downloadUrl, sha256, uploadToPresignedTarget } from "../../api";
 import type { ApiClient, SendMessageInput } from "../../api";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { loadThreadDraft, storeThreadDraft } from "../../lib/drafts";
@@ -638,7 +639,11 @@ export function ThreadDrawer({
       <aside ref={dialogRef} className="thread-drawer" role="dialog" aria-modal="true" aria-labelledby="thread-title">
         <header>
           <div><span className="eyebrow">Conversation thread</span><h2 id="thread-title">Thread</h2></div>
-          <button className="icon-button" type="button" aria-label="Close thread" onClick={onClose}><AppIcon name="x" /></button>
+          <AppSurfaceControlButton
+            accessibleLabel="Close thread"
+            kind="close"
+            onClick={onClose}
+          />
         </header>
         {error && <div className="form-error" role="alert">{error}</div>}
         {loading ? <div className="inline-loading" aria-busy="true"><span className="spinner" aria-hidden="true" />Loading thread…</div> : root && (

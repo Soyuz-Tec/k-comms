@@ -10,6 +10,7 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { browserName, formatDateTime } from "../../lib/format";
 import {
@@ -1041,9 +1042,14 @@ function InstantRoomSharePanel({
                 <h2 id="instant-share-title" tabIndex={-1} data-initial-focus>
                   Invite someone
                 </h2>
-                <button className="button ghost compact" type="button" onClick={closeDetails}>
-                  Hide invite details
-                </button>
+                <AppSurfaceControlButton
+                  accessibleLabel="Hide invite details"
+                  className="app-menu-close"
+                  kind="close"
+                  label="Hide invite details"
+                  showLabel
+                  onClick={closeDetails}
+                />
               </div>
               <p className="instant-room-share-guidance">
                 Show the QR code only when someone is ready to scan it.

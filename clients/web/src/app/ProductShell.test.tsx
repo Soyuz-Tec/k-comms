@@ -128,14 +128,14 @@ describe("ProductShell PWA controls", () => {
     });
   });
 
-  it("offers a text-only mobile install action and shows iOS instructions", async () => {
+  it("offers a familiar mobile install action and shows iOS instructions", async () => {
     harness.pwa.installMode = "manual-ios";
     const user = userEvent.setup();
     renderProductShell();
 
     await user.click(screen.getByRole("button", { name: "Open main menu" }));
     const install = screen.getByRole("button", { name: "Install K-Comms" });
-    expect(install.querySelector(".app-icon")).not.toBeInTheDocument();
+    expect(install.querySelector(".lucide-download")).toBeInTheDocument();
     await user.click(install);
 
     const dialog = screen.getByRole("dialog", { name: "Install K-Comms" });

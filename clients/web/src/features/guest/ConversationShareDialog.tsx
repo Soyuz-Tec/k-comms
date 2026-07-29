@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api";
 import { stepUpWasCancelled } from "../../app/step-up";
 import { ConfirmDialog } from "../../components/ActionDialog";
-import { AppIcon } from "../../components/AppIcon";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatDateTime, conversationTitle } from "../../lib/format";
 import type { Conversation, GuestLink } from "../../types";
@@ -194,9 +194,11 @@ export function ConversationShareDialog({
             <span className="eyebrow">Guest access</span>
             <h2 id="guest-share-title">Invite to {conversationTitle(conversation)}</h2>
           </div>
-          <button className="icon-button" type="button" aria-label="Close guest invitation" onClick={onClose}>
-            <AppIcon name="x" />
-          </button>
+          <AppSurfaceControlButton
+            accessibleLabel="Close guest invitation"
+            kind="close"
+            onClick={onClose}
+          />
         </header>
 
         {direct ? (

@@ -13,8 +13,8 @@ import {
   resolveVisibleSenderIdentity,
   type ParticipantIdentity
 } from "../../lib/participantIdentity";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
-import { AppIcon } from "../../components/AppIcon";
 
 type DateScope = "any" | "day" | "week" | "month";
 
@@ -266,7 +266,14 @@ export function SearchPanel({
   return (
     <div className="drawer-backdrop">
       <aside ref={dialogRef} className="search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title">
-        <header><div><span className="eyebrow">Authorized results</span><h2 id="message-search-title">Search messages</h2></div><button className="icon-button" type="button" aria-label="Close search" onClick={onClose}><AppIcon name="x" /></button></header>
+        <header>
+          <div><span className="eyebrow">Authorized results</span><h2 id="message-search-title">Search messages</h2></div>
+          <AppSurfaceControlButton
+            accessibleLabel="Close search"
+            kind="close"
+            onClick={onClose}
+          />
+        </header>
         <form className="search-form message-search-form" role="search" onSubmit={(event) => void search(event)}>
           <label className="sr-only" htmlFor="message-search">Search accessible messages</label>
           <input id="message-search" type="search" value={query} onChange={(event) => queryChanged(event.target.value)} placeholder="Search messages" autoFocus data-initial-focus />

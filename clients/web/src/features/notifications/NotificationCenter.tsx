@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
 import { AppIcon } from "../../components/AppIcon";
+import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { errorText, formatTime } from "../../lib/format";
 import type { InAppNotification } from "../../types";
@@ -131,7 +132,11 @@ function NotificationPanel({
     <aside ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title">
       <header>
         <div><span className="eyebrow">Inbox</span><h2 id="notification-title">Notifications</h2></div>
-        <button className="icon-button" type="button" aria-label="Close notifications" onClick={onClose}><AppIcon name="x" /></button>
+        <AppSurfaceControlButton
+          accessibleLabel="Close notifications"
+          kind="close"
+          onClick={onClose}
+        />
       </header>
       <div className="notification-panel-actions">
         <span>{unreadCount} unread</span>
