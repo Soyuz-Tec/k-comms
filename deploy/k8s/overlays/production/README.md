@@ -97,6 +97,14 @@ camera/screen consent and recording-disabled privacy policy,
 content-blind telemetry, provider outage handling, and revocation evidence. Standard HTTP
 Ingress validation is not evidence that RTP/SRTP or TURN works.
 
+The application side of the relay is configured through `STUN_URLS`,
+`TURN_URLS`, and `TURN_STATIC_AUTH_SECRET`; participants receive short-lived
+derived credentials rather than the shared secret. Deploying the relay itself
+remains out of scope for this overlay. See
+[TURN relay](../../../../docs/10-infrastructure-and-deployment/turn-relay.md)
+for the configuration contract and the relay-candidate verification step that
+qualifies it.
+
 The portable self-hosted adapter does not claim instantaneous token
 invalidation. If the approved revocation SLO requires an immediate
 single-participant hard stop, separately implement and qualify LiveKit Cloud

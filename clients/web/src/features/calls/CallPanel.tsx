@@ -30,6 +30,7 @@ import {
 } from "../../lib/participantIdentity";
 import type {
   Call,
+  CallIceServer,
   CallMediaKind,
   CallRealtimeEvent,
   CallSessionResponse,
@@ -643,7 +644,8 @@ export function CallPanel({
         dynacast: true,
         audioCaptureDefaults: microphoneCaptureOptions(microphoneDeviceId),
         videoCaptureDefaults: cameraCaptureOptions(cameraDeviceId),
-        publishDefaults: callPublishDefaults()
+        publishDefaults: callPublishDefaults(),
+        ...callRtcConfig(response.credential.ice_servers)
       });
       bindRoom(room, kind);
       roomRef.current = room;
@@ -2009,6 +2011,31 @@ function cameraCaptureOptions(deviceId: string) {
  * published at 1080p15 instead of the 1080p30 default — half the bitrate for
  * text that does not move.
  */
+/**
+ * Supplies the relay the server issued for this participant. Without one, a
+ * participant behind a symmetric NAT or a UDP-blocking firewall cannot
+ * establish media at all, so the call fails rather than degrades.
+ *
+ * Returning no `rtcConfig` at all when the server sends no relay leaves the
+ * SDK on its own defaults, which is the portable single-host behaviour.
+ */
+export function callRtcConfig(
+  iceServers?: CallIceServer[]
+): { rtcConfig?: RTCConfiguration } {
+  const usable = (iceServers || []).filter((server) => server.urls?.length > 0);
+  if (usable.length === 0) return {};
+
+  return {
+    rtcConfig: {
+      iceServers: usable.map((server) => ({
+        urls: server.urls,
+        ...(server.username ? { username: server.username } : {}),
+        ...(server.credential ? { credential: server.credential } : {})
+      }))
+    }
+  };
+}
+
 export function callPublishDefaults(): TrackPublishDefaults {
   return {
     videoCodec: supportsVP9() ? "vp9" : "vp8",
