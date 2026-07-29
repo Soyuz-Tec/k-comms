@@ -2109,14 +2109,22 @@ export async function sha256(file: File): Promise<string> {
   return sha256BlobHex(file);
 }
 
+/**
+ * Uploads through XMLHttpRequest rather than fetch because fetch reports no
+ * progress for a request body: the browser exposes upload progress only through
+ * XHR's upload events. Without them the queue can show that an upload is
+ * running but never how far along it is, which is indistinguishable from a
+ * stall on a large file over a slow link.
+ */
 export async function uploadToPresignedTarget(
   descriptor: UploadDescriptor,
   file: File,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgress?: (fraction: number) => void
 ): Promise<void> {
   const url = validatedPresignedUrl(descriptor);
 
-  let body: BodyInit = file;
+  let body: XMLHttpRequestBodyInit = file;
   const headers = new Headers(descriptor.headers);
   if (descriptor.fields && Object.keys(descriptor.fields).length > 0) {
     const form = new FormData();
@@ -2127,13 +2135,62 @@ export async function uploadToPresignedTarget(
     headers.set("content-type", attachmentContentType(file));
   }
 
-  const response = await fetch(url, {
-    method: descriptor.method || (descriptor.fields ? "POST" : "PUT"),
-    headers,
-    body,
-    signal
+  const method = descriptor.method || (descriptor.fields ? "POST" : "PUT");
+
+  await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+
+    const request = new XMLHttpRequest();
+    request.open(method, url, true);
+    headers.forEach((value, name) => request.setRequestHeader(name, value));
+
+    const detach = () => signal?.removeEventListener("abort", onAbort);
+    const onAbort = () => request.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    request.upload.addEventListener("progress", (event) => {
+      // Without a total the browser cannot report a fraction, so the caller
+      // keeps its indeterminate state rather than being fed a fabricated one.
+      if (!onProgress || !event.lengthComputable || event.total <= 0) return;
+      onProgress(Math.min(1, event.loaded / event.total));
+    });
+
+    request.addEventListener("load", () => {
+      detach();
+      if (request.status >= 200 && request.status < 300) {
+        onProgress?.(1);
+        resolve();
+        return;
+      }
+      reject(new Error(`Object upload failed with status ${request.status}`));
+    });
+
+    request.addEventListener("error", () => {
+      detach();
+      reject(new Error("Object upload failed"));
+    });
+
+    request.addEventListener("abort", () => {
+      detach();
+      reject(abortError());
+    });
+
+    request.send(body);
   });
-  if (!response.ok) throw new Error(`Object upload failed with status ${response.status}`);
+}
+
+/**
+ * Mirrors the DOMException fetch raises on abort so existing callers, which
+ * detect cancellation by name, keep working unchanged.
+ */
+function abortError(): Error {
+  if (typeof DOMException === "function") return new DOMException("Aborted", "AbortError");
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 export function downloadUrl(descriptor?: UploadDescriptor): string | null {

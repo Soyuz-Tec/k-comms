@@ -1416,14 +1416,21 @@ export function ChatPage() {
         return;
       }
 
-      updatePendingAttachment(clientId, { attachment: intent.data, phase: "uploading" });
-      await uploadToPresignedTarget(intent.upload, file, controller.signal);
+      updatePendingAttachment(clientId, {
+        attachment: intent.data,
+        phase: "uploading",
+        progress: 0
+      });
+      await uploadToPresignedTarget(intent.upload, file, controller.signal, (fraction) => {
+        if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+        updatePendingAttachment(clientId, { progress: fraction });
+      });
       if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
         abandonClientAttachmentInBackground(clientId);
         return;
       }
 
-      updatePendingAttachment(clientId, { phase: "finalizing" });
+      updatePendingAttachment(clientId, { phase: "finalizing", progress: undefined });
       const attachment = await api.completeAttachment(intent.data.id, controller.signal);
       if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
         abandonClientAttachmentInBackground(clientId);
@@ -1463,7 +1470,12 @@ export function ChatPage() {
 
   function updatePendingAttachment(
     clientId: string,
-    update: Partial<Pick<PendingAttachmentUpload, "attachment" | "phase" | "error" | "cancelRequested">>
+    update: Partial<
+      Pick<
+        PendingAttachmentUpload,
+        "attachment" | "phase" | "error" | "cancelRequested" | "progress"
+      >
+    >
   ) {
     setPendingAttachments((current) =>
       current.map((item) => item.clientId === clientId ? { ...item, ...update } : item)

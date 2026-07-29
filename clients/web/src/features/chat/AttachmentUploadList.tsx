@@ -21,6 +21,12 @@ export interface PendingAttachmentUpload {
   phase: AttachmentUploadPhase;
   error?: string;
   cancelRequested?: boolean;
+  /**
+   * Transferred fraction, 0-1, present only while the bytes are in flight and
+   * the browser can report a total. Absent means indeterminate rather than
+   * zero, so phases without measurable work keep an unfilled bar.
+   */
+  progress?: number;
 }
 
 export function AttachmentUploadList({
@@ -49,7 +55,15 @@ export function AttachmentUploadList({
             <span className="attachment-queue-copy">
               <strong>{item.localName}</strong>
               <small>{label}</small>
-              {busy && <progress max={100} aria-label={`${item.localName}: ${label}`} />}
+              {busy && (
+                <progress
+                  max={100}
+                  {...(determinateProgress(item) === undefined
+                    ? {}
+                    : { value: determinateProgress(item) })}
+                  aria-label={`${item.localName}: ${label}`}
+                />
+              )}
               {item.phase === "ready" && <progress max={100} value={100} aria-label={`${item.localName}: ready`} />}
             </span>
             <span className="attachment-queue-actions">
@@ -82,10 +96,23 @@ export function attachmentUploadReady(item: PendingAttachmentUpload): boolean {
   return item.phase === "ready" && item.attachment?.status === "ready";
 }
 
+/**
+ * Omitting `value` leaves the element indeterminate, which is the honest
+ * rendering for phases whose duration cannot be measured.
+ */
+function determinateProgress(item: PendingAttachmentUpload): number | undefined {
+  if (item.phase !== "uploading" || item.progress === undefined) return undefined;
+  if (!Number.isFinite(item.progress)) return undefined;
+  return Math.round(Math.min(1, Math.max(0, item.progress)) * 100);
+}
+
 function attachmentUploadLabel(item: PendingAttachmentUpload): string {
   if (item.phase === "hashing") return "Preparing securely";
   if (item.phase === "requesting") return "Creating secure upload";
-  if (item.phase === "uploading") return "Uploading";
+  if (item.phase === "uploading") {
+    const percent = determinateProgress(item);
+    return percent === undefined ? "Uploading" : `Uploading · ${percent}%`;
+  }
   if (item.phase === "finalizing") return "Finalizing upload";
   if (item.phase === "scanning") return "Safety scan in progress";
   if (item.phase === "cancelling") return "Removing secure upload";
