@@ -30,11 +30,11 @@ defmodule CommsCore.Conversations.EphemeralRooms do
     Projector
   }
 
+  alias CommsCore.Conversations.EphemeralRooms.Request
+
   @authority_horizon_seconds 24 * 60 * 60
   @authority_refresh_seconds 12 * 60 * 60
   @idempotency_window_seconds 10 * 60
-  @token_bytes 32
-  @token_encoded_bytes 43
   @global_reconcile_limit 100
   @max_active_leases_per_user 5
   @presence_incident_retention_seconds 60 * 60
@@ -572,8 +572,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
          request_fingerprint
        ) do
     room_id = Ecto.UUID.generate()
-    token_secret = :crypto.strong_rand_bytes(@token_bytes)
-    token = Base.url_encode64(token_secret, padding: false)
+    {token_secret, token} = Request.generate_token()
 
     with {:ok, replay_material} <-
            EphemeralReplayBox.encrypt(token, creator_scope.tenant_id, room_id) do
@@ -1628,68 +1627,15 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   defp join_device(attrs, %{account_type: :guest}), do: device(value(attrs, :device))
   defp join_device(_attrs, %{account_type: :human}), do: {:ok, %{}}
 
-  defp display_name(value) when is_binary(value) do
-    value = String.trim(value)
+  defp display_name(value), do: Request.display_name(value)
+  defp device(value), do: Request.device(value)
+  defp room_title(value), do: Request.room_title(value)
 
-    if value != "" and String.length(value) <= 120,
-      do: {:ok, value},
-      else: {:error, :invalid_guest_display_name}
-  end
+  defp create_fingerprint(scope, title, display_name, device),
+    do: Request.create_fingerprint(scope, title, display_name, device)
 
-  defp display_name(_), do: {:error, :invalid_guest_display_name}
-
-  defp device(value) when is_map(value) do
-    name = value(value, :name)
-    platform = value(value, :platform)
-
-    if is_binary(name) and String.trim(name) != "" and String.length(name) <= 120 and
-         is_binary(platform) and String.trim(platform) != "" and String.length(platform) <= 40 do
-      {:ok, %{name: String.trim(name), platform: String.trim(platform)}}
-    else
-      {:error, :invalid_guest_device}
-    end
-  end
-
-  defp device(_), do: {:error, :invalid_guest_device}
-
-  defp room_title(nil), do: {:ok, "Instant room"}
-
-  defp room_title(value) when is_binary(value) do
-    value = String.trim(value)
-
-    cond do
-      value == "" -> {:ok, "Instant room"}
-      String.length(value) <= 160 -> {:ok, value}
-      true -> {:error, :invalid_ephemeral_room_title}
-    end
-  end
-
-  defp room_title(_), do: {:error, :invalid_ephemeral_room_title}
-
-  defp create_fingerprint(scope, title, display_name, device) do
-    digest([
-      "create:v1",
-      scope.tenant_id,
-      Atom.to_string(scope.owner_kind),
-      Map.get(scope, :grant) |> then(&if(&1, do: &1.user_id, else: "")),
-      title,
-      display_name || "",
-      value(device, :name) || "",
-      value(device, :platform) || ""
-    ])
-  end
-
-  defp join_fingerprint(link, scope, display_name, device) do
-    digest([
-      "join:v1",
-      link.id,
-      Atom.to_string(scope.account_type),
-      Map.get(scope, :user_id, ""),
-      display_name || "",
-      value(device, :name) || "",
-      value(device, :platform) || ""
-    ])
-  end
+  defp join_fingerprint(link, scope, display_name, device),
+    do: Request.join_fingerprint(link, scope, display_name, device)
 
   defp lock_room_scope_by_link!(snapshot, token_secret) do
     conversation =
@@ -2210,26 +2156,8 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   defp instant_room_max_participants,
     do: Application.get_env(:comms_core, :instant_room_max_participants, 25)
 
-  defp exact_secret(value) when is_binary(value) and byte_size(value) == @token_encoded_bytes do
-    case Base.url_decode64(value, padding: false) do
-      {:ok, secret} when byte_size(secret) == @token_bytes ->
-        if Base.url_encode64(secret, padding: false) == value,
-          do: {:ok, secret},
-          else: {:error, :invalid_idempotency_key}
-
-      _ ->
-        {:error, :invalid_idempotency_key}
-    end
-  end
-
-  defp exact_secret(_value), do: {:error, :invalid_idempotency_key}
-
-  defp exact_token(value) do
-    case exact_secret(value) do
-      {:ok, secret} -> {:ok, secret}
-      {:error, _reason} -> {:error, :ephemeral_room_unavailable}
-    end
-  end
+  defp exact_secret(value), do: Request.idempotency_secret(value)
+  defp exact_token(value), do: Request.token_secret(value)
 
   defp instant_rooms_enabled do
     if Application.get_env(:comms_core, :instant_rooms_enabled, false),
@@ -2240,13 +2168,8 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   defp cast_uuid(value) when is_binary(value), do: Ecto.UUID.cast(value)
   defp cast_uuid(_value), do: :error
 
-  defp secure_match?(left, right)
-       when is_binary(left) and is_binary(right) and byte_size(left) == byte_size(right) do
-    :crypto.hash_equals(left, right)
-  end
-
-  defp secure_match?(_left, _right), do: false
-  defp digest(value), do: :crypto.hash(:sha256, value)
+  defp secure_match?(left, right), do: Request.secure_match?(left, right)
+  defp digest(value), do: Request.digest(value)
 
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do
@@ -2267,5 +2190,5 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
-  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp value(map, key), do: Request.value(map, key)
 end

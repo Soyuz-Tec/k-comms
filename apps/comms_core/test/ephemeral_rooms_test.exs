@@ -2,8 +2,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
   use CommsCore.DataCase, async: false
 
   import Ecto.Query
-
-  @token_bytes 32
+  import CommsCore.EphemeralRoomFixtures
 
   alias CommsCore.{
     Accounts,
@@ -28,6 +27,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
   }
 
   alias CommsTestSupport.Fixtures
+
+  @moduletag :integration
 
   setup do
     enabled = Application.get_env(:comms_core, :instant_rooms_enabled)
@@ -298,6 +299,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              Conversations.create(%{kind: :group, title: "Workspace-only"}, scoped_subject)
   end
 
+  @tag :presence
+  @tag :concurrency
   test "presence leases reactivate, reconcile with generation fencing, and expire atomically" do
     account = Fixtures.account_fixture()
 
@@ -387,6 +390,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert DateTime.compare(expires_at, expired_at) == :gt
   end
 
+  @tag :presence
+  @tag :concurrency
   test "multiple connections keep the room active until the final lease closes" do
     account = Fixtures.account_fixture()
 
@@ -431,6 +436,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
   end
 
+  @tag :presence
+  @tag :concurrency
   test "registered creator rejoin cancels idle expiry and fences the old generation" do
     account = Fixtures.account_fixture()
     configure_public_tenant!(account.tenant.id)
@@ -479,6 +486,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
   end
 
+  @tag :presence
   test "guest and registered creators receive their configured idle TTLs" do
     account = Fixtures.account_fixture()
 
@@ -524,6 +532,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              Application.fetch_env!(:comms_core, :instant_room_registered_idle_ttl_seconds)
   end
 
+  @tag :presence
+  @tag :concurrency
   test "idle TTL is anchored to the authoritative final disconnect despite delayed reconciliation" do
     account = Fixtures.account_fixture()
 
@@ -582,6 +592,9 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
   end
 
+  @tag :presence
+  @tag :messaging
+  @tag :call
   test "overdue idle rooms deny message, call, and attachment access before expiry work runs" do
     account = Fixtures.account_fixture()
     configure_public_tenant!(account.tenant.id)
@@ -663,6 +676,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              |> Enum.filter(&(&1.conversation.id == created.conversation.id))
   end
 
+  @tag :presence
+  @tag :concurrency
   test "stale active rooms fail closed after reconnect grace and recover through a live lease" do
     account = Fixtures.account_fixture()
     configure_public_tenant!(account.tenant.id)
@@ -698,6 +713,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert :ok = Conversations.authorize_send_message(created.conversation.id, subject)
   end
 
+  @tag :presence
   test "global reconciliation recreates missing idle expiry work" do
     account = Fixtures.account_fixture()
 
@@ -1072,6 +1088,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
              )
   end
 
+  @tag :presence
+  @tag :concurrency
   test "active lease cap allows five tabs and ignores an expired lease" do
     account = Fixtures.account_fixture()
 
@@ -1121,6 +1139,8 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert {:ok, _sixth_opened} = Conversations.open_ephemeral_presence(sixth)
   end
 
+  @tag :presence
+  @tag :concurrency
   test "an overdue idle room cannot be reactivated before delayed expiry work runs" do
     account = Fixtures.account_fixture()
     configure_public_tenant!(account.tenant.id)
@@ -1150,6 +1170,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert Repo.get!(EphemeralRoom, created.room.id).status == :idle
   end
 
+  @tag :presence
   test "explicit guest logout terminalizes room admission and presence without poisoning refresh" do
     account = Fixtures.account_fixture()
 
@@ -1454,6 +1475,7 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert definition =~ "replay_erased_at IS NULL"
   end
 
+  @tag :presence
   test "maintenance prunes only old terminal leases and 24-hour human receipts" do
     account = Fixtures.account_fixture()
 
@@ -1542,106 +1564,4 @@ defmodule CommsCore.Conversations.EphemeralRoomsTest do
     assert %EphemeralPresenceLease{} = Repo.get!(EphemeralPresenceLease, recent_id)
     assert Repo.get(EphemeralJoinReceipt, receipt.id) == nil
   end
-
-  defp guest_create_attrs(tenant_id, idempotency_key) do
-    configure_public_tenant!(tenant_id)
-
-    %{
-      tenant_id: tenant_id,
-      idempotency_key: idempotency_key,
-      display_name: "Guest host",
-      device: %{name: "Guest browser", platform: "test"},
-      request_id: "ephemeral-room-test"
-    }
-  end
-
-  defp guest_join_attrs(idempotency_key) do
-    %{
-      idempotency_key: idempotency_key,
-      display_name: "Joining guest",
-      device: %{name: "Guest browser", platform: "test"},
-      request_id: "ephemeral-room-join-test"
-    }
-  end
-
-  defp guest_subject(result) do
-    assert {:ok, context} =
-             Accounts.guest_access_context(
-               result.authentication.session_id,
-               "ephemeral-presence-test"
-             )
-
-    Map.merge(context.subject, %{
-      guest_admission_id: result.admission.id,
-      guest_conversation_id: result.conversation.id,
-      guest_history_from_sequence: result.admission.history_from_sequence
-    })
-  end
-
-  defp authenticated_subject(authentication) do
-    %{
-      tenant_id: authentication.tenant.id,
-      user_id: authentication.user.id,
-      device_id: authentication.device.id,
-      session_id: authentication.session_id,
-      role: authentication.user.role,
-      request_id: "ephemeral-human-join-test"
-    }
-  end
-
-  defp password_for(email) do
-    suffix =
-      email
-      |> String.replace_prefix("member-", "")
-      |> String.replace_suffix("@example.test", "")
-
-    "correct-horse-battery-#{suffix}"
-  end
-
-  defp authenticated_human_fixture(account) do
-    member = Fixtures.user_fixture(account)
-
-    {:ok, authentication} =
-      Accounts.authenticate_view(
-        account.tenant.slug,
-        member.user.email,
-        password_for(member.user.email),
-        %{name: "Member browser", platform: "test"}
-      )
-
-    authenticated_subject(authentication)
-  end
-
-  defp secret,
-    do: @token_bytes |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
-
-  defp force_past_reconnect_grace(room_id) do
-    old = DateTime.utc_now() |> DateTime.add(-10, :second) |> DateTime.truncate(:microsecond)
-
-    Repo.update_all(
-      from(room in EphemeralRoom, where: room.id == ^room_id),
-      set: [last_presence_at: old, inserted_at: old]
-    )
-  end
-
-  defp room_generation(room_id), do: Repo.get!(EphemeralRoom, room_id).generation
-
-  defp noncanonical_encoding(value) do
-    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-    canonical_last = String.last(value)
-    index = :binary.match(alphabet, canonical_last) |> elem(0)
-    replacement = String.at(alphabet, index + 1)
-    String.slice(value, 0, byte_size(value) - 1) <> replacement
-  end
-
-  defp configure_public_tenant!(tenant_id) do
-    tenant = Repo.get!(CommsCore.Administration.Tenant, tenant_id)
-    Application.put_env(:comms_core, :instant_rooms_enabled, true)
-    Application.put_env(:comms_core, :instant_room_tenant_slug, tenant.slug)
-  end
-
-  defp restore_env(key, nil), do: Application.delete_env(:comms_core, key)
-  defp restore_env(key, value), do: Application.put_env(:comms_core, key, value)
-  defp decode_secret!(value), do: Base.url_decode64!(value, padding: false)
-  defp sha256(value), do: :crypto.hash(:sha256, value)
 end

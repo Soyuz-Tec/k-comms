@@ -2177,7 +2177,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     receipt_adapter_callers.append(path.relative_to(root).as_posix())
         self.assertEqual(
             receipt_adapter_callers,
-            ["apps/comms_web/lib/comms_web/presenter.ex"],
+            ["apps/comms_web/lib/comms_web/presenters/conversations.ex"],
         )
 
         current_fingerprints = {item.fingerprint for item in violations}

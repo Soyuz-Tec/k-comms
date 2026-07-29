@@ -17,6 +17,8 @@ defmodule CommsCore.ReleaseTest do
                                 ","
                               )
 
+  @moduletag :unit
+
   test "migration environment requires one-shot purpose and bounded ordered timeouts" do
     environment = %{
       "K_COMMS_RUNTIME_PURPOSE" => "one_shot",

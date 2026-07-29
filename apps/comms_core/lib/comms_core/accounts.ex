@@ -6,12 +6,14 @@ defmodule CommsCore.Accounts do
   import Ecto.Query
 
   alias CommsCore.Accounts.{
+    AccessControl,
     AccessGrant,
     CallLifecycleCommand,
     CallLifecyclePort,
     CallLifecycleReceipt,
     ConversationBootstrapPort,
     Device,
+    Directory,
     InitialConversationCommand,
     NotificationCommand,
     NotificationRecipient,
@@ -28,8 +30,6 @@ defmodule CommsCore.Accounts do
 
   alias CommsCore.Administration.{
     AdmissionPolicy,
-    AuthorizationActor,
-    IdentityGrant,
     InvitationIdentityAuthorization,
     InvitedIdentityReceipt,
     InvitedUserCommand
@@ -52,10 +52,6 @@ defmodule CommsCore.Accounts do
   @authentication_failure_jitter_ms 50
   @platform_role_max_ttl_seconds 28_800
   @ephemeral_guest_authority_max_seconds 86_400
-  @default_directory_limit 25
-  @max_directory_limit 100
-  @max_retained_sender_label_ids 200
-
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
@@ -93,67 +89,7 @@ defmodule CommsCore.Accounts do
   subject carries the exact current grant id, role, and expiry.
   """
   @spec access_grant(map()) :: {:ok, AccessGrant.t()} | {:error, :forbidden}
-  def access_grant(subject) when is_map(subject) do
-    case subject_identity(subject) do
-      {tenant_id, user_id, device_id, session_id}
-      when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
-             is_binary(session_id) ->
-        timestamp = now()
-
-        query =
-          from(s in Session,
-            join: u in User,
-            on: u.id == s.user_id,
-            join: d in Device,
-            on: d.id == s.device_id,
-            left_join: g in PlatformRoleGrant,
-            on:
-              g.user_id == u.id and g.tenant_id == u.tenant_id and
-                g.expires_at > ^timestamp and u.account_type == :human and
-                u.access_scope == :workspace,
-            where:
-              s.id == ^session_id and s.tenant_id == ^tenant_id and s.user_id == ^user_id and
-                s.device_id == ^device_id and u.id == ^user_id and
-                u.tenant_id == ^tenant_id and u.status == :active and
-                (u.account_type == :human or
-                   (u.account_type == :guest and not is_nil(u.guest_expires_at) and
-                      u.guest_expires_at > ^timestamp)) and d.id == ^device_id and
-                d.tenant_id == ^tenant_id and d.user_id == ^user_id and
-                is_nil(d.revoked_at) and is_nil(s.revoked_at) and
-                s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp,
-            select: %{
-              tenant_id: s.tenant_id,
-              user_id: s.user_id,
-              device_id: s.device_id,
-              session_id: s.id,
-              account_type: u.account_type,
-              access_scope: u.access_scope,
-              guest_expires_at: u.guest_expires_at,
-              role: u.role,
-              step_up_at: s.step_up_at,
-              platform_role_grant_id: g.id,
-              platform_role: g.role,
-              platform_role_expires_at: g.expires_at
-            }
-          )
-
-        case Repo.one(query) do
-          nil ->
-            {:error, :forbidden}
-
-          facts ->
-            case Administration.active_tenant(facts.tenant_id) do
-              {:ok, _tenant} -> {:ok, build_access_grant(facts, subject, timestamp)}
-              {:error, :tenant_unavailable} -> {:error, :forbidden}
-            end
-        end
-
-      _ ->
-        {:error, :forbidden}
-    end
-  end
-
-  def access_grant(_subject), do: {:error, :forbidden}
+  def access_grant(subject), do: AccessControl.access_grant(subject)
 
   @doc """
   Locks the active session before resolving the Ecto-free Calls access grant.
@@ -165,85 +101,20 @@ defmodule CommsCore.Accounts do
   """
   @spec lock_access_grant(map()) ::
           {:ok, AccessGrant.t()} | {:error, :forbidden | :transaction_required}
-  def lock_access_grant(subject) when is_map(subject) do
-    if Repo.in_transaction?() do
-      case subject_identity(subject) do
-        {tenant_id, user_id, device_id, session_id}
-        when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) and
-               is_binary(session_id) ->
-          timestamp = now()
-
-          with %Session{} <-
-                 Repo.one(
-                   from(session in Session,
-                     where:
-                       session.id == ^session_id and session.tenant_id == ^tenant_id and
-                         session.user_id == ^user_id and session.device_id == ^device_id and
-                         is_nil(session.revoked_at) and session.expires_at > ^timestamp and
-                         session.absolute_expires_at > ^timestamp,
-                     lock: "FOR SHARE"
-                   )
-                 ),
-               {:ok, %AccessGrant{} = grant} <- access_grant(subject) do
-            {:ok, grant}
-          else
-            _ -> {:error, :forbidden}
-          end
-
-        _ ->
-          {:error, :forbidden}
-      end
-    else
-      {:error, :transaction_required}
-    end
-  end
-
-  def lock_access_grant(_subject), do: {:error, :forbidden}
+  def lock_access_grant(subject), do: AccessControl.lock_access_grant(subject)
 
   @impl CommsCore.Administration.IdentityAccessPort
-  def resolve_access(subject) when is_map(subject) do
-    with {:ok, %AccessGrant{} = grant} <- access_grant(subject) do
-      {:ok,
-       %IdentityGrant{
-         tenant_id: grant.tenant_id,
-         user_id: grant.user_id,
-         role: grant.role,
-         step_up_recent?: grant.step_up_recent?
-       }}
-    end
-  end
-
-  def resolve_access(_subject), do: {:error, :forbidden}
+  def resolve_access(subject), do: AccessControl.resolve_access(subject)
 
   @impl CommsCore.Administration.AuthorizationActorPort
-  def resolve_authorization_actor(subject) do
-    with {:ok, %Actor{} = actor} <- authorization_audit_actor(subject) do
-      {:ok,
-       %AuthorizationActor{
-         tenant_id: actor.tenant_id,
-         user_id: actor.user_id,
-         request_id: actor.request_id
-       }}
-    end
-  end
+  def resolve_authorization_actor(subject), do: AccessControl.resolve_authorization_actor(subject)
 
   @doc """
   Counts active IdentityAccess users for the tenant without exposing User
   persistence.
   """
   @spec active_user_count(Ecto.UUID.t()) :: non_neg_integer()
-  def active_user_count(tenant_id) when is_binary(tenant_id) do
-    timestamp = now()
-
-    User
-    |> where(
-      [user],
-      user.tenant_id == ^tenant_id and user.status == :active and
-        (user.account_type != :guest or
-           (not is_nil(user.guest_expires_at) and user.guest_expires_at > ^timestamp))
-    )
-    |> Repo.aggregate(:count)
-  end
+  def active_user_count(tenant_id), do: Directory.active_user_count(tenant_id)
 
   @doc """
   Counts every persisted guest identity for release rollback safety.
@@ -254,11 +125,7 @@ defmodule CommsCore.Accounts do
   rollback-compatible.
   """
   @spec persisted_guest_identity_count() :: non_neg_integer()
-  def persisted_guest_identity_count do
-    User
-    |> where([user], user.account_type == :guest)
-    |> Repo.aggregate(:count)
-  end
+  def persisted_guest_identity_count, do: Directory.persisted_guest_identity_count()
 
   @doc """
   Counts persisted conversation-only human identities for rollback safety.
@@ -267,14 +134,8 @@ defmodule CommsCore.Accounts do
   every such human as workspace-scoped after the access-scope column is gone.
   """
   @spec persisted_conversation_only_human_count() :: non_neg_integer()
-  def persisted_conversation_only_human_count do
-    User
-    |> where(
-      [user],
-      user.account_type == :human and user.access_scope == :conversation_only
-    )
-    |> Repo.aggregate(:count)
-  end
+  def persisted_conversation_only_human_count,
+    do: Directory.persisted_conversation_only_human_count()
 
   @doc """
   Resolves requested user IDs that are active in the exact tenant.
@@ -283,20 +144,8 @@ defmodule CommsCore.Accounts do
   persistence and returned in user-id order.
   """
   @spec resolve_active_user_ids(String.t(), [String.t()]) :: [String.t()]
-  def resolve_active_user_ids(tenant_id, user_ids)
-      when is_binary(tenant_id) and is_list(user_ids) do
-    User
-    |> where(
-      [user],
-      user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
-        user.account_type in [:human, :service] and user.access_scope == :workspace
-    )
-    |> order_by([user], asc: user.id)
-    |> select([user], user.id)
-    |> Repo.all()
-  end
-
-  def resolve_active_user_ids(_tenant_id, _user_ids), do: []
+  def resolve_active_user_ids(tenant_id, user_ids),
+    do: Directory.resolve_active_user_ids(tenant_id, user_ids)
 
   @doc """
   Resolves requested tenant users into stable identity projections.
@@ -308,23 +157,8 @@ defmodule CommsCore.Accounts do
   then user ID.
   """
   @spec resolve_user_views(String.t(), [String.t()]) :: [CommsCore.Accounts.UserView.t()]
-  def resolve_user_views(tenant_id, user_ids)
-      when is_binary(tenant_id) and is_list(user_ids) do
-    timestamp = now()
-
-    User
-    |> where(
-      [user],
-      user.tenant_id == ^tenant_id and user.id in ^user_ids and
-        (user.account_type != :guest or
-           (not is_nil(user.guest_expires_at) and user.guest_expires_at > ^timestamp))
-    )
-    |> order_by([user], asc: user.display_name, asc: user.id)
-    |> Repo.all()
-    |> Enum.map(&CommsCore.Accounts.Projector.user/1)
-  end
-
-  def resolve_user_views(_tenant_id, _user_ids), do: []
+  def resolve_user_views(tenant_id, user_ids),
+    do: Directory.resolve_user_views(tenant_id, user_ids)
 
   @doc """
   Resolves display labels for identities referenced by retained content.
@@ -339,45 +173,8 @@ defmodule CommsCore.Accounts do
   """
   @spec resolve_retained_sender_labels(String.t(), [String.t()]) ::
           [CommsCore.Accounts.RetainedSenderLabelView.t()]
-  def resolve_retained_sender_labels(tenant_id, user_ids)
-      when is_binary(tenant_id) and is_list(user_ids) do
-    normalized_ids = user_ids |> Enum.uniq() |> Enum.sort()
-
-    cond do
-      not valid_uuid?(tenant_id) ->
-        []
-
-      normalized_ids == [] or length(normalized_ids) > @max_retained_sender_label_ids ->
-        []
-
-      not Enum.all?(normalized_ids, &valid_uuid?/1) ->
-        []
-
-      true ->
-        User
-        |> where(
-          [user],
-          user.tenant_id == ^tenant_id and user.id in ^normalized_ids
-        )
-        |> order_by([user], asc: user.id)
-        |> select([user], %{
-          id: user.id,
-          display_name: user.display_name,
-          status: user.status
-        })
-        |> Repo.all()
-        |> Enum.map(fn user ->
-          struct!(CommsCore.Accounts.RetainedSenderLabelView, %{
-            id: user.id,
-            display_name:
-              if(user.status == :deleted, do: "Deleted user", else: user.display_name),
-            redacted: user.status == :deleted
-          })
-        end)
-    end
-  end
-
-  def resolve_retained_sender_labels(_tenant_id, _user_ids), do: []
+  def resolve_retained_sender_labels(tenant_id, user_ids),
+    do: Directory.resolve_retained_sender_labels(tenant_id, user_ids)
 
   @doc """
   Lists active human identities visible to the authenticated caller.
@@ -394,42 +191,10 @@ defmodule CommsCore.Accounts do
            }}
           | {:error, :forbidden | :invalid_cursor | :invalid_search_query}
   def list_directory_views(params, subject) when is_map(params) and is_map(subject) do
-    with {:ok, %AccessGrant{access_scope: :workspace} = grant} <- access_grant(subject),
-         {:ok, cursor} <- optional_directory_cursor(value(params, :cursor)),
-         {:ok, search} <- normalize_directory_search(value(params, :q)) do
-      limit = parse_directory_limit(value(params, :limit))
-
-      rows =
-        User
-        |> where(
-          [user],
-          user.tenant_id == ^grant.tenant_id and user.status == :active and
-            user.account_type == :human and user.access_scope == :workspace and
-            user.id != ^grant.user_id
-        )
-        |> maybe_search_directory(search)
-        |> maybe_after_directory_cursor(cursor)
-        |> order_by([user], asc: fragment("lower(?)", user.display_name), asc: user.id)
-        |> select([user], %{
-          user: user,
-          sort_name: fragment("lower(?)", user.display_name)
-        })
-        |> limit(^(limit + 1))
-        |> Repo.all()
-
-      {page, remainder} = Enum.split(rows, limit)
-
-      {:ok,
-       %{
-         people:
-           Enum.map(page, fn row ->
-             CommsCore.Accounts.Projector.directory_person(row.user)
-           end),
-         next_cursor: if(remainder == [], do: nil, else: directory_cursor_for(List.last(page)))
-       }}
+    with {:ok, %AccessGrant{access_scope: :workspace} = grant} <- access_grant(subject) do
+      Directory.list_directory_views(params, grant)
     else
       {:error, :forbidden} -> {:error, :forbidden}
-      {:error, reason} when reason in [:invalid_cursor, :invalid_search_query] -> {:error, reason}
       _ -> {:error, :forbidden}
     end
   end
@@ -440,55 +205,15 @@ defmodule CommsCore.Accounts do
   @spec lock_active_human_directory_users(Ecto.UUID.t(), [Ecto.UUID.t()]) ::
           {:ok, [CommsCore.Accounts.DirectoryPersonView.t()]}
           | {:error, :not_found | :transaction_required}
-  def lock_active_human_directory_users(tenant_id, user_ids)
-      when is_binary(tenant_id) and is_list(user_ids) do
-    normalized_ids = user_ids |> Enum.uniq() |> Enum.sort()
-
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not valid_uuid?(tenant_id) or normalized_ids == [] or
-          not Enum.all?(normalized_ids, &valid_uuid?/1) ->
-        {:error, :not_found}
-
-      true ->
-        users =
-          Repo.all(
-            from(user in User,
-              where:
-                user.tenant_id == ^tenant_id and user.id in ^normalized_ids and
-                  user.status == :active and user.account_type == :human and
-                  user.access_scope == :workspace,
-              order_by: [asc: user.id],
-              lock: "FOR SHARE"
-            )
-          )
-
-        if Enum.map(users, & &1.id) == normalized_ids do
-          {:ok, Enum.map(users, &CommsCore.Accounts.Projector.directory_person/1)}
-        else
-          {:error, :not_found}
-        end
-    end
-  end
-
-  def lock_active_human_directory_users(_tenant_id, _user_ids), do: {:error, :not_found}
+  def lock_active_human_directory_users(tenant_id, user_ids),
+    do: Directory.lock_active_human_directory_users(tenant_id, user_ids)
 
   @doc """
   Verifies that a governance target exists in the exact tenant.
   """
   @spec validate_governance_user(String.t(), String.t()) :: :ok | {:error, :not_found}
-  def validate_governance_user(tenant_id, user_id) do
-    if valid_uuid?(tenant_id) and valid_uuid?(user_id) and
-         Repo.exists?(
-           from(user in User, where: user.tenant_id == ^tenant_id and user.id == ^user_id)
-         ) do
-      :ok
-    else
-      {:error, :not_found}
-    end
-  end
+  def validate_governance_user(tenant_id, user_id),
+    do: Directory.validate_governance_user(tenant_id, user_id)
 
   @doc """
   Verifies that a moderation assignee is active and carries an eligible tenant
@@ -496,39 +221,15 @@ defmodule CommsCore.Accounts do
   """
   @spec validate_moderation_assignee(String.t(), String.t()) ::
           :ok | {:error, :invalid_assignee}
-  def validate_moderation_assignee(tenant_id, user_id) do
-    eligible? =
-      valid_uuid?(tenant_id) and valid_uuid?(user_id) and
-        Repo.exists?(
-          from(user in User,
-            where:
-              user.tenant_id == ^tenant_id and user.id == ^user_id and
-                user.status == :active and user.role in [:owner, :admin, :moderator]
-          )
-        )
-
-    if eligible?, do: :ok, else: {:error, :invalid_assignee}
-  end
+  def validate_moderation_assignee(tenant_id, user_id),
+    do: Directory.validate_moderation_assignee(tenant_id, user_id)
 
   @doc """
   Returns the earliest-created active owner ID used for retention work.
   """
   @spec retention_actor_id(String.t()) ::
           {:ok, String.t()} | {:error, :last_owner_required}
-  def retention_actor_id(tenant_id) do
-    owner_id =
-      if valid_uuid?(tenant_id) do
-        User
-        |> where([user], user.tenant_id == ^tenant_id and user.role == :owner)
-        |> where([user], user.status == :active)
-        |> order_by([user], asc: user.inserted_at, asc: user.id)
-        |> select([user], user.id)
-        |> limit(1)
-        |> Repo.one()
-      end
-
-    if owner_id, do: {:ok, owner_id}, else: {:error, :last_owner_required}
-  end
+  def retention_actor_id(tenant_id), do: Directory.retention_actor_id(tenant_id)
 
   @doc """
   Locks IdentityAccess users and verifies that a governed erasure can preserve
@@ -577,21 +278,8 @@ defmodule CommsCore.Accounts do
   """
   @spec resolve_notification_recipients(String.t(), [String.t()]) ::
           [NotificationRecipient.t()]
-  def resolve_notification_recipients(tenant_id, user_ids)
-      when is_binary(tenant_id) and is_list(user_ids) do
-    User
-    |> where(
-      [user],
-      user.tenant_id == ^tenant_id and user.id in ^user_ids and user.status == :active and
-        user.account_type == :human and user.access_scope == :workspace
-    )
-    |> order_by([user], asc: user.id)
-    |> select([user], %{user_id: user.id, email: user.email})
-    |> Repo.all()
-    |> Enum.map(&struct!(NotificationRecipient, &1))
-  end
-
-  def resolve_notification_recipients(_tenant_id, _user_ids), do: []
+  def resolve_notification_recipients(tenant_id, user_ids),
+    do: Directory.resolve_notification_recipients(tenant_id, user_ids)
 
   @doc """
   Returns the requested device ids that remain eligible for push delivery.
@@ -600,24 +288,8 @@ defmodule CommsCore.Accounts do
   each device must belong to that same tenant and user and remain unrevoked.
   """
   @spec notification_eligible_device_ids(String.t(), String.t(), [String.t()]) :: [String.t()]
-  def notification_eligible_device_ids(tenant_id, user_id, device_ids)
-      when is_binary(tenant_id) and is_binary(user_id) and is_list(device_ids) do
-    Device
-    |> join(:inner, [device], user in User,
-      on: user.id == device.user_id and user.tenant_id == device.tenant_id
-    )
-    |> where(
-      [device, user],
-      device.tenant_id == ^tenant_id and device.user_id == ^user_id and
-        device.id in ^device_ids and is_nil(device.revoked_at) and user.id == ^user_id and
-        user.status == :active and user.account_type == :human
-    )
-    |> order_by([device, _user], asc: device.id)
-    |> select([device, _user], device.id)
-    |> Repo.all()
-  end
-
-  def notification_eligible_device_ids(_tenant_id, _user_id, _device_ids), do: []
+  def notification_eligible_device_ids(tenant_id, user_id, device_ids),
+    do: Directory.notification_eligible_device_ids(tenant_id, user_id, device_ids)
 
   @doc """
   Locks the exact IdentityAccess authority used to register a push endpoint.
@@ -628,38 +300,8 @@ defmodule CommsCore.Accounts do
   """
   @spec lock_push_registration_identity(String.t(), String.t(), String.t()) ::
           :ok | {:error, :forbidden | :transaction_required}
-  def lock_push_registration_identity(tenant_id, user_id, device_id)
-      when is_binary(tenant_id) and is_binary(user_id) and is_binary(device_id) do
-    if Repo.in_transaction?() do
-      with %User{} <-
-             Repo.one(
-               from(user in User,
-                 where:
-                   user.id == ^user_id and user.tenant_id == ^tenant_id and
-                     user.status == :active and user.account_type == :human,
-                 lock: "FOR SHARE"
-               )
-             ),
-           %Device{} <-
-             Repo.one(
-               from(device in Device,
-                 where:
-                   device.id == ^device_id and device.tenant_id == ^tenant_id and
-                     device.user_id == ^user_id and is_nil(device.revoked_at),
-                 lock: "FOR SHARE"
-               )
-             ) do
-        :ok
-      else
-        _ -> {:error, :forbidden}
-      end
-    else
-      {:error, :transaction_required}
-    end
-  end
-
-  def lock_push_registration_identity(_tenant_id, _user_id, _device_id),
-    do: {:error, :forbidden}
+  def lock_push_registration_identity(tenant_id, user_id, device_id),
+    do: Directory.lock_push_registration_identity(tenant_id, user_id, device_id)
 
   @doc false
   @spec ensure_active_user_capacity(Ecto.UUID.t(), AdmissionPolicy.t(), pos_integer()) ::
@@ -671,15 +313,7 @@ defmodule CommsCore.Accounts do
         increment \\ 1
       )
       when is_binary(tenant_id) and is_integer(increment) and increment > 0 do
-    if Repo.in_transaction?() do
-      AdmissionQuotas.check_active_user_capacity(
-        policy,
-        active_user_count(tenant_id),
-        increment
-      )
-    else
-      {:error, :quota_transaction_required}
-    end
+    Directory.ensure_active_user_capacity(tenant_id, policy, increment)
   end
 
   @doc """
@@ -691,130 +325,44 @@ defmodule CommsCore.Accounts do
   """
   @spec authorization_audit_actor(map()) ::
           {:ok, Actor.t()} | {:error, :unknown_authorization_actor}
-  def authorization_audit_actor(subject) when is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    user_id = value(subject, :user_id)
-
-    with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
-         {:ok, user_id} <- Ecto.UUID.cast(user_id),
-         %User{} <- Repo.get_by(User, id: user_id, tenant_id: tenant_id) do
-      {:ok,
-       %Actor{
-         tenant_id: tenant_id,
-         user_id: user_id,
-         request_id: audit_request_id(subject)
-       }}
-    else
-      _ -> {:error, :unknown_authorization_actor}
-    end
-  end
-
-  def authorization_audit_actor(_subject), do: {:error, :unknown_authorization_actor}
+  def authorization_audit_actor(subject),
+    do: AccessControl.authorization_audit_actor(subject)
 
   @doc false
   @spec audit_authorization_denial(atom(), map(), term()) :: {:error, term()}
-  def audit_authorization_denial(action, subject, reason)
-      when is_atom(action) and is_map(subject) do
-    case authorization_audit_actor(subject) do
-      {:ok, actor} -> Audit.authorization_denied(action, actor, reason)
-      {:error, :unknown_authorization_actor} -> {:error, reason}
-    end
-  end
-
-  def audit_authorization_denial(_action, _subject, reason), do: {:error, reason}
+  def audit_authorization_denial(action, subject, reason),
+    do: AccessControl.audit_authorization_denial(action, subject, reason)
 
   @doc false
   @spec authorize_receive_user_events(map(), map()) :: :ok | {:error, :forbidden}
-  def authorize_receive_user_events(subject, resource)
-      when is_map(subject) and is_map(resource) do
-    with {:ok, %AccessGrant{user_id: user_id}} <- access_grant(subject),
-         ^user_id <- value(resource, :user_id) do
-      :ok
-    else
-      _ -> {:error, :forbidden}
-    end
-  end
-
-  def authorize_receive_user_events(_subject, _resource), do: {:error, :forbidden}
+  def authorize_receive_user_events(subject, resource),
+    do: AccessControl.authorize_receive_user_events(subject, resource)
 
   @doc false
   @spec authorize_administer_users(map()) :: :ok | {:error, :forbidden}
-  def authorize_administer_users(subject) when is_map(subject) do
-    case access_grant(subject) do
-      {:ok, %AccessGrant{access_scope: :workspace, role: role}}
-      when role in [:owner, :admin] ->
-        :ok
-
-      _ ->
-        deny_privileged(:administer_tenant, subject, :forbidden)
-    end
-  end
-
-  def authorize_administer_users(_subject), do: {:error, :forbidden}
+  def authorize_administer_users(subject),
+    do: AccessControl.authorize_administer_users(subject)
 
   @doc false
   @spec authorize_manage_user_lifecycle(map()) ::
           :ok | {:error, :forbidden | :step_up_required}
-  def authorize_manage_user_lifecycle(subject) when is_map(subject) do
-    authorize_tenant_role_with_step_up(
-      :manage_user_lifecycle,
-      subject,
-      [:owner, :admin]
-    )
-  end
-
-  def authorize_manage_user_lifecycle(_subject), do: {:error, :forbidden}
+  def authorize_manage_user_lifecycle(subject),
+    do: AccessControl.authorize_manage_user_lifecycle(subject)
 
   @doc false
   @spec authorize_manage_sessions(map()) :: :ok | {:error, :forbidden | :step_up_required}
-  def authorize_manage_sessions(subject) when is_map(subject) do
-    authorize_tenant_role_with_step_up(
-      :manage_sessions,
-      subject,
-      [:owner, :security_admin]
-    )
-  end
-
-  def authorize_manage_sessions(_subject), do: {:error, :forbidden}
+  def authorize_manage_sessions(subject),
+    do: AccessControl.authorize_manage_sessions(subject)
 
   @doc false
   @spec authorize_view_platform_operations(map()) :: :ok | {:error, :forbidden}
-  def authorize_view_platform_operations(subject) when is_map(subject) do
-    case access_grant(subject) do
-      {:ok,
-       %AccessGrant{
-         access_scope: :workspace,
-         platform_role: role,
-         platform_claim_verified?: true
-       }}
-      when role in @platform_roles ->
-        :ok
-
-      _ ->
-        deny_privileged(:view_platform_operations, subject, :forbidden)
-    end
-  end
-
-  def authorize_view_platform_operations(_subject), do: {:error, :forbidden}
+  def authorize_view_platform_operations(subject),
+    do: AccessControl.authorize_view_platform_operations(subject)
 
   @doc false
   @spec authorize_operate_platform(map()) :: :ok | {:error, :forbidden}
-  def authorize_operate_platform(subject) when is_map(subject) do
-    case access_grant(subject) do
-      {:ok,
-       %AccessGrant{
-         access_scope: :workspace,
-         platform_role: :platform_operator,
-         platform_claim_verified?: true
-       }} ->
-        :ok
-
-      _ ->
-        deny_privileged(:operate_platform, subject, :forbidden)
-    end
-  end
-
-  def authorize_operate_platform(_subject), do: {:error, :forbidden}
+  def authorize_operate_platform(subject),
+    do: AccessControl.authorize_operate_platform(subject)
 
   # Adapter-facing API. These functions are the stable projection boundary;
   # persistence-returning operations remain private owner implementations.
@@ -4261,173 +3809,6 @@ defmodule CommsCore.Accounts do
       value(subject, :device_id),
       value(subject, :session_id)
     }
-  end
-
-  defp build_access_grant(facts, subject, timestamp) do
-    %AccessGrant{
-      tenant_id: facts.tenant_id,
-      user_id: facts.user_id,
-      device_id: facts.device_id,
-      session_id: facts.session_id,
-      request_id: value(subject, :request_id),
-      account_type: facts.account_type,
-      access_scope: facts.access_scope,
-      guest_expires_at: facts.guest_expires_at,
-      role: facts.role,
-      step_up_at: facts.step_up_at,
-      step_up_recent?: recent_step_up_at?(facts.step_up_at, timestamp),
-      platform_role_grant_id: facts.platform_role_grant_id,
-      platform_role: facts.platform_role,
-      platform_role_expires_at: facts.platform_role_expires_at,
-      platform_claim_verified?: platform_claim_verified?(facts, subject)
-    }
-  end
-
-  defp recent_step_up_at?(%DateTime{} = step_up_at, timestamp) do
-    ttl = Application.get_env(:comms_core, :step_up_ttl_seconds, 300)
-    threshold = DateTime.add(timestamp, -ttl, :second)
-    DateTime.compare(step_up_at, threshold) != :lt
-  end
-
-  defp recent_step_up_at?(_step_up_at, _timestamp), do: false
-
-  defp platform_claim_verified?(
-         %{
-           platform_role_grant_id: grant_id,
-           platform_role: role,
-           platform_role_expires_at: %DateTime{} = expires_at
-         },
-         subject
-       )
-       when is_binary(grant_id) and role in @platform_roles do
-    value(subject, :platform_role_grant_id) == grant_id and
-      normalized_platform_role(value(subject, :platform_role)) == role and
-      platform_deadline_matches?(value(subject, :platform_role_expires_at), expires_at)
-  end
-
-  defp platform_claim_verified?(_facts, _subject), do: false
-
-  defp normalized_platform_role(role) when role in @platform_roles, do: role
-
-  defp normalized_platform_role(role) when is_binary(role) do
-    Enum.find(@platform_roles, &(Atom.to_string(&1) == role))
-  end
-
-  defp normalized_platform_role(_role), do: nil
-
-  defp platform_deadline_matches?(%DateTime{} = claimed, %DateTime{} = persisted),
-    do: DateTime.compare(claimed, persisted) == :eq
-
-  defp platform_deadline_matches?(_, _), do: false
-
-  defp normalize_directory_search(nil), do: {:ok, nil}
-
-  defp normalize_directory_search(value) when is_binary(value) do
-    search = String.trim(value)
-
-    cond do
-      search == "" -> {:ok, nil}
-      String.length(search) <= 120 -> {:ok, search}
-      true -> {:error, :invalid_search_query}
-    end
-  end
-
-  defp normalize_directory_search(_value), do: {:error, :invalid_search_query}
-
-  defp maybe_search_directory(query, nil), do: query
-
-  defp maybe_search_directory(query, search) do
-    pattern = "%#{escape_directory_like(search)}%"
-
-    where(
-      query,
-      [user],
-      ilike(user.display_name, ^pattern)
-    )
-  end
-
-  defp escape_directory_like(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
-  end
-
-  defp optional_directory_cursor(nil), do: {:ok, nil}
-  defp optional_directory_cursor(""), do: {:ok, nil}
-
-  defp optional_directory_cursor(value) when is_binary(value) do
-    with {:ok, decoded} <- Base.url_decode64(value, padding: false),
-         {:ok, %{"display_name" => display_name, "id" => id}} <- Jason.decode(decoded),
-         true <- is_binary(display_name) and String.length(display_name) <= 120,
-         {:ok, id} <- Ecto.UUID.cast(id) do
-      {:ok, {display_name, id}}
-    else
-      _ -> {:error, :invalid_cursor}
-    end
-  end
-
-  defp optional_directory_cursor(_value), do: {:error, :invalid_cursor}
-
-  defp maybe_after_directory_cursor(query, nil), do: query
-
-  defp maybe_after_directory_cursor(query, {display_name, id}) do
-    where(
-      query,
-      [user],
-      fragment("lower(?)", user.display_name) > ^display_name or
-        (fragment("lower(?)", user.display_name) == ^display_name and user.id > ^id)
-    )
-  end
-
-  defp directory_cursor_for(nil), do: nil
-
-  defp directory_cursor_for(%{sort_name: sort_name, user: %User{id: id}}) do
-    %{display_name: sort_name, id: id}
-    |> Jason.encode!()
-    |> Base.url_encode64(padding: false)
-  end
-
-  defp parse_directory_limit(value) when is_integer(value),
-    do: value |> max(1) |> min(@max_directory_limit)
-
-  defp parse_directory_limit(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {number, ""} -> parse_directory_limit(number)
-      _ -> @default_directory_limit
-    end
-  end
-
-  defp parse_directory_limit(_value), do: @default_directory_limit
-
-  defp authorize_tenant_role_with_step_up(action, subject, allowed_roles) do
-    case access_grant(subject) do
-      {:ok, %AccessGrant{access_scope: :workspace} = grant} ->
-        cond do
-          not Enum.member?(allowed_roles, grant.role) ->
-            deny_privileged(action, subject, :forbidden)
-
-          grant.step_up_recent? ->
-            :ok
-
-          true ->
-            deny_privileged(action, subject, :step_up_required)
-        end
-
-      _ ->
-        deny_privileged(action, subject, :forbidden)
-    end
-  end
-
-  defp deny_privileged(action, subject, reason) do
-    audit_authorization_denial(action, subject, reason)
-  end
-
-  defp audit_request_id(subject) do
-    case value(subject, :request_id) do
-      request_id when is_binary(request_id) -> request_id
-      _ -> nil
-    end
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)

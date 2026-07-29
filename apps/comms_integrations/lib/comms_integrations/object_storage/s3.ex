@@ -1,28 +1,15 @@
 defmodule CommsIntegrations.ObjectStorage.S3 do
   @behaviour CommsIntegrations.ObjectStorage
 
-  alias CommsIntegrations.ObjectStorage.S3.VersionListing
+  alias CommsIntegrations.ObjectStorage.S3.{EndpointPolicy, Presigner, VersionListing}
 
-  @algorithm "AWS4-HMAC-SHA256"
-  @service "s3"
   @server_side_encryption "AES256"
   # Mirrors the database constraint. SVG is excluded because a variant is served
   # inline and SVG is scriptable.
   @variant_content_types ["image/webp", "image/jpeg", "image/png"]
-  @default_expires_in 900
-  @default_download_expires_in 120
-  @minimum_expires_in 60
-  @maximum_expires_in 3_600
   @version_page_size 100
   @max_purge_passes 10
   @max_version_listing_bytes 262_144
-  @local_development_hosts [
-    "localhost",
-    "127.0.0.1",
-    "::1",
-    "minio",
-    "host.containers.internal"
-  ]
 
   @impl true
   def presign_upload(attachment) do
@@ -34,14 +21,14 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
         "x-amz-server-side-encryption" => @server_side_encryption
       }
 
-      presign("PUT", attachment.object_key, :public, headers, [])
+      Presigner.presign("PUT", attachment.object_key, :public, headers, [])
     end
   end
 
   @impl true
   def presign_download(attachment) do
     with {:ok, version} <- required_version(attachment) do
-      presign(
+      Presigner.presign(
         "GET",
         attachment.object_key,
         :public,
@@ -67,7 +54,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   defp content_disposition(file_name) when is_binary(file_name) do
     case sanitized_filename(file_name) do
       "" -> "attachment"
-      safe -> "attachment; filename*=UTF-8''#{encode(safe)}"
+      safe -> "attachment; filename*=UTF-8''#{Presigner.encode(safe)}"
     end
   end
 
@@ -100,7 +87,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
         "x-amz-server-side-encryption" => @server_side_encryption
       }
 
-      presign("PUT", key, :public, headers, [])
+      Presigner.presign("PUT", key, :public, headers, [])
     end
   end
 
@@ -112,7 +99,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
       # Inline is the deliberate exception to the attachment disposition forced
       # on ordinary downloads, and it is safe only because the type is pinned to
       # a non-executable raster format both here and at upload.
-      presign(
+      Presigner.presign(
         "GET",
         key,
         :public,
@@ -135,7 +122,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          {:ok, checksum} <- required_variant_checksum(variant),
          {:ok, expected_size} <- required_variant_size(variant),
          {:ok, %{url: url, headers: request_headers}} <-
-           presign("HEAD", key, :internal, checksum_headers, []),
+           Presigner.presign("HEAD", key, :internal, checksum_headers, []),
          request <- Finch.build(:head, url, Map.to_list(request_headers)),
          {:ok, %Finch.Response{status: status, headers: headers}} when status in 200..299 <-
            Finch.request(request, CommsIntegrations.Finch),
@@ -199,7 +186,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     checksum_headers = %{"x-amz-checksum-mode" => "ENABLED"}
 
     with {:ok, %{url: url, headers: request_headers}} <-
-           presign("HEAD", attachment.object_key, :internal, checksum_headers, []),
+           Presigner.presign("HEAD", attachment.object_key, :internal, checksum_headers, []),
          request <- Finch.build(:head, url, Map.to_list(request_headers)),
          {:ok, %Finch.Response{status: status, headers: headers}} when status in 200..299 <-
            Finch.request(request, CommsIntegrations.Finch),
@@ -301,7 +288,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
       {"max-keys", Integer.to_string(@version_page_size)}
     ]
 
-    with {:ok, %{url: url}} <- presign("GET", "", :internal, %{}, query),
+    with {:ok, %{url: url}} <- Presigner.presign("GET", "", :internal, %{}, query),
          request <- Finch.build(:get, url),
          {:ok, body} <- stream_bounded_body(request, @max_version_listing_bytes),
          {:ok, listing} <- VersionListing.parse(body) do
@@ -322,7 +309,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   defp delete_listed_version(object_key, version)
        when is_binary(object_key) and is_binary(version) and version != "" do
     with {:ok, %{url: url}} <-
-           presign("DELETE", object_key, :internal, %{}, [{"versionId", version}]),
+           Presigner.presign("DELETE", object_key, :internal, %{}, [{"versionId", version}]),
          http_request <- Finch.build(:delete, url),
          {:ok, %Finch.Response{status: status}} when status in 200..299 or status == 404 <-
            Finch.request(http_request, CommsIntegrations.Finch) do
@@ -396,242 +383,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
   end
 
   @impl true
-  def status do
-    config = Application.get_env(:comms_integrations, :s3, [])
-    required = [:scheme, :host, :port, :bucket, :region, :access_key_id, :secret_access_key]
-    missing = Enum.filter(required, &(Keyword.get(config, &1) in [nil, ""]))
-    internal_scheme = Keyword.get(config, :internal_scheme, Keyword.get(config, :scheme))
-    internal_host = Keyword.get(config, :internal_host, Keyword.get(config, :host))
-    internal_port = Keyword.get(config, :internal_port, Keyword.get(config, :port))
-
-    cond do
-      missing != [] ->
-        %{status: :unavailable, adapter: "s3", reason: :missing_configuration, missing: missing}
-
-      not endpoint_allowed?(
-        Keyword.get(config, :scheme),
-        Keyword.get(config, :host),
-        Keyword.get(config, :port)
-      ) ->
-        %{status: :unavailable, adapter: "s3", reason: :insecure_public_object_storage_endpoint}
-
-      not endpoint_allowed?(internal_scheme, internal_host, internal_port) ->
-        %{status: :unavailable, adapter: "s3", reason: :insecure_internal_object_storage_endpoint}
-
-      true ->
-        %{status: :available, adapter: "s3"}
-    end
-  end
-
-  defp presign(method, object_key, endpoint, request_headers, extra_query),
-    do: presign(method, object_key, endpoint, request_headers, extra_query, :default)
-
-  defp presign(
-         method,
-         object_key,
-         endpoint,
-         request_headers,
-         extra_query,
-         purpose
-       ) do
-    config = Application.get_env(:comms_integrations, :s3, [])
-
-    with {:ok, scheme} <- endpoint_value(config, endpoint, :scheme),
-         {:ok, host} <- endpoint_value(config, endpoint, :host),
-         {:ok, port} <- endpoint_value(config, endpoint, :port),
-         {:ok, bucket} <- required(config, :bucket),
-         {:ok, region} <- required(config, :region),
-         {:ok, access_key} <- required(config, :access_key_id),
-         {:ok, secret_key} <- required(config, :secret_access_key),
-         :ok <- validate_endpoint_security(endpoint, scheme, host, port) do
-      expires_in = expires_in(config, purpose)
-      now = DateTime.utc_now()
-      date = Calendar.strftime(now, "%Y%m%d")
-      timestamp = Calendar.strftime(now, "%Y%m%dT%H%M%SZ")
-      scope = "#{date}/#{region}/#{@service}/aws4_request"
-      host_header = host_header(scheme, host, port)
-      canonical_uri = "/#{path(bucket)}/#{path(object_key)}"
-      request_headers = normalize_headers(request_headers)
-      signed_headers = Map.put(request_headers, "host", host_header)
-      signed_header_names = signed_headers |> Map.keys() |> Enum.sort() |> Enum.join(";")
-
-      canonical_headers =
-        signed_headers
-        |> Enum.sort_by(fn {name, _value} -> name end)
-        |> Enum.map_join(fn {name, value} -> "#{name}:#{value}\n" end)
-
-      query =
-        extra_query ++
-          [
-            {"X-Amz-Algorithm", @algorithm},
-            {"X-Amz-Credential", "#{access_key}/#{scope}"},
-            {"X-Amz-Date", timestamp},
-            {"X-Amz-Expires", Integer.to_string(expires_in)},
-            {"X-Amz-SignedHeaders", signed_header_names}
-          ]
-
-      canonical_query = canonical_query(query)
-
-      canonical_request =
-        Enum.join(
-          [
-            method,
-            canonical_uri,
-            canonical_query,
-            canonical_headers,
-            signed_header_names,
-            "UNSIGNED-PAYLOAD"
-          ],
-          "\n"
-        )
-
-      string_to_sign =
-        Enum.join(
-          [@algorithm, timestamp, scope, sha256_hex(canonical_request)],
-          "\n"
-        )
-
-      signature =
-        signing_key(secret_key, date, region)
-        |> hmac(string_to_sign)
-        |> Base.encode16(case: :lower)
-
-      url =
-        "#{scheme}://#{host_header}#{canonical_uri}?#{canonical_query}&X-Amz-Signature=#{signature}"
-
-      {:ok,
-       %{
-         method: method,
-         url: url,
-         approved_origin: "#{scheme}://#{host_header}",
-         development_http: scheme == "http",
-         headers: request_headers,
-         expires_in: expires_in,
-         expires_at: DateTime.add(now, expires_in, :second)
-       }}
-    end
-  end
-
-  # A download URL is redirected to immediately, so it does not need the upload
-  # window. Keeping it short bounds how long a leaked or shoulder-surfed URL --
-  # which lands in browser history -- remains replayable.
-  defp expires_in(config, :download) do
-    config
-    |> Keyword.get(:download_expires_in, @default_download_expires_in)
-    |> min(Keyword.get(config, :expires_in, @default_expires_in))
-    |> min(@maximum_expires_in)
-    |> max(@minimum_expires_in)
-  end
-
-  defp expires_in(config, _purpose) do
-    config
-    |> Keyword.get(:expires_in, @default_expires_in)
-    |> min(@maximum_expires_in)
-    |> max(@minimum_expires_in)
-  end
-
-  defp signing_key(secret, date, region) do
-    ("AWS4" <> secret)
-    |> hmac(date)
-    |> hmac(region)
-    |> hmac(@service)
-    |> hmac("aws4_request")
-  end
-
-  defp canonical_query(values) do
-    values
-    |> Enum.map(fn {key, value} -> {encode(key), encode(value)} end)
-    |> Enum.sort()
-    |> Enum.map_join("&", fn {key, value} -> "#{key}=#{value}" end)
-  end
-
-  defp normalize_headers(headers) do
-    Map.new(headers, fn {name, value} ->
-      normalized_name = name |> to_string() |> String.trim() |> String.downcase()
-      normalized_value = value |> to_string() |> String.trim() |> String.replace(~r/\s+/, " ")
-      {normalized_name, normalized_value}
-    end)
-  end
-
-  defp path(value), do: value |> String.split("/") |> Enum.map_join("/", &encode/1)
-  defp encode(value), do: URI.encode(to_string(value), &URI.char_unreserved?/1)
-
-  defp host_header(scheme, host, port) when {scheme, port} in [{"http", 80}, {"https", 443}],
-    do: host
-
-  defp host_header(_scheme, host, port), do: "#{host}:#{port}"
-
-  defp required(config, key) do
-    case Keyword.get(config, key) do
-      value when value not in [nil, ""] -> {:ok, value}
-      _ -> {:error, {:missing_s3_config, key}}
-    end
-  end
-
-  defp endpoint_value(config, :public, key), do: required(config, key)
-
-  defp endpoint_value(config, :internal, key) do
-    case Keyword.get(config, internal_key(key)) do
-      value when value not in [nil, ""] -> {:ok, value}
-      _ -> required(config, key)
-    end
-  end
-
-  defp internal_key(:scheme), do: :internal_scheme
-  defp internal_key(:host), do: :internal_host
-  defp internal_key(:port), do: :internal_port
-
-  defp validate_endpoint_security(:internal, scheme, host, port) do
-    if endpoint_allowed?(scheme, host, port),
-      do: :ok,
-      else: {:error, :insecure_internal_object_storage_endpoint}
-  end
-
-  defp validate_endpoint_security(:public, scheme, host, port) do
-    if endpoint_allowed?(scheme, host, port),
-      do: :ok,
-      else: {:error, :insecure_public_object_storage_endpoint}
-  end
-
-  defp endpoint_allowed?("https", host, port),
-    do: is_binary(host) and host != "" and is_integer(port) and port > 0
-
-  defp endpoint_allowed?("http", host, port) do
-    Application.get_env(:comms_integrations, :allow_insecure_local_object_storage, false) and
-      local_development_host?(host) and is_integer(port) and port > 0
-  end
-
-  defp endpoint_allowed?(_, _, _), do: false
-
-  defp local_development_host?(host) do
-    host in @local_development_hosts or exact_insecure_local_host?(host)
-  end
-
-  defp exact_insecure_local_host?(host) when is_binary(host) do
-    case Application.get_env(:comms_integrations, :insecure_local_object_storage_host) do
-      selected when is_binary(selected) ->
-        selected == host and canonical_rfc1918_ipv4?(selected)
-
-      _other ->
-        false
-    end
-  end
-
-  defp exact_insecure_local_host?(_host), do: false
-
-  defp canonical_rfc1918_ipv4?(value) do
-    with {:ok, address} <- :inet.parse_ipv4_address(String.to_charlist(value)),
-         true <- address |> :inet.ntoa() |> to_string() == value do
-      case address do
-        {10, _, _, _} -> true
-        {172, second, _, _} when second in 16..31 -> true
-        {192, 168, _, _} -> true
-        _other -> false
-      end
-    else
-      _invalid -> false
-    end
-  end
+  def status, do: EndpointPolicy.status()
 
   defp verify_size(headers, expected) do
     actual =
@@ -667,7 +419,13 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     checksum_headers = %{"x-amz-checksum-mode" => "ENABLED"}
 
     with {:ok, %{url: url, headers: request_headers}} <-
-           presign("HEAD", value(attachment, :object_key), :internal, checksum_headers, []),
+           Presigner.presign(
+             "HEAD",
+             value(attachment, :object_key),
+             :internal,
+             checksum_headers,
+             []
+           ),
          request <- Finch.build(:head, url, Map.to_list(request_headers)) do
       case Finch.request(request, CommsIntegrations.Finch) do
         {:ok, %Finch.Response{status: status, headers: headers}} when status in 200..299 ->
@@ -695,7 +453,7 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
          expected_checksum
        ) do
     with {:ok, %{url: url, headers: request_headers}} <-
-           presign(
+           Presigner.presign(
              "GET",
              value(attachment, :object_key),
              :internal,
@@ -922,7 +680,5 @@ defmodule CommsIntegrations.ObjectStorage.S3 do
     end
   end
 
-  defp sha256_hex(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
-  defp hmac(key, value), do: :crypto.mac(:hmac, :sha256, key, value)
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end
