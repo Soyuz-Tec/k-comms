@@ -1,6 +1,9 @@
 defmodule CommsCore.CallLifecycleConsumerTransactionsTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+
   alias CommsCore.Administration
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.Accounts

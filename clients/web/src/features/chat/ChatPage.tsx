@@ -5,25 +5,16 @@ import {
   useRef,
   useState
 } from "react";
-import type { ChangeEvent, FormEvent } from "react";
-import { Link, useSearchParams } from "react-router";
-import type { CreateConversationInput, SendMessageInput } from "../../api";
+import { useSearchParams } from "react-router";
+import type { CreateConversationInput } from "../../api";
 import { useSession } from "../../app/session";
 import { useStepUp } from "../../app/step-up";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { ActionDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
-import {
-  CallLaunchActions,
-  useCallSession
-} from "../calls/CallSessionProvider";
+import { useCallSession } from "../calls/CallSessionProvider";
 import { callAvailabilityGuidance } from "../calls/callAvailability";
-import {
-  clientMessageId,
-  conversationTitle,
-  errorText
-} from "../../lib/format";
-import { loadDraft, storeDraft } from "../../lib/drafts";
+import { conversationTitle, errorText } from "../../lib/format";
 import {
   conversationParticipantIdentifier,
   duplicateDirectConversationNames,
@@ -40,33 +31,22 @@ import {
   type InboxFilter
 } from "./ConversationSidebar";
 import { ChannelBrowser } from "./ChannelBrowser";
-import { MessageItem } from "./MessageItem";
-import { MentionPicker } from "./MentionPicker";
 import { SearchPanel } from "./SearchPanel";
 import { ThreadDrawer } from "./ThreadDrawer";
+import { ConversationShareDialog } from "../guest/ConversationShareDialog";
 import {
-  canCreateGuestLink,
-  ConversationShareDialog
-} from "../guest/ConversationShareDialog";
-import { AttachmentUploadList } from "./AttachmentUploadList";
-import {
-  connectionLabel,
   readOnboardingPreference,
   safeCallKind,
   safePositiveInteger,
   safeUuid
 } from "./chatSupport";
+import { ConversationPane } from "./ConversationPane";
 import { useChatAttachments } from "./useChatAttachments";
+import { useChatComposer } from "./useChatComposer";
+import { useChatNavigation } from "./useChatNavigation";
 import { useConversationFeed } from "./useConversationFeed";
 import { useConversationMembers } from "./useConversationMembers";
 import "./ChatPage.css";
-
-interface FailedSend {
-  input: SendMessageInput;
-  body: string;
-  draftSnapshot: string;
-  error: string;
-}
 
 interface FocusTarget {
   id: string;
@@ -98,12 +78,7 @@ export function ChatPage() {
   const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
   const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
   const linkedCallKind = safeCallKind(searchParams.get("call"));
-  const [composer, setComposer] = useState("");
-  const [sending, setSending] = useState(false);
-  const [failedSend, setFailedSend] = useState<FailedSend | null>(null);
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [threadTargetId, setThreadTargetId] = useState<string | null>(null);
-  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [showCreateConversation, setShowCreateConversation] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -119,26 +94,35 @@ export function ChatPage() {
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
   const [directStartingUserId, setDirectStartingUserId] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia?.("(max-width: 760px)").matches ?? false);
-  const activeConversationIdRef = useRef(activeConversationId);
-  activeConversationIdRef.current = activeConversationId;
   const forceScrollToLatestRef = useRef(true);
-  const typingTimerRef = useRef<number | null>(null);
-  const composerRef = useRef(composer);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const mobileBackRef = useRef<HTMLButtonElement | null>(null);
-  const draftConversationRef = useRef<string | null>(null);
-  const conversationButtonRefs = useRef(new Map<string, HTMLButtonElement>());
-  const mobileListFocusConversationRef = useRef<string | null>(null);
-  const previousMobileConversationRef = useRef<string | null>(null);
   const directStartUserRef = useRef<string | null>(null);
-  const focusComposerAfterDirectRef = useRef(false);
   const activeConversation = useMemo(
     () => conversations.find(({ id }) => id === activeConversationId) || null,
     [activeConversationId, conversations]
   );
-  const mobilePane = isMobile && !activeConversation ? "list" : "messages";
+  const closeConversationPanels = useCallback(() => {
+    setShowDetails(false);
+    setShowBrowseChannels(false);
+    setShowGuestShare(false);
+  }, []);
+  const {
+    conversationButtonRefs,
+    focusComposerAfterDirect,
+    isMobile,
+    mobileBackRef,
+    mobilePane,
+    selectConversation,
+    showConversationList
+  } = useChatNavigation({
+    activeConversation,
+    activeConversationId,
+    conversations,
+    setSearchParams,
+    workspaceLoading,
+    closeConversationPanels
+  });
   const {
     pendingAttachments,
     uploading,
@@ -208,19 +192,43 @@ export function ChatPage() {
     onMembershipChanged: noteMembershipChanged,
     publishRealtimeEvent
   });
+  const onConversationChanged = useCallback(
+    () => setThreadTargetId(null),
+    []
+  );
+  const {
+    activeConversationIdRef,
+    composer,
+    composerChanged,
+    failedSend,
+    mentionedUserIds,
+    replyTo,
+    retrySend,
+    sendMessage,
+    sendThreadReply,
+    sending,
+    setMentionedUserIds,
+    setReplyTo
+  } = useChatComposer({
+    activeConversationId,
+    attachmentsReady,
+    clearPendingAttachments,
+    forceScrollToLatestRef,
+    onConversationChanged,
+    readyAttachmentIds,
+    receiveMessages,
+    reserveAttachmentsForSend,
+    resetAttachments,
+    sendCommand,
+    session,
+    setConversationTyping,
+    setError,
+    updateConversationSummaries
+  });
 
   useEffect(() => {
     trackVisibleMessages(messages);
   }, [messages, trackVisibleMessages]);
-
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const query = window.matchMedia("(max-width: 760px)");
-    const changed = () => setIsMobile(query.matches);
-    changed();
-    query.addEventListener("change", changed);
-    return () => query.removeEventListener("change", changed);
-  }, []);
 
   const filteredConversations = useMemo(() => {
     const query = conversationQuery.trim().toLocaleLowerCase();
@@ -269,7 +277,6 @@ export function ChatPage() {
     },
     [duplicateVisibleSenderNames, visibleSenderIdentities]
   );
-  const messagesById = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   useEffect(() => {
     if (!linkedCallKind || !activeConversation) return;
     launchCall(activeConversation, linkedCallKind);
@@ -277,66 +284,6 @@ export function ChatPage() {
     next.delete("call");
     setSearchParams(next, { replace: true });
   }, [activeConversation, launchCall, linkedCallKind, searchParams, setSearchParams]);
-
-  useEffect(() => {
-    if (workspaceLoading || conversations.length === 0) return;
-    if (isMobile) return;
-    if (!activeConversationId || !conversations.some(({ id }) => id === activeConversationId)) {
-      setSearchParams({ conversation: conversations[0]?.id || "" }, { replace: true });
-    }
-  }, [activeConversationId, conversations, isMobile, setSearchParams, workspaceLoading]);
-
-  useEffect(() => {
-    const previousConversationId = previousMobileConversationRef.current;
-    previousMobileConversationRef.current = activeConversation?.id || null;
-    if (!isMobile || mobilePane !== "list") return;
-
-    const conversationId = mobileListFocusConversationRef.current || previousConversationId;
-    if (!conversationId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const target = conversationButtonRefs.current.get(conversationId);
-      if (!target) return;
-      target.focus({ preventScroll: true });
-      target.scrollIntoView({ block: "nearest" });
-      mobileListFocusConversationRef.current = null;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeConversation?.id, isMobile, mobilePane]);
-
-  useEffect(() => {
-    if (!isMobile || mobilePane !== "messages") return;
-    const frame = window.requestAnimationFrame(() => mobileBackRef.current?.focus({ preventScroll: true }));
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeConversation?.id, isMobile, mobilePane]);
-
-  useEffect(() => {
-    if (!focusComposerAfterDirectRef.current || !activeConversationId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const composer = document.getElementById("message-composer");
-      if (!(composer instanceof HTMLTextAreaElement)) return;
-      composer.focus({ preventScroll: true });
-      focusComposerAfterDirectRef.current = false;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeConversationId, mobilePane]);
-
-  useEffect(() => {
-    const previous = draftConversationRef.current;
-    if (previous && session) storeDraft(session.tenant.id, session.user.id, previous, composer);
-    draftConversationRef.current = activeConversationId;
-    forceScrollToLatestRef.current = true;
-    const nextComposer = activeConversationId && session
-      ? loadDraft(session.tenant.id, session.user.id, activeConversationId)
-      : "";
-    composerRef.current = nextComposer;
-    setComposer(nextComposer);
-    setReplyTo(null);
-    setThreadTargetId(null);
-    setMentionedUserIds([]);
-    setFailedSend(null);
-    setSending(false);
-    resetAttachments();
-  }, [activeConversationId, resetAttachments, session?.tenant.id, session?.user.id]);
 
   useEffect(() => {
     if (activeConversationId && linkedMessageId) setThreadTargetId(linkedMessageId);
@@ -351,10 +298,6 @@ export function ChatPage() {
       });
     }
   }, [activeConversationId, linkedSearchMessageId, linkedSearchSequence]);
-
-  useEffect(() => {
-    if (activeConversationId && session) storeDraft(session.tenant.id, session.user.id, activeConversationId, composer);
-  }, [activeConversationId, composer, session?.tenant.id, session?.user.id]);
 
   useEffect(() => {
     if (!focusTarget || focusTarget.conversationId !== activeConversationId) return;
@@ -379,25 +322,6 @@ export function ChatPage() {
     shouldAutoScroll,
     updateNearBottom
   ]);
-
-  useEffect(() => () => {
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-  }, []);
-
-  function selectConversation(id: string) {
-    setSearchParams({ conversation: id });
-    setShowDetails(false);
-    setShowBrowseChannels(false);
-    setShowGuestShare(false);
-  }
-
-  function showConversationList() {
-    mobileListFocusConversationRef.current = activeConversation?.id || null;
-    setSearchParams({}, { replace: true });
-    setShowDetails(false);
-    setShowBrowseChannels(false);
-    setShowGuestShare(false);
-  }
 
   function messageScrollChanged() {
     const scroll = scrollRef.current;
@@ -430,7 +354,7 @@ export function ChatPage() {
     try {
       const conversation = await startDirectConversation(userId);
       setShowCreateConversation(false);
-      focusComposerAfterDirectRef.current = true;
+      focusComposerAfterDirect();
       selectConversation(conversation.id);
     } catch (reason: unknown) {
       setError(errorText(reason));
@@ -438,131 +362,6 @@ export function ChatPage() {
       directStartUserRef.current = null;
       setDirectStartingUserId(null);
     }
-  }
-
-  async function sendInput(
-    input: SendMessageInput,
-    body: string,
-    draftSnapshot = body
-  ) {
-    if (!activeConversationId) return;
-    const conversationId = activeConversationId;
-    const attachmentReservation = reserveAttachmentsForSend(
-      input.attachment_ids || []
-    );
-    let message: Message;
-    try {
-      message = await sendCommand(conversationId, input);
-    } catch (reason: unknown) {
-      attachmentReservation.fail(
-        activeConversationIdRef.current !== conversationId
-      );
-      throw reason;
-    }
-    attachmentReservation.succeed();
-    if (
-      session &&
-      loadDraft(session.tenant.id, session.user.id, conversationId) ===
-        draftSnapshot
-    ) {
-      storeDraft(session.tenant.id, session.user.id, conversationId, "");
-    }
-    if (
-      activeConversationIdRef.current !== conversationId ||
-      composerRef.current !== draftSnapshot
-    ) {
-      updateConversationSummaries([message]);
-      return;
-    }
-    forceScrollToLatestRef.current = true;
-    receiveMessages([message]);
-    composerRef.current = "";
-    setComposer("");
-    clearPendingAttachments();
-    setReplyTo(null);
-    setMentionedUserIds([]);
-    setFailedSend(null);
-    void body;
-  }
-
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!activeConversationId || sending) return;
-    const body = composer.trim();
-    if (!body) return setError("Write a message before sending.");
-    if (!attachmentsReady) return setError("Wait for every attachment safety scan to finish or remove the file.");
-    const input: SendMessageInput = {
-      client_message_id: clientMessageId(),
-      body,
-      attachment_ids: readyAttachmentIds,
-      reply_to_message_id: replyTo?.id || null,
-      mentioned_user_ids: mentionedUserIds
-    };
-    setSending(true);
-    setError(null);
-    setConversationTyping(false);
-    const conversationId = activeConversationId;
-    try {
-      await sendInput(input, body, composer);
-    } catch (reason: unknown) {
-      if (activeConversationIdRef.current === conversationId) {
-        const message = errorText(reason);
-        setFailedSend({ input, body, draftSnapshot: composer, error: message });
-        setError(message);
-      }
-    } finally {
-      if (activeConversationIdRef.current === conversationId) {
-        setSending(false);
-      }
-    }
-  }
-
-  async function retrySend() {
-    if (!failedSend || sending) return;
-    setSending(true);
-    setError(null);
-    const conversationId = activeConversationId;
-    try {
-      await sendInput(
-        failedSend.input,
-        failedSend.body,
-        failedSend.draftSnapshot
-      );
-    } catch (reason: unknown) {
-      if (activeConversationIdRef.current === conversationId) {
-        const message = errorText(reason);
-        setFailedSend({ ...failedSend, error: message });
-        setError(message);
-      }
-    } finally {
-      if (activeConversationIdRef.current === conversationId) {
-        setSending(false);
-      }
-    }
-  }
-
-  async function sendThreadReply(input: SendMessageInput): Promise<Message> {
-    if (!activeConversationId) throw new Error("Select a conversation before replying.");
-    const conversationId = activeConversationId;
-    const message = await sendCommand(conversationId, input);
-    if (activeConversationIdRef.current === conversationId) {
-      forceScrollToLatestRef.current = true;
-      receiveMessages([message]);
-    } else {
-      updateConversationSummaries([message]);
-    }
-    return message;
-  }
-
-  function composerChanged(event: ChangeEvent<HTMLTextAreaElement>) {
-    composerRef.current = event.target.value;
-    setComposer(event.target.value);
-    setConversationTyping(true);
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = window.setTimeout(
-      () => setConversationTyping(false),
-      1_500
-    );
   }
 
   async function toggleReaction(message: Message, emoji: string) {
@@ -750,51 +549,83 @@ export function ChatPage() {
         }}
       />
 
-      <section className="conversation-pane" aria-label={activeConversation ? conversationIdentifier(activeConversation) : "Messages"}>
-        {activeConversation ? <>
-          <header className="conversation-header">
-            <button ref={mobileBackRef} className="mobile-back" type="button" onClick={showConversationList} aria-label="Back to conversations"><AppIcon name="arrowLeft" /></button>
-            <div>
-              <span className="eyebrow">{activeConversation.kind} · {activeConversation.visibility}</span>
-              <h2 data-route-focus>{conversationIdentifier(activeConversation)}</h2>
-            </div>
-            <div className="conversation-header-actions">
-              <div className="connection-summary" aria-live="polite"><span className={`status-dot ${connectionStatus}`} aria-hidden="true" /><span>{connectionLabel(connectionStatus)}</span>{onlineUsers > 0 && <small>{onlineUsers} online</small>}</div>
-              <button className="icon-button mobile-header-search" type="button" aria-label="Search messages" aria-expanded={showSearch} onClick={() => { setShowSearch((visible) => !visible); setShowBrowseChannels(false); setShowDetails(false); setShowGuestShare(false); }}><AppIcon name="search" /></button>
-              <CallLaunchActions
-                conversation={activeConversation}
-                audioEnabled={capabilities?.allow_audio_calls === true && audioCallsAvailable}
-                videoEnabled={capabilities?.allow_video_calls === true && videoCallsAvailable}
-                availabilityDescriptionId={callGuidance ? "conversation-call-availability" : undefined}
-              />
-              {(activeConversation.kind === "direct" || canCreateGuestLink(activeConversation)) && <button className="button ghost compact" type="button" aria-haspopup="dialog" onClick={() => { setShowGuestShare(true); setShowDetails(false); setShowSearch(false); setShowBrowseChannels(false); }}><AppIcon name="userPlus" />Invite guest</button>}
-              <button className="button ghost compact" type="button" aria-expanded={showDetails} onClick={() => { setShowDetails((visible) => !visible); setShowGuestShare(false); }}><AppIcon name="more" />Details</button>
-            </div>
-          </header>
-          {callGuidance && (
-            <p className="call-availability-guidance conversation-call-guidance" id="conversation-call-availability" role="status">
-              <span>{callGuidance}</span>
-              <Link to="/app/calls">Open Calls</Link>
-            </p>
-          )}
-          <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
-            {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder(scrollRef.current)}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
-            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onRequestThumbnail={requestAttachmentThumbnail} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
-            <div ref={messagesEndRef} />
-          </div>
-          <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}.` : ""}</p>
-          {!isNearBottom && <div className="new-message-jump"><button className="button primary compact" type="button" onClick={jumpToLatest}>{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"} · Jump to latest` : "Jump to latest"}</button></div>}
-          <div className="typing-line" aria-live="polite">{activeTyping.length > 0 ? `${activeTyping.join(", ")} ${activeTyping.length === 1 ? "is" : "are"} typing…` : "\u00a0"}</div>
-          <form className="composer" onSubmit={(event) => void sendMessage(event)}>
-            {failedSend && <div className="failed-send" role="alert"><span>Message not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
-            {replyTo && <div className="composer-reply"><span>Replying to <strong>{replyTo.sender_user_id === session.user.id ? "yourself" : visibleSenderIdentifier(replyTo.sender_user_id) || "a message"}</strong><small>{replyTo.body}</small></span><button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)}><AppIcon name="x" /></button></div>}
-            {pendingAttachments.length > 0 && <AttachmentUploadList items={pendingAttachments} onCancel={cancelAttachment} onRetry={retryAttachment} />}
-            <MentionPicker members={conversationMembers} currentUserId={session.user.id} selectedUserIds={mentionedUserIds} disabled={sending} onChange={setMentionedUserIds} />
-            <label className="sr-only" htmlFor="message-composer">Message</label><textarea id="message-composer" value={composer} onChange={composerChanged} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} rows={2} maxLength={65_535} placeholder={`Message ${conversationIdentifier(activeConversation)}`} disabled={sending} />
-            <div className="composer-actions"><label className={`attachment-button ${sending ? "disabled" : ""}`}><input type="file" multiple disabled={sending} onChange={(event) => void filesSelected(event)} accept="image/*,text/*,application/pdf,application/zip,application/json" aria-label="Attach files" /><AppIcon name="paperclip" />Attach</label><span className="composer-hint">Draft saved · Enter to send · Shift+Enter for a new line</span><button className="button primary send-button" type="submit" disabled={sending || uploading || !attachmentsReady || !composer.trim()}>{sending ? "Sending…" : "Send"}<AppIcon name="send" /></button></div>
-          </form>
-        </> : <div className="empty-state full-height"><span className="empty-mark" aria-hidden="true"><AppIcon name="message" /></span><h2>Select a conversation</h2><p>Choose a direct message, group or channel.</p></div>}
-      </section>
+      <ConversationPane
+        activeConversation={activeConversation}
+        activeTyping={activeTyping}
+        attachmentsReady={attachmentsReady}
+        audioCallsAvailable={audioCallsAvailable}
+        callGuidance={callGuidance}
+        capabilities={capabilities}
+        composer={composer}
+        connectionStatus={connectionStatus}
+        conversationIdentifier={conversationIdentifier}
+        currentUserId={session.user.id}
+        failedSend={failedSend}
+        focusTargetId={focusTarget?.id || null}
+        hasOlder={hasOlder}
+        isNearBottom={isNearBottom}
+        members={conversationMembers}
+        mentionedUserIds={mentionedUserIds}
+        messages={messages}
+        messagesEndRef={messagesEndRef}
+        messagesLoading={messagesLoading}
+        mobileBackRef={mobileBackRef}
+        newMessageCount={newMessageCount}
+        olderLoading={olderLoading}
+        onlineUsers={onlineUsers}
+        pendingAttachments={pendingAttachments}
+        readCursors={readCursors}
+        replyTo={replyTo}
+        scrollRef={scrollRef}
+        sending={sending}
+        showDetails={showDetails}
+        showSearch={showSearch}
+        uploading={uploading}
+        videoCallsAvailable={videoCallsAvailable}
+        visibleSenderIdentifier={visibleSenderIdentifier}
+        onAttachmentCancel={cancelAttachment}
+        onAttachmentRetry={retryAttachment}
+        onComposerChange={composerChanged}
+        onDelete={deleteMessage}
+        onEdit={editMessage}
+        onFilesSelected={filesSelected}
+        onInviteGuest={() => {
+          setShowGuestShare(true);
+          setShowDetails(false);
+          setShowSearch(false);
+          setShowBrowseChannels(false);
+        }}
+        onJumpToLatest={jumpToLatest}
+        onLoadOlder={loadOlder}
+        onMentionedUserIdsChange={setMentionedUserIds}
+        onOpenAttachment={(attachment) => void openAttachment(attachment)}
+        onReaction={(message, emoji) => void toggleReaction(message, emoji)}
+        onReply={(message) => {
+          setReplyTo(message);
+          document.getElementById("message-composer")?.focus();
+        }}
+        onReport={(message) => {
+          setReportError(null);
+          setReportTarget(message);
+        }}
+        onRequestThumbnail={requestAttachmentThumbnail}
+        onRetrySend={retrySend}
+        onScroll={messageScrollChanged}
+        onSend={sendMessage}
+        onShowConversationList={showConversationList}
+        onThread={(message) => setThreadTargetId(message.id)}
+        onToggleDetails={() => {
+          setShowDetails((visible) => !visible);
+          setShowGuestShare(false);
+        }}
+        onToggleSearch={() => {
+          setShowSearch((visible) => !visible);
+          setShowBrowseChannels(false);
+          setShowDetails(false);
+          setShowGuestShare(false);
+        }}
+        setReplyTo={setReplyTo}
+      />
 
       {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
@@ -805,4 +636,3 @@ export function ChatPage() {
     </main>
   );
 }
-

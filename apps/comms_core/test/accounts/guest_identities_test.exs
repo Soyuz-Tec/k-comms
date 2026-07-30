@@ -17,6 +17,7 @@ defmodule CommsCore.Accounts.GuestIdentitiesTest do
   alias CommsTestSupport.Fixtures
 
   @moduletag :integration
+  @moduletag :guest
 
   test "guest provisioning requires a caller transaction and creates a bounded guest session" do
     account = Fixtures.account_fixture()

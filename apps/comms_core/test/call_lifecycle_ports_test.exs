@@ -1,6 +1,9 @@
 defmodule CommsCore.CallLifecyclePortsTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :unit
+  @moduletag :call
+
   alias CommsCore.Accounts.{
     CallLifecycleCommand,
     CallLifecyclePort,

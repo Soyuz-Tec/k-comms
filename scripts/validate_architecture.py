@@ -1357,8 +1357,13 @@ def module_function_evasions(
 
 
 def module_defines_function(path: Path, function: str, arity: int) -> bool:
+    """Return whether a public function is implemented or delegated by a module."""
+
     text = path.read_text(encoding="utf-8")
-    for definition in re.finditer(rf"(?m)^\s*def\s+{re.escape(function)}\s*\(", text):
+    for definition in re.finditer(
+        rf"(?m)^\s*(?:def|defdelegate)\s+{re.escape(function)}\s*\(",
+        text,
+    ):
         parsed = balanced_call_arguments(text, definition.end() - 1)
         if not parsed:
             continue
@@ -3754,11 +3759,14 @@ def public_typespec_blocks(text: str) -> list[str]:
     )
     for match in spec_re.finditer(code):
         following_definition = re.search(
-            rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
+            rf"(?m)^[ \t]*(?P<kind>defp|defdelegate|def)\s+"
             rf"{re.escape(match.group('function'))}\b",
             code[match.end() :],
         )
-        if following_definition and following_definition.group("kind") == "def":
+        if following_definition and following_definition.group("kind") in {
+            "def",
+            "defdelegate",
+        }:
             blocks.append(match.group(0))
     return blocks
 
@@ -3776,11 +3784,14 @@ def public_spec_operations(text: str) -> set[tuple[str, int]]:
         if not parsed:
             continue
         following_definition = re.search(
-            rf"(?m)^[ \t]*(?P<kind>defp?)\s+"
+            rf"(?m)^[ \t]*(?P<kind>defp|defdelegate|def)\s+"
             rf"{re.escape(spec.group('function'))}(?![A-Za-z0-9_!?])",
             code[parsed[1] :],
         )
-        if following_definition and following_definition.group("kind") == "def":
+        if following_definition and following_definition.group("kind") in {
+            "def",
+            "defdelegate",
+        }:
             operations.add(
                 (
                     spec.group("function"),

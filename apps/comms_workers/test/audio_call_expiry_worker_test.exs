@@ -25,6 +25,10 @@ end
 defmodule CommsWorkers.AudioCallExpiryWorkerTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+  @moduletag :failure_recovery
+
   alias CommsCore.AudioCalls
 
   alias CommsCore.AudioCalls.{

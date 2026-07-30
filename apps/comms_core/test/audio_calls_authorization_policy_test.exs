@@ -1,6 +1,9 @@
 defmodule CommsCore.AudioCalls.AuthorizationPolicyTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+
   alias CommsCore.Accounts.Session
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.AudioCalls.Access

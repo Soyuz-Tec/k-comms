@@ -11,17 +11,11 @@ import {
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
-import {
-  AppMenuCloseButton,
-  AppMenuTrigger
-} from "../../components/AppMenuControls";
-import { useModalDialog } from "../../components/useModalDialog";
+import { AppMenuTrigger } from "../../components/AppMenuControls";
 import {
   clientMessageId,
   conversationTitle,
-  errorText,
-  formatTime,
-  initials
+  errorText
 } from "../../lib/format";
 import type {
   Conversation,
@@ -31,7 +25,9 @@ import type {
   Session,
   SocketHandoff
 } from "../../types";
-import { GuestConversionPanel, type ConversionReceipt } from "./GuestConversionPanel";
+import { GuestConversionPanel } from "./GuestConversionPanel";
+import { GuestMessageViewport } from "./GuestMessageViewport";
+import { GuestRoomMenu } from "./GuestRoomMenu";
 import { ParticipantRoster } from "./ParticipantRoster";
 import type { GuestRoomApi } from "./roomApi";
 import {
@@ -43,121 +39,15 @@ import {
 } from "../../lib/participantIdentity";
 import { loadGuestMessageCatchUp } from "./guestMessageCatchUp";
 import { useGuestConversationFeed } from "./useGuestConversationFeed";
+import { useGuestConversion } from "./useGuestConversion";
+import { useGuestMessageViewport } from "./useGuestMessageViewport";
 import { useGuestParticipants } from "./useGuestParticipants";
 import { useGuestRealtime } from "./useGuestRealtime";
+import { useMobileRoomLayout } from "./useMobileRoomLayout";
 
 const GuestCallPanel = lazy(() =>
   import("../calls/CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
 );
-
-
-function useMobileRoomLayout() {
-  const queryText = "(max-width: 760px), (max-height: 560px)";
-  const [mobile, setMobile] = useState(
-    () => window.matchMedia?.(queryText).matches ?? false
-  );
-
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const query = window.matchMedia(queryText);
-    const update = () => setMobile(query.matches);
-    update();
-    query.addEventListener?.("change", update);
-    return () => query.removeEventListener?.("change", update);
-  }, [queryText]);
-
-  return mobile;
-}
-
-function GuestRoomMenu({
-  canKeepRoom,
-  identityLabel,
-  inviteContent,
-  leaving,
-  onClose,
-  onKeepRoom,
-  onLeave,
-  warnsOfGuestHostLoss
-}: {
-  canKeepRoom: boolean;
-  identityLabel: "Guest" | "Host" | "Member";
-  inviteContent?: ReactNode;
-  leaving: boolean;
-  onClose: () => void;
-  onKeepRoom: () => void;
-  onLeave: () => void;
-  warnsOfGuestHostLoss: boolean;
-}) {
-  const dialogRef = useModalDialog(onClose);
-
-  return (
-    <div
-      className="guest-room-menu-backdrop"
-      onPointerDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <aside
-        ref={dialogRef}
-        className="guest-room-menu"
-        id="guest-room-menu"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="guest-room-menu-title"
-      >
-        <header>
-          <h2 id="guest-room-menu-title">Room menu</h2>
-          <AppMenuCloseButton
-            data-initial-focus
-            accessibleLabel="Close"
-            onClick={onClose}
-          />
-        </header>
-        {inviteContent}
-        <div className="guest-room-menu-actions">
-          {canKeepRoom && (
-            <button className="guest-room-menu-action" type="button" onClick={onKeepRoom}>
-              <AppIcon name="bookmark" />
-              <div>
-                <strong>
-                  {identityLabel === "Host"
-                    ? "Save this room"
-                    : "Keep this conversation"}
-                </strong>
-                <span>Continue from another device with an account.</span>
-              </div>
-            </button>
-          )}
-          {identityLabel === "Host" && (
-            <Link className="guest-room-menu-action" to="/sign-in" onClick={onClose}>
-              <AppIcon name="logIn" />
-              <div>
-                <strong>Sign in to a workspace</strong>
-                <span>Use an existing K-Comms account.</span>
-              </div>
-            </Link>
-          )}
-          <button
-            className="guest-room-menu-action danger"
-            type="button"
-            disabled={leaving}
-            onClick={onLeave}
-          >
-            <AppIcon name="logOut" />
-            <div>
-              <strong>{leaving ? "Leaving room…" : "Leave room"}</strong>
-              <span>
-                {warnsOfGuestHostLoss
-                  ? "Leaving clears this guest host session. Copy the invite to rejoin, or save the room first to keep management access."
-                  : "This ends only your session on this device."}
-              </span>
-            </div>
-          </button>
-        </div>
-      </aside>
-    </div>
-  );
-}
 
 export function GuestShell({
   api,
@@ -204,22 +94,10 @@ export function GuestShell({
   const [sending, setSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState("");
-  const [showAccount, setShowAccount] = useState(false);
   const [showRoomMenu, setShowRoomMenu] = useState(false);
-  const [converting, setConverting] = useState(false);
-  const [conversionNotice, setConversionNotice] = useState("");
-  const [conversionReceipt, setConversionReceipt] =
-    useState<ConversionReceipt | null>(null);
-  const [isNearBottom, setIsNearBottom] = useState(true);
-  const [newMessageCount, setNewMessageCount] = useState(0);
   const visibleMessageAuthorsRef = useRef<
     Array<{ senderUserId: string; messageId: string }>
   >([]);
-  const nearBottomRef = useRef(true);
-  const scrollRequestRef = useRef<ScrollBehavior | null>("auto");
-  const lastMarkedReadRef = useRef(0);
-  const messageScrollRef = useRef<HTMLDivElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const accountToggleRef = useRef<HTMLButtonElement | null>(null);
   const accountReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const roomMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -228,12 +106,19 @@ export function GuestShell({
   const accountWasOpenRef = useRef(false);
   const restoreRoomHeadingFocusRef = useRef(false);
   const roomMenuTriggerFocusedRef = useRef(false);
-  const selfServiceConversion =
-    initialSession.capabilities.self_service_conversion === true;
-  const conversionEnabled =
-    initialSession.capabilities.conversion_enabled === true ||
-    selfServiceConversion;
   const mobileRoomLayout = useMobileRoomLayout();
+  const {
+    composerRef,
+    isNearBottom,
+    jumpToLatest,
+    latestSequenceRef,
+    messageScrollChanged,
+    messageScrollRef,
+    nearBottomRef,
+    newMessageCount,
+    scrollRequestRef,
+    setNewMessageCount
+  } = useGuestMessageViewport({ api, loading });
 
   useEffect(() => {
     const clearRoomMenuTriggerFocus = (event: FocusEvent) => {
@@ -269,23 +154,6 @@ export function GuestShell({
     }
   }, [mobileRoomLayout, showRoomMenu]);
 
-  const markLatestRead = useCallback(() => {
-    const latest = latestSequenceRef.current;
-    if (
-      document.visibilityState !== "visible" ||
-      !nearBottomRef.current ||
-      latest <= 0 ||
-      latest <= lastMarkedReadRef.current
-    ) {
-      return;
-    }
-
-    lastMarkedReadRef.current = latest;
-    void api.markRead(latest).catch(() => {
-      lastMarkedReadRef.current = 0;
-    });
-  }, [api]);
-
   const mergeRetainedSenderLabels = useCallback((
     incoming: RetainedSenderLabel[]
   ) => {
@@ -297,7 +165,6 @@ export function GuestShell({
 
   const {
     applyReaction,
-    latestSequenceRef,
     mergeMessages,
     messages,
     requestCatchUp
@@ -305,6 +172,7 @@ export function GuestShell({
     api,
     conversationId: conversation.id,
     currentUserId: initialSession.user.id,
+    latestSequenceRef,
     mergeRetainedSenderLabels,
     nearBottomRef,
     scrollRequestRef,
@@ -347,6 +215,24 @@ export function GuestShell({
     setError
   });
 
+  const {
+    conversionEnabled,
+    conversionNotice,
+    conversionReceipt,
+    converting,
+    convertAccount,
+    selfServiceConversion,
+    setShowAccount,
+    showAccount
+  } = useGuestConversion({
+    api,
+    initialSession,
+    accountActionsAllowed,
+    handoffRealtime,
+    onConverted,
+    setError
+  });
+
   useEffect(() => {
     let current = true;
     setLoading(true);
@@ -380,20 +266,6 @@ export function GuestShell({
     reloadMembers
   ]);
 
-  useLayoutEffect(() => {
-    const behavior = scrollRequestRef.current;
-    const scroll = messageScrollRef.current;
-    if (loading || !behavior || !scroll) return;
-
-    scrollRequestRef.current = null;
-    scroll.scrollTo?.({ top: scroll.scrollHeight, behavior });
-    scroll.scrollTop = scroll.scrollHeight;
-    nearBottomRef.current = true;
-    setIsNearBottom(true);
-    setNewMessageCount(0);
-    markLatestRead();
-  }, [loading, markLatestRead, messages.length]);
-
   useEffect(() => {
     const authorMessageIds = new Map<string, string>();
     for (const message of messages) {
@@ -405,14 +277,6 @@ export function GuestShell({
       .map(([senderUserId, messageId]) => ({ senderUserId, messageId }))
       .sort((left, right) => left.senderUserId.localeCompare(right.senderUserId));
   }, [messages]);
-
-  useEffect(() => {
-    function visibilityChanged() {
-      if (document.visibilityState === "visible") markLatestRead();
-    }
-    document.addEventListener("visibilitychange", visibilityChanged);
-    return () => document.removeEventListener("visibilitychange", visibilityChanged);
-  }, [markLatestRead]);
 
   useEffect(() => {
     if (showAccount) {
@@ -502,92 +366,11 @@ export function GuestShell({
     }
   }
 
-  function messageScrollChanged() {
-    const scroll = messageScrollRef.current;
-    if (!scroll) return;
-    const nearBottom =
-      scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 96;
-    nearBottomRef.current = nearBottom;
-    setIsNearBottom(nearBottom);
-    if (nearBottom) {
-      setNewMessageCount(0);
-      markLatestRead();
-    }
-  }
-
-  function jumpToLatest() {
-    const scroll = messageScrollRef.current;
-    if (!scroll) return;
-    scroll.scrollTo?.({ top: scroll.scrollHeight, behavior: "smooth" });
-    scroll.scrollTop = scroll.scrollHeight;
-    nearBottomRef.current = true;
-    setIsNearBottom(true);
-    setNewMessageCount(0);
-    markLatestRead();
-    composerRef.current?.focus();
-  }
-
   function leave() {
     setLeaving(true);
     setError("");
     void api.logout().catch(() => undefined);
     onLeave();
-  }
-
-  async function convertAccount(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!accountActionsAllowed) {
-      setConversionNotice("");
-      setError(
-        "Account creation is disabled for this deployment address. Open K-Comms over trusted HTTPS before entering or submitting credentials."
-      );
-      return;
-    }
-    const values = new FormData(event.currentTarget);
-    setConverting(true);
-    setConversionNotice("");
-    setError("");
-    try {
-      if (!api.convertAccount) {
-        throw new Error("Account creation is not available for this room session.");
-      }
-      const result = await api.convertAccount({
-        email: String(values.get("email") || "").trim(),
-        password: String(values.get("password") || ""),
-        ...(selfServiceConversion
-          ? {
-              display_name:
-                String(values.get("display_name") || "").trim() || undefined
-            }
-          : {
-              verification_code: String(
-                values.get("verification_code") || ""
-              ).trim()
-            })
-      });
-      if (selfServiceConversion) {
-        handoffRealtime(result.socket_handoff);
-        onConverted(
-          result.session,
-          result.conversation,
-          result.socket_handoff
-        );
-        setShowAccount(false);
-        setConversionNotice(
-          `Account created for ${result.session.user.display_name}. You are still in this conversation.`
-        );
-        setConversionReceipt({
-          displayName: result.session.user.display_name,
-          workspaceSlug: result.session.tenant.slug
-        });
-      } else {
-        onConverted(result.session, result.conversation);
-      }
-    } catch (reason: unknown) {
-      setError(errorText(reason));
-    } finally {
-      setConverting(false);
-    }
   }
 
   const openRoomChat = useCallback(() => {
@@ -596,6 +379,21 @@ export function GuestShell({
       composerRef.current?.scrollIntoView?.({ block: "nearest" });
     });
   }, []);
+
+  function resolveMessageSender(message: Message) {
+    const activeSender = activeUsersById.get(message.sender_user_id);
+    const sender = visibleSenderIdentities.get(message.sender_user_id);
+    const displayName = sender?.display_name || "Room member";
+
+    return {
+      displayName,
+      identifier: participantIdentifier(
+        { id: message.sender_user_id, display_name: displayName },
+        duplicateKnownDisplayNames
+      ),
+      guest: activeSender?.account_type === "guest"
+    };
+  }
 
   return (
     <main
@@ -764,137 +562,28 @@ export function GuestShell({
         </Suspense>
       </section>
 
-      <section className="guest-room" aria-label={conversationTitle(conversation)}>
-        <div
-          ref={messageScrollRef}
-          className="guest-message-scroll"
-          role="region"
-          aria-label="Message history"
-          aria-busy={loading}
-          tabIndex={0}
-          onScroll={messageScrollChanged}
-        >
-          {loading ? (
-            <div className="inline-loading" role="status">
-              <span className="spinner" aria-hidden="true" />Loading conversation…
-            </div>
-          ) : loadError ? (
-            <div className="empty-state guest-load-error" role="alert">
-              <span className="empty-mark" aria-hidden="true"><AppIcon name="triangleAlert" /></span>
-              <h2>Could not load this conversation</h2>
-              <p>{loadError}</p>
-              <button
-                className="button primary"
-                type="button"
-                onClick={() => setLoadRetry((attempt) => attempt + 1)}
-              >
-                <AppIcon name="refresh" />
-                Retry conversation
-              </button>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="empty-state guest-message-empty">
-              <h2>No messages yet</h2>
-              <p>
-                {identityLabel === "Guest"
-                  ? "You joined as a guest. "
-                  : "Your room is ready. "}
-                Send a message when you’re ready.
-              </p>
-            </div>
-          ) : (
-            <ol className="guest-message-list">
-              {messages.map((message) => {
-                const activeSender = activeUsersById.get(message.sender_user_id);
-                const sender = visibleSenderIdentities.get(message.sender_user_id);
-                const senderDisplayName =
-                  sender?.display_name ||
-                  "Room member";
-                const senderIdentifier = participantIdentifier(
-                  { id: message.sender_user_id, display_name: senderDisplayName },
-                  duplicateKnownDisplayNames
-                );
-                return (
-                  <li key={message.id} className={message.sender_user_id === initialSession.user.id ? "mine" : ""}>
-                    <span className="avatar" aria-hidden="true">
-                      {initials(senderDisplayName)}
-                    </span>
-                    <div>
-                      <div className="guest-message-meta">
-                        <strong>
-                          {senderIdentifier}
-                          {message.sender_user_id === initialSession.user.id && " (you)"}
-                        </strong>
-                        {activeSender?.account_type === "guest" && <span className="guest-badge compact">Guest</span>}
-                        <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
-                      </div>
-                      <p>{message.body}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </div>
-        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-          {newMessageCount > 0
-            ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}.`
-            : ""}
-        </p>
-        {!isNearBottom && newMessageCount > 0 && (
-          <div className="guest-new-message-jump">
-            <button className="button primary compact" type="button" onClick={jumpToLatest}>
-              <AppIcon name="arrowDown" />
-              {newMessageCount} new {newMessageCount === 1 ? "message" : "messages"} · Jump to latest
-            </button>
-          </div>
-        )}
-        <form className="guest-composer" onSubmit={(event) => void sendMessage(event)}>
-          <label className="sr-only" htmlFor="guest-message-composer">Message</label>
-          <textarea
-            ref={composerRef}
-            id="guest-message-composer"
-            rows={mobileRoomLayout ? 1 : 2}
-            maxLength={65_535}
-            value={composer}
-            readOnly={sending || loading || Boolean(loadError)}
-            aria-busy={sending}
-            aria-disabled={loading || Boolean(loadError)}
-            autoFocus={!roomBanner}
-            placeholder={
-              mobileRoomLayout
-                ? "Write a message"
-                : `Message ${conversationTitle(conversation)}`
-            }
-            onChange={(event) => setComposer(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing
-              ) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-          <button
-            className="button primary"
-            type="submit"
-            aria-busy={sending}
-            aria-label={sending ? "Sending message" : "Send"}
-            disabled={sending || loading || Boolean(loadError) || !composer.trim()}
-          >
-            <AppIcon
-              name={sending ? "loader" : "send"}
-              className={sending ? "spin" : ""}
-            />
-            <span className="guest-send-label">
-              {sending ? "Sending…" : "Send"}
-            </span>
-          </button>
-        </form>
-      </section>
+      <GuestMessageViewport
+        autoFocus={!roomBanner}
+        composer={composer}
+        composerRef={composerRef}
+        conversationTitle={conversationTitle(conversation)}
+        currentUserId={initialSession.user.id}
+        identityLabel={identityLabel}
+        isNearBottom={isNearBottom}
+        loadError={loadError}
+        loading={loading}
+        messages={messages}
+        messageScrollRef={messageScrollRef}
+        mobile={mobileRoomLayout}
+        newMessageCount={newMessageCount}
+        onComposerChange={setComposer}
+        onJumpToLatest={jumpToLatest}
+        onRetryLoad={() => setLoadRetry((attempt) => attempt + 1)}
+        onScroll={messageScrollChanged}
+        onSubmit={(event) => void sendMessage(event)}
+        resolveSender={resolveMessageSender}
+        sending={sending}
+      />
 
       {error && (
         <div className="guest-shell-error" role="alert">

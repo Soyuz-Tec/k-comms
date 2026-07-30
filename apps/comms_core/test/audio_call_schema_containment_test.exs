@@ -1,6 +1,9 @@
 defmodule CommsCore.AudioCalls.SchemaContainmentTest do
   use ExUnit.Case, async: true
 
+  @moduletag :unit
+  @moduletag :call
+
   alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}
 
   test "foreign tenant, conversation, and identity references remain scalar binary IDs" do

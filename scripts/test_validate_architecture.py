@@ -23,6 +23,7 @@ from validate_architecture import (
     discover_schemas,
     generated_report_errors,
     main,
+    module_defines_function,
     public_spec_operations,
     qualified_function_calls,
     read_yaml,
@@ -46,6 +47,22 @@ def module_family_source(root: Path, relative_facade_path: str) -> str:
 
 
 class ValidateArchitectureTest(unittest.TestCase):
+    def test_public_query_definition_recognizes_facade_delegates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "facade.ex"
+            source.write_text(
+                """
+                defmodule CommsCore.Example do
+                  defdelegate lookup(subject, options \\\\ []), to: Internal
+                end
+                """,
+                encoding="utf-8",
+            )
+
+            self.assertTrue(module_defines_function(source, "lookup", 1))
+            self.assertTrue(module_defines_function(source, "lookup", 2))
+            self.assertFalse(module_defines_function(source, "lookup", 3))
+
     def test_public_specs_recognize_elixir_predicate_and_bang_functions(self) -> None:
         source = """
         defmodule CommsCore.Example do
@@ -61,6 +78,16 @@ class ValidateArchitectureTest(unittest.TestCase):
             public_spec_operations(source),
             {("allow?", 2), ("enforce!", 1)},
         )
+
+    def test_public_specs_recognize_facade_delegates(self) -> None:
+        source = """
+        defmodule CommsCore.Example do
+          @spec lookup(binary()) :: {:ok, map()} | {:error, :not_found}
+          defdelegate lookup(id), to: Internal
+        end
+        """
+
+        self.assertEqual(public_spec_operations(source), {("lookup", 1)})
 
     def test_accepts_the_documented_dependency_and_repo_policy(self) -> None:
         with self.repository_fixture() as root:
@@ -758,6 +785,15 @@ class ValidateArchitectureTest(unittest.TestCase):
         administration = (
             root / "apps/comms_core/lib/comms_core/administration.ex"
         ).read_text(encoding="utf-8")
+        tenant_lifecycle = (
+            root
+            / "apps/comms_core/lib/comms_core/administration/tenant_lifecycle.ex"
+        ).read_text(encoding="utf-8")
+        for facade_api in (
+            "defdelegate active_tenant(tenant_id), to: TenantLifecycle",
+            "defdelegate active_tenant_by_slug(slug), to: TenantLifecycle",
+        ):
+            self.assertIn(facade_api, administration)
         for owner_api in (
             "def active_tenant(tenant_id) when is_binary(tenant_id)",
             "def active_tenant_by_slug(slug) when is_binary(slug)",
@@ -766,7 +802,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "def active_tenant(_tenant_id), do: {:error, :tenant_unavailable}",
             "def active_tenant_by_slug(_slug), do: {:error, :tenant_unavailable}",
         ):
-            self.assertIn(owner_api, administration)
+            self.assertIn(owner_api, tenant_lifecycle)
         self.assertIn("TenantView.t()", administration)
 
         owner_api_consumers = {
@@ -1532,9 +1568,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             fanout_source,
         )
 
-        push_source = (
-            root / "apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex"
-        ).read_text(encoding="utf-8")
+        push_source = module_family_source(
+            root,
+            "apps/comms_core/lib/comms_core/notifications/push_subscriptions.ex",
+        )
         self.assertIn("Accounts.notification_eligible_device_ids(", push_source)
         self.assertIn("Accounts.lock_push_registration_identity(", push_source)
 
@@ -1745,7 +1782,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "consumer": "tenant_administration",
                 "port": "CommsCore.Administration.CallLifecyclePort",
                 "result_contract": ("CommsCore.Administration.CallLifecycleReceipt"),
-                "callers": ["CommsCore.Administration"],
+                "callers": ["CommsCore.Administration.SettingsCommands"],
                 "operations": [{"name": "revoke_tenant_media", "arity": 1}],
                 "binding_key": "tenant_call_lifecycle_adapter",
             },

@@ -1,6 +1,10 @@
 defmodule CommsCore.Notifications.PushSubscriptionsConcurrencyTest do
   use ExUnit.Case, async: false
 
+  @moduletag :integration
+  @moduletag :concurrency
+  @moduletag :notifications
+
   import Ecto.Query
 
   alias CommsCore.Accounts.Device

@@ -641,7 +641,7 @@ runtime_collaborations:
     port: CommsCore.Administration.CallLifecyclePort
     result_contract: CommsCore.Administration.CallLifecycleReceipt
     implementation: CommsCore.AudioCalls
-    callers: [CommsCore.Administration]
+    callers: [CommsCore.Administration.SettingsCommands]
     operations:
       - {name: revoke_tenant_media, arity: 1}
     binding:
