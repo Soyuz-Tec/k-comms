@@ -10,7 +10,6 @@ import {
 } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
-import { ApiError } from "../../api";
 import { AppIcon } from "../../components/AppIcon";
 import {
   AppMenuCloseButton,
@@ -24,19 +23,15 @@ import {
   formatTime,
   initials
 } from "../../lib/format";
-import { RealtimeConversation, socketEndpoint } from "../../realtime";
 import type {
-  CallRealtimeEvent,
-  ConnectionStatus,
   Conversation,
-  ConversationMembership,
   GuestSession,
   Message,
-  ReactionEvent,
   RetainedSenderLabel,
   Session,
   SocketHandoff
 } from "../../types";
+import { GuestConversionPanel, type ConversionReceipt } from "./GuestConversionPanel";
 import { ParticipantRoster } from "./ParticipantRoster";
 import type { GuestRoomApi } from "./roomApi";
 import {
@@ -47,31 +42,14 @@ import {
   type ParticipantIdentity
 } from "../../lib/participantIdentity";
 import { loadGuestMessageCatchUp } from "./guestMessageCatchUp";
+import { useGuestConversationFeed } from "./useGuestConversationFeed";
+import { useGuestParticipants } from "./useGuestParticipants";
+import { useGuestRealtime } from "./useGuestRealtime";
 
 const GuestCallPanel = lazy(() =>
   import("../calls/CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
 );
 
-const senderLabelRefreshDelaysMs = [30_000, 60_000, 120_000, 300_000] as const;
-type PendingGuestCatchUp = {
-  afterSequence: number;
-  throughSequence?: number;
-  announce: boolean;
-};
-interface SenderLabelRefreshBackoff {
-  conversationId: string;
-  candidateSignature: string | null;
-  resultSignature: string | null;
-  delayIndex: number;
-  nextAttemptAt: number;
-}
-
-interface ConversionReceipt {
-  displayName: string;
-  workspaceSlug: string;
-}
-
-const apiBase = import.meta.env.VITE_API_BASE_URL || "";
 
 function useMobileRoomLayout() {
   const queryText = "(max-width: 760px), (max-height: 560px)";
@@ -213,27 +191,18 @@ export function GuestShell({
   onPresenceChange?: (count: number) => void;
 }) {
   const [conversation, setConversation] = useState(initialSession.conversation);
-  const [members, setMembers] = useState<ConversationMembership[]>([]);
   const [knownUsersById, setKnownUsersById] = useState(
     () => new Map([[initialSession.user.id, initialSession.user]])
   );
   const [retainedSenderLabelsById, setRetainedSenderLabelsById] = useState(
     () => new Map<string, RetainedSenderLabel>()
   );
-  const [messages, setMessages] = useState<Message[]>([]);
   const [composer, setComposer] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [loadRetry, setLoadRetry] = useState(0);
   const [sending, setSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
-  const [onlineUsers, setOnlineUsers] = useState(initialPresenceCount);
-  const [onlineUserIds, setOnlineUserIds] = useState<ReadonlySet<string>>(
-    () => new Set()
-  );
-  const [presenceKnown, setPresenceKnown] = useState(false);
-  const [realtimeHandoffVersion, setRealtimeHandoffVersion] = useState(0);
   const [error, setError] = useState("");
   const [showAccount, setShowAccount] = useState(false);
   const [showRoomMenu, setShowRoomMenu] = useState(false);
@@ -241,38 +210,11 @@ export function GuestShell({
   const [conversionNotice, setConversionNotice] = useState("");
   const [conversionReceipt, setConversionReceipt] =
     useState<ConversionReceipt | null>(null);
-  const [realtimeCall, setRealtimeCall] = useState<CallRealtimeEvent | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
-  const realtimeRef = useRef<RealtimeConversation | null>(null);
-  const socketHandoffTicketRef = useRef<string | null>(null);
-  const latestSequenceRef = useRef(0);
-  const knownMessageIdsRef = useRef(new Set<string>());
-  const membersRequestGenerationRef = useRef(0);
-  const membersReloadInFlightRef = useRef(false);
-  const membersReloadPendingRef = useRef(false);
-  const scheduleMembersReloadRef = useRef<() => void>(() => undefined);
-  const membersReloadTimerRef = useRef<number | null>(null);
-  const memberIdsSignatureRef = useRef<string | null>(null);
   const visibleMessageAuthorsRef = useRef<
     Array<{ senderUserId: string; messageId: string }>
   >([]);
-  const senderLabelRefreshBackoffRef = useRef<SenderLabelRefreshBackoff>(
-    newSenderLabelRefreshBackoff(conversation.id)
-  );
-  const catchUpInFlightRef = useRef(false);
-  const catchUpRetryTimerRef = useRef<number | null>(null);
-  const catchUpRetryAttemptsRef = useRef(0);
-  const catchUpLifecycleGenerationRef = useRef(0);
-  const catchUpErrorRef = useRef<string | null>(null);
-  const pendingCatchUpRef = useRef<PendingGuestCatchUp | null>(null);
-  const requestCatchUpRef = useRef<(
-    afterSequence: number,
-    throughSequence?: number,
-    announce?: boolean
-  ) => void>(() => undefined);
-  const presenceUserIdsSignatureRef = useRef<string | null>(null);
-  const connectionStatusRef = useRef<ConnectionStatus>("connecting");
   const nearBottomRef = useRef(true);
   const scrollRequestRef = useRef<ScrollBehavior | null>("auto");
   const lastMarkedReadRef = useRef(0);
@@ -286,8 +228,6 @@ export function GuestShell({
   const accountWasOpenRef = useRef(false);
   const restoreRoomHeadingFocusRef = useRef(false);
   const roomMenuTriggerFocusedRef = useRef(false);
-  const onAccessEndedRef = useRef(onAccessEnded);
-  onAccessEndedRef.current = onAccessEnded;
   const selfServiceConversion =
     initialSession.capabilities.self_service_conversion === true;
   const conversionEnabled =
@@ -346,37 +286,6 @@ export function GuestShell({
     });
   }, [api]);
 
-  const mergeMessages = useCallback((
-    incoming: Message[],
-    options: { announce?: boolean; forceScroll?: boolean; behavior?: ScrollBehavior } = {}
-  ) => {
-    if (incoming.length === 0) return;
-    const newMessages = incoming.filter(({ id }) => !knownMessageIdsRef.current.has(id));
-    for (const message of incoming) knownMessageIdsRef.current.add(message.id);
-
-    if (newMessages.length > 0) {
-      const ownMessage = newMessages.some(
-        ({ sender_user_id: senderUserId }) => senderUserId === initialSession.user.id
-      );
-      if (options.forceScroll || ownMessage || nearBottomRef.current) {
-        scrollRequestRef.current = options.behavior ?? "auto";
-        setNewMessageCount(0);
-      } else if (options.announce !== false) {
-        setNewMessageCount((count) => count + newMessages.length);
-      }
-    }
-
-    setMessages((current) => {
-      const byId = new Map(current.map((message) => [message.id, message]));
-      for (const message of incoming) byId.set(message.id, message);
-      const next = [...byId.values()].sort(
-        (left, right) => left.conversation_sequence - right.conversation_sequence
-      );
-      latestSequenceRef.current = next.at(-1)?.conversation_sequence || 0;
-      return next;
-    });
-  }, [initialSession.user.id]);
-
   const mergeRetainedSenderLabels = useCallback((
     incoming: RetainedSenderLabel[]
   ) => {
@@ -386,259 +295,57 @@ export function GuestShell({
     );
   }, []);
 
-  const requestCatchUp = useCallback((
-    afterSequence: number,
-    throughSequence?: number,
-    announce = true
-  ) => {
-    const pending = pendingCatchUpRef.current;
-    pendingCatchUpRef.current = pending
-      ? {
-          afterSequence: Math.min(pending.afterSequence, afterSequence),
-          throughSequence:
-            pending.throughSequence === undefined || throughSequence === undefined
-              ? undefined
-              : Math.max(pending.throughSequence, throughSequence),
-          announce: pending.announce || announce
-        }
-      : { afterSequence, throughSequence, announce };
-    if (catchUpInFlightRef.current) return;
-    const lifecycleGeneration = catchUpLifecycleGenerationRef.current;
-    catchUpInFlightRef.current = true;
-    let failed = false;
-    let requestInFlight: PendingGuestCatchUp | null = null;
+  const {
+    applyReaction,
+    latestSequenceRef,
+    mergeMessages,
+    messages,
+    requestCatchUp
+  } = useGuestConversationFeed({
+    api,
+    conversationId: conversation.id,
+    currentUserId: initialSession.user.id,
+    mergeRetainedSenderLabels,
+    nearBottomRef,
+    scrollRequestRef,
+    setError,
+    setNewMessageCount
+  });
 
-    const drain = async () => {
-      while (pendingCatchUpRef.current) {
-        const requested = pendingCatchUpRef.current;
-        requestInFlight = requested;
-        pendingCatchUpRef.current = null;
-        const nextMessages = await loadGuestMessageCatchUp(
-          api,
-          requested.afterSequence,
-          mergeRetainedSenderLabels,
-          requested.throughSequence
-        );
-        if (
-          catchUpLifecycleGenerationRef.current !== lifecycleGeneration
-        ) return;
-        mergeMessages(nextMessages, {
-          announce: requested.announce,
-          behavior: requested.announce ? "smooth" : "auto"
-        });
-        requestInFlight = null;
-        catchUpRetryAttemptsRef.current = 0;
-        if (catchUpErrorRef.current) {
-          const recoveredError = catchUpErrorRef.current;
-          catchUpErrorRef.current = null;
-          setError((current) => current === recoveredError ? "" : current);
-        }
-      }
-    };
+  const {
+    members,
+    reloadMembers,
+    scheduleMembersReload
+  } = useGuestParticipants({
+    api,
+    conversationId: conversation.id,
+    mergeRetainedSenderLabels,
+    setError,
+    visibleMessageAuthorsRef
+  });
 
-    void drain()
-      .catch((reason: unknown) => {
-        if (
-          catchUpLifecycleGenerationRef.current !== lifecycleGeneration
-        ) return;
-        failed = true;
-        if (requestInFlight) {
-          const pendingRequest = pendingCatchUpRef.current;
-          pendingCatchUpRef.current = pendingRequest
-            ? {
-                afterSequence: Math.min(
-                  requestInFlight.afterSequence,
-                  pendingRequest.afterSequence
-                ),
-                throughSequence:
-                  requestInFlight.throughSequence === undefined ||
-                  pendingRequest.throughSequence === undefined
-                    ? undefined
-                    : Math.max(
-                        requestInFlight.throughSequence,
-                        pendingRequest.throughSequence
-                      ),
-                announce: requestInFlight.announce || pendingRequest.announce
-              }
-            : requestInFlight;
-        }
-        const message = errorText(reason);
-        catchUpErrorRef.current = message;
-        setError(message);
-      })
-      .finally(() => {
-        if (
-          catchUpLifecycleGenerationRef.current !== lifecycleGeneration
-        ) return;
-        catchUpInFlightRef.current = false;
-        const pendingRequest = pendingCatchUpRef.current;
-        if (pendingRequest) {
-          const retry = () => {
-            if (
-              catchUpLifecycleGenerationRef.current !== lifecycleGeneration
-            ) return;
-            catchUpRetryTimerRef.current = null;
-            const request = pendingCatchUpRef.current;
-            if (!request) return;
-            pendingCatchUpRef.current = null;
-            requestCatchUpRef.current(
-              request.afterSequence,
-              request.throughSequence,
-              request.announce
-            );
-          };
-          if (failed) {
-            if (catchUpRetryTimerRef.current === null) {
-              const attempts = catchUpRetryAttemptsRef.current;
-              catchUpRetryAttemptsRef.current += 1;
-              catchUpRetryTimerRef.current = window.setTimeout(
-                retry,
-                [1_000, 2_000, 5_000, 10_000][attempts] ?? 15_000
-              );
-            }
-          } else {
-            retry();
-          }
-        }
-      });
-  }, [api, mergeMessages, mergeRetainedSenderLabels]);
-  const applyReaction = useCallback((event: ReactionEvent, add: boolean) => {
-    setMessages((current) => current.map((message) => {
-      if (message.id !== event.message_id) return message;
-      const reactions = message.reactions.filter(
-        (reaction) => !(reaction.user_id === event.user_id && reaction.emoji === event.emoji)
-      );
-      return {
-        ...message,
-        reactions: add ? [...reactions, { user_id: event.user_id, emoji: event.emoji }] : reactions
-      };
-    }));
-  }, []);
-
-  const reloadMembers = useCallback(async (
-    errorTarget: "shell" | "initial" = "shell"
-  ): Promise<void> => {
-    if (membersReloadInFlightRef.current) {
-      membersReloadPendingRef.current = true;
-      membersRequestGenerationRef.current += 1;
-      return;
-    }
-    membersReloadInFlightRef.current = true;
-    const requestGeneration = ++membersRequestGenerationRef.current;
-    try {
-      const nextMembers = await api.conversationMembers();
-      if (requestGeneration !== membersRequestGenerationRef.current) return;
-      setMembers(nextMembers);
-      const nextSignature = nextMembers
-        .map(({ user }) => user.id)
-        .sort()
-        .join("\u0000");
-      const previousSignature = memberIdsSignatureRef.current;
-      memberIdsSignatureRef.current = nextSignature;
-      if (previousSignature !== null) {
-        const activeUserIds = new Set(nextMembers.map(({ user }) => user.id));
-        const departedAuthorMessageIds = visibleMessageAuthorsRef.current
-          .filter(({ senderUserId }) => !activeUserIds.has(senderUserId))
-          .map(({ messageId }) => messageId);
-        if (departedAuthorMessageIds.length > 0) {
-          if (
-            !senderLabelRefreshAllowed(
-              senderLabelRefreshBackoffRef,
-              conversation.id,
-              departedAuthorMessageIds
-            )
-          ) {
-            return;
-          }
-          try {
-            const labels = await api.messageSenderLabels(
-              departedAuthorMessageIds
-            );
-            if (requestGeneration === membersRequestGenerationRef.current) {
-              mergeRetainedSenderLabels(labels);
-              recordSenderLabelRefresh(
-                senderLabelRefreshBackoffRef,
-                conversation.id,
-                departedAuthorMessageIds,
-                labels
-              );
-            }
-          } catch (reason: unknown) {
-            if (requestGeneration === membersRequestGenerationRef.current) {
-              setError(errorText(reason));
-            }
-          }
-        }
-      }
-    } catch (reason: unknown) {
-      if (requestGeneration !== membersRequestGenerationRef.current) return;
-      if (errorTarget === "initial") throw reason;
-      setError(errorText(reason));
-    } finally {
-      membersReloadInFlightRef.current = false;
-      if (membersReloadPendingRef.current) {
-        membersReloadPendingRef.current = false;
-        scheduleMembersReloadRef.current();
-      }
-    }
-  }, [api, conversation.id, mergeRetainedSenderLabels]);
-
-  const scheduleMembersReload = useCallback(() => {
-    if (membersReloadTimerRef.current !== null) return;
-    membersReloadTimerRef.current = window.setTimeout(() => {
-      membersReloadTimerRef.current = null;
-      void reloadMembers();
-    }, 0);
-  }, [reloadMembers]);
-  scheduleMembersReloadRef.current = scheduleMembersReload;
-
-  const updateConnectionStatus = useCallback((status: ConnectionStatus) => {
-    connectionStatusRef.current = status;
-    setConnectionStatus(status);
-    if (status !== "live") {
-      presenceUserIdsSignatureRef.current = null;
-      setPresenceKnown(false);
-      setOnlineUsers(0);
-      setOnlineUserIds(new Set());
-    }
-  }, []);
-
-  useEffect(() => {
-    catchUpLifecycleGenerationRef.current += 1;
-    requestCatchUpRef.current = requestCatchUp;
-    return () => {
-      catchUpLifecycleGenerationRef.current += 1;
-      if (membersReloadTimerRef.current !== null) {
-        window.clearTimeout(membersReloadTimerRef.current);
-        membersReloadTimerRef.current = null;
-      }
-      membersReloadPendingRef.current = false;
-      membersRequestGenerationRef.current += 1;
-      pendingCatchUpRef.current = null;
-      catchUpInFlightRef.current = false;
-      if (catchUpRetryTimerRef.current !== null) {
-        window.clearTimeout(catchUpRetryTimerRef.current);
-        catchUpRetryTimerRef.current = null;
-      }
-      catchUpRetryAttemptsRef.current = 0;
-      catchUpErrorRef.current = null;
-      requestCatchUpRef.current = () => undefined;
-    };
-  }, [conversation.id, requestCatchUp]);
-
-  useEffect(() => {
-    memberIdsSignatureRef.current = null;
-    senderLabelRefreshBackoffRef.current =
-      newSenderLabelRefreshBackoff(conversation.id);
-  }, [conversation.id]);
-
-  useEffect(() => {
-    const reconciliationTimer = window.setInterval(
-      scheduleMembersReload,
-      30_000
-    );
-    return () => window.clearInterval(reconciliationTimer);
-  }, [conversation.id, scheduleMembersReload]);
+  const {
+    connectionStatus,
+    handoffRealtime,
+    onlineUserIds,
+    onlineUsers,
+    presenceKnown,
+    realtimeCall,
+    realtimeRef
+  } = useGuestRealtime({
+    api,
+    applyReaction,
+    conversationId: conversation.id,
+    initialPresenceCount,
+    latestSequenceRef,
+    mergeMessages,
+    onAccessEnded,
+    onPresenceChange,
+    requestCatchUp,
+    scheduleMembersReload,
+    setConversation,
+    setError
+  });
 
   useEffect(() => {
     let current = true;
@@ -671,134 +378,6 @@ export function GuestShell({
     mergeMessages,
     mergeRetainedSenderLabels,
     reloadMembers
-  ]);
-
-  useEffect(() => {
-    if (import.meta.env.VITE_DISABLE_REALTIME === "true") {
-      updateConnectionStatus("offline");
-      return;
-    }
-    updateConnectionStatus("connecting");
-    let current = true;
-    let realtime: RealtimeConversation | null = null;
-    let reconnectTimer: number | null = null;
-    let reconnectAttempts = 0;
-    let connecting = false;
-
-    function scheduleReconnect() {
-      if (!current || reconnectTimer !== null) return;
-      const delay = Math.min(15_000, 1_000 * (2 ** reconnectAttempts));
-      reconnectAttempts += 1;
-      updateConnectionStatus("reconnecting");
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        void connectRealtime();
-      }, delay);
-    }
-
-    async function connectRealtime() {
-      if (!current || connecting) return;
-      connecting = true;
-      try {
-        const handoffTicket = socketHandoffTicketRef.current;
-        socketHandoffTicketRef.current = null;
-        const { ticket } = handoffTicket
-          ? { ticket: handoffTicket }
-          : await api.socketTicket();
-        if (!current) return;
-        realtime = new RealtimeConversation(
-          socketEndpoint(apiBase),
-          ticket,
-          conversation.id,
-          () => latestSequenceRef.current,
-          {
-            onStatus: (status) => {
-              updateConnectionStatus(status);
-              if (status === "live") {
-                reconnectAttempts = 0;
-                scheduleMembersReload();
-              }
-            },
-            onMessages: (nextMessages) => mergeMessages(nextMessages, {
-              announce: true,
-              behavior: "smooth"
-            }),
-            onReactionAdded: (event) => applyReaction(event, true),
-            onReactionRemoved: (event) => applyReaction(event, false),
-            onRead: () => undefined,
-            onMembershipChanged: () => {
-              scheduleMembersReload();
-            },
-            onConversationChanged: () => {
-              void api.conversation().then(setConversation).catch(() => undefined);
-            },
-            onCallStarted: setRealtimeCall,
-            onCallEnded: setRealtimeCall,
-            onAudioCallStarted: setRealtimeCall,
-            onAudioCallEnded: setRealtimeCall,
-            onCatchUpRequired: (afterSequence) => {
-              requestCatchUp(afterSequence);
-            },
-            onTyping: () => undefined,
-            onPresence: (count, userIds) => {
-              if (connectionStatusRef.current !== "live") return;
-              const nextUserIds = new Set(userIds);
-              const nextSignature = [...nextUserIds].sort().join("\u0000");
-              if (presenceUserIdsSignatureRef.current !== nextSignature) {
-                presenceUserIdsSignatureRef.current = nextSignature;
-                scheduleMembersReload();
-              }
-              setOnlineUsers(count);
-              setOnlineUserIds(nextUserIds);
-              setPresenceKnown(true);
-              onPresenceChange?.(count);
-            },
-            onError: (message) => setError(message),
-            onReconnectRequired: () => {
-              realtime?.disconnect();
-              realtime = null;
-              realtimeRef.current = null;
-              scheduleReconnect();
-            }
-          }
-        );
-        realtimeRef.current = realtime;
-        realtime.connect();
-      } catch (reason: unknown) {
-        if (current) {
-          if (reason instanceof ApiError && [401, 403].includes(reason.status)) {
-            updateConnectionStatus("offline");
-            setError("Guest access has ended. Ask the room host for a new link.");
-            onAccessEndedRef.current?.();
-          } else {
-            updateConnectionStatus("offline");
-            scheduleReconnect();
-          }
-        }
-      } finally {
-        connecting = false;
-      }
-    }
-
-    void connectRealtime();
-    return () => {
-      current = false;
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      realtime?.disconnect();
-      realtimeRef.current = null;
-    };
-  }, [
-    api,
-    applyReaction,
-    conversation.id,
-    mergeMessages,
-    mergeRetainedSenderLabels,
-    onPresenceChange,
-    realtimeHandoffVersion,
-    requestCatchUp,
-    reloadMembers,
-    scheduleMembersReload,
-    updateConnectionStatus
   ]);
 
   useLayoutEffect(() => {
@@ -987,10 +566,7 @@ export function GuestShell({
             })
       });
       if (selfServiceConversion) {
-        realtimeRef.current?.disconnect();
-        realtimeRef.current = null;
-        updateConnectionStatus("connecting");
-        socketHandoffTicketRef.current = result.socket_handoff?.ticket || null;
+        handoffRealtime(result.socket_handoff);
         onConverted(
           result.session,
           result.conversation,
@@ -1004,7 +580,6 @@ export function GuestShell({
           displayName: result.session.user.display_name,
           workspaceSlug: result.session.tenant.slug
         });
-        setRealtimeHandoffVersion((version) => version + 1);
       } else {
         onConverted(result.session, result.conversation);
       }
@@ -1129,43 +704,19 @@ export function GuestShell({
         />
       )}
 
-      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {conversionNotice}
-      </p>
-
-      {conversionReceipt && (
-        <section
-          className="guest-conversion-receipt"
-          aria-labelledby="guest-conversion-receipt-title"
-        >
-          <div>
-            <strong id="guest-conversion-receipt-title">
-              Room saved for {conversionReceipt.displayName}
-            </strong>
-            <span>
-              Use this workspace address to sign in from another device.
-            </span>
-          </div>
-          <label>
-            Workspace address
-            <input
-              type="text"
-              value={conversionReceipt.workspaceSlug}
-              readOnly
-              spellCheck={false}
-              onFocus={(event) => event.currentTarget.select()}
-            />
-          </label>
-          <a
-            className="button ghost"
-            href={`/sign-in?tenant_slug=${encodeURIComponent(
-              conversionReceipt.workspaceSlug
-            )}`}
-          >
-            Workspace sign-in link
-          </a>
-        </section>
-      )}
+      <GuestConversionPanel
+        accountActionsAllowed={accountActionsAllowed}
+        accountEmailRef={accountEmailRef}
+        conversionEnabled={conversionEnabled}
+        conversionNotice={conversionNotice}
+        converting={converting}
+        initialSession={initialSession}
+        onClose={() => setShowAccount(false)}
+        onSubmit={(event) => void convertAccount(event)}
+        open={showAccount}
+        receipt={conversionReceipt}
+        selfServiceConversion={selfServiceConversion}
+      />
 
       {(!mobileRoomLayout || !roomMenuInvite) &&
         (typeof roomBanner === "function"
@@ -1179,104 +730,6 @@ export function GuestShell({
             before using account creation or audio/video controls.
           </span>
         </div>
-      )}
-
-      {conversionEnabled && !conversionReceipt && showAccount && (
-        <section
-          className="guest-account-card"
-          id="guest-account-conversion"
-          aria-labelledby="guest-account-title"
-        >
-          <div>
-            <h2 id="guest-account-title">Keep your conversation</h2>
-            <p id="guest-account-email-help">
-              {selfServiceConversion
-                ? "Add an email and password without leaving the room. Your identity, membership and conversation history stay in place."
-                : (
-                  <>
-                    Enter the full email authorized by the host
-                    {initialSession.capabilities.email_hint
-                      ? <> ({initialSession.capabilities.email_hint})</>
-                      : null}
-                    , plus the one-time verification code the host sent separately.
-                    Your identity and conversation history stay in place.
-                  </>
-                )}
-            </p>
-          </div>
-          <form onSubmit={(event) => void convertAccount(event)}>
-            <label className="field">
-              Work email
-              <input
-                ref={accountEmailRef}
-                name="email"
-                type="email"
-                maxLength={320}
-                autoComplete="email"
-                aria-describedby="guest-account-email-help"
-                disabled={!accountActionsAllowed}
-                required
-              />
-            </label>
-            {selfServiceConversion && (
-              <label className="field">
-                Display name <span className="optional">(optional)</span>
-                <input
-                  name="display_name"
-                  type="text"
-                  maxLength={120}
-                  autoComplete="name"
-                  defaultValue={initialSession.user.display_name}
-                  disabled={!accountActionsAllowed}
-                />
-              </label>
-            )}
-            {!selfServiceConversion && <div className="field">
-              <label htmlFor="guest-account-verification-code">
-                Account verification code
-              </label>
-              <input
-                id="guest-account-verification-code"
-                name="verification_code"
-                type="text"
-                minLength={43}
-                maxLength={43}
-                pattern="[A-Za-z0-9_-]{43}"
-                autoComplete="one-time-code"
-                aria-describedby="guest-account-verification-help"
-                spellCheck={false}
-                disabled={!accountActionsAllowed}
-                required
-              />
-              <small id="guest-account-verification-help">
-                This code is separate from the room link and can be used only for this account conversion.
-              </small>
-            </div>}
-            <label className="field">
-              Password
-              <input
-                name="password"
-                type="password"
-                minLength={12}
-                maxLength={256}
-                autoComplete="new-password"
-                disabled={!accountActionsAllowed}
-                required
-              />
-              <small>At least 12 characters; the server applies the final password policy.</small>
-            </label>
-            <button
-              className="button primary"
-              type="submit"
-              disabled={converting || !accountActionsAllowed}
-            >
-              {converting ? "Creating account…" : "Create account"}
-            </button>
-            <button className="button ghost" type="button" onClick={() => setShowAccount(false)}>
-              Not now
-            </button>
-          </form>
-        </section>
       )}
 
       <ParticipantRoster
@@ -1451,79 +904,4 @@ export function GuestShell({
       )}
     </main>
   );
-}
-
-function newSenderLabelRefreshBackoff(
-  conversationId: string
-): SenderLabelRefreshBackoff {
-  return {
-    conversationId,
-    candidateSignature: null,
-    resultSignature: null,
-    delayIndex: 0,
-    nextAttemptAt: 0
-  };
-}
-
-function senderLabelRefreshAllowed(
-  backoffRef: { current: SenderLabelRefreshBackoff },
-  conversationId: string,
-  messageIds: string[]
-): boolean {
-  const candidateSignature = JSON.stringify([...messageIds].sort());
-  let current = backoffRef.current;
-  if (
-    current.conversationId !== conversationId ||
-    current.candidateSignature !== candidateSignature
-  ) {
-    current = {
-      ...newSenderLabelRefreshBackoff(conversationId),
-      candidateSignature
-    };
-    backoffRef.current = current;
-  }
-  return (
-    document.visibilityState === "visible" &&
-    Date.now() >= current.nextAttemptAt
-  );
-}
-
-function recordSenderLabelRefresh(
-  backoffRef: { current: SenderLabelRefreshBackoff },
-  conversationId: string,
-  messageIds: string[],
-  labels: RetainedSenderLabel[]
-): void {
-  const candidateSignature = JSON.stringify([...messageIds].sort());
-  const resultSignature = JSON.stringify(
-    [...labels]
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .map(({ id, display_name, redacted }) => [id, display_name, redacted])
-  );
-  const current = backoffRef.current;
-  if (
-    current.conversationId !== conversationId ||
-    current.candidateSignature !== candidateSignature
-  ) {
-    return;
-  }
-  const changed =
-    current.resultSignature !== null &&
-    current.resultSignature !== resultSignature;
-  const delayIndex =
-    current.resultSignature === null || changed
-      ? 0
-      : Math.min(
-          current.delayIndex + 1,
-          senderLabelRefreshDelaysMs.length - 1
-        );
-  const delayMs =
-    senderLabelRefreshDelaysMs[delayIndex] ??
-    300_000;
-  backoffRef.current = {
-    ...current,
-    resultSignature,
-    delayIndex,
-    nextAttemptAt: Date.now() + delayMs
-  };
 }

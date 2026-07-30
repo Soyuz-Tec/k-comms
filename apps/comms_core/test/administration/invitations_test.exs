@@ -2,6 +2,7 @@ defmodule CommsCore.Administration.InvitationsTest do
   use CommsCore.DataCase, async: false
 
   @moduletag :integration
+  @moduletag :governance
 
   alias CommsCore.{Accounts, Administration, Audit, Repo}
   alias CommsCore.Administration.{Invitation, InvitationView, InvitedIdentityReceipt}
