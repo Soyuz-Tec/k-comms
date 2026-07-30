@@ -4,7 +4,6 @@ defmodule CommsCore.Accounts.Bootstrap do
   import Ecto.Query
 
   alias CommsCore.Accounts.{
-    ConversationBootstrapPort,
     Device,
     InitialConversationCommand,
     PlatformGrants,
@@ -18,13 +17,13 @@ defmodule CommsCore.Accounts.Bootstrap do
 
   @bootstrap_lock_key 1_449_769_383
 
-  def tenant_view(attrs) do
-    with {:ok, result} <- tenant(attrs) do
+  def tenant_view(attrs, effects) do
+    with {:ok, result} <- tenant(attrs, effects) do
       {:ok, CommsCore.Accounts.Projector.authentication(result)}
     end
   end
 
-  def tenant(attrs) when is_map(attrs) do
+  def tenant(attrs, effects) when is_map(attrs) and is_map(effects) do
     with :ok <- validate_password(value(attrs, :password)) do
       now = now()
       session_deadlines = Sessions.new_deadlines(now)
@@ -75,10 +74,7 @@ defmodule CommsCore.Accounts.Bootstrap do
             last_seen_at: now
           })
         )
-        |> ConversationBootstrapPort.append_initial_channel(
-          :conversation,
-          initial_conversation
-        )
+        |> then(&effects.append_initial_channel.(&1, :conversation, initial_conversation))
         |> Ecto.Multi.insert(
           :session,
           Session.changeset(%Session{id: session_id}, %{
@@ -125,7 +121,7 @@ defmodule CommsCore.Accounts.Bootstrap do
   Once a tenant exists, only the same normalized tenant slug and owner email are
   accepted as an idempotent retry; a different bootstrap identity fails closed.
   """
-  def tenant_once(attrs) when is_map(attrs) do
+  def tenant_once(attrs, effects) when is_map(attrs) and is_map(effects) do
     password = value(attrs, :password)
 
     with :ok <- validate_password(password) do
@@ -141,13 +137,13 @@ defmodule CommsCore.Accounts.Bootstrap do
 
         case Administration.get_bootstrap_tenant_by_slug(identity.tenant_slug) do
           %{id: _id} = tenant ->
-            existing_bootstrap(tenant, identity)
+            existing_bootstrap(tenant, identity, effects)
 
           nil ->
             if Administration.any_tenant?() do
               Repo.rollback(:bootstrap_identity_conflict)
             else
-              create_one_time_bootstrap(attrs, identity, password_hash)
+              create_one_time_bootstrap(attrs, identity, password_hash, effects)
             end
         end
       end)
@@ -246,7 +242,7 @@ defmodule CommsCore.Accounts.Bootstrap do
     if Password.valid_password?(password), do: :ok, else: {:error, :weak_password}
   end
 
-  defp create_one_time_bootstrap(attrs, identity, password_hash) do
+  defp create_one_time_bootstrap(attrs, identity, password_hash, effects) do
     now = now()
     tenant_id = Ecto.UUID.generate()
     user_id = Ecto.UUID.generate()
@@ -275,7 +271,7 @@ defmodule CommsCore.Accounts.Bootstrap do
       )
 
     conversation =
-      ConversationBootstrapPort.create_initial_channel(%InitialConversationCommand{
+      effects.create_initial_channel.(%InitialConversationCommand{
         id: conversation_id,
         tenant_id: tenant_id,
         owner_user_id: user_id,
@@ -299,7 +295,7 @@ defmodule CommsCore.Accounts.Bootstrap do
     %{status: :created, tenant: tenant, user: user, conversation: conversation}
   end
 
-  defp existing_bootstrap(tenant, identity) do
+  defp existing_bootstrap(tenant, identity, effects) do
     owner =
       Repo.one(
         from(u in User,
@@ -313,7 +309,7 @@ defmodule CommsCore.Accounts.Bootstrap do
 
     case owner do
       %User{} = user ->
-        case ConversationBootstrapPort.fetch_initial_channel(tenant.id, user.id) do
+        case effects.fetch_initial_channel.(tenant.id, user.id) do
           {:ok, conversation} when not is_nil(conversation) ->
             user = PlatformGrants.maybe_apply_bootstrap(user)
             %{status: :existing, tenant: tenant, user: user, conversation: conversation}

@@ -770,7 +770,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("TenantView.t()", administration)
 
         owner_api_consumers = {
-            "apps/comms_core/lib/comms_core/accounts/guest_identities.ex": "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/accounts.ex": "Administration.active_tenant",
             "apps/comms_core/lib/comms_core/service_accounts.ex": "Administration.active_tenant",
             "apps/comms_core/lib/comms_core/accounts/password_recovery.ex": "Administration.active_tenant_by_slug",
         }
@@ -843,11 +843,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(
             notification_collaboration["callers"],
-            [
-                "CommsCore.Accounts",
-                "CommsCore.Accounts.PasswordRecovery",
-                "CommsCore.Accounts.UserLifecycle",
-            ],
+            ["CommsCore.Accounts", "CommsCore.Accounts.PasswordRecovery"],
         )
 
         transition = next(
@@ -1740,9 +1736,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "result_contract": "CommsCore.Accounts.CallLifecycleReceipt",
                 "callers": [
                     "CommsCore.Accounts",
-                    "CommsCore.Accounts.GuestIdentities",
                     "CommsCore.Accounts.PasswordRecovery",
-                    "CommsCore.Accounts.UserLifecycle",
                 ],
                 "operations": [{"name": "revoke_identity_access", "arity": 1}],
                 "binding_key": "identity_call_lifecycle_adapter",
@@ -1902,7 +1896,6 @@ class ValidateArchitectureTest(unittest.TestCase):
             [
                 "apps/comms_core/lib/comms_core/accounts/notification_port.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
-                "apps/comms_core/lib/comms_core/accounts/user_lifecycle.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
                 "apps/comms_core/lib/comms_core/notifications.ex",
             ],
@@ -1916,7 +1909,6 @@ class ValidateArchitectureTest(unittest.TestCase):
             port_callers,
             [
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
-                "apps/comms_core/lib/comms_core/accounts/user_lifecycle.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
             ],
         )
@@ -1986,7 +1978,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "port": "CommsCore.Accounts.ConversationBootstrapPort",
                 "result_contract": "CommsCore.Accounts.InitialConversationReceipt",
                 "implementation": "CommsCore.Conversations",
-                "callers": ["CommsCore.Accounts.Bootstrap"],
+                "callers": ["CommsCore.Accounts"],
                 "operations": [
                     {"name": "create_initial_channel", "arity": 1},
                     {"name": "fetch_initial_channel", "arity": 2},
@@ -2127,8 +2119,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_reference_paths,
             [
-                "apps/comms_core/lib/comms_core/accounts/bootstrap.ex",
                 "apps/comms_core/lib/comms_core/accounts/conversation_bootstrap_port.ex",
+                "apps/comms_core/lib/comms_core/accounts.ex",
                 "apps/comms_core/lib/comms_core/conversations.ex",
             ],
         )
@@ -2145,7 +2137,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 bootstrap_port_callers.append(path.relative_to(root).as_posix())
         self.assertEqual(
             bootstrap_port_callers,
-            ["apps/comms_core/lib/comms_core/accounts/bootstrap.ex"],
+            ["apps/comms_core/lib/comms_core/accounts.ex"],
         )
 
         service_accounts_source = (
@@ -3354,33 +3346,46 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
+        accounts_source = (
+            root / "apps/comms_core/lib/comms_core/accounts.ex"
         ).read_text(
             encoding="utf-8"
         )
+        bootstrap_source = (
+            root / "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
+        ).read_text(encoding="utf-8")
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
 
-        self.assertIn("Administration.append_bootstrap_tenant", source)
-        self.assertIn("ConversationBootstrapPort.append_initial_channel", source)
-        self.assertIn("ConversationBootstrapPort.create_initial_channel", source)
-        self.assertIn("ConversationBootstrapPort.fetch_initial_channel", source)
-        self.assertNotIn("CommsCore.Conversations", source)
+        self.assertIn("Administration.append_bootstrap_tenant", bootstrap_source)
+        self.assertIn(
+            "ConversationBootstrapPort.append_initial_channel", accounts_source
+        )
+        self.assertIn(
+            "ConversationBootstrapPort.create_initial_channel", accounts_source
+        )
+        self.assertIn(
+            "ConversationBootstrapPort.fetch_initial_channel", accounts_source
+        )
+        self.assertNotIn("CommsCore.Conversations", accounts_source)
+        self.assertNotIn("CommsCore.Conversations", bootstrap_source)
         self.assertNotRegex(
-            source,
+            accounts_source,
             r"(?m)^\s*alias\s+CommsCore\.Administration\.Invitation\s*$",
         )
-        self.assertNotIn("%Invitation{", source)
-        self.assertNotIn("CommsCore.Conversations.Conversation", source)
-        self.assertNotIn("CommsCore.Conversations.Membership", source)
+        self.assertNotIn("%Invitation{", accounts_source)
+        self.assertNotIn("CommsCore.Conversations.Conversation", accounts_source)
+        self.assertNotIn("CommsCore.Conversations.Membership", accounts_source)
         self.assertEqual(
             [
                 item
                 for item in violations
                 if item.rule == "direct_foreign_write"
                 and item.path
-                == "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
+                in {
+                    "apps/comms_core/lib/comms_core/accounts.ex",
+                    "apps/comms_core/lib/comms_core/accounts/bootstrap.ex",
+                }
             ],
             [],
         )

@@ -12,6 +12,7 @@ defmodule CommsCore.Accounts do
     CallLifecycleCommand,
     CallLifecyclePort,
     CallLifecycleReceipt,
+    ConversationBootstrapPort,
     Device,
     Directory,
     GuestIdentities,
@@ -35,6 +36,7 @@ defmodule CommsCore.Accounts do
   }
 
   alias CommsCore.{
+    Administration,
     Repo,
     ValidationError
   }
@@ -356,7 +358,7 @@ defmodule CommsCore.Accounts do
   # Adapter-facing API. These functions are the stable projection boundary;
   # persistence-returning operations remain private owner implementations.
   def bootstrap_tenant_view(attrs) do
-    Bootstrap.tenant_view(attrs)
+    Bootstrap.tenant_view(attrs, bootstrap_effects())
   end
 
   def authenticate_view(tenant_slug, email, password, device_attrs \\ %{}) do
@@ -423,10 +425,11 @@ defmodule CommsCore.Accounts do
              | :active_user_quota_exceeded
              | :invalid_guest_identity}
   def provision_guest_identity(attrs) when is_map(attrs) do
-    GuestIdentities.provision(attrs)
+    GuestIdentities.provision(attrs, guest_identity_effects())
   end
 
-  def provision_guest_identity(attrs), do: GuestIdentities.provision(attrs)
+  def provision_guest_identity(attrs),
+    do: GuestIdentities.provision(attrs, guest_identity_effects())
 
   @doc """
   Extends one active instant-room guest's authority inside a caller transaction.
@@ -495,10 +498,11 @@ defmodule CommsCore.Accounts do
              | :invalid_ephemeral_guest_deadline
              | :invalid_guest_identity}
   def resume_ephemeral_guest_identity(command) when is_map(command) do
-    GuestIdentities.resume_ephemeral(command)
+    GuestIdentities.resume_ephemeral(command, guest_identity_effects())
   end
 
-  def resume_ephemeral_guest_identity(command), do: GuestIdentities.resume_ephemeral(command)
+  def resume_ephemeral_guest_identity(command),
+    do: GuestIdentities.resume_ephemeral(command, guest_identity_effects())
 
   @doc """
   Atomically converts a guest into a normal human account without changing the
@@ -518,11 +522,17 @@ defmodule CommsCore.Accounts do
              | :invalid_guest_account}
   def convert_guest_account(attrs, guest_subject, preauthorized_email)
       when is_map(attrs) and is_map(guest_subject) and is_binary(preauthorized_email) do
-    GuestIdentities.convert(attrs, guest_subject, preauthorized_email)
+    GuestIdentities.convert(attrs, guest_subject, preauthorized_email, guest_identity_effects())
   end
 
   def convert_guest_account(attrs, guest_subject, preauthorized_email),
-    do: GuestIdentities.convert(attrs, guest_subject, preauthorized_email)
+    do:
+      GuestIdentities.convert(
+        attrs,
+        guest_subject,
+        preauthorized_email,
+        guest_identity_effects()
+      )
 
   @doc """
   Converts a domain-authorized instant-room guest into a conversation-only
@@ -545,11 +555,11 @@ defmodule CommsCore.Accounts do
              | :invalid_guest_account}
   def convert_ephemeral_guest_account(attrs, guest_subject)
       when is_map(attrs) and is_map(guest_subject) do
-    GuestIdentities.convert_ephemeral(attrs, guest_subject)
+    GuestIdentities.convert_ephemeral(attrs, guest_subject, guest_identity_effects())
   end
 
   def convert_ephemeral_guest_account(attrs, guest_subject),
-    do: GuestIdentities.convert_ephemeral(attrs, guest_subject)
+    do: GuestIdentities.convert_ephemeral(attrs, guest_subject, guest_identity_effects())
 
   @doc """
   Revokes an expiring guest session and propagates the revocation to active
@@ -559,11 +569,11 @@ defmodule CommsCore.Accounts do
           :ok | {:error, :not_found | :invalid_reason | term()}
   def revoke_guest_session(session_id, reason)
       when is_binary(session_id) and is_binary(reason) do
-    GuestIdentities.revoke_session(session_id, reason)
+    GuestIdentities.revoke_session(session_id, reason, guest_identity_effects())
   end
 
   def revoke_guest_session(session_id, reason),
-    do: GuestIdentities.revoke_session(session_id, reason)
+    do: GuestIdentities.revoke_session(session_id, reason, guest_identity_effects())
 
   def list_tenant_user_views(subject) do
     UserLifecycle.list_tenant_views(subject)
@@ -589,7 +599,7 @@ defmodule CommsCore.Accounts do
   end
 
   def change_user_with_effects_view(id, attrs, subject) do
-    UserLifecycle.change_with_effects_view(id, attrs, subject)
+    UserLifecycle.change_with_effects_view(id, attrs, subject, user_lifecycle_effects())
   end
 
   def step_up_view(attrs, subject),
@@ -739,7 +749,7 @@ defmodule CommsCore.Accounts do
   def erase_user_for_governance(_command), do: {:error, :invalid_erasure_command}
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
-    Bootstrap.tenant(attrs)
+    Bootstrap.tenant(attrs, bootstrap_effects())
   end
 
   @doc """
@@ -750,7 +760,7 @@ defmodule CommsCore.Accounts do
   accepted as an idempotent retry; a different bootstrap identity fails closed.
   """
   def bootstrap_tenant_once(attrs) when is_map(attrs) do
-    Bootstrap.tenant_once(attrs)
+    Bootstrap.tenant_once(attrs, bootstrap_effects())
   end
 
   @doc """
@@ -852,12 +862,12 @@ defmodule CommsCore.Accounts do
   end
 
   def change_user(user_id, attrs, subject) when is_map(attrs) and is_map(subject) do
-    UserLifecycle.change(user_id, attrs, subject)
+    UserLifecycle.change(user_id, attrs, subject, user_lifecycle_effects())
   end
 
   def change_user_with_effects(user_id, attrs, subject)
       when is_map(attrs) and is_map(subject) do
-    UserLifecycle.change_with_effects(user_id, attrs, subject)
+    UserLifecycle.change_with_effects(user_id, attrs, subject, user_lifecycle_effects())
   end
 
   @doc false
@@ -886,11 +896,17 @@ defmodule CommsCore.Accounts do
              | atom()}
   def apply_user_lifecycle_change(user_id, attrs, subject, excluded_owner_ids)
       when is_map(attrs) and is_map(subject) do
-    UserLifecycle.apply_change(user_id, attrs, subject, excluded_owner_ids)
+    UserLifecycle.apply_change(
+      user_id,
+      attrs,
+      subject,
+      excluded_owner_ids,
+      user_lifecycle_effects()
+    )
   end
 
   def apply_user_lifecycle_change(_user_id, _attrs, _subject, _excluded_owner_ids),
-    do: UserLifecycle.apply_change(nil, nil, nil, nil)
+    do: UserLifecycle.apply_change(nil, nil, nil, nil, user_lifecycle_effects())
 
   def get_user_for_subject(subject) do
     UserLifecycle.get_for_subject(subject)
@@ -931,6 +947,63 @@ defmodule CommsCore.Accounts do
       notify_device_revoked: &notify_device_revoked_for_session_boundary/3
     }
   end
+
+  defp bootstrap_effects do
+    %{
+      append_initial_channel: &append_initial_channel_for_bootstrap/3,
+      create_initial_channel: &create_initial_channel_for_bootstrap/1,
+      fetch_initial_channel: &fetch_initial_channel_for_bootstrap/2
+    }
+  end
+
+  defp guest_identity_effects do
+    %{
+      active_tenant: &Administration.active_tenant/1,
+      revoke_identity_access: &revoke_identity_access_for_account_boundary/1,
+      validation_error?: &validation_error?/1,
+      validation_error_from_changeset: &validation_error_from_changeset/1
+    }
+  end
+
+  defp user_lifecycle_effects do
+    %{
+      notify_identity_access_revoked: &notify_identity_access_revoked/1,
+      revoke_identity_access: &revoke_identity_access_for_account_boundary/1,
+      validation_error_from_changeset: &validation_error_from_changeset/1
+    }
+  end
+
+  defp append_initial_channel_for_bootstrap(multi, name, command) do
+    ConversationBootstrapPort.append_initial_channel(multi, name, command)
+  end
+
+  defp create_initial_channel_for_bootstrap(command) do
+    ConversationBootstrapPort.create_initial_channel(command)
+  end
+
+  defp fetch_initial_channel_for_bootstrap(tenant_id, owner_user_id) do
+    ConversationBootstrapPort.fetch_initial_channel(tenant_id, owner_user_id)
+  end
+
+  defp revoke_identity_access_for_account_boundary(command) do
+    command
+    |> CallLifecyclePort.revoke_identity_access()
+    |> call_lifecycle_ok!()
+  end
+
+  defp notify_identity_access_revoked(command) do
+    command
+    |> NotificationPort.execute()
+    |> notification_ok!()
+  end
+
+  defp validation_error_from_changeset(changeset) do
+    {:ok, error} = ValidationError.from(changeset)
+    error
+  end
+
+  defp validation_error?(%ValidationError{}), do: true
+  defp validation_error?(_reason), do: false
 
   defp revoke_sessions_for_session_boundary(tenant_id, session_ids, reason) do
     CallLifecycleCommand.sessions_revoked(tenant_id, session_ids, reason)

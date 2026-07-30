@@ -5,8 +5,6 @@ defmodule CommsCore.Accounts.GuestIdentities do
 
   alias CommsCore.Accounts.{
     CallLifecycleCommand,
-    CallLifecyclePort,
-    CallLifecycleReceipt,
     Device,
     Directory,
     Session,
@@ -14,12 +12,12 @@ defmodule CommsCore.Accounts.GuestIdentities do
     User
   }
 
-  alias CommsCore.{Administration, AdmissionQuotas, Audit, Repo, ValidationError}
+  alias CommsCore.{AdmissionQuotas, Audit, Repo}
   alias CommsCore.Security.Password
 
   @ephemeral_guest_authority_max_seconds 86_400
 
-  @spec provision(map()) ::
+  @spec provision(map(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
           | {:error,
              :transaction_required
@@ -27,17 +25,17 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :invalid_guest_expiry
              | :active_user_quota_exceeded
              | :invalid_guest_identity}
-  def provision(attrs) when is_map(attrs) do
+  def provision(attrs, effects) when is_map(attrs) and is_map(effects) do
     if Repo.in_transaction?() do
       attrs
-      |> provision_in_transaction()
+      |> provision_in_transaction(effects)
       |> normalize_identity_result()
     else
       {:error, :transaction_required}
     end
   end
 
-  def provision(_attrs), do: {:error, :transaction_required}
+  def provision(_attrs, _effects), do: {:error, :transaction_required}
 
   @spec extend_ephemeral_authority(Ecto.UUID.t(), DateTime.t() | String.t()) ::
           {:ok,
@@ -103,7 +101,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
       else: {:error, :transaction_required}
   end
 
-  @spec resume_ephemeral(map()) ::
+  @spec resume_ephemeral(map(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
           | {:error,
              :transaction_required
@@ -112,7 +110,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :tenant_unavailable
              | :invalid_ephemeral_guest_deadline
              | :invalid_guest_identity}
-  def resume_ephemeral(command) when is_map(command) do
+  def resume_ephemeral(command, effects) when is_map(command) and is_map(effects) do
     cond do
       not Repo.in_transaction?() ->
         {:error, :transaction_required}
@@ -129,7 +127,8 @@ defmodule CommsCore.Accounts.GuestIdentities do
             user_id,
             session_id,
             value(command, :device) || %{},
-            deadline
+            deadline,
+            effects
           )
         else
           {:error, :invalid_uuid} -> {:error, :invalid_guest_identity}
@@ -138,9 +137,9 @@ defmodule CommsCore.Accounts.GuestIdentities do
     end
   end
 
-  def resume_ephemeral(_command), do: {:error, :forbidden}
+  def resume_ephemeral(_command, _effects), do: {:error, :forbidden}
 
-  @spec convert(map(), map(), String.t()) ::
+  @spec convert(map(), map(), String.t(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
           | {:error,
              :forbidden
@@ -149,23 +148,24 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :tenant_unavailable
              | :weak_password
              | :invalid_guest_account}
-  def convert(attrs, guest_subject, preauthorized_email)
-      when is_map(attrs) and is_map(guest_subject) and is_binary(preauthorized_email) do
+  def convert(attrs, guest_subject, preauthorized_email, effects)
+      when is_map(attrs) and is_map(guest_subject) and is_binary(preauthorized_email) and
+             is_map(effects) do
     expected_email = normalize_email(preauthorized_email)
 
     if expected_email != "" and normalize_email(value(attrs, :email)) == expected_email do
-      fn -> convert_in_transaction(attrs, guest_subject, expected_email) end
+      fn -> convert_in_transaction(attrs, guest_subject, expected_email, effects) end
       |> run_transaction_aware()
-      |> normalize_account_result()
+      |> normalize_account_result(effects)
     else
       {:error, :guest_account_conversion_email_mismatch}
     end
   end
 
-  def convert(_attrs, _guest_subject, _preauthorized_email),
+  def convert(_attrs, _guest_subject, _preauthorized_email, _effects),
     do: {:error, :forbidden}
 
-  @spec convert_ephemeral(map(), map()) ::
+  @spec convert_ephemeral(map(), map(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
           | {:error,
              :forbidden
@@ -174,8 +174,8 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :tenant_unavailable
              | :weak_password
              | :invalid_guest_account}
-  def convert_ephemeral(attrs, guest_subject)
-      when is_map(attrs) and is_map(guest_subject) do
+  def convert_ephemeral(attrs, guest_subject, effects)
+      when is_map(attrs) and is_map(guest_subject) and is_map(effects) do
     cond do
       not Repo.in_transaction?() ->
         {:error, :transaction_required}
@@ -185,37 +185,37 @@ defmodule CommsCore.Accounts.GuestIdentities do
 
       true ->
         attrs
-        |> convert_ephemeral_in_transaction(guest_subject)
-        |> normalize_account_result()
+        |> convert_ephemeral_in_transaction(guest_subject, effects)
+        |> normalize_account_result(effects)
     end
   end
 
-  def convert_ephemeral(_attrs, _guest_subject),
+  def convert_ephemeral(_attrs, _guest_subject, _effects),
     do: {:error, :forbidden}
 
-  @spec revoke_session(Ecto.UUID.t(), String.t()) ::
+  @spec revoke_session(Ecto.UUID.t(), String.t(), map()) ::
           :ok | {:error, :not_found | :invalid_reason | term()}
-  def revoke_session(session_id, reason)
-      when is_binary(session_id) and is_binary(reason) do
+  def revoke_session(session_id, reason, effects)
+      when is_binary(session_id) and is_binary(reason) and is_map(effects) do
     reason = String.trim(reason)
 
     if reason == "" or String.length(reason) > 160 do
       {:error, :invalid_reason}
     else
-      run_transaction_aware(fn -> revoke_session_in_transaction(session_id, reason) end)
+      run_transaction_aware(fn -> revoke_session_in_transaction(session_id, reason, effects) end)
     end
   end
 
-  def revoke_session(_session_id, _reason), do: {:error, :invalid_reason}
+  def revoke_session(_session_id, _reason, _effects), do: {:error, :invalid_reason}
 
-  defp provision_in_transaction(attrs) do
+  defp provision_in_transaction(attrs, effects) do
     created_at = now()
     tenant_id = value(attrs, :tenant_id)
 
     with {:ok, _uuid} <- Ecto.UUID.cast(tenant_id),
          {:ok, guest_expires_at} <-
            normalize_expiry(value(attrs, :expires_at), created_at),
-         {:ok, tenant} <- Administration.active_tenant(tenant_id),
+         {:ok, tenant} <- effects.active_tenant.(tenant_id),
          {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
          :ok <- Directory.ensure_active_user_capacity(tenant_id, policy),
          {:ok, user_id} <- guest_user_id(value(attrs, :user_id)) do
@@ -398,7 +398,13 @@ defmodule CommsCore.Accounts.GuestIdentities do
     )
   end
 
-  defp resume_ephemeral_in_transaction(user_id, session_id, device_attrs, deadline) do
+  defp resume_ephemeral_in_transaction(
+         user_id,
+         session_id,
+         device_attrs,
+         deadline,
+         effects
+       ) do
     timestamp = now()
 
     session =
@@ -429,7 +435,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
         if DateTime.compare(deadline, active_session.user.guest_expires_at) == :lt do
           {:error, :invalid_ephemeral_guest_deadline}
         else
-          with {:ok, tenant} <- Administration.active_tenant(active_session.tenant_id) do
+          with {:ok, tenant} <- effects.active_tenant.(active_session.tenant_id) do
             user_changeset =
               active_session.user
               |> User.guest_expiration_changeset(deadline)
@@ -479,7 +485,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
     end
   end
 
-  defp convert_in_transaction(attrs, guest_subject, preauthorized_email) do
+  defp convert_in_transaction(attrs, guest_subject, preauthorized_email, effects) do
     password = value(attrs, :password)
     email = normalize_email(value(attrs, :email))
 
@@ -500,7 +506,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
         converted_user =
           session.user
           |> User.guest_conversion_changeset(changes)
-          |> update_or_validation_error()
+          |> update_or_validation_error(effects)
 
         revoked_at = now()
 
@@ -517,8 +523,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
           [session.id],
           "guest_converted"
         )
-        |> CallLifecyclePort.revoke_identity_access()
-        |> call_lifecycle_ok!()
+        |> effects.revoke_identity_access.()
 
         device_attrs = value(attrs, :device) || %{}
 
@@ -567,7 +572,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
     end
   end
 
-  defp convert_ephemeral_in_transaction(attrs, guest_subject) do
+  defp convert_ephemeral_in_transaction(attrs, guest_subject, effects) do
     password = value(attrs, :password)
     email = normalize_email(value(attrs, :email))
 
@@ -588,7 +593,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
         converted_user =
           session.user
           |> User.ephemeral_guest_conversion_changeset(changes)
-          |> update_or_validation_error()
+          |> update_or_validation_error(effects)
 
         converted_at = now()
 
@@ -635,7 +640,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
     end
   end
 
-  defp revoke_session_in_transaction(session_id, reason) do
+  defp revoke_session_in_transaction(session_id, reason, effects) do
     session =
       Repo.one(
         from(session in Session,
@@ -668,8 +673,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
           [active_session.id],
           reason
         )
-        |> CallLifecyclePort.revoke_identity_access()
-        |> call_lifecycle_ok!()
+        |> effects.revoke_identity_access.()
 
         Audit.record(%{
           tenant_id: active_session.tenant_id,
@@ -791,13 +795,16 @@ defmodule CommsCore.Accounts.GuestIdentities do
 
   defp normalize_identity_result(result), do: result
 
-  defp normalize_account_result({:error, %Ecto.Changeset{}}),
+  defp normalize_account_result({:error, %Ecto.Changeset{}}, _effects),
     do: {:error, :invalid_guest_account}
 
-  defp normalize_account_result({:error, %ValidationError{}}),
-    do: {:error, :invalid_guest_account}
+  defp normalize_account_result({:error, reason} = result, effects) do
+    if effects.validation_error?.(reason),
+      do: {:error, :invalid_guest_account},
+      else: result
+  end
 
-  defp normalize_account_result(result), do: result
+  defp normalize_account_result(result, _effects), do: result
 
   defp ephemeral_conversion_subject?(subject),
     do: value(subject, :guest_authority_purpose) == :ephemeral_room
@@ -839,22 +846,18 @@ defmodule CommsCore.Accounts.GuestIdentities do
     end
   end
 
-  defp update_or_validation_error(changeset) do
+  defp update_or_validation_error(changeset, effects) do
     case Repo.update(changeset) do
       {:ok, value} ->
         value
 
       {:error, invalid_changeset} ->
-        {:ok, error} = ValidationError.from(invalid_changeset)
-        Repo.rollback(error)
+        Repo.rollback(effects.validation_error_from_changeset.(invalid_changeset))
     end
   end
 
   defp audit_or_rollback({:ok, event}), do: event
   defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
-  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 

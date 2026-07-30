@@ -6,19 +6,16 @@ defmodule CommsCore.Accounts.UserLifecycle do
   alias CommsCore.Accounts.{
     AccessControl,
     CallLifecycleCommand,
-    CallLifecyclePort,
-    CallLifecycleReceipt,
     Device,
     Directory,
     NotificationCommand,
-    NotificationPort,
     PlatformGrants,
     Session,
     User
   }
 
   alias CommsCore.Administration.AdmissionPolicy
-  alias CommsCore.{AdmissionQuotas, Audit, Repo, ValidationError}
+  alias CommsCore.{AdmissionQuotas, Audit, Repo}
   alias CommsCore.Security.Password
 
   def list_tenant_views(subject) do
@@ -42,8 +39,8 @@ defmodule CommsCore.Accounts.UserLifecycle do
       update_profile(attrs, subject)
       |> project_result(&CommsCore.Accounts.Projector.user(&1, platform_access: true))
 
-  def change_with_effects_view(id, attrs, subject) do
-    with {:ok, result} <- change_with_effects(id, attrs, subject) do
+  def change_with_effects_view(id, attrs, subject, effects) do
+    with {:ok, result} <- change_with_effects(id, attrs, subject, effects) do
       {:ok,
        %{result | user: CommsCore.Accounts.Projector.user(result.user, platform_access: true)}}
     end
@@ -138,22 +135,24 @@ defmodule CommsCore.Accounts.UserLifecycle do
     |> transaction_result()
   end
 
-  def change(user_id, attrs, subject) when is_map(attrs) and is_map(subject) do
-    case change_with_effects(user_id, attrs, subject) do
+  def change(user_id, attrs, subject, effects)
+      when is_map(attrs) and is_map(subject) and is_map(effects) do
+    case change_with_effects(user_id, attrs, subject, effects) do
       {:ok, result} -> {:ok, result.user}
       {:error, _} = error -> error
     end
   end
 
-  def change_with_effects(user_id, attrs, subject)
-      when is_map(attrs) and is_map(subject) do
+  def change_with_effects(user_id, attrs, subject, effects)
+      when is_map(attrs) and is_map(subject) and is_map(effects) do
     with {:ok, command} <- validate_change(attrs, subject) do
       Repo.transaction(fn ->
         apply_change!(
           user_id,
           command,
           subject,
-          :governance_policy_required
+          :governance_policy_required,
+          effects
         )
       end)
       |> transaction_result()
@@ -176,16 +175,11 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
   def preflight(_user_id, _attrs, _subject), do: {:error, :not_found}
 
-  @spec apply_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()]) ::
+  @spec apply_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()], map()) ::
           {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [Ecto.UUID.t()]}}
-          | {:error,
-             ValidationError.t()
-             | :invalid_owner_exclusions
-             | :not_found
-             | :transaction_required
-             | atom()}
-  def apply_change(user_id, attrs, subject, excluded_owner_ids)
-      when is_map(attrs) and is_map(subject) do
+          | {:error, term()}
+  def apply_change(user_id, attrs, subject, excluded_owner_ids, effects)
+      when is_map(attrs) and is_map(subject) and is_map(effects) do
     cond do
       not Repo.in_transaction?() ->
         {:error, :transaction_required}
@@ -203,7 +197,8 @@ defmodule CommsCore.Accounts.UserLifecycle do
               user_id,
               command,
               subject,
-              Enum.uniq(excluded_owner_ids)
+              Enum.uniq(excluded_owner_ids),
+              effects
             )
 
           {:ok,
@@ -212,7 +207,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
     end
   end
 
-  def apply_change(_user_id, _attrs, _subject, _excluded_owner_ids),
+  def apply_change(_user_id, _attrs, _subject, _excluded_owner_ids, _effects),
     do: {:error, :invalid_owner_exclusions}
 
   def get_for_subject(subject) do
@@ -259,7 +254,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
     end
   end
 
-  defp apply_change!(user_id, command, subject, excluded_owner_ids) do
+  defp apply_change!(user_id, command, subject, excluded_owner_ids, effects) do
     tenant_id = command.tenant_id
 
     policy = AdmissionQuotas.locked_policy(tenant_id) |> admission_policy_or_rollback()
@@ -303,10 +298,10 @@ defmodule CommsCore.Accounts.UserLifecycle do
       target
       |> User.changeset(changes)
       |> Ecto.Changeset.optimistic_lock(:lock_version)
-      |> update_or_validation_error()
+      |> update_or_validation_error(effects)
 
     revoked_session_ids =
-      if updated.status != :active, do: revoke_user_access!(updated), else: []
+      if updated.status != :active, do: revoke_user_access!(updated, effects), else: []
 
     insert_audit!(subject, "user.lifecycle_update", "user", target.id, %{
       reason: command.reason,
@@ -317,7 +312,7 @@ defmodule CommsCore.Accounts.UserLifecycle do
     %{user: updated, revoked_session_ids: revoked_session_ids}
   end
 
-  defp revoke_user_access!(user) do
+  defp revoke_user_access!(user, effects) do
     timestamp = now()
 
     session_query =
@@ -343,16 +338,14 @@ defmodule CommsCore.Accounts.UserLifecycle do
       user.id,
       "user_lifecycle_revoked"
     )
-    |> NotificationPort.execute()
-    |> notification_ok!()
+    |> effects.notify_identity_access_revoked.()
 
     CallLifecycleCommand.user_access_revoked(
       user.tenant_id,
       user.id,
       "user_lifecycle_revoked"
     )
-    |> CallLifecyclePort.revoke_identity_access()
-    |> call_lifecycle_ok!()
+    |> effects.revoke_identity_access.()
 
     session_ids
   end
@@ -592,14 +585,13 @@ defmodule CommsCore.Accounts.UserLifecycle do
     end
   end
 
-  defp update_or_validation_error(changeset) do
+  defp update_or_validation_error(changeset, effects) do
     case Repo.update(changeset) do
       {:ok, value} ->
         value
 
       {:error, invalid_changeset} ->
-        {:ok, error} = ValidationError.from(invalid_changeset)
-        Repo.rollback(error)
+        Repo.rollback(effects.validation_error_from_changeset.(invalid_changeset))
     end
   end
 
@@ -614,13 +606,6 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
-
-  defp call_lifecycle_ok!({:ok, %CallLifecycleReceipt{}}), do: :ok
-  defp call_lifecycle_ok!({:error, reason}), do: Repo.rollback(reason)
-
-  defp notification_ok!(:ok), do: :ok
-  defp notification_ok!({:error, reason}), do: Repo.rollback(reason)
-  defp notification_ok!(_unexpected), do: Repo.rollback(:notification_delivery_unavailable)
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
