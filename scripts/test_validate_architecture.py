@@ -1028,13 +1028,20 @@ class ValidateArchitectureTest(unittest.TestCase):
                     self.assertIn(field, source)
 
         conversations_source = conversation_sources[0].read_text(encoding="utf-8")
-        self.assertIn("Accounts.resolve_active_user_ids(", conversations_source)
-        self.assertIn("Accounts.resolve_user_views(", conversations_source)
+        content_access_source = (
+            conversations_root / "content_access.ex"
+        ).read_text(encoding="utf-8")
+        directory_source = (
+            conversations_root / "directory.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Accounts.resolve_active_user_ids(", content_access_source)
+        self.assertIn("Accounts.resolve_user_views(", directory_source)
         self.assertEqual(conversations_source.count("def active_member_ids("), 1)
         self.assertIn(
             "def active_member_ids(tenant_id, conversation_id)",
             conversations_source,
         )
+        self.assertEqual(directory_source.count("def active_member_ids("), 1)
 
         accounts_source = (
             root / "apps/comms_core/lib/comms_core/accounts.ex"
@@ -2090,11 +2097,14 @@ class ValidateArchitectureTest(unittest.TestCase):
             "def authorize_service_access(",
         ):
             self.assertIn(owner_api, conversations_source)
+        directory_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/directory.ex"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             'ServiceAccounts.authorize_service(subject, "conversations:read")',
-            conversations_source,
+            directory_source,
         )
-        self.assertIn("from(membership in Membership", conversations_source)
+        self.assertIn("from(membership in Membership", directory_source)
 
         public_contract_owners = {}
         for context_name, context in manifest["contexts"].items():
@@ -2185,7 +2195,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                     "service_conversation_controller.ex"
                 ],
                 "ServiceAccounts.authorize_service(": [
-                    "apps/comms_core/lib/comms_core/conversations.ex",
+                    "apps/comms_core/lib/comms_core/conversations/access_policy.ex",
+                    "apps/comms_core/lib/comms_core/conversations/directory.ex",
                     "apps/comms_core/lib/comms_core/messaging/service_messages.ex",
                 ],
             },
@@ -2393,45 +2404,57 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("def check_conversation_creation(", quota_source)
         self.assertIn("def check_conversation_member_capacity(", quota_source)
 
-        conversation_source = (
+        conversation_facade_source = (
             root / "apps/comms_core/lib/comms_core/conversations.ex"
         ).read_text(encoding="utf-8")
-        self.assertIn("def admission_usage(", conversation_source)
-        self.assertIn("defp active_conversation_count(", conversation_source)
+        commands_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/commands.ex"
+        ).read_text(encoding="utf-8")
+        public_channels_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/public_channels.ex"
+        ).read_text(encoding="utf-8")
+        memberships_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/memberships.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def admission_usage(", conversation_facade_source)
+        self.assertIn("def active_conversation_count(", commands_source)
         self.assertIn(
-            "defp ensure_conversation_member_capacity(",
-            conversation_source,
+            "def ensure_conversation_member_capacity(",
+            commands_source,
         )
-        self.assertIn("AdmissionQuotas.locked_policy(", conversation_source)
+        self.assertIn("AdmissionQuotas.locked_policy(", commands_source)
 
-        def public_function_section(signature: str) -> str:
-            start = conversation_source.index(signature)
-            end = conversation_source.find("\n  def ", start + len(signature))
+        def public_function_section(source: str, signature: str) -> str:
+            start = source.index(signature)
+            end = source.find("\n  def ", start + len(signature))
             return (
-                conversation_source[start:]
+                source[start:]
                 if end == -1
-                else conversation_source[start:end]
+                else source[start:end]
             )
 
-        for signature, lock_marker, count_marker in (
+        for source, signature, lock_marker, count_marker in (
             (
+                commands_source,
                 "\n  def create(attrs, subject)",
                 "policy = admission_policy!(tenant_id)",
                 "current_active_conversations = active_conversation_count(tenant_id)",
             ),
             (
-                "\n  def join_public_channel(id, subject)",
-                "policy = admission_policy!(conversation.tenant_id)",
-                "ensure_conversation_member_capacity(policy, conversation)",
+                public_channels_source,
+                "\n  def join(id, subject)",
+                "policy = Commands.admission_policy!(conversation.tenant_id)",
+                "Commands.ensure_conversation_member_capacity(policy, conversation)",
             ),
             (
-                "\n  def add_member(conversation_id, user_id, role, subject)",
-                "policy = admission_policy!(conversation.tenant_id)",
-                "ensure_conversation_member_capacity(policy, conversation)",
+                memberships_source,
+                "\n  def add(conversation_id, user_id, role, subject)",
+                "policy = Commands.admission_policy!(conversation.tenant_id)",
+                "Commands.ensure_conversation_member_capacity(policy, conversation)",
             ),
         ):
             with self.subTest(signature=signature):
-                section = public_function_section(signature)
+                section = public_function_section(source, signature)
                 self.assertLess(section.index(lock_marker), section.index(count_marker))
 
         operations_source = (

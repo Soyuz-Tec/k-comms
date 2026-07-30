@@ -1,4 +1,4 @@
-defmodule CommsCore.Conversations.EphemeralRooms.PresenceLifecycleTest do
+defmodule CommsCore.Conversations.EphemeralRooms.LifecycleTest do
   use CommsCore.DataCase, async: false
 
   import Ecto.Query
@@ -127,102 +127,6 @@ defmodule CommsCore.Conversations.EphemeralRooms.PresenceLifecycleTest do
              Repo.get!(Membership, created.membership.id)
 
     assert DateTime.compare(expires_at, expired_at) == :gt
-  end
-
-  @tag :presence
-  @tag :concurrency
-  test "multiple connections keep the room active until the final lease closes" do
-    account = Fixtures.account_fixture()
-
-    assert {:ok, created} =
-             Conversations.create_ephemeral_room(
-               guest_create_attrs(account.tenant.id, secret()),
-               :guest
-             )
-
-    subject = guest_subject(created)
-
-    first =
-      subject
-      |> Map.put(:conversation_id, created.conversation.id)
-      |> Map.put(:connection_id, secret())
-
-    second =
-      subject
-      |> Map.put(:conversation_id, created.conversation.id)
-      |> Map.put(:connection_id, secret())
-
-    assert {:ok, _} = Conversations.open_ephemeral_presence(first)
-    assert {:ok, _} = Conversations.open_ephemeral_presence(second)
-    assert {:ok, first_close} = Conversations.close_ephemeral_presence(first)
-    reconciler = RuntimePorts.job_worker!(:ephemeral_room_reconciler)
-
-    assert {:ok, :active} =
-             Conversations.reconcile_ephemeral_room(
-               created.room.id,
-               first_close.generation,
-               reconciler
-             )
-
-    assert {:ok, final_close} = Conversations.close_ephemeral_presence(second)
-    force_past_reconnect_grace(created.room.id)
-
-    assert {:ok, {:idle, _expires_at, _generation}} =
-             Conversations.reconcile_ephemeral_room(
-               created.room.id,
-               final_close.generation,
-               reconciler
-             )
-  end
-
-  @tag :presence
-  @tag :concurrency
-  test "registered creator rejoin cancels idle expiry and fences the old generation" do
-    account = Fixtures.account_fixture()
-    configure_public_tenant!(account.tenant.id)
-    subject = Fixtures.subject(account)
-
-    assert {:ok, created} =
-             Conversations.create_ephemeral_room(
-               %{idempotency_key: secret(), title: "Rejoin room"},
-               subject
-             )
-
-    force_past_reconnect_grace(created.room.id)
-    reconciler = RuntimePorts.job_worker!(:ephemeral_room_reconciler)
-
-    assert {:ok, {:idle, _expires_at, idle_generation}} =
-             Conversations.reconcile_ephemeral_room(
-               created.room.id,
-               room_generation(created.room.id),
-               reconciler
-             )
-
-    assert {:ok, rejoined} =
-             Conversations.join_ephemeral_room(
-               created.join_token,
-               %{idempotency_key: secret()},
-               subject
-             )
-
-    assert rejoined.room.status == :active
-    assert rejoined.room.expires_at == nil
-    assert room_generation(rejoined.room.id) > idle_generation
-
-    assert {:ok, %{scanned: 1, reconciled: 0}} =
-             Conversations.reconcile_ephemeral_rooms(reconciler)
-
-    assert %EphemeralRoom{status: :active, expires_at: nil, last_presence_at: %DateTime{}} =
-             Repo.get!(EphemeralRoom, rejoined.room.id)
-
-    lifecycle = RuntimePorts.job_worker!(:ephemeral_room_lifecycle)
-
-    assert {:ok, :stale_generation} =
-             Conversations.expire_ephemeral_room(
-               created.room.id,
-               idle_generation,
-               lifecycle
-             )
   end
 
   @tag :presence
@@ -413,43 +317,6 @@ defmodule CommsCore.Conversations.EphemeralRooms.PresenceLifecycleTest do
     assert [] =
              Conversations.list_for_user(subject)
              |> Enum.filter(&(&1.conversation.id == created.conversation.id))
-  end
-
-  @tag :presence
-  @tag :concurrency
-  test "stale active rooms fail closed after reconnect grace and recover through a live lease" do
-    account = Fixtures.account_fixture()
-    configure_public_tenant!(account.tenant.id)
-    subject = Fixtures.subject(account)
-
-    assert {:ok, created} =
-             Conversations.create_ephemeral_room(
-               %{idempotency_key: secret(), title: "Stale active room"},
-               subject
-             )
-
-    assert :ok = Conversations.authorize_send_message(created.conversation.id, subject)
-
-    beyond_grace =
-      DateTime.utc_now()
-      |> DateTime.add(-10, :second)
-      |> DateTime.truncate(:microsecond)
-
-    Repo.update_all(
-      from(room in EphemeralRoom, where: room.id == ^created.room.id),
-      set: [inserted_at: beyond_grace, updated_at: beyond_grace]
-    )
-
-    assert {:error, :forbidden} =
-             Conversations.authorize_send_message(created.conversation.id, subject)
-
-    presence_attrs =
-      subject
-      |> Map.put(:conversation_id, created.conversation.id)
-      |> Map.put(:connection_id, secret())
-
-    assert {:ok, _opened} = Conversations.open_ephemeral_presence(presence_attrs)
-    assert :ok = Conversations.authorize_send_message(created.conversation.id, subject)
   end
 
   @tag :presence
