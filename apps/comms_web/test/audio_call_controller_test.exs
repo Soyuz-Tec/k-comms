@@ -12,6 +12,9 @@ end
 defmodule CommsWeb.AudioCallControllerTest do
   use CommsWeb.ConnCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+
   import Ecto.Query
 
   alias CommsCore.AudioCalls.{AudioCall, AudioCallParticipant}

@@ -1,6 +1,9 @@
 defmodule CommsCore.AudioCalls.ContractsTest do
   use ExUnit.Case, async: true
 
+  @moduletag :unit
+  @moduletag :call
+
   alias CommsCore.AudioCalls.{
     AudioCall,
     AudioCallParticipant,

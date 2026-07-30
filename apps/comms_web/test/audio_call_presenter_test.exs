@@ -1,6 +1,9 @@
 defmodule CommsWeb.AudioCallPresenterTest do
   use ExUnit.Case, async: true
 
+  @moduletag :unit
+  @moduletag :call
+
   alias CommsCore.AudioCalls.CallView
   alias CommsWeb.Presenter
 

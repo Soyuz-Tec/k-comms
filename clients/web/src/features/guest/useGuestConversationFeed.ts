@@ -26,6 +26,7 @@ interface UseGuestConversationFeedOptions {
   conversationId: string;
   currentUserId: string;
   mergeRetainedSenderLabels: (labels: RetainedSenderLabel[]) => void;
+  latestSequenceRef: { current: number };
   nearBottomRef: { current: boolean };
   scrollRequestRef: { current: ScrollBehavior | null };
   setError: Dispatch<SetStateAction<string>>;
@@ -36,6 +37,7 @@ export function useGuestConversationFeed({
   api,
   conversationId,
   currentUserId,
+  latestSequenceRef,
   mergeRetainedSenderLabels,
   nearBottomRef,
   scrollRequestRef,
@@ -43,7 +45,6 @@ export function useGuestConversationFeed({
   setNewMessageCount
 }: UseGuestConversationFeedOptions) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const latestSequenceRef = useRef(0);
   const knownMessageIdsRef = useRef(new Set<string>());
   const catchUpInFlightRef = useRef(false);
   const catchUpRetryTimerRef = useRef<number | null>(null);

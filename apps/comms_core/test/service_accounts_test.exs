@@ -1,6 +1,9 @@
 defmodule CommsCore.ServiceAccountsTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :authentication
+
   alias CommsCore.{
     Accounts,
     Administration,

@@ -5,13 +5,10 @@ import {
   Room,
   RoomEvent
 } from "livekit-client";
-import type { Participant } from "livekit-client";
-import { useModalDialog } from "../../components/useModalDialog";
 import { errorText } from "../../lib/format";
 import type { Call, CallMediaKind, CallRealtimeEvent, Conversation } from "../../types";
 import { CALL_SESSION_TEARDOWN_EVENT } from "./callSessionEvents";
 import type { CallApi, CallPanelSessionState, CallPhase } from "./callContracts";
-import type { ParticipantView } from "./CallPanelViews";
 import {
   callMediaKind,
   callPublishDefaults,
@@ -19,30 +16,17 @@ import {
   cameraCaptureOptions,
   deviceSelection,
   endExistingCall,
-  getCall,
   joinExistingCall,
   mediaBoundaryError,
   mediaEnabled,
   mediaErrorText,
   mediaLabel,
   microphoneCaptureOptions,
-  participantVideoTracks,
   startNewCall
 } from "./callMedia";
-import { useLiveKitRoom } from "./useLiveKitRoom";
-import { useMediaDevices } from "./useMediaDevices";
-
-type CallWorkspaceTab = "chat" | "people" | "files";
-
-const CALL_CONTROL_LABELS_STORAGE_KEY = "k-comms.call-control-labels.v1";
-
-function storedCallControlLabelsVisible(): boolean {
-  try {
-    return window.localStorage.getItem(CALL_CONTROL_LABELS_STORAGE_KEY) !== "hidden";
-  } catch {
-    return true;
-  }
-}
+import { useCallPresentationState } from "./useCallPresentationState";
+import { useCallControlPlane } from "./useCallControlPlane";
+import { useCallMediaSession } from "./useCallMediaSession";
 
 export interface CallPanelProps {
   api: CallApi;
@@ -80,53 +64,36 @@ export function useCallSession({
   const [phase, setPhase] = useState<CallPhase>(available ? "loading" : "idle");
   const [prejoinKind, setPrejoinKind] = useState<CallMediaKind>("audio");
   const [error, setError] = useState<string | null>(null);
-  const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(false);
-  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  const [videoBlocked, setVideoBlocked] = useState(false);
-  const [participants, setParticipants] = useState<ParticipantView[]>([]);
-  const [callWorkspaceTab, setCallWorkspaceTab] = useState<CallWorkspaceTab>("chat");
-  const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
-  const [endConfirmationOpen, setEndConfirmationOpen] = useState(false);
-  const [callControlLabelsVisible, setCallControlLabelsVisible] = useState(
-    storedCallControlLabelsVisible
-  );
-  const [labelPreferenceAnnouncement, setLabelPreferenceAnnouncement] = useState("");
   const [accessRevoked, setAccessRevoked] = useState(false);
-  const [minimized, setMinimized] = useState(false);
-  const [mobileCallLayout, setMobileCallLayout] = useState(
-    () => window.matchMedia?.("(max-width: 760px), (max-height: 560px)").matches ?? false
-  );
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const {
-    attachRemoteAudio,
-    clearAllRemoteAudio,
-    disconnectRoom,
-    manualDisconnectRoomsRef,
-    remoteAudioRef,
-    removeRemoteAudio,
-    roomRef
-  } = useLiveKitRoom();
-  const roomMediaKindRef = useRef<CallMediaKind | null>(null);
-  const pendingMediaKindRef = useRef<CallMediaKind | null>(null);
-  const callMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const callMenuOpenerRef = useRef<HTMLButtonElement | null>(null);
   const mountedRef = useRef(true);
   const operationGenerationRef = useRef(0);
   const refreshSequenceRef = useRef(0);
   const accessRevokedRef = useRef(false);
   const latestRealtimeEventRef = useRef<CallRealtimeEvent | null>(null);
   const handledLaunchRequestRef = useRef<number | CallMediaKind | null>(null);
-  const wasJoinedRef = useRef(false);
   const {
+    attachRemoteAudio,
+    audioBlocked,
+    cameraEnabled,
     cameras,
+    clearAllRemoteAudio,
+    disconnectRoom,
     loadPrejoinDevices,
+    manualDisconnectRoomsRef,
+    microphoneEnabled,
     microphones,
+    participants,
+    pendingMediaKindRef,
     prejoinCamera,
     prejoinMicrophone,
     previewBusy,
     previewVideoRef,
+    remoteAudioRef,
+    removeRemoteAudio,
+    resetMediaState,
+    roomMediaKindRef,
+    roomRef,
+    screenShareEnabled,
     selectedCamera,
     selectedMicrophone,
     selectPrejoinCamera,
@@ -136,81 +103,29 @@ export function useCallSession({
     setPrejoinMicrophone,
     setSelectedCamera,
     setSelectedMicrophone,
+    setAudioBlocked,
+    setVideoBlocked,
     stopPreview,
-    togglePrejoinCamera
-  } = useMediaDevices({ mountedRef, setError });
+    togglePrejoinCamera,
+    updateRoomState,
+    videoBlocked
+  } = useCallMediaSession({
+    currentUserDisplayName,
+    mountedRef,
+    setError
+  });
   const currentCallId = call?.id;
   const currentMediaKind = call ? callMediaKind(call) : prejoinKind;
   const joined = Boolean(roomRef.current) && ["connected", "reconnecting", "leaving"].includes(phase);
   const joinedKind = roomMediaKindRef.current || currentMediaKind;
-  const expandedCallModal = joined && !minimized && (
-    mobileCallLayout || joinedKind === "video"
-  );
-  function openMobileCallMenu(opener: HTMLButtonElement) {
-    callMenuOpenerRef.current = opener;
-    setMobileWorkspaceOpen(true);
-  }
-  function closeMobileCallMenu() {
-    const opener = callMenuOpenerRef.current ?? callMenuTriggerRef.current;
-    setMobileWorkspaceOpen(false);
-    window.requestAnimationFrame(() => {
-      if (opener?.isConnected && !opener.inert) {
-        opener.focus({ preventScroll: true });
-      }
-      callMenuOpenerRef.current = null;
-    });
-  }
-  function toggleCallControlLabels() {
-    setCallControlLabelsVisible((visible) => {
-      const next = !visible;
-      try {
-        window.localStorage.setItem(
-          CALL_CONTROL_LABELS_STORAGE_KEY,
-          next ? "visible" : "hidden"
-        );
-      } catch {
-        // A blocked preference store must not interfere with call controls.
-      }
-      setLabelPreferenceAnnouncement(
-        next ? "Control labels shown" : "Control labels hidden"
-      );
-      return next;
-    });
-  }
-  const callWorkspaceRef = useModalDialog(
-    closeMobileCallMenu,
-    mobileCallLayout && mobileWorkspaceOpen && !minimized
-  );
-  const callDockRef = useModalDialog(() => {
-    if (mobileWorkspaceOpen) {
-      closeMobileCallMenu();
-      return;
-    }
-    setMinimized(true);
-  }, expandedCallModal);
-  const endConfirmationRef = useModalDialog(
-    () => setEndConfirmationOpen(false),
-    endConfirmationOpen
-  );
-  function openConversationChat() {
-    setCallWorkspaceTab("chat");
-    setMobileWorkspaceOpen(false);
-    setMinimized(true);
-    if (onNavigate) {
-      onNavigate(`/app/?conversation=${encodeURIComponent(conversation.id)}`);
-    } else {
-      onOpenChat?.();
-    }
-  }
-
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const query = window.matchMedia("(max-width: 760px), (max-height: 560px)");
-    const update = () => setMobileCallLayout(query.matches);
-    update();
-    query.addEventListener?.("change", update);
-    return () => query.removeEventListener?.("change", update);
-  }, []);
+  const presentation = useCallPresentationState({
+    callStartedAt: call?.started_at,
+    conversationId: conversation.id,
+    joined,
+    joinedKind,
+    onNavigate,
+    onOpenChat
+  });
 
   const invalidateOperations = useCallback(() => {
     refreshSequenceRef.current += 1;
@@ -222,32 +137,63 @@ export function useCallSession({
     mountedRef.current && operationGenerationRef.current === generation
   ), []);
 
-  const refreshCall = useCallback(async (preservePrejoin = false) => {
-    if (!available || roomRef.current || accessRevokedRef.current) return;
-    const generation = operationGenerationRef.current;
-    const refreshSequence = ++refreshSequenceRef.current;
-    try {
-      const activeCall = await getCall(api, conversation.id);
-      if (
-        !operationIsCurrent(generation) ||
-        refreshSequenceRef.current !== refreshSequence ||
-        roomRef.current
-      ) return;
-      const latestEvent = latestRealtimeEventRef.current;
-      if (latestEvent?.conversation_id === conversation.id) {
-        if (latestEvent.status === "ended" && (!activeCall || activeCall.id === latestEvent.id)) return;
-        if (latestEvent.status === "active" && !activeCall) return;
-      }
-      setCall(activeCall?.status === "active" ? activeCall : null);
-      if (activeCall) setPrejoinKind(callMediaKind(activeCall));
-      setError(null);
-      setPhase((current) => preservePrejoin && (current === "prejoin" || current === "joining") ? current : "idle");
-    } catch (reason: unknown) {
-      if (!operationIsCurrent(generation) || refreshSequenceRef.current !== refreshSequence) return;
-      setError(`Call status is unavailable. ${errorText(reason)}`);
-      setPhase("error");
-    }
-  }, [api, available, conversation.id, operationIsCurrent]);
+  const resetConnectedState = useCallback(() => {
+    presentation.setCallWorkspaceTab("chat");
+    presentation.setMobileWorkspaceOpen(false);
+    presentation.setEndConfirmationOpen(false);
+    resetMediaState();
+  }, [
+    presentation.setCallWorkspaceTab,
+    presentation.setEndConfirmationOpen,
+    presentation.setMobileWorkspaceOpen,
+    resetMediaState
+  ]);
+
+  const disconnectEndedCall = useCallback(async (
+    room: Room,
+    kind: CallMediaKind
+  ) => {
+    const generation = invalidateOperations();
+    stopPreview();
+    roomRef.current = null;
+    roomMediaKindRef.current = null;
+    pendingMediaKindRef.current = null;
+    await disconnectRoom(room);
+    if (!operationIsCurrent(generation)) return;
+    clearAllRemoteAudio();
+    resetConnectedState();
+    setCall(null);
+    setError(`The ${kind} call was ended for everyone.`);
+    setPhase("ended");
+  }, [
+    clearAllRemoteAudio,
+    disconnectRoom,
+    invalidateOperations,
+    operationIsCurrent,
+    resetConnectedState,
+    roomRef,
+    stopPreview
+  ]);
+
+  const { refreshCall } = useCallControlPlane({
+    accessRevokedRef,
+    api,
+    available,
+    conversationId: conversation.id,
+    currentCallId,
+    currentMediaKind,
+    disconnectEndedCall,
+    latestRealtimeEventRef,
+    operationGenerationRef,
+    operationIsCurrent,
+    phase,
+    roomRef,
+    refreshSequenceRef,
+    setCall,
+    setError,
+    setPhase,
+    setPrejoinKind
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -366,25 +312,6 @@ export function useCallSession({
     setError(`The ${kind} call was ended for everyone.`);
     setPhase("ended");
   }, [available, conversation.id, currentCallId, currentMediaKind, invalidateOperations, realtimeEvent, refreshCall, stopPreview]);
-
-  useEffect(() => {
-    if (!available) return;
-    const refreshIfIdle = () => {
-      if (
-        document.visibilityState === "visible" &&
-        !accessRevokedRef.current &&
-        !roomRef.current &&
-        phase !== "prejoin" &&
-        phase !== "joining"
-      ) void refreshCall();
-    };
-    const timer = window.setInterval(refreshIfIdle, 15_000);
-    window.addEventListener("focus", refreshIfIdle);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refreshIfIdle);
-    };
-  }, [available, phase, refreshCall]);
 
   useEffect(() => {
     if (phase !== "connected" && phase !== "reconnecting") return;
@@ -677,38 +604,6 @@ export function useCallSession({
     });
   }
 
-  function resetConnectedState() {
-    setParticipants([]);
-    setCallWorkspaceTab("chat");
-    setMobileWorkspaceOpen(false);
-    setEndConfirmationOpen(false);
-    setMicrophoneEnabled(false);
-    setCameraEnabled(false);
-    setScreenShareEnabled(false);
-    setAudioBlocked(false);
-    setVideoBlocked(false);
-  }
-
-  function updateRoomState(room: Room) {
-    if (roomRef.current !== room) return;
-    const all: Participant[] = [room.localParticipant, ...room.remoteParticipants.values()];
-    setParticipants(all.map((participant) => ({
-      id: participant.identity || participant.sid,
-      name: participant.isLocal
-        ? currentUserDisplayName
-        : participant.name || participant.identity || "Call participant",
-      local: participant.isLocal,
-      microphoneEnabled: participant.isMicrophoneEnabled,
-      cameraEnabled: participant.isCameraEnabled,
-      screenShareEnabled: participant.isScreenShareEnabled,
-      speaking: participant.isSpeaking,
-      videoTracks: participantVideoTracks(participant)
-    })));
-    setMicrophoneEnabled(room.localParticipant.isMicrophoneEnabled);
-    setCameraEnabled(room.localParticipant.isCameraEnabled);
-    setScreenShareEnabled(room.localParticipant.isScreenShareEnabled);
-  }
-
   async function reloadDevices(kind: CallMediaKind) {
     const room = roomRef.current;
     const generation = operationGenerationRef.current;
@@ -902,103 +797,6 @@ export function useCallSession({
     }
   }
 
-  useEffect(() => {
-    if (
-      (phase !== "connected" && phase !== "reconnecting") ||
-      !currentCallId
-    ) return;
-    let current = true;
-    let checking = false;
-
-    const verifyActiveCall = async () => {
-      const room = roomRef.current;
-      if (!current || checking || !room) return;
-      checking = true;
-      try {
-        const activeCall = await getCall(api, conversation.id);
-        if (!current || roomRef.current !== room) return;
-        if (activeCall?.id === currentCallId && activeCall.status === "active") {
-          setCall(activeCall);
-          return;
-        }
-
-        const kind = roomMediaKindRef.current || currentMediaKind;
-        const generation = invalidateOperations();
-        stopPreview();
-        roomRef.current = null;
-        roomMediaKindRef.current = null;
-        pendingMediaKindRef.current = null;
-        await disconnectRoom(room);
-        if (!operationIsCurrent(generation)) return;
-        clearAllRemoteAudio();
-        resetConnectedState();
-        setCall(null);
-        setError(`The ${kind} call was ended for everyone.`);
-        setPhase("ended");
-      } catch {
-        // The media provider remains authoritative during a transient API
-        // failure. Its disconnect/revocation events still tear down capture.
-      } finally {
-        checking = false;
-      }
-    };
-
-    const verifyWhenVisible = () => {
-      if (document.visibilityState === "visible") void verifyActiveCall();
-    };
-    const timer = window.setInterval(verifyWhenVisible, 15_000);
-    window.addEventListener("focus", verifyWhenVisible);
-    document.addEventListener("visibilitychange", verifyWhenVisible);
-    return () => {
-      current = false;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", verifyWhenVisible);
-      document.removeEventListener("visibilitychange", verifyWhenVisible);
-    };
-  }, [
-    api,
-    conversation.id,
-    currentCallId,
-    currentMediaKind,
-    disconnectRoom,
-    invalidateOperations,
-    operationIsCurrent,
-    phase,
-    stopPreview
-  ]);
-
-  useEffect(() => {
-    if (!joined) {
-      wasJoinedRef.current = false;
-      setMinimized(false);
-      setElapsedSeconds(0);
-      return;
-    }
-    if (wasJoinedRef.current) return;
-    wasJoinedRef.current = true;
-    setMinimized(joinedKind === "audio" && !mobileCallLayout);
-    const frame = window.requestAnimationFrame(() => {
-      callDockRef.current?.querySelector<HTMLElement>("[data-call-focus]")?.focus({
-        preventScroll: true
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [joined, joinedKind, mobileCallLayout]);
-
-  useEffect(() => {
-    if (joined && joinedKind === "audio" && mobileCallLayout) {
-      setMinimized(false);
-    }
-  }, [joined, joinedKind, mobileCallLayout]);
-
-  useEffect(() => {
-    if (!joined) return;
-    const startedAt = call?.started_at ? Date.parse(call.started_at) : Date.now();
-    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1_000)));
-    update();
-    const timer = window.setInterval(update, 1_000);
-    return () => window.clearInterval(timer);
-  }, [call?.started_at, joined]);
   const activeKind = call?.status === "active" ? callMediaKind(call) : null;
 
   useEffect(() => {
@@ -1034,34 +832,34 @@ export function useCallSession({
     audioBlocked,
     available,
     call,
-    callControlLabelsVisible,
-    callDockRef,
-    callMenuTriggerRef,
-    callWorkspaceRef,
-    callWorkspaceTab,
+    callControlLabelsVisible: presentation.callControlLabelsVisible,
+    callDockRef: presentation.callDockRef,
+    callMenuTriggerRef: presentation.callMenuTriggerRef,
+    callWorkspaceRef: presentation.callWorkspaceRef,
+    callWorkspaceTab: presentation.callWorkspaceTab,
     cameraEnabled,
     cameras,
-    closeMobileCallMenu,
+    closeMobileCallMenu: presentation.closeMobileCallMenu,
     currentMediaKind,
-    elapsedSeconds,
+    elapsedSeconds: presentation.elapsedSeconds,
     enablePlayback,
-    endConfirmationOpen,
-    endConfirmationRef,
+    endConfirmationOpen: presentation.endConfirmationOpen,
+    endConfirmationRef: presentation.endConfirmationRef,
     endForEveryone,
     error,
-    expandedCallModal,
+    expandedCallModal: presentation.expandedCallModal,
     join,
     joined,
     joinedKind,
-    labelPreferenceAnnouncement,
+    labelPreferenceAnnouncement: presentation.labelPreferenceAnnouncement,
     leave,
     microphoneEnabled,
     microphones,
-    minimized,
-    mobileCallLayout,
-    mobileWorkspaceOpen,
-    openConversationChat,
-    openMobileCallMenu,
+    minimized: presentation.minimized,
+    mobileCallLayout: presentation.mobileCallLayout,
+    mobileWorkspaceOpen: presentation.mobileWorkspaceOpen,
+    openConversationChat: presentation.openConversationChat,
+    openMobileCallMenu: presentation.openMobileCallMenu,
     openPrejoin,
     participants,
     phase,
@@ -1077,13 +875,13 @@ export function useCallSession({
     selectedMicrophone,
     selectMicrophone,
     selectPrejoinCamera,
-    setCallWorkspaceTab,
-    setEndConfirmationOpen,
-    setMinimized,
-    setMobileWorkspaceOpen,
+    setCallWorkspaceTab: presentation.setCallWorkspaceTab,
+    setEndConfirmationOpen: presentation.setEndConfirmationOpen,
+    setMinimized: presentation.setMinimized,
+    setMobileWorkspaceOpen: presentation.setMobileWorkspaceOpen,
     setPrejoinMicrophone,
     setSelectedMicrophone,
-    toggleCallControlLabels,
+    toggleCallControlLabels: presentation.toggleCallControlLabels,
     toggleCamera,
     toggleMicrophone,
     togglePrejoinCamera,

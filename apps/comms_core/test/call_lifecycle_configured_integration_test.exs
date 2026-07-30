@@ -1,6 +1,9 @@
 defmodule CommsCore.CallLifecycleConfiguredIntegrationTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+
   alias CommsCore.Accounts.CallLifecycleCommand, as: IdentityCommand
   alias CommsCore.Accounts.CallLifecyclePort, as: IdentityPort
   alias CommsCore.Accounts.CallLifecycleReceipt, as: IdentityReceipt

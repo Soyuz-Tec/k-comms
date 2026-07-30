@@ -1,6 +1,9 @@
 defmodule CommsCore.Notifications.PushSubscriptionsTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :notifications
+
   alias CommsCore.Accounts.Device
 
   alias CommsCore.Notifications.{

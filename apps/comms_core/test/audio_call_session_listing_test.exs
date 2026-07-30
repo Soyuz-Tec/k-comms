@@ -1,6 +1,9 @@
 defmodule CommsCore.AudioCallSessionListingTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :integration
+  @moduletag :call
+
   alias CommsCore.AudioCalls
   alias CommsCore.AudioCalls.{AudioCall, CallSessionView}
   alias CommsTestSupport.Fixtures
