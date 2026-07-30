@@ -33,6 +33,18 @@ from validate_architecture import (
 )
 
 
+def module_family_source(root: Path, relative_facade_path: str) -> str:
+    """Read a public facade together with its owner-internal module directory."""
+    facade = root / relative_facade_path
+    module_directory = facade.with_suffix("")
+    sources = [facade]
+
+    if module_directory.is_dir():
+        sources.extend(sorted(module_directory.rglob("*.ex")))
+
+    return "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+
 class ValidateArchitectureTest(unittest.TestCase):
     def test_public_specs_recognize_elixir_predicate_and_bang_functions(self) -> None:
         source = """
@@ -916,12 +928,12 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "apps/comms_core/lib/comms_core/messaging.ex").read_text(
-            encoding="utf-8"
+        source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
         )
-        attachments_source = (
-            root / "apps/comms_core/lib/comms_core/attachments.ex"
-        ).read_text(encoding="utf-8")
+        attachments_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/attachments.ex"
+        )
         calls_source = (
             root / "apps/comms_core/lib/comms_core/audio_calls.ex"
         ).read_text(encoding="utf-8")
@@ -1194,9 +1206,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
         )
 
-        messaging_source = (
-            root / "apps/comms_core/lib/comms_core/messaging.ex"
-        ).read_text(encoding="utf-8")
+        messaging_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
+        )
         for public_api in (
             "def list_service_history(",
             "def accept_service_message_with_status(",
@@ -1313,7 +1325,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "apps/comms_core/lib/comms_core/attachments.ex",
         ):
             with self.subTest(policy_consumer=relative_path):
-                source = (root / relative_path).read_text(encoding="utf-8")
+                source = module_family_source(root, relative_path)
                 self.assertIn("Administration.conversation_content_policy", source)
                 self.assertIn("Administration.ConversationContentPolicy", source)
                 self.assertNotIn("Administration.member_capabilities", source)
@@ -1337,9 +1349,9 @@ class ValidateArchitectureTest(unittest.TestCase):
                 self.assertNotIn("use Ecto.Schema", source)
                 self.assertNotIn('schema "', source)
 
-        attachments = (
-            root / "apps/comms_core/lib/comms_core/attachments.ex"
-        ).read_text(encoding="utf-8")
+        attachments = module_family_source(
+            root, "apps/comms_core/lib/comms_core/attachments.ex"
+        )
         restore_remap = (
             root / "apps/comms_core/lib/comms_core/attachments/restore_remap.ex"
         ).read_text(encoding="utf-8")
@@ -2120,9 +2132,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertNotIn("maybe_authorize_membership", service_accounts_source)
 
-        messaging_source = (
-            root / "apps/comms_core/lib/comms_core/messaging.ex"
-        ).read_text(encoding="utf-8")
+        messaging_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
+        )
         self.assertIn("Conversations.authorize_service_access(", messaging_source)
         self.assertNotIn(
             'ServiceAccounts.authorize_service(subject, "messages:',
@@ -2150,7 +2162,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             owner_api_callers,
             {
                 "Conversations.authorize_service_access(": [
-                    "apps/comms_core/lib/comms_core/messaging.ex"
+                    "apps/comms_core/lib/comms_core/messaging/service_messages.ex"
                 ],
                 "Conversations.list_for_service(": [
                     "apps/comms_web/lib/comms_web/controllers/"
@@ -2158,7 +2170,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ],
                 "ServiceAccounts.authorize_service(": [
                     "apps/comms_core/lib/comms_core/conversations.ex",
-                    "apps/comms_core/lib/comms_core/messaging.ex",
+                    "apps/comms_core/lib/comms_core/messaging/service_messages.ex",
                 ],
             },
         )
@@ -3120,8 +3132,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
-        source = (root / "apps/comms_core/lib/comms_core/governance.ex").read_text(
-            encoding="utf-8"
+        source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/governance.ex"
         )
 
         self.assertEqual(
@@ -3221,13 +3233,13 @@ class ValidateArchitectureTest(unittest.TestCase):
         }
         for relative_path, functions in owner_apis.items():
             with self.subTest(owner=relative_path):
-                source = (root / relative_path).read_text(encoding="utf-8")
+                source = module_family_source(root, relative_path)
                 for function in functions:
                     self.assertIn(function, source)
 
-        governance_source = (
-            root / "apps/comms_core/lib/comms_core/governance.ex"
-        ).read_text(encoding="utf-8")
+        governance_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/governance.ex"
+        )
         moderation_source = (
             root / "apps/comms_core/lib/comms_core/moderation.ex"
         ).read_text(encoding="utf-8")
