@@ -1,4 +1,4 @@
-defmodule CommsCore.Accounts.GuestIdentityTest do
+defmodule CommsCore.Accounts.GuestIdentitiesTest do
   use CommsCore.DataCase, async: false
 
   import Ecto.Query
@@ -15,6 +15,8 @@ defmodule CommsCore.Accounts.GuestIdentityTest do
   }
 
   alias CommsTestSupport.Fixtures
+
+  @moduletag :integration
 
   test "guest provisioning requires a caller transaction and creates a bounded guest session" do
     account = Fixtures.account_fixture()

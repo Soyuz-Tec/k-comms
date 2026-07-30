@@ -545,7 +545,11 @@ runtime_collaborations:
     port: CommsCore.Accounts.CallLifecyclePort
     result_contract: CommsCore.Accounts.CallLifecycleReceipt
     implementation: CommsCore.AudioCalls
-    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    callers:
+      - CommsCore.Accounts
+      - CommsCore.Accounts.GuestIdentities
+      - CommsCore.Accounts.PasswordRecovery
+      - CommsCore.Accounts.UserLifecycle
     operations:
       - {name: revoke_identity_access, arity: 1}
     binding:
@@ -564,7 +568,7 @@ runtime_collaborations:
     port: CommsCore.Accounts.ConversationBootstrapPort
     result_contract: CommsCore.Accounts.InitialConversationReceipt
     implementation: CommsCore.Conversations
-    callers: [CommsCore.Accounts]
+    callers: [CommsCore.Accounts.Bootstrap]
     operations:
       - {name: create_initial_channel, arity: 1}
       - {name: fetch_initial_channel, arity: 2}
@@ -584,7 +588,10 @@ runtime_collaborations:
     port: CommsCore.Accounts.NotificationPort
     result_contract: CommsCore.Accounts.NotificationReceipt
     implementation: CommsCore.Notifications
-    callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
+    callers:
+      - CommsCore.Accounts
+      - CommsCore.Accounts.PasswordRecovery
+      - CommsCore.Accounts.UserLifecycle
     operations:
       - {name: execute, arity: 1}
     binding:
@@ -710,7 +717,10 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsCore.Accounts, CommsWeb.FallbackController]
+    callers:
+      - CommsCore.Accounts.GuestIdentities
+      - CommsCore.Accounts.UserLifecycle
+      - CommsWeb.FallbackController
     operations:
       - {name: from, arity: 1}
     dispatch: direct

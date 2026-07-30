@@ -758,7 +758,7 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("TenantView.t()", administration)
 
         owner_api_consumers = {
-            "apps/comms_core/lib/comms_core/accounts.ex": "Administration.active_tenant",
+            "apps/comms_core/lib/comms_core/accounts/guest_identities.ex": "Administration.active_tenant",
             "apps/comms_core/lib/comms_core/service_accounts.ex": "Administration.active_tenant",
             "apps/comms_core/lib/comms_core/accounts/password_recovery.ex": "Administration.active_tenant_by_slug",
         }
@@ -831,7 +831,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertEqual(
             notification_collaboration["callers"],
-            ["CommsCore.Accounts", "CommsCore.Accounts.PasswordRecovery"],
+            [
+                "CommsCore.Accounts",
+                "CommsCore.Accounts.PasswordRecovery",
+                "CommsCore.Accounts.UserLifecycle",
+            ],
         )
 
         transition = next(
@@ -1701,7 +1705,9 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "result_contract": "CommsCore.Accounts.CallLifecycleReceipt",
                 "callers": [
                     "CommsCore.Accounts",
+                    "CommsCore.Accounts.GuestIdentities",
                     "CommsCore.Accounts.PasswordRecovery",
+                    "CommsCore.Accounts.UserLifecycle",
                 ],
                 "operations": [{"name": "revoke_identity_access", "arity": 1}],
                 "binding_key": "identity_call_lifecycle_adapter",
@@ -1861,6 +1867,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             [
                 "apps/comms_core/lib/comms_core/accounts/notification_port.ex",
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
+                "apps/comms_core/lib/comms_core/accounts/user_lifecycle.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
                 "apps/comms_core/lib/comms_core/notifications.ex",
             ],
@@ -1874,6 +1881,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             port_callers,
             [
                 "apps/comms_core/lib/comms_core/accounts/password_recovery.ex",
+                "apps/comms_core/lib/comms_core/accounts/user_lifecycle.ex",
                 "apps/comms_core/lib/comms_core/accounts.ex",
             ],
         )
@@ -1943,7 +1951,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "port": "CommsCore.Accounts.ConversationBootstrapPort",
                 "result_contract": "CommsCore.Accounts.InitialConversationReceipt",
                 "implementation": "CommsCore.Conversations",
-                "callers": ["CommsCore.Accounts"],
+                "callers": ["CommsCore.Accounts.Bootstrap"],
                 "operations": [
                     {"name": "create_initial_channel", "arity": 1},
                     {"name": "fetch_initial_channel", "arity": 2},
@@ -2081,8 +2089,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             port_reference_paths,
             [
+                "apps/comms_core/lib/comms_core/accounts/bootstrap.ex",
                 "apps/comms_core/lib/comms_core/accounts/conversation_bootstrap_port.ex",
-                "apps/comms_core/lib/comms_core/accounts.ex",
                 "apps/comms_core/lib/comms_core/conversations.ex",
             ],
         )
@@ -2099,7 +2107,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 bootstrap_port_callers.append(path.relative_to(root).as_posix())
         self.assertEqual(
             bootstrap_port_callers,
-            ["apps/comms_core/lib/comms_core/accounts.ex"],
+            ["apps/comms_core/lib/comms_core/accounts/bootstrap.ex"],
         )
 
         service_accounts_source = (
@@ -3295,7 +3303,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "apps/comms_core/lib/comms_core/accounts.ex").read_text(
+        source = (
+            root / "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
+        ).read_text(
             encoding="utf-8"
         )
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
@@ -3318,7 +3328,8 @@ class ValidateArchitectureTest(unittest.TestCase):
                 item
                 for item in violations
                 if item.rule == "direct_foreign_write"
-                and item.path == "apps/comms_core/lib/comms_core/accounts.ex"
+                and item.path
+                == "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
             ],
             [],
         )
