@@ -934,9 +934,17 @@ class ValidateArchitectureTest(unittest.TestCase):
         attachments_source = module_family_source(
             root, "apps/comms_core/lib/comms_core/attachments.ex"
         )
-        calls_source = (
-            root / "apps/comms_core/lib/comms_core/audio_calls.ex"
-        ).read_text(encoding="utf-8")
+        calls_paths = [
+            root / "apps/comms_core/lib/comms_core/audio_calls.ex",
+            *sorted(
+                (
+                    root / "apps/comms_core/lib/comms_core/audio_calls"
+                ).rglob("*.ex")
+            ),
+        ]
+        calls_source = "\n".join(
+            path.read_text(encoding="utf-8") for path in calls_paths
+        )
         conversations_source = (
             root / "apps/comms_core/lib/comms_core/conversations.ex"
         ).read_text(encoding="utf-8")
@@ -1652,7 +1660,11 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.AudioCall",
             "CommsCore.AudioCalls.AudioCallParticipant",
             "CommsCore.AudioCalls.AuthorizationPolicy",
+            "CommsCore.AudioCalls.Lifecycle",
+            "CommsCore.AudioCalls.Participants",
             "CommsCore.AudioCalls.Projector",
+            "CommsCore.AudioCalls.ReleaseInventory",
+            "CommsCore.AudioCalls.SessionListing",
         }
 
         self.assertEqual(calls["public_facades"], ["CommsCore.AudioCalls"])

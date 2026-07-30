@@ -1,9 +1,10 @@
-defmodule CommsCore.AudioCallsTest do
+defmodule CommsCore.AudioCalls.LifecycleAndParticipantsTest do
   use CommsCore.DataCase, async: false
 
+  @moduletag :call
+  @moduletag :integration
+
   alias CommsCore.Accounts
-  alias CommsCore.Accounts.Session
-  alias CommsCore.Administration.Tenant
   alias CommsCore.Administration
   alias CommsCore.Administration.TenantSettings
   alias CommsCore.AudioCalls
@@ -13,120 +14,6 @@ defmodule CommsCore.AudioCallsTest do
   alias CommsCore.Conversations.Membership
   alias CommsCore.Events.OutboxEvent
   alias CommsTestSupport.Fixtures
-
-  test "start is idempotent, durable, audited, and bounded to eight hours" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-
-    assert {:ok, first, :created} = AudioCalls.start(account.conversation.id, subject)
-    assert {:ok, replay, :existing} = AudioCalls.start(account.conversation.id, subject)
-    assert replay.id == first.id
-    assert first.status == :active
-    assert first.media_kind == :audio
-    assert DateTime.diff(first.expires_at, first.started_at, :second) == 28_800
-    assert Repo.aggregate(AudioCall, :count) == 1
-
-    expiry_job =
-      Repo.get_by!(Oban.Job,
-        worker: "CommsWorkers.AudioCallExpiryWorker",
-        args: %{"call_id" => first.id, "tenant_id" => first.tenant_id}
-      )
-
-    assert expiry_job.state == "scheduled"
-    assert expiry_job.queue == "media"
-    assert DateTime.compare(expiry_job.scheduled_at, first.expires_at) == :eq
-
-    assert Repo.aggregate(
-             from(job in Oban.Job,
-               where:
-                 job.worker == "CommsWorkers.AudioCallExpiryWorker" and
-                   fragment("?->>'call_id'", job.args) == ^first.id
-             ),
-             :count
-           ) == 1
-
-    assert Audit.get_by!(%{
-             tenant_id: account.tenant.id,
-             resource_id: first.id,
-             action: "audio_call.start"
-           })
-
-    assert Repo.get_by!(OutboxEvent,
-             aggregate_id: first.id,
-             event_type: "audio_call.started.v1"
-           )
-
-    started_event =
-      Repo.get_by!(OutboxEvent,
-        aggregate_id: first.id,
-        event_type: "call.started.v1"
-      )
-
-    assert started_event.payload["media_kind"] == "audio"
-  end
-
-  test "video start is idempotent and conflicts with an active audio call" do
-    video = Fixtures.account_fixture()
-    video_subject = Fixtures.subject(video)
-
-    assert {:ok, first, :created} =
-             AudioCalls.start_with_kind(video.conversation.id, video_subject, :video)
-
-    assert {:ok, replay, :existing} =
-             AudioCalls.start(video.conversation.id, video_subject, :video)
-
-    assert first.id == replay.id
-    assert first.media_kind == :video
-
-    assert {:error, :call_media_kind_conflict} =
-             AudioCalls.start(video.conversation.id, video_subject)
-
-    assert Repo.aggregate(AudioCall, :count) == 1
-
-    assert {:ok, ended} =
-             AudioCalls.end_call(
-               video.conversation.id,
-               first.id,
-               %{reason: "owner_ended"},
-               video_subject,
-               fn _call -> :ok end
-             )
-
-    assert ended.media_kind == :video
-
-    ended_event =
-      Repo.get_by!(OutboxEvent,
-        aggregate_id: first.id,
-        event_type: "call.ended.v1"
-      )
-
-    assert ended_event.payload["media_kind"] == "video"
-
-    refute Repo.get_by(OutboxEvent,
-             aggregate_id: first.id,
-             event_type: "audio_call.ended.v1"
-           )
-
-    started_event =
-      Repo.get_by!(OutboxEvent,
-        aggregate_id: first.id,
-        event_type: "call.started.v1"
-      )
-
-    assert started_event.payload["media_kind"] == "video"
-
-    refute Repo.get_by(OutboxEvent,
-             aggregate_id: first.id,
-             event_type: "audio_call.started.v1"
-           )
-
-    audio = Fixtures.account_fixture()
-    audio_subject = Fixtures.subject(audio)
-    assert {:ok, _call, :created} = AudioCalls.start(audio.conversation.id, audio_subject)
-
-    assert {:error, :call_media_kind_conflict} =
-             AudioCalls.start(audio.conversation.id, audio_subject, :video)
-  end
 
   test "video calls use the same lifecycle for direct and group conversations" do
     account = Fixtures.account_fixture()
@@ -275,129 +162,6 @@ defmodule CommsCore.AudioCallsTest do
              )
 
     assert_no_call_start_artifacts(account.tenant.id)
-  end
-
-  test "tenant capability race cannot commit an orphaned call" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-    parent = self()
-
-    disable_task =
-      Task.async(fn ->
-        Repo.transaction(fn ->
-          Repo.one!(
-            from(tenant in Tenant,
-              where: tenant.id == ^account.tenant.id,
-              lock: "FOR UPDATE"
-            )
-          )
-
-          send(parent, :video_capability_lock_held)
-
-          receive do
-            :disable_video_and_commit -> :ok
-          end
-
-          settings =
-            Repo.get_by(TenantSettings, tenant_id: account.tenant.id) ||
-              %TenantSettings{tenant_id: account.tenant.id}
-
-          settings
-          |> TenantSettings.changeset(%{allow_video_calls: false})
-          |> Repo.insert_or_update!()
-        end)
-      end)
-
-    assert_receive :video_capability_lock_held
-
-    start_task =
-      Task.async(fn ->
-        AudioCalls.start_with_join_authorized(
-          account.conversation.id,
-          subject,
-          :video,
-          fn _call -> :ok end,
-          fn _request ->
-            send(parent, :capability_race_issuer_ran)
-            {:ok, :credential}
-          end
-        )
-      end)
-
-    refute_receive :capability_race_issuer_ran, 100
-    send(disable_task.pid, :disable_video_and_commit)
-    assert {:ok, %TenantSettings{allow_video_calls: false}} = Task.await(disable_task, 5_000)
-    assert {:error, :video_calls_disabled} = Task.await(start_task, 5_000)
-    refute_received :capability_race_issuer_ran
-    assert_no_call_start_artifacts(account.tenant.id)
-  end
-
-  test "session revocation race cannot commit an orphaned call" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-    parent = self()
-
-    revoke_task =
-      Task.async(fn ->
-        Repo.transaction(fn ->
-          session =
-            Repo.one!(
-              from(session in Session,
-                where: session.id == ^account.session.id,
-                lock: "FOR UPDATE"
-              )
-            )
-
-          send(parent, :session_revocation_lock_held)
-
-          receive do
-            :revoke_session_and_commit -> :ok
-          end
-
-          session
-          |> Session.changeset(%{revoked_at: now()})
-          |> Repo.update!()
-        end)
-      end)
-
-    assert_receive :session_revocation_lock_held
-
-    start_task =
-      Task.async(fn ->
-        AudioCalls.start_with_join_authorized(
-          account.conversation.id,
-          subject,
-          :video,
-          fn _call -> :ok end,
-          fn _request ->
-            send(parent, :session_race_issuer_ran)
-            {:ok, :credential}
-          end
-        )
-      end)
-
-    refute_receive :session_race_issuer_ran, 100
-    send(revoke_task.pid, :revoke_session_and_commit)
-    assert {:ok, %Session{revoked_at: %DateTime{}}} = Task.await(revoke_task, 5_000)
-    assert {:error, :forbidden} = Task.await(start_task, 5_000)
-    refute_received :session_race_issuer_ran
-    assert_no_call_start_artifacts(account.tenant.id)
-  end
-
-  test "concurrent starts resolve to one active call" do
-    account = Fixtures.account_fixture()
-    subject = Fixtures.subject(account)
-
-    results =
-      1..3
-      |> Enum.map(fn _ ->
-        Task.async(fn -> AudioCalls.start(account.conversation.id, subject) end)
-      end)
-      |> Enum.map(&Task.await(&1, 10_000))
-
-    ids = Enum.map(results, fn {:ok, call, _status} -> call.id end)
-    assert ids |> Enum.uniq() |> length() == 1
-    assert Repo.aggregate(from(call in AudioCall, where: call.status == :active), :count) == 1
   end
 
   test "an expired call is not joinable and the next start replaces it" do
@@ -606,6 +370,7 @@ defmodule CommsCore.AudioCallsTest do
            )
   end
 
+  @tag :concurrency
   test "join token issuance cannot run after ending starts" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -652,6 +417,7 @@ defmodule CommsCore.AudioCallsTest do
     refute_received :join_token_issuer_ran
   end
 
+  @tag :concurrency
   test "an in-flight join credential completes before a later end transition" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -822,6 +588,7 @@ defmodule CommsCore.AudioCallsTest do
     assert length(jobs) == length(scopes)
   end
 
+  @tag :concurrency
   test "a credential admitted before session revocation is durably queued for eviction" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -874,6 +641,7 @@ defmodule CommsCore.AudioCallsTest do
            )
   end
 
+  @tag :concurrency
   test "session revocation holding the authority lock prevents a later credential callback" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
@@ -926,6 +694,7 @@ defmodule CommsCore.AudioCallsTest do
     refute Repo.get_by(AudioCallParticipant, audio_call_id: call.id)
   end
 
+  @tag :concurrency
   test "tenant audio disable waits for an in-flight admission then queues its eviction" do
     account = Fixtures.account_fixture()
     subject = Fixtures.step_up(account)
@@ -972,6 +741,7 @@ defmodule CommsCore.AudioCallsTest do
     assert participant.revocation_reason == "tenant_audio_disabled"
   end
 
+  @tag :concurrency
   test "conversation archive waits for an in-flight admission then queues its eviction" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)
