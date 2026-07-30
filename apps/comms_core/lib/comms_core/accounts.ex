@@ -3,8 +3,6 @@ defmodule CommsCore.Accounts do
   @behaviour CommsCore.Administration.IdentityAccessPort
   @behaviour CommsCore.Administration.InvitationIdentityPort
 
-  import Ecto.Query
-
   alias CommsCore.Accounts.{
     AccessControl,
     AccessGrant,
@@ -13,16 +11,17 @@ defmodule CommsCore.Accounts do
     CallLifecyclePort,
     CallLifecycleReceipt,
     ConversationBootstrapPort,
-    Device,
     Directory,
+    GovernanceErasure,
     GuestIdentities,
+    Invitations,
     NotificationCommand,
     NotificationRecipient,
     NotificationPort,
     PlatformGrants,
+    ReleaseInventory,
     Session,
     Sessions,
-    User,
     UserLifecycle
   }
 
@@ -31,7 +30,6 @@ defmodule CommsCore.Accounts do
   alias CommsCore.Administration.{
     AdmissionPolicy,
     InvitationIdentityAuthorization,
-    InvitedIdentityReceipt,
     InvitedUserCommand
   }
 
@@ -41,34 +39,10 @@ defmodule CommsCore.Accounts do
     ValidationError
   }
 
-  alias CommsCore.Security.Password
-
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
-    %{
-      users:
-        repo.all(
-          from(user in User,
-            where: user.tenant_id == ^tenant_id,
-            select: user.id
-          )
-        ),
-      sessions:
-        repo.all(
-          from(session in Session,
-            where: session.tenant_id == ^tenant_id,
-            select: session.id
-          )
-        ),
-      devices:
-        repo.all(
-          from(device in Device,
-            where: device.tenant_id == ^tenant_id,
-            select: device.id
-          )
-        )
-    }
+    ReleaseInventory.tenant_fingerprint_fragment(repo, tenant_id)
   end
 
   @doc """
@@ -237,26 +211,7 @@ defmodule CommsCore.Accounts do
              | :not_found
              | :transaction_required}
   def ensure_governance_erasure_allowed(tenant_id, user_id, excluded_user_ids) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not valid_uuid?(tenant_id) or not valid_uuid?(user_id) ->
-        {:error, :not_found}
-
-      not valid_owner_exclusions?(excluded_user_ids) ->
-        {:error, :invalid_owner_exclusions}
-
-      true ->
-        case governance_erasure_target(
-               tenant_id,
-               user_id,
-               Enum.uniq(excluded_user_ids)
-             ) do
-          {:ok, %User{}} -> :ok
-          {:error, _reason} = error -> error
-        end
-    end
+    GovernanceErasure.ensure_allowed(tenant_id, user_id, excluded_user_ids)
   end
 
   @doc """
@@ -627,80 +582,25 @@ defmodule CommsCore.Accounts do
 
   @doc false
   @impl CommsCore.Administration.InvitationIdentityPort
-  def validate_invitation_password(password) do
-    if Repo.in_transaction?(),
-      do: validate_password(password),
-      else: {:error, :transaction_required}
-  end
+  def validate_invitation_password(password), do: Invitations.validate_password(password)
 
   @doc false
   @impl CommsCore.Administration.InvitationIdentityPort
   def authorize_invitation(%InvitationIdentityAuthorization{} = authorization) do
-    if Repo.in_transaction?() do
-      subject = %{
-        tenant_id: authorization.tenant_id,
-        user_id: authorization.actor_user_id
-      }
-
-      with :ok <- reject_service_identity_email(authorization.tenant_id, authorization.email),
-           :ok <- authorize_role_assignment(subject, authorization.role) do
-        :ok
-      end
-    else
-      {:error, :transaction_required}
-    end
+    Invitations.authorize(authorization)
   end
 
   @doc false
   @impl CommsCore.Administration.InvitationIdentityPort
   def ensure_invitation_identity_available(tenant_id, email)
       when is_binary(tenant_id) and is_binary(email) do
-    if Repo.in_transaction?(),
-      do: reject_existing_human_identity(tenant_id, email),
-      else: {:error, :transaction_required}
+    Invitations.ensure_identity_available(tenant_id, email)
   end
 
   @doc false
   @impl CommsCore.Administration.InvitationIdentityPort
   def enroll_invited_user(%InvitedUserCommand{} = command) do
-    if Repo.in_transaction?() do
-      with :ok <- reject_existing_human_identity(command.tenant_id, command.email),
-           :ok <-
-             ensure_active_user_capacity(
-               command.tenant_id,
-               command.admission_policy
-             ),
-           {:ok, user} <-
-             %User{id: Ecto.UUID.generate()}
-             |> User.changeset(%{
-               tenant_id: command.tenant_id,
-               external_subject: "local:#{command.email}",
-               display_name: command.display_name,
-               email: command.email,
-               password_hash: Password.hash(command.password),
-               account_type: :human,
-               role: command.role,
-               status: :active
-             })
-             |> Repo.insert() do
-        {:ok, invited_identity_receipt(user)}
-      end
-    else
-      {:error, :transaction_required}
-    end
-  end
-
-  defp invited_identity_receipt(%User{} = user) do
-    %InvitedIdentityReceipt{
-      id: user.id,
-      tenant_id: user.tenant_id,
-      display_name: user.display_name,
-      email: user.email,
-      account_type: user.account_type,
-      role: user.role,
-      status: user.status,
-      version: user.lock_version
-    }
+    Invitations.enroll(command)
   end
 
   @doc """
@@ -719,34 +619,10 @@ defmodule CommsCore.Accounts do
              | :transaction_required
              | :user_erasure_failed}
   def erase_user_for_governance(command) when is_map(command) do
-    tenant_id = value(command, :tenant_id)
-    user_id = value(command, :user_id)
-    pending_deletion_user_ids = value(command, :pending_deletion_user_ids)
-    timestamp = value(command, :timestamp)
-
-    cond do
-      not valid_governance_erasure_command?(
-        tenant_id,
-        user_id,
-        pending_deletion_user_ids,
-        timestamp
-      ) ->
-        {:error, :invalid_erasure_command}
-
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      true ->
-        erase_user_for_governance(
-          tenant_id,
-          user_id,
-          Enum.uniq(pending_deletion_user_ids),
-          timestamp
-        )
-    end
+    GovernanceErasure.erase(command)
   end
 
-  def erase_user_for_governance(_command), do: {:error, :invalid_erasure_command}
+  def erase_user_for_governance(command), do: GovernanceErasure.erase(command)
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
     Bootstrap.tenant(attrs, bootstrap_effects())
@@ -936,10 +812,6 @@ defmodule CommsCore.Accounts do
     Sessions.subject(session, request_id)
   end
 
-  defp validate_password(password) do
-    if Password.valid_password?(password), do: :ok, else: {:error, :weak_password}
-  end
-
   defp session_effects do
     %{
       revoke_sessions: &revoke_sessions_for_session_boundary/3,
@@ -1030,171 +902,6 @@ defmodule CommsCore.Accounts do
   defp notification_ok!({:error, reason}), do: Repo.rollback(reason)
   defp notification_ok!(_unexpected), do: Repo.rollback(:notification_delivery_unavailable)
 
-  defp erase_user_for_governance(
-         tenant_id,
-         user_id,
-         pending_deletion_user_ids,
-         timestamp
-       ) do
-    with {:ok, %User{} = user} <-
-           governance_erasure_target(tenant_id, user_id, pending_deletion_user_ids),
-         {:ok, _anonymized_user} <- anonymize_user_for_governance(user),
-         revoked_session_ids <- revoke_user_access_for_governance(user, timestamp) do
-      {:ok, %{user_id: user.id, revoked_session_ids: revoked_session_ids}}
-    end
-  end
-
-  defp governance_erasure_target(tenant_id, user_id, excluded_user_ids) do
-    lock_tenant_users!(tenant_id)
-
-    with %User{} = user <-
-           Repo.one(
-             from(candidate in User,
-               where: candidate.id == ^user_id and candidate.tenant_id == ^tenant_id,
-               lock: "FOR UPDATE"
-             )
-           ),
-         :ok <- ensure_governance_erasure_owner_safe(user, excluded_user_ids) do
-      {:ok, user}
-    else
-      nil -> {:error, :not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp ensure_governance_erasure_owner_safe(
-         %User{role: :owner, status: :active} = user,
-         pending_deletion_user_ids
-       ) do
-    remaining =
-      User
-      |> where(
-        [candidate],
-        candidate.tenant_id == ^user.tenant_id and candidate.id != ^user.id and
-          candidate.role == :owner and candidate.status == :active and
-          candidate.id not in ^pending_deletion_user_ids
-      )
-      |> Repo.aggregate(:count)
-
-    if remaining == 0, do: {:error, :last_owner_required}, else: :ok
-  end
-
-  defp ensure_governance_erasure_owner_safe(_user, _pending_deletion_user_ids), do: :ok
-
-  defp anonymize_user_for_governance(user) do
-    anonymized = "deleted-#{user.id}"
-
-    user
-    |> User.changeset(%{
-      external_subject: anonymized,
-      display_name: "Deleted user",
-      email: "#{anonymized}@invalid.example",
-      status: :deleted
-    })
-    |> Ecto.Changeset.optimistic_lock(:lock_version)
-    |> Repo.update()
-    |> case do
-      {:ok, updated} -> {:ok, updated}
-      {:error, _changeset} -> {:error, :user_erasure_failed}
-    end
-  end
-
-  defp revoke_user_access_for_governance(user, timestamp) do
-    session_query =
-      from(s in Session,
-        where: s.tenant_id == ^user.tenant_id and s.user_id == ^user.id and is_nil(s.revoked_at)
-      )
-
-    revoked_session_ids = session_query |> select([s], s.id) |> Repo.all()
-    Repo.update_all(session_query, set: [revoked_at: timestamp, updated_at: timestamp])
-
-    Device
-    |> where(
-      [d],
-      d.tenant_id == ^user.tenant_id and d.user_id == ^user.id and is_nil(d.revoked_at)
-    )
-    |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
-
-    revoked_session_ids
-  end
-
-  defp valid_governance_erasure_command?(
-         tenant_id,
-         user_id,
-         pending_deletion_user_ids,
-         timestamp
-       ) do
-    valid_uuid?(tenant_id) and valid_uuid?(user_id) and is_list(pending_deletion_user_ids) and
-      Enum.all?(pending_deletion_user_ids, &valid_uuid?/1) and match?(%DateTime{}, timestamp)
-  end
-
-  defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
-
-  defp valid_owner_exclusions?(values) when is_list(values),
-    do: Enum.all?(values, &valid_uuid?/1)
-
-  defp valid_owner_exclusions?(_values), do: false
-
-  defp lock_tenant_users!(tenant_id) do
-    Repo.all(
-      from(u in User,
-        where: u.tenant_id == ^tenant_id,
-        order_by: [asc: u.id],
-        select: u.id,
-        lock: "FOR UPDATE"
-      )
-    )
-  end
-
-  defp authorize_role_assignment(subject, role)
-       when role in [:member, :moderator, :admin, :compliance_admin, :security_admin] do
-    case Repo.get_by(User,
-           id: value(subject, :user_id),
-           tenant_id: value(subject, :tenant_id),
-           status: :active,
-           access_scope: :workspace
-         ) do
-      %User{role: :owner} -> :ok
-      %User{role: :admin} when role in [:member, :moderator] -> :ok
-      _ -> {:error, :forbidden}
-    end
-  end
-
-  defp authorize_role_assignment(_, _), do: {:error, :invalid_role}
-
-  defp reject_service_identity_email(tenant_id, email) do
-    service_identity? =
-      Repo.exists?(
-        from(user in User,
-          where:
-            user.tenant_id == ^tenant_id and user.account_type == :service and
-              fragment("lower(?)", user.email) == ^String.downcase(email)
-        )
-      )
-
-    if service_identity?, do: {:error, :forbidden}, else: :ok
-  end
-
-  defp reject_existing_human_identity(tenant_id, email) do
-    existing_identity? =
-      Repo.exists?(
-        from(user in User,
-          where:
-            user.tenant_id == ^tenant_id and user.account_type == :human and
-              fragment("lower(?)", user.email) == ^String.downcase(email)
-        )
-      )
-
-    if existing_identity?, do: {:error, :invitation_identity_conflict}, else: :ok
-  end
-
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
-
-  defp value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
 end

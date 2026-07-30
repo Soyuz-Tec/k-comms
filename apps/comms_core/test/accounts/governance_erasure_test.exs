@@ -7,6 +7,7 @@ defmodule CommsCore.Accounts.GovernanceErasureTest do
   alias CommsTestSupport.Fixtures
 
   @moduletag :integration
+  @moduletag :governance
 
   test "governance erasure requires a caller-owned transaction" do
     account = Fixtures.account_fixture()
