@@ -6,7 +6,6 @@ defmodule CommsCore.Administration.SettingsCommands do
   alias CommsCore.Administration.{
     AuthorizationPolicy,
     CallLifecycleCommand,
-    CallLifecyclePort,
     CallLifecycleReceipt,
     Projector,
     Tenant,
@@ -22,8 +21,8 @@ defmodule CommsCore.Administration.SettingsCommands do
     end
   end
 
-  def update_view(attrs, subject) do
-    with {:ok, result} <- update_settings(attrs, subject) do
+  def update_view(attrs, subject, revoke_tenant_media) when is_function(revoke_tenant_media, 1) do
+    with {:ok, result} <- update_settings(attrs, subject, revoke_tenant_media) do
       {:ok, project_result(result)}
     end
   end
@@ -42,7 +41,8 @@ defmodule CommsCore.Administration.SettingsCommands do
     end
   end
 
-  def update_settings(attrs, subject) when is_map(attrs) and is_map(subject) do
+  def update_settings(attrs, subject, revoke_tenant_media)
+      when is_map(attrs) and is_map(subject) and is_function(revoke_tenant_media, 1) do
     tenant_id = value(subject, :tenant_id)
 
     with :ok <- AuthorizationPolicy.authorize(:manage_tenant_settings, subject),
@@ -105,7 +105,7 @@ defmodule CommsCore.Administration.SettingsCommands do
             name -> tenant |> Tenant.changeset(%{name: name}) |> update_or_rollback()
           end
 
-        revoke_disabled_media!(tenant, current, updated_settings)
+        revoke_disabled_media!(tenant, current, updated_settings, revoke_tenant_media)
 
         audit!(subject, "tenant.settings_update", "tenant", tenant.id, %{
           version: updated_settings.lock_version,
@@ -120,18 +120,18 @@ defmodule CommsCore.Administration.SettingsCommands do
     end
   end
 
-  defp revoke_disabled_media!(tenant, current, updated) do
+  defp revoke_disabled_media!(tenant, current, updated, revoke_tenant_media) do
     if current.allow_audio_calls and not updated.allow_audio_calls do
       tenant.id
       |> CallLifecycleCommand.tenant_media_disabled(:audio, "tenant_audio_disabled")
-      |> CallLifecyclePort.revoke_tenant_media()
+      |> revoke_tenant_media.()
       |> call_lifecycle_ok!()
     end
 
     if current.allow_video_calls and not updated.allow_video_calls do
       tenant.id
       |> CallLifecycleCommand.tenant_media_disabled(:video, "tenant_video_disabled")
-      |> CallLifecyclePort.revoke_tenant_media()
+      |> revoke_tenant_media.()
       |> call_lifecycle_ok!()
     end
   end

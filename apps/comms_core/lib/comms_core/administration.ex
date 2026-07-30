@@ -10,6 +10,7 @@ defmodule CommsCore.Administration do
   alias CommsCore.Administration.{
     AuditQueries,
     AuthorizationPolicy,
+    CallLifecyclePort,
     CallPolicy,
     ConversationContentPolicy,
     Invitations,
@@ -81,15 +82,15 @@ defmodule CommsCore.Administration do
 
   defdelegate get_tenant_settings_view(subject), to: SettingsCommands, as: :get_view
 
-  defdelegate update_tenant_settings_view(attrs, subject),
-    to: SettingsCommands,
-    as: :update_view
+  def update_tenant_settings_view(attrs, subject),
+    do: SettingsCommands.update_view(attrs, subject, &revoke_tenant_media/1)
 
   defdelegate get_tenant_settings(subject), to: SettingsCommands, as: :get_settings
 
-  defdelegate update_tenant_settings(attrs, subject),
-    to: SettingsCommands,
-    as: :update_settings
+  def update_tenant_settings(attrs, subject),
+    do: SettingsCommands.update_settings(attrs, subject, &revoke_tenant_media/1)
 
   defdelegate list_audit_events(params, subject), to: AuditQueries, as: :list
+
+  defp revoke_tenant_media(command), do: CallLifecyclePort.revoke_tenant_media(command)
 end

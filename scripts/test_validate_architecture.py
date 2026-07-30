@@ -1782,7 +1782,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "consumer": "tenant_administration",
                 "port": "CommsCore.Administration.CallLifecyclePort",
                 "result_contract": ("CommsCore.Administration.CallLifecycleReceipt"),
-                "callers": ["CommsCore.Administration.SettingsCommands"],
+                "callers": ["CommsCore.Administration"],
                 "operations": [{"name": "revoke_tenant_media", "arity": 1}],
                 "binding_key": "tenant_call_lifecycle_adapter",
             },
