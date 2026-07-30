@@ -107,4 +107,104 @@ describe("MessageItem", () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
+  describe("attachment previews", () => {
+    const imageAttachment = {
+      id: "attachment-2",
+      file_name: "photo.png",
+      content_type: "image/png",
+      byte_size: 2048,
+      status: "ready" as const,
+      variant_kinds: ["thumbnail"]
+    };
+
+    function renderWith(attachment: Message["attachments"][number], resolver = vi.fn()) {
+      render(
+        <MessageItem
+          message={{ ...message, attachments: [attachment] }}
+          currentUserId="user-1"
+          seenCount={0}
+          focused={false}
+          onReaction={vi.fn()}
+          onAttachment={vi.fn()}
+          onRequestThumbnail={resolver}
+          onReply={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onReport={vi.fn()}
+        />
+      );
+      return resolver;
+    }
+
+    it("renders a decorative preview once resolved", async () => {
+      renderWith(imageAttachment, vi.fn().mockResolvedValue("https://objects.test/thumb.webp"));
+
+      const image = await screen.findByRole("presentation", { hidden: true });
+      expect(image).toHaveAttribute("src", "https://objects.test/thumb.webp");
+      // The file name and state carry the meaning, so the image is decorative.
+      expect(image).toHaveAttribute("alt", "");
+      expect(screen.getByText("photo.png")).toBeVisible();
+    });
+
+    it("keeps the attachment usable when no preview can be resolved", async () => {
+      const resolver = renderWith(imageAttachment, vi.fn().mockResolvedValue(null));
+
+      await waitFor(() => expect(resolver).toHaveBeenCalled());
+      expect(screen.queryByRole("presentation", { hidden: true })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /photo\.png/ })).toBeEnabled();
+    });
+
+    it("keeps the attachment usable when the resolver rejects", async () => {
+      const resolver = renderWith(
+        imageAttachment,
+        vi.fn().mockRejectedValue(new Error("network"))
+      );
+
+      await waitFor(() => expect(resolver).toHaveBeenCalled());
+      expect(screen.queryByRole("presentation", { hidden: true })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /photo\.png/ })).toBeEnabled();
+    });
+
+    it("does not request a preview for an attachment reporting no variant", () => {
+      const resolver = renderWith({ ...imageAttachment, variant_kinds: [] }, vi.fn());
+
+      expect(resolver).not.toHaveBeenCalled();
+    });
+
+    it("does not request a preview before the safety scan passes", () => {
+      const resolver = renderWith(
+        { ...imageAttachment, status: "uploaded" as const },
+        vi.fn()
+      );
+
+      // A preview is derived from content the scanner has not cleared.
+      expect(resolver).not.toHaveBeenCalled();
+    });
+
+    it("resolves once when realtime replaces an attachment with equal data", async () => {
+      const resolver = vi.fn().mockResolvedValue("https://objects.test/thumb.webp");
+      const props = (attachment: Message["attachments"][number]) => ({
+        message: { ...message, attachments: [attachment] },
+        currentUserId: "user-1",
+        seenCount: 0,
+        focused: false,
+        onReaction: vi.fn(),
+        onAttachment: vi.fn(),
+        onRequestThumbnail: resolver,
+        onReply: vi.fn(),
+        onEdit: vi.fn(),
+        onDelete: vi.fn(),
+        onReport: vi.fn()
+      });
+
+      const view = render(<MessageItem {...props(imageAttachment)} />);
+      await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+
+      view.rerender(<MessageItem {...props({ ...imageAttachment })} />);
+      view.rerender(<MessageItem {...props({ ...imageAttachment })} />);
+
+      await waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+      expect(resolver).toHaveBeenCalledWith(imageAttachment.id);
+    });
+  });
 });

@@ -9,6 +9,7 @@ import type {
   AttachmentSafety,
   AttachmentDownloadResponse,
   AttachmentIntentResponse,
+  AttachmentThumbnailIntent,
   Conversation,
   ConversationMembership,
   DeletionRequest,
@@ -1157,7 +1158,8 @@ export class ApiClient {
   createAttachment(
     file: File,
     checksum: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    thumbnail?: AttachmentThumbnailIntent
   ): Promise<AttachmentIntentResponse> {
     return this.request("/api/v1/attachments", {
       method: "POST",
@@ -1166,7 +1168,8 @@ export class ApiClient {
         file_name: file.name,
         content_type: attachmentContentType(file),
         byte_size: file.size,
-        checksum_sha256: checksum
+        checksum_sha256: checksum,
+        ...(thumbnail ? { thumbnail } : {})
       })
     });
   }
@@ -2109,6 +2112,11 @@ export async function sha256(file: File): Promise<string> {
   return sha256BlobHex(file);
 }
 
+/** Hashes a generated Blob, which unlike an upload is not a File. */
+export async function sha256Blob(blob: Blob): Promise<string> {
+  return sha256BlobHex(blob);
+}
+
 /**
  * Uploads through XMLHttpRequest rather than fetch because fetch reports no
  * progress for a request body: the browser exposes upload progress only through
@@ -2118,7 +2126,7 @@ export async function sha256(file: File): Promise<string> {
  */
 export async function uploadToPresignedTarget(
   descriptor: UploadDescriptor,
-  file: File,
+  file: File | Blob,
   signal?: AbortSignal,
   onProgress?: (fraction: number) => void
 ): Promise<void> {
@@ -2257,8 +2265,11 @@ function isCanonicalRfc1918Host(hostname: string): boolean {
   );
 }
 
-function attachmentContentType(file: File): string {
+function attachmentContentType(file: File | Blob): string {
   if (file.type) return file.type;
+  // A generated Blob carries no name to infer from, and its descriptor already
+  // signs an explicit content type, so extension sniffing is File-only.
+  if (!(file instanceof File)) return "application/octet-stream";
   const extension = file.name.toLowerCase().split(".").pop();
   const known: Record<string, string> = {
     csv: "text/csv",

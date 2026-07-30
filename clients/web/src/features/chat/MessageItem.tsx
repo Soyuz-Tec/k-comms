@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
@@ -17,6 +17,7 @@ export function MessageItem({
   focused,
   onReaction,
   onAttachment,
+  onRequestThumbnail,
   onReply,
   onThread,
   onEdit,
@@ -32,6 +33,11 @@ export function MessageItem({
   focused: boolean;
   onReaction: (emoji: string) => void;
   onAttachment: (attachment: Attachment) => void;
+  /**
+   * Resolves a short-lived preview URL, or null when none can be served.
+   * Optional so a surface without previews renders exactly as before.
+   */
+  onRequestThumbnail?: (attachmentId: string) => Promise<string | null>;
   onReply: () => void;
   onThread?: () => void;
   onEdit: (body: string) => Promise<void>;
@@ -94,7 +100,7 @@ export function MessageItem({
           </form>
         ) : <div className={`message-bubble ${message.status !== "active" ? "removed" : ""}`}>{message.status === "active" ? message.body : "Message removed"}</div>}
 
-        {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <AttachmentButton attachment={attachment} key={attachment.id} onOpen={onAttachment} />)}</div>}
+        {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <AttachmentButton attachment={attachment} key={attachment.id} onOpen={onAttachment} onRequestThumbnail={onRequestThumbnail} />)}</div>}
 
         <div className="message-tools">
           <div className="reaction-row">
@@ -130,10 +136,50 @@ function threadLabel(message: Message): string {
   return message.thread_root_message_id ? "View thread" : "Start thread";
 }
 
-function AttachmentButton({ attachment, onOpen }: { attachment: Attachment; onOpen: (attachment: Attachment) => void }) {
+function AttachmentButton({
+  attachment,
+  onOpen,
+  onRequestThumbnail
+}: {
+  attachment: Attachment;
+  onOpen: (attachment: Attachment) => void;
+  onRequestThumbnail?: (attachmentId: string) => Promise<string | null>;
+}) {
   const ready = attachment.status === "ready";
   const unsafe = attachment.status === "quarantined" || attachment.status === "scan_failed";
-  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "file" : unsafe ? "triangleAlert" : "loader"} /></span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentState(attachment)}</small></span></button>;
+  const preview = useAttachmentThumbnail(attachment, onRequestThumbnail);
+  return <button type="button" disabled={!ready} className={`${unsafe ? "unsafe-attachment" : ""}${preview ? " has-thumbnail" : ""}`} onClick={() => onOpen(attachment)}>{preview ? <img className="attachment-thumbnail" src={preview} alt="" width={64} height={64} loading="lazy" decoding="async" /> : <span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "file" : unsafe ? "triangleAlert" : "loader"} /></span>}<span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentState(attachment)}</small></span></button>;
+}
+
+/**
+ * Resolves a preview URL once per attachment.
+ *
+ * The preview is decorative: the file name and state remain the accessible
+ * content, so the image carries an empty alt and the icon is simply replaced.
+ * A failure leaves the icon in place rather than surfacing an error, because a
+ * missing preview is not a missing attachment.
+ */
+function useAttachmentThumbnail(
+  attachment: Attachment,
+  onRequestThumbnail?: (attachmentId: string) => Promise<string | null>
+): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  const hasThumbnail = attachment.status === "ready" && !!attachment.variant_kinds?.includes("thumbnail");
+
+  useEffect(() => {
+    if (!hasThumbnail || !onRequestThumbnail) return;
+    let active = true;
+    void onRequestThumbnail(attachment.id)
+      .then((resolved) => {
+        if (active) setUrl(resolved);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [attachment.id, hasThumbnail, onRequestThumbnail]);
+
+  return hasThumbnail ? url : null;
 }
 
 function attachmentState(attachment: Attachment): string {

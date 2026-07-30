@@ -247,6 +247,8 @@ export interface Attachment {
   scanned_at?: string | null;
   quarantined_at?: string | null;
   uploaded_at?: string | null;
+  /** Kinds of verified variants. Empty or absent means no preview exists. */
+  variant_kinds?: string[];
 }
 
 export type FileSafetyState =
@@ -832,12 +834,22 @@ export interface NotificationAvailableEvent {
   unread_count: number;
 }
 
+export interface AttachmentThumbnailIntent {
+  content_type: string;
+  byte_size: number;
+  checksum_sha256: string;
+}
+
 export interface AttachmentIntentResponse extends DataResponse<Attachment> {
   upload: UploadDescriptor;
+  /** Absent when no thumbnail was declared, or when one could not be authorized. */
+  thumbnail_upload?: UploadDescriptor;
 }
 
 export interface AttachmentDownloadResponse extends DataResponse<Attachment> {
   download?: UploadDescriptor;
+  /** Absent until the parent attachment is downloadable and a variant is verified. */
+  thumbnail_download?: UploadDescriptor;
 }
 
 export interface ReadCursorEvent {
