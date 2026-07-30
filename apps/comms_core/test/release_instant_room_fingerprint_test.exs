@@ -4,6 +4,9 @@ defmodule CommsCore.ReleaseInstantRoomFingerprintTest do
   alias CommsCore.Release
   alias CommsTestSupport.Fixtures
 
+  @moduletag :integration
+  @moduletag :release
+
   @categories [
     :users,
     :sessions,

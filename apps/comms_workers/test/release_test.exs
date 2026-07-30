@@ -3,6 +3,9 @@ defmodule CommsWorkers.ReleaseTest do
 
   alias CommsWorkers.Release
 
+  @moduletag :unit
+  @moduletag :release
+
   test "release entrypoint loads and fails closed outside a confirmed one-shot runtime" do
     variable = "K_COMMS_RUNTIME_PURPOSE"
     previous = System.get_env(variable)

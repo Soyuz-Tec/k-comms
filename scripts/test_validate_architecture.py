@@ -33,6 +33,18 @@ from validate_architecture import (
 )
 
 
+def module_family_source(root: Path, relative_facade_path: str) -> str:
+    """Read a public facade together with its owner-internal module directory."""
+    facade = root / relative_facade_path
+    module_directory = facade.with_suffix("")
+    sources = [facade]
+
+    if module_directory.is_dir():
+        sources.extend(sorted(module_directory.rglob("*.ex")))
+
+    return "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+
 class ValidateArchitectureTest(unittest.TestCase):
     def test_public_specs_recognize_elixir_predicate_and_bang_functions(self) -> None:
         source = """
@@ -912,15 +924,23 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "apps/comms_core/lib/comms_core/messaging.ex").read_text(
-            encoding="utf-8"
+        source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
         )
-        attachments_source = (
-            root / "apps/comms_core/lib/comms_core/attachments.ex"
-        ).read_text(encoding="utf-8")
-        calls_source = (
-            root / "apps/comms_core/lib/comms_core/audio_calls.ex"
-        ).read_text(encoding="utf-8")
+        attachments_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/attachments.ex"
+        )
+        calls_paths = [
+            root / "apps/comms_core/lib/comms_core/audio_calls.ex",
+            *sorted(
+                (
+                    root / "apps/comms_core/lib/comms_core/audio_calls"
+                ).rglob("*.ex")
+            ),
+        ]
+        calls_source = "\n".join(
+            path.read_text(encoding="utf-8") for path in calls_paths
+        )
         conversations_source = (
             root / "apps/comms_core/lib/comms_core/conversations.ex"
         ).read_text(encoding="utf-8")
@@ -1004,13 +1024,20 @@ class ValidateArchitectureTest(unittest.TestCase):
                     self.assertIn(field, source)
 
         conversations_source = conversation_sources[0].read_text(encoding="utf-8")
-        self.assertIn("Accounts.resolve_active_user_ids(", conversations_source)
-        self.assertIn("Accounts.resolve_user_views(", conversations_source)
+        content_access_source = (
+            conversations_root / "content_access.ex"
+        ).read_text(encoding="utf-8")
+        directory_source = (
+            conversations_root / "directory.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Accounts.resolve_active_user_ids(", content_access_source)
+        self.assertIn("Accounts.resolve_user_views(", directory_source)
         self.assertEqual(conversations_source.count("def active_member_ids("), 1)
         self.assertIn(
             "def active_member_ids(tenant_id, conversation_id)",
             conversations_source,
         )
+        self.assertEqual(directory_source.count("def active_member_ids("), 1)
 
         accounts_source = (
             root / "apps/comms_core/lib/comms_core/accounts.ex"
@@ -1190,9 +1217,9 @@ class ValidateArchitectureTest(unittest.TestCase):
             )
         )
 
-        messaging_source = (
-            root / "apps/comms_core/lib/comms_core/messaging.ex"
-        ).read_text(encoding="utf-8")
+        messaging_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
+        )
         for public_api in (
             "def list_service_history(",
             "def accept_service_message_with_status(",
@@ -1309,7 +1336,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             "apps/comms_core/lib/comms_core/attachments.ex",
         ):
             with self.subTest(policy_consumer=relative_path):
-                source = (root / relative_path).read_text(encoding="utf-8")
+                source = module_family_source(root, relative_path)
                 self.assertIn("Administration.conversation_content_policy", source)
                 self.assertIn("Administration.ConversationContentPolicy", source)
                 self.assertNotIn("Administration.member_capabilities", source)
@@ -1333,15 +1360,16 @@ class ValidateArchitectureTest(unittest.TestCase):
                 self.assertNotIn("use Ecto.Schema", source)
                 self.assertNotIn('schema "', source)
 
-        attachments = (
-            root / "apps/comms_core/lib/comms_core/attachments.ex"
-        ).read_text(encoding="utf-8")
+        attachments = module_family_source(
+            root, "apps/comms_core/lib/comms_core/attachments.ex"
+        )
         restore_remap = (
             root / "apps/comms_core/lib/comms_core/attachments/restore_remap.ex"
         ).read_text(encoding="utf-8")
-        release = (root / "apps/comms_core/lib/comms_core/release.ex").read_text(
-            encoding="utf-8"
-        )
+        release = (
+            root
+            / "apps/comms_core/lib/comms_core/release/attachment_restore.ex"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             "def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)",
@@ -1492,13 +1520,16 @@ class ValidateArchitectureTest(unittest.TestCase):
                     self.assertIn(f"field(:{field}, Ecto.UUID)", source)
 
         notifications_source = notification_sources[0].read_text(encoding="utf-8")
+        fanout_source = (
+            root / "apps/comms_core/lib/comms_core/notifications/fanout.ex"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             "|> Conversations.active_member_ids(conversation_id)",
-            notifications_source,
+            fanout_source,
         )
         self.assertIn(
             "Accounts.resolve_notification_recipients(event.tenant_id, user_ids)",
-            notifications_source,
+            fanout_source,
         )
 
         push_source = (
@@ -1635,7 +1666,11 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.AudioCall",
             "CommsCore.AudioCalls.AudioCallParticipant",
             "CommsCore.AudioCalls.AuthorizationPolicy",
+            "CommsCore.AudioCalls.Lifecycle",
+            "CommsCore.AudioCalls.Participants",
             "CommsCore.AudioCalls.Projector",
+            "CommsCore.AudioCalls.ReleaseInventory",
+            "CommsCore.AudioCalls.SessionListing",
         }
 
         self.assertEqual(calls["public_facades"], ["CommsCore.AudioCalls"])
@@ -2054,11 +2089,14 @@ class ValidateArchitectureTest(unittest.TestCase):
             "def authorize_service_access(",
         ):
             self.assertIn(owner_api, conversations_source)
+        directory_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/directory.ex"
+        ).read_text(encoding="utf-8")
         self.assertIn(
             'ServiceAccounts.authorize_service(subject, "conversations:read")',
-            conversations_source,
+            directory_source,
         )
-        self.assertIn("from(membership in Membership", conversations_source)
+        self.assertIn("from(membership in Membership", directory_source)
 
         public_contract_owners = {}
         for context_name, context in manifest["contexts"].items():
@@ -2112,9 +2150,9 @@ class ValidateArchitectureTest(unittest.TestCase):
         )
         self.assertNotIn("maybe_authorize_membership", service_accounts_source)
 
-        messaging_source = (
-            root / "apps/comms_core/lib/comms_core/messaging.ex"
-        ).read_text(encoding="utf-8")
+        messaging_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/messaging.ex"
+        )
         self.assertIn("Conversations.authorize_service_access(", messaging_source)
         self.assertNotIn(
             'ServiceAccounts.authorize_service(subject, "messages:',
@@ -2142,15 +2180,16 @@ class ValidateArchitectureTest(unittest.TestCase):
             owner_api_callers,
             {
                 "Conversations.authorize_service_access(": [
-                    "apps/comms_core/lib/comms_core/messaging.ex"
+                    "apps/comms_core/lib/comms_core/messaging/service_messages.ex"
                 ],
                 "Conversations.list_for_service(": [
                     "apps/comms_web/lib/comms_web/controllers/"
                     "service_conversation_controller.ex"
                 ],
                 "ServiceAccounts.authorize_service(": [
-                    "apps/comms_core/lib/comms_core/conversations.ex",
-                    "apps/comms_core/lib/comms_core/messaging.ex",
+                    "apps/comms_core/lib/comms_core/conversations/access_policy.ex",
+                    "apps/comms_core/lib/comms_core/conversations/directory.ex",
+                    "apps/comms_core/lib/comms_core/messaging/service_messages.ex",
                 ],
             },
         )
@@ -2357,45 +2396,57 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertIn("def check_conversation_creation(", quota_source)
         self.assertIn("def check_conversation_member_capacity(", quota_source)
 
-        conversation_source = (
+        conversation_facade_source = (
             root / "apps/comms_core/lib/comms_core/conversations.ex"
         ).read_text(encoding="utf-8")
-        self.assertIn("def admission_usage(", conversation_source)
-        self.assertIn("defp active_conversation_count(", conversation_source)
+        commands_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/commands.ex"
+        ).read_text(encoding="utf-8")
+        public_channels_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/public_channels.ex"
+        ).read_text(encoding="utf-8")
+        memberships_source = (
+            root / "apps/comms_core/lib/comms_core/conversations/memberships.ex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def admission_usage(", conversation_facade_source)
+        self.assertIn("def active_conversation_count(", commands_source)
         self.assertIn(
-            "defp ensure_conversation_member_capacity(",
-            conversation_source,
+            "def ensure_conversation_member_capacity(",
+            commands_source,
         )
-        self.assertIn("AdmissionQuotas.locked_policy(", conversation_source)
+        self.assertIn("AdmissionQuotas.locked_policy(", commands_source)
 
-        def public_function_section(signature: str) -> str:
-            start = conversation_source.index(signature)
-            end = conversation_source.find("\n  def ", start + len(signature))
+        def public_function_section(source: str, signature: str) -> str:
+            start = source.index(signature)
+            end = source.find("\n  def ", start + len(signature))
             return (
-                conversation_source[start:]
+                source[start:]
                 if end == -1
-                else conversation_source[start:end]
+                else source[start:end]
             )
 
-        for signature, lock_marker, count_marker in (
+        for source, signature, lock_marker, count_marker in (
             (
+                commands_source,
                 "\n  def create(attrs, subject)",
                 "policy = admission_policy!(tenant_id)",
                 "current_active_conversations = active_conversation_count(tenant_id)",
             ),
             (
-                "\n  def join_public_channel(id, subject)",
-                "policy = admission_policy!(conversation.tenant_id)",
-                "ensure_conversation_member_capacity(policy, conversation)",
+                public_channels_source,
+                "\n  def join(id, subject)",
+                "policy = Commands.admission_policy!(conversation.tenant_id)",
+                "Commands.ensure_conversation_member_capacity(policy, conversation)",
             ),
             (
-                "\n  def add_member(conversation_id, user_id, role, subject)",
-                "policy = admission_policy!(conversation.tenant_id)",
-                "ensure_conversation_member_capacity(policy, conversation)",
+                memberships_source,
+                "\n  def add(conversation_id, user_id, role, subject)",
+                "policy = Commands.admission_policy!(conversation.tenant_id)",
+                "Commands.ensure_conversation_member_capacity(policy, conversation)",
             ),
         ):
             with self.subTest(signature=signature):
-                section = public_function_section(signature)
+                section = public_function_section(source, signature)
                 self.assertLess(section.index(lock_marker), section.index(count_marker))
 
         operations_source = (
@@ -3112,8 +3163,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
-        source = (root / "apps/comms_core/lib/comms_core/governance.ex").read_text(
-            encoding="utf-8"
+        source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/governance.ex"
         )
 
         self.assertEqual(
@@ -3213,13 +3264,13 @@ class ValidateArchitectureTest(unittest.TestCase):
         }
         for relative_path, functions in owner_apis.items():
             with self.subTest(owner=relative_path):
-                source = (root / relative_path).read_text(encoding="utf-8")
+                source = module_family_source(root, relative_path)
                 for function in functions:
                     self.assertIn(function, source)
 
-        governance_source = (
-            root / "apps/comms_core/lib/comms_core/governance.ex"
-        ).read_text(encoding="utf-8")
+        governance_source = module_family_source(
+            root, "apps/comms_core/lib/comms_core/governance.ex"
+        )
         moderation_source = (
             root / "apps/comms_core/lib/comms_core/moderation.ex"
         ).read_text(encoding="utf-8")
@@ -3295,30 +3346,46 @@ class ValidateArchitectureTest(unittest.TestCase):
         self,
     ) -> None:
         root = Path(__file__).resolve().parents[1]
-        source = (root / "apps/comms_core/lib/comms_core/accounts.ex").read_text(
+        accounts_source = (
+            root / "apps/comms_core/lib/comms_core/accounts.ex"
+        ).read_text(
             encoding="utf-8"
         )
+        bootstrap_source = (
+            root / "apps/comms_core/lib/comms_core/accounts/bootstrap.ex"
+        ).read_text(encoding="utf-8")
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         violations = analyze_context_boundaries(root, manifest)
 
-        self.assertIn("Administration.append_bootstrap_tenant", source)
-        self.assertIn("ConversationBootstrapPort.append_initial_channel", source)
-        self.assertIn("ConversationBootstrapPort.create_initial_channel", source)
-        self.assertIn("ConversationBootstrapPort.fetch_initial_channel", source)
-        self.assertNotIn("CommsCore.Conversations", source)
+        self.assertIn("Administration.append_bootstrap_tenant", bootstrap_source)
+        self.assertIn(
+            "ConversationBootstrapPort.append_initial_channel", accounts_source
+        )
+        self.assertIn(
+            "ConversationBootstrapPort.create_initial_channel", accounts_source
+        )
+        self.assertIn(
+            "ConversationBootstrapPort.fetch_initial_channel", accounts_source
+        )
+        self.assertNotIn("CommsCore.Conversations", accounts_source)
+        self.assertNotIn("CommsCore.Conversations", bootstrap_source)
         self.assertNotRegex(
-            source,
+            accounts_source,
             r"(?m)^\s*alias\s+CommsCore\.Administration\.Invitation\s*$",
         )
-        self.assertNotIn("%Invitation{", source)
-        self.assertNotIn("CommsCore.Conversations.Conversation", source)
-        self.assertNotIn("CommsCore.Conversations.Membership", source)
+        self.assertNotIn("%Invitation{", accounts_source)
+        self.assertNotIn("CommsCore.Conversations.Conversation", accounts_source)
+        self.assertNotIn("CommsCore.Conversations.Membership", accounts_source)
         self.assertEqual(
             [
                 item
                 for item in violations
                 if item.rule == "direct_foreign_write"
-                and item.path == "apps/comms_core/lib/comms_core/accounts.ex"
+                and item.path
+                in {
+                    "apps/comms_core/lib/comms_core/accounts.ex",
+                    "apps/comms_core/lib/comms_core/accounts/bootstrap.ex",
+                }
             ],
             [],
         )

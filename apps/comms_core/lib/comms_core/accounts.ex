@@ -8,23 +8,24 @@ defmodule CommsCore.Accounts do
   alias CommsCore.Accounts.{
     AccessControl,
     AccessGrant,
+    Bootstrap,
     CallLifecycleCommand,
     CallLifecyclePort,
     CallLifecycleReceipt,
     ConversationBootstrapPort,
     Device,
     Directory,
-    InitialConversationCommand,
+    GuestIdentities,
     NotificationCommand,
     NotificationRecipient,
     NotificationPort,
-    PlatformRoleGrant,
+    PlatformGrants,
     Session,
     Sessions,
-    User
+    User,
+    UserLifecycle
   }
 
-  alias CommsCore.Audit
   alias CommsCore.Audit.Actor
 
   alias CommsCore.Administration.{
@@ -36,18 +37,12 @@ defmodule CommsCore.Accounts do
 
   alias CommsCore.{
     Administration,
-    AdmissionQuotas,
     Repo,
     ValidationError
   }
 
   alias CommsCore.Security.Password
 
-  @bootstrap_lock_key 1_449_769_383
-  @platform_roles PlatformRoleGrant.roles()
-  @platform_role_min_ttl_seconds 300
-  @platform_role_max_ttl_seconds 28_800
-  @ephemeral_guest_authority_max_seconds 86_400
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
@@ -363,9 +358,7 @@ defmodule CommsCore.Accounts do
   # Adapter-facing API. These functions are the stable projection boundary;
   # persistence-returning operations remain private owner implementations.
   def bootstrap_tenant_view(attrs) do
-    with {:ok, result} <- bootstrap_tenant(attrs) do
-      {:ok, CommsCore.Accounts.Projector.authentication(result)}
-    end
+    Bootstrap.tenant_view(attrs, bootstrap_effects())
   end
 
   def authenticate_view(tenant_slug, email, password, device_attrs \\ %{}) do
@@ -432,16 +425,11 @@ defmodule CommsCore.Accounts do
              | :active_user_quota_exceeded
              | :invalid_guest_identity}
   def provision_guest_identity(attrs) when is_map(attrs) do
-    if Repo.in_transaction?() do
-      attrs
-      |> provision_guest_identity_in_transaction()
-      |> normalize_guest_identity_result()
-    else
-      {:error, :transaction_required}
-    end
+    GuestIdentities.provision(attrs, guest_identity_effects())
   end
 
-  def provision_guest_identity(_attrs), do: {:error, :transaction_required}
+  def provision_guest_identity(attrs),
+    do: GuestIdentities.provision(attrs, guest_identity_effects())
 
   @doc """
   Extends one active instant-room guest's authority inside a caller transaction.
@@ -461,27 +449,11 @@ defmodule CommsCore.Accounts do
            }}
           | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
   def extend_ephemeral_guest_authority(session_id, deadline) when is_binary(session_id) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not valid_uuid?(session_id) ->
-        {:error, :session_expired}
-
-      true ->
-        with {:ok, deadline} <- normalize_ephemeral_guest_deadline(deadline),
-             {:ok, receipt} <-
-               extend_ephemeral_guest_authority_in_transaction(session_id, deadline) do
-          {:ok, receipt}
-        end
-    end
+    GuestIdentities.extend_ephemeral_authority(session_id, deadline)
   end
 
-  def extend_ephemeral_guest_authority(_session_id, _deadline) do
-    if Repo.in_transaction?(),
-      do: {:error, :session_expired},
-      else: {:error, :transaction_required}
-  end
+  def extend_ephemeral_guest_authority(session_id, deadline),
+    do: GuestIdentities.extend_ephemeral_authority(session_id, deadline)
 
   @doc """
   Ensures one active instant-room guest remains authorized through a deadline.
@@ -501,27 +473,11 @@ defmodule CommsCore.Accounts do
            }}
           | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
   def ensure_ephemeral_guest_authority(session_id, deadline) when is_binary(session_id) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not valid_uuid?(session_id) ->
-        {:error, :session_expired}
-
-      true ->
-        with {:ok, deadline} <- normalize_ephemeral_guest_deadline(deadline),
-             {:ok, receipt} <-
-               ensure_ephemeral_guest_authority_in_transaction(session_id, deadline) do
-          {:ok, receipt}
-        end
-    end
+    GuestIdentities.ensure_ephemeral_authority(session_id, deadline)
   end
 
-  def ensure_ephemeral_guest_authority(_session_id, _deadline) do
-    if Repo.in_transaction?(),
-      do: {:error, :session_expired},
-      else: {:error, :transaction_required}
-  end
+  def ensure_ephemeral_guest_authority(session_id, deadline),
+    do: GuestIdentities.ensure_ephemeral_authority(session_id, deadline)
 
   @doc """
   Reissues creator authentication after an instant-room creation response is
@@ -542,32 +498,11 @@ defmodule CommsCore.Accounts do
              | :invalid_ephemeral_guest_deadline
              | :invalid_guest_identity}
   def resume_ephemeral_guest_identity(command) when is_map(command) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not ephemeral_guest_conversion_subject?(command) ->
-        {:error, :forbidden}
-
-      true ->
-        with {:ok, user_id} <- cast_uuid_value(value(command, :user_id)),
-             {:ok, session_id} <- cast_uuid_value(value(command, :session_id)),
-             {:ok, deadline} <-
-               normalize_ephemeral_guest_deadline(value(command, :expires_at)) do
-          resume_ephemeral_guest_identity_in_transaction(
-            user_id,
-            session_id,
-            value(command, :device) || %{},
-            deadline
-          )
-        else
-          {:error, :invalid_uuid} -> {:error, :invalid_guest_identity}
-          {:error, _reason} = error -> error
-        end
-    end
+    GuestIdentities.resume_ephemeral(command, guest_identity_effects())
   end
 
-  def resume_ephemeral_guest_identity(_command), do: {:error, :forbidden}
+  def resume_ephemeral_guest_identity(command),
+    do: GuestIdentities.resume_ephemeral(command, guest_identity_effects())
 
   @doc """
   Atomically converts a guest into a normal human account without changing the
@@ -587,19 +522,17 @@ defmodule CommsCore.Accounts do
              | :invalid_guest_account}
   def convert_guest_account(attrs, guest_subject, preauthorized_email)
       when is_map(attrs) and is_map(guest_subject) and is_binary(preauthorized_email) do
-    expected_email = normalize_email(preauthorized_email)
-
-    if expected_email != "" and normalize_email(value(attrs, :email)) == expected_email do
-      fn -> convert_guest_account_in_transaction(attrs, guest_subject, expected_email) end
-      |> run_transaction_aware()
-      |> normalize_guest_account_result()
-    else
-      {:error, :guest_account_conversion_email_mismatch}
-    end
+    GuestIdentities.convert(attrs, guest_subject, preauthorized_email, guest_identity_effects())
   end
 
-  def convert_guest_account(_attrs, _guest_subject, _preauthorized_email),
-    do: {:error, :forbidden}
+  def convert_guest_account(attrs, guest_subject, preauthorized_email),
+    do:
+      GuestIdentities.convert(
+        attrs,
+        guest_subject,
+        preauthorized_email,
+        guest_identity_effects()
+      )
 
   @doc """
   Converts a domain-authorized instant-room guest into a conversation-only
@@ -622,22 +555,11 @@ defmodule CommsCore.Accounts do
              | :invalid_guest_account}
   def convert_ephemeral_guest_account(attrs, guest_subject)
       when is_map(attrs) and is_map(guest_subject) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not ephemeral_guest_conversion_subject?(guest_subject) ->
-        {:error, :forbidden}
-
-      true ->
-        attrs
-        |> convert_ephemeral_guest_account_in_transaction(guest_subject)
-        |> normalize_guest_account_result()
-    end
+    GuestIdentities.convert_ephemeral(attrs, guest_subject, guest_identity_effects())
   end
 
-  def convert_ephemeral_guest_account(_attrs, _guest_subject),
-    do: {:error, :forbidden}
+  def convert_ephemeral_guest_account(attrs, guest_subject),
+    do: GuestIdentities.convert_ephemeral(attrs, guest_subject, guest_identity_effects())
 
   @doc """
   Revokes an expiring guest session and propagates the revocation to active
@@ -647,37 +569,22 @@ defmodule CommsCore.Accounts do
           :ok | {:error, :not_found | :invalid_reason | term()}
   def revoke_guest_session(session_id, reason)
       when is_binary(session_id) and is_binary(reason) do
-    reason = String.trim(reason)
-
-    if reason == "" or String.length(reason) > 160 do
-      {:error, :invalid_reason}
-    else
-      run_transaction_aware(fn -> revoke_guest_session_in_transaction(session_id, reason) end)
-    end
+    GuestIdentities.revoke_session(session_id, reason, guest_identity_effects())
   end
 
-  def revoke_guest_session(_session_id, _reason), do: {:error, :invalid_reason}
+  def revoke_guest_session(session_id, reason),
+    do: GuestIdentities.revoke_session(session_id, reason, guest_identity_effects())
 
   def list_tenant_user_views(subject) do
-    case access_grant(subject) do
-      {:ok, %AccessGrant{access_scope: :workspace}} ->
-        subject |> list_tenant_users() |> Enum.map(&CommsCore.Accounts.Projector.user/1)
-
-      _ ->
-        []
-    end
+    UserLifecycle.list_tenant_views(subject)
   end
 
   def list_admin_user_views(subject) do
-    with {:ok, users} <- list_admin_users(subject) do
-      {:ok, Enum.map(users, &CommsCore.Accounts.Projector.user(&1, platform_access: true))}
-    end
+    UserLifecycle.list_admin_views(subject)
   end
 
   def update_profile_view(attrs, subject),
-    do:
-      update_profile(attrs, subject)
-      |> project_result(&CommsCore.Accounts.Projector.user(&1, platform_access: true))
+    do: UserLifecycle.update_profile_view(attrs, subject)
 
   def list_device_views(subject),
     do: subject |> list_devices() |> Enum.map(&CommsCore.Accounts.Projector.device/1)
@@ -692,10 +599,7 @@ defmodule CommsCore.Accounts do
   end
 
   def change_user_with_effects_view(id, attrs, subject) do
-    with {:ok, result} <- change_user_with_effects(id, attrs, subject) do
-      {:ok,
-       %{result | user: CommsCore.Accounts.Projector.user(result.user, platform_access: true)}}
-    end
+    UserLifecycle.change_with_effects_view(id, attrs, subject, user_lifecycle_effects())
   end
 
   def step_up_view(attrs, subject),
@@ -845,97 +749,7 @@ defmodule CommsCore.Accounts do
   def erase_user_for_governance(_command), do: {:error, :invalid_erasure_command}
 
   def bootstrap_tenant(attrs) when is_map(attrs) do
-    with :ok <- validate_password(value(attrs, :password)) do
-      now = now()
-      session_deadlines = Sessions.new_deadlines(now)
-      tenant_id = Ecto.UUID.generate()
-      user_id = Ecto.UUID.generate()
-      device_id = Ecto.UUID.generate()
-      conversation_id = Ecto.UUID.generate()
-      session_id = Ecto.UUID.generate()
-      {refresh_token, refresh_hash} = Sessions.new_refresh_token(session_id)
-
-      initial_conversation = %InitialConversationCommand{
-        id: conversation_id,
-        tenant_id: tenant_id,
-        owner_user_id: user_id,
-        joined_at: now
-      }
-
-      multi =
-        Ecto.Multi.new()
-        |> Administration.append_bootstrap_tenant(
-          :tenant,
-          %{
-            id: tenant_id,
-            name: value(attrs, :tenant_name),
-            slug: value(attrs, :tenant_slug)
-          }
-        )
-        |> Ecto.Multi.insert(
-          :user,
-          User.changeset(%User{id: user_id}, %{
-            tenant_id: tenant_id,
-            external_subject: "local:#{String.downcase(value(attrs, :email) || "")}",
-            display_name: value(attrs, :display_name),
-            email: value(attrs, :email),
-            password_hash: Password.hash(value(attrs, :password)),
-            account_type: :human,
-            role: :owner,
-            status: :active
-          })
-        )
-        |> Ecto.Multi.insert(
-          :device,
-          Device.changeset(%Device{id: device_id}, %{
-            tenant_id: tenant_id,
-            user_id: user_id,
-            name: value(attrs, :device_name) || "Initial browser",
-            platform: value(attrs, :device_platform) || "web",
-            last_seen_at: now
-          })
-        )
-        |> ConversationBootstrapPort.append_initial_channel(
-          :conversation,
-          initial_conversation
-        )
-        |> Ecto.Multi.insert(
-          :session,
-          Session.changeset(%Session{id: session_id}, %{
-            tenant_id: tenant_id,
-            user_id: user_id,
-            device_id: device_id,
-            refresh_token_hash: refresh_hash,
-            expires_at: session_deadlines.expires_at,
-            absolute_expires_at: session_deadlines.absolute_expires_at,
-            last_used_at: now
-          })
-        )
-        |> Audit.append(%{
-          tenant_id: tenant_id,
-          actor_user_id: user_id,
-          action: "tenant.bootstrap",
-          resource_type: "tenant",
-          resource_id: tenant_id,
-          metadata: %{initial_conversation_id: conversation_id}
-        })
-
-      case Repo.transaction(multi) do
-        {:ok, result} ->
-          {:ok,
-           %{
-             tenant: result.tenant,
-             user: result.user,
-             device: result.device,
-             session: result.session,
-             refresh_token: refresh_token,
-             conversation: result.conversation
-           }}
-
-        {:error, _step, reason, _changes} ->
-          {:error, reason}
-      end
-    end
+    Bootstrap.tenant(attrs, bootstrap_effects())
   end
 
   @doc """
@@ -946,36 +760,7 @@ defmodule CommsCore.Accounts do
   accepted as an idempotent retry; a different bootstrap identity fails closed.
   """
   def bootstrap_tenant_once(attrs) when is_map(attrs) do
-    password = value(attrs, :password)
-
-    with :ok <- validate_password(password) do
-      identity = bootstrap_identity(attrs)
-      password_hash = Password.hash(password)
-
-      Repo.transaction(fn ->
-        Ecto.Adapters.SQL.query!(
-          Repo,
-          "SELECT pg_advisory_xact_lock($1::bigint)",
-          [@bootstrap_lock_key]
-        )
-
-        case Administration.get_bootstrap_tenant_by_slug(identity.tenant_slug) do
-          %{id: _id} = tenant ->
-            existing_bootstrap(tenant, identity)
-
-          nil ->
-            if Administration.any_tenant?() do
-              Repo.rollback(:bootstrap_identity_conflict)
-            else
-              create_one_time_bootstrap(attrs, identity, password_hash)
-            end
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
-    end
+    Bootstrap.tenant_once(attrs, bootstrap_effects())
   end
 
   @doc """
@@ -987,621 +772,14 @@ defmodule CommsCore.Accounts do
   tenant's only owner before requesting deletion.
   """
   def delete_release_qualification_tenant(attrs) when is_map(attrs) do
-    tenant_slug = value(attrs, :tenant_slug)
-    tenant_name = value(attrs, :tenant_name)
-
-    owner_email =
-      attrs
-      |> value(:email)
-      |> to_string()
-      |> String.trim()
-      |> String.downcase()
-
-    qualification_id =
-      case Regex.run(
-             ~r/\Ak-comms-qualification-([0-9a-f]{32})\z/,
-             to_string(tenant_slug)
-           ) do
-        [_, id] -> id
-        _other -> nil
-      end
-
-    expected_name = "K-Comms qualification #{qualification_id}"
-
-    expected_email =
-      "k-comms-qualification-owner+#{qualification_id}@example.test"
-
-    if qualification_id && tenant_name == expected_name &&
-         owner_email == expected_email do
-      Repo.transaction(fn ->
-        case Administration.get_bootstrap_tenant_by_slug(tenant_slug) do
-          nil ->
-            %{status: :absent, tenant_slug: tenant_slug}
-
-          %{id: tenant_id, name: ^tenant_name} = tenant ->
-            matching_owner_count =
-              Repo.aggregate(
-                from(u in User,
-                  where:
-                    u.tenant_id == ^tenant_id and u.role == :owner and
-                      u.status == :active and u.email == ^owner_email
-                ),
-                :count
-              )
-
-            total_owner_count =
-              Repo.aggregate(
-                from(u in User,
-                  where: u.tenant_id == ^tenant_id and u.role == :owner
-                ),
-                :count
-              )
-
-            if matching_owner_count == 1 and total_owner_count == 1 do
-              case Administration.delete_release_qualification_tenant(tenant) do
-                {:ok, deleted} -> %{status: :deleted, tenant: deleted}
-                {:error, reason} -> Repo.rollback(reason)
-              end
-            else
-              Repo.rollback(:qualification_tenant_identity_conflict)
-            end
-
-          _tenant ->
-            Repo.rollback(:qualification_tenant_identity_conflict)
-        end
-      end)
-      |> case do
-        {:ok, result} -> {:ok, result}
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      {:error, :qualification_tenant_identity_conflict}
-    end
+    Bootstrap.delete_release_qualification_tenant(attrs)
   end
 
-  def delete_release_qualification_tenant(_attrs),
-    do: {:error, :qualification_tenant_identity_conflict}
+  def delete_release_qualification_tenant(attrs),
+    do: Bootstrap.delete_release_qualification_tenant(attrs)
 
   def create_user(attrs, subject) when is_map(attrs) and is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    password = value(attrs, :password)
-    email = value(attrs, :email) |> to_string() |> String.trim() |> String.downcase()
-    user_id = Ecto.UUID.generate()
-
-    with :ok <- reject_platform_role_attribute(attrs),
-         :ok <- reject_service_account_attribute(attrs),
-         {:ok, requested_role} <- requested_role(attrs),
-         :ok <- authorize_manage_user_lifecycle(subject),
-         :ok <- reject_service_identity_email(tenant_id, email),
-         :ok <- authorize_role_assignment(subject, requested_role),
-         :ok <- validate_password(password) do
-      user_changeset =
-        User.changeset(%User{id: user_id}, %{
-          tenant_id: tenant_id,
-          external_subject: value(attrs, :external_subject) || "local:#{email}",
-          display_name: value(attrs, :display_name),
-          email: email,
-          password_hash: Password.hash(password),
-          account_type: :human,
-          role: requested_role,
-          status: :active
-        })
-
-      Ecto.Multi.new()
-      |> Ecto.Multi.run(:admission_quota, fn _repo, _changes ->
-        with {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
-             :ok <- ensure_active_user_capacity(tenant_id, policy) do
-          {:ok, :admitted}
-        end
-      end)
-      |> Ecto.Multi.insert(:user, user_changeset)
-      |> Audit.append(%{
-        tenant_id: tenant_id,
-        actor_user_id: value(subject, :user_id),
-        action: "user.create",
-        resource_type: "user",
-        resource_id: user_id,
-        metadata: %{email: email, role: requested_role},
-        request_id: value(subject, :request_id)
-      })
-      |> Repo.transaction()
-      |> case do
-        {:ok, %{user: user}} -> {:ok, user}
-        {:error, _step, reason, _changes} -> {:error, reason}
-      end
-    end
-  end
-
-  defp provision_guest_identity_in_transaction(attrs) do
-    created_at = now()
-    tenant_id = value(attrs, :tenant_id)
-
-    with {:ok, _uuid} <- Ecto.UUID.cast(tenant_id),
-         {:ok, guest_expires_at} <-
-           normalize_guest_expiry(value(attrs, :expires_at), created_at),
-         {:ok, tenant} <- Administration.active_tenant(tenant_id),
-         {:ok, policy} <- AdmissionQuotas.locked_policy(tenant_id),
-         :ok <- ensure_active_user_capacity(tenant_id, policy),
-         {:ok, user_id} <- guest_user_id(value(attrs, :user_id)) do
-      device_attrs = value(attrs, :device) || %{}
-
-      user_changeset =
-        User.guest_changeset(%User{id: user_id}, %{
-          tenant_id: tenant_id,
-          external_subject: "guest:#{user_id}",
-          display_name: value(attrs, :display_name),
-          guest_expires_at: guest_expires_at
-        })
-
-      case Repo.insert(user_changeset) do
-        {:ok, user} ->
-          device =
-            %Device{id: Ecto.UUID.generate()}
-            |> Device.changeset(%{
-              tenant_id: tenant_id,
-              user_id: user.id,
-              name:
-                value(device_attrs, :name) || value(attrs, :device_name) ||
-                  "Guest browser",
-              platform: value(device_attrs, :platform) || value(attrs, :device_platform) || "web",
-              last_seen_at: created_at
-            })
-            |> insert_or_rollback()
-
-          {session, refresh_token} =
-            Sessions.create_guest_or_rollback(user, device, guest_expires_at, created_at)
-
-          Audit.record(%{
-            tenant_id: tenant_id,
-            actor_user_id: user.id,
-            action: "guest_identity.provision",
-            resource_type: "user",
-            resource_id: user.id,
-            metadata: %{
-              guest_expires_at: DateTime.to_iso8601(guest_expires_at),
-              device_id: device.id
-            },
-            request_id: optional_request_id(value(attrs, :request_id))
-          })
-          |> audit_or_rollback()
-
-          {:ok,
-           CommsCore.Accounts.Projector.authentication(%{
-             tenant: tenant,
-             user: user,
-             device: device,
-             session: session,
-             refresh_token: refresh_token,
-             conversation: nil
-           })}
-
-        {:error, changeset} ->
-          {:error, changeset}
-      end
-    else
-      :error -> {:error, :tenant_unavailable}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp extend_ephemeral_guest_authority_in_transaction(session_id, deadline) do
-    timestamp = now()
-    session = lock_active_ephemeral_guest_session(session_id, timestamp)
-
-    case session do
-      nil ->
-        {:error, :session_expired}
-
-      %Session{} = active_session ->
-        rolling_deadline =
-          timestamp
-          |> DateTime.add(session_ttl_seconds(), :second)
-          |> earlier_deadline(deadline)
-
-        user_changeset =
-          User.guest_expiration_changeset(active_session.user, deadline)
-
-        session_changeset =
-          Session.ephemeral_guest_authority_changeset(active_session, %{
-            expires_at: rolling_deadline,
-            absolute_expires_at: deadline,
-            last_used_at: timestamp
-          })
-
-        device_changeset =
-          Device.changeset(active_session.device, %{last_seen_at: timestamp})
-
-        with :ok <- valid_ephemeral_authority_changeset(user_changeset),
-             :ok <- valid_ephemeral_authority_changeset(session_changeset),
-             :ok <- valid_ephemeral_authority_changeset(device_changeset) do
-          _user = update_or_rollback(user_changeset)
-          updated_session = update_or_rollback(session_changeset)
-          _device = update_or_rollback(device_changeset)
-
-          {:ok,
-           %{
-             tenant_id: updated_session.tenant_id,
-             user_id: updated_session.user_id,
-             session_id: updated_session.id,
-             expires_at: deadline
-           }}
-        end
-    end
-  end
-
-  defp ensure_ephemeral_guest_authority_in_transaction(session_id, deadline) do
-    timestamp = now()
-
-    case lock_active_ephemeral_guest_session(session_id, timestamp) do
-      nil ->
-        {:error, :session_expired}
-
-      %Session{} = active_session ->
-        absolute_deadline = later_deadline(active_session.absolute_expires_at, deadline)
-        user_deadline = later_deadline(active_session.user.guest_expires_at, deadline)
-
-        rolling_deadline =
-          timestamp
-          |> DateTime.add(session_ttl_seconds(), :second)
-          |> earlier_deadline(absolute_deadline)
-          |> later_deadline(active_session.expires_at)
-
-        if DateTime.compare(rolling_deadline, deadline) == :lt do
-          {:error, :invalid_ephemeral_guest_deadline}
-        else
-          user_changeset =
-            User.guest_expiration_changeset(active_session.user, user_deadline)
-
-          session_changeset =
-            Session.ephemeral_guest_authority_changeset(active_session, %{
-              expires_at: rolling_deadline,
-              absolute_expires_at: absolute_deadline,
-              last_used_at: timestamp
-            })
-
-          device_changeset =
-            Device.changeset(active_session.device, %{last_seen_at: timestamp})
-
-          with :ok <- valid_ephemeral_authority_changeset(user_changeset),
-               :ok <- valid_ephemeral_authority_changeset(session_changeset),
-               :ok <- valid_ephemeral_authority_changeset(device_changeset) do
-            _user = update_or_rollback(user_changeset)
-            updated_session = update_or_rollback(session_changeset)
-            _device = update_or_rollback(device_changeset)
-
-            {:ok,
-             %{
-               tenant_id: updated_session.tenant_id,
-               user_id: updated_session.user_id,
-               session_id: updated_session.id,
-               expires_at: deadline
-             }}
-          end
-        end
-    end
-  end
-
-  defp lock_active_ephemeral_guest_session(session_id, timestamp) do
-    Repo.one(
-      from(s in Session,
-        join: u in User,
-        on: u.id == s.user_id and u.tenant_id == s.tenant_id,
-        join: d in Device,
-        on:
-          d.id == s.device_id and d.user_id == s.user_id and
-            d.tenant_id == s.tenant_id,
-        where:
-          s.id == ^session_id and is_nil(s.revoked_at) and
-            s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
-            u.status == :active and u.account_type == :guest and
-            u.access_scope == :conversation_only and not is_nil(u.guest_expires_at) and
-            u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
-        preload: [user: u, device: d],
-        lock: "FOR UPDATE"
-      )
-    )
-  end
-
-  defp resume_ephemeral_guest_identity_in_transaction(
-         user_id,
-         session_id,
-         device_attrs,
-         deadline
-       ) do
-    timestamp = now()
-
-    session =
-      Repo.one(
-        from(s in Session,
-          join: u in User,
-          on: u.id == s.user_id and u.tenant_id == s.tenant_id,
-          join: d in Device,
-          on:
-            d.id == s.device_id and d.user_id == s.user_id and
-              d.tenant_id == s.tenant_id,
-          where:
-            s.id == ^session_id and s.user_id == ^user_id and is_nil(s.revoked_at) and
-              s.expires_at > ^timestamp and s.absolute_expires_at > ^timestamp and
-              u.status == :active and u.account_type == :guest and
-              u.access_scope == :conversation_only and not is_nil(u.guest_expires_at) and
-              u.guest_expires_at > ^timestamp and is_nil(d.revoked_at),
-          preload: [user: u, device: d],
-          lock: "FOR UPDATE"
-        )
-      )
-
-    case session do
-      nil ->
-        {:error, :session_expired}
-
-      %Session{} = active_session ->
-        if DateTime.compare(deadline, active_session.user.guest_expires_at) == :lt do
-          {:error, :invalid_ephemeral_guest_deadline}
-        else
-          with {:ok, tenant} <- Administration.active_tenant(active_session.tenant_id) do
-            user_changeset =
-              active_session.user
-              |> User.guest_expiration_changeset(deadline)
-
-            device_changeset =
-              active_session.device
-              |> Device.changeset(ephemeral_resume_device_changes(device_attrs, timestamp))
-
-            with :ok <- valid_ephemeral_resume_changeset(user_changeset),
-                 :ok <- valid_ephemeral_resume_changeset(device_changeset) do
-              user = update_or_rollback(user_changeset)
-
-              active_session
-              |> Session.changeset(%{revoked_at: timestamp})
-              |> update_or_rollback()
-
-              device = update_or_rollback(device_changeset)
-
-              {replacement_session, refresh_token} =
-                Sessions.create_guest_or_rollback(user, device, deadline, timestamp)
-
-              Audit.record(%{
-                tenant_id: user.tenant_id,
-                actor_user_id: user.id,
-                action: "guest_identity.resume_ephemeral",
-                resource_type: "session",
-                resource_id: replacement_session.id,
-                metadata: %{
-                  previous_session_id: active_session.id,
-                  access_scope: "conversation_only"
-                }
-              })
-              |> audit_or_rollback()
-
-              {:ok,
-               CommsCore.Accounts.Projector.authentication(%{
-                 tenant: tenant,
-                 user: user,
-                 device: device,
-                 session: replacement_session,
-                 refresh_token: refresh_token,
-                 conversation: nil
-               })}
-            end
-          end
-        end
-    end
-  end
-
-  defp convert_guest_account_in_transaction(attrs, guest_subject, preauthorized_email) do
-    password = value(attrs, :password)
-    email = normalize_email(value(attrs, :email))
-
-    with true <- email == preauthorized_email,
-         :ok <- validate_password(password),
-         {:ok, session, tenant} <- Sessions.lock_active_guest(guest_subject) do
-      changes = %{
-        external_subject: "local:#{email}",
-        display_name: value(attrs, :display_name) || session.user.display_name,
-        email: email,
-        password_hash: Password.hash(password)
-      }
-
-      with :ok <-
-             session.user
-             |> User.guest_conversion_changeset(changes)
-             |> valid_changeset() do
-        converted_user =
-          session.user
-          |> User.guest_conversion_changeset(changes)
-          |> update_or_validation_error()
-
-        revoked_at = now()
-
-        session
-        |> Session.changeset(%{revoked_at: revoked_at})
-        |> update_or_rollback()
-
-        session.device
-        |> Device.changeset(%{revoked_at: revoked_at})
-        |> update_or_rollback()
-
-        CallLifecycleCommand.sessions_revoked(
-          session.tenant_id,
-          [session.id],
-          "guest_converted"
-        )
-        |> CallLifecyclePort.revoke_identity_access()
-        |> call_lifecycle_ok!()
-
-        device_attrs = value(attrs, :device) || %{}
-
-        device =
-          %Device{id: Ecto.UUID.generate()}
-          |> Device.changeset(%{
-            tenant_id: converted_user.tenant_id,
-            user_id: converted_user.id,
-            name:
-              value(device_attrs, :name) || value(attrs, :device_name) ||
-                "Account browser",
-            platform: value(device_attrs, :platform) || value(attrs, :device_platform) || "web",
-            last_seen_at: revoked_at
-          })
-          |> insert_or_rollback()
-
-        {session, refresh_token} = Sessions.create_or_rollback(converted_user, device)
-
-        Audit.record(%{
-          tenant_id: converted_user.tenant_id,
-          actor_user_id: converted_user.id,
-          action: "guest_identity.convert",
-          resource_type: "user",
-          resource_id: converted_user.id,
-          metadata: %{
-            previous_session_id: value(guest_subject, :session_id),
-            replacement_session_id: session.id
-          },
-          request_id: optional_request_id(value(guest_subject, :request_id))
-        })
-        |> audit_or_rollback()
-
-        {:ok,
-         CommsCore.Accounts.Projector.authentication(%{
-           tenant: tenant,
-           user: converted_user,
-           device: device,
-           session: session,
-           refresh_token: refresh_token,
-           conversation: nil
-         })}
-      end
-    else
-      false -> {:error, :guest_account_conversion_email_mismatch}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp convert_ephemeral_guest_account_in_transaction(attrs, guest_subject) do
-    password = value(attrs, :password)
-    email = normalize_email(value(attrs, :email))
-
-    with :ok <- validate_password(password),
-         {:ok, session, tenant} <- Sessions.lock_active_guest(guest_subject),
-         true <- session.user.access_scope == :conversation_only do
-      changes = %{
-        external_subject: "local:#{email}",
-        display_name: value(attrs, :display_name) || session.user.display_name,
-        email: email,
-        password_hash: Password.hash(password)
-      }
-
-      with :ok <-
-             session.user
-             |> User.ephemeral_guest_conversion_changeset(changes)
-             |> valid_changeset() do
-        converted_user =
-          session.user
-          |> User.ephemeral_guest_conversion_changeset(changes)
-          |> update_or_validation_error()
-
-        converted_at = now()
-
-        session
-        |> Session.changeset(%{revoked_at: converted_at})
-        |> update_or_rollback()
-
-        device =
-          session.device
-          |> Device.changeset(%{last_seen_at: converted_at})
-          |> update_or_rollback()
-
-        {replacement_session, refresh_token} =
-          Sessions.create_or_rollback(converted_user, device)
-
-        Audit.record(%{
-          tenant_id: converted_user.tenant_id,
-          actor_user_id: converted_user.id,
-          action: "guest_identity.convert_ephemeral",
-          resource_type: "user",
-          resource_id: converted_user.id,
-          metadata: %{
-            previous_session_id: value(guest_subject, :session_id),
-            replacement_session_id: replacement_session.id,
-            access_scope: "conversation_only"
-          },
-          request_id: optional_request_id(value(guest_subject, :request_id))
-        })
-        |> audit_or_rollback()
-
-        {:ok,
-         CommsCore.Accounts.Projector.authentication(%{
-           tenant: tenant,
-           user: converted_user,
-           device: device,
-           session: replacement_session,
-           refresh_token: refresh_token,
-           conversation: nil
-         })}
-      end
-    else
-      false -> {:error, :forbidden}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp revoke_guest_session_in_transaction(session_id, reason) do
-    session =
-      Repo.one(
-        from(session in Session,
-          join: user in User,
-          on: user.id == session.user_id and user.tenant_id == session.tenant_id,
-          where: session.id == ^session_id and user.account_type == :guest,
-          preload: [user: user],
-          lock: "FOR UPDATE"
-        )
-      )
-
-    case session do
-      nil ->
-        {:error, :not_found}
-
-      %Session{revoked_at: %DateTime{}} = revoked_session ->
-        expire_guest_user!(revoked_session.user, now())
-        :ok
-
-      %Session{} = active_session ->
-        revoked_at = now()
-        expire_guest_user!(active_session.user, revoked_at)
-
-        active_session
-        |> Session.changeset(%{revoked_at: revoked_at})
-        |> update_or_rollback()
-
-        CallLifecycleCommand.sessions_revoked(
-          active_session.tenant_id,
-          [active_session.id],
-          reason
-        )
-        |> CallLifecyclePort.revoke_identity_access()
-        |> call_lifecycle_ok!()
-
-        Audit.record(%{
-          tenant_id: active_session.tenant_id,
-          actor_user_id: nil,
-          action: "guest_session.revoke",
-          resource_type: "session",
-          resource_id: active_session.id,
-          metadata: %{reason: reason}
-        })
-        |> audit_or_rollback()
-
-        :ok
-    end
-  end
-
-  defp expire_guest_user!(%User{account_type: :guest} = user, timestamp) do
-    if DateTime.compare(user.guest_expires_at, timestamp) == :gt do
-      user
-      |> User.guest_expiration_changeset(timestamp)
-      |> update_or_rollback()
-    else
-      user
-    end
+    UserLifecycle.create(attrs, subject)
   end
 
   def refresh_session(token) when is_binary(token) do
@@ -1639,53 +817,12 @@ defmodule CommsCore.Accounts do
     Sessions.revoke(session_id, user_id, session_effects())
   end
 
-  defp list_tenant_users(subject) do
-    tenant_id = value(subject, :tenant_id)
-
-    User
-    |> where([u], u.tenant_id == ^tenant_id and u.status != :deleted)
-    |> order_by([u], asc: fragment("lower(?)", u.display_name))
-    |> preload(:platform_role_grant)
-    |> Repo.all()
-  end
-
   def list_admin_users(subject) do
-    with :ok <- authorize_administer_users(subject) do
-      {:ok, list_tenant_users(subject)}
-    end
+    UserLifecycle.list_admin(subject)
   end
 
   def update_profile(attrs, subject) when is_map(attrs) and is_map(subject) do
-    tenant_id = value(subject, :tenant_id)
-    user_id = value(subject, :user_id)
-
-    Repo.transaction(fn ->
-      user =
-        Repo.one(
-          from(u in User,
-            where:
-              u.id == ^user_id and u.tenant_id == ^tenant_id and u.status == :active and
-                u.account_type == :human,
-            lock: "FOR UPDATE"
-          )
-        ) || Repo.rollback(:not_found)
-
-      changes =
-        case validate_unchanged_profile_email(attrs, user.email) do
-          :ok -> Map.take(attrs, [:display_name, "display_name"])
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
-      updated = user |> User.changeset(changes) |> update_or_rollback()
-
-      insert_audit!(subject, "user.profile_update", "user", user.id, %{
-        before: %{display_name: user.display_name},
-        after: %{display_name: updated.display_name}
-      })
-
-      updated
-    end)
-    |> transaction_result()
+    UserLifecycle.update_profile(attrs, subject)
   end
 
   def change_password(attrs, subject) when is_map(attrs) and is_map(subject) do
@@ -1725,44 +862,22 @@ defmodule CommsCore.Accounts do
   end
 
   def change_user(user_id, attrs, subject) when is_map(attrs) and is_map(subject) do
-    case change_user_with_effects(user_id, attrs, subject) do
-      {:ok, result} -> {:ok, result.user}
-      {:error, _} = error -> error
-    end
+    UserLifecycle.change(user_id, attrs, subject, user_lifecycle_effects())
   end
 
   def change_user_with_effects(user_id, attrs, subject)
       when is_map(attrs) and is_map(subject) do
-    with {:ok, command} <- validate_user_lifecycle_change(attrs, subject) do
-      Repo.transaction(fn ->
-        apply_user_lifecycle_change!(
-          user_id,
-          command,
-          subject,
-          :governance_policy_required
-        )
-      end)
-      |> transaction_result()
-    end
+    UserLifecycle.change_with_effects(user_id, attrs, subject, user_lifecycle_effects())
   end
 
   @doc false
   def preflight_user_lifecycle_change(user_id, attrs, subject)
       when is_map(attrs) and is_map(subject) do
-    cond do
-      not valid_uuid?(user_id) ->
-        {:error, :not_found}
-
-      not valid_uuid?(value(subject, :tenant_id)) ->
-        {:error, :forbidden}
-
-      true ->
-        with {:ok, _command} <- validate_user_lifecycle_change(attrs, subject), do: :ok
-    end
+    UserLifecycle.preflight(user_id, attrs, subject)
   end
 
   def preflight_user_lifecycle_change(_user_id, _attrs, _subject),
-    do: {:error, :not_found}
+    do: UserLifecycle.preflight(nil, nil, nil)
 
   @doc """
   Applies a governed user-lifecycle change inside a caller-owned transaction.
@@ -1781,41 +896,20 @@ defmodule CommsCore.Accounts do
              | atom()}
   def apply_user_lifecycle_change(user_id, attrs, subject, excluded_owner_ids)
       when is_map(attrs) and is_map(subject) do
-    cond do
-      not Repo.in_transaction?() ->
-        {:error, :transaction_required}
-
-      not valid_uuid?(user_id) ->
-        {:error, :not_found}
-
-      not valid_owner_exclusions?(excluded_owner_ids) ->
-        {:error, :invalid_owner_exclusions}
-
-      true ->
-        with {:ok, command} <- validate_user_lifecycle_change(attrs, subject) do
-          result =
-            apply_user_lifecycle_change!(
-              user_id,
-              command,
-              subject,
-              Enum.uniq(excluded_owner_ids)
-            )
-
-          {:ok,
-           %{result | user: CommsCore.Accounts.Projector.user(result.user, platform_access: true)}}
-        end
-    end
+    UserLifecycle.apply_change(
+      user_id,
+      attrs,
+      subject,
+      excluded_owner_ids,
+      user_lifecycle_effects()
+    )
   end
 
   def apply_user_lifecycle_change(_user_id, _attrs, _subject, _excluded_owner_ids),
-    do: {:error, :invalid_owner_exclusions}
+    do: UserLifecycle.apply_change(nil, nil, nil, nil, user_lifecycle_effects())
 
   def get_user_for_subject(subject) do
-    Repo.get_by(User,
-      id: value(subject, :user_id),
-      tenant_id: value(subject, :tenant_id),
-      status: :active
-    )
+    UserLifecycle.get_for_subject(subject)
   end
 
   @doc """
@@ -1832,306 +926,18 @@ defmodule CommsCore.Accounts do
   """
   def set_platform_role_from_console(user_id, role, attrs)
       when is_binary(user_id) and is_map(attrs) do
-    with {:ok, configured_secret} <- platform_role_management_secret(),
-         :ok <-
-           verify_platform_role_management_secret(configured_secret, value(attrs, :grant_token)),
-         {:ok, platform_role} <- normalize_platform_role(role),
-         {:ok, ttl_seconds} <- platform_role_ttl(platform_role, value(attrs, :ttl_seconds)),
-         {:ok, actor} <- required_platform_audit_text(attrs, :actor, 3, 120),
-         {:ok, reason} <- required_platform_audit_text(attrs, :reason, 8, 500) do
-      Repo.transaction(fn ->
-        user =
-          Repo.one(
-            from(u in User,
-              where: u.id == ^user_id,
-              lock: "FOR UPDATE"
-            )
-          ) ||
-            Repo.rollback(:not_found)
-
-        authorize_platform_role_target!(user, platform_role)
-
-        previous_grant =
-          Repo.one(
-            from(g in PlatformRoleGrant,
-              where: g.user_id == ^user.id and g.tenant_id == ^user.tenant_id,
-              lock: "FOR UPDATE"
-            )
-          )
-
-        expires_at =
-          if platform_role,
-            do: DateTime.add(now(), ttl_seconds, :second),
-            else: nil
-
-        current_grant =
-          replace_platform_role_grant!(user, previous_grant, platform_role, expires_at)
-
-        updated =
-          user
-          |> Ecto.Changeset.change()
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-          |> update_or_rollback()
-          |> with_platform_access(platform_role, expires_at)
-
-        action = if is_nil(platform_role), do: "platform_role.revoke", else: "platform_role.grant"
-
-        Audit.record(%{
-          tenant_id: user.tenant_id,
-          actor_user_id: nil,
-          action: action,
-          resource_type: "user",
-          resource_id: user.id,
-          metadata: %{
-            actor: actor,
-            reason: reason,
-            source: "release_console",
-            before_grant_id: previous_grant && previous_grant.id,
-            before: previous_grant && previous_grant.role,
-            before_expires_at: previous_grant && previous_grant.expires_at,
-            after_grant_id: current_grant && current_grant.id,
-            after: platform_role,
-            after_expires_at: expires_at,
-            ttl_seconds: ttl_seconds
-          }
-        })
-        |> audit_or_rollback()
-
-        updated
-      end)
-      |> transaction_result()
-    end
+    PlatformGrants.set_from_console(user_id, role, attrs)
   end
 
   def set_platform_role_from_console(_user_id, _role, _attrs),
-    do: {:error, :invalid_platform_role_request}
+    do: PlatformGrants.set_from_console(nil, nil, nil)
 
   def subject_for_session(%Session{} = session, request_id \\ nil) do
     Sessions.subject(session, request_id)
   end
 
-  defp earlier_deadline(first, second) do
-    if DateTime.compare(first, second) == :gt, do: second, else: first
-  end
-
-  defp later_deadline(first, second) do
-    if DateTime.compare(first, second) == :lt, do: second, else: first
-  end
-
-  defp session_ttl_seconds,
-    do: Application.get_env(:comms_core, :session_ttl_seconds, 2_592_000) |> max(0)
-
   defp validate_password(password) do
     if Password.valid_password?(password), do: :ok, else: {:error, :weak_password}
-  end
-
-  defp create_one_time_bootstrap(attrs, identity, password_hash) do
-    now = now()
-    tenant_id = Ecto.UUID.generate()
-    user_id = Ecto.UUID.generate()
-    conversation_id = Ecto.UUID.generate()
-
-    tenant =
-      Administration.create_bootstrap_tenant(%{
-        id: tenant_id,
-        name: value(attrs, :tenant_name),
-        slug: identity.tenant_slug
-      })
-      |> owner_result_or_rollback()
-
-    user =
-      insert_or_rollback(
-        User.changeset(%User{id: user_id}, %{
-          tenant_id: tenant_id,
-          external_subject: "local:#{identity.owner_email}",
-          display_name: value(attrs, :display_name),
-          email: identity.owner_email,
-          password_hash: password_hash,
-          account_type: :human,
-          role: :owner,
-          status: :active
-        })
-      )
-
-    conversation =
-      ConversationBootstrapPort.create_initial_channel(%InitialConversationCommand{
-        id: conversation_id,
-        tenant_id: tenant_id,
-        owner_user_id: user_id,
-        joined_at: now
-      })
-      |> owner_result_or_rollback()
-
-    _audit =
-      Audit.record(%{
-        tenant_id: tenant_id,
-        actor_user_id: user_id,
-        action: "tenant.bootstrap",
-        resource_type: "tenant",
-        resource_id: tenant_id,
-        metadata: %{initial_conversation_id: conversation_id, source: "release"}
-      })
-      |> audit_or_rollback()
-
-    user = maybe_apply_bootstrap_platform_role!(user)
-
-    %{status: :created, tenant: tenant, user: user, conversation: conversation}
-  end
-
-  defp existing_bootstrap(tenant, identity) do
-    owner =
-      Repo.one(
-        from(u in User,
-          where:
-            u.tenant_id == ^tenant.id and u.role == :owner and u.status == :active and
-              fragment("lower(?)", u.email) == ^identity.owner_email,
-          limit: 1,
-          lock: "FOR UPDATE"
-        )
-      )
-
-    case owner do
-      %User{} = user ->
-        case ConversationBootstrapPort.fetch_initial_channel(tenant.id, user.id) do
-          {:ok, conversation} when not is_nil(conversation) ->
-            user = maybe_apply_bootstrap_platform_role!(user)
-            %{status: :existing, tenant: tenant, user: user, conversation: conversation}
-
-          {:ok, nil} ->
-            Repo.rollback(:bootstrap_identity_conflict)
-
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
-
-      nil ->
-        Repo.rollback(:bootstrap_identity_conflict)
-    end
-  end
-
-  defp bootstrap_identity(attrs) do
-    tenant_slug =
-      attrs
-      |> value(:tenant_slug)
-      |> to_string()
-      |> String.downcase()
-      |> String.trim()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-
-    owner_email =
-      attrs
-      |> value(:email)
-      |> to_string()
-      |> String.trim()
-      |> String.downcase()
-
-    %{tenant_slug: tenant_slug, owner_email: owner_email}
-  end
-
-  defp maybe_apply_bootstrap_platform_role!(%User{} = user) do
-    if Application.get_env(:comms_core, :allow_bootstrap_platform_role, false) do
-      with {:ok, role} when not is_nil(role) <-
-             normalize_platform_role(Application.get_env(:comms_core, :bootstrap_platform_role)),
-           {:ok, ttl_seconds} <-
-             platform_role_ttl(
-               role,
-               Application.get_env(
-                 :comms_core,
-                 :bootstrap_platform_role_ttl_seconds,
-                 @platform_role_max_ttl_seconds
-               )
-             ) do
-        case platform_role_grant(user.id, user.tenant_id) do
-          %PlatformRoleGrant{role: ^role} = grant ->
-            if DateTime.compare(grant.expires_at, now()) == :gt,
-              do: with_platform_access(user, grant.role, grant.expires_at),
-              else: renew_bootstrap_platform_role!(user, grant, role, ttl_seconds)
-
-          previous_grant ->
-            renew_bootstrap_platform_role!(user, previous_grant, role, ttl_seconds)
-        end
-      else
-        _ -> Repo.rollback(:invalid_bootstrap_platform_role)
-      end
-    else
-      user
-    end
-  end
-
-  defp renew_bootstrap_platform_role!(user, previous_grant, role, ttl_seconds) do
-    expires_at = DateTime.add(now(), ttl_seconds, :second)
-    current_grant = replace_platform_role_grant!(user, previous_grant, role, expires_at)
-
-    Audit.record(%{
-      tenant_id: user.tenant_id,
-      actor_user_id: nil,
-      action: "platform_role.bootstrap_grant",
-      resource_type: "user",
-      resource_id: user.id,
-      metadata: %{
-        actor: "release_bootstrap",
-        reason: "explicit local-proof bootstrap configuration",
-        source: "local_proof",
-        before_grant_id: previous_grant && previous_grant.id,
-        before: previous_grant && previous_grant.role,
-        before_expires_at: previous_grant && previous_grant.expires_at,
-        after_grant_id: current_grant.id,
-        after: role,
-        after_expires_at: expires_at,
-        ttl_seconds: ttl_seconds
-      }
-    })
-    |> audit_or_rollback()
-
-    with_platform_access(user, role, expires_at)
-  end
-
-  defp insert_or_rollback(changeset) do
-    case Repo.insert(changeset) do
-      {:ok, value} -> value
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp revoke_user_access!(user) do
-    timestamp = now()
-
-    session_query =
-      Session
-      |> where(
-        [s],
-        s.tenant_id == ^user.tenant_id and s.user_id == ^user.id and is_nil(s.revoked_at)
-      )
-
-    session_ids = session_query |> select([s], s.id) |> Repo.all()
-
-    Repo.update_all(session_query, set: [revoked_at: timestamp, updated_at: timestamp])
-
-    Device
-    |> where(
-      [d],
-      d.tenant_id == ^user.tenant_id and d.user_id == ^user.id and is_nil(d.revoked_at)
-    )
-    |> Repo.update_all(set: [revoked_at: timestamp, updated_at: timestamp])
-
-    NotificationCommand.user_access_revoked(
-      user.tenant_id,
-      user.id,
-      "user_lifecycle_revoked"
-    )
-    |> NotificationPort.execute()
-    |> notification_ok!()
-
-    CallLifecycleCommand.user_access_revoked(
-      user.tenant_id,
-      user.id,
-      "user_lifecycle_revoked"
-    )
-    |> CallLifecyclePort.revoke_identity_access()
-    |> call_lifecycle_ok!()
-
-    session_ids
   end
 
   defp session_effects do
@@ -2141,6 +947,63 @@ defmodule CommsCore.Accounts do
       notify_device_revoked: &notify_device_revoked_for_session_boundary/3
     }
   end
+
+  defp bootstrap_effects do
+    %{
+      append_initial_channel: &append_initial_channel_for_bootstrap/3,
+      create_initial_channel: &create_initial_channel_for_bootstrap/1,
+      fetch_initial_channel: &fetch_initial_channel_for_bootstrap/2
+    }
+  end
+
+  defp guest_identity_effects do
+    %{
+      active_tenant: &Administration.active_tenant/1,
+      revoke_identity_access: &revoke_identity_access_for_account_boundary/1,
+      validation_error?: &validation_error?/1,
+      validation_error_from_changeset: &validation_error_from_changeset/1
+    }
+  end
+
+  defp user_lifecycle_effects do
+    %{
+      notify_identity_access_revoked: &notify_identity_access_revoked/1,
+      revoke_identity_access: &revoke_identity_access_for_account_boundary/1,
+      validation_error_from_changeset: &validation_error_from_changeset/1
+    }
+  end
+
+  defp append_initial_channel_for_bootstrap(multi, name, command) do
+    ConversationBootstrapPort.append_initial_channel(multi, name, command)
+  end
+
+  defp create_initial_channel_for_bootstrap(command) do
+    ConversationBootstrapPort.create_initial_channel(command)
+  end
+
+  defp fetch_initial_channel_for_bootstrap(tenant_id, owner_user_id) do
+    ConversationBootstrapPort.fetch_initial_channel(tenant_id, owner_user_id)
+  end
+
+  defp revoke_identity_access_for_account_boundary(command) do
+    command
+    |> CallLifecyclePort.revoke_identity_access()
+    |> call_lifecycle_ok!()
+  end
+
+  defp notify_identity_access_revoked(command) do
+    command
+    |> NotificationPort.execute()
+    |> notification_ok!()
+  end
+
+  defp validation_error_from_changeset(changeset) do
+    {:ok, error} = ValidationError.from(changeset)
+    error
+  end
+
+  defp validation_error?(%ValidationError{}), do: true
+  defp validation_error?(_reason), do: false
 
   defp revoke_sessions_for_session_boundary(tenant_id, session_ids, reason) do
     CallLifecycleCommand.sessions_revoked(tenant_id, session_ids, reason)
@@ -2265,105 +1128,12 @@ defmodule CommsCore.Accounts do
       Enum.all?(pending_deletion_user_ids, &valid_uuid?/1) and match?(%DateTime{}, timestamp)
   end
 
-  defp validate_user_lifecycle_change(attrs, subject) do
-    tenant_id = value(subject, :tenant_id)
-
-    if valid_uuid?(tenant_id) do
-      with :ok <- reject_platform_role_attribute(attrs),
-           :ok <- reject_service_account_attribute(attrs),
-           :ok <- authorize_manage_user_lifecycle(subject),
-           {:ok, reason} <- required_reason(attrs),
-           {:ok, expected_version} <- expected_version(attrs),
-           {:ok, role} <- optional_role(attrs),
-           {:ok, status} <- optional_status(attrs) do
-        {:ok,
-         %{
-           tenant_id: tenant_id,
-           reason: reason,
-           expected_version: expected_version,
-           role: role,
-           status: status,
-           display_name: value(attrs, :display_name)
-         }}
-      end
-    else
-      {:error, :forbidden}
-    end
-  end
-
-  defp apply_user_lifecycle_change!(user_id, command, subject, excluded_owner_ids) do
-    tenant_id = command.tenant_id
-
-    policy = AdmissionQuotas.locked_policy(tenant_id) |> admission_policy_or_rollback()
-    lock_tenant_users!(tenant_id)
-
-    target =
-      Repo.one(
-        from(u in User,
-          where:
-            u.id == ^user_id and u.tenant_id == ^tenant_id and u.status != :deleted and
-              u.account_type == :human,
-          lock: "FOR UPDATE"
-        )
-      ) || Repo.rollback(:not_found)
-
-    if target.lock_version != command.expected_version, do: Repo.rollback(:stale_version)
-
-    actor =
-      Repo.get_by!(User,
-        id: value(subject, :user_id),
-        tenant_id: tenant_id,
-        status: :active,
-        account_type: :human,
-        access_scope: :workspace
-      )
-
-    authorize_user_change!(actor, target, command.role, command.status)
-    ensure_last_owner!(target, command.role, command.status, excluded_owner_ids)
-
-    if target.status != :active and command.status == :active do
-      quota_ok!(ensure_active_user_capacity(tenant_id, policy))
-    end
-
-    changes =
-      %{}
-      |> maybe_put(:role, command.role)
-      |> maybe_put(:status, command.status)
-      |> maybe_put(:display_name, command.display_name)
-
-    updated =
-      target
-      |> User.changeset(changes)
-      |> Ecto.Changeset.optimistic_lock(:lock_version)
-      |> update_or_validation_error()
-
-    revoked_session_ids =
-      if updated.status != :active, do: revoke_user_access!(updated), else: []
-
-    insert_audit!(subject, "user.lifecycle_update", "user", target.id, %{
-      reason: command.reason,
-      before: %{role: target.role, status: target.status, display_name: target.display_name},
-      after: %{role: updated.role, status: updated.status, display_name: updated.display_name}
-    })
-
-    %{user: updated, revoked_session_ids: revoked_session_ids}
-  end
+  defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
   defp valid_owner_exclusions?(values) when is_list(values),
     do: Enum.all?(values, &valid_uuid?/1)
 
   defp valid_owner_exclusions?(_values), do: false
-
-  defp valid_uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
-
-  defp cast_uuid_value(value) when is_binary(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_uuid}
-    end
-  end
-
-  defp cast_uuid_value(_value), do: {:error, :invalid_uuid}
 
   defp lock_tenant_users!(tenant_id) do
     Repo.all(
@@ -2375,49 +1145,6 @@ defmodule CommsCore.Accounts do
       )
     )
   end
-
-  defp ensure_last_owner!(
-         %User{role: :owner, status: :active},
-         role,
-         status,
-         :governance_policy_required
-       )
-       when role not in [nil, :owner] or status not in [nil, :active],
-       do: Repo.rollback(:governance_policy_required)
-
-  defp ensure_last_owner!(
-         %User{role: :owner, status: :active} = target,
-         role,
-         status,
-         excluded_owner_ids
-       )
-       when (role not in [nil, :owner] or status not in [nil, :active]) and
-              is_list(excluded_owner_ids) do
-    remaining =
-      User
-      |> where(
-        [u],
-        u.tenant_id == ^target.tenant_id and u.id != ^target.id and u.role == :owner and
-          u.status == :active and u.id not in ^excluded_owner_ids
-      )
-      |> Repo.aggregate(:count)
-
-    if remaining == 0, do: Repo.rollback(:last_owner_required)
-  end
-
-  defp ensure_last_owner!(_, _, _, _), do: :ok
-
-  defp authorize_user_change!(%User{role: :owner}, _target, _role, _status), do: :ok
-
-  defp authorize_user_change!(%User{role: :admin}, %User{role: target_role}, role, _status) do
-    elevated = [:owner, :admin, :compliance_admin, :security_admin]
-
-    if target_role in elevated or role in elevated,
-      do: Repo.rollback(:forbidden),
-      else: :ok
-  end
-
-  defp authorize_user_change!(_, _, _, _), do: Repo.rollback(:forbidden)
 
   defp authorize_role_assignment(subject, role)
        when role in [:member, :moderator, :admin, :compliance_admin, :security_admin] do
@@ -2434,223 +1161,6 @@ defmodule CommsCore.Accounts do
   end
 
   defp authorize_role_assignment(_, _), do: {:error, :invalid_role}
-
-  defp optional_role(attrs) do
-    case value(attrs, :role) do
-      nil ->
-        {:ok, nil}
-
-      role ->
-        if normalized = normalize_role(role, nil),
-          do: {:ok, normalized},
-          else: {:error, :invalid_role}
-    end
-  end
-
-  defp optional_status(attrs) do
-    case value(attrs, :status) do
-      nil ->
-        {:ok, nil}
-
-      status ->
-        if normalized = normalize_enum(status, [:active, :suspended, :deleted]),
-          do: {:ok, normalized},
-          else: {:error, :invalid_status}
-    end
-  end
-
-  defp expected_version(attrs) do
-    case value(attrs, :version) || value(attrs, :lock_version) do
-      version when is_integer(version) and version > 0 ->
-        {:ok, version}
-
-      version when is_binary(version) ->
-        case Integer.parse(version) do
-          {number, ""} when number > 0 -> {:ok, number}
-          _ -> {:error, :version_required}
-        end
-
-      _ ->
-        {:error, :version_required}
-    end
-  end
-
-  defp normalize_role(role, default),
-    do:
-      normalize_enum(role, [
-        :member,
-        :moderator,
-        :admin,
-        :compliance_admin,
-        :security_admin,
-        :owner
-      ]) || default
-
-  defp requested_role(attrs) do
-    case value(attrs, :role) do
-      nil ->
-        {:ok, :member}
-
-      role ->
-        case normalize_role(role, nil) do
-          nil -> {:error, :invalid_role}
-          normalized -> {:ok, normalized}
-        end
-    end
-  end
-
-  defp normalize_enum(value, allowed) when is_atom(value), do: if(value in allowed, do: value)
-
-  defp normalize_enum(value, allowed) when is_binary(value) do
-    Enum.find(allowed, &(Atom.to_string(&1) == value))
-  end
-
-  defp normalize_enum(_, _), do: nil
-
-  defp reject_platform_role_attribute(attrs) do
-    if Map.has_key?(attrs, :platform_role) or Map.has_key?(attrs, "platform_role") or
-         Map.has_key?(attrs, :platform_role_expires_at) or
-         Map.has_key?(attrs, "platform_role_expires_at"),
-       do: {:error, :platform_role_console_only},
-       else: :ok
-  end
-
-  defp normalize_platform_role(role) when role in [nil, "", "none", "revoke"], do: {:ok, nil}
-
-  defp normalize_platform_role(role) do
-    case normalize_enum(role, @platform_roles) do
-      nil -> {:error, :invalid_platform_role}
-      normalized -> {:ok, normalized}
-    end
-  end
-
-  defp platform_role_ttl(nil, _value), do: {:ok, nil}
-
-  defp platform_role_ttl(_role, value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {ttl, ""} -> platform_role_ttl(:grant, ttl)
-      _ -> {:error, :invalid_platform_role_ttl}
-    end
-  end
-
-  defp platform_role_ttl(_role, value)
-       when is_integer(value) and
-              value >= @platform_role_min_ttl_seconds and
-              value <= @platform_role_max_ttl_seconds,
-       do: {:ok, value}
-
-  defp platform_role_ttl(_role, _value), do: {:error, :invalid_platform_role_ttl}
-
-  defp platform_role_grant(user_id, tenant_id) do
-    Repo.get_by(PlatformRoleGrant, user_id: user_id, tenant_id: tenant_id)
-  end
-
-  defp authorize_platform_role_target!(_user, nil), do: :ok
-
-  defp authorize_platform_role_target!(
-         %User{status: :active, account_type: :human, access_scope: :workspace},
-         _role
-       ),
-       do: :ok
-
-  defp authorize_platform_role_target!(_user, _role), do: Repo.rollback(:not_found)
-
-  defp replace_platform_role_grant!(_user, nil, nil, nil), do: nil
-
-  defp replace_platform_role_grant!(_user, %PlatformRoleGrant{} = grant, nil, nil) do
-    case Repo.delete(grant) do
-      {:ok, _grant} -> nil
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp replace_platform_role_grant!(user, previous_grant, role, expires_at) do
-    if previous_grant do
-      case Repo.delete(previous_grant) do
-        {:ok, _grant} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end
-
-    grant_id = Ecto.UUID.generate()
-
-    %PlatformRoleGrant{id: grant_id}
-    |> PlatformRoleGrant.changeset(%{
-      id: grant_id,
-      tenant_id: user.tenant_id,
-      user_id: user.id,
-      role: role,
-      expires_at: expires_at
-    })
-    |> insert_or_rollback()
-  end
-
-  defp with_platform_access(%User{} = user, role, expires_at) do
-    %{user | platform_role: role, platform_role_expires_at: expires_at}
-  end
-
-  defp platform_role_management_secret do
-    case Application.get_env(:comms_core, :platform_role_management_secret) do
-      secret when is_binary(secret) and byte_size(secret) >= 32 -> {:ok, secret}
-      _ -> {:error, :platform_role_management_unavailable}
-    end
-  end
-
-  defp verify_platform_role_management_secret(configured_secret, provided_secret) do
-    provided_secret = if is_binary(provided_secret), do: provided_secret, else: ""
-
-    configured_digest = :crypto.hash(:sha256, configured_secret)
-    provided_digest = :crypto.hash(:sha256, provided_secret)
-
-    if :crypto.hash_equals(configured_digest, provided_digest),
-      do: :ok,
-      else: {:error, :invalid_platform_role_management_secret}
-  end
-
-  defp required_platform_audit_text(attrs, key, min_length, max_length) do
-    case value(attrs, key) do
-      text when is_binary(text) ->
-        normalized = String.trim(text)
-
-        if String.length(normalized) in min_length..max_length,
-          do: {:ok, normalized},
-          else: {:error, :platform_role_audit_context_required}
-
-      _ ->
-        {:error, :platform_role_audit_context_required}
-    end
-  end
-
-  defp required_reason(attrs) do
-    case value(attrs, :reason) do
-      reason when is_binary(reason) ->
-        normalized = String.trim(reason)
-
-        if String.length(normalized) in 3..1_000,
-          do: {:ok, normalized},
-          else: {:error, :reason_required}
-
-      _ ->
-        {:error, :reason_required}
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp ephemeral_resume_device_changes(attrs, timestamp) when is_map(attrs) do
-    %{last_seen_at: timestamp}
-    |> maybe_put(:name, value(attrs, :name))
-    |> maybe_put(:platform, value(attrs, :platform))
-  end
-
-  defp ephemeral_resume_device_changes(_attrs, timestamp), do: %{last_seen_at: timestamp}
-
-  defp reject_service_account_attribute(attrs) do
-    if value(attrs, :account_type) in [nil, :human, "human"],
-      do: :ok,
-      else: {:error, :forbidden}
-  end
 
   defp reject_service_identity_email(tenant_id, email) do
     service_identity? =
@@ -2678,183 +1188,8 @@ defmodule CommsCore.Accounts do
     if existing_identity?, do: {:error, :invitation_identity_conflict}, else: :ok
   end
 
-  defp validate_unchanged_profile_email(attrs, current_email) do
-    supplied_emails =
-      [:email, "email"]
-      |> Enum.filter(&Map.has_key?(attrs, &1))
-      |> Enum.map(&Map.fetch!(attrs, &1))
-
-    unchanged? =
-      Enum.all?(supplied_emails, fn
-        email when is_binary(email) -> normalize_email(email) == normalize_email(current_email)
-        _ -> false
-      end)
-
-    if unchanged?, do: :ok, else: {:error, :email_change_requires_verification}
-  end
-
-  defp normalize_email(email) when is_binary(email),
-    do: email |> String.trim() |> String.downcase()
-
-  defp normalize_email(_email), do: ""
-
-  defp normalize_guest_expiry(value, timestamp) do
-    with {:ok, expiry} <- cast_datetime(value),
-         true <- DateTime.compare(expiry, timestamp) == :gt,
-         true <- DateTime.diff(expiry, timestamp, :second) <= guest_session_max_ttl_seconds() do
-      {:ok, expiry}
-    else
-      _ -> {:error, :invalid_guest_expiry}
-    end
-  end
-
-  defp normalize_ephemeral_guest_deadline(value) do
-    timestamp = now()
-
-    with {:ok, deadline} <- cast_datetime(value),
-         true <- DateTime.compare(deadline, timestamp) == :gt,
-         seconds when seconds <= @ephemeral_guest_authority_max_seconds <-
-           DateTime.diff(deadline, timestamp, :second) do
-      {:ok, deadline}
-    else
-      _ -> {:error, :invalid_ephemeral_guest_deadline}
-    end
-  end
-
-  defp cast_datetime(%DateTime{} = value),
-    do: {:ok, DateTime.truncate(value, :microsecond)}
-
-  defp cast_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> {:ok, DateTime.truncate(datetime, :microsecond)}
-      _ -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp cast_datetime(_value), do: {:error, :invalid_datetime}
-
-  defp guest_user_id(nil), do: {:ok, Ecto.UUID.generate()}
-
-  defp guest_user_id(value) when is_binary(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, id} -> {:ok, id}
-      :error -> {:error, :invalid_guest_identity}
-    end
-  end
-
-  defp guest_user_id(_value), do: {:error, :invalid_guest_identity}
-
-  defp guest_session_max_ttl_seconds do
-    Application.get_env(:comms_core, :guest_session_max_ttl_seconds, 86_400)
-    |> max(900)
-    |> min(86_400)
-  end
-
-  defp valid_changeset(%Ecto.Changeset{valid?: true}), do: :ok
-  defp valid_changeset(%Ecto.Changeset{} = changeset), do: {:error, changeset}
-
-  defp valid_ephemeral_authority_changeset(%Ecto.Changeset{valid?: true}), do: :ok
-
-  defp valid_ephemeral_authority_changeset(%Ecto.Changeset{}),
-    do: {:error, :invalid_ephemeral_guest_deadline}
-
-  defp valid_ephemeral_resume_changeset(%Ecto.Changeset{valid?: true}), do: :ok
-  defp valid_ephemeral_resume_changeset(%Ecto.Changeset{}), do: {:error, :invalid_guest_identity}
-
-  defp normalize_guest_identity_result({:error, %Ecto.Changeset{}}),
-    do: {:error, :invalid_guest_identity}
-
-  defp normalize_guest_identity_result(result), do: result
-
-  defp normalize_guest_account_result({:error, %Ecto.Changeset{}}),
-    do: {:error, :invalid_guest_account}
-
-  defp normalize_guest_account_result({:error, %ValidationError{}}),
-    do: {:error, :invalid_guest_account}
-
-  defp normalize_guest_account_result(result), do: result
-
-  defp ephemeral_guest_conversion_subject?(subject),
-    do: value(subject, :guest_authority_purpose) == :ephemeral_room
-
-  defp optional_request_id(value) when is_binary(value) do
-    value = String.trim(value)
-    if value != "" and String.length(value) <= 200, do: value, else: nil
-  end
-
-  defp optional_request_id(_value), do: nil
-
-  defp run_transaction_aware(fun) when is_function(fun, 0) do
-    if Repo.in_transaction?() do
-      fun.()
-    else
-      case Repo.transaction(fn ->
-             case fun.() do
-               {:error, reason} -> Repo.rollback(reason)
-               result -> result
-             end
-           end) do
-        {:ok, result} -> result
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
-  defp audit_command(subject, action, resource_type, resource_id, metadata) do
-    %{
-      tenant_id: value(subject, :tenant_id),
-      actor_user_id: value(subject, :user_id),
-      action: action,
-      resource_type: resource_type,
-      resource_id: resource_id,
-      metadata: metadata,
-      request_id: value(subject, :request_id)
-    }
-  end
-
-  defp insert_audit!(subject, action, resource_type, resource_id, metadata) do
-    subject
-    |> audit_command(action, resource_type, resource_id, metadata)
-    |> Audit.record()
-    |> audit_or_rollback()
-  end
-
-  defp audit_or_rollback({:ok, event}), do: event
-  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp owner_result_or_rollback({:ok, value}), do: value
-  defp owner_result_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp update_or_rollback(changeset) do
-    case Repo.update(changeset) do
-      {:ok, value} -> value
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp update_or_validation_error(changeset) do
-    case Repo.update(changeset) do
-      {:ok, value} ->
-        value
-
-      {:error, invalid_changeset} ->
-        {:ok, error} = ValidationError.from(invalid_changeset)
-        Repo.rollback(error)
-    end
-  end
-
-  defp quota_ok!(:ok), do: :ok
-  defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
-
-  defp admission_policy_or_rollback({:ok, %AdmissionPolicy{} = policy}), do: policy
-  defp admission_policy_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
   defp project_result({:ok, result}, projector), do: {:ok, projector.(result)}
   defp project_result({:error, _reason} = error, _projector), do: error
-
-  defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
   defp value(map, key) when is_map(map) do
     case Map.fetch(map, key) do
