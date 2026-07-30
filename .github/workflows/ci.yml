@@ -157,7 +157,9 @@ jobs:
                 *) echo "application user is not bound to the bucket-scoped policy" >&2; exit 1 ;;
               esac
             '
-      - run: mix test --warnings-as-errors
+      - name: Run full backend regression and report line-coverage baseline
+        shell: bash
+        run: bash scripts/run_backend_tests.sh coverage
       - name: Stop S3 integration fixture
         if: always()
         shell: bash

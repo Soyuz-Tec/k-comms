@@ -16,7 +16,8 @@ RELEASE_EVIDENCE_NAMESPACE ?= k-comms-staging
 RELEASE_EVIDENCE_OUTPUT ?=
 RELEASE_EVIDENCE_ARGS ?=
 
-.PHONY: bootstrap dev stop logs shell check test format web-check contracts docs-check \
+.PHONY: bootstrap dev stop logs shell check test test-unit test-integration \
+	test-concurrency test-coverage format web-check contracts docs-check \
 	validation-deps qualification-script-tests build container-smoke compose-validate \
 	local-release-validate kube-validate production-preflight release-evidence release clean
 
@@ -42,7 +43,23 @@ check:
 
 test:
 	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
-		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && mix test --warnings-as-errors"
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && bash scripts/run_backend_tests.sh full"
+
+test-unit:
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && bash scripts/run_backend_tests.sh unit"
+
+test-integration:
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && bash scripts/run_backend_tests.sh integration"
+
+test-concurrency:
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && bash scripts/run_backend_tests.sh concurrency"
+
+test-coverage:
+	$(COMPOSE) run --rm -e MIX_ENV=test -e DATABASE_URL=$(TEST_DATABASE_URL) app \
+		sh -lc "mix deps.get --check-locked && mix ecto.create && mix ecto.migrate && bash scripts/run_backend_tests.sh coverage"
 
 format:
 	$(COMPOSE) run --rm app mix format

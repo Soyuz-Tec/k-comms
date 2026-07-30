@@ -112,6 +112,18 @@ After warnings-as-errors compilation, the backend job runs two xref gates in
   compile-connected cycles.
 - `mix xref graph --format cycles` must report no all-file cycles.
 
+The backend regression is invoked through
+`bash scripts/run_backend_tests.sh coverage`. It runs the complete, unfiltered test
+suite once, exports line-coverage data from every umbrella child, and reports
+the aggregate through Elixir's built-in coverage tooling. Coverage currently
+has a reporting-only threshold of zero. This establishes a comparable CI
+baseline over production modules, excluding generated protocol implementations
+and test-support modules, without treating an arbitrary percentage as evidence
+of correctness.
+Focused `unit`, `integration`, and `concurrency` lanes use ExUnit tags for
+developer feedback, while the unfiltered regression remains the required
+merge gate.
+
 Calls no longer forms a compiled or runtime business-graph cycle. The combined
 diagnostic graph may show an SCC formed solely by the opposing directions of
 an exact consumer-owned dependency inversion; it does not justify a compiled,

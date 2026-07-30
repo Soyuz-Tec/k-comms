@@ -6,6 +6,16 @@ defmodule KComms.MixProject do
       apps_path: "apps",
       version: "0.3.0",
       start_permanent: Mix.env() == :prod,
+      test_coverage: [
+        summary: [threshold: 0],
+        ignore_modules: [
+          ~r/^Inspect\./,
+          ~r/^CommsTestSupport(?:\.|$)/,
+          ~r/^CommsCore\.(?:DataCase|.*Fixtures|.*TestSupport)$/,
+          ~r/^CommsIntegrations\..*Test(?:Options|Support)(?:\.|$)/,
+          ~r/^CommsWeb\..*(?:Case|TestSupport)(?:\.|$)/
+        ]
+      ],
       aliases: aliases(),
       releases: releases()
     ]
@@ -24,7 +34,10 @@ defmodule KComms.MixProject do
         "format --check-formatted",
         "compile --warnings-as-errors",
         "test"
-      ]
+      ],
+      "test.unit": ["test --only unit --warnings-as-errors"],
+      "test.integration": ["test --only integration --warnings-as-errors"],
+      "test.concurrency": ["test --only concurrency --warnings-as-errors --trace"]
     ]
   end
 
