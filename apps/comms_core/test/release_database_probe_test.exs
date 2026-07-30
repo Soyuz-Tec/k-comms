@@ -5,6 +5,9 @@ defmodule CommsCore.ReleaseDatabaseProbeTest do
   alias CommsCore.Accounts.{AuthenticationResult, User}
   alias CommsTestSupport.Fixtures
 
+  @moduletag :integration
+  @moduletag :release
+
   test "platform persistence returns a bounded migration snapshot" do
     assert [[application_name, lock_timeout_ms, statement_timeout_ms, peer_count]] =
              Repo.release_migration_preflight!()

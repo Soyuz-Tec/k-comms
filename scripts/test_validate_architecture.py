@@ -1355,9 +1355,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         restore_remap = (
             root / "apps/comms_core/lib/comms_core/attachments/restore_remap.ex"
         ).read_text(encoding="utf-8")
-        release = (root / "apps/comms_core/lib/comms_core/release.ex").read_text(
-            encoding="utf-8"
-        )
+        release = (
+            root
+            / "apps/comms_core/lib/comms_core/release/attachment_restore.ex"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             "def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)",

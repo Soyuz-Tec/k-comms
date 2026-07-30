@@ -15,6 +15,9 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
   alias CommsCore.Release
   alias CommsTestSupport.Fixtures
 
+  @moduletag :integration
+  @moduletag :release
+
   test "verified restored versions are remapped in one transaction with redacted audits" do
     account = Fixtures.account_fixture()
     first = uploaded_attachment(account, "first.txt", "first restored body")
@@ -110,7 +113,7 @@ defmodule CommsCore.AttachmentRestoreRemapTest do
 
   test "release code routes restore remaps through the public Attachments facade" do
     source =
-      Path.expand("../lib/comms_core/release.ex", __DIR__)
+      Path.expand("../lib/comms_core/release/attachment_restore.ex", __DIR__)
       |> File.read!()
 
     assert source =~ "Attachments.remap_restored_attachment_versions(verifier, context)"

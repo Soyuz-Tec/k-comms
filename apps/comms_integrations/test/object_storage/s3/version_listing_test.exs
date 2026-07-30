@@ -3,6 +3,9 @@ defmodule CommsIntegrations.ObjectStorage.S3.VersionListingTest do
 
   alias CommsIntegrations.ObjectStorage.S3.VersionListing
 
+  @moduletag :unit
+  @moduletag :object_storage
+
   test "parses exact versions, delete markers, pagination, and escaped keys" do
     xml = """
     <?xml version="1.0" encoding="UTF-8"?>
