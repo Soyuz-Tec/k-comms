@@ -1,7 +1,6 @@
 defmodule CommsCore.Conversations.GuestAccess do
   @moduledoc false
 
-  import Bitwise
   import Ecto.Query
 
   alias CommsCore.{
@@ -9,8 +8,7 @@ defmodule CommsCore.Conversations.GuestAccess do
     Administration,
     AdmissionQuotas,
     Audit,
-    Repo,
-    RuntimePorts
+    Repo
   }
 
   alias CommsCore.Conversations.{
@@ -25,12 +23,18 @@ defmodule CommsCore.Conversations.GuestAccess do
     Projector
   }
 
+  alias CommsCore.Conversations.GuestAccess.{
+    AdmissionLifecycle,
+    Projection,
+    Revocation,
+    Scheduler,
+    Token
+  }
+
   @default_expiry_seconds 24 * 60 * 60
   @min_expiry_seconds 15 * 60
   @max_expiry_seconds 24 * 60 * 60
   @default_max_uses 10
-  @verification_secret_bytes 32
-
   @spec create_link(Ecto.UUID.t(), map(), map()) ::
           {:ok,
            %{
@@ -61,7 +65,7 @@ defmodule CommsCore.Conversations.GuestAccess do
       token_digest = :crypto.hash(:sha256, secret)
 
       {conversion_verification_code, conversion_verification_digest} =
-        conversion_verification_credentials(
+        Token.conversion_verification_credentials(
           conversion_email,
           secret,
           grant.tenant_id,
@@ -108,7 +112,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         )
 
         %{
-          guest_link: project_link(link, timestamp),
+          guest_link: Projection.link(link, timestamp),
           token: token,
           conversion_verification_code: conversion_verification_code
         }
@@ -137,7 +141,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         )
         |> order_by([link], desc: link.inserted_at, desc: link.id)
         |> Repo.all()
-        |> Enum.map(&project_link(&1, timestamp))
+        |> Enum.map(&Projection.link(&1, timestamp))
 
       {:ok, links}
     end
@@ -194,7 +198,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         revoked_session_ids =
           Enum.map(
             admissions,
-            &revoke_admission!(
+            &Revocation.revoke_admission!(
               &1,
               timestamp,
               "guest_link_revoked",
@@ -228,7 +232,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         end
 
         %{
-          guest_link: project_link(revoked_link, timestamp),
+          guest_link: Projection.link(revoked_link, timestamp),
           revoked_session_ids: Enum.uniq(revoked_session_ids)
         }
       end)
@@ -246,19 +250,13 @@ defmodule CommsCore.Conversations.GuestAccess do
           {:ok, GuestLinkPreviewView.t()}
           | {:error, :guest_link_unavailable}
   def preview_link(token) when is_binary(token) do
-    with {:ok, link_id, secret} <- parse_token(token),
+    with {:ok, link_id, secret} <- Token.parse(token),
          %GuestLink{} = link <- Repo.get(GuestLink, link_id),
-         true <- secure_digest_match?(secret, link.token_digest),
+         true <- Token.secure_digest_match?(secret, link.token_digest),
          :ok <- available_link(link, now()),
          %Conversation{} = conversation <- available_guest_conversation(link),
          {:ok, _tenant} <- Administration.active_tenant(link.tenant_id) do
-      {:ok,
-       %GuestLinkPreviewView{
-         room_title: guest_room_title(conversation),
-         expires_at: link.expires_at,
-         conversion_enabled: not is_nil(link.conversion_email),
-         email_hint: email_hint(link.conversion_email)
-       }}
+      {:ok, Projection.preview(conversation, link)}
     else
       _ -> {:error, :guest_link_unavailable}
     end
@@ -276,10 +274,10 @@ defmodule CommsCore.Conversations.GuestAccess do
            }}
           | {:error, term()}
   def redeem_link(token, attrs) when is_binary(token) and is_map(attrs) do
-    with {:ok, link_id, secret} <- parse_token(token),
+    with {:ok, link_id, secret} <- Token.parse(token),
          %GuestLink{tenant_id: tenant_id, conversation_id: conversation_id} = link_snapshot <-
            Repo.get(GuestLink, link_id),
-         true <- secure_digest_match?(secret, link_snapshot.token_digest),
+         true <- Token.secure_digest_match?(secret, link_snapshot.token_digest),
          {:ok, display_name} <- display_name(attrs),
          {:ok, device} <- device(attrs) do
       Repo.transaction(fn ->
@@ -336,7 +334,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         |> Ecto.Changeset.optimistic_lock(:lock_version)
         |> update_or_rollback()
 
-        enqueue_expiry!(admission)
+        Scheduler.enqueue_expiry!(admission)
 
         audit!(
           tenant_id,
@@ -356,7 +354,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         %{
           authentication: authentication,
           conversation: Projector.conversation(conversation),
-          admission: project_admission(admission),
+          admission: Projection.admission(admission),
           capabilities: guest_capabilities!(tenant_id, link.conversion_email, link.purpose)
         }
       end)
@@ -559,7 +557,7 @@ defmodule CommsCore.Conversations.GuestAccess do
             )
           ) || Repo.rollback(:forbidden)
 
-        membership = lock_admission_membership!(admission)
+        membership = Revocation.lock_admission_membership!(admission)
         timestamp = now()
         ensure_convertible!(conversation, link, admission, membership, timestamp)
 
@@ -618,69 +616,8 @@ defmodule CommsCore.Conversations.GuestAccess do
           (Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), String.t() ->
              :ok | {:error, term()})
         ) :: :ok | {:error, term()}
-  def logout_session(guest_subject, call_access_revoker)
-      when is_map(guest_subject) and is_function(call_access_revoker, 4) do
-    admission_id =
-      value(guest_subject, :guest_admission_id) || value(guest_subject, :admission_id)
-
-    conversation_id =
-      value(guest_subject, :guest_conversation_id) ||
-        value(guest_subject, :conversation_id)
-
-    with {:ok, admission_id} <- cast_uuid(admission_id),
-         {:ok, conversation_id} <- cast_uuid(conversation_id),
-         %GuestAdmission{} = snapshot <-
-           admission_snapshot(admission_id, conversation_id, guest_subject) do
-      case Repo.transaction(fn ->
-             _policy = admission_policy!(snapshot.tenant_id)
-             _conversation = lock_expiry_conversation!(snapshot)
-             link = lock_expiry_link!(snapshot)
-             ephemeral_room = EphemeralRooms.lock_conversion_room(link)
-             admission = lock_expiry_admission!(snapshot)
-             membership = lock_admission_membership!(admission)
-             timestamp = now()
-
-             unless admission.revoked_at || admission.converted_at do
-               revoke_locked_admission!(
-                 admission,
-                 membership,
-                 timestamp,
-                 "guest_logout",
-                 call_access_revoker
-               )
-
-               EphemeralRooms.close_logged_out_presence(
-                 ephemeral_room,
-                 admission.guest_user_id,
-                 admission.session_id,
-                 timestamp
-               )
-
-               audit!(
-                 admission.tenant_id,
-                 admission.guest_user_id,
-                 "conversation.guest.logged_out",
-                 "conversation_guest_admission",
-                 admission.id,
-                 %{
-                   conversation_id: admission.conversation_id,
-                   guest_link_id: admission.guest_link_id
-                 },
-                 value(guest_subject, :request_id)
-               )
-             end
-
-             :ok
-           end) do
-        {:ok, :ok} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      _ -> {:error, :forbidden}
-    end
-  end
-
-  def logout_session(_guest_subject, _call_access_revoker), do: {:error, :forbidden}
+  def logout_session(guest_subject, call_access_revoker),
+    do: AdmissionLifecycle.logout_session(guest_subject, call_access_revoker)
 
   @spec expire_admission(
           Ecto.UUID.t(),
@@ -689,60 +626,8 @@ defmodule CommsCore.Conversations.GuestAccess do
         ) ::
           {:ok, :expired | :already_terminal | {:not_due, pos_integer()}}
           | {:error, :guest_admission_not_found | term()}
-  def expire_admission(admission_id, call_access_revoker)
-      when is_binary(admission_id) and is_function(call_access_revoker, 4) do
-    with {:ok, admission_id} <- cast_uuid(admission_id),
-         %GuestAdmission{} = snapshot <- Repo.get(GuestAdmission, admission_id) do
-      Repo.transaction(fn ->
-        _policy = admission_policy!(snapshot.tenant_id)
-        _conversation = lock_expiry_conversation!(snapshot)
-        _link = lock_expiry_link!(snapshot)
-        admission = lock_expiry_admission!(snapshot)
-
-        cond do
-          admission.revoked_at || admission.converted_at ->
-            :already_terminal
-
-          true ->
-            membership = lock_admission_membership!(admission)
-            timestamp = now()
-
-            if DateTime.compare(admission.expires_at, timestamp) == :gt do
-              {:not_due, max(DateTime.diff(admission.expires_at, timestamp, :second), 1)}
-            else
-              revoke_locked_admission!(
-                admission,
-                membership,
-                timestamp,
-                "guest_admission_expired",
-                call_access_revoker
-              )
-
-              audit!(
-                admission.tenant_id,
-                nil,
-                "conversation.guest.expired",
-                "conversation_guest_admission",
-                admission.id,
-                %{
-                  conversation_id: admission.conversation_id,
-                  guest_link_id: admission.guest_link_id
-                },
-                "guest-admission-expiry:#{admission.id}"
-              )
-
-              :expired
-            end
-        end
-      end)
-      |> transaction_result()
-    else
-      _ -> {:error, :guest_admission_not_found}
-    end
-  end
-
-  def expire_admission(_admission_id, _call_access_revoker),
-    do: {:error, :guest_admission_not_found}
+  def expire_admission(admission_id, call_access_revoker),
+    do: AdmissionLifecycle.expire_admission(admission_id, call_access_revoker)
 
   defp manager_scope(conversation_id, subject) do
     with {:ok, %{account_type: :human} = grant} <- Accounts.access_grant(subject),
@@ -826,7 +711,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         {:ok, nil}
 
       email when is_binary(email) ->
-        email = normalize_email(email)
+        email = Token.normalize_email(email)
 
         cond do
           email == "" ->
@@ -838,7 +723,7 @@ defmodule CommsCore.Conversations.GuestAccess do
           not grant.step_up_recent? ->
             {:error, :step_up_required}
 
-          not valid_conversion_email?(email) ->
+          not Token.valid_conversion_email?(email) ->
             {:error, :invalid_guest_conversion_email}
 
           true ->
@@ -871,50 +756,6 @@ defmodule CommsCore.Conversations.GuestAccess do
 
   defp validate_conversion_use_limit(_conversion_email, _max_uses),
     do: {:error, :guest_account_conversion_requires_single_use}
-
-  defp conversion_verification_credentials(
-         nil,
-         _link_secret,
-         _tenant_id,
-         _conversation_id,
-         _link_id
-       ),
-       do: {nil, nil}
-
-  defp conversion_verification_credentials(
-         conversion_email,
-         link_secret,
-         tenant_id,
-         conversation_id,
-         link_id
-       ) do
-    secret = independent_secret(link_secret)
-
-    {
-      Base.url_encode64(secret, padding: false),
-      conversion_verification_digest(
-        secret,
-        tenant_id,
-        conversation_id,
-        link_id,
-        conversion_email
-      )
-    }
-  end
-
-  defp independent_secret(excluded_secret) do
-    secret = :crypto.strong_rand_bytes(@verification_secret_bytes)
-
-    if secret == excluded_secret,
-      do: independent_secret(excluded_secret),
-      else: secret
-  end
-
-  defp valid_conversion_email?(email) do
-    String.length(email) <= 320 and
-      Regex.match?(~r/^[^\s]+@[^\s]+\.[^\s]+$/, email) and
-      not String.ends_with?(email, "@service.invalid")
-  end
 
   defp positive_integer(nil, default), do: default
   defp positive_integer(value, _default) when is_integer(value), do: value
@@ -949,47 +790,12 @@ defmodule CommsCore.Conversations.GuestAccess do
     end
   end
 
-  defp parse_token(token) do
-    with [link_id, encoded_secret] <- String.split(token, ".", parts: 2),
-         {:ok, link_id} <- cast_uuid(link_id),
-         {:ok, secret} <- Base.url_decode64(encoded_secret, padding: false),
-         32 <- byte_size(secret) do
-      {:ok, link_id, secret}
-    else
-      _ -> {:error, :guest_link_unavailable}
-    end
-  end
-
   defp cast_uuid(value) do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> {:ok, uuid}
       :error -> :error
     end
   end
-
-  defp secure_digest_match?(secret, stored_digest)
-       when is_binary(secret) and is_binary(stored_digest) do
-    secure_binary_match?(:crypto.hash(:sha256, secret), stored_digest)
-  end
-
-  defp secure_digest_match?(_secret, _stored_digest), do: false
-
-  defp secure_binary_match?(candidate, stored)
-       when is_binary(candidate) and is_binary(stored) do
-    if byte_size(candidate) == byte_size(stored) do
-      candidate
-      |> :binary.bin_to_list()
-      |> Enum.zip(:binary.bin_to_list(stored))
-      |> Enum.reduce(0, fn {left, right}, difference ->
-        bor(difference, bxor(left, right))
-      end)
-      |> Kernel.==(0)
-    else
-      false
-    end
-  end
-
-  defp secure_binary_match?(_candidate, _stored), do: false
 
   defp available_link(%GuestLink{} = link, timestamp) do
     cond do
@@ -1029,7 +835,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         )
       ) || Repo.rollback(:guest_link_unavailable)
 
-    if secure_digest_match?(secret, link.token_digest) do
+    if Token.secure_digest_match?(secret, link.token_digest) do
       link
     else
       Repo.rollback(:guest_link_unavailable)
@@ -1090,19 +896,6 @@ defmodule CommsCore.Conversations.GuestAccess do
     ) || Repo.rollback(:forbidden)
   end
 
-  defp lock_admission_membership!(admission) do
-    Repo.one(
-      from(membership in Membership,
-        where:
-          membership.id == ^admission.membership_id and
-            membership.tenant_id == ^admission.tenant_id and
-            membership.conversation_id == ^admission.conversation_id and
-            membership.user_id == ^admission.guest_user_id,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:forbidden)
-  end
-
   defp ensure_convertible!(conversation, link, admission, membership, timestamp) do
     valid? =
       is_nil(conversation.archived_at) and conversation.kind in [:group, :channel] and
@@ -1121,7 +914,7 @@ defmodule CommsCore.Conversations.GuestAccess do
     do: Repo.rollback(:guest_account_conversion_not_enabled)
 
   defp require_conversion_email!(%GuestLink{conversion_email: expected_email}, attrs) do
-    if normalize_email(value(attrs, :email)) == expected_email do
+    if Token.normalize_email(value(attrs, :email)) == expected_email do
       expected_email
     else
       Repo.rollback(:guest_account_conversion_email_mismatch)
@@ -1130,7 +923,7 @@ defmodule CommsCore.Conversations.GuestAccess do
 
   defp require_conversion_verification!(link, admission, expected_email, attrs) do
     {valid_format?, candidate_secret} =
-      conversion_verification_secret(value(attrs, :verification_code))
+      Token.conversion_verification_secret(value(attrs, :verification_code))
 
     bound? =
       admission.tenant_id == link.tenant_id and
@@ -1138,7 +931,7 @@ defmodule CommsCore.Conversations.GuestAccess do
         admission.guest_link_id == link.id and expected_email == link.conversion_email
 
     candidate_digest =
-      conversion_verification_digest(
+      Token.conversion_verification_digest(
         candidate_secret,
         link.tenant_id,
         link.conversation_id,
@@ -1147,7 +940,7 @@ defmodule CommsCore.Conversations.GuestAccess do
       )
 
     verified? =
-      secure_binary_match?(
+      Token.secure_binary_match?(
         candidate_digest,
         link.conversion_verification_digest
       )
@@ -1156,205 +949,6 @@ defmodule CommsCore.Conversations.GuestAccess do
       do: :ok,
       else: Repo.rollback(:guest_account_conversion_verification_failed)
   end
-
-  defp conversion_verification_secret(code) when is_binary(code) do
-    with true <- byte_size(code) == 43,
-         {:ok, secret} <- Base.url_decode64(code, padding: false),
-         true <- byte_size(secret) == @verification_secret_bytes do
-      {true, secret}
-    else
-      _ -> {false, <<0::size(@verification_secret_bytes * 8)>>}
-    end
-  end
-
-  defp conversion_verification_secret(_code),
-    do: {false, <<0::size(@verification_secret_bytes * 8)>>}
-
-  defp conversion_verification_digest(
-         secret,
-         tenant_id,
-         conversation_id,
-         link_id,
-         conversion_email
-       ) do
-    :crypto.hash(:sha256, [
-      "k-comms:guest-conversion-verification:v1",
-      <<0>>,
-      tenant_id,
-      <<0>>,
-      conversation_id,
-      <<0>>,
-      link_id,
-      <<0>>,
-      conversion_email,
-      <<0>>,
-      secret
-    ])
-  end
-
-  defp lock_expiry_conversation!(snapshot) do
-    Repo.one(
-      from(conversation in Conversation,
-        where:
-          conversation.id == ^snapshot.conversation_id and
-            conversation.tenant_id == ^snapshot.tenant_id,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:guest_admission_not_found)
-  end
-
-  defp lock_expiry_link!(snapshot) do
-    Repo.one(
-      from(link in GuestLink,
-        where:
-          link.id == ^snapshot.guest_link_id and link.tenant_id == ^snapshot.tenant_id and
-            link.conversation_id == ^snapshot.conversation_id,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:guest_admission_not_found)
-  end
-
-  defp lock_expiry_admission!(snapshot) do
-    Repo.one(
-      from(admission in GuestAdmission,
-        where:
-          admission.id == ^snapshot.id and admission.tenant_id == ^snapshot.tenant_id and
-            admission.conversation_id == ^snapshot.conversation_id and
-            admission.guest_link_id == ^snapshot.guest_link_id,
-        lock: "FOR UPDATE"
-      )
-    ) || Repo.rollback(:guest_admission_not_found)
-  end
-
-  defp enqueue_expiry!(admission) do
-    %{
-      "admission_id" => admission.id,
-      "tenant_id" => admission.tenant_id
-    }
-    |> Oban.Job.new(
-      worker: RuntimePorts.job_worker_name!(:guest_admission_expiry),
-      queue: :default,
-      scheduled_at: admission.expires_at,
-      unique: [
-        period: :infinity,
-        fields: [:worker, :args],
-        states: [:available, :scheduled, :executing, :retryable]
-      ]
-    )
-    |> insert_or_rollback()
-  end
-
-  defp revoke_admission!(admission, timestamp, reason, call_access_revoker) do
-    membership = lock_admission_membership!(admission)
-
-    revoke_locked_admission!(
-      admission,
-      membership,
-      timestamp,
-      reason,
-      call_access_revoker
-    )
-  end
-
-  defp revoke_locked_admission!(
-         admission,
-         membership,
-         timestamp,
-         reason,
-         call_access_revoker
-       ) do
-    if is_nil(membership.left_at) do
-      membership
-      |> Membership.changeset(%{left_at: timestamp})
-      |> Ecto.Changeset.optimistic_lock(:lock_version)
-      |> update_or_rollback()
-    end
-
-    revoke_guest_session!(admission.session_id, reason)
-
-    call_access_revoker.(
-      admission.tenant_id,
-      admission.conversation_id,
-      admission.guest_user_id,
-      reason
-    )
-    |> transaction_step_ok!()
-
-    admission
-    |> GuestAdmission.changeset(%{revoked_at: timestamp})
-    |> update_or_rollback()
-
-    admission.session_id
-  end
-
-  defp revoke_guest_session!(session_id, reason) do
-    case Accounts.revoke_guest_session(session_id, reason) do
-      :ok -> :ok
-      {:ok, _result} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp project_link(link, timestamp) do
-    %GuestLinkView{
-      id: link.id,
-      tenant_id: link.tenant_id,
-      conversation_id: link.conversation_id,
-      created_by_user_id: link.created_by_user_id,
-      expires_at: link.expires_at,
-      max_uses: link.max_uses,
-      use_count: link.use_count,
-      remaining_uses: max(link.max_uses - link.use_count, 0),
-      status: link_status(link, timestamp),
-      conversion_enabled: not is_nil(link.conversion_email),
-      email_hint: email_hint(link.conversion_email),
-      revoked_at: link.revoked_at,
-      version: link.lock_version,
-      inserted_at: link.inserted_at
-    }
-  end
-
-  defp project_admission(admission) do
-    %GuestAdmissionView{
-      id: admission.id,
-      conversation_id: admission.conversation_id,
-      guest_link_id: admission.guest_link_id,
-      guest_user_id: admission.guest_user_id,
-      membership_id: admission.membership_id,
-      session_id: admission.session_id,
-      admitted_at: admission.admitted_at,
-      expires_at: admission.expires_at,
-      revoked_at: admission.revoked_at,
-      converted_at: admission.converted_at,
-      history_from_sequence: admission.history_from_sequence
-    }
-  end
-
-  defp guest_room_title(%Conversation{title: title}) when is_binary(title) do
-    case String.trim(title) do
-      "" -> "K-Comms room"
-      trimmed -> trimmed
-    end
-  end
-
-  defp guest_room_title(%Conversation{}), do: "K-Comms room"
-
-  defp email_hint(nil), do: nil
-
-  defp email_hint(email) when is_binary(email) do
-    case String.split(email, "@", parts: 2) do
-      [local, domain] when local != "" and domain != "" ->
-        String.first(local) <> "***@" <> domain
-
-      _ ->
-        nil
-    end
-  end
-
-  defp normalize_email(email) when is_binary(email),
-    do: email |> String.trim() |> String.downcase()
-
-  defp normalize_email(_email), do: ""
 
   defp convert_guest_identity(
          %GuestLink{purpose: :ephemeral_room},
@@ -1390,7 +984,7 @@ defmodule CommsCore.Conversations.GuestAccess do
            allow_video_calls: policy.allow_video_calls,
            conversion_enabled: purpose == :ephemeral_room or not is_nil(conversion_email),
            self_service_conversion: purpose == :ephemeral_room,
-           email_hint: email_hint(conversion_email)
+           email_hint: Token.email_hint(conversion_email)
          }}
 
       {:error, _reason} ->
@@ -1402,17 +996,6 @@ defmodule CommsCore.Conversations.GuestAccess do
     case guest_capabilities(tenant_id, conversion_email, purpose) do
       {:ok, capabilities} -> capabilities
       {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  defp link_status(%GuestLink{revoked_at: revoked_at}, _timestamp) when not is_nil(revoked_at),
-    do: :revoked
-
-  defp link_status(%GuestLink{} = link, timestamp) do
-    cond do
-      DateTime.compare(link.expires_at, timestamp) != :gt -> :expired
-      link.use_count >= link.max_uses -> :exhausted
-      true -> :active
     end
   end
 
@@ -1465,9 +1048,6 @@ defmodule CommsCore.Conversations.GuestAccess do
 
   defp quota_ok!(:ok), do: :ok
   defp quota_ok!({:error, reason}), do: Repo.rollback(reason)
-
-  defp transaction_step_ok!(:ok), do: :ok
-  defp transaction_step_ok!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do

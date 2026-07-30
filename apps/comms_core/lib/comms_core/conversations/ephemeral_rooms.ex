@@ -7,8 +7,6 @@ defmodule CommsCore.Conversations.EphemeralRooms do
     Accounts,
     Administration,
     AdmissionQuotas,
-    Audit,
-    Outbox,
     Repo,
     RuntimePorts
   }
@@ -24,21 +22,23 @@ defmodule CommsCore.Conversations.EphemeralRooms do
     EphemeralRoom,
     EphemeralRoomView,
     GuestAdmission,
-    GuestAdmissionView,
     GuestLink,
-    Membership,
-    Projector
+    Membership
   }
 
-  alias CommsCore.Conversations.EphemeralRooms.Request
+  alias CommsCore.Conversations.EphemeralRooms.{
+    Events,
+    Maintenance,
+    Projection,
+    Request,
+    Scheduler
+  }
 
   @authority_horizon_seconds 24 * 60 * 60
   @authority_refresh_seconds 12 * 60 * 60
   @idempotency_window_seconds 10 * 60
   @global_reconcile_limit 100
   @max_active_leases_per_user 5
-  @presence_incident_retention_seconds 60 * 60
-  @join_receipt_tombstone_seconds 24 * 60 * 60
 
   @spec create(map(), :guest | map()) :: {:ok, map()} | {:error, term()}
   def create(attrs, creator) when is_map(attrs) and (creator == :guest or is_map(creator)) do
@@ -238,10 +238,10 @@ defmodule CommsCore.Conversations.EphemeralRooms do
         disconnect_at = closed.closed_at || timestamp
         updated_room = advance_last_presence!(room, disconnect_at)
         reconcile_at = DateTime.add(disconnect_at, updated_room.reconnect_grace_seconds, :second)
-        enqueue_reconcile!(updated_room.id, updated_room.generation, reconcile_at)
+        Scheduler.enqueue_reconcile!(updated_room, reconcile_at)
 
         %{
-          room: project_room(updated_room),
+          room: Projection.room(updated_room),
           generation: updated_room.generation,
           reconcile_at: reconcile_at,
           lease_id: closed.id
@@ -267,7 +267,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
              conversation_id: conversation_id
            ) do
         nil -> {:ok, nil}
-        room -> {:ok, project_room(room)}
+        room -> {:ok, Projection.room(room)}
       end
     else
       _ -> {:error, :forbidden}
@@ -306,7 +306,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
               :active
 
             room.status == :idle ->
-              enqueue_expiry!(room.id, room.generation, room.expires_at)
+              Scheduler.enqueue_expiry!(room, room.expires_at)
               {:idle, room.expires_at, room.generation}
 
             true ->
@@ -329,9 +329,9 @@ defmodule CommsCore.Conversations.EphemeralRooms do
           | {:error, :forbidden}
   def reconcile_all(caller) do
     if RuntimePorts.authorized_job_worker?(:ephemeral_room_reconciler, caller) do
-      scrubbed = scrub_expired_replay_capsules()
-      leases_pruned = prune_terminal_presence_leases()
-      join_receipts_pruned = prune_expired_join_receipts()
+      scrubbed = Maintenance.scrub_expired_replay_capsules()
+      leases_pruned = Maintenance.prune_terminal_presence_leases()
+      join_receipts_pruned = Maintenance.prune_expired_join_receipts()
 
       candidates =
         Repo.all(
@@ -456,16 +456,15 @@ defmodule CommsCore.Conversations.EphemeralRooms do
         end
 
       if updated.status == :idle do
-        enqueue_expiry!(updated.id, updated.generation, updated.expires_at)
+        Scheduler.enqueue_expiry!(updated, updated.expires_at)
       else
-        enqueue_reconcile!(
-          updated.id,
-          updated.generation,
+        Scheduler.enqueue_reconcile!(
+          updated,
           DateTime.add(timestamp, updated.reconnect_grace_seconds, :second)
         )
       end
 
-      emit!(
+      Events.emit!(
         updated,
         "ephemeral_room.owner_upgraded.v1",
         updated.creator_user_id,
@@ -515,9 +514,8 @@ defmodule CommsCore.Conversations.EphemeralRooms do
     if count > 0 do
       current = Repo.get!(EphemeralRoom, room.id)
 
-      enqueue_reconcile!(
-        current.id,
-        current.generation,
+      Scheduler.enqueue_reconcile!(
+        current,
         DateTime.add(timestamp, current.reconnect_grace_seconds, :second)
       )
     end
@@ -552,9 +550,8 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       )
 
     if count > 0 and room.status == :active do
-      enqueue_reconcile!(
-        room.id,
-        room.generation,
+      Scheduler.enqueue_reconcile!(
+        room,
         DateTime.add(timestamp, room.reconnect_grace_seconds, :second)
       )
     end
@@ -676,13 +673,12 @@ defmodule CommsCore.Conversations.EphemeralRooms do
             authority_expires_at
           )
 
-        enqueue_reconcile!(
-          room.id,
-          room.generation,
+        Scheduler.enqueue_reconcile!(
+          room,
           DateTime.add(timestamp, room.reconnect_grace_seconds, :second)
         )
 
-        emit!(
+        Events.emit!(
           room,
           "ephemeral_room.created.v1",
           actor_user_id,
@@ -948,7 +944,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
           })
           |> insert_or_rollback()
 
-        enqueue_guest_admission_expiry!(admission)
+        Scheduler.enqueue_guest_admission_expiry!(admission)
 
         join_response(
           room,
@@ -1219,7 +1215,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
           |> update_or_rollback()
 
         %{
-          room: project_room(updated_room),
+          room: Projection.room(updated_room),
           lease: %{id: lease.id, expires_at: lease.expires_at},
           generation: updated_room.generation
         }
@@ -1248,9 +1244,9 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       |> update_or_rollback()
 
     shorten_link_and_admissions!(updated, link, expires_at)
-    enqueue_expiry!(updated.id, updated.generation, expires_at)
+    Scheduler.enqueue_expiry!(updated, expires_at)
 
-    emit!(
+    Events.emit!(
       updated,
       "ephemeral_room.idle.v1",
       nil,
@@ -1283,13 +1279,12 @@ defmodule CommsCore.Conversations.EphemeralRooms do
 
     updated = extend_link_and_admissions!(updated, link, deadline)
 
-    enqueue_reconcile!(
-      updated.id,
-      updated.generation,
+    Scheduler.enqueue_reconcile!(
+      updated,
       DateTime.add(timestamp, updated.reconnect_grace_seconds, :second)
     )
 
-    emit!(
+    Events.emit!(
       updated,
       "ephemeral_room.reactivated.v1",
       nil,
@@ -1482,7 +1477,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       |> Ecto.Changeset.optimistic_lock(:lock_version)
       |> update_or_rollback()
 
-    emit!(
+    Events.emit!(
       expired,
       "ephemeral_room.expired.v1",
       nil,
@@ -1542,7 +1537,7 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       })
       |> insert_or_rollback()
 
-    enqueue_guest_admission_expiry!(admission)
+    Scheduler.enqueue_guest_admission_expiry!(admission)
     admission
   end
 
@@ -1879,16 +1874,16 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   end
 
   defp response(room, conversation, token, authentication, admission, membership, replayed) do
-    %{
-      room: project_room(room),
-      conversation: Projector.conversation(conversation),
-      join_token: token,
-      authentication: authentication,
-      admission: project_admission(admission),
-      membership: project_membership(membership),
-      capabilities: capabilities!(room.tenant_id),
-      replayed: replayed
-    }
+    room
+    |> Projection.response(
+      conversation,
+      token,
+      authentication,
+      admission,
+      membership,
+      replayed
+    )
+    |> Map.put(:capabilities, capabilities!(room.tenant_id))
   end
 
   defp join_response(
@@ -1906,44 +1901,6 @@ defmodule CommsCore.Conversations.EphemeralRooms do
     |> response(conversation, token, authentication, admission, membership, replayed)
     |> Map.put(:membership_changed, membership_changed)
   end
-
-  defp project_room(room) do
-    %EphemeralRoomView{
-      id: room.id,
-      conversation_id: room.conversation_id,
-      owner_user_id: room.creator_user_id,
-      status: room.status,
-      owner_kind: room.owner_kind,
-      participant_limit: room.participant_limit,
-      idle_since: room.idle_since,
-      expires_at: room.expires_at,
-      inserted_at: room.inserted_at,
-      updated_at: room.updated_at
-    }
-  end
-
-  defp project_admission(nil), do: nil
-
-  defp project_admission(admission) do
-    %GuestAdmissionView{
-      id: admission.id,
-      conversation_id: admission.conversation_id,
-      guest_link_id: admission.guest_link_id,
-      guest_user_id: admission.guest_user_id,
-      membership_id: admission.membership_id,
-      session_id: admission.session_id,
-      admitted_at: admission.admitted_at,
-      expires_at: admission.expires_at,
-      revoked_at: admission.revoked_at,
-      converted_at: admission.converted_at,
-      history_from_sequence: admission.history_from_sequence
-    }
-  end
-
-  defp project_membership(nil), do: nil
-
-  defp project_membership(membership),
-    do: %{id: membership.id, user_id: membership.user_id, role: membership.role}
 
   defp capabilities!(tenant_id) do
     case Administration.call_policy(tenant_id) do
@@ -1964,75 +1921,6 @@ defmodule CommsCore.Conversations.EphemeralRooms do
   defp title_for(%Conversation{title: title}) when is_binary(title) and title != "", do: title
   defp title_for(_conversation), do: "Instant room"
 
-  defp enqueue_reconcile!(room_id, generation, scheduled_at) do
-    %{"room_id" => room_id, "generation" => generation}
-    |> Oban.Job.new(
-      worker: RuntimePorts.job_worker_name!(:ephemeral_room_reconciler),
-      queue: :lifecycle,
-      scheduled_at: scheduled_at,
-      unique: [
-        period: :infinity,
-        fields: [:worker, :args],
-        states: :incomplete
-      ]
-    )
-    |> insert_or_rollback()
-  end
-
-  defp enqueue_expiry!(room_id, generation, scheduled_at) do
-    %{"room_id" => room_id, "generation" => generation}
-    |> Oban.Job.new(
-      worker: RuntimePorts.job_worker_name!(:ephemeral_room_lifecycle),
-      queue: :lifecycle,
-      scheduled_at: scheduled_at,
-      unique: [
-        period: :infinity,
-        fields: [:worker, :args],
-        states: :incomplete
-      ]
-    )
-    |> insert_or_rollback()
-  end
-
-  defp enqueue_guest_admission_expiry!(admission) do
-    %{"admission_id" => admission.id, "tenant_id" => admission.tenant_id}
-    |> Oban.Job.new(
-      worker: RuntimePorts.job_worker_name!(:guest_admission_expiry),
-      queue: :default,
-      scheduled_at: admission.expires_at,
-      unique: [
-        period: :infinity,
-        fields: [:worker, :args],
-        states: :incomplete
-      ]
-    )
-    |> insert_or_rollback()
-  end
-
-  defp emit!(room, event_type, actor_user_id, payload, request_id) do
-    Outbox.insert_and_enqueue!(%{
-      tenant_id: room.tenant_id,
-      event_type: event_type,
-      aggregate_type: "ephemeral_room",
-      aggregate_id: room.id,
-      payload: Map.put(payload, :ephemeral_room_id, room.id),
-      available_at: now()
-    })
-
-    case Audit.record(%{
-           tenant_id: room.tenant_id,
-           actor_user_id: actor_user_id,
-           action: String.replace(event_type, ".v1", ""),
-           resource_type: "conversation_ephemeral_room",
-           resource_id: room.id,
-           metadata: payload,
-           request_id: request_id
-         }) do
-      {:ok, _event} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
   defp active_conversation_count(tenant_id) do
     Repo.aggregate(
       from(conversation in Conversation,
@@ -2040,96 +1928,6 @@ defmodule CommsCore.Conversations.EphemeralRooms do
       ),
       :count
     )
-  end
-
-  defp scrub_expired_replay_capsules do
-    timestamp = now()
-
-    ids =
-      Repo.all(
-        from(room in EphemeralRoom,
-          where: room.idempotency_expires_at <= ^timestamp and not is_nil(room.replay_ciphertext),
-          order_by: [asc: room.idempotency_expires_at, asc: room.id],
-          limit: @global_reconcile_limit,
-          select: room.id
-        )
-      )
-
-    case ids do
-      [] ->
-        0
-
-      ids ->
-        {count, _} =
-          Repo.update_all(
-            from(room in EphemeralRoom, where: room.id in ^ids),
-            set: [
-              replay_ciphertext: nil,
-              replay_nonce: nil,
-              replay_tag: nil,
-              replay_key_id: nil,
-              replay_erased_at: timestamp,
-              updated_at: timestamp
-            ]
-          )
-
-        count
-    end
-  end
-
-  defp prune_terminal_presence_leases do
-    cutoff =
-      now()
-      |> DateTime.add(
-        -(reconnect_grace() + @presence_incident_retention_seconds),
-        :second
-      )
-
-    ids =
-      Repo.all(
-        from(lease in EphemeralPresenceLease,
-          where:
-            (not is_nil(lease.closed_at) and lease.closed_at <= ^cutoff) or
-              (is_nil(lease.closed_at) and lease.expires_at <= ^cutoff),
-          order_by: [
-            asc: fragment("COALESCE(?, ?)", lease.closed_at, lease.expires_at),
-            asc: lease.id
-          ],
-          limit: @global_reconcile_limit,
-          select: lease.id
-        )
-      )
-
-    case ids do
-      [] ->
-        0
-
-      ids ->
-        Repo.delete_all(from(lease in EphemeralPresenceLease, where: lease.id in ^ids)) |> elem(0)
-    end
-  end
-
-  defp prune_expired_join_receipts do
-    cutoff = DateTime.add(now(), -@join_receipt_tombstone_seconds, :second)
-
-    ids =
-      Repo.all(
-        from(receipt in EphemeralJoinReceipt,
-          where: receipt.expires_at <= ^cutoff,
-          order_by: [asc: receipt.expires_at, asc: receipt.id],
-          limit: @global_reconcile_limit,
-          select: receipt.id
-        )
-      )
-
-    case ids do
-      [] ->
-        0
-
-      ids ->
-        Repo.delete_all(from(receipt in EphemeralJoinReceipt, where: receipt.id in ^ids))
-        |> elem(0)
-    end
   end
 
   defp admission_policy!(tenant_id) do
