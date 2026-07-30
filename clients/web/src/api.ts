@@ -9,6 +9,7 @@ import type {
   AttachmentSafety,
   AttachmentDownloadResponse,
   AttachmentIntentResponse,
+  AttachmentThumbnailIntent,
   Conversation,
   ConversationMembership,
   DeletionRequest,
@@ -52,7 +53,6 @@ import type {
   RetainedSenderLabel,
   Session,
   ServiceAccount,
-  ServiceAccountScope,
   ServiceStatus,
   TenantAdministration,
   UploadDescriptor,
@@ -62,6 +62,31 @@ import type {
   WebhookEndpoint
 } from "./types";
 import { sha256BlobHex } from "./lib/sha256";
+import type {
+  ApiDownload,
+  ApiRequest,
+  ApiRequestOptions,
+  AuditExportInput,
+  AuditExportFile,
+  BootstrapInput,
+  CreateConversationInput,
+  CreateServiceAccountInput,
+  LoginInput,
+  SendMessageInput,
+  UpdateTenantInput
+} from "./api/contracts";
+import type { AccountsApi, RoomsApi, AdministrationApi, NotificationsApi, IntegrationsApi, CallsApi, MessagingApi, FilesApi, SystemApi } from "./api/domain-types";
+import { createAccountsApi } from "./api/domains/accounts";
+import { createRoomsApi } from "./api/domains/rooms";
+import { createAdministrationApi } from "./api/domains/administration";
+import { createNotificationsApi } from "./api/domains/notifications";
+import { createIntegrationsApi } from "./api/domains/integrations";
+import { createCallsApi } from "./api/domains/calls";
+import { createMessagingApi } from "./api/domains/messaging";
+import { createFilesApi } from "./api/domains/files";
+import { createSystemApi } from "./api/domains/system";
+export type { AuditExportFile, AuditExportInput, BootstrapInput, CreateConversationInput, CreateServiceAccountInput, LoginInput, SendMessageInput, UpdateTenantInput } from "./api/contracts";
+
 
 const sessionKey = "k-comms.session.v1";
 const guestSessionKey = "k-comms.guest-session.v1";
@@ -214,87 +239,22 @@ interface ErrorEnvelope {
   };
 }
 
-interface RequestOptions extends RequestInit {
-  retryAuthentication?: boolean;
-  skipAuthentication?: boolean;
-}
-
-export interface BootstrapInput {
-  tenant_name: string;
-  tenant_slug: string;
-  display_name: string;
-  email: string;
-  password: string;
-  device_name: string;
-  device_platform: "web";
-}
-
-export interface LoginInput {
-  tenant_slug: string;
-  email: string;
-  password: string;
-  device: { name: string; platform: "web" };
-}
-
-export interface CreateConversationInput {
-  title?: string;
-  kind: "direct" | "group" | "channel";
-  visibility: "private" | "tenant";
-  member_ids: string[];
-}
-
-export interface SendMessageInput {
-  client_message_id: string;
-  body: string;
-  attachment_ids: string[];
-  reply_to_message_id?: string | null;
-  mentioned_user_ids?: string[];
-}
-
-export interface UpdateTenantInput {
-  name: string;
-  allow_audio_calls: boolean;
-  allow_video_calls: boolean;
-  allow_public_channels: boolean;
-  message_edit_window_seconds: number;
-  max_attachment_bytes: number;
-  default_retention_days: number;
-  max_active_users: number;
-  max_active_conversations: number;
-  max_conversation_members: number;
-  version: number;
-}
-
-export interface CreateServiceAccountInput {
-  name: string;
-  scopes: ServiceAccountScope[];
-  expires_at: string;
-  reason: string;
-}
-
-export interface AuditExportInput {
-  q?: string;
-  action?: string;
-  resource_type?: string;
-  actor_user_id?: string;
-  request_id?: string;
-  after?: string;
-  before?: string;
-  limit?: number;
-}
-
-export interface AuditExportFile {
-  blob: Blob;
-  filename: string;
-  count: number;
-  truncated: boolean;
-}
+type RequestOptions = ApiRequestOptions;
 
 export class ApiClient {
   private session: Session | null;
   private refreshPromise: Promise<Session | null> | null = null;
   private refreshController: AbortController | null = null;
   private sessionGeneration = 0;
+  private readonly accountsApi: AccountsApi;
+  private readonly roomsApi: RoomsApi;
+  private readonly administrationApi: AdministrationApi;
+  private readonly notificationsApi: NotificationsApi;
+  private readonly integrationsApi: IntegrationsApi;
+  private readonly callsApi: CallsApi;
+  private readonly messagingApi: MessagingApi;
+  private readonly filesApi: FilesApi;
+  private readonly systemApi: SystemApi;
 
   constructor(
     private readonly baseUrl: string,
@@ -302,6 +262,23 @@ export class ApiClient {
     private readonly onSession: (session: Session | null) => void
   ) {
     this.session = initialSession;
+
+    const request: ApiRequest = (path, options) => this.request(path, options);
+    const download: ApiDownload = (path, options) => this.download(path, options);
+    this.accountsApi = createAccountsApi(request, { withReceivedAt });
+    this.roomsApi = createRoomsApi(request, {
+      normalizeInstantRoomPreview,
+      normalizeInstantRoomResult,
+      operationId,
+      unwrapUnknownData
+    });
+    this.administrationApi = createAdministrationApi(request, download, { operationId });
+    this.notificationsApi = createNotificationsApi(request);
+    this.integrationsApi = createIntegrationsApi(request);
+    this.callsApi = createCallsApi(request);
+    this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
+    this.filesApi = createFilesApi(request, { attachmentContentType });
+    this.systemApi = createSystemApi(request);
   }
 
   setSession(session: Session | null): void {
@@ -317,20 +294,76 @@ export class ApiClient {
     this.session = session;
   }
 
-  bootstrap(input: BootstrapInput): Promise<Session & { conversation: Conversation }> {
-    return this.request<Session & { conversation: Conversation }>("/api/v1/bootstrap", {
-      method: "POST",
-      body: JSON.stringify(input),
-      retryAuthentication: false
-    }).then(withReceivedAt);
+  bootstrap(input: BootstrapInput): Promise<Session & { conversation: Conversation }>{
+    return this.accountsApi.bootstrap(input);
   }
 
-  login(input: LoginInput): Promise<Session> {
-    return this.request<Session>("/api/v1/sessions", {
-      method: "POST",
-      body: JSON.stringify(input),
-      retryAuthentication: false
-    }).then(withReceivedAt);
+  login(input: LoginInput): Promise<Session>{
+    return this.accountsApi.login(input);
+  }
+
+  requestPasswordRecovery(input: { tenant_slug: string; email: string }): Promise<void>{
+    return this.accountsApi.requestPasswordRecovery(input);
+  }
+
+  resetPassword(input: { token: string; new_password: string }): Promise<void>{
+    return this.accountsApi.resetPassword(input);
+  }
+
+  acceptInvitation(input: { token: string; display_name: string; password: string }): Promise<User>{
+    return this.accountsApi.acceptInvitation(input);
+  }
+
+  me(): Promise<MeResponse>{
+    return this.accountsApi.me();
+  }
+
+  updateProfile(input: { display_name: string }): Promise<User>{
+    return this.accountsApi.updateProfile(input);
+  }
+
+  changePassword(input: { current_password: string; new_password: string }): Promise<void>{
+    return this.accountsApi.changePassword(input);
+  }
+
+  stepUp(currentPassword: string): Promise<{ step_up_at: string }>{
+    return this.accountsApi.stepUp(currentPassword);
+  }
+
+  socketTicket(): Promise<{ ticket: string; expires_in: number }>{
+    return this.accountsApi.socketTicket();
+  }
+
+  devices(): Promise<Device[]>{
+    return this.accountsApi.devices();
+  }
+
+  revokeDevice(id: string): Promise<void>{
+    return this.accountsApi.revokeDevice(id);
+  }
+
+  sessions(): Promise<AccountSession[]>{
+    return this.accountsApi.sessions();
+  }
+
+  revokeSession(id: string): Promise<void>{
+    return this.accountsApi.revokeSession(id);
+  }
+
+  users(): Promise<User[]>{
+    return this.accountsApi.users();
+  }
+
+  directoryUsers(
+    query = "",
+    limit = 25,
+    cursor?: string | null
+  ): Promise<DirectoryPeoplePage>{
+    return this.accountsApi.directoryUsers(query, limit, cursor);
+  }
+
+  directConversation(userId: string): Promise<DirectConversationResponse>{
+    return this.accountsApi.directConversation(userId);
   }
 
   createInstantRoom(
@@ -340,489 +373,20 @@ export class ApiClient {
       device?: { name: string; platform: "web" };
     },
     idempotencyKey: string
-  ): Promise<InstantRoomResult> {
-    return this.request<unknown>("/api/v1/instant-rooms", {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify(input)
-    }).then(normalizeInstantRoomResult);
+  ): Promise<InstantRoomResult>{
+    return this.roomsApi.createInstantRoom(input, idempotencyKey);
   }
 
-  previewInstantRoom(token: string): Promise<InstantRoomPreview> {
-    return this.request<unknown>(
-      "/api/v1/instant-rooms/preview",
-      {
-        method: "POST",
-        body: JSON.stringify({ token }),
-        retryAuthentication: false,
-        skipAuthentication: true
-      }
-    ).then((payload) => normalizeInstantRoomPreview(unwrapUnknownData(payload)));
+  previewInstantRoom(token: string): Promise<InstantRoomPreview>{
+    return this.roomsApi.previewInstantRoom(token);
   }
 
   joinInstantRoom(input: {
     token: string;
     display_name?: string;
     device?: { name: string; platform: "web" };
-  }, idempotencyKey: string): Promise<InstantRoomResult> {
-    return this.request<unknown>("/api/v1/instant-room-sessions", {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify(input)
-    }).then(normalizeInstantRoomResult);
-  }
-
-  requestPasswordRecovery(input: { tenant_slug: string; email: string }): Promise<void> {
-    return this.request("/api/v1/password-recovery/requests", {
-      method: "POST",
-      body: JSON.stringify(input),
-      retryAuthentication: false
-    });
-  }
-
-  resetPassword(input: { token: string; new_password: string }): Promise<void> {
-    return this.request("/api/v1/password-recovery/resets", {
-      method: "POST",
-      body: JSON.stringify(input),
-      retryAuthentication: false
-    });
-  }
-
-  acceptInvitation(input: { token: string; display_name: string; password: string }): Promise<User> {
-    return this.request<DataResponse<User>>("/api/v1/invitations/accept", {
-      method: "POST",
-      body: JSON.stringify(input),
-      retryAuthentication: false
-    }).then((response) => response.data);
-  }
-
-  me(): Promise<MeResponse> {
-    return this.request("/api/v1/me");
-  }
-
-  updateProfile(input: { display_name: string }): Promise<User> {
-    return this.request<DataResponse<User>>("/api/v1/me/profile", {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  changePassword(input: { current_password: string; new_password: string }): Promise<void> {
-    return this.request("/api/v1/me/password", { method: "PUT", body: JSON.stringify(input) });
-  }
-
-  stepUp(currentPassword: string): Promise<{ step_up_at: string }> {
-    return this.request<DataResponse<{ step_up_at: string }>>("/api/v1/me/step-up", {
-      method: "POST",
-      body: JSON.stringify({ current_password: currentPassword })
-    }).then((response) => response.data);
-  }
-
-  socketTicket(): Promise<{ ticket: string; expires_in: number }> {
-    return this.request<DataResponse<{ ticket: string; expires_in: number }>>("/api/v1/socket-tickets", {
-      method: "POST"
-    }).then((response) => response.data);
-  }
-
-  devices(): Promise<Device[]> {
-    return this.request<ListResponse<Device>>("/api/v1/me/devices").then(
-      (response) => response.data
-    );
-  }
-
-  revokeDevice(id: string): Promise<void> {
-    return this.request(`/api/v1/me/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
-
-  sessions(): Promise<AccountSession[]> {
-    return this.request<ListResponse<AccountSession>>("/api/v1/me/sessions").then(
-      (response) => response.data
-    );
-  }
-
-  revokeSession(id: string): Promise<void> {
-    return this.request(`/api/v1/me/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-  }
-
-  users(): Promise<User[]> {
-    return this.request<ListResponse<User>>("/api/v1/users").then((response) => response.data);
-  }
-
-  directoryUsers(
-    query = "",
-    limit = 25,
-    cursor?: string | null
-  ): Promise<DirectoryPeoplePage> {
-    const params = new URLSearchParams({ q: query, limit: String(limit) });
-    if (cursor) params.set("cursor", cursor);
-    return this.request(`/api/v1/directory/users?${params.toString()}`);
-  }
-
-  directConversation(userId: string): Promise<DirectConversationResponse> {
-    return this.request("/api/v1/direct-conversations", {
-      method: "POST",
-      body: JSON.stringify({ user_id: userId })
-    });
-  }
-
-  adminUsers(): Promise<User[]> {
-    return this.request<ListResponse<User>>("/api/v1/admin/users").then((response) => response.data);
-  }
-
-  updateAdminUser(id: string, input: { role?: UserRole; status?: string; display_name?: string; reason?: string; version: number }): Promise<User> {
-    return this.request<DataResponse<User>>(`/api/v1/admin/users/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  adminUserSessions(userId: string): Promise<AccountSession[]> {
-    return this.request<ListResponse<AccountSession>>(`/api/v1/admin/users/${encodeURIComponent(userId)}/sessions`).then(
-      (response) => response.data
-    );
-  }
-
-  adminRevokeSession(userId: string, sessionId: string, reason?: string): Promise<void> {
-    return this.request(`/api/v1/admin/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}`, {
-      method: "DELETE",
-      body: reason ? JSON.stringify({ reason }) : undefined
-    });
-  }
-
-  tenantAdministration(): Promise<TenantAdministration> {
-    return this.request<DataResponse<TenantAdministration>>("/api/v1/admin/tenant").then(
-      (response) => response.data
-    );
-  }
-
-  updateTenantAdministration(input: UpdateTenantInput): Promise<TenantAdministration> {
-    return this.request<DataResponse<TenantAdministration>>("/api/v1/admin/tenant", {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  invitations(): Promise<Invitation[]> {
-    return this.request<ListResponse<Invitation>>("/api/v1/admin/invitations").then(
-      (response) => response.data
-    );
-  }
-
-  createInvitation(input: { email: string; role: Exclude<UserRole, "owner"> }): Promise<{ invitation: Invitation; invitationToken?: string | null }> {
-    return this.request<{ data: Invitation; invitation_token?: string | null }>("/api/v1/admin/invitations", {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify(input)
-    }).then((response) => ({ invitation: response.data, invitationToken: response.invitation_token }));
-  }
-
-  revokeInvitation(id: string, version: number, reason?: string): Promise<Invitation> {
-    return this.request<DataResponse<Invitation>>(`/api/v1/admin/invitations/${encodeURIComponent(id)}/revoke`, {
-      method: "POST",
-      body: JSON.stringify({ version, reason })
-    }).then((response) => response.data);
-  }
-
-  auditEvents(limit = 100): Promise<AuditEvent[]> {
-    return this.request<ListResponse<AuditEvent>>(`/api/v1/admin/audit-events?limit=${limit}`).then(
-      (response) => response.data
-    );
-  }
-
-  exportAuditEvents(input: AuditExportInput = {}): Promise<AuditExportFile> {
-    return this.download("/api/v1/admin/audit-events/export", {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-  }
-
-  moderationCases(): Promise<ModerationCase[]> {
-    return this.request<ListResponse<ModerationCase>>("/api/v1/moderation/cases").then(
-      (response) => response.data
-    );
-  }
-
-  createModerationCase(input: { subject_user_id?: string; conversation_id?: string; message_id?: string; category: string; summary: string; details?: string; priority?: string }): Promise<ModerationCase> {
-    return this.request<DataResponse<ModerationCase>>("/api/v1/moderation/cases", {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  addModerationAction(id: string, input: { action_type: string; note: string; version: number }): Promise<ModerationCase> {
-    return this.request<{ data: ModerationCase }>(`/api/v1/moderation/cases/${encodeURIComponent(id)}/actions`, {
-      method: "POST",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  retentionPolicies(): Promise<RetentionPolicy[]> {
-    return this.request<ListResponse<RetentionPolicy>>("/api/v1/admin/retention-policies").then(
-      (response) => response.data
-    );
-  }
-
-  createRetentionPolicy(input: { name: string; retention_days: number; delete_attachments: boolean }): Promise<RetentionPolicy> {
-    return this.request<DataResponse<RetentionPolicy>>("/api/v1/admin/retention-policies", {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify({ ...input, scope_type: "tenant", status: "active" })
-    }).then((response) => response.data);
-  }
-
-  updateRetentionPolicy(id: string, input: { status: "active" | "disabled"; version: number; reason: string }): Promise<RetentionPolicy> {
-    return this.request<DataResponse<RetentionPolicy>>(`/api/v1/admin/retention-policies/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  legalHolds(): Promise<LegalHold[]> {
-    return this.request<ListResponse<LegalHold>>("/api/v1/admin/legal-holds").then(
-      (response) => response.data
-    );
-  }
-
-  createLegalHold(input: {
-    name: string;
-    reason: string;
-    scope_type: "tenant" | "user" | "conversation";
-    target_id?: string;
-  }): Promise<LegalHold> {
-    const { target_id: targetId, ...body } = input;
-    const targetField = input.scope_type === "user"
-      ? "subject_user_id"
-      : input.scope_type === "conversation"
-        ? "conversation_id"
-        : null;
-    return this.request<DataResponse<LegalHold>>("/api/v1/admin/legal-holds", {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify({ ...body, ...(targetField && targetId ? { [targetField]: targetId } : {}) })
-    }).then((response) => response.data);
-  }
-
-  releaseLegalHold(id: string, version: number, releaseReason: string): Promise<LegalHold> {
-    return this.request<DataResponse<LegalHold>>(`/api/v1/admin/legal-holds/${encodeURIComponent(id)}/release`, {
-      method: "POST",
-      body: JSON.stringify({ version, release_reason: releaseReason })
-    }).then((response) => response.data);
-  }
-
-  deletionRequests(): Promise<DeletionRequest[]> {
-    return this.request<ListResponse<DeletionRequest>>("/api/v1/admin/deletion-requests").then(
-      (response) => response.data
-    );
-  }
-
-  createDeletionRequest(input: { target_type: "user" | "conversation" | "message"; target_id: string; reason: string }): Promise<DeletionRequest> {
-    const targetField = input.target_type === "user" ? "subject_user_id" : `${input.target_type}_id`;
-    return this.request<DataResponse<DeletionRequest>>("/api/v1/admin/deletion-requests", {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify({ target_type: input.target_type, [targetField]: input.target_id, reason: input.reason })
-    }).then((response) => response.data);
-  }
-
-  updateDeletionRequest(id: string, input: { status: string; version: number; transition_reason: string }): Promise<DeletionRequest> {
-    return this.request<DataResponse<DeletionRequest>>(`/api/v1/admin/deletion-requests/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  notificationPreference(): Promise<NotificationPreference> {
-    return this.request<DataResponse<NotificationPreference>>("/api/v1/notification-preferences").then(
-      (response) => response.data
-    );
-  }
-
-  updateNotificationPreference(input: Pick<NotificationPreference, "email_enabled" | "push_enabled" | "in_app_enabled" | "muted_event_types">): Promise<NotificationPreference> {
-    return this.request<DataResponse<NotificationPreference>>("/api/v1/notification-preferences", {
-      method: "PUT",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
-  }
-
-  notifications(): Promise<NotificationIntent[]> {
-    return this.request<ListResponse<NotificationIntent>>("/api/v1/notifications").then(
-      (response) => response.data
-    );
-  }
-
-  notificationAttempts(): Promise<NotificationAttempt[]> {
-    return this.request<ListResponse<NotificationAttempt>>("/api/v1/notification-attempts").then(
-      (response) => response.data
-    );
-  }
-
-  retryNotification(id: string): Promise<NotificationIntent> {
-    return this.request<DataResponse<NotificationIntent>>(`/api/v1/notification-intents/${encodeURIComponent(id)}/retry`, { method: "POST" }).then(
-      (response) => response.data
-    );
-  }
-
-  pushSubscriptionConfig(): Promise<PushSubscriptionConfig> {
-    return this.request<DataResponse<PushSubscriptionConfig>>(
-      "/api/v1/me/push-subscriptions/config"
-    ).then((response) => response.data);
-  }
-
-  pushSubscriptions(): Promise<PushSubscriptionRecord[]> {
-    return this.request<ListResponse<PushSubscriptionRecord>>(
-      "/api/v1/me/push-subscriptions"
-    ).then((response) => response.data);
-  }
-
-  registerPushSubscription(input: PushSubscriptionInput): Promise<{ data: PushSubscriptionRecord; replayed: boolean }> {
-    return this.request("/api/v1/me/push-subscriptions", {
-      method: "POST",
-      body: JSON.stringify(input)
-    });
-  }
-
-  revokePushSubscription(id: string): Promise<PushSubscriptionRecord> {
-    return this.request<DataResponse<PushSubscriptionRecord>>(
-      `/api/v1/me/push-subscriptions/${encodeURIComponent(id)}`,
-      { method: "DELETE" }
-    ).then((response) => response.data);
-  }
-
-  inAppNotifications(limit = 50): Promise<InAppNotificationPage> {
-    return this.request(`/api/v1/in-app-notifications?limit=${Math.max(1, Math.min(limit, 100))}`);
-  }
-
-  inAppUnreadCount(): Promise<number> {
-    return this.request<DataResponse<{ unread_count: number }>>(
-      "/api/v1/in-app-notifications/unread-count"
-    ).then((response) => response.data.unread_count);
-  }
-
-  markInAppNotificationRead(id: string): Promise<InAppNotification> {
-    return this.request<DataResponse<InAppNotification>>(
-      `/api/v1/in-app-notifications/${encodeURIComponent(id)}/read`,
-      { method: "PATCH" }
-    ).then((response) => response.data);
-  }
-
-  dismissInAppNotification(id: string): Promise<InAppNotification> {
-    return this.request<DataResponse<InAppNotification>>(
-      `/api/v1/in-app-notifications/${encodeURIComponent(id)}`,
-      { method: "DELETE" }
-    ).then((response) => response.data);
-  }
-
-  markAllInAppNotificationsRead(): Promise<{ updated_count: number; unread_count: number }> {
-    return this.request<DataResponse<{ updated_count: number; unread_count: number }>>(
-      "/api/v1/in-app-notifications/read-all",
-      { method: "POST" }
-    ).then((response) => response.data);
-  }
-
-  webhooks(): Promise<WebhookEndpoint[]> {
-    return this.request<ListResponse<WebhookEndpoint>>("/api/v1/admin/webhooks").then(
-      (response) => response.data
-    );
-  }
-
-  createWebhook(input: { name: string; url: string; event_types: string[] }): Promise<{ endpoint: WebhookEndpoint; secret: string }> {
-    return this.request<{ data: WebhookEndpoint; secret: string }>("/api/v1/admin/webhooks", {
-      method: "POST",
-      body: JSON.stringify(input)
-    }).then((response) => ({ endpoint: response.data, secret: response.secret }));
-  }
-
-  rotateWebhookSecret(id: string, reason?: string): Promise<{ endpoint: WebhookEndpoint; secret: string }> {
-    return this.request<{ data: WebhookEndpoint; secret: string }>(`/api/v1/admin/webhooks/${encodeURIComponent(id)}/rotate-secret`, {
-      method: "POST",
-      body: reason ? JSON.stringify({ reason }) : undefined
-    }).then(
-      (response) => ({ endpoint: response.data, secret: response.secret })
-    );
-  }
-
-  disableWebhook(id: string, reason?: string): Promise<void> {
-    return this.request(`/api/v1/admin/webhooks/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      body: reason ? JSON.stringify({ reason }) : undefined
-    });
-  }
-
-  webhookDeliveries(): Promise<WebhookDelivery[]> {
-    return this.request<ListResponse<WebhookDelivery>>("/api/v1/admin/webhook-deliveries").then(
-      (response) => response.data
-    );
-  }
-
-  serviceAccounts(): Promise<ServiceAccount[]> {
-    return this.request<ListResponse<ServiceAccount>>("/api/v1/admin/service-accounts").then(
-      (response) => response.data
-    );
-  }
-
-  createServiceAccount(input: CreateServiceAccountInput): Promise<{ account: ServiceAccount; credential: string }> {
-    return this.request<{ data: ServiceAccount; credential: string }>("/api/v1/admin/service-accounts", {
-      method: "POST",
-      body: JSON.stringify(input)
-    }).then((response) => ({ account: response.data, credential: response.credential }));
-  }
-
-  rotateServiceAccount(id: string, version: number, reason: string): Promise<{ account: ServiceAccount; credential: string }> {
-    return this.request<{ data: ServiceAccount; credential: string }>(`/api/v1/admin/service-accounts/${encodeURIComponent(id)}/rotate`, {
-      method: "POST",
-      body: JSON.stringify({ version, reason })
-    }).then((response) => ({ account: response.data, credential: response.credential }));
-  }
-
-  revokeServiceAccount(id: string, version: number, reason: string): Promise<ServiceAccount> {
-    return this.request<DataResponse<ServiceAccount>>(`/api/v1/admin/service-accounts/${encodeURIComponent(id)}/revoke`, {
-      method: "POST",
-      body: JSON.stringify({ version, reason })
-    }).then((response) => response.data);
-  }
-
-  replayWebhookDelivery(id: string): Promise<WebhookDelivery> {
-    return this.request<DataResponse<WebhookDelivery>>(`/api/v1/admin/webhook-deliveries/${encodeURIComponent(id)}/replay`, { method: "POST" }).then(
-      (response) => response.data
-    );
-  }
-
-  attachmentSafety(): Promise<AttachmentSafety[]> {
-    return this.request<ListResponse<AttachmentSafety>>("/api/v1/admin/attachment-safety").then(
-      (response) => response.data
-    );
-  }
-
-  retryAttachmentScan(id: string): Promise<AttachmentSafety> {
-    return this.request<DataResponse<AttachmentSafety>>(`/api/v1/admin/attachment-safety/${encodeURIComponent(id)}/retry`, { method: "POST" }).then(
-      (response) => response.data
-    );
-  }
-
-  operations(): Promise<OperationsSnapshot> {
-    return this.request<DataResponse<OperationsSnapshot>>("/api/v1/ops").then(
-      (response) => response.data
-    );
-  }
-
-  platformOperations(): Promise<OperationsSnapshot> {
-    return this.request<DataResponse<OperationsSnapshot>>("/api/v1/platform/ops").then(
-      (response) => response.data
-    );
-  }
-
-  retryOperation(resourceType: "notification" | "webhook" | "attachment_scan", id: string): Promise<void> {
-    return this.request("/api/v1/ops/retry", {
-      method: "POST",
-      body: JSON.stringify({ resource_type: resourceType, id })
-    });
-  }
-
-  conversations(): Promise<Conversation[]> {
-    return this.request<ListResponse<Conversation>>("/api/v1/conversations").then(
-      (response) => response.data
-    );
+  }, idempotencyKey: string): Promise<InstantRoomResult>{
+    return this.roomsApi.joinInstantRoom(input, idempotencyKey);
   }
 
   createGuestLink(
@@ -837,194 +401,308 @@ export class ApiClient {
     token: string;
     url: string;
     conversionVerificationCode?: string;
-  }> {
-    return this.request<{
-      data?: GuestLink;
-      guest_link?: GuestLink;
-      token?: string;
-      guest_link_token?: string;
-      conversion_verification_code?: string;
-    }>(`/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links`, {
-      method: "POST",
-      headers: { "Idempotency-Key": operationId() },
-      body: JSON.stringify(input)
-    }).then((response) => {
-      const guestLink = response.data || response.guest_link;
-      const token = response.token || response.guest_link_token;
-      const conversionVerificationCode = response.conversion_verification_code;
-      const conversionRequested = Boolean(input.conversion_email);
-      const validConversionCode =
-        typeof conversionVerificationCode === "string" &&
-        /^[A-Za-z0-9_-]{43}$/.test(conversionVerificationCode);
-      if (
-        !guestLink ||
-        !token ||
-        !guestLink.share_url ||
-        (conversionRequested && !validConversionCode) ||
-        (!conversionRequested && conversionVerificationCode !== undefined)
-      ) {
-        throw new Error("The server did not return a complete guest link.");
-      }
-      return {
-        guestLink,
-        token,
-        url: guestLink.share_url,
-        ...(validConversionCode
-          ? { conversionVerificationCode }
-          : {})
-      };
-    });
+  }>{
+    return this.roomsApi.createGuestLink(conversationId, input);
   }
 
-  guestLinks(conversationId: string): Promise<GuestLink[]> {
-    return this.request<ListResponse<GuestLink>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links`
-    ).then((response) => response.data);
+  guestLinks(conversationId: string): Promise<GuestLink[]>{
+    return this.roomsApi.guestLinks(conversationId);
   }
 
   revokeGuestLink(
     conversationId: string,
     guestLinkId: string
-  ): Promise<GuestLink> {
-    return this.request<DataResponse<GuestLink>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/guest-links/${encodeURIComponent(guestLinkId)}`,
-      { method: "DELETE" }
-    ).then((response) => response.data);
+  ): Promise<GuestLink>{
+    return this.roomsApi.revokeGuestLink(conversationId, guestLinkId);
   }
 
-  calls(options: CallsQueryOptions = {}): Promise<CallsPageResponse> {
-    const query = new URLSearchParams({
-      scope: options.scope ?? "recent",
-      limit: String(Math.max(1, Math.min(options.limit ?? 25, 100)))
-    });
-    if (options.media_kind) query.set("media_kind", options.media_kind);
-    if (options.cursor) query.set("cursor", options.cursor);
-    return this.request(`/api/v1/calls?${query.toString()}`);
+  adminUsers(): Promise<User[]>{
+    return this.administrationApi.adminUsers();
   }
 
-  files(options: FilesQueryOptions = {}): Promise<FilesPageResponse> {
-    const query = new URLSearchParams({
-      scope: options.scope ?? "recent",
-      limit: String(Math.max(1, Math.min(options.limit ?? 25, 100)))
-    });
-    if (options.conversation_id) query.set("conversation_id", options.conversation_id);
-    if (options.cursor) query.set("cursor", options.cursor);
-    return this.request(`/api/v1/files?${query.toString()}`);
+  updateAdminUser(id: string, input: { role?: UserRole; status?: string; display_name?: string; reason?: string; version: number }): Promise<User>{
+    return this.administrationApi.updateAdminUser(id, input);
   }
 
-  call(conversationId: string): Promise<Call | null> {
-    return this.request<DataResponse<Call | null>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/call`
-    ).then((response) => response.data);
+  adminUserSessions(userId: string): Promise<AccountSession[]>{
+    return this.administrationApi.adminUserSessions(userId);
   }
 
-  startCall(conversationId: string, mediaKind: CallMediaKind): Promise<CallSessionResponse> {
-    return this.request<CallSessionResponse>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls`,
-      { method: "POST", body: JSON.stringify({ media_kind: mediaKind }) }
-    );
+  adminRevokeSession(userId: string, sessionId: string, reason?: string): Promise<void>{
+    return this.administrationApi.adminRevokeSession(userId, sessionId, reason);
   }
 
-  joinCall(conversationId: string, callId: string): Promise<CallSessionResponse> {
-    return this.request<CallSessionResponse>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/join`,
-      { method: "POST" }
-    );
+  tenantAdministration(): Promise<TenantAdministration>{
+    return this.administrationApi.tenantAdministration();
   }
 
-  endCall(conversationId: string, callId: string): Promise<Call> {
-    return this.request<DataResponse<Call>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/end`,
-      { method: "POST" }
-    ).then((response) => response.data);
+  updateTenantAdministration(input: UpdateTenantInput): Promise<TenantAdministration>{
+    return this.administrationApi.updateTenantAdministration(input);
   }
 
-  /** @deprecated Use the media-neutral call methods. */
-  audioCall(conversationId: string): Promise<Call | null> {
-    return this.call(conversationId);
+  invitations(): Promise<Invitation[]>{
+    return this.administrationApi.invitations();
   }
 
-  /** @deprecated Use startCall with media_kind audio. */
-  startAudioCall(conversationId: string): Promise<CallSessionResponse> {
-    return this.startCall(conversationId, "audio");
+  createInvitation(input: { email: string; role: Exclude<UserRole, "owner"> }): Promise<{ invitation: Invitation; invitationToken?: string | null }>{
+    return this.administrationApi.createInvitation(input);
   }
 
-  /** @deprecated Use joinCall. */
-  joinAudioCall(conversationId: string, callId: string): Promise<CallSessionResponse> {
-    return this.joinCall(conversationId, callId);
+  revokeInvitation(id: string, version: number, reason?: string): Promise<Invitation>{
+    return this.administrationApi.revokeInvitation(id, version, reason);
   }
 
-  /** @deprecated Use endCall. */
-  endAudioCall(conversationId: string, callId: string): Promise<Call> {
-    return this.endCall(conversationId, callId);
+  auditEvents(limit = 100): Promise<AuditEvent[]>{
+    return this.administrationApi.auditEvents(limit);
   }
 
-  discoverPublicChannels(query = "", limit = 25, cursor?: string | null): Promise<PublicChannelDiscoveryPage> {
-    const params = new URLSearchParams({ q: query, limit: String(limit) });
-    if (cursor) params.set("cursor", cursor);
-    return this.request(`/api/v1/channels/discover?${params.toString()}`);
+  exportAuditEvents(input: AuditExportInput = {}): Promise<AuditExportFile>{
+    return this.administrationApi.exportAuditEvents(input);
   }
 
-  joinPublicChannel(id: string): Promise<PublicChannelMembershipResponse> {
-    return this.request(`/api/v1/channels/${encodeURIComponent(id)}/join`, { method: "POST" });
+  moderationCases(): Promise<ModerationCase[]>{
+    return this.administrationApi.moderationCases();
   }
 
-  leavePublicChannel(id: string, version: number): Promise<PublicChannelMembershipResponse> {
-    return this.request(`/api/v1/channels/${encodeURIComponent(id)}/membership`, {
-      method: "DELETE",
-      body: JSON.stringify({ version })
-    });
+  createModerationCase(input: { subject_user_id?: string; conversation_id?: string; message_id?: string; category: string; summary: string; details?: string; priority?: string }): Promise<ModerationCase>{
+    return this.administrationApi.createModerationCase(input);
   }
 
-  conversation(id: string): Promise<Conversation> {
-    return this.request<DataResponse<Conversation>>(
-      `/api/v1/conversations/${encodeURIComponent(id)}`
-    ).then((response) => response.data);
+  addModerationAction(id: string, input: { action_type: string; note: string; version: number }): Promise<ModerationCase>{
+    return this.administrationApi.addModerationAction(id, input);
   }
 
-  createConversation(input: CreateConversationInput): Promise<Conversation> {
-    return this.request<DataResponse<Conversation>>("/api/v1/conversations", {
-      method: "POST",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
+  retentionPolicies(): Promise<RetentionPolicy[]>{
+    return this.administrationApi.retentionPolicies();
   }
 
-  updateConversation(id: string, input: { title?: string; visibility?: "private" | "tenant"; version: number }): Promise<Conversation> {
-    return this.request<DataResponse<Conversation>>(`/api/v1/conversations/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    }).then((response) => response.data);
+  createRetentionPolicy(input: { name: string; retention_days: number; delete_attachments: boolean }): Promise<RetentionPolicy>{
+    return this.administrationApi.createRetentionPolicy(input);
   }
 
-  archiveConversation(id: string, version: number): Promise<Conversation> {
-    return this.request<DataResponse<Conversation>>(`/api/v1/conversations/${encodeURIComponent(id)}/archive`, {
-      method: "POST",
-      body: JSON.stringify({ version })
-    }).then((response) => response.data);
+  updateRetentionPolicy(id: string, input: { status: "active" | "disabled"; version: number; reason: string }): Promise<RetentionPolicy>{
+    return this.administrationApi.updateRetentionPolicy(id, input);
   }
 
-  conversationMembers(conversationId: string): Promise<ConversationMembership[]> {
-    return this.request<ListResponse<ConversationMembership>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/members`
-    ).then((response) => response.data);
+  legalHolds(): Promise<LegalHold[]>{
+    return this.administrationApi.legalHolds();
+  }
+
+  createLegalHold(input: {
+    name: string;
+    reason: string;
+    scope_type: "tenant" | "user" | "conversation";
+    target_id?: string;
+  }): Promise<LegalHold>{
+    return this.administrationApi.createLegalHold(input);
+  }
+
+  releaseLegalHold(id: string, version: number, releaseReason: string): Promise<LegalHold>{
+    return this.administrationApi.releaseLegalHold(id, version, releaseReason);
+  }
+
+  deletionRequests(): Promise<DeletionRequest[]>{
+    return this.administrationApi.deletionRequests();
+  }
+
+  createDeletionRequest(input: { target_type: "user" | "conversation" | "message"; target_id: string; reason: string }): Promise<DeletionRequest>{
+    return this.administrationApi.createDeletionRequest(input);
+  }
+
+  updateDeletionRequest(id: string, input: { status: string; version: number; transition_reason: string }): Promise<DeletionRequest>{
+    return this.administrationApi.updateDeletionRequest(id, input);
+  }
+
+  operations(): Promise<OperationsSnapshot>{
+    return this.administrationApi.operations();
+  }
+
+  platformOperations(): Promise<OperationsSnapshot>{
+    return this.administrationApi.platformOperations();
+  }
+
+  retryOperation(resourceType: "notification" | "webhook" | "attachment_scan", id: string): Promise<void>{
+    return this.administrationApi.retryOperation(resourceType, id);
+  }
+
+  notificationPreference(): Promise<NotificationPreference>{
+    return this.notificationsApi.notificationPreference();
+  }
+
+  updateNotificationPreference(input: Pick<NotificationPreference, "email_enabled" | "push_enabled" | "in_app_enabled" | "muted_event_types">): Promise<NotificationPreference>{
+    return this.notificationsApi.updateNotificationPreference(input);
+  }
+
+  notifications(): Promise<NotificationIntent[]>{
+    return this.notificationsApi.notifications();
+  }
+
+  notificationAttempts(): Promise<NotificationAttempt[]>{
+    return this.notificationsApi.notificationAttempts();
+  }
+
+  retryNotification(id: string): Promise<NotificationIntent>{
+    return this.notificationsApi.retryNotification(id);
+  }
+
+  pushSubscriptionConfig(): Promise<PushSubscriptionConfig>{
+    return this.notificationsApi.pushSubscriptionConfig();
+  }
+
+  pushSubscriptions(): Promise<PushSubscriptionRecord[]>{
+    return this.notificationsApi.pushSubscriptions();
+  }
+
+  registerPushSubscription(input: PushSubscriptionInput): Promise<{ data: PushSubscriptionRecord; replayed: boolean }>{
+    return this.notificationsApi.registerPushSubscription(input);
+  }
+
+  revokePushSubscription(id: string): Promise<PushSubscriptionRecord>{
+    return this.notificationsApi.revokePushSubscription(id);
+  }
+
+  inAppNotifications(limit = 50): Promise<InAppNotificationPage>{
+    return this.notificationsApi.inAppNotifications(limit);
+  }
+
+  inAppUnreadCount(): Promise<number>{
+    return this.notificationsApi.inAppUnreadCount();
+  }
+
+  markInAppNotificationRead(id: string): Promise<InAppNotification>{
+    return this.notificationsApi.markInAppNotificationRead(id);
+  }
+
+  dismissInAppNotification(id: string): Promise<InAppNotification>{
+    return this.notificationsApi.dismissInAppNotification(id);
+  }
+
+  markAllInAppNotificationsRead(): Promise<{ updated_count: number; unread_count: number }>{
+    return this.notificationsApi.markAllInAppNotificationsRead();
+  }
+
+  webhooks(): Promise<WebhookEndpoint[]>{
+    return this.integrationsApi.webhooks();
+  }
+
+  createWebhook(input: { name: string; url: string; event_types: string[] }): Promise<{ endpoint: WebhookEndpoint; secret: string }>{
+    return this.integrationsApi.createWebhook(input);
+  }
+
+  rotateWebhookSecret(id: string, reason?: string): Promise<{ endpoint: WebhookEndpoint; secret: string }>{
+    return this.integrationsApi.rotateWebhookSecret(id, reason);
+  }
+
+  disableWebhook(id: string, reason?: string): Promise<void>{
+    return this.integrationsApi.disableWebhook(id, reason);
+  }
+
+  webhookDeliveries(): Promise<WebhookDelivery[]>{
+    return this.integrationsApi.webhookDeliveries();
+  }
+
+  serviceAccounts(): Promise<ServiceAccount[]>{
+    return this.integrationsApi.serviceAccounts();
+  }
+
+  createServiceAccount(input: CreateServiceAccountInput): Promise<{ account: ServiceAccount; credential: string }>{
+    return this.integrationsApi.createServiceAccount(input);
+  }
+
+  rotateServiceAccount(id: string, version: number, reason: string): Promise<{ account: ServiceAccount; credential: string }>{
+    return this.integrationsApi.rotateServiceAccount(id, version, reason);
+  }
+
+  revokeServiceAccount(id: string, version: number, reason: string): Promise<ServiceAccount>{
+    return this.integrationsApi.revokeServiceAccount(id, version, reason);
+  }
+
+  replayWebhookDelivery(id: string): Promise<WebhookDelivery>{
+    return this.integrationsApi.replayWebhookDelivery(id);
+  }
+
+  calls(options: CallsQueryOptions = {}): Promise<CallsPageResponse>{
+    return this.callsApi.calls(options);
+  }
+
+  call(conversationId: string): Promise<Call | null>{
+    return this.callsApi.call(conversationId);
+  }
+
+  startCall(conversationId: string, mediaKind: CallMediaKind): Promise<CallSessionResponse>{
+    return this.callsApi.startCall(conversationId, mediaKind);
+  }
+
+  joinCall(conversationId: string, callId: string): Promise<CallSessionResponse>{
+    return this.callsApi.joinCall(conversationId, callId);
+  }
+
+  endCall(conversationId: string, callId: string): Promise<Call>{
+    return this.callsApi.endCall(conversationId, callId);
+  }
+
+  audioCall(conversationId: string): Promise<Call | null>{
+    return this.callsApi.audioCall(conversationId);
+  }
+
+  startAudioCall(conversationId: string): Promise<CallSessionResponse>{
+    return this.callsApi.startAudioCall(conversationId);
+  }
+
+  joinAudioCall(conversationId: string, callId: string): Promise<CallSessionResponse>{
+    return this.callsApi.joinAudioCall(conversationId, callId);
+  }
+
+  endAudioCall(conversationId: string, callId: string): Promise<Call>{
+    return this.callsApi.endAudioCall(conversationId, callId);
+  }
+
+  conversations(): Promise<Conversation[]>{
+    return this.messagingApi.conversations();
+  }
+
+  discoverPublicChannels(query = "", limit = 25, cursor?: string | null): Promise<PublicChannelDiscoveryPage>{
+    return this.messagingApi.discoverPublicChannels(query, limit, cursor);
+  }
+
+  joinPublicChannel(id: string): Promise<PublicChannelMembershipResponse>{
+    return this.messagingApi.joinPublicChannel(id);
+  }
+
+  leavePublicChannel(id: string, version: number): Promise<PublicChannelMembershipResponse>{
+    return this.messagingApi.leavePublicChannel(id, version);
+  }
+
+  conversation(id: string): Promise<Conversation>{
+    return this.messagingApi.conversation(id);
+  }
+
+  createConversation(input: CreateConversationInput): Promise<Conversation>{
+    return this.messagingApi.createConversation(input);
+  }
+
+  updateConversation(id: string, input: { title?: string; visibility?: "private" | "tenant"; version: number }): Promise<Conversation>{
+    return this.messagingApi.updateConversation(id, input);
+  }
+
+  archiveConversation(id: string, version: number): Promise<Conversation>{
+    return this.messagingApi.archiveConversation(id, version);
+  }
+
+  conversationMembers(conversationId: string): Promise<ConversationMembership[]>{
+    return this.messagingApi.conversationMembers(conversationId);
   }
 
   addConversationMember(
     conversationId: string,
     userId: string,
     role: ConversationMembership["role"] = "member"
-  ): Promise<{ id: string }> {
-    return this.request<DataResponse<{ id: string }>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/members`,
-      { method: "POST", body: JSON.stringify({ user_id: userId, role }) }
-    ).then((response) => response.data);
+  ): Promise<{ id: string }>{
+    return this.messagingApi.addConversationMember(conversationId, userId, role);
   }
 
-  removeConversationMember(conversationId: string, userId: string, version: number): Promise<void> {
-    return this.request(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
-      { method: "DELETE", body: JSON.stringify({ version }) }
-    );
+  removeConversationMember(conversationId: string, userId: string, version: number): Promise<void>{
+    return this.messagingApi.removeConversationMember(conversationId, userId, version);
   }
 
   updateConversationMember(
@@ -1032,11 +710,8 @@ export class ApiClient {
     userId: string,
     role: ConversationMembership["role"],
     version: number
-  ): Promise<{ id: string; role: ConversationMembership["role"]; version: number }> {
-    return this.request<DataResponse<{ id: string; role: ConversationMembership["role"]; version: number }>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/members/${encodeURIComponent(userId)}`,
-      { method: "PATCH", body: JSON.stringify({ role, version }) }
-    ).then((response) => response.data);
+  ): Promise<{ id: string; role: ConversationMembership["role"]; version: number }>{
+    return this.messagingApi.updateConversationMember(conversationId, userId, role, version);
   }
 
   messages(
@@ -1044,31 +719,15 @@ export class ApiClient {
     afterSequence = 0,
     limit = 200,
     beforeSequence?: number
-  ): Promise<MessagePage> {
-    const query = new URLSearchParams({
-      after_sequence: String(afterSequence),
-      limit: String(limit),
-      include: "sender_labels"
-    });
-    if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
-    return this.request<MessagePage>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`
-    );
+  ): Promise<MessagePage>{
+    return this.messagingApi.messages(conversationId, afterSequence, limit, beforeSequence);
   }
 
   messageSenderLabels(
     conversationId: string,
     messageIds: string[]
-  ): Promise<RetainedSenderLabel[]> {
-    return resolveSenderLabelBatches(messageIds, (batch) =>
-      this.request<DataResponse<RetainedSenderLabel[]>>(
-        `/api/v1/conversations/${encodeURIComponent(conversationId)}/message-sender-labels`,
-        {
-          method: "POST",
-          body: JSON.stringify({ message_ids: batch })
-        }
-      ).then((response) => response.data)
-    );
+  ): Promise<RetainedSenderLabel[]>{
+    return this.messagingApi.messageSenderLabels(conversationId, messageIds);
   }
 
   messageThread(
@@ -1076,123 +735,88 @@ export class ApiClient {
     messageId: string,
     beforeSequence?: number,
     limit = 50
-  ): Promise<MessageThread> {
-    const query = new URLSearchParams({
-      limit: String(Math.max(1, Math.min(limit, 100))),
-      include: "sender_labels"
-    });
-    if (beforeSequence !== undefined) query.set("before_sequence", String(beforeSequence));
-    return this.request(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/thread?${query.toString()}`
-    );
+  ): Promise<MessageThread>{
+    return this.messagingApi.messageThread(conversationId, messageId, beforeSequence, limit);
   }
 
-  sendMessage(conversationId: string, input: SendMessageInput): Promise<Message> {
-    const { client_message_id: idempotencyKey, ...body } = input;
-    return this.request<DataResponse<Message>>(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`,
-      {
-        method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify(body)
-      }
-    ).then((response) => response.data);
+  sendMessage(conversationId: string, input: SendMessageInput): Promise<Message>{
+    return this.messagingApi.sendMessage(conversationId, input);
   }
 
-  editMessage(messageId: string, body: string): Promise<Message> {
-    return this.request<DataResponse<Message>>(`/api/v1/messages/${encodeURIComponent(messageId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ body })
-    }).then((response) => response.data);
+  editMessage(messageId: string, body: string): Promise<Message>{
+    return this.messagingApi.editMessage(messageId, body);
   }
 
-  deleteMessage(messageId: string): Promise<Message> {
-    return this.request<DataResponse<Message>>(`/api/v1/messages/${encodeURIComponent(messageId)}`, {
-      method: "DELETE"
-    }).then((response) => response.data);
+  deleteMessage(messageId: string): Promise<Message>{
+    return this.messagingApi.deleteMessage(messageId);
   }
 
-  searchMessages(query: string, limit = 50): Promise<Message[]> {
-    const params = new URLSearchParams({ q: query, limit: String(limit) });
-    return this.request<ListResponse<Message>>(`/api/v1/search?${params.toString()}`).then(
-      (response) => response.data
-    );
+  searchMessages(query: string, limit = 50): Promise<Message[]>{
+    return this.messagingApi.searchMessages(query, limit);
   }
 
-  searchMessagePage(query: string, options: MessageSearchOptions = {}): Promise<MessageSearchPage> {
-    const params = new URLSearchParams({
-      q: query,
-      limit: String(Math.max(1, Math.min(options.limit ?? 50, 200))),
-      include: "sender_labels"
-    });
-    if (options.cursor) params.set("cursor", options.cursor);
-    if (options.conversation_id) params.set("conversation_id", options.conversation_id);
-    if (options.sender_user_id) params.set("sender_user_id", options.sender_user_id);
-    if (options.after) params.set("after", options.after);
-    if (options.before) params.set("before", options.before);
-    return this.request<MessageSearchPage>(`/api/v1/search?${params.toString()}`);
+  searchMessagePage(query: string, options: MessageSearchOptions = {}): Promise<MessageSearchPage>{
+    return this.messagingApi.searchMessagePage(query, options);
   }
 
-  addReaction(conversationId: string, messageId: string, emoji: string): Promise<void> {
-    return this.request(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reactions`,
-      { method: "POST", body: JSON.stringify({ emoji }) }
-    );
+  addReaction(conversationId: string, messageId: string, emoji: string): Promise<void>{
+    return this.messagingApi.addReaction(conversationId, messageId, emoji);
   }
 
-  removeReaction(conversationId: string, messageId: string, emoji: string): Promise<void> {
-    return this.request(
-      `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}`,
-      { method: "DELETE" }
-    );
+  removeReaction(conversationId: string, messageId: string, emoji: string): Promise<void>{
+    return this.messagingApi.removeReaction(conversationId, messageId, emoji);
   }
 
-  markRead(conversationId: string, sequence: number): Promise<void> {
-    return this.request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read-cursor`, {
-      method: "PUT",
-      body: JSON.stringify({ sequence })
-    });
+  markRead(conversationId: string, sequence: number): Promise<void>{
+    return this.messagingApi.markRead(conversationId, sequence);
+  }
+
+  files(options: FilesQueryOptions = {}): Promise<FilesPageResponse>{
+    return this.filesApi.files(options);
+  }
+
+  attachmentSafety(): Promise<AttachmentSafety[]>{
+    return this.filesApi.attachmentSafety();
+  }
+
+  retryAttachmentScan(id: string): Promise<AttachmentSafety>{
+    return this.filesApi.retryAttachmentScan(id);
   }
 
   createAttachment(
     file: File,
     checksum: string,
-    signal?: AbortSignal
-  ): Promise<AttachmentIntentResponse> {
-    return this.request("/api/v1/attachments", {
-      method: "POST",
-      signal,
-      body: JSON.stringify({
-        file_name: file.name,
-        content_type: attachmentContentType(file),
-        byte_size: file.size,
-        checksum_sha256: checksum
-      })
-    });
+    signal?: AbortSignal,
+    thumbnail?: AttachmentThumbnailIntent
+  ): Promise<AttachmentIntentResponse>{
+    return this.filesApi.createAttachment(file, checksum, signal, thumbnail);
   }
 
-  completeAttachment(id: string, signal?: AbortSignal): Promise<Attachment> {
-    return this.request<DataResponse<Attachment>>(
-      `/api/v1/attachments/${encodeURIComponent(id)}/complete`,
-      { method: "POST", signal }
-    ).then((response) => response.data);
+  completeAttachment(id: string, signal?: AbortSignal): Promise<Attachment>{
+    return this.filesApi.completeAttachment(id, signal);
   }
 
-  abandonAttachment(id: string): Promise<void> {
-    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`, {
-      method: "DELETE"
-    });
+  abandonAttachment(id: string): Promise<void>{
+    return this.filesApi.abandonAttachment(id);
   }
 
-  attachmentDownload(id: string): Promise<AttachmentDownloadResponse> {
-    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`);
+  attachmentDownload(id: string): Promise<AttachmentDownloadResponse>{
+    return this.filesApi.attachmentDownload(id);
   }
 
   attachmentStatus(
     id: string,
     signal?: AbortSignal
-  ): Promise<AttachmentDownloadResponse> {
-    return this.request(`/api/v1/attachments/${encodeURIComponent(id)}`, { signal });
+  ): Promise<AttachmentDownloadResponse>{
+    return this.filesApi.attachmentStatus(id, signal);
+  }
+
+  status(): Promise<ServiceStatus>{
+    return this.systemApi.status();
+  }
+
+  readiness(): Promise<HealthStatus>{
+    return this.systemApi.readiness();
   }
 
   async logout(): Promise<void> {
@@ -1209,14 +833,6 @@ export class ApiClient {
 
   refreshSession(): Promise<Session | null> {
     return this.refresh();
-  }
-
-  status(): Promise<ServiceStatus> {
-    return this.request<ServiceStatus>("/api/v1/status", { retryAuthentication: false });
-  }
-
-  readiness(): Promise<HealthStatus> {
-    return this.request<HealthStatus>("/health/ready", { retryAuthentication: false });
   }
 
   private async request<T = void>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -2109,6 +1725,11 @@ export async function sha256(file: File): Promise<string> {
   return sha256BlobHex(file);
 }
 
+/** Hashes a generated Blob, which unlike an upload is not a File. */
+export async function sha256Blob(blob: Blob): Promise<string> {
+  return sha256BlobHex(blob);
+}
+
 /**
  * Uploads through XMLHttpRequest rather than fetch because fetch reports no
  * progress for a request body: the browser exposes upload progress only through
@@ -2118,7 +1739,7 @@ export async function sha256(file: File): Promise<string> {
  */
 export async function uploadToPresignedTarget(
   descriptor: UploadDescriptor,
-  file: File,
+  file: File | Blob,
   signal?: AbortSignal,
   onProgress?: (fraction: number) => void
 ): Promise<void> {
@@ -2257,8 +1878,11 @@ function isCanonicalRfc1918Host(hostname: string): boolean {
   );
 }
 
-function attachmentContentType(file: File): string {
+function attachmentContentType(file: File | Blob): string {
   if (file.type) return file.type;
+  // A generated Blob carries no name to infer from, and its descriptor already
+  // signs an explicit content type, so extension sniffing is File-only.
+  if (!(file instanceof File)) return "application/octet-stream";
   const extension = file.name.toLowerCase().split(".").pop();
   const known: Record<string, string> = {
     csv: "text/csv",

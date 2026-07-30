@@ -7,11 +7,13 @@ import {
 } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
+import { generateThumbnail } from "../../lib/thumbnail";
 import type { CreateConversationInput, SendMessageInput } from "../../api";
 import {
   downloadUrl,
   sha256,
-  uploadToPresignedTarget
+  uploadToPresignedTarget,
+  sha256Blob
 } from "../../api";
 import { useSession } from "../../app/session";
 import { useStepUp } from "../../app/step-up";
@@ -69,6 +71,22 @@ import {
 import type {
   PendingAttachmentUpload
 } from "./AttachmentUploadList";
+import {
+  abortableDelay,
+  attachmentCancelled,
+  connectionLabel,
+  conversationInitials,
+  delay,
+  formatAttachmentLimit,
+  newSenderLabelRefreshBackoff,
+  readOnboardingPreference,
+  recordSenderLabelRefresh,
+  safeCallKind,
+  safePositiveInteger,
+  safeUuid,
+  senderLabelRefreshAllowed,
+  type SenderLabelRefreshBackoff
+} from "./chatSupport";
 import "./ChatPage.css";
 
 interface FailedSend {
@@ -85,16 +103,6 @@ interface FocusTarget {
 }
 
 type InboxFilter = "all" | "unread" | "direct" | "rooms";
-
-const senderLabelRefreshDelaysMs = [30_000, 60_000, 120_000, 300_000] as const;
-
-interface SenderLabelRefreshBackoff {
-  conversationId: string | null;
-  candidateSignature: string | null;
-  resultSignature: string | null;
-  delayIndex: number;
-  nextAttemptAt: number;
-}
 
 export function ChatPage() {
   const { api, session } = useSession();
@@ -1405,11 +1413,29 @@ export function ChatPage() {
       const checksum = await sha256(file);
       if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
 
+      // A preview is an enhancement: generation resolves to null on any failure
+      // and the attachment proceeds without one.
+      const thumbnail = await generateThumbnail(file);
+      if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+      const thumbnailChecksum = thumbnail ? await sha256Blob(thumbnail.blob) : null;
+      if (cancelledAttachmentUploadsRef.current.has(clientId)) return;
+
       updatePendingAttachment(clientId, { phase: "requesting" });
       // Keep intent creation alive long enough to receive its server ID. If the
       // user cancels while this request is in flight, the resolved ID is
       // immediately abandoned instead of becoming an unreachable pending row.
-      const intent = await api.createAttachment(file, checksum);
+      const intent = await api.createAttachment(
+        file,
+        checksum,
+        undefined,
+        thumbnail && thumbnailChecksum
+          ? {
+              content_type: thumbnail.contentType,
+              byte_size: thumbnail.byteSize,
+              checksum_sha256: thumbnailChecksum
+            }
+          : undefined
+      );
       attachmentIntentIdsRef.current.set(clientId, intent.data.id);
       if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
         abandonClientAttachmentInBackground(clientId);
@@ -1428,6 +1454,24 @@ export function ChatPage() {
       if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
         abandonClientAttachmentInBackground(clientId);
         return;
+      }
+
+      // The preview is uploaded before completion, because completion is where
+      // the server verifies and records it. A failure here leaves the variant
+      // unverified and the attachment completes without a preview.
+      if (thumbnail && intent.thumbnail_upload) {
+        try {
+          await uploadToPresignedTarget(
+            intent.thumbnail_upload,
+            thumbnail.blob,
+            controller.signal
+          );
+        } catch {
+          if (attachmentCancelled(clientId, controller, cancelledAttachmentUploadsRef)) {
+            abandonClientAttachmentInBackground(clientId);
+            return;
+          }
+        }
       }
 
       updatePendingAttachment(clientId, { phase: "finalizing", progress: undefined });
@@ -1624,6 +1668,24 @@ export function ChatPage() {
       setError(errorText(reason));
     }
   }
+
+  /**
+   * Resolves a preview URL for an attachment that reports a verified variant.
+   *
+   * Returning null rather than throwing keeps a preview failure invisible: the
+   * attachment still renders with its icon and remains downloadable.
+   */
+  const requestAttachmentThumbnail = useCallback(
+    async (attachmentId: string): Promise<string | null> => {
+      try {
+        const response = await api.attachmentDownload(attachmentId);
+        return downloadUrl(response.thumbnail_download);
+      } catch {
+        return null;
+      }
+    },
+    [api]
+  );
 
   async function editMessage(message: Message, body: string) {
     const conversationId = message.conversation_id;
@@ -1952,7 +2014,7 @@ export function ChatPage() {
           )}
           <div className="message-scroll" ref={scrollRef} aria-busy={messagesLoading} onScroll={messageScrollChanged}>
             {hasOlder && <div className="history-loader"><button className="button ghost compact" type="button" disabled={olderLoading} onClick={() => void loadOlder()}>{olderLoading ? "Loading…" : "Load older messages"}</button></div>}
-            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
+            {messagesLoading && messages.length === 0 ? <div className="inline-loading"><span className="spinner" aria-hidden="true" />Loading messages…</div> : messages.length === 0 ? <div className="empty-state"><span className="empty-mark" aria-hidden="true"><AppIcon name="sparkles" /></span><h3>Start the conversation</h3><p>Messages are durable, ordered, and replayed when you reconnect.</p></div> : <ol className="message-list">{messages.map((message) => { const replyPreview = message.reply_to_message_id ? messagesById.get(message.reply_to_message_id) : undefined; const senderName = visibleSenderIdentifier(message.sender_user_id); const replySenderName = replyPreview ? visibleSenderIdentifier(replyPreview.sender_user_id) : undefined; return <MessageItem key={message.id} message={message} currentUserId={session.user.id} senderName={senderName} replyPreview={replyPreview} replySenderName={replySenderName} seenCount={Object.entries(readCursors).filter(([userId, sequence]) => userId !== session.user.id && sequence >= message.conversation_sequence).length} focused={focusTarget?.id === message.id} onReaction={(emoji) => void toggleReaction(message, emoji)} onAttachment={(attachment) => void openAttachment(attachment)} onRequestThumbnail={requestAttachmentThumbnail} onReply={() => { setReplyTo(message); document.getElementById("message-composer")?.focus(); }} onThread={() => setThreadTargetId(message.id)} onEdit={(body) => editMessage(message, body)} onDelete={() => deleteMessage(message)} onReport={() => { setReportError(null); setReportTarget(message); }} />; })}</ol>}
             <div ref={messagesEndRef} />
           </div>
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{newMessageCount > 0 ? `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}.` : ""}</p>
@@ -1979,143 +2041,3 @@ export function ChatPage() {
   );
 }
 
-function conversationInitials(title: string): string {
-  return title
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase() || "")
-    .join("") || "@";
-}
-
-function newSenderLabelRefreshBackoff(
-  conversationId: string | null
-): SenderLabelRefreshBackoff {
-  return {
-    conversationId,
-    candidateSignature: null,
-    resultSignature: null,
-    delayIndex: 0,
-    nextAttemptAt: 0
-  };
-}
-
-function senderLabelRefreshAllowed(
-  backoffRef: { current: SenderLabelRefreshBackoff },
-  conversationId: string,
-  messageIds: string[]
-): boolean {
-  const candidateSignature = JSON.stringify([...messageIds].sort());
-  let current = backoffRef.current;
-  if (
-    current.conversationId !== conversationId ||
-    current.candidateSignature !== candidateSignature
-  ) {
-    current = {
-      ...newSenderLabelRefreshBackoff(conversationId),
-      candidateSignature
-    };
-    backoffRef.current = current;
-  }
-  return (
-    document.visibilityState === "visible" &&
-    Date.now() >= current.nextAttemptAt
-  );
-}
-
-function recordSenderLabelRefresh(
-  backoffRef: { current: SenderLabelRefreshBackoff },
-  conversationId: string,
-  messageIds: string[],
-  labels: RetainedSenderLabel[]
-): void {
-  const candidateSignature = JSON.stringify([...messageIds].sort());
-  const resultSignature = JSON.stringify(
-    [...labels]
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .map(({ id, display_name, redacted }) => [id, display_name, redacted])
-  );
-  const current = backoffRef.current;
-  if (
-    current.conversationId !== conversationId ||
-    current.candidateSignature !== candidateSignature
-  ) {
-    return;
-  }
-  const changed =
-    current.resultSignature !== null &&
-    current.resultSignature !== resultSignature;
-  const delayIndex =
-    current.resultSignature === null || changed
-      ? 0
-      : Math.min(
-          current.delayIndex + 1,
-          senderLabelRefreshDelaysMs.length - 1
-        );
-  const delayMs =
-    senderLabelRefreshDelaysMs[delayIndex] ??
-    300_000;
-  backoffRef.current = {
-    ...current,
-    resultSignature,
-    delayIndex,
-    nextAttemptAt: Date.now() + delayMs
-  };
-}
-
-function connectionLabel(status: ConnectionStatus): string {
-  if (status === "live") return "Live";
-  if (status === "connecting") return "Connecting";
-  if (status === "reconnecting") return "Reconnecting";
-  return "Offline";
-}
-
-function formatAttachmentLimit(value: number): string {
-  return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)} MB` : `${Math.ceil(value / 1_000)} KB`;
-}
-
-function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("The upload was cancelled", "AbortError"));
-      return;
-    }
-    const timer = window.setTimeout(resolve, milliseconds);
-    signal.addEventListener("abort", () => {
-      window.clearTimeout(timer);
-      reject(new DOMException("The upload was cancelled", "AbortError"));
-    }, { once: true });
-  });
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function attachmentCancelled(
-  clientId: string,
-  controller: AbortController,
-  cancelled: { current: Set<string> }
-): boolean {
-  return controller.signal.aborted || cancelled.current.has(clientId);
-}
-
-function safeUuid(value: string | null): string | null {
-  return value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-    ? value
-    : null;
-}
-
-function safePositiveInteger(value: string | null): number | null {
-  if (!value || !/^\d+$/.test(value)) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function safeCallKind(value: string | null): "audio" | "video" | null {
-  return value === "audio" || value === "video" ? value : null;
-}
-
-function readOnboardingPreference(storageKey: string): boolean {
-  try { return window.localStorage.getItem(storageKey) !== "dismissed"; } catch { return true; }
-}

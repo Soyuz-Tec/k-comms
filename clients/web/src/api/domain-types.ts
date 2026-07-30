@@ -1,0 +1,9 @@
+export type { AccountsApi } from "./domains/accounts";
+export type { RoomsApi } from "./domains/rooms";
+export type { AdministrationApi } from "./domains/administration";
+export type { NotificationsApi } from "./domains/notifications";
+export type { IntegrationsApi } from "./domains/integrations";
+export type { CallsApi } from "./domains/calls";
+export type { MessagingApi } from "./domains/messaging";
+export type { FilesApi } from "./domains/files";
+export type { SystemApi } from "./domains/system";

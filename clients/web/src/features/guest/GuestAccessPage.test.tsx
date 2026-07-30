@@ -29,8 +29,7 @@ import type {
 } from "../../types";
 import {
   GuestAccessPage,
-  GuestShell,
-  loadGuestMessageCatchUp
+  GuestShell
 } from "./GuestAccessPage";
 import { participantDisambiguator } from "../../lib/participantIdentity";
 import { storeMemberInstantRoomContinuity } from "../instant-room/memberContinuity";
@@ -2667,53 +2666,5 @@ describe("GuestAccessPage", () => {
     await waitFor(() =>
       expect(GuestApiClient.prototype.markRead).toHaveBeenCalledWith(1)
     );
-  });
-});
-
-describe("loadGuestMessageCatchUp", () => {
-  it("loads more than 700 messages through bounded forward pages", async () => {
-    const allMessages = Array.from({ length: 750 }, (_, index) => message(index + 1));
-    const capturedLabels: string[] = [];
-    const messages = vi.fn(async (afterSequence: number, limit: number) => {
-      const data = allMessages.slice(afterSequence, afterSequence + limit);
-      const nextAfterSequence = data.at(-1)?.conversation_sequence ?? null;
-      return {
-        data,
-        included: {
-          sender_labels: [
-            {
-              id: `sender-page-${afterSequence}`,
-              display_name: `Sender ${afterSequence}`,
-              redacted: false
-            }
-          ]
-        },
-        page: {
-          has_more: afterSequence + data.length < allMessages.length,
-          next_after_sequence: nextAfterSequence,
-          reset_required: false
-        }
-      };
-    });
-
-    await expect(
-      loadGuestMessageCatchUp(
-        { messages } as unknown as Pick<GuestApiClient, "messages">,
-        0,
-        (labels) => capturedLabels.push(...labels.map(({ id }) => id))
-      )
-    ).resolves.toHaveLength(750);
-    expect(messages.mock.calls.map(([afterSequence]) => afterSequence)).toEqual([
-      0,
-      200,
-      400,
-      600
-    ]);
-    expect(capturedLabels).toEqual([
-      "sender-page-0",
-      "sender-page-200",
-      "sender-page-400",
-      "sender-page-600"
-    ]);
   });
 });
