@@ -180,6 +180,20 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         errors = validate(root)
         self.assertTrue(any('"$Name.exe"' in error for error in errors))
 
+    def test_rejects_ambiguous_native_command_resolution(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "scripts/proxmox/native-command.ps1"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Select-Object -First 1",
+                "Select-Object",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("Select-Object -First 1" in error for error in errors))
+
     def test_rejects_nonreusable_protected_deployment_workflow(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

@@ -636,6 +636,8 @@ def validate(root: Path) -> list[str]:
         "$IsWindows",
         '"$Name.exe"',
         "-CommandType Application",
+        "Select-Object -First 1",
+        "return [string]$command.Source",
         "Required native command is missing",
     ):
         if required not in native_command:
