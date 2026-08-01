@@ -17,6 +17,7 @@ const secureCapabilities: ServiceCapabilities = {
   secure_account_actions: true,
   secure_media_actions: true,
   video_calls: true,
+  whiteboards: true,
   webhooks: true
 };
 

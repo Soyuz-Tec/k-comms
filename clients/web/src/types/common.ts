@@ -15,6 +15,7 @@ export interface ServiceStatus {
     administration: boolean;
     audio_calls?: boolean;
     video_calls?: boolean;
+    whiteboards?: boolean;
     attachment_scanning: boolean;
     bootstrap: boolean;
     guest_links: boolean;

@@ -23,7 +23,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     Conversations,
     Messaging,
     Repo,
-    RuntimePorts
+    RuntimePorts,
+    Whiteboards
   }
 
   def authorize_message_deletion(%MessageDeletionCandidate{} = candidate) do
@@ -393,13 +394,47 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       Attachments.mark_deleted_for_erasure(request.tenant_id, attachment_ids, timestamp)
       |> owner_command_or_rollback()
 
+    whiteboard_result =
+      erase_whiteboards(request, timestamp)
+      |> owner_command_or_rollback()
+
     revoked_session_ids = apply_target_deletion!(request, timestamp)
 
     %{
       messages_tombstoned: content_result.messages_tombstoned,
       attachments_deleted: attachment_result.attachments_deleted,
+      whiteboards_deleted: whiteboard_result.whiteboards_deleted,
+      whiteboard_operations_deleted: whiteboard_result.whiteboard_operations_deleted,
+      whiteboard_operations_neutralized: whiteboard_result.whiteboard_operations_neutralized,
       revoked_session_ids: revoked_session_ids
     }
+  end
+
+  defp erase_whiteboards(%DeletionRequest{target_type: :conversation} = request, timestamp) do
+    Whiteboards.erase_for_governance(
+      request.tenant_id,
+      :conversation,
+      request.conversation_id,
+      timestamp
+    )
+  end
+
+  defp erase_whiteboards(%DeletionRequest{target_type: :user} = request, timestamp) do
+    Whiteboards.erase_for_governance(
+      request.tenant_id,
+      :user,
+      request.subject_user_id,
+      timestamp
+    )
+  end
+
+  defp erase_whiteboards(%DeletionRequest{target_type: :message}, _timestamp) do
+    {:ok,
+     %{
+       whiteboards_deleted: 0,
+       whiteboard_operations_deleted: 0,
+       whiteboard_operations_neutralized: 0
+     }}
   end
 
   defp apply_target_deletion!(%DeletionRequest{target_type: :message}, _timestamp), do: []

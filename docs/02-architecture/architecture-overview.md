@@ -101,9 +101,9 @@ compiled into the production release and are outside the runtime source rule.
 
 ## Product surfaces
 
-- **User workspace (`/app`):** tenant-scoped text, one-to-one/group audio and
-  video communication, screen sharing, search, files, notifications, profile,
-  and personal device/session controls.
+- **User workspace (`/app`):** tenant-scoped text, conversation whiteboards,
+  one-to-one/group audio and video communication, screen sharing, search,
+  files, notifications, profile, and personal device/session controls.
 - **Instant room entry (`/` and `/join`):** feature-gated, conversation-only
   text, audio, and video communication created from the minimal front page or
   reached through one fragment-bearing link or locally rendered QR. Every
@@ -140,7 +140,8 @@ requires an approved verification provider and workflow.
 
 ## Data systems
 
-- PostgreSQL: authoritative messages, memberships, policies, unified call
+- PostgreSQL: authoritative messages, whiteboard operation history,
+  memberships, policies, unified call
   lifecycles/media kind/admissions, atomically scheduled expiry and eviction
   jobs, outbox, and audit.
 - Object storage: attachments and generated variants.
@@ -161,6 +162,7 @@ provider failure retries without transferring lifecycle authority to LiveKit.
 - TenantAdministration
 - Conversations
 - ConversationContent, including Messaging and Attachments
+- Collaboration, including conversation Whiteboards
 - Calls
 - NotificationDelivery
 - WebhookManagement

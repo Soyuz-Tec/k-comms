@@ -41,6 +41,19 @@ channels:
         $ref: '#/components/messages/AudioCallStarted'
       audioCallEnded:
         $ref: '#/components/messages/AudioCallEnded'
+  whiteboard:
+    address: whiteboard:{conversationId}
+    description: Workspace-human, active-member topic for durable whiteboard commit signals and ephemeral collaborator presence. Authorization is repeated for every inbound and intercepted outbound event.
+    parameters:
+      conversationId:
+        description: Conversation UUID authorized at join and on every event
+    messages:
+      operationApplied:
+        $ref: '#/components/messages/WhiteboardOperationApplied'
+      presenceCommand:
+        $ref: '#/components/messages/WhiteboardPresenceCommand'
+      presence:
+        $ref: '#/components/messages/WhiteboardPresence'
   userInbox:
     address: user:{userId}
     description: Human-account-only content-free conversation-list, membership, and notification-availability events; guest sockets cannot join this channel and a human socket may join only its own user id.
@@ -78,6 +91,17 @@ operations:
       - {$ref: '#/channels/conversation/messages/callEnded'}
       - {$ref: '#/channels/conversation/messages/audioCallStarted'}
       - {$ref: '#/channels/conversation/messages/audioCallEnded'}
+  sendWhiteboardPresence:
+    action: send
+    channel: {$ref: '#/channels/whiteboard'}
+    messages:
+      - {$ref: '#/channels/whiteboard/messages/presenceCommand'}
+  receiveWhiteboardEvent:
+    action: receive
+    channel: {$ref: '#/channels/whiteboard'}
+    messages:
+      - {$ref: '#/channels/whiteboard/messages/operationApplied'}
+      - {$ref: '#/channels/whiteboard/messages/presence'}
   receiveUserInboxEvent:
     action: receive
     channel: {$ref: '#/channels/userInbox'}
@@ -188,6 +212,21 @@ components:
       description: Audio-only compatibility alias emitted alongside call.ended.v1; new clients should consume the canonical call event.
       payload:
         $ref: '#/components/schemas/AudioCallEndedPayload'
+    WhiteboardOperationApplied:
+      name: whiteboard.operation_applied.v1
+      description: Post-commit durable operation signal. Clients reconcile canonical history over REST after gaps or reconnects.
+      payload:
+        $ref: '#/components/schemas/WhiteboardOperationPayload'
+    WhiteboardPresenceCommand:
+      name: whiteboard.presence.v1
+      description: Ephemeral bounded pointer state sent by one authorized collaborator.
+      payload:
+        $ref: '#/components/schemas/WhiteboardPresenceCommandPayload'
+    WhiteboardPresence:
+      name: whiteboard.presence.v1
+      description: Ephemeral bounded pointer state delivered only to other currently authorized collaborators.
+      payload:
+        $ref: '#/components/schemas/WhiteboardPresencePayload'
     ConversationActivity:
       name: conversation.activity.v1
       payload:
@@ -223,6 +262,72 @@ components:
           message_id: {type: [string, 'null'], format: uuid}
           unread_count: {type: integer, minimum: 0}
   schemas:
+    WhiteboardPointer:
+      type: object
+      additionalProperties: false
+      required: [x, y, tool]
+      properties:
+        x: {type: number, minimum: -1000000, maximum: 1000000}
+        y: {type: number, minimum: -1000000, maximum: 1000000}
+        tool: {enum: [pointer, laser]}
+    WhiteboardPresenceCommandPayload:
+      type: object
+      additionalProperties: false
+      required: [pointer, button, selected_element_ids]
+      properties:
+        pointer: {$ref: '#/components/schemas/WhiteboardPointer'}
+        button: {enum: [up, down]}
+        selected_element_ids:
+          type: array
+          maxItems: 100
+          items: {type: string, minLength: 8, maxLength: 128}
+    WhiteboardPresencePayload:
+      type: object
+      additionalProperties: false
+      required: [user_id, device_id, pointer, button, selected_element_ids]
+      properties:
+        user_id: {type: string, format: uuid}
+        device_id: {type: string, format: uuid}
+        pointer: {$ref: '#/components/schemas/WhiteboardPointer'}
+        button: {type: boolean}
+        selected_element_ids:
+          type: array
+          maxItems: 100
+          items: {type: string, minLength: 8, maxLength: 128}
+    WhiteboardElementPayload:
+      type: object
+      required: [id, type, version, versionNonce]
+      properties:
+        id: {type: string, minLength: 8, maxLength: 128}
+        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame]}
+        version: {type: integer, minimum: 1}
+        versionNonce: {type: integer}
+        link: {type: 'null'}
+        customData: {type: 'null'}
+      additionalProperties: true
+    WhiteboardOperationPayload:
+      type: object
+      additionalProperties: false
+      required: [id, whiteboard_id, tenant_id, conversation_id, actor_user_id, client_operation_id, sequence, kind, payload, inserted_at]
+      properties:
+        id: {type: string, format: uuid}
+        whiteboard_id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        actor_user_id: {type: string, format: uuid}
+        client_operation_id: {type: string, minLength: 8, maxLength: 128}
+        sequence: {type: integer, minimum: 1}
+        kind: {enum: [scene.update, board.clear]}
+        payload:
+          type: object
+          properties:
+            elements:
+              type: array
+              minItems: 1
+              maxItems: 200
+              items: {$ref: '#/components/schemas/WhiteboardElementPayload'}
+          additionalProperties: false
+        inserted_at: {type: string, format: date-time}
     PresenceMeta:
       type: object
       additionalProperties: false

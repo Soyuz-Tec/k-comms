@@ -15,6 +15,8 @@ from validate_contracts import (
     validate_guest_contract,
     validate_instant_room_contract,
     validate_instant_room_realtime_contract,
+    validate_whiteboard_contract,
+    validate_whiteboard_realtime_contract,
 )
 
 
@@ -26,6 +28,25 @@ class ContractValidationTests(unittest.TestCase):
         validate_call_contract(self.openapi)
         validate_guest_contract(self.openapi)
         validate_instant_room_contract(self.openapi)
+        validate_whiteboard_contract(self.openapi)
+
+    def test_whiteboard_contract_rejects_unbounded_or_unsafe_scene_data(self) -> None:
+        openapi = copy.deepcopy(self.openapi)
+        elements = openapi["components"]["schemas"]["WhiteboardScenePayload"][
+            "properties"
+        ]["elements"]
+        elements.pop("maxItems")
+
+        with self.assertRaisesRegex(ValueError, "bounded to 200"):
+            validate_whiteboard_contract(openapi)
+
+        openapi = copy.deepcopy(self.openapi)
+        openapi["components"]["schemas"]["WhiteboardElement"]["properties"][
+            "type"
+        ]["enum"].append("image")
+
+        with self.assertRaisesRegex(ValueError, "safe SDK subset"):
+            validate_whiteboard_contract(openapi)
 
     def test_conversation_counterpart_id_is_nullable_and_uuid_shaped(self) -> None:
         conversation = self.openapi["components"]["schemas"]["Conversation"]
@@ -558,6 +579,40 @@ class InstantRoomContractValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "fail-closed production gate"):
             validate_instant_room_contract(document)
+
+
+class WhiteboardRealtimeContractValidationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.asyncapi = load_yaml(CONTRACTS / "asyncapi" / "asyncapi.yaml")
+
+    def test_repository_whiteboard_realtime_contract_passes(self) -> None:
+        validate_whiteboard_realtime_contract(copy.deepcopy(self.asyncapi))
+
+    def test_rejects_missing_durable_operation_signal(self) -> None:
+        asyncapi = copy.deepcopy(self.asyncapi)
+        del asyncapi["channels"]["whiteboard"]["messages"]["operationApplied"]
+
+        with self.assertRaisesRegex(ValueError, "operation and presence"):
+            validate_whiteboard_realtime_contract(asyncapi)
+
+    def test_rejects_untyped_pointer_tool(self) -> None:
+        asyncapi = copy.deepcopy(self.asyncapi)
+        del asyncapi["components"]["schemas"]["WhiteboardPointer"]["properties"][
+            "tool"
+        ]["enum"]
+
+        with self.assertRaisesRegex(ValueError, "bounded and typed"):
+            validate_whiteboard_realtime_contract(asyncapi)
+
+    def test_rejects_presence_without_device_identity(self) -> None:
+        asyncapi = copy.deepcopy(self.asyncapi)
+        presence = asyncapi["components"]["schemas"]["WhiteboardPresencePayload"]
+        presence["required"].remove("device_id")
+        presence["properties"].pop("device_id")
+
+        with self.assertRaisesRegex(ValueError, "authorized user and device"):
+            validate_whiteboard_realtime_contract(asyncapi)
 
 
 class CallRealtimeContractValidationTests(unittest.TestCase):

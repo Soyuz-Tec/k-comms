@@ -3,6 +3,7 @@ defmodule CommsWeb.Presenters.ConversationContent do
 
   alias CommsCore.Attachments.{AttachmentView, FileView}
   alias CommsCore.Messaging.{MessageView, ReactionView}
+  alias CommsCore.Whiteboards.OperationView
 
   def message(%MessageView{} = message) do
     %{
@@ -67,6 +68,21 @@ defmodule CommsWeb.Presenters.ConversationContent do
       shared_at: file.shared_at,
       inserted_at: file.inserted_at,
       updated_at: file.updated_at
+    }
+  end
+
+  def whiteboard_operation(%OperationView{} = operation) do
+    %{
+      id: operation.id,
+      whiteboard_id: operation.whiteboard_id,
+      tenant_id: operation.tenant_id,
+      conversation_id: operation.conversation_id,
+      actor_user_id: operation.actor_user_id,
+      client_operation_id: operation.client_operation_id,
+      sequence: operation.sequence,
+      kind: operation.kind,
+      payload: operation.payload,
+      inserted_at: operation.inserted_at
     }
   end
 

@@ -65,6 +65,18 @@ CALL_REALTIME_MESSAGES = {
     ),
 }
 
+WHITEBOARD_PATH = "/api/v1/conversations/{conversationId}/whiteboard/operations"
+WHITEBOARD_ELEMENT_TYPES = {
+    "rectangle",
+    "diamond",
+    "ellipse",
+    "line",
+    "arrow",
+    "freedraw",
+    "text",
+    "frame",
+}
+
 REQUIRED_MUTATION_BODIES = {
     ("/api/v1/instant-rooms", "post"),
     ("/api/v1/instant-rooms/preview", "post"),
@@ -84,6 +96,7 @@ REQUIRED_MUTATION_BODIES = {
     ("/api/v1/conversations/{conversationId}/members/{userId}", "delete"),
     ("/api/v1/conversations/{conversationId}/archive", "post"),
     ("/api/v1/conversations/{conversationId}/calls", "post"),
+    (WHITEBOARD_PATH, "post"),
     ("/api/v1/moderation/cases", "post"),
     ("/api/v1/moderation/cases/{caseId}/actions", "post"),
     ("/api/v1/admin/users/{userId}", "patch"),
@@ -1792,6 +1805,151 @@ def validate_call_realtime_contract(asyncapi: dict[str, Any]) -> None:
             )
 
 
+def validate_whiteboard_contract(openapi: dict[str, Any]) -> None:
+    """Keep durable whiteboard limits and member API semantics explicit."""
+
+    paths = openapi.get("paths", {})
+    route = paths.get(WHITEBOARD_PATH, {})
+    if set(route) != {"parameters", "get", "post"}:
+        raise ValueError("OpenAPI whiteboard operation route must expose only GET and POST")
+
+    post = route.get("post", {})
+    header = next(
+        (
+            item
+            for item in post.get("parameters", [])
+            if item.get("name") == "Idempotency-Key" and item.get("in") == "header"
+        ),
+        None,
+    )
+    if not header or header.get("required") is not True or header.get("schema") != {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128,
+    }:
+        raise ValueError("OpenAPI whiteboard writes require the bounded Idempotency-Key")
+
+    request_ref = (
+        post.get("requestBody", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+        .get("$ref")
+    )
+    if request_ref != "#/components/schemas/WhiteboardOperationRequest":
+        raise ValueError("OpenAPI whiteboard writes require WhiteboardOperationRequest")
+    if set(post.get("responses", {})) != {"200", "201", "403", "409", "422"}:
+        raise ValueError("OpenAPI whiteboard writes must preserve replay/conflict responses")
+
+    schemas = openapi.get("components", {}).get("schemas", {})
+    element = schemas.get("WhiteboardElement", {})
+    element_properties = element.get("properties", {})
+    if (
+        set(element.get("required", [])) != {"id", "type", "version", "versionNonce"}
+        or set(element_properties.get("type", {}).get("enum", []))
+        != WHITEBOARD_ELEMENT_TYPES
+        or element_properties.get("link") != {"type": "null"}
+        or element_properties.get("customData") != {"type": "null"}
+    ):
+        raise ValueError("OpenAPI whiteboard elements must preserve the safe SDK subset")
+
+    elements = (
+        schemas.get("WhiteboardScenePayload", {})
+        .get("properties", {})
+        .get("elements", {})
+    )
+    if elements.get("minItems") != 1 or elements.get("maxItems") != 200:
+        raise ValueError("OpenAPI whiteboard scene batches must remain bounded to 200")
+
+    capabilities = (
+        schemas.get("StatusResponse", {})
+        .get("properties", {})
+        .get("capabilities", {})
+    )
+    if "whiteboards" not in capabilities.get("required", []) or capabilities.get(
+        "properties", {}
+    ).get("whiteboards", {}).get("type") != "boolean":
+        raise ValueError("OpenAPI status must advertise the whiteboards capability")
+
+
+def validate_whiteboard_realtime_contract(asyncapi: dict[str, Any]) -> None:
+    """Require the dedicated authorized topic and its durable/ephemeral split."""
+
+    channel = asyncapi.get("channels", {}).get("whiteboard", {})
+    if channel.get("address") != "whiteboard:{conversationId}":
+        raise ValueError("AsyncAPI whiteboard channel must use the dedicated topic")
+
+    expected_messages = {
+        "operationApplied": "#/components/messages/WhiteboardOperationApplied",
+        "presenceCommand": "#/components/messages/WhiteboardPresenceCommand",
+        "presence": "#/components/messages/WhiteboardPresence",
+    }
+    observed_messages = {
+        key: value.get("$ref")
+        for key, value in channel.get("messages", {}).items()
+        if isinstance(value, dict)
+    }
+    if observed_messages != expected_messages:
+        raise ValueError("AsyncAPI whiteboard channel must preserve operation and presence messages")
+
+    operations = asyncapi.get("operations", {})
+    expected_refs = {
+        "sendWhiteboardPresence": {
+            "#/channels/whiteboard/messages/presenceCommand"
+        },
+        "receiveWhiteboardEvent": {
+            "#/channels/whiteboard/messages/operationApplied",
+            "#/channels/whiteboard/messages/presence",
+        },
+    }
+    for operation_name, expected in expected_refs.items():
+        observed = {
+            message.get("$ref")
+            for message in operations.get(operation_name, {}).get("messages", [])
+            if isinstance(message, dict)
+        }
+        if observed != expected:
+            raise ValueError(f"AsyncAPI {operation_name} has an incomplete whiteboard message set")
+
+    schemas = asyncapi.get("components", {}).get("schemas", {})
+    pointer = schemas.get("WhiteboardPointer", {})
+    if set(pointer.get("required", [])) != {"x", "y", "tool"} or pointer.get(
+        "properties", {}
+    ).get("tool", {}).get("enum") != ["pointer", "laser"]:
+        raise ValueError("AsyncAPI whiteboard pointer must remain bounded and typed")
+
+    presence = schemas.get("WhiteboardPresencePayload", {})
+    if (
+        presence.get("additionalProperties") is not False
+        or set(presence.get("required", []))
+        != {"user_id", "device_id", "pointer", "button", "selected_element_ids"}
+        or presence.get("properties", {}).get("user_id")
+        != {"type": "string", "format": "uuid"}
+        or presence.get("properties", {}).get("device_id")
+        != {"type": "string", "format": "uuid"}
+    ):
+        raise ValueError(
+            "AsyncAPI whiteboard presence must identify the authorized user and device"
+        )
+
+    operation = schemas.get("WhiteboardOperationPayload", {})
+    if operation.get("additionalProperties") is not False or set(
+        operation.get("required", [])
+    ) != {
+        "id",
+        "whiteboard_id",
+        "tenant_id",
+        "conversation_id",
+        "actor_user_id",
+        "client_operation_id",
+        "sequence",
+        "kind",
+        "payload",
+        "inserted_at",
+    }:
+        raise ValueError("AsyncAPI whiteboard operation must match the emitted projection")
+
+
 def main() -> None:
     schema_paths = sorted((CONTRACTS / "json-schema").glob("*.json"))
     if not schema_paths:
@@ -1813,6 +1971,7 @@ def main() -> None:
     validate_call_contract(openapi)
     validate_instant_room_contract(openapi)
     validate_guest_contract(openapi)
+    validate_whiteboard_contract(openapi)
 
     asyncapi_path = CONTRACTS / "asyncapi" / "asyncapi.yaml"
     asyncapi = load_yaml(asyncapi_path)
@@ -1825,6 +1984,7 @@ def main() -> None:
     validate_guest_realtime_contract(asyncapi)
     validate_instant_room_realtime_contract(asyncapi)
     validate_call_realtime_contract(asyncapi)
+    validate_whiteboard_realtime_contract(asyncapi)
 
     mirrors = [
         (openapi_path, ROOT / "docs/04-interfaces/openapi/openapi.yaml"),

@@ -11,6 +11,8 @@
 | `conversation.created.v1` | Yes | Conversation | Audit and future projections |
 | `membership.changed.v1` | Yes | Conversation | Clients, authorization, audit; content-free administrative and self-service membership deltas |
 | `conversation.read.v1` | No | User/conversation | Connected clients, unread projections |
+| `whiteboard.operation_applied.v1` | Yes | Conversation whiteboard | Authorized collaborators; clients reconcile durable history over REST after gaps |
+| `whiteboard.presence.v1` | No | User/conversation whiteboard | Other currently authorized collaborators; bounded pointer and selection state only |
 | `call.started.v1` | Yes | Conversation | Clients refresh active-call state; content-free ID, conversation ID, media kind, status, and lifecycle times only |
 | `call.ended.v1` | Yes | Conversation | Clients detach media and refresh active-call state; includes media kind and lifecycle metadata, never provider data |
 | `ephemeral_room.created.v1` / `ephemeral_room.reactivated.v1` | Yes | Instant room | Audit, operations, and authorized outbox consumers; not a client conversation-channel event |

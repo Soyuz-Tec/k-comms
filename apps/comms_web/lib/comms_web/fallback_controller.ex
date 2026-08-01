@@ -67,6 +67,11 @@ defmodule CommsWeb.FallbackController do
   defp error(:stale_version),
     do: {409, "stale_version", "The resource changed; reload it before retrying"}
 
+  defp error(:stale_whiteboard_generation),
+    do:
+      {409, "stale_whiteboard_generation",
+       "The whiteboard was cleared after this edit began; reload before retrying"}
+
   defp error(:step_up_required),
     do: {428, "step_up_required", "Recent password verification is required"}
 
@@ -83,6 +88,12 @@ defmodule CommsWeb.FallbackController do
 
   defp error(:video_calls_disabled),
     do: {403, "video_calls_disabled", "Video calls are disabled for this tenant"}
+
+  defp error(:invalid_whiteboard_operation),
+    do: {422, "invalid_whiteboard_operation", "The whiteboard update is invalid"}
+
+  defp error(:whiteboard_capacity_exceeded),
+    do: {409, "whiteboard_capacity_exceeded", "This whiteboard reached its operation limit"}
 
   defp error(:call_authorization_expired),
     do: {403, "call_authorization_expired", "Call access is no longer authorized"}

@@ -5,6 +5,7 @@ defmodule CommsWeb.UserSocket do
   @connection_window_seconds 60
 
   channel("conversation:*", CommsWeb.ConversationChannel)
+  channel("whiteboard:*", CommsWeb.WhiteboardChannel)
   channel("user:*", CommsWeb.UserChannel)
 
   @impl true

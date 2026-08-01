@@ -19,6 +19,7 @@ defmodule CommsWeb.StatusController do
         administration: true,
         audio_calls: calls_available,
         video_calls: calls_available,
+        whiteboards: true,
         attachment_scanning: available?(Scanner.status()),
         bootstrap: Application.get_env(:comms_web, :allow_bootstrap, false),
         guest_links: true,

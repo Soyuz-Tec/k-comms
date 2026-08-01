@@ -8,6 +8,12 @@
 - User account deletion
 - Tenant termination
 - Attachment and generated-variant retention
+- Whiteboard operation history, including operations before a collaborative
+  clear. A board is a persistent document rather than a message-age stream:
+  legal hold blocks governance erasure, user erasure neutralizes that user's
+  authored scene updates, and conversation erasure removes the board and its
+  operations. Automated history compaction or a separate age policy requires
+  a snapshot-preserving follow-up design.
 - Audio/video call lifecycle and participant-admission retention after completed
   eviction; pending/enforcing eviction state must not be removed early
 - Audit-record retention

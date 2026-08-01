@@ -242,6 +242,8 @@ defmodule CommsWeb.Router do
       get("/messages", MessageController, :index)
       post("/message-sender-labels", MessageController, :sender_labels)
       post("/messages", MessageController, :create)
+      get("/whiteboard/operations", WhiteboardController, :index)
+      post("/whiteboard/operations", WhiteboardController, :create)
       get("/messages/:message_id/thread", MessageController, :thread)
       put("/read-cursor", ReadCursorController, :update)
       post("/messages/:message_id/reactions", ReactionController, :create)

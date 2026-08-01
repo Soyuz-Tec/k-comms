@@ -803,12 +803,15 @@ retained schema-v7 application's `podman-app-self-v1` peer reservation.
 The instant-room journey remains anonymous-only and never converts either
 browser identity. Default loopback and trusted-edge qualification then run
 `e2e/live-guest-communication.spec.ts`, `e2e/live-audio.spec.ts`, and
-`e2e/live-video.spec.ts`, in that order, against the same disposable tenant
-with one Playwright worker. Optional account conversion remains isolated in
-the live guest specification; that specification verifies the converted
-identity remains in the disposable tenant. The media tests prove real
-microphone RTP, camera RTP, group calls, screen sharing, access revocation,
-and clean call teardown.
+`e2e/live-video.spec.ts`, followed by `e2e/live-whiteboard.spec.ts`, against the
+same disposable tenant with one Playwright worker. Optional account conversion
+remains isolated in the live guest specification; that specification verifies
+the converted identity remains in the disposable tenant. The media tests prove
+real microphone RTP, camera RTP, group calls, screen sharing, access
+revocation, and clean call teardown. The whiteboard test proves authenticated
+two-device presence, drawing delivery, acknowledged persistence, reload replay,
+and clear-for-everyone against the packaged application and its real database
+and Phoenix channel.
 
 Trusted-edge qualification additionally creates one unclaimed text attachment
 inside the same disposable tenant. It signs in only through the isolated
