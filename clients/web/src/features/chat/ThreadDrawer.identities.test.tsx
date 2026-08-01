@@ -254,10 +254,14 @@ describe("ThreadDrawer sender identities and feed isolation", () => {
     expect(
       within(departedReplyBody.closest("article")!).getByText("Former teammate")
     ).toBeVisible();
-    expect(scheduledRefreshes.at(-1)?.delay).toBe(30_000);
+    await waitFor(() =>
+      expect(scheduledRefreshes.length).toBeGreaterThanOrEqual(2)
+    );
+    const loadedThreadRefresh = scheduledRefreshes.at(-1);
+    expect(loadedThreadRefresh?.delay).toBe(30_000);
 
     await act(async () => {
-      scheduledRefreshes.at(-1)?.handler();
+      loadedThreadRefresh?.handler();
       await Promise.resolve();
     });
 
@@ -330,6 +334,9 @@ describe("ThreadDrawer sender identities and feed isolation", () => {
     const view = renderDrawer({ api });
 
     await screen.findByText("Same sender reply");
+    await waitFor(() =>
+      expect(scheduledRefreshes.length).toBeGreaterThanOrEqual(2)
+    );
     const initialRefresh = scheduledRefreshes.at(-1);
     expect(initialRefresh?.delay).toBe(30_000);
 
