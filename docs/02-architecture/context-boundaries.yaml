@@ -6,16 +6,7 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions:
-    - id: add-conversation-whiteboard-collaboration-context
-      previous_manifest_sha256: b5e94dfaf64335f9f2a2b015bcc43e5796dcab4edb8176bdedb6ae2136e3a02c
-      approved_changes:
-        - 'context:collaboration:add:{"allowed_dependencies":["conversations"],"consumes":[],"current_contexts":["Whiteboards"],"internal_namespaces":["CommsCore.Whiteboards"],"kind":"business","public_contracts":["CommsCore.Whiteboards.OperationView"],"public_facades":["CommsCore.Whiteboards"],"publishes":["collaboration.whiteboard_operation_applied.v1"],"responsibility":"Durable conversation whiteboards and ephemeral collaborator presence."}'
-        - 'context:trust_governance:allowed_dependencies:add:collaboration'
-        - 'table:whiteboard_operations:add:{"canonical_schema":"CommsCore.Whiteboards.Operation","owner":"collaboration","role":"source"}'
-        - 'table:whiteboards:add:{"canonical_schema":"CommsCore.Whiteboards.Whiteboard","owner":"collaboration","role":"source"}'
-      adr: docs/02-architecture/adr/0063-conversation-whiteboards-with-excalidraw.md
-      removal_condition: Remove this exact transition after the Collaboration context and both whiteboard table declarations are present on the protected branch; it may not authorize later manifest growth.
+  reviewed_manifest_transitions: []
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
