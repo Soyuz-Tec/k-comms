@@ -23,6 +23,8 @@ This map connects the twelve deployable-engineering-plan outputs to their primar
 - Product context and requirements: `docs/01-product-and-scope/`
 - Software stack and environment standards: `docs/06-platform-and-stack/`
 - Developer onboarding and implementation guides: `docs/12-development-guides/`
+- Feature implementation and qualification tracking:
+  `docs/13-delivery-plan/feature-progress-matrix.md`
 - Operational handbook and support model: `docs/14-operations/`
 - Required post-development release procedure:
   `docs/14-operations/development-to-production-completion-standard.md`

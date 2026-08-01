@@ -8,6 +8,9 @@
 qualification. Production launch remains gated by the environment and
 organizational work listed below.
 
+The current 36-capability implementation and qualification comparison is
+maintained in the [feature progress matrix](feature-progress-matrix.md).
+
 ## Product surfaces
 
 | Surface | Route boundary | Primary users | Required capabilities |
