@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a responsive public product landing page for desktop and mobile web
+  visitors, with an embedded account-free instant-room launcher, current
+  collaboration capabilities, and explicit web/PWA versus native-app
+  availability labels.
+
 ### Documentation
 
 - Recorded the production two-iPhone cellular audio/video qualification for the

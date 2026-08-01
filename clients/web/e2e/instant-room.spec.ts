@@ -21,7 +21,10 @@ test.describe("instant-room front door", () => {
 
       await page.goto("/");
 
-      const heading = page.getByRole("heading", {
+      const landingHeading = page.getByRole("heading", {
+        name: "One place to talk, meet, and make."
+      });
+      const roomHeading = page.getByRole("heading", {
         name: "Start an instant room"
       });
       const displayName = page.getByRole("textbox", {
@@ -33,14 +36,19 @@ test.describe("instant-room front door", () => {
         name: "Have a workspace? Sign in"
       });
 
-      await expect(heading).toBeVisible();
+      await expect(landingHeading).toBeVisible();
+      await expect(landingHeading).toBeFocused();
+      await expectContained(landingHeading, viewport);
+      await expectNoDocumentOverflow(page);
+
+      await page.getByRole("link", { name: "Start a room" }).click();
+      await expect(roomHeading).toBeFocused();
       await expect(displayName).toBeVisible();
       await expect(roomName).toBeVisible();
       await expect(start).toBeVisible();
       await expect(start).toBeEnabled();
       await expect(signIn).toBeVisible();
-      await expect(heading).toBeFocused();
-      const headingMetrics = await heading.evaluate((element) => {
+      const headingMetrics = await roomHeading.evaluate((element) => {
         const style = window.getComputedStyle(element);
         const rect = element.getBoundingClientRect();
         return {
@@ -62,10 +70,12 @@ test.describe("instant-room front door", () => {
       await expectMinimumTarget(roomName);
       await expectMinimumTarget(start);
       await expectMinimumTarget(signIn);
-      await expectContained(heading, viewport);
+      await expectContained(roomHeading, viewport);
       await expectContained(displayName, viewport);
       await expectContained(roomName, viewport);
+      await start.scrollIntoViewIfNeeded();
       await expectContained(start, viewport);
+      await signIn.scrollIntoViewIfNeeded();
       await expectContained(signIn, viewport);
       await expectNoDocumentOverflow(page);
       expect(fixture.createRequests).toHaveLength(0);
