@@ -9,6 +9,8 @@ import { AuthScreen } from "./features/auth/AuthScreen";
 import { ForgotPasswordPage, ResetPasswordPage } from "./features/auth/PasswordRecoveryPages";
 import { GuestAccessPage } from "./features/guest/GuestAccessPage";
 import { InstantRoomPage } from "./features/instant-room/InstantRoomPage";
+import "./fonts.css";
+import "./theme.css";
 import "./styles.css";
 import "./mobile-experience.css";
 import "./desktop-experience.css";
@@ -34,7 +36,6 @@ const OpsPage = lazy(() =>
 const YouPage = lazy(() =>
   import("./features/you/YouPage").then(({ YouPage: page }) => ({ default: page }))
 );
-
 export default function App() {
   return (
     <SessionProvider>

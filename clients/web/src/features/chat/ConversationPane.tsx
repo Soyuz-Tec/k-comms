@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type {
   ChangeEvent,
   ComponentProps,
@@ -6,6 +7,7 @@ import type {
 } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
+import { dayKey, formatDayLabel } from "../../lib/format";
 import type {
   ConnectionStatus,
   Conversation,
@@ -277,7 +279,13 @@ export function ConversationPane({
               </div>
             ) : (
               <ol className="message-list">
-                {messages.map((message) => {
+                {messages.map((message, index) => {
+                  const previousMessage =
+                    index > 0 ? messages[index - 1] : undefined;
+                  const startsDay =
+                    !previousMessage ||
+                    dayKey(previousMessage.inserted_at) !==
+                      dayKey(message.inserted_at);
                   const replyPreview = message.reply_to_message_id
                     ? messagesById.get(message.reply_to_message_id)
                     : undefined;
@@ -288,30 +296,36 @@ export function ConversationPane({
                     ? visibleSenderIdentifier(replyPreview.sender_user_id)
                     : undefined;
                   return (
-                    <MessageItem
-                      key={message.id}
-                      message={message}
-                      currentUserId={currentUserId}
-                      senderName={senderName}
-                      replyPreview={replyPreview}
-                      replySenderName={replySenderName}
-                      seenCount={
-                        Object.entries(readCursors).filter(
-                          ([userId, sequence]) =>
-                            userId !== currentUserId &&
-                            sequence >= message.conversation_sequence
-                        ).length
-                      }
-                      focused={focusTargetId === message.id}
-                      onReaction={(emoji) => onReaction(message, emoji)}
-                      onAttachment={onOpenAttachment}
-                      onRequestThumbnail={onRequestThumbnail}
-                      onReply={() => onReply(message)}
-                      onThread={() => onThread(message)}
-                      onEdit={(body) => onEdit(message, body)}
-                      onDelete={() => onDelete(message)}
-                      onReport={() => onReport(message)}
-                    />
+                    <Fragment key={message.id}>
+                      {startsDay && (
+                        <li className="day-divider">
+                          <span>{formatDayLabel(message.inserted_at)}</span>
+                        </li>
+                      )}
+                      <MessageItem
+                        message={message}
+                        currentUserId={currentUserId}
+                        senderName={senderName}
+                        replyPreview={replyPreview}
+                        replySenderName={replySenderName}
+                        seenCount={
+                          Object.entries(readCursors).filter(
+                            ([userId, sequence]) =>
+                              userId !== currentUserId &&
+                              sequence >= message.conversation_sequence
+                          ).length
+                        }
+                        focused={focusTargetId === message.id}
+                        onReaction={(emoji) => onReaction(message, emoji)}
+                        onAttachment={onOpenAttachment}
+                        onRequestThumbnail={onRequestThumbnail}
+                        onReply={() => onReply(message)}
+                        onThread={() => onThread(message)}
+                        onEdit={(body) => onEdit(message, body)}
+                        onDelete={() => onDelete(message)}
+                        onReport={() => onReport(message)}
+                      />
+                    </Fragment>
                   );
                 })}
               </ol>
@@ -406,58 +420,63 @@ export function ConversationPane({
               disabled={sending}
               onChange={onMentionedUserIdsChange}
             />
-            <label className="sr-only" htmlFor="message-composer">
-              Message
-            </label>
-            <textarea
-              id="message-composer"
-              value={composer}
-              onChange={onComposerChange}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              rows={2}
-              maxLength={65_535}
-              placeholder={`Message ${title}`}
-              disabled={sending}
-            />
-            <div className="composer-actions">
-              <label
-                className={`attachment-button ${
-                  sending ? "disabled" : ""
-                }`}
-              >
-                <input
-                  type="file"
-                  multiple
-                  disabled={sending}
-                  onChange={(event) => void onFilesSelected(event)}
-                  accept="image/*,text/*,application/pdf,application/zip,application/json"
-                  aria-label="Attach files"
-                />
-                <AppIcon name="paperclip" />
-                Attach
+            <div className="composer-shell">
+              <label className="sr-only" htmlFor="message-composer">
+                Message
               </label>
-              <span className="composer-hint">
-                Draft saved · Enter to send · Shift+Enter for a new line
-              </span>
-              <button
-                className="button primary send-button"
-                type="submit"
-                disabled={
-                  sending ||
-                  uploading ||
-                  !attachmentsReady ||
-                  !composer.trim()
-                }
-              >
-                {sending ? "Sending…" : "Send"}
-                <AppIcon name="send" />
-              </button>
+              <textarea
+                id="message-composer"
+                value={composer}
+                onChange={onComposerChange}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                rows={1}
+                maxLength={65_535}
+                placeholder={`Message ${title}`}
+                disabled={sending}
+              />
+              <div className="composer-inline-actions">
+                <label
+                  className={`attachment-button composer-icon-button ${
+                    sending ? "disabled" : ""
+                  }`}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    disabled={sending}
+                    onChange={(event) => void onFilesSelected(event)}
+                    accept="image/*,text/*,application/pdf,application/zip,application/json"
+                    aria-label="Attach files"
+                  />
+                  <AppIcon name="paperclip" />
+                </label>
+                <button
+                  className="composer-icon-button composer-send send-button"
+                  type="submit"
+                  aria-label={sending ? "Sending message" : "Send message"}
+                  disabled={
+                    sending ||
+                    uploading ||
+                    !attachmentsReady ||
+                    !composer.trim()
+                  }
+                >
+                  <AppIcon
+                    className={sending ? "spin" : ""}
+                    name={sending ? "loader" : "send"}
+                  />
+                </button>
+              </div>
             </div>
+            <p className="composer-footnote">
+              <span>Draft saved</span>
+              <span>Enter to send · Shift+Enter for a new line</span>
+            </p>
           </form>
         </>
       ) : (

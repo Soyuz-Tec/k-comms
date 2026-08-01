@@ -86,10 +86,13 @@ export function MessageItem({
     <li id={`message-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
       {!mine && <span className="avatar small" aria-hidden="true">{initials(senderName || "Unknown")}</span>}
       <article className="message-content">
+        {/*
+          * The sender label sits above the bubble and the timestamp below it,
+          * matching the reference design: the name is what you scan when
+          * following a thread, the time is reference detail you consult.
+          */}
         <header>
           <strong>{mine ? selfIdentifier(senderName) : senderName || "Unknown user"}</strong>
-          <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
-          {message.edited_at && <span>edited</span>}
         </header>
         {replyPreview && <div className="reply-preview"><strong>{replyPreview.sender_user_id === currentUserId ? selfIdentifier(replySenderName) : replySenderName || "Unknown user"}</strong><span>{replyPreview.body || "Message removed"}</span></div>}
         {editing ? (
@@ -101,6 +104,13 @@ export function MessageItem({
         ) : <div className={`message-bubble ${message.status !== "active" ? "removed" : ""}`}>{message.status === "active" ? message.body : "Message removed"}</div>}
 
         {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <AttachmentButton attachment={attachment} key={attachment.id} onOpen={onAttachment} onRequestThumbnail={onRequestThumbnail} />)}</div>}
+
+        <div className="message-meta">
+          <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
+          {message.edited_at && <span>edited</span>}
+          {/* Decorative: "Seen by N" below already carries this to assistive tech. */}
+          {mine && seenCount > 0 && <AppIcon className="message-seen-mark" name="check" />}
+        </div>
 
         <div className="message-tools">
           <div className="reaction-row">

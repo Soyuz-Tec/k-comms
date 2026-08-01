@@ -1,0 +1,1367 @@
+/*
+ * Expanded desktop video calls are modal workspaces, not oversized floating
+ * docks. Keep the media stage, collaboration panel, device selectors, and
+ * controls inside the viewport without making the whole call surface scroll.
+ */
+@media (min-width: 761px) and (min-height: 561px) {
+  body:has(.video-call-dock:not(.minimized)) {
+    overflow: hidden;
+  }
+
+  .audio-call-dock.video-call-dock:not(.minimized) {
+    top: clamp(.65rem, 1.4vw, 1.25rem);
+    z-index: 60;
+    right: max(clamp(.65rem, 1.4vw, 1.25rem), calc((100vw - 1440px) / 2));
+    bottom: clamp(.65rem, 1.4vw, 1.25rem);
+    left: max(clamp(.65rem, 1.4vw, 1.25rem), calc((100vw - 1440px) / 2));
+    display: flex;
+    width: auto;
+    max-height: none;
+    overflow: hidden;
+    flex-direction: column;
+    padding: 0;
+    border-color: var(--border-strong);
+    border-radius: 20px;
+    background: var(--surface-raised);
+    box-shadow:
+      0 0 0 100vmax rgb(10 28 26 / 42%),
+      0 24px 72px rgb(10 28 26 / 30%);
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-dock-heading {
+    min-height: 76px;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: .8rem 1rem;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-overlay);
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-dock-heading h2 {
+    margin: .1rem 0 .2rem;
+    font-size: clamp(1.1rem, 1.7vw, 1.45rem);
+  }
+
+  .video-call-dock:not(.minimized) .active-call-details {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: grid;
+    grid-template:
+      "capture workspace" auto
+      "stage workspace" minmax(0, 1fr)
+      "devices workspace" auto
+      "actions actions" auto
+      / minmax(0, 1fr) minmax(280px, 340px);
+    gap: .7rem;
+    overflow: hidden;
+    padding: .75rem 1rem 1rem;
+  }
+
+  .video-call-dock:not(.minimized) .call-capture-indicator {
+    grid-area: capture;
+    align-self: center;
+    margin: 0;
+  }
+
+  .video-call-dock:not(.minimized) .call-stage {
+    position: relative;
+    min-height: 0;
+    grid-area: stage;
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--accent-border);
+    border-radius: 16px;
+    background: var(--accent-solid);
+  }
+
+  .video-call-dock:not(.minimized) .call-stage > .form-error,
+  .video-call-dock:not(.minimized) .call-stage > .inline-notice {
+    position: absolute;
+    z-index: 2;
+    top: .75rem;
+    left: 50%;
+    width: min(560px, calc(100% - 2rem));
+    margin: 0;
+    transform: translateX(-50%);
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-grid {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    align-content: stretch;
+    gap: .5rem;
+    overflow: auto;
+    margin: 0;
+    padding: .5rem;
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-grid.participant-count-1 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-tile,
+  .video-call-dock:not(.minimized) .video-track-stack {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .video-call-dock:not(.minimized) .video-track-stack {
+    aspect-ratio: auto;
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-sheet {
+    min-height: 0;
+    grid-area: workspace;
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    margin: 0;
+    border-color: var(--border-default);
+    box-shadow: 0 10px 24px rgb(18 48 45 / 7%);
+  }
+
+  .video-call-dock:not(.minimized) .call-collaboration-links {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    gap: .3rem;
+    margin: 0;
+    padding: .45rem;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-raised);
+  }
+
+  .video-call-dock:not(.minimized) .call-collaboration-links button {
+    padding-inline: .35rem;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .video-call-dock:not(.minimized) .call-collaboration-links button[aria-pressed="true"] {
+    border-color: var(--border-strong);
+    background: var(--accent-quiet);
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    align-content: start;
+    overflow-y: auto;
+    padding: 1rem;
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-body > button {
+    align-self: start;
+  }
+
+  .video-call-dock:not(.minimized) .call-device-grid {
+    grid-area: devices;
+    gap: .75rem;
+  }
+
+  .video-call-dock:not(.minimized) .call-device-grid .audio-device-row {
+    margin: 0;
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-actions {
+    min-width: 0;
+    grid-area: actions;
+    display: flex;
+    justify-content: center;
+    gap: .5rem;
+    padding-top: .7rem;
+    border-top: 1px solid var(--border-default);
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-actions .button {
+    min-height: 44px;
+  }
+}
+
+/*
+ * Final phone-layout qualification layer.
+ *
+ * These rules make the message, prejoin, and active-call surfaces behave like
+ * native phone views: one task per screen, no desktop shell behind modal
+ * experiences, compact touch controls, and a full-height media stage.
+ */
+@media (max-width: 760px), (max-height: 560px) {
+  body:has(.call-prejoin-dialog) .app-shell > .topbar,
+  body:has(.video-call-dock:not(.minimized)) .app-shell > .topbar {
+    display: none;
+  }
+
+  body:has(.call-prejoin-dialog) .composer {
+    visibility: hidden;
+  }
+
+  body:has(.call-prejoin-dialog),
+  body:has(.video-call-dock:not(.minimized)) {
+    overflow: hidden;
+  }
+
+  body:has(.workspace-grid.mobile-messages) .app-shell {
+    padding-bottom: 0;
+  }
+
+  body:has(.workspace-grid.mobile-messages) .workspace-grid.mobile-messages,
+  body:has(.workspace-grid.mobile-messages) .conversation-pane {
+    min-height: calc(var(--app-viewport-height) - var(--mobile-topbar-total));
+    height: calc(var(--app-viewport-height) - var(--mobile-topbar-total));
+  }
+
+  .workspace-grid.mobile-messages .conversation-header {
+    min-height: 108px;
+    grid-template-columns: 44px minmax(0, 1fr);
+    padding:
+      .35rem
+      max(.4rem, var(--safe-right))
+      .35rem
+      max(.4rem, var(--safe-left));
+  }
+
+  .workspace-grid.mobile-messages .conversation-header-actions {
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .workspace-grid.mobile-messages .conversation-header-actions .audio-call-control {
+    margin: 0;
+  }
+
+  .workspace-grid.mobile-messages .conversation-header > div:nth-child(2) .eyebrow {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-grid.mobile-messages .message-scroll {
+    padding: .8rem .75rem .45rem;
+  }
+
+  .workspace-grid.mobile-messages .message-list {
+    gap: .68rem;
+  }
+
+  .message-content {
+    max-width: 86%;
+  }
+
+  .message-content > header {
+    min-height: 18px;
+  }
+
+  .message-tools {
+    position: relative;
+    min-height: 32px;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+
+  .message-tools > .reaction-row {
+    min-width: 0;
+    max-width: calc(100% - 44px);
+    flex: 1 1 auto;
+    padding-top: .18rem;
+  }
+
+  .quick-reactions {
+    display: none;
+  }
+
+  .mobile-message-actions-trigger {
+    width: 44px;
+    height: 44px;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 44px;
+    border: 0;
+    border-radius: 999px;
+    color: var(--text-muted);
+    background: transparent;
+    font-size: .8rem;
+    font-weight: 850;
+    letter-spacing: -.08em;
+  }
+
+  .message-actions {
+    position: absolute;
+    z-index: 8;
+    right: 0;
+    top: calc(100% + .15rem);
+    min-width: 168px;
+    display: none;
+    overflow: hidden;
+    flex-direction: column;
+    gap: 0;
+    padding: .3rem;
+    border: 1px solid var(--border-default);
+    border-radius: 14px;
+    opacity: 1;
+    background: var(--surface-raised);
+    box-shadow: 0 18px 45px rgb(15 23 42 / 18%);
+  }
+
+  .message-actions.mobile-open {
+    display: flex;
+  }
+
+  .message-actions button {
+    width: 100%;
+    min-height: 44px;
+    padding: .55rem .7rem;
+    border-radius: 9px;
+    text-align: left;
+    font-size: .75rem;
+  }
+
+  .typing-line {
+    min-height: 18px;
+    padding: .08rem .8rem;
+  }
+
+  .composer {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) 48px;
+    align-items: end;
+    gap: .38rem;
+    padding:
+      .45rem
+      max(.55rem, var(--safe-right))
+      max(.5rem, var(--safe-bottom))
+      max(.55rem, var(--safe-left));
+  }
+
+  .composer > .failed-send,
+  .composer > .composer-reply,
+  .composer > .attachment-upload-list {
+    grid-column: 1 / -1;
+  }
+
+  .composer > .mention-picker {
+    position: relative;
+    z-index: 2;
+    width: 44px;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
+    justify-self: center;
+    margin: 0;
+  }
+
+  .composer .mention-trigger {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    font-size: 0;
+  }
+
+  .composer .mention-trigger .app-icon {
+    width: 19px;
+    height: 19px;
+  }
+
+  .composer textarea {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    min-height: 48px;
+    max-height: 104px;
+    margin: 0;
+    padding: .72rem 3.1rem .65rem 3.1rem;
+    border-radius: 16px;
+  }
+
+  .composer-actions {
+    display: contents;
+    margin: 0;
+  }
+
+  .composer-actions .attachment-button {
+    position: relative;
+    z-index: 1;
+    width: 42px;
+    height: 42px;
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    align-self: center;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+    font-size: 0;
+  }
+
+  .composer-actions .attachment-button > span {
+    font-size: 1.25rem;
+  }
+
+  .composer-actions .send-button {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    grid-column: 3;
+    grid-row: 2;
+    align-self: end;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .composer-actions .send-button span {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+
+  .composer-hint {
+    display: none;
+  }
+
+  .modal-backdrop:has(.call-prejoin-dialog) {
+    z-index: 90;
+    inset: 0;
+  }
+
+  .audio-prejoin-dialog.call-prejoin-dialog {
+    min-height: var(--app-viewport-height);
+    max-height: var(--app-viewport-height);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .audio-prejoin-dialog .camera-preview {
+    min-height: clamp(170px, 31vh, 280px);
+  }
+
+  .audio-prejoin-actions {
+    position: sticky;
+    bottom: 0;
+    margin-inline: -.2rem;
+    padding: .55rem .2rem max(.25rem, var(--safe-bottom));
+    background: linear-gradient(180deg, transparent, var(--surface-raised) 20%);
+  }
+
+  .audio-call-dock.video-call-dock:not(.minimized) {
+    z-index: 95;
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    padding: 0;
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-dock-heading {
+    min-height: calc(64px + var(--safe-top));
+    flex: 0 0 auto;
+    padding:
+      max(.58rem, var(--safe-top))
+      max(.72rem, var(--safe-right))
+      .55rem
+      max(.72rem, var(--safe-left));
+    border-bottom: 1px solid rgb(255 255 255 / 10%);
+    background: linear-gradient(180deg, var(--surface-canvas), var(--surface-canvas));
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-dock-heading .eyebrow {
+    color: var(--text-primary);
+    font-size: .63rem;
+    letter-spacing: .08em;
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-dock-heading h2 {
+    margin: .08rem 0 0;
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 1rem;
+  }
+
+  .video-call-dock:not(.minimized) .call-dock-heading-actions {
+    gap: .35rem;
+  }
+
+  .video-call-dock:not(.minimized) .call-dock-heading-actions .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border-color: rgb(255 255 255 / 20%);
+    border-radius: 13px;
+    color: var(--text-on-accent);
+    background: rgb(255 255 255 / 8%);
+    font-size: 0;
+  }
+
+  .video-call-dock:not(.minimized) .call-dock-heading-actions .button .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .video-call-dock:not(.minimized) .active-call-details {
+    position: relative;
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    padding: .55rem .55rem calc(76px + var(--safe-bottom));
+  }
+
+  .video-call-dock:not(.minimized) .call-capture-indicator,
+  .video-call-dock:not(.minimized) .call-device-grid {
+    display: none;
+  }
+
+  .video-call-dock:not(.minimized) .call-stage {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-grid {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
+    grid-auto-rows: minmax(0, 1fr);
+    margin: 0;
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-grid.participant-count-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-tile,
+  .video-call-dock:not(.minimized) .video-track-stack {
+    min-height: 0;
+    height: 100%;
+  }
+
+  .video-call-dock:not(.minimized) .video-participant-caption {
+    padding: .7rem;
+    background: linear-gradient(180deg, transparent, rgb(0 0 0 / 72%));
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-sheet {
+    position: absolute;
+    z-index: 6;
+    right: .55rem;
+    bottom: calc(78px + var(--safe-bottom));
+    left: .55rem;
+    max-height: min(35vh, 260px);
+    display: none;
+    overflow: hidden;
+    margin: 0;
+    border: 1px solid var(--border-default);
+    border-radius: 18px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-sheet.mobile-open {
+    display: block;
+  }
+
+  .video-call-dock:not(.minimized) .call-workspace-body {
+    max-height: 190px;
+    overflow-y: auto;
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-actions {
+    position: absolute;
+    z-index: 7;
+    right: .45rem;
+    bottom: max(.4rem, var(--safe-bottom));
+    left: .45rem;
+    display: flex;
+    justify-content: center;
+    gap: .32rem;
+    padding: .45rem .25rem;
+    border: 0;
+    border-radius: 18px;
+    background: rgb(11 15 20 / 92%);
+  }
+
+  .video-call-dock:not(.minimized) .audio-call-actions .button {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+    flex: 0 1 52px;
+  }
+
+  .video-call-dock .call-action-more .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .pwa-update-banner {
+    align-items: stretch;
+    flex-direction: column;
+    top: calc(var(--mobile-topbar-total) + .5rem);
+    margin:
+      .6rem
+      max(.75rem, var(--safe-right))
+      0
+      max(.75rem, var(--safe-left));
+    padding: .75rem;
+  }
+
+  .pwa-update-actions {
+    width: 100%;
+  }
+
+  .pwa-update-actions .button {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .pwa-install-dialog {
+    padding: 1rem;
+  }
+
+  .pwa-install-card .card-heading {
+    align-items: flex-start;
+  }
+
+  .pwa-install-card .form-actions,
+  .pwa-install-card .button {
+    width: 100%;
+  }
+}
+
+/*
+ * Unified mobile active-call screen.
+ *
+ * The call lifecycle remains owned by CallPanel. These selectors only change
+ * the expanded phone presentation shared by audio and video calls. Keeping the
+ * active-call-screen hook in every selector prevents this layer from changing
+ * the established desktop dock and modal workspace.
+ */
+@media (max-width: 760px), (max-height: 560px) {
+  body:has(.active-call-screen:not(.minimized)) {
+    overflow: hidden;
+  }
+
+  body:has(.active-call-screen:not(.minimized)) .app-shell {
+    visibility: hidden;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) {
+    position: fixed;
+    z-index: 95;
+    inset: 0;
+    width: 100%;
+    height: var(--app-viewport-height);
+    max-height: var(--app-viewport-height);
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+    box-shadow: none;
+    overscroll-behavior: contain;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading {
+    min-width: 0;
+    min-height: calc(64px + var(--safe-top));
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .5rem;
+    padding:
+      max(.55rem, var(--safe-top))
+      max(.65rem, var(--safe-right))
+      .55rem
+      max(.65rem, var(--safe-left));
+    border-bottom: 1px solid rgb(255 255 255 / 10%);
+    background: linear-gradient(180deg, var(--surface-canvas), var(--surface-canvas));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-heading-summary {
+    min-width: 0;
+    container-name: call-header-summary;
+    container-type: inline-size;
+    display: flex;
+    overflow: hidden;
+    align-items: center;
+    gap: .45rem;
+    white-space: nowrap;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading .eyebrow {
+    display: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading h2 {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    margin: 0;
+    color: var(--text-on-accent);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 750;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-heading-summary.has-call-status .call-room-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    padding: 0;
+    margin: -1px;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-heading-summary.has-call-status .call-progress-duration,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-heading-summary.has-call-status .call-progress-separator,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-heading-summary.has-call-status .call-participant-count {
+    display: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta {
+    min-width: 0;
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: .32rem;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: .72rem;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta > * {
+    min-width: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-duration {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-separator {
+    color: var(--text-muted);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-visual {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-visual {
+    gap: .2rem;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-icon {
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-icon .app-icon {
+    width: .85rem;
+    height: .85rem;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta .status-pill {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    color: var(--accent-text);
+    background: transparent;
+    font-size: inherit;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta .status-pill.neutral {
+    color: var(--warning-text);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta .call-status-connected {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    padding: 0;
+    margin: -1px;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions {
+    flex-wrap: nowrap;
+    gap: .35rem;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    overflow: hidden;
+    padding: 0;
+    border-color: rgb(255 255 255 / 20%);
+    border-radius: 13px;
+    color: var(--text-on-accent);
+    background: rgb(255 255 255 / 8%);
+    font-size: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    padding:
+      .5rem
+      max(.5rem, var(--safe-right))
+      0
+      max(.5rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details > .call-capture-indicator,
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details > .call-device-grid {
+    display: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-stage {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-stage > .form-error,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-stage > .inline-notice {
+    position: absolute;
+    z-index: 5;
+    top: .55rem;
+    right: .55rem;
+    left: .55rem;
+    width: auto;
+    margin: 0;
+    transform: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-stage {
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    flex: 1 1 auto;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: .75rem;
+    overflow-y: auto;
+    padding: clamp(.25rem, 2vh, 1rem);
+    scrollbar-width: thin;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-grid {
+    min-width: 0;
+    width: min(100%, 34rem);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: center;
+    gap: .55rem;
+    margin: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-grid:has(> :only-child) {
+    width: min(100%, 18rem);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card {
+    min-width: 0;
+    min-height: clamp(132px, 24vh, 190px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+    align-content: center;
+    gap: .4rem;
+    overflow: hidden;
+    padding: .8rem;
+    border: 2px solid transparent;
+    border-radius: 18px;
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+    text-align: center;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card.speaking {
+    border-color: var(--success-border);
+    box-shadow: 0 0 0 2px rgb(125 183 135 / 24%);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card .audio-participant-avatar,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card > .audio-participant-mark {
+    width: clamp(64px, 17vw, 92px);
+    height: clamp(64px, 17vw, 92px);
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+    font-size: clamp(1.15rem, 5vw, 1.7rem);
+    font-weight: 850;
+    grid-row: auto;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card strong,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card strong {
+    font-size: .9rem;
+    white-space: nowrap;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card small {
+    color: var(--text-primary);
+    font-size: .72rem;
+    line-height: 1.25;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-media {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .3rem;
+    color: var(--text-primary);
+    font-size: .72rem;
+    line-height: 1.25;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-media .app-icon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-solo {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: .76rem;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid {
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(120px, 1fr);
+    align-content: stretch;
+    gap: .42rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    scrollbar-width: thin;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-track-stack {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    border-radius: 15px;
+    background: var(--surface-media);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-track-stack {
+    aspect-ratio: auto;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile.speaking {
+    border-color: var(--success-border);
+    box-shadow: inset 0 0 0 1px var(--success-text);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-caption {
+    align-items: center;
+    flex-direction: row;
+    padding: 1.1rem .6rem .52rem;
+    background: linear-gradient(180deg, transparent, rgb(0 0 0 / 78%));
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile:has(.video-track-frame.screen-share) {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile:has(.video-track-frame.screen-share) .video-track-stack {
+    position: relative;
+    display: block;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile:has(.video-track-frame.screen-share) .video-track-frame.screen-share {
+    width: 100%;
+    height: 100%;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile:has(.video-track-frame.screen-share) .video-track-frame.camera {
+    position: absolute;
+    z-index: 2;
+    right: .55rem;
+    bottom: 2.15rem;
+    width: clamp(72px, 23%, 118px);
+    height: clamp(54px, 17%, 88px);
+    border: 2px solid rgb(255 255 255 / 72%);
+    border-radius: 10px;
+    box-shadow: 0 5px 18px rgb(0 0 0 / 38%);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-sheet {
+    position: absolute;
+    z-index: 10;
+    top: .55rem;
+    right: max(.55rem, var(--safe-right));
+    bottom: max(.55rem, var(--safe-bottom));
+    left: max(.55rem, var(--safe-left));
+    min-height: 0;
+    max-height: none;
+    display: none;
+    overflow-y: auto;
+    flex-direction: column;
+    margin: 0;
+    border: 1px solid var(--border-default);
+    border-radius: 18px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: 0 18px 48px rgb(0 0 0 / 42%);
+    overscroll-behavior: contain;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-sheet.mobile-open {
+    display: flex;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details:has(.call-workspace-sheet.mobile-open) .audio-call-actions {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-header {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+    min-height: 56px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .55rem .7rem;
+    border-bottom: 1px solid var(--border-default);
+    color: var(--text-primary);
+    background: var(--surface-raised);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-header h3 {
+    min-width: 0;
+    overflow: hidden;
+    margin: 0;
+    font-size: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-header button {
+    min-width: 44px;
+    min-height: 44px;
+    flex: 0 0 auto;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .25rem;
+    margin: 0;
+    padding: .45rem;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-raised);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links button {
+    min-width: 0;
+    color: var(--text-muted);
+    background: transparent;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links button[aria-pressed="true"] {
+    border-color: var(--border-strong);
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    align-content: start;
+    overflow-y: auto;
+    padding: .85rem;
+    color: var(--text-primary);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions {
+    display: grid;
+    gap: .5rem;
+    padding: .75rem;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-raised);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions .button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-actions {
+    position: relative;
+    z-index: 9;
+    inset: auto;
+    min-width: 0;
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    justify-content: space-evenly;
+    gap: clamp(.1rem, 1vw, .35rem);
+    margin:
+      .4rem
+      calc(-1 * max(.5rem, var(--safe-right)))
+      0
+      calc(-1 * max(.5rem, var(--safe-left)));
+    padding:
+      .5rem
+      max(.45rem, var(--safe-right))
+      max(.45rem, var(--safe-bottom))
+      max(.45rem, var(--safe-left));
+    border: 0;
+    border-radius: 18px 18px 0 0;
+    background: rgb(11 15 20 / 96%);
+    box-shadow: 0 -10px 28px rgb(0 0 0 / 20%);
+    backdrop-filter: blur(14px);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-actions .button {
+    width: 56px;
+    min-width: 52px;
+    height: auto;
+    min-height: 78px;
+    flex: 0 1 64px;
+    display: grid;
+    grid-template-rows: 56px auto;
+    place-items: start center;
+    align-content: start;
+    gap: .3rem;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: var(--text-on-accent);
+    background: transparent;
+    font-size: inherit;
+    line-height: 1.1;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-glyph {
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .button.primary .call-action-glyph {
+    border-color: var(--accent-solid);
+    background: var(--accent-solid);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .button.danger .call-action-glyph,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-leave .call-action-glyph {
+    border-color: var(--danger-solid);
+    background: var(--danger-solid);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-glyph .app-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-label {
+    width: 64px;
+    max-width: calc(20vw - .25rem);
+    color: var(--text-primary);
+    font-size: .68rem;
+    font-weight: 700;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .call-end-confirmation-backdrop {
+    z-index: 105;
+    padding:
+      max(1rem, var(--safe-top))
+      max(1rem, var(--safe-right))
+      max(1rem, var(--safe-bottom))
+      max(1rem, var(--safe-left));
+  }
+
+  .call-end-confirmation-dialog {
+    width: min(100%, 26rem);
+  }
+
+  .call-end-confirmation-dialog .form-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .call-end-confirmation-dialog .button {
+    min-width: 0;
+    min-height: 48px;
+  }
+}
+
+@container call-header-summary (max-width: 14rem) {
+  .audio-call-dock.active-call-screen:not(.minimized) .call-room-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    padding: 0;
+    margin: -1px;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-word {
+    display: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-participant-count-icon {
+    display: inline-flex;
+  }
+}
+
+@media (min-width: 390px) and (max-width: 760px), (min-width: 390px) and (max-height: 560px) {
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid.participant-count-1 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid.participant-count-3 .video-participant-tile:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid.participant-count-4 .video-participant-tile:first-child {
+    grid-column: auto;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid .video-participant-tile:first-child:has(.video-track-frame.screen-share) {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) and (forced-colors: active), (max-height: 560px) and (forced-colors: active) {
+  .audio-call-dock.active-call-screen:not(.minimized) {
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-actions {
+    border-color: ButtonText;
+    color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading h2,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading .eyebrow,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-progress-meta,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-label,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-media {
+    color: CanvasText;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-trigger,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-glyph,
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card,
+  .audio-call-dock.active-call-screen:not(.minimized) .video-participant-tile {
+    border: 1px solid ButtonText;
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card.speaking,
+  .audio-call-dock.active-call-screen:not(.minimized) .video-participant-tile.speaking,
+  .audio-call-dock.active-call-screen:not(.minimized) .button[aria-pressed="true"] .call-action-glyph {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-sheet,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-header,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions {
+    border-color: ButtonText;
+    color: CanvasText;
+    background: Canvas;
+  }
+}

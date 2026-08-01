@@ -1,0 +1,339 @@
+/*
+ * K-Comms design tokens.
+ *
+ * Two tiers, deliberately separated:
+ *
+ *   Tier 1 — raw palette (--kc-*). Named for what the colour *is*. Never
+ *            referenced outside this file. Swapping the product's look means
+ *            re-pointing tier 2 at different tier 1 values; component CSS does
+ *            not move.
+ *
+ *   Tier 2 — semantic roles (--surface-*, --text-*, --border-*, --accent-*,
+ *            --success/warning/danger/info-*). Named for the *job* the colour
+ *            does. This is the only vocabulary component CSS may use.
+ *
+ * The previous token set was named by appearance (--forest, --mint, --paper),
+ * which gave no home for "a hover background" or "a disabled border" — so those
+ * values were written as literals instead, and the palette sprawled to 372
+ * distinct colours. Tier 2 exists to give every recurring job a name.
+ *
+ * Every text/background and boundary pair below is verified against WCAG 2.1 AA
+ * (4.5:1 body text, 3:1 non-text) in both themes. e2e/accessibility.spec.ts runs
+ * axe with color-contrast enabled and no disabled rules, so these are load-
+ * bearing, not aspirational. Worst measured pair: 4.92:1 text, 3.35:1 non-text.
+ *
+ * Deliberately absent: any translucent text token. Dimming text with alpha
+ * (the `/60` pattern) drops muted copy to ~2.6:1. Where text needs to recede,
+ * use --text-muted, which is contrast-checked on every surface it can land on.
+ */
+
+/* ─── Tier 1: raw palette ─────────────────────────────────────────────────── */
+
+:root {
+  /* Violet — the product's chromatic identity. */
+  --kc-violet-50: #f5f3ff;
+  --kc-violet-100: #ede9fe;
+  --kc-violet-200: #ddd6fe;
+  --kc-violet-300: #c4b5fd;
+  --kc-violet-400: #a78bfa;
+  --kc-violet-500: #8b5cf6;
+  --kc-violet-600: #7c3aed;
+  --kc-violet-700: #6d28d9;
+  --kc-violet-800: #5b21b6;
+  --kc-violet-900: #4c1d95;
+  --kc-violet-950: #2e1065;
+
+  /* Violet-tinted neutrals. The tint is what keeps large dark areas from
+     reading as flat grey next to the accent. */
+  --kc-ink-950: #08060f;
+  --kc-ink-900: #0d0a1a;
+  --kc-ink-850: #100d1c;
+  --kc-ink-800: #150f28;
+  --kc-ink-750: #1a1530;
+  --kc-ink-700: #231d40;
+  --kc-ink-650: #2a2150;
+  --kc-ink-500: #7568ab;
+  --kc-ink-400: #9a90b6;
+  --kc-ink-300: #8578a8;
+  --kc-ink-200: #5b5079;
+  --kc-ink-150: #453a63;
+  --kc-ink-100: #191033;
+
+  /* Light-theme surface ramp, same violet cast. */
+  --kc-mist-50: #ffffff;
+  --kc-mist-100: #f4f1fa;
+  --kc-mist-200: #ede9f7;
+  --kc-mist-300: #e4ddf3;
+  --kc-mist-400: #ddd4ef;
+
+  /*
+   * Status hues, chosen against the violet primary (hue 262°) rather than taken
+   * off the shelf:
+   *
+   *   success  jade 168°  (94° away) — a stock emerald at 152° is the one that
+   *                        visibly fights violet on large fills. Shifting green
+   *                        toward the blue side keeps it unmistakably "positive"
+   *                        while sitting closer to the primary's family.
+   *   warning  amber 44°  (142°)     — near split-complementary; the strongest
+   *                        legitimate contrast in the set, which is what a
+   *                        warning wants. Kept.
+   *   danger   rose 350°  (88°)      — shares a magenta component with violet,
+   *                        so it reads as related rather than opposed. Kept.
+   *   info     periwinkle 226° (36°) — analogous to the primary. A stock sky
+   *                        blue at 199° drifts away from the family for no gain.
+   *
+   * Each family carries a value tuned for text on dark, a fill that can hold
+   * white text, and a value legible as text on light.
+   */
+  --kc-jade-light: #2aa78e;
+  --kc-jade-fill: #1f7c69;
+  --kc-jade-deep: #196354;
+  --kc-amber-light: #be8f0c;
+  --kc-amber-fill: #8c6909;
+  --kc-amber-deep: #6f5307;
+  --kc-rose-light: #f26179;
+  --kc-rose-fill: #de1234;
+  --kc-rose-deep: #b50f2a;
+  --kc-peri-light: #7490ee;
+  --kc-peri-fill: #3c64e7;
+  --kc-peri-deep: #1c49df;
+
+  --kc-white: #ffffff;
+}
+
+/* ─── Tier 2: semantic roles — dark (base) ────────────────────────────────── */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, ordered by elevation. Elevation is expressed as a distinct
+     surface value rather than a translucent overlay, so text contrast stays
+     predictable no matter what a panel is stacked on. */
+  --surface-canvas: var(--kc-ink-950);
+  --surface-rail: var(--kc-ink-900);
+  --surface-raised: var(--kc-ink-850);
+  --surface-overlay: var(--kc-ink-800);
+  --surface-sunken: var(--kc-ink-750);
+  --surface-hover: var(--kc-ink-700);
+  --surface-selected: var(--kc-ink-650);
+
+  /* Backdrop for video tiles, camera previews and screen share. Deliberately
+     near-black in *both* themes: letterboxing and inactive tiles read badly
+     against a tinted or light surface, so this role does not follow the theme. */
+  --surface-media: #06040c;
+
+  /* Text. All three verified on every surface above. */
+  --text-primary: #ede9ff;
+  --text-secondary: var(--kc-violet-300);
+  --text-muted: var(--kc-ink-400);
+  --text-on-accent: var(--kc-white);
+  --text-on-status: var(--kc-white);
+
+  /* Borders. --border-subtle is decorative only: it separates regions that are
+     already distinguished by surface colour. Anything that bounds an
+     interactive control must use --border-strong, which clears 3:1. */
+  --border-subtle: #1f1a38;
+  --border-default: #362d58;
+  --border-strong: var(--kc-ink-500);
+  --focus-ring: var(--kc-violet-400);
+
+  /* Accent. -text is for accent-coloured type; -solid is a fill that carries
+     --text-on-accent. They are different values and are not interchangeable. */
+  --accent-text: var(--kc-violet-400);
+  --accent-solid: var(--kc-violet-600);
+  --accent-solid-hover: var(--kc-violet-700);
+  --accent-solid-active: var(--kc-violet-800);
+  --accent-quiet: #1d1638;
+  --accent-quiet-hover: #261d47;
+  --accent-border: #4a3585;
+
+  --success-text: var(--kc-jade-light);
+  --success-solid: var(--kc-jade-fill);
+  --success-quiet: #0f2420;
+  --success-border: #254e45;
+
+  --warning-text: var(--kc-amber-light);
+  --warning-solid: var(--kc-amber-fill);
+  --warning-quiet: #241e0f;
+  --warning-border: #4f4425;
+
+  --danger-text: var(--kc-rose-light);
+  --danger-solid: var(--kc-rose-fill);
+  --danger-quiet: #240f12;
+  --danger-border: #622e37;
+
+  --info-text: var(--kc-peri-light);
+  --info-solid: var(--kc-peri-fill);
+  --info-quiet: #0f1424;
+  --info-border: #303c65;
+
+  /*
+   * The marketing/auth panel is a fixed deep-violet field in both themes, so its
+   * type cannot use --text-primary (near-black under the light theme, which
+   * would be unreadable here). These four are theme-independent by design.
+   */
+  --surface-hero: linear-gradient(145deg, #100a24, #2a1458 65%, #3b1d75);
+  --text-on-hero: #ede9ff;
+  --text-on-hero-muted: #c3b5e8;
+  --border-on-hero: #6d5a9e;
+
+  --shadow: 0 18px 50px rgb(2 1 8 / 62%);
+  --shadow-raised: 0 2px 8px rgb(2 1 8 / 45%);
+}
+
+/* ─── Tier 2: semantic roles — light ──────────────────────────────────────── */
+
+/*
+ * Dark is the base, so a browser reporting no preference (or not supporting the
+ * query at all) gets the dark identity. Light applies only when the platform
+ * explicitly asks for it. To make dark unconditional, delete this block — the
+ * [data-theme] overrides below keep working either way.
+ */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --surface-canvas: var(--kc-mist-100);
+    --surface-rail: var(--kc-mist-50);
+    --surface-raised: var(--kc-mist-50);
+    --surface-overlay: var(--kc-mist-50);
+    --surface-sunken: var(--kc-mist-200);
+    --surface-hover: var(--kc-mist-300);
+    --surface-selected: var(--kc-mist-400);
+
+    --text-primary: var(--kc-ink-100);
+    --text-secondary: var(--kc-ink-150);
+    --text-muted: var(--kc-ink-200);
+    --text-on-accent: var(--kc-white);
+    --text-on-status: var(--kc-white);
+
+    --border-subtle: #e2dcf0;
+    --border-default: #cfc6e4;
+    --border-strong: var(--kc-ink-300);
+    --focus-ring: var(--kc-violet-700);
+
+    --accent-text: #6425c8;
+    --accent-solid: var(--kc-violet-700);
+    --accent-solid-hover: var(--kc-violet-800);
+    --accent-solid-active: var(--kc-violet-900);
+    --accent-quiet: var(--kc-violet-100);
+    --accent-quiet-hover: var(--kc-violet-200);
+    --accent-border: #c3b2ec;
+
+    --success-text: var(--kc-jade-deep);
+    --success-solid: var(--kc-jade-deep);
+    --success-quiet: #e4f6f3;
+    --success-border: #8cc6bb;
+
+    --warning-text: var(--kc-amber-deep);
+    --warning-solid: var(--kc-amber-deep);
+    --warning-quiet: #f6f1e4;
+    --warning-border: #c9ba92;
+
+    --danger-text: var(--kc-rose-deep);
+    --danger-solid: var(--kc-rose-deep);
+    --danger-quiet: #f6e4e7;
+    --danger-border: #d4a8af;
+
+    --info-text: var(--kc-peri-deep);
+    --info-solid: var(--kc-peri-deep);
+    --info-quiet: #e4e8f6;
+    --info-border: #a9b3d5;
+
+    --shadow: 0 18px 50px rgb(25 16 51 / 12%);
+    --shadow-raised: 0 2px 8px rgb(25 16 51 / 8%);
+  }
+}
+
+/* Explicit user choice wins over the platform preference in both directions. */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-canvas: var(--kc-mist-100);
+  --surface-rail: var(--kc-mist-50);
+  --surface-raised: var(--kc-mist-50);
+  --surface-overlay: var(--kc-mist-50);
+  --surface-sunken: var(--kc-mist-200);
+  --surface-hover: var(--kc-mist-300);
+  --surface-selected: var(--kc-mist-400);
+
+  --text-primary: var(--kc-ink-100);
+  --text-secondary: var(--kc-ink-150);
+  --text-muted: var(--kc-ink-200);
+  --text-on-accent: var(--kc-white);
+  --text-on-status: var(--kc-white);
+
+  --border-subtle: #e2dcf0;
+  --border-default: #cfc6e4;
+  --border-strong: var(--kc-ink-300);
+  --focus-ring: var(--kc-violet-700);
+
+  --accent-text: #6425c8;
+  --accent-solid: var(--kc-violet-700);
+  --accent-solid-hover: var(--kc-violet-800);
+  --accent-solid-active: var(--kc-violet-900);
+  --accent-quiet: var(--kc-violet-100);
+  --accent-quiet-hover: var(--kc-violet-200);
+  --accent-border: #c3b2ec;
+
+  --success-text: var(--kc-jade-deep);
+  --success-solid: var(--kc-jade-deep);
+  --success-quiet: #e4f6f3;
+  --success-border: #8cc6bb;
+
+  --warning-text: var(--kc-amber-deep);
+  --warning-solid: var(--kc-amber-deep);
+  --warning-quiet: #f6f1e4;
+  --warning-border: #c9ba92;
+
+  --danger-text: var(--kc-rose-deep);
+  --danger-solid: var(--kc-rose-deep);
+  --danger-quiet: #f6e4e7;
+  --danger-border: #d4a8af;
+
+  --info-text: var(--kc-peri-deep);
+  --info-solid: var(--kc-peri-deep);
+  --info-quiet: #e4e8f6;
+  --info-border: #a9b3d5;
+
+  --shadow: 0 18px 50px rgb(25 16 51 / 12%);
+  --shadow-raised: 0 2px 8px rgb(25 16 51 / 8%);
+}
+
+/* ─── Typography, metrics and layout tokens ───────────────────────────────── */
+
+:root {
+  /* Bricolage Grotesque carries headings and product moments; Geist carries
+     everything read at length. Both are self-hosted variable fonts — see
+     fonts.css for why a CDN is not an option here. */
+  --font-display: "Bricolage Grotesque", "Geist", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Geist", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+
+  /* Retained from the previous token set — these encode real device and
+     accessibility constraints and are independent of the visual identity. */
+  --target-size: 24px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --mobile-topbar-height: 58px;
+  --mobile-nav-height: 0px;
+  --mobile-topbar-total: calc(var(--mobile-topbar-height) + var(--safe-top));
+  --mobile-nav-total: calc(var(--mobile-nav-height) + var(--safe-bottom));
+  --app-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+  }
+}

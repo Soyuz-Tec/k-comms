@@ -22,9 +22,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   max-height: min(760px, calc(var(--app-viewport-height) - 2rem));
   overflow-y: auto;
   padding: clamp(1rem, 4vw, 1.5rem);
-  border: 1px solid #c3d0c2;
+  border: 1px solid var(--border-default);
   border-radius: 18px;
-  background: var(--paper);
+  background: var(--surface-raised);
   box-shadow: 0 28px 80px rgb(10 30 28 / 28%);
 }
 
@@ -42,13 +42,13 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-shell h1,
 .guest-account-card h2 {
   margin: .2rem 0 .45rem;
-  font-family: Georgia, serif;
+  font-family: var(--font-display);
 }
 
 .guest-link-setup > p,
 .guest-direct-guidance p,
 .guest-link-result .support-note {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   line-height: 1.55;
 }
 
@@ -62,9 +62,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   gap: .65rem;
   margin-top: 1rem;
   padding: .8rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  background: #f7f8f2;
+  background: var(--surface-raised);
 }
 
 .guest-conversion-policy > div {
@@ -75,7 +75,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-conversion-policy small,
 .guest-conversion-summary {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
@@ -83,7 +83,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   margin: 0;
   padding: .65rem .75rem;
   border-radius: 8px;
-  background: #f0f2eb;
+  background: var(--surface-canvas);
   font-size: var(--text-sm);
 }
 
@@ -98,9 +98,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: end;
   gap: .65rem;
   padding: .75rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  background: #f7f8f2;
+  background: var(--surface-raised);
 }
 
 .guest-conversion-code .support-note {
@@ -115,9 +115,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   place-items: center;
   justify-self: center;
   padding: .35rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
-  background: white;
+  background: var(--surface-raised);
 }
 
 .guest-qr img {
@@ -132,9 +132,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   display: grid;
   place-items: center;
   padding: 1rem;
-  border: 1px dashed var(--line);
+  border: 1px dashed var(--border-default);
   border-radius: 12px;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -151,7 +151,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-expiry {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: var(--text-sm);
   line-height: 1.45;
 }
@@ -161,7 +161,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   gap: .7rem;
   margin-top: 1.15rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border-default);
 }
 
 .active-guest-links h3 {
@@ -171,7 +171,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .active-guest-links small {
   display: block;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -189,9 +189,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   justify-content: space-between;
   gap: .75rem;
   padding: .7rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  background: white;
+  background: var(--surface-raised);
 }
 
 .active-guest-links .button {
@@ -201,10 +201,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .form-success {
   margin: 1rem 0 0;
   padding: .75rem .85rem;
-  border-left: 3px solid #3c7551;
+  border-left: 3px solid var(--success-border);
   border-radius: 5px;
-  color: #214b35;
-  background: #e6f2e3;
+  color: var(--success-text);
+  background: var(--success-quiet);
   font-size: .84rem;
 }
 
@@ -215,21 +215,21 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   padding: max(1rem, var(--safe-top)) max(1rem, var(--safe-right))
     max(1rem, var(--safe-bottom)) max(1rem, var(--safe-left));
   background:
-    radial-gradient(circle at 18% 15%, rgb(191 227 192 / 48%), transparent 28rem),
-    linear-gradient(145deg, #e9eee5, #f9f8f1 55%, #edf1e7);
+    radial-gradient(circle at 18% 15%, rgb(167 139 250 / 26%), transparent 28rem),
+    linear-gradient(145deg, var(--surface-canvas), var(--surface-raised) 55%, var(--surface-sunken));
 }
 
 .guest-entry-card {
   width: min(480px, 100%);
   padding: clamp(1.35rem, 5vw, 2.25rem);
-  border: 1px solid #cbd5ca;
+  border: 1px solid var(--border-default);
   border-radius: 22px;
-  background: rgb(251 250 244 / 96%);
+  background: var(--surface-overlay);
   box-shadow: var(--shadow);
 }
 
 .guest-entry-card > p {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   line-height: 1.6;
 }
 
@@ -244,10 +244,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   min-height: 28px;
   align-items: center;
   padding: .26rem .62rem;
-  border: 1px solid #8db795;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  color: #214b35;
-  background: #e1f1df;
+  color: var(--accent-text);
+  background: var(--accent-quiet);
   font-size: .72rem;
   font-weight: 850;
   letter-spacing: .04em;
@@ -255,9 +255,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-badge.neutral {
-  border-color: var(--line);
-  color: var(--ink-soft);
-  background: #f0f2eb;
+  border-color: var(--border-default);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
 }
 
 .guest-badge.compact {
@@ -301,7 +301,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   min-height: var(--app-viewport-height);
   display: flex;
   flex-direction: column;
-  background: var(--canvas);
+  background: var(--surface-canvas);
 }
 
 .guest-shell-header {
@@ -311,8 +311,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: center;
   gap: 1rem;
   padding: .8rem max(1rem, var(--safe-right)) .8rem max(1rem, var(--safe-left));
-  border-bottom: 1px solid var(--line);
-  background: var(--paper);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-raised);
 }
 
 .guest-room-heading {
@@ -332,7 +332,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-room-heading p {
   margin: .15rem 0 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .78rem;
 }
 
@@ -340,9 +340,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   text-transform: capitalize;
 }
 
-.guest-connection.live { color: #2d6844; }
+.guest-connection.live { color: var(--success-text); }
 .guest-connection.offline,
-.guest-connection.reconnecting { color: #8a4b36; }
+.guest-connection.reconnecting { color: var(--danger-text); }
 
 .guest-shell-actions {
   display: flex;
@@ -373,8 +373,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   gap: 1rem;
   padding: max(1rem, var(--safe-top)) max(1rem, var(--safe-right))
     max(1rem, var(--safe-bottom)) 1rem;
-  border-left: 1px solid var(--line);
-  background: var(--paper);
+  border-left: 1px solid var(--border-default);
+  background: var(--surface-raised);
   box-shadow: -20px 0 56px rgb(10 30 28 / 24%);
   overscroll-behavior: contain;
 }
@@ -387,12 +387,12 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  background: var(--paper);
+  background: var(--surface-raised);
 }
 
 .guest-room-menu h2 {
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 1.15rem;
 }
 
@@ -409,10 +409,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: center;
   gap: .7rem;
   padding: .75rem .8rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--text-primary);
+  background: var(--surface-raised);
   font: inherit;
   text-align: left;
   text-decoration: none;
@@ -430,21 +430,21 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-room-menu-action:hover {
-  border-color: #8aaca8;
-  background: #f1f8f7;
+  border-color: var(--border-strong);
+  background: var(--accent-quiet);
 }
 
 .guest-room-menu-action span {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .75rem;
   line-height: 1.35;
 }
 
 .guest-room-menu-action.danger {
   margin-top: .45rem;
-  border-color: #dfb8b4;
-  color: #8f261f;
-  background: #fff8f7;
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  background: var(--danger-quiet);
 }
 
 .guest-transport-warning {
@@ -458,9 +458,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: end;
   gap: .75rem;
   padding: .75rem max(1rem, calc((100vw - 960px) / 2));
-  border-bottom: 1px solid #9db7a0;
-  color: #173d39;
-  background: #e5f0e1;
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
 }
 
 .guest-conversion-receipt > div,
@@ -482,9 +482,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-conversion-receipt input {
   width: 100%;
   padding: .55rem .7rem;
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--surface-raised);
 }
 
 .guest-account-card {
@@ -492,13 +492,13 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   grid-template-columns: minmax(12rem, .65fr) minmax(20rem, 1fr);
   gap: 1.2rem;
   padding: 1rem max(1rem, calc((100vw - 960px) / 2));
-  border-bottom: 1px solid #bcd0bd;
-  background: #e5f0e1;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--accent-quiet);
 }
 
 .guest-account-card p {
   margin: .2rem 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
 }
 
 .guest-account-card form {
@@ -520,9 +520,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   flex: 0 0 auto;
   align-self: center;
   padding: .65rem .8rem;
-  border-inline: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  background: #f8f7f1;
+  border-inline: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-raised);
 }
 
 .guest-participant-heading {
@@ -539,7 +539,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-participant-heading > span {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .75rem;
   white-space: nowrap;
 }
@@ -566,9 +566,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: center;
   gap: .55rem;
   padding: .35rem .5rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  background: var(--paper);
+  background: var(--surface-raised);
 }
 
 .guest-participant-identity {
@@ -589,12 +589,12 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-participant-you {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .guest-participant-disambiguator {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .72rem;
   font-weight: 600;
   letter-spacing: .025em;
@@ -603,7 +603,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-participant-identity small {
   display: flex;
   align-items: center;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .7rem;
 }
 
@@ -613,15 +613,15 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   flex: 0 0 auto;
   margin-right: .3rem;
   border-radius: 50%;
-  background: #74827e;
+  background: var(--surface-hover);
 }
 
 .guest-participant-presence.online {
-  background: #15875e;
+  background: var(--success-solid);
 }
 
 .guest-participant-presence.unknown {
-  border: 1px solid #74827e;
+  border: 1px solid var(--border-strong);
   background: transparent;
 }
 
@@ -634,9 +634,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   justify-content: space-between;
   gap: .8rem;
   padding: .55rem .8rem;
-  border-inline: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  background: #eef4e9;
+  border-inline: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-canvas);
 }
 
 .guest-live-tools > div:first-child {
@@ -647,7 +647,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-live-tools > div:first-child > span {
   overflow: hidden;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -678,10 +678,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   display: inline-grid;
   place-items: center;
   padding: 0;
-  border: 1px solid #c8d9dc;
+  border: 1px solid var(--border-default);
   border-radius: 14px;
-  color: #006d73;
-  background: #edf8f7;
+  color: var(--accent-text);
+  background: var(--accent-quiet);
 }
 
 .compact-room-layout .guest-room-menu-trigger .app-icon {
@@ -691,8 +691,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .compact-room-layout .guest-participant-roster {
   border-inline: 0;
-  border-bottom-color: #e6ebf0;
-  background: white;
+  border-bottom-color: var(--border-default);
+  background: var(--surface-raised);
 }
 
 .compact-room-layout .guest-participant-roster.compact {
@@ -724,7 +724,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  color: #64748b;
+  color: var(--text-muted);
   transition: transform 160ms ease;
 }
 
@@ -748,8 +748,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   flex-direction: row;
   padding: .65rem .75rem;
   border-inline: 0;
-  border-bottom-color: #e6ebf0;
-  background: white;
+  border-bottom-color: var(--border-default);
+  background: var(--surface-raised);
 }
 
 .compact-room-layout .guest-live-tools > div:first-child {
@@ -798,8 +798,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-self: center;
   display: flex;
   flex-direction: column;
-  border-inline: 1px solid var(--line);
-  background: var(--paper);
+  border-inline: 1px solid var(--border-default);
+  background: var(--surface-raised);
 }
 
 .guest-message-scroll {
@@ -818,7 +818,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-room .guest-message-empty h2 {
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 750;
 }
@@ -826,7 +826,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-room .guest-message-empty p {
   max-width: 32rem;
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .84rem;
   line-height: 1.45;
 }
@@ -849,7 +849,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .guest-message-list > li.mine {
   padding: .7rem;
   border-radius: 12px;
-  background: #eef4e9;
+  background: var(--surface-canvas);
 }
 
 .guest-message-list p {
@@ -863,7 +863,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   display: flex;
   justify-content: center;
   padding: .35rem .8rem 0;
-  background: var(--paper);
+  background: var(--surface-raised);
 }
 
 .guest-new-message-jump .button {
@@ -879,7 +879,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-message-meta time {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .72rem;
 }
 
@@ -888,18 +888,18 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: .65rem;
   padding: .8rem;
-  border-top: 1px solid var(--line);
-  background: #f8f7f1;
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-raised);
 }
 
 .guest-composer textarea {
   min-height: 52px;
   resize: none;
   padding: .75rem .85rem;
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--border-strong);
   border-radius: 11px;
-  color: var(--ink);
-  background: white;
+  color: var(--text-primary);
+  background: var(--surface-raised);
 }
 
 .guest-composer .button {
@@ -918,10 +918,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   justify-content: space-between;
   gap: .75rem;
   padding: .85rem 1rem;
-  border: 1px solid #ddb9b5;
+  border: 1px solid var(--danger-border);
   border-radius: 12px;
-  color: #702b27;
-  background: #fff7f4;
+  color: var(--danger-text);
+  background: var(--danger-quiet);
   box-shadow: var(--shadow);
 }
 
@@ -994,7 +994,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-entry {
     place-items: start center;
     padding: var(--safe-top) 0 var(--safe-bottom);
-    background: var(--paper);
+    background: var(--surface-raised);
   }
 
   .guest-entry-card {
@@ -1057,7 +1057,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-bottom: calc(1rem + var(--safe-bottom));
-    border-top: 1px solid #9db7a0;
+    border-top: 1px solid var(--border-strong);
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -18px 50px rgb(10 30 28 / 22%);
   }
@@ -1084,8 +1084,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 @media (max-width: 520px) {
   .guest-shell {
     overflow-x: hidden;
-    color: #0b1220;
-    background: white;
+    color: var(--text-primary);
+    background: var(--surface-raised);
   }
 
   .guest-shell-header {
@@ -1098,8 +1098,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
       max(.55rem, var(--safe-right))
       .42rem
       max(.7rem, var(--safe-left));
-    border-bottom-color: #e3e9ee;
-    background: rgb(255 255 255 / 98%);
+    border-bottom-color: var(--border-default);
+    background: var(--surface-overlay);
     box-shadow: 0 3px 14px rgb(15 23 42 / 5%);
   }
 
@@ -1111,7 +1111,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
   .guest-room-heading h1 {
     overflow: hidden;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-body);
     font-size: 1rem;
     font-weight: 760;
     letter-spacing: -.02em;
@@ -1122,7 +1122,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-room-heading p {
     overflow: hidden;
     margin: 0;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: .66rem;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1140,10 +1140,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     display: inline-grid;
     place-items: center;
     padding: 0;
-    border: 1px solid #c8d9dc;
+    border: 1px solid var(--border-default);
     border-radius: 14px;
-    color: #006d73;
-    background: #edf8f7;
+    color: var(--accent-text);
+    background: var(--accent-quiet);
   }
 
   .guest-room-menu-trigger .app-icon {
@@ -1164,7 +1164,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     padding:
       max(1rem, var(--safe-top)) max(1rem, var(--safe-right))
       calc(1rem + var(--safe-bottom)) max(1rem, var(--safe-left));
-    border: 1px solid var(--line);
+    border: 1px solid var(--border-default);
     border-block: 0;
     border-right: 0;
     border-radius: 0;
@@ -1188,8 +1188,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     padding: 0;
     border-color: transparent;
     border-radius: 50%;
-    color: #006d73;
-    background: #edf8f7;
+    color: var(--accent-text);
+    background: var(--accent-quiet);
     font-size: 0;
   }
 
@@ -1199,15 +1199,15 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   }
 
   .guest-shell-actions .button.danger {
-    color: #b42318;
-    background: #fff1f0;
+    color: var(--danger-text);
+    background: var(--danger-quiet);
   }
 
   .guest-participant-roster {
     padding: .52rem .75rem;
     border-inline: 0;
-    border-bottom-color: #e6ebf0;
-    background: white;
+    border-bottom-color: var(--border-default);
+    background: var(--surface-raised);
   }
 
   .guest-participant-roster.compact {
@@ -1236,7 +1236,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
   .guest-participant-toggle span {
     min-width: 0;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: .72rem;
     line-height: 1.25;
     text-align: right;
@@ -1260,9 +1260,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-participant-roster li {
     min-height: 48px;
     padding: .3rem .45rem;
-    border-color: #e1e8ee;
+    border-color: var(--border-default);
     border-radius: 12px;
-    background: #fbfcfd;
+    background: var(--surface-raised);
   }
 
   .guest-live-tools {
@@ -1270,8 +1270,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     flex-direction: row;
     padding: .4rem .75rem;
     border-inline: 0;
-    border-bottom-color: #e6ebf0;
-    background: white;
+    border-bottom-color: var(--border-default);
+    background: var(--surface-raised);
   }
 
   .guest-live-tools > div:first-child {
@@ -1297,7 +1297,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
   .guest-message-scroll {
     padding: .78rem;
-    background: linear-gradient(180deg, #f7fafc, white 30%);
+    background: linear-gradient(180deg, var(--surface-raised), var(--surface-raised) 30%);
   }
 
   .guest-message-list {
@@ -1307,9 +1307,9 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-message-list > li.mine {
     margin-left: 2.5rem;
     padding: .65rem .72rem;
-    border: 1px solid #b9e4e1;
+    border: 1px solid var(--accent-border);
     border-radius: 14px;
-    background: #e6f7f5;
+    background: var(--accent-quiet);
   }
 
   .guest-composer {
@@ -1320,8 +1320,8 @@ body:has(.guest-share-dialog) > .modal-backdrop {
       .48rem max(.55rem, var(--safe-right))
       max(.52rem, var(--safe-bottom))
       max(.55rem, var(--safe-left));
-    border-top-color: #e4e9ee;
-    background: rgb(255 255 255 / 98%);
+    border-top-color: var(--border-default);
+    background: var(--surface-overlay);
     box-shadow: 0 -8px 22px rgb(15 23 42 / 5%);
   }
 
@@ -1329,7 +1329,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     min-height: 48px;
     max-height: 104px;
     padding: .72rem .78rem;
-    border-color: #d3dde5;
+    border-color: var(--border-default);
     border-radius: 15px;
     font-size: 16px;
   }

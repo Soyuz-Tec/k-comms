@@ -46,6 +46,16 @@ export default defineConfig({
       }
     },
     {
+      /*
+       * The product ships two palettes (src/theme.css). axe can only judge the
+       * scheme the browser reports, so without this project the dark palette —
+       * the default identity — would never be contrast-gated.
+       */
+      name: "chromium-dark",
+      testMatch: /accessibility\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"], colorScheme: "dark" }
+    },
+    {
       name: "mobile-chromium",
       testIgnore: /live-(audio|video)\.spec\.ts/,
       use: { ...devices["Pixel 7"] }

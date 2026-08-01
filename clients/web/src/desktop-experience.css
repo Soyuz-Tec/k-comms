@@ -12,15 +12,11 @@
   :root {
     --desktop-rail-width: 80px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
-    --desktop-line: #e5e9e5;
-    --desktop-muted: #526865;
-    --desktop-teal: #0b7774;
-    --desktop-teal-soft: #e9f4f2;
   }
 
   .app-shell {
     padding-left: var(--desktop-rail-width);
-    background: #fff;
+    background: var(--surface-raised);
   }
 
   .app-shell > .topbar {
@@ -37,9 +33,14 @@
     flex-direction: column;
     gap: .45rem;
     padding: 1rem .75rem;
-    border-right: 1px solid #164440;
-    color: #eaf6f4;
-    background: #0d3533;
+    /*
+     * The rail is chrome, not an accent surface: filling it with --accent-solid
+     * left every icon at 2.1:1 and gave the violet nowhere to signal state.
+     * Dark rail + violet only on the active pill, as the design intends.
+     */
+    border-right: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    background: var(--surface-rail);
   }
 
   .desktop-workspace-identity,
@@ -55,15 +56,15 @@
     padding: 0;
     border: 1px solid transparent;
     border-radius: 12px;
-    color: #c7d9d6;
+    color: var(--text-muted);
     background: transparent;
   }
 
   .desktop-workspace-identity {
     margin-bottom: .5rem;
-    border-color: rgb(222 242 238 / 25%);
-    color: white;
-    background: rgb(255 255 255 / 8%);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+    background: var(--accent-quiet);
     font-size: .76rem;
     font-weight: 850;
   }
@@ -81,13 +82,13 @@
   .desktop-instant-room:hover,
   .desktop-account-trigger:hover,
   .desktop-workspace-rail .notification-trigger:hover {
-    color: white;
-    background: rgb(255 255 255 / 9%);
+    color: var(--text-primary);
+    background: var(--surface-hover);
   }
 
   .desktop-rail-nav a.active {
-    color: white;
-    background: #0b7774;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
   }
 
   .desktop-rail-nav a.active::after {
@@ -97,7 +98,7 @@
     height: 24px;
     border-radius: 3px 0 0 3px;
     content: "";
-    background: #86d1ca;
+    background: var(--accent-solid);
   }
 
   .desktop-rail-nav .member-nav-icon {
@@ -107,7 +108,7 @@
 
   .desktop-instant-room {
     margin-top: .45rem;
-    border-color: rgb(222 242 238 / 26%);
+    border-color: var(--accent-border);
     font-size: 1.45rem;
     line-height: 1;
   }
@@ -119,14 +120,14 @@
   .desktop-workspace-rail .notification-trigger {
     position: relative;
     border-radius: 12px;
-    color: #c7d9d6;
+    color: var(--text-primary);
     font-size: 1.1rem;
   }
 
   .desktop-workspace-rail .notification-badge {
     top: -3px;
     right: -4px;
-    border-color: #0d3533;
+    border-color: var(--accent-solid);
   }
 
   body > .notification-panel {
@@ -134,7 +135,7 @@
     right: auto;
     bottom: 1rem;
     left: calc(var(--desktop-rail-width) + .75rem);
-    color: var(--ink);
+    color: var(--text-primary);
   }
 
   .desktop-account-menu {
@@ -153,8 +154,8 @@
     width: 36px;
     height: 36px;
     border-radius: 10px;
-    color: #0d3533;
-    background: #a7d8d3;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
   }
 
   .desktop-account-menu[open] .desktop-account-trigger {
@@ -170,11 +171,11 @@
     display: grid;
     gap: .8rem;
     padding: 1rem;
-    border: 1px solid #dbe2de;
+    border: 1px solid var(--border-default);
     border-radius: 14px;
-    color: var(--ink);
-    background: #fff;
-    box-shadow: 0 18px 48px rgb(13 53 51 / 16%);
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow);
   }
 
   .desktop-account-heading {
@@ -201,7 +202,7 @@
   }
 
   .desktop-account-heading small {
-    color: var(--desktop-muted);
+    color: var(--text-muted);
     font-size: .68rem;
     text-transform: capitalize;
   }
@@ -210,19 +211,19 @@
     display: grid;
     gap: .2rem;
     padding-block: .6rem;
-    border-block: 1px solid var(--desktop-line);
+    border-block: 1px solid var(--border-default);
   }
 
   .desktop-role-links a {
     padding: .55rem .45rem;
     border-radius: 7px;
-    color: var(--ink);
+    color: var(--text-primary);
     font-size: .76rem;
     font-weight: 700;
   }
 
   .desktop-role-links a:hover {
-    background: #f1f5f3;
+    background: var(--surface-canvas);
   }
 
   .desktop-signout {
@@ -233,19 +234,19 @@
     grid-template-columns: var(--desktop-sidebar-width) minmax(0, 1fr);
     padding: 0;
     gap: 0;
-    background: #fff;
+    background: var(--surface-raised);
   }
 
   .conversation-sidebar,
   .conversation-pane {
     border: 0;
     border-radius: 0;
-    background: #fff;
+    background: var(--surface-raised);
     box-shadow: none;
   }
 
   .conversation-sidebar {
-    border-right: 1px solid var(--desktop-line);
+    border-right: 1px solid var(--border-default);
   }
 
   .sidebar-heading {
@@ -261,7 +262,7 @@
 
   .sidebar-heading h1 {
     margin: 0;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-body);
     font-size: 1.65rem;
     font-weight: 740;
     letter-spacing: -.035em;
@@ -276,44 +277,44 @@
     height: 38px;
     border-color: transparent;
     border-radius: 10px;
-    color: #4b6562;
+    color: var(--text-muted);
     background: transparent;
   }
 
   .sidebar-tools .icon-button:hover {
-    color: #0d3533;
-    background: #eef5f3;
+    color: var(--accent-text);
+    background: var(--surface-canvas);
   }
 
   .sidebar-tools .inbox-new-button {
-    color: white;
-    background: var(--desktop-teal);
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
   }
 
   .sidebar-tools .inbox-new-button:hover {
-    color: white;
-    background: #086763;
+    color: var(--text-on-accent);
+    background: var(--accent-solid-hover);
   }
 
   .conversation-filters {
     gap: .5rem;
     padding: 0 1.1rem .9rem;
-    border-bottom: 1px solid var(--desktop-line);
+    border-bottom: 1px solid var(--border-default);
   }
 
   .conversation-filters input[type="search"] {
     min-height: 42px;
     padding-inline: .8rem;
-    border-color: #dbe3df;
+    border-color: var(--border-default);
     border-radius: 10px;
-    background: #f7f9f8;
+    background: var(--surface-raised);
   }
 
   .conversation-filters .inbox-segments {
     gap: .25rem;
     padding: .15rem;
     border-radius: 10px;
-    background: #f1f4f3;
+    background: var(--surface-canvas);
   }
 
   .conversation-filters .inbox-segment {
@@ -323,8 +324,8 @@
   }
 
   .conversation-filters .inbox-segment[aria-pressed="true"] {
-    color: #0d3533;
-    background: #fff;
+    color: var(--accent-text);
+    background: var(--surface-raised);
     box-shadow: 0 1px 3px rgb(13 53 51 / 10%);
   }
 
@@ -343,13 +344,13 @@
   }
 
   .conversation-row:hover {
-    background: #f4f7f6;
+    background: var(--surface-raised);
   }
 
   .conversation-row.active {
     border-color: transparent;
-    background: var(--desktop-teal-soft);
-    box-shadow: inset 3px 0 0 var(--desktop-teal);
+    background: var(--accent-quiet);
+    box-shadow: inset 3px 0 0 var(--accent-solid);
   }
 
   .conversation-icon,
@@ -357,8 +358,8 @@
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    color: #365c58;
-    background: #e7efed;
+    color: var(--text-secondary);
+    background: var(--surface-selected);
     font-size: .72rem;
   }
 
@@ -373,7 +374,7 @@
 
   .conversation-copy small,
   .conversation-title-line time {
-    color: var(--desktop-muted);
+    color: var(--text-muted);
     font-size: .68rem;
     text-transform: none;
   }
@@ -381,13 +382,13 @@
   .unread-badge {
     min-width: 19px;
     height: 19px;
-    background: var(--desktop-teal);
+    background: var(--accent-solid);
   }
 
   .onboarding-spotlight {
-    border-color: #d5e2de;
+    border-color: var(--border-default);
     border-radius: 10px;
-    background: #f5f9f7;
+    background: var(--surface-raised);
     box-shadow: none;
   }
 
@@ -398,19 +399,19 @@
   .conversation-header {
     min-height: 76px;
     padding: .85rem 1.5rem;
-    border-bottom: 1px solid var(--desktop-line);
+    border-bottom: 1px solid var(--border-default);
   }
 
   .conversation-header h2 {
     margin-top: .1rem;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-body);
     font-size: 1.05rem;
     font-weight: 740;
     letter-spacing: -.015em;
   }
 
   .conversation-header .eyebrow {
-    color: var(--desktop-muted);
+    color: var(--text-muted);
     font-size: .65rem;
     letter-spacing: .06em;
   }
@@ -426,22 +427,22 @@
   .conversation-header-actions > .button,
   .conversation-header-actions .audio-call-control .button {
     min-height: 38px;
-    border-color: #dbe3df;
+    border-color: var(--border-default);
     border-radius: 9px;
-    color: #365552;
-    background: #fff;
+    color: var(--text-secondary);
+    background: var(--surface-raised);
     box-shadow: none;
   }
 
   .conversation-header-actions > .button:hover,
   .conversation-header-actions .audio-call-control .button:hover {
     transform: none;
-    background: #f1f6f4;
+    background: var(--surface-canvas);
   }
 
   .message-scroll {
     padding: 1.4rem clamp(1rem, 4vw, 4rem);
-    background: #fff;
+    background: var(--surface-raised);
   }
 
   .message-list {
@@ -467,30 +468,32 @@
   }
 
   .message-bubble {
-    padding: .72rem .88rem;
-    border-color: #e1e7e4;
-    border-radius: 4px 12px 12px;
-    background: #f7f9f8;
+    padding: .72rem .95rem;
+    border-color: var(--border-subtle);
+    border-radius: 16px 16px 16px 6px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
     box-shadow: none;
     font-size: .88rem;
   }
 
   .message.mine .message-bubble {
-    border-color: #cfe2de;
-    border-radius: 12px 4px 12px 12px;
-    background: #e8f3f0;
+    border-color: transparent;
+    border-radius: 16px 16px 6px 16px;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
   }
 
   .typing-line {
     padding-inline: clamp(1.5rem, 5vw, 5rem);
-    color: var(--desktop-muted);
-    background: #fff;
+    color: var(--text-muted);
+    background: var(--surface-raised);
   }
 
   .composer {
     padding: .7rem clamp(1rem, 4vw, 4rem) 1.05rem;
-    border-top: 1px solid var(--desktop-line);
-    background: #fff;
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-raised);
   }
 
   .composer > * {
@@ -498,25 +501,24 @@
     margin-inline: auto;
   }
 
-  .composer textarea {
-    display: block;
-    min-height: 54px;
-    border-color: #cfd9d5;
-    border-radius: 13px;
-    background: #fbfcfc;
+  /* The shell owns the boundary now, so the field carries no border of its
+     own and focus is drawn once, around the pill. */
+  .composer-shell {
+    border-color: var(--border-default);
   }
 
-  .composer textarea:focus {
-    border-color: var(--desktop-teal);
+  .composer-shell textarea {
+    display: block;
+    min-height: 42px;
   }
 
   .attachment-button {
-    border-color: #d8e0dd;
-    background: #fff;
+    border-color: var(--border-default);
+    background: var(--surface-raised);
   }
 
   .send-button {
-    background: var(--desktop-teal);
+    background: var(--accent-solid);
     box-shadow: none;
   }
 
@@ -528,7 +530,7 @@
     border-block: 0;
     border-right: 0;
     border-radius: 0;
-    background: #fff;
+    background: var(--surface-raised);
     box-shadow: -12px 0 36px rgb(13 53 51 / 12%);
   }
 }
