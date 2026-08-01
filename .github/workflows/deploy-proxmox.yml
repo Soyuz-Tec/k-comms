@@ -118,11 +118,12 @@ jobs:
         run: |
           python scripts/test_validate_proxmox_bundle.py
           python scripts/validate_proxmox_bundle.py
+          pwsh -NoProfile -File scripts/test_proxmox_native_commands.ps1
           bash scripts/test_proxmox_livekit_runtime.sh
 
   deploy:
     needs: verify-artifact
-    runs-on: [self-hosted, windows, x64, k-comms-deploy]
+    runs-on: [self-hosted, x64, k-comms-deploy]
     timeout-minutes: 30
     environment:
       name: ${{ inputs.environment }}
@@ -131,7 +132,7 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - name: Reconfirm the approved revision is still protected main
-        shell: powershell
+        shell: pwsh
         run: |
           git fetch --no-tags origin main
           $head = (git rev-parse HEAD).Trim()
@@ -143,7 +144,7 @@ jobs:
               throw "The approved revision is no longer the current protected main"
           }
       - name: Materialize protected SSH inputs
-        shell: powershell
+        shell: pwsh
         env:
           DEPLOY_SSH_KEY: ${{ secrets.K_COMMS_DEPLOY_SSH_KEY }}
           DEPLOY_HOST_KEY: ${{ secrets.K_COMMS_DEPLOY_HOST_KEY }}
@@ -178,11 +179,20 @@ jobs:
               $liveKitCredential + [Environment]::NewLine,
               [Text.UTF8Encoding]::new($false)
           )
-          $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
           foreach ($path in @($keyPath, $liveKitCredentialPath)) {
-              & icacls.exe $path /inheritance:r /grant:r "$identity`:(R)" | Out-Null
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Failed to restrict a protected deployment input ACL"
+              if ($IsWindows) {
+                  $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+                  & icacls.exe $path /inheritance:r /grant:r "$identity`:(R)" |
+                      Out-Null
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Failed to restrict a protected deployment input ACL"
+                  }
+              }
+              else {
+                  & chmod 0600 -- $path
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "Failed to restrict a protected deployment input mode"
+                  }
               }
           }
           "DEPLOY_KEY_PATH=$keyPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -191,7 +201,7 @@ jobs:
           "LIVEKIT_CREDENTIAL_PATH=$liveKitCredentialPath" |
               Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Deploy and verify the approved digest
-        shell: powershell
+        shell: pwsh
         env:
           DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
@@ -204,7 +214,7 @@ jobs:
               KnownHostsPath = $env:DEPLOY_KNOWN_HOSTS_PATH
               Image = "${{ inputs.image }}"
               Revision = "${{ inputs.revision }}"
-              BundlePath = (Join-Path $env:GITHUB_WORKSPACE "deploy\proxmox")
+              BundlePath = (Join-Path $env:GITHUB_WORKSPACE "deploy/proxmox")
               LiveKitCredentialPath = $env:LIVEKIT_CREDENTIAL_PATH
           }
           if ("${{ inputs.bootstrap }}" -eq "true") {
@@ -213,7 +223,7 @@ jobs:
           & (Join-Path $env:GITHUB_WORKSPACE "scripts\proxmox\deploy-remote.ps1") @arguments
       - name: Rehearse staging rollback, reactivation, and isolated restore
         if: inputs.environment == 'staging'
-        shell: powershell
+        shell: pwsh
         env:
           DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
@@ -229,7 +239,7 @@ jobs:
               -Image "${{ inputs.image }}" `
               -Revision "${{ inputs.revision }}"
       - name: Export non-secret deployment evidence
-        shell: powershell
+        shell: pwsh
         env:
           DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
@@ -266,19 +276,21 @@ jobs:
           retention-days: 90
       - name: Remove protected SSH inputs
         if: always()
-        shell: powershell
+        shell: pwsh
         run: |
-          $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
           foreach ($path in @(
               $env:DEPLOY_KEY_PATH,
               $env:DEPLOY_KNOWN_HOSTS_PATH,
               $env:LIVEKIT_CREDENTIAL_PATH
           )) {
               if ($path -and (Test-Path -LiteralPath $path)) {
-                  & icacls.exe $path /inheritance:r /grant:r "$identity`:(F)" |
-                      Out-Null
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "Failed to authorize protected SSH input cleanup"
+                  if ($IsWindows) {
+                      $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+                      & icacls.exe $path /inheritance:r /grant:r "$identity`:(F)" |
+                          Out-Null
+                      if ($LASTEXITCODE -ne 0) {
+                          throw "Failed to authorize protected SSH input cleanup"
+                      }
                   }
                   Remove-Item -LiteralPath $path -Force
               }

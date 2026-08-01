@@ -46,11 +46,14 @@ REQUIRED_FILES = (
     "deploy/proxmox/systemd/cloudflared-kcomms.service",
     "scripts/proxmox/deploy-remote.ps1",
     "scripts/proxmox/export-deployment-evidence.ps1",
+    "scripts/proxmox/native-command.ps1",
     "scripts/proxmox/qualify-staging-remote.ps1",
+    "scripts/test_proxmox_native_commands.ps1",
     "scripts/test_proxmox_livekit_runtime.sh",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
     "docs/02-architecture/adr/0057-managed-livekit-cloud-internet-media.md",
     "docs/02-architecture/adr/0058-automatic-merge-to-production-promotion.md",
+    "docs/02-architecture/adr/0064-portable-protected-deployment-runner.md",
     "docs/10-infrastructure-and-deployment/environments/development.md",
     "docs/14-operations/development-to-production-completion-standard.md",
 )
@@ -547,7 +550,11 @@ def validate(root: Path) -> list[str]:
         "--source-ref refs/heads/main",
         "--predicate-type https://cyclonedx.org/bom",
         "--deny-self-hosted-runners",
-        "runs-on: [self-hosted, windows, x64, k-comms-deploy]",
+        "runs-on: [self-hosted, x64, k-comms-deploy]",
+        "shell: pwsh",
+        "chmod 0600 -- $path",
+        "[Security.Principal.WindowsIdentity]::GetCurrent().Name",
+        "scripts/test_proxmox_native_commands.ps1",
         "name: ${{ inputs.environment }}",
         "secrets.K_COMMS_DEPLOY_SSH_KEY",
         "secrets.K_COMMS_DEPLOY_HOST_KEY",
@@ -583,6 +590,7 @@ def validate(root: Path) -> list[str]:
         "ToBase64String",
         "base64 -d | bash",
         "verify.sh",
+        "Resolve-KCommsNativeCommand",
     ):
         if required not in remote:
             errors.append(f"remote deployment wrapper is missing: {required}")
@@ -596,6 +604,7 @@ def validate(root: Path) -> list[str]:
         "qualify-staging.sh",
         "ToBase64String",
         "base64 -d | bash",
+        "Resolve-KCommsNativeCommand",
     ):
         if required not in staging_remote:
             errors.append(
@@ -614,10 +623,24 @@ def validate(root: Path) -> list[str]:
         "ConvertFrom-Json",
         "ToBase64String",
         "base64 -d | sudo bash",
+        "Resolve-KCommsNativeCommand",
     ):
         if required not in evidence_remote:
             errors.append(
                 f"deployment evidence exporter is missing: {required}"
+            )
+
+    native_command = read(root, "scripts/proxmox/native-command.ps1")
+    for required in (
+        "function Resolve-KCommsNativeCommand",
+        "$IsWindows",
+        '"$Name.exe"',
+        "-CommandType Application",
+        "Required native command is missing",
+    ):
+        if required not in native_command:
+            errors.append(
+                f"native command resolver is missing control: {required}"
             )
 
     container_workflow = read(root, ".github/workflows/container.yml")
@@ -666,6 +689,8 @@ def validate(root: Path) -> list[str]:
         "automatically queues",
         "required reviewer approves",
         "isolated restore rehearsal",
+        "Windows or Linux",
+        "PowerShell 7",
     ):
         if required not in readme:
             errors.append(f"Proxmox runbook is missing boundary text: {required}")

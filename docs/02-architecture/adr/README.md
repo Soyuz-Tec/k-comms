@@ -66,5 +66,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0060 | Add an install-scoped progressive web application | Accepted |
 | 0061 | Store attachment derived renditions as variants | Accepted |
 | 0062 | Preserve public facades while separating cohesive implementation modules | Accepted |
+| 0063 | Add conversation whiteboards through a replaceable Excalidraw adapter | Accepted |
+| 0064 | Make the protected Proxmox deployment runner portable | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.
