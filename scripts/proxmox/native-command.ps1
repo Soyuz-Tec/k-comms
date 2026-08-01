@@ -16,10 +16,12 @@ function Resolve-KCommsNativeCommand {
     }
 
     foreach ($candidate in $candidates) {
-        $command = Get-Command $candidate -CommandType Application `
-            -ErrorAction SilentlyContinue
+        $command = @(
+            Get-Command $candidate -CommandType Application `
+                -ErrorAction SilentlyContinue
+        ) | Select-Object -First 1
         if ($command) {
-            return $command.Source
+            return [string]$command.Source
         }
     }
 

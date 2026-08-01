@@ -5,6 +5,9 @@ Set-StrictMode -Version Latest
 
 foreach ($name in @("scp", "ssh", "tar")) {
     $resolved = Resolve-KCommsNativeCommand -Name $name
+    if ($resolved -isnot [string] -or [string]::IsNullOrWhiteSpace($resolved)) {
+        throw "Resolved $name command must be exactly one path"
+    }
     if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
         throw "Resolved $name command is not a file: $resolved"
     }
