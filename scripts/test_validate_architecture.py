@@ -706,15 +706,38 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # A manifest transition authorizes one widening against one immutable
-        # base, so it is spent the moment that widening lands. Leaving it in
-        # place makes it stale against the branch it just became part of, which
-        # fails this validator for every later change. The list is pinned empty
-        # so a spent transition cannot be left behind, and so a new widening is
-        # a deliberate edit here rather than an incidental one.
+        # Widenings are pinned here so adding a context or owned table cannot
+        # pass as an incidental edit. Each entry must carry an accepted ADR,
+        # the immutable base hash it was reviewed against, and the exact
+        # semantic changes it authorizes.
+        transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
         self.assertEqual(
-            manifest["enforcement"]["reviewed_manifest_transitions"],
-            [],
+            [transition["id"] for transition in transitions],
+            ["add-conversation-whiteboard-collaboration-context"],
+        )
+        self.assertEqual(
+            transitions[0]["adr"],
+            "docs/02-architecture/adr/0063-conversation-whiteboards-with-excalidraw.md",
+        )
+        self.assertEqual(
+            transitions[0]["approved_changes"],
+            [
+                'context:collaboration:add:{"allowed_dependencies":["conversations"],'
+                '"consumes":[],"current_contexts":["Whiteboards"],'
+                '"internal_namespaces":["CommsCore.Whiteboards"],"kind":"business",'
+                '"public_contracts":["CommsCore.Whiteboards.OperationView"],'
+                '"public_facades":["CommsCore.Whiteboards"],'
+                '"publishes":["collaboration.whiteboard_operation_applied.v1"],'
+                '"responsibility":"Durable conversation whiteboards and ephemeral '
+                'collaborator presence."}',
+                "context:trust_governance:allowed_dependencies:add:collaboration",
+                'table:whiteboard_operations:add:{"canonical_schema":'
+                '"CommsCore.Whiteboards.Operation","owner":"collaboration",'
+                '"role":"source"}',
+                'table:whiteboards:add:{"canonical_schema":'
+                '"CommsCore.Whiteboards.Whiteboard","owner":"collaboration",'
+                '"role":"source"}',
+            ],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
