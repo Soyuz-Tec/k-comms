@@ -133,6 +133,53 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             )
         )
 
+    def test_rejects_os_pinned_deployment_runner(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "runs-on: [self-hosted, x64, k-comms-deploy]",
+                "runs-on: [self-hosted, windows, x64, k-comms-deploy]",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(
+            any(
+                "runs-on: [self-hosted, x64, k-comms-deploy]" in error
+                for error in errors
+            )
+        )
+
+    def test_rejects_missing_linux_secret_file_mode(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "& chmod 0600 -- $path",
+                "Write-Host 'Linux file protection removed'",
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any("chmod 0600 -- $path" in error for error in errors))
+
+    def test_rejects_platform_specific_native_command_resolution(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "scripts/proxmox/native-command.ps1"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                '"$Name.exe"',
+                '"$Name.cmd"',
+            ),
+            encoding="utf-8",
+        )
+        errors = validate(root)
+        self.assertTrue(any('"$Name.exe"' in error for error in errors))
+
     def test_rejects_nonreusable_protected_deployment_workflow(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

@@ -249,6 +249,7 @@ jobs:
       - run: python scripts/validate_ops_assets.py
       - run: python scripts/test_validate_proxmox_bundle.py
       - run: python scripts/validate_proxmox_bundle.py
+      - run: pwsh -NoProfile -File scripts/test_proxmox_native_commands.ps1
       - run: python scripts/test_validate_readiness_ledger.py
       - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json
 

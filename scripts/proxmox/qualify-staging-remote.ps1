@@ -28,9 +28,9 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-if (-not (Get-Command "ssh.exe" -ErrorAction SilentlyContinue)) {
-    throw "Required command is missing: ssh.exe"
-}
+. (Join-Path $PSScriptRoot "native-command.ps1")
+
+$sshCommand = Resolve-KCommsNativeCommand -Name "ssh"
 
 $resolvedKey = (Resolve-Path -LiteralPath $SshKeyPath).Path
 $resolvedKnownHosts = (Resolve-Path -LiteralPath $KnownHostsPath).Path
@@ -48,7 +48,7 @@ $encodedRemoteScript = [Convert]::ToBase64String(
 $remoteCommand = "printf '%s' '$encodedRemoteScript' | base64 -d | bash"
 $target = "$DeployUser@$DeployHost"
 
-& ssh.exe `
+& $sshCommand `
     -i $resolvedKey `
     -o BatchMode=yes `
     -o ServerAliveInterval=15 `

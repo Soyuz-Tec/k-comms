@@ -61,12 +61,15 @@ The manual `Deploy Proxmox` workflow uses the protected `staging` or
 - a protected-branch deployment policy.
 
 Production additionally requires an environment approval. The deploy job runs
-only on a persistent Windows self-hosted runner carrying the
-`k-comms-deploy` label. Keep that runner registered to this repository, run it
-as a least-privilege account, restrict its installation directory to that
-account and `SYSTEM`, and confirm it is online before promotion. Artifact
-provenance and SBOM verification stay on a GitHub-hosted runner before the
-protected environment releases any SSH material to the deployment job.
+only on a persistent Windows or Linux self-hosted runner carrying the
+`k-comms-deploy` label. The host must provide PowerShell 7, OpenSSH clients,
+and `tar`. Keep that runner registered only to this repository, run it as a
+least-privilege account, restrict its installation and work directories to
+that account plus the operating-system administrator, and confirm it is online
+before promotion. On Windows, temporary protected files use an explicit ACL;
+on Linux they use mode `0600`. Artifact provenance and SBOM verification stay
+on a GitHub-hosted runner before the protected environment releases any SSH
+material to the deployment job.
 
 Each environment also defines the secret
 `K_COMMS_LIVEKIT_CLOUD_CREDENTIAL` as one JSON object with exactly `url`,

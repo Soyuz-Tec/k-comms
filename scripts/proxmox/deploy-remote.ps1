@@ -41,11 +41,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-foreach ($command in @("scp.exe", "ssh.exe", "tar.exe")) {
-    if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-        throw "Required command is missing: $command"
-    }
-}
+. (Join-Path $PSScriptRoot "native-command.ps1")
+
+$scpCommand = Resolve-KCommsNativeCommand -Name "scp"
+$sshCommand = Resolve-KCommsNativeCommand -Name "ssh"
+$tarCommand = Resolve-KCommsNativeCommand -Name "tar"
 
 $resolvedBundle = (Resolve-Path -LiteralPath $BundlePath).Path
 $resolvedKey = (Resolve-Path -LiteralPath $SshKeyPath).Path
@@ -67,12 +67,13 @@ $target = "$DeployUser@$DeployHost"
 
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
-    & tar.exe -C $resolvedBundle -czf $archive .
+    & $tarCommand -C $resolvedBundle -czf $archive .
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create the deployment bundle archive"
     }
 
-    & scp.exe -q -i $resolvedKey -o BatchMode=yes -o StrictHostKeyChecking=yes `
+    & $scpCommand -q -i $resolvedKey -o BatchMode=yes `
+        -o StrictHostKeyChecking=yes `
         -o "UserKnownHostsFile=$resolvedKnownHosts" `
         $archive "${target}:$remoteArchive"
     if ($LASTEXITCODE -ne 0) {
@@ -80,7 +81,8 @@ try {
     }
 
     if ($resolvedLiveKitCredential) {
-        & scp.exe -q -i $resolvedKey -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        & $scpCommand -q -i $resolvedKey -o BatchMode=yes `
+            -o StrictHostKeyChecking=yes `
             -o "UserKnownHostsFile=$resolvedKnownHosts" `
             $resolvedLiveKitCredential "${target}:$remoteLiveKitCredential"
         if ($LASTEXITCODE -ne 0) {
@@ -128,7 +130,8 @@ try {
     )
     $remoteCommand = "printf '%s' '$encodedRemoteScript' | base64 -d | bash"
 
-    & ssh.exe -i $resolvedKey -o BatchMode=yes -o StrictHostKeyChecking=yes `
+    & $sshCommand -i $resolvedKey -o BatchMode=yes `
+        -o StrictHostKeyChecking=yes `
         -o "UserKnownHostsFile=$resolvedKnownHosts" `
         $target $remoteCommand
     if ($LASTEXITCODE -ne 0) {
