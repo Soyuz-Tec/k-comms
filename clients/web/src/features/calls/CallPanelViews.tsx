@@ -288,7 +288,7 @@ export function VideoParticipantGrid({ participants }: { participants: Participa
       );
       const microphoneStatus = participant.microphoneEnabled ? "Microphone on" : "Muted";
       const cameraStatus = participant.cameraEnabled ? "Camera on" : "Camera off";
-      return <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""}`} role="listitem" aria-label={`${identifier}${participant.local ? " (you)" : ""}, ${microphoneStatus}, ${cameraStatus}${participant.speaking ? ", Speaking" : ""}`} key={participant.id} data-participant-id={participant.id}>
+      return <article className={`video-participant-tile ${participant.speaking ? "speaking" : ""} ${participant.local ? "local" : ""}`} role="listitem" aria-label={`${identifier}${participant.local ? " (you)" : ""}, ${microphoneStatus}, ${cameraStatus}${participant.speaking ? ", Speaking" : ""}`} key={participant.id} data-participant-id={participant.id}>
       <div className="video-track-stack">
         {participant.videoTracks.length > 0
           ? participant.videoTracks.map((video) => <VideoTrackElement key={video.id} video={video} participant={participant} participantIdentifier={identifier} />)
@@ -296,10 +296,19 @@ export function VideoParticipantGrid({ participants }: { participants: Participa
       </div>
       <div className="video-participant-caption">
         <strong>{identifier}{participant.local ? " (you)" : ""}</strong>
-        {(!participant.microphoneEnabled || !participant.cameraEnabled) && (
+        {/*
+          * Decorative state trail. The tile's aria-label already states mic,
+          * camera and speaking, so none of this is announced twice. The level
+          * bars only appear when someone is actually audible — speaking while
+          * muted would be a contradiction, not a state worth drawing.
+          */}
+        {(!participant.microphoneEnabled || !participant.cameraEnabled || participant.speaking) && (
           <span className="video-participant-exceptions" aria-hidden="true">
             {!participant.microphoneEnabled && <AppIcon name="micOff" />}
             {!participant.cameraEnabled && <AppIcon name="videoOff" />}
+            {participant.speaking && participant.microphoneEnabled && (
+              <span className="video-speaking-bars"><i /><i /><i /></span>
+            )}
           </span>
         )}
       </div>

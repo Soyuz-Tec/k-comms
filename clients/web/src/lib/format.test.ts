@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation } from "../types";
-import { conversationTitle } from "./format";
+import { conversationTitle, dayKey, formatDayLabel } from "./format";
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
@@ -47,5 +47,24 @@ describe("conversationTitle", () => {
     ).toBe("Direct message");
 
     expect(conversationTitle(conversation({ title: "  " }))).toBe("Untitled conversation");
+  });
+});
+
+describe("message day formatting", () => {
+  it("uses the reader's local calendar day instead of UTC boundaries", () => {
+    const morning = new Date(2026, 6, 24, 1, 30);
+    const evening = new Date(2026, 6, 24, 23, 30);
+
+    expect(dayKey(morning.toISOString())).toBe(dayKey(evening.toISOString()));
+  });
+
+  it("labels current and previous local days and rejects invalid timestamps", () => {
+    const now = new Date(2026, 6, 24, 12);
+    const yesterday = new Date(2026, 6, 23, 12);
+
+    expect(formatDayLabel(now.toISOString(), now)).toBe("Today");
+    expect(formatDayLabel(yesterday.toISOString(), now)).toBe("Yesterday");
+    expect(formatDayLabel("not-a-timestamp", now)).toBe("");
+    expect(dayKey("not-a-timestamp")).toBe("");
   });
 });

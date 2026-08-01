@@ -7,7 +7,7 @@
     max(1.5rem, var(--safe-right))
     max(1.5rem, var(--safe-bottom))
     max(1.5rem, var(--safe-left));
-  background: #f8fafc;
+  background: var(--surface-raised);
 }
 
 .instant-room-launch {
@@ -23,9 +23,9 @@
   justify-items: start;
   gap: .8rem;
   padding: clamp(1.75rem, 5vw, 3rem);
-  border: 1px solid #e0e7ec;
+  border: 1px solid var(--border-default);
   border-radius: 22px;
-  background: #fff;
+  background: var(--surface-raised);
   box-shadow: 0 26px 80px rgb(35 53 78 / 10%);
 }
 
@@ -40,7 +40,7 @@
 .instant-room-error h1,
 .instant-room-start h1 {
   margin: 0;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-body);
   font-size: clamp(2rem, 5vw, 2.55rem);
   font-weight: 680;
   letter-spacing: -.045em;
@@ -49,7 +49,7 @@
 
 .instant-room-share h2 {
   margin: 0;
-  font-family: Georgia, serif;
+  font-family: var(--font-display);
 }
 
 .instant-room-loading p,
@@ -57,7 +57,7 @@
 .instant-room-start > p:not(.form-error),
 .instant-room-share p {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -75,8 +75,8 @@
 .instant-room-kicker {
   padding: .28rem .55rem;
   border-radius: 999px;
-  color: #176667;
-  background: #eaf6f5;
+  color: var(--accent-text);
+  background: var(--accent-quiet);
   font-size: .7rem;
   font-weight: 750;
   letter-spacing: .035em;
@@ -96,7 +96,7 @@
   margin: 0;
   padding: .5rem .6rem;
   border: 0;
-  color: #286c70;
+  color: var(--accent-text);
   background: transparent;
   box-shadow: none;
   font-size: .86rem;
@@ -104,7 +104,7 @@
 }
 
 .instant-room-entry-actions .button:hover {
-  color: #0e5559;
+  color: var(--accent-text);
   background: transparent;
   text-decoration: underline;
   text-underline-offset: .2em;
@@ -133,14 +133,14 @@
 
 .instant-room-field-label .optional,
 .instant-room-field-label .required {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .72rem;
   font-weight: 650;
   white-space: nowrap;
 }
 
 .instant-room-field-label .required {
-  color: #7b302c;
+  color: var(--danger-text);
 }
 
 .instant-room-start > .form-error {
@@ -155,23 +155,23 @@
 
 .instant-room-start-form input {
   padding: .78rem .9rem;
-  border-color: var(--control-border);
+  border-color: var(--border-strong);
   border-radius: 12px;
-  background: #fff;
+  background: var(--surface-raised);
   box-shadow: inset 0 1px 1px rgb(35 53 78 / 2%);
   font-size: 1rem;
   font-weight: 500;
 }
 
 .instant-room-start-form input::placeholder {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   opacity: 1;
   font-weight: 450;
 }
 
 .instant-room-start-form input:focus {
-  border-color: #298486;
-  background: #fff;
+  border-color: var(--accent-border);
+  background: var(--surface-raised);
   box-shadow: 0 0 0 3px rgb(41 132 134 / 10%);
 }
 
@@ -180,26 +180,26 @@
 }
 
 .instant-room-start-form .instant-room-field-error {
-  color: #7b302c;
+  color: var(--danger-text);
   font-weight: 650;
 }
 
 .instant-room-start-form .button.primary {
   margin-top: .25rem;
   border-radius: 12px;
-  background: #08777a;
+  background: var(--accent-solid);
   box-shadow: 0 9px 22px rgb(8 119 122 / 18%);
   font-size: .94rem;
 }
 
 .instant-room-start-form .button.primary:not([aria-disabled="true"]):hover {
-  background: #09676b;
+  background: var(--accent-solid);
 }
 
 .instant-room-start-form .button.primary[aria-disabled="true"] {
-  border-color: #a8b7b2;
-  color: #314b47;
-  background: #dbe3e0;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
   box-shadow: none;
   cursor: not-allowed;
   opacity: 1;
@@ -211,14 +211,14 @@
   gap: .15rem;
   margin: 0;
   padding: .75rem .85rem;
-  border: 1px solid #c4d3ca;
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  background: #f2f7f3;
+  background: var(--surface-raised);
 }
 
 .instant-room-account-identity span,
 .instant-room-account-identity small {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
 }
 
 .instant-room-account-identity strong {
@@ -231,8 +231,8 @@
   align-items: center;
   gap: clamp(1rem, 4vw, 2rem);
   padding: 1rem max(1rem, calc((100vw - 960px) / 2));
-  border-bottom: 1px solid #b8cdc2;
-  background: linear-gradient(100deg, #e2f1e9, #f5f4eb);
+  border-bottom: 1px solid var(--border-strong);
+  background: linear-gradient(100deg, var(--accent-quiet), var(--surface-sunken));
 }
 
 .instant-room-invite-backdrop {
@@ -251,9 +251,9 @@
   max-height: min(760px, calc(var(--app-viewport-height) - 2rem));
   overflow-y: auto;
   padding: clamp(1rem, 3vw, 1.4rem);
-  border: 1px solid #b8cdc2;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
-  background: var(--paper);
+  background: var(--surface-raised);
   box-shadow: 0 28px 80px rgb(10 30 28 / 28%);
 }
 
@@ -275,7 +275,7 @@
 
 .instant-room-qr-panel p {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .75rem;
   line-height: 1.4;
   text-align: center;
@@ -324,10 +324,10 @@
 .instant-room-link-row input {
   width: 100%;
   padding: .65rem .75rem;
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  color: var(--ink);
-  background: white;
+  color: var(--text-primary);
+  background: var(--surface-raised);
 }
 
 .instant-room-share .guest-qr {
@@ -342,7 +342,7 @@
 }
 
 .instant-room-copy-notice {
-  color: #216452 !important;
+  color: var(--accent-text) !important;
   font-weight: 750;
 }
 
@@ -367,7 +367,7 @@
 }
 
 .instant-room-share-compact-copy > span:not(.instant-room-kicker, .instant-room-copy-notice) {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: var(--text-sm);
 }
 
@@ -381,7 +381,7 @@
 }
 
 .instant-room-share .transport-warning {
-  color: #5c3518;
+  color: var(--warning-text);
 }
 
 .instant-room-menu-invite {
@@ -404,7 +404,7 @@
 }
 
 .instant-room-menu-invite-heading h3 {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: 1.05rem;
   font-weight: 780;
   letter-spacing: -.02em;
@@ -412,7 +412,7 @@
 
 .instant-room-menu-invite-heading p,
 .instant-room-menu-invite .instant-room-lifetime {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: .75rem;
   line-height: 1.4;
 }
@@ -423,9 +423,9 @@
   justify-items: center;
   gap: .9rem;
   padding: clamp(14px, 4vw, 22px);
-  border: 1px solid #e1e7e6;
+  border: 1px solid var(--border-default);
   border-radius: 24px;
-  background: white;
+  background: var(--surface-raised);
   box-shadow: 0 14px 34px rgb(11 18 32 / 10%);
 }
 
@@ -442,7 +442,7 @@
   padding: 0;
   border: 0;
   border-radius: 12px;
-  background: white;
+  background: var(--surface-raised);
 }
 
 .instant-room-menu-qr .guest-qr img {
@@ -455,7 +455,7 @@
   width: 100%;
   margin: 0;
   overflow: hidden;
-  color: #25343f;
+  color: var(--text-secondary);
   font-size: .9rem;
   font-weight: 650;
   letter-spacing: .035em;
@@ -495,10 +495,10 @@
 .instant-room-menu-link-row input {
   width: 100%;
   padding: .55rem .65rem;
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  color: var(--ink);
-  background: white;
+  color: var(--text-primary);
+  background: var(--surface-raised);
   font-size: 1rem;
 }
 
@@ -523,7 +523,7 @@
   padding: .25rem;
   border: 0;
   border-radius: 14px;
-  color: var(--ink);
+  color: var(--text-primary);
   background: transparent;
   font: inherit;
   font-size: .88rem;
@@ -536,10 +536,10 @@
   height: 64px;
   display: grid;
   place-items: center;
-  border: 1px solid #e1e6e5;
+  border: 1px solid var(--border-default);
   border-radius: 50%;
-  color: #4c565e;
-  background: #f0f2f2;
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
@@ -561,9 +561,9 @@
 }
 
 .instant-room-menu-invite-action:hover .instant-room-menu-invite-action-icon {
-  border-color: #bdd5d2;
-  color: #006d73;
-  background: #e7f4f2;
+  border-color: var(--border-default);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
 }
 
 .instant-room-menu-invite-action:active .instant-room-menu-invite-action-icon {
@@ -571,7 +571,7 @@
 }
 
 .instant-room-menu-invite-action:focus-visible {
-  outline: 3px solid #00878e;
+  outline: 3px solid var(--accent-solid);
   outline-offset: 3px;
 }
 
@@ -610,7 +610,7 @@
   .instant-room-entry {
     place-items: start stretch;
     padding: 0;
-    background: #fbfcfe;
+    background: var(--surface-raised);
   }
 
   .instant-room-start,
@@ -634,7 +634,7 @@
   .instant-room-start h1 {
     max-width: 100%;
     margin-top: .25rem;
-    color: #0b1220;
+    color: var(--text-primary);
     font-size: clamp(1.3rem, 6.4vw, 1.8rem);
     font-weight: 680;
     letter-spacing: -.04em;
@@ -681,8 +681,8 @@
     padding:
       .78rem max(.8rem, var(--safe-right))
       .78rem max(.8rem, var(--safe-left));
-    border-bottom-color: #d8e6e4;
-    background: linear-gradient(115deg, #edf9f7, #f8fbfa);
+    border-bottom-color: var(--border-default);
+    background: linear-gradient(115deg, var(--accent-quiet), var(--surface-raised));
   }
 
   .instant-room-invite-backdrop {
@@ -701,10 +701,10 @@
     padding:
       1rem max(1rem, var(--safe-right))
       calc(1rem + var(--safe-bottom)) max(1rem, var(--safe-left));
-    border: 1px solid #b8cdc2;
+    border: 1px solid var(--border-strong);
     border-bottom: 0;
     border-radius: 18px 18px 0 0;
-    background: var(--paper);
+    background: var(--surface-raised);
   }
 
   .instant-room-share-copy {
@@ -717,7 +717,7 @@
 
   .instant-room-share h2 {
     overflow: hidden;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-body);
     font-size: 1.05rem;
     font-weight: 760;
     letter-spacing: -.02em;
@@ -782,7 +782,7 @@
     min-height: 96px;
     padding: .2rem;
     border-radius: 12px;
-    background: white;
+    background: var(--surface-raised);
   }
 
   .instant-room-lifetime,

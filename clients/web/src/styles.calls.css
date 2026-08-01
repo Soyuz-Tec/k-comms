@@ -1,0 +1,708 @@
+/*
+ * Mobile visual system.
+ *
+ * The product model remains the unified K-Comms member experience. These
+ * rules bring the phone shell, inbox, conversation and call surfaces in line
+ * with the approved teal mobile mockup without changing durable workflows.
+ */
+@media (max-width: 760px), (max-height: 560px) {
+  :root {
+    /*
+     * Phones previously re-declared the entire palette here to match a separate
+     * teal mobile mockup, so the product had two identities depending on
+     * viewport. The palette is now theme-wide (theme.css) and this block keeps
+     * only what is genuinely viewport-dependent: touch ergonomics and the
+     * taller mobile topbar. 44px is the WCAG 2.5.5 enhanced target size.
+     */
+    --target-size: 44px;
+    --mobile-topbar-height: 62px;
+    --mobile-nav-height: 0px;
+  }
+
+  body,
+  .app-shell {
+    color: var(--text-primary);
+    background: var(--surface-canvas);
+  }
+
+  .app-shell > .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .25rem;
+    padding:
+      calc(.45rem + var(--safe-top))
+      calc(.6rem + var(--safe-right))
+      .45rem
+      calc(.75rem + var(--safe-left));
+    border-bottom-color: var(--border-default);
+    background: var(--surface-overlay);
+    box-shadow: 0 2px 12px rgb(15 23 42 / 5%);
+    backdrop-filter: blur(18px);
+  }
+
+  .instant-room-launch {
+    width: 44px;
+    min-width: 44px;
+    border: 0;
+    border-radius: 50%;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+    box-shadow: none;
+  }
+
+  .instant-room-launch span {
+    display: none;
+  }
+
+  .topbar .notification-trigger {
+    border-color: transparent;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+  }
+
+  .topbar .notification-trigger:hover,
+  .mobile-menu-trigger:hover {
+    background: var(--accent-quiet);
+  }
+
+  .member-nav-icon {
+    width: 1.32rem;
+    height: 1.32rem;
+    stroke-width: 1.9;
+  }
+
+  .workspace-grid.mobile-list .conversation-sidebar {
+    background: var(--surface-raised);
+  }
+
+  .sidebar-heading {
+    align-items: end;
+    padding: 1.05rem 1rem .7rem;
+  }
+
+  .sidebar-heading .eyebrow {
+    display: none;
+  }
+
+  .sidebar-heading h1 {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: 1.75rem;
+    font-weight: 750;
+    letter-spacing: -.035em;
+  }
+
+  .sidebar-tools {
+    gap: .2rem;
+  }
+
+  .sidebar-tools .icon-button {
+    width: 44px;
+    height: 44px;
+    border-color: transparent;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .sidebar-tools .icon-button:hover {
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+  }
+
+  .conversation-filters {
+    grid-template-columns: 1fr;
+    gap: .65rem;
+    padding: 0 1rem .8rem;
+    border-bottom: 0;
+  }
+
+  .conversation-filters input[type="search"] {
+    min-height: 46px;
+    padding: .65rem .85rem;
+    border-color: var(--border-default);
+    border-radius: 14px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  }
+
+  .workspace-grid.mobile-list .conversation-list {
+    padding: .15rem 1rem 1rem;
+  }
+
+  .workspace-grid.mobile-list .conversation-row {
+    min-height: 68px;
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: .75rem;
+    margin: 0;
+    padding: .7rem .15rem;
+    border: 0;
+    border-bottom: 1px solid var(--border-default);
+    border-radius: 0;
+    background: var(--surface-raised);
+  }
+
+  .workspace-grid.mobile-list .conversation-row:hover,
+  .workspace-grid.mobile-list .conversation-row.active {
+    color: var(--text-primary);
+    background: linear-gradient(90deg, var(--accent-quiet), var(--surface-raised) 88%);
+  }
+
+  .conversation-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+    font-size: 1.05rem;
+  }
+
+  .conversation-icon.direct {
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+  }
+
+  .conversation-copy {
+    gap: .28rem;
+  }
+
+  .conversation-copy strong {
+    color: var(--text-primary);
+    font-size: .9rem;
+    font-weight: 700;
+  }
+
+  .conversation-copy small,
+  .conversation-title-line time {
+    color: var(--text-muted);
+    font-size: .72rem;
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  .unread-badge {
+    min-width: 22px;
+    height: 22px;
+    background: var(--accent-solid);
+    font-size: .68rem;
+  }
+
+  .workspace-grid.mobile-messages .conversation-pane {
+    background: var(--surface-raised);
+  }
+
+  .conversation-header {
+    min-height: 108px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    justify-content: initial;
+    flex-wrap: nowrap;
+    gap: .2rem;
+    padding: .36rem .45rem;
+    border-bottom-color: var(--border-default);
+    background: var(--surface-overlay);
+  }
+
+  .mobile-back,
+  .conversation-header .icon-button {
+    width: 44px;
+    height: 44px;
+    border-color: transparent;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+  }
+
+  .mobile-back:focus-visible {
+    outline-offset: -3px;
+  }
+
+  .conversation-header > div:nth-child(2) .eyebrow {
+    color: var(--text-muted);
+    font-size: .66rem;
+    letter-spacing: .04em;
+    text-transform: capitalize;
+  }
+
+  .conversation-header h2 {
+    margin-top: .08rem;
+    font-family: var(--font-body);
+    font-size: .95rem;
+    font-weight: 750;
+    letter-spacing: -.015em;
+  }
+
+  .conversation-header-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0;
+  }
+
+  .conversation-header-actions .connection-summary {
+    display: flex;
+    margin-right: auto;
+  }
+
+  .conversation-header-actions > .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    display: inline-grid;
+    overflow: hidden;
+    place-items: center;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+    font-size: 0;
+  }
+
+  .conversation-header-actions .mobile-header-search {
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .conversation-header-actions .mobile-header-search svg,
+  .conversation-header-actions .audio-call-control svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  .conversation-header-actions > .button .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .conversation-header-actions .audio-call-control {
+    order: initial;
+    width: auto;
+    display: flex;
+    gap: .1rem;
+  }
+
+  .conversation-header-actions .audio-call-control .button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border-color: transparent;
+    border-radius: 50%;
+    color: var(--accent-text);
+    background: transparent;
+    font-size: 0;
+  }
+
+  .conversation-header-actions .audio-call-control .button span {
+    font-size: 1.15rem;
+  }
+
+  .message-scroll {
+    padding: 1rem .8rem;
+    background: linear-gradient(180deg, var(--surface-raised), var(--surface-raised) 24%);
+  }
+
+  .message-list {
+    gap: .4rem;
+  }
+
+  .message-content {
+    max-width: 84%;
+  }
+
+  .message-content > header strong {
+    color: var(--accent-text);
+    font-size: .72rem;
+  }
+
+  .message-content > header time,
+  .message-content > header span {
+    color: var(--text-muted);
+    font-size: .65rem;
+  }
+
+  .message-bubble {
+    padding: .72rem .9rem;
+    border-color: var(--border-subtle);
+    border-radius: 16px 16px 16px 6px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
+    font-size: .88rem;
+    line-height: 1.48;
+  }
+
+  .message.mine .message-bubble {
+    border-color: transparent;
+    border-radius: 16px 16px 6px 16px;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+  }
+
+  .typing-line {
+    color: var(--text-muted);
+    background: var(--surface-raised);
+  }
+
+  .composer {
+    border-top-color: var(--border-default);
+    background: var(--surface-overlay);
+    box-shadow: 0 -8px 22px rgb(15 23 42 / 4%);
+  }
+
+  .composer textarea {
+    min-height: 46px;
+    border-color: var(--border-default);
+    border-radius: 16px;
+    color: var(--text-primary);
+    background: var(--surface-raised);
+  }
+
+  .attachment-button {
+    border-color: var(--border-default);
+    border-radius: 12px;
+    color: var(--accent-text);
+    background: var(--surface-raised);
+  }
+
+  .send-button {
+    border-color: var(--accent-solid);
+    border-radius: 50%;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+  }
+
+  .audio-prejoin-dialog.call-prejoin-dialog {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    padding:
+      max(.65rem, var(--safe-top))
+      max(.9rem, var(--safe-right))
+      1rem
+      max(.9rem, var(--safe-left));
+    border: 0;
+    border-radius: 0;
+    background: var(--surface-raised);
+    box-shadow: none;
+  }
+
+  .modal-backdrop:has(.call-prejoin-dialog) {
+    inset: 0 0 var(--mobile-nav-total);
+    display: block;
+    padding: 0;
+    background: var(--surface-raised);
+  }
+
+  .prejoin-heading {
+    min-height: 52px;
+    grid-template-columns: minmax(0, 1fr) 52px;
+  }
+
+  .prejoin-heading > div {
+    min-width: 0;
+  }
+
+  .audio-prejoin-dialog.call-prejoin-dialog h2 {
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 1.35rem;
+    font-weight: 760;
+    letter-spacing: -.025em;
+  }
+
+  .prejoin-heading p {
+    overflow: hidden;
+    margin: .08rem 0 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .prejoin-intro {
+    display: none;
+  }
+
+  .audio-prejoin-dialog .camera-preview {
+    max-height: 36vh;
+    margin: .65rem 0;
+    border: 0;
+    border-radius: 14px;
+    background: var(--surface-sunken);
+  }
+
+  .audio-prejoin-dialog .camera-preview-placeholder {
+    color: var(--text-muted);
+  }
+
+  .prejoin-mode-cards {
+    margin-top: .65rem;
+  }
+
+  .prejoin-mode-cards > div {
+    min-height: 64px;
+    border-radius: 12px;
+  }
+
+  .prejoin-consent-grid {
+    gap: 0;
+    margin: .65rem 0;
+    border: 1px solid var(--border-default);
+    border-radius: 14px;
+    background: var(--surface-raised);
+  }
+
+  .prejoin-consent-grid .checkbox-field {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .65rem .75rem;
+    color: var(--text-primary);
+    font-size: .78rem;
+    font-weight: 700;
+  }
+
+  .prejoin-consent-grid .checkbox-field + .checkbox-field {
+    border-top: 1px solid var(--border-default);
+  }
+
+  .prejoin-consent-grid .checkbox-field input {
+    width: 42px;
+    height: 24px;
+    flex: 0 0 42px;
+    order: 2;
+    appearance: none;
+    border: 0;
+    border-radius: 999px;
+    background: var(--surface-sunken);
+    cursor: pointer;
+    transition: background .16s ease;
+  }
+
+  .prejoin-consent-grid .checkbox-field input::before {
+    width: 18px;
+    height: 18px;
+    display: block;
+    margin: 3px;
+    border-radius: 50%;
+    background: var(--surface-raised);
+    box-shadow: 0 1px 4px rgb(15 23 42 / 25%);
+    content: "";
+    transition: transform .16s ease;
+  }
+
+  .prejoin-consent-grid .checkbox-field input:checked {
+    background: var(--accent-solid);
+  }
+
+  .prejoin-consent-grid .checkbox-field input:checked::before {
+    transform: translateX(18px);
+  }
+
+  .prejoin-device-settings {
+    margin: .25rem 0 .6rem;
+  }
+
+  .prejoin-device-settings > summary {
+    justify-content: center;
+  }
+
+  .audio-prejoin-actions {
+    display: grid;
+    grid-template-columns: minmax(86px, .35fr) minmax(0, 1fr);
+    gap: .55rem;
+    margin-top: .5rem;
+  }
+
+  .audio-prejoin-actions .button {
+    min-height: 50px;
+    margin: 0;
+  }
+
+  .audio-prejoin-actions .button.primary {
+    min-width: 0;
+  }
+
+  .audio-prejoin-actions .prejoin-cancel-action {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+
+  .audio-prejoin-actions .button:not(.prejoin-cancel-action) {
+    grid-column: 2;
+  }
+
+  .call-capture-indicator.prejoin,
+  .audio-prejoin-dialog .audio-device-row,
+  .prejoin-consent-grid {
+    border-color: var(--border-default);
+    border-radius: 14px;
+    background: var(--surface-raised);
+  }
+
+  .audio-prejoin-dialog .button.primary {
+    border-color: var(--accent-solid);
+    border-radius: 12px;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+  }
+
+  .audio-call-dock.video-call-dock:not(.minimized) {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: var(--app-viewport-height);
+    padding:
+      max(.75rem, var(--safe-top))
+      max(.65rem, var(--safe-right))
+      max(.75rem, var(--safe-bottom))
+      max(.65rem, var(--safe-left));
+    border: 0;
+    border-radius: 0;
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+    box-shadow: none;
+  }
+
+  .video-call-dock .audio-call-dock-heading h2,
+  .video-call-dock .call-capture-indicator strong {
+    color: var(--text-on-accent);
+  }
+
+  .video-call-dock .eyebrow,
+  .video-call-dock .call-capture-indicator {
+    color: var(--text-primary);
+  }
+
+  .video-call-dock .call-capture-indicator span,
+  .video-call-dock .audio-device-row,
+  .video-call-dock .call-collaboration-links button {
+    border-color: var(--border-strong);
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+  }
+
+  .video-call-dock .video-participant-grid {
+    order: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .45rem;
+    margin: .5rem 0;
+  }
+
+  .video-call-dock .video-participant-grid.participant-count-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .video-call-dock .video-participant-grid.participant-count-4 .video-participant-tile:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .video-call-dock .video-participant-tile,
+  .video-call-dock .video-track-stack {
+    border-radius: 14px;
+    background: var(--surface-media);
+  }
+
+  .video-call-dock .video-track-stack {
+    min-height: 112px;
+  }
+
+  .video-call-dock .video-participant-grid.participant-count-4 .video-participant-tile:first-child .video-track-stack {
+    min-height: 220px;
+  }
+
+  .video-call-dock .active-call-details {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .video-call-dock .call-capture-indicator {
+    order: 1;
+    margin: .1rem 0;
+  }
+
+  .video-call-dock .call-workspace-sheet {
+    order: 3;
+    margin: .5rem 0;
+    border-color: var(--border-default);
+    color: var(--text-primary);
+    background: var(--surface-raised);
+  }
+
+  .video-call-dock .call-collaboration-links button {
+    color: var(--text-muted);
+    background: var(--surface-raised);
+  }
+
+  .video-call-dock .call-collaboration-links button[aria-pressed="true"] {
+    border-bottom-color: var(--accent-solid);
+    color: var(--accent-text);
+  }
+
+  .video-call-dock .call-workspace-body {
+    color: var(--text-primary);
+  }
+
+  .video-call-dock .call-workspace-body > button {
+    border-color: var(--accent-solid);
+    background: var(--accent-solid);
+  }
+
+  .video-call-dock .call-device-grid {
+    order: 4;
+  }
+
+  .video-call-dock .audio-call-actions {
+    position: sticky;
+    z-index: 2;
+    order: 5;
+    bottom: 0;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(48px, 1fr);
+    justify-content: center;
+    gap: .4rem;
+    padding: .65rem .4rem .25rem;
+    border-radius: 18px;
+    background: rgb(11 15 20 / 92%);
+    backdrop-filter: blur(14px);
+  }
+
+  .video-call-dock .audio-call-actions .button {
+    position: relative;
+    min-width: 0;
+    min-height: 54px;
+    overflow: hidden;
+    padding: 0;
+    border-color: var(--border-strong);
+    border-radius: 999px;
+    color: var(--text-on-accent);
+    background: var(--surface-canvas);
+    font-size: 0;
+  }
+
+  .video-call-dock .audio-call-actions .button .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .video-call-dock .audio-call-actions .button.danger {
+    border-color: var(--danger-solid);
+    background: var(--danger-solid);
+  }
+}

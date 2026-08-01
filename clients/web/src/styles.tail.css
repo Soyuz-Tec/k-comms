@@ -1,0 +1,352 @@
+/*
+ * Mobile navigation and call chrome standard.
+ *
+ * Primary hamburger controls live on the logical end (the physical right in
+ * the current LTR interface). Active video is full-bleed beneath persistent,
+ * high-contrast overlay controls. Drawers remain readable right-side sheets.
+ */
+@media (max-width: 760px), (max-height: 560px) {
+  .mobile-menu-member-links a {
+    gap: .7rem;
+    font-size: 1rem;
+  }
+
+  .mobile-menu-member-links .member-nav-icon {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button {
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button .app-icon {
+    width: 25px;
+    height: 25px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-action-label {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) {
+    isolation: isolate;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-dock-heading {
+    position: absolute;
+    z-index: 30;
+    inset: 0 0 auto;
+    min-height: calc(68px + var(--safe-top));
+    pointer-events: none;
+    padding:
+      calc(.5rem + var(--safe-top))
+      max(.5rem, var(--safe-right))
+      1rem
+      max(.65rem, var(--safe-left));
+    border: 0;
+    background: linear-gradient(180deg, rgb(0 0 0 / 72%), rgb(0 0 0 / 28%) 62%, transparent);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-heading-summary,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions {
+    pointer-events: auto;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-heading-summary {
+    padding: .45rem .55rem;
+    border-radius: 12px;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 85%);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions {
+    align-items: center;
+    gap: .4rem;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .app-menu-trigger-overlay {
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    min-height: 52px;
+    border: 0;
+    border-radius: 50%;
+    color: var(--text-on-accent);
+    background: rgb(0 0 0 / 72%);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 18%) inset;
+    backdrop-filter: blur(12px);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button .app-icon,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .app-menu-trigger-overlay .app-icon {
+    width: 25px;
+    height: 25px;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button:focus-visible,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .app-menu-trigger-overlay:focus-visible {
+    outline: 3px solid white;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--surface-media);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .active-call-details,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-stage,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .active-call-details {
+    display: block;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-stage {
+    z-index: 1;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid {
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 0;
+    overflow: hidden;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid:has(> :nth-child(5)) {
+    grid-auto-rows: minmax(140px, 1fr);
+    overflow-y: auto;
+    padding-bottom: calc(7.25rem + var(--safe-bottom));
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-track-stack {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile.speaking {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile.speaking .video-participant-caption strong::after {
+    width: .55rem;
+    height: .55rem;
+    display: inline-block;
+    margin-left: .4rem;
+    border-radius: 50%;
+    background: var(--success-solid);
+    box-shadow: 0 0 0 2px rgb(0 0 0 / 48%);
+    content: "";
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-caption {
+    right: var(--safe-right);
+    left: var(--safe-left);
+    padding: 1.2rem .7rem .62rem;
+    font-size: .82rem;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile:has(.video-track-frame.screen-share) .video-track-frame.camera {
+    top: calc(68px + var(--safe-top));
+    right: max(.55rem, var(--safe-right));
+    bottom: auto;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-exceptions {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-exceptions .app-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-actions {
+    position: absolute;
+    z-index: 30;
+    inset: auto 0 0;
+    margin: 0;
+    padding:
+      2rem
+      max(.45rem, var(--safe-right))
+      max(.55rem, var(--safe-bottom))
+      max(.45rem, var(--safe-left));
+    border: 0;
+    border-radius: 0;
+    background: linear-gradient(180deg, transparent, rgb(0 0 0 / 84%) 38%, rgb(0 0 0 / 92%));
+    box-shadow: none;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-stage > .form-error,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-stage > .inline-notice {
+    z-index: 31;
+    top: calc(68px + var(--safe-top) + .5rem);
+    right: max(.55rem, var(--safe-right));
+    left: max(.55rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized)[data-call-control-labels="hidden"] .call-action-label {
+    display: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized)[data-call-control-labels="hidden"] .audio-call-actions .button {
+    min-height: 56px;
+    grid-template-rows: 56px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details:has(.call-workspace-sheet.mobile-open)::before {
+    position: fixed;
+    z-index: 35;
+    inset: 0;
+    background: rgb(0 0 0 / 46%);
+    content: "";
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-sheet {
+    position: fixed;
+    z-index: 40;
+    inset: 0 0 0 auto;
+    width: min(360px, 100%);
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-left: 1px solid rgb(255 255 255 / 42%);
+    border-radius: 0;
+    background: var(--surface-overlay);
+    box-shadow: -20px 0 56px rgb(0 0 0 / 34%);
+    backdrop-filter: blur(18px);
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-header {
+    min-height: calc(56px + var(--safe-top));
+    padding:
+      calc(.55rem + var(--safe-top))
+      max(.7rem, var(--safe-right))
+      .55rem
+      max(.7rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links {
+    padding-right: max(.45rem, var(--safe-right));
+    padding-left: max(.45rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-body {
+    padding-right: max(.85rem, var(--safe-right));
+    padding-left: max(.85rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions {
+    padding:
+      .75rem
+      max(.75rem, var(--safe-right))
+      calc(.75rem + var(--safe-bottom))
+      max(.75rem, var(--safe-left));
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .active-call-details:has(.call-workspace-sheet.mobile-open) .audio-call-actions {
+    visibility: visible;
+    pointer-events: none;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links button,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions .button {
+    min-height: 52px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .45rem;
+    font-size: .88rem;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-collaboration-links .app-icon,
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions .app-icon {
+    width: 21px;
+    height: 21px;
+  }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .audio-call-dock.active-call-screen:not(.minimized) .call-workspace-body {
+    min-height: 84px;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: .4rem;
+    padding-top: .45rem;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) .call-menu-secondary-actions .button {
+    min-width: 0;
+    padding: .45rem .3rem;
+    line-height: 1.15;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 389px) {
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid:not(:has(> :nth-child(5))) .video-participant-tile:last-child .video-participant-caption {
+    bottom: calc(7.25rem + var(--safe-bottom));
+  }
+}
+
+@media (min-width: 390px) and (max-width: 760px), (min-width: 390px) and (max-height: 560px) {
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-grid:not(:has(> :nth-child(5))) .video-participant-tile:nth-last-child(-n + 2) .video-participant-caption {
+    bottom: calc(7.25rem + var(--safe-bottom));
+  }
+}
+
+@media (max-width: 760px) and (prefers-reduced-transparency: reduce), (max-height: 560px) and (prefers-reduced-transparency: reduce) {
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-dock-heading,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-actions,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-workspace-sheet,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button {
+    backdrop-filter: none;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button {
+    background: var(--surface-canvas);
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-workspace-sheet {
+    background: var(--surface-raised);
+  }
+}
+
+@media (max-width: 760px) and (forced-colors: active), (max-height: 560px) and (forced-colors: active) {
+  .app-menu-trigger,
+  .app-menu-close,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .call-dock-heading-actions > .button {
+    border: 2px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+    box-shadow: none;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-dock-heading,
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .audio-call-actions {
+    color: CanvasText;
+    background: Canvas;
+  }
+
+  .audio-call-dock.active-call-screen.video-call-screen:not(.minimized) .video-participant-tile.speaking .video-participant-caption strong::after {
+    background: Highlight;
+    box-shadow: none;
+  }
+}
