@@ -35,6 +35,9 @@ attachments
 attachment_variants
 attachment_scan_attempts
 
+whiteboards
+whiteboard_operations
+
 notification_preferences
 notification_intents
 notification_attempts
@@ -76,6 +79,16 @@ keys preserve tenant ownership. No camera, screen, SDP/ICE, RTP/SRTP, recording,
 or media-derived content is stored. The active call/session uniqueness boundary
 prevents two live admissions for the same session, while provider identity is
 unique per tenant. Pending/enforcing eviction indexes support the media worker.
+
+`whiteboards` stores one row and canonical operation sequence per tenant and
+conversation. `whiteboard_operations` stores bounded `scene.update` and
+`board.clear` records with tenant, conversation, actor user/device, client
+idempotency key, sequence, payload, and commit time. Composite tenant foreign
+keys prevent cross-tenant substitution. Sequence is unique per board;
+idempotency is unique per tenant, device, conversation, and client operation
+ID. A clear advances history but does not bypass retention or legal hold.
+The partial clear-generation index supports the transactional rejection of a
+scene update based on a sequence older than the board's latest clear.
 
 `password_recovery_requests` is tenant/user scoped and stores only a reset-token
 hash, expiry, consumption time, invalidation time, and timestamps. A new request
@@ -129,6 +142,10 @@ UNIQUE (audio_call_id, session_id) WHERE status = 'admitted'
 
 -- One active call of either media kind per conversation
 UNIQUE (tenant_id, conversation_id) WHERE status IN ('active', 'ending')
+
+-- Canonical whiteboard order and conversation-scoped sender retry
+UNIQUE (whiteboard_id, sequence)
+UNIQUE (tenant_id, actor_device_id, conversation_id, client_operation_id)
 ```
 
 Replies retain the immediate `reply_to_message_id` and denormalize the

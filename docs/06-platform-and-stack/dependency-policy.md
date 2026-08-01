@@ -18,3 +18,9 @@ A dependency must have:
 - Track transitive vulnerabilities and license obligations.
 - Prefer standard protocols over proprietary data lock-in.
 - Review high-risk dependencies quarterly.
+
+## Product SDK register
+
+| Dependency | Purpose and owner | Version/license | Boundary and removal strategy |
+|---|---|---|---|
+| `@excalidraw/excalidraw` | Conversation whiteboard editor; Collaboration/Web | Exact 0.18.1, MIT; notice in `THIRD_PARTY_NOTICES.md` | Lazy React adapter only; K-Comms owns persistence, authorization, realtime, and projection, so the editor can be replaced without changing the server contract |

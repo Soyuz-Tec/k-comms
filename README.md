@@ -15,6 +15,7 @@ attestation verification, and provider approval remain explicit launch gates.
 - Tenant invitations, lifecycle controls, scoped roles, admission quotas, and last-owner safety
 - Direct messages, private groups, public channels, memberships, and service-account participants
 - Ordered/idempotent messaging, reconnect replay, history paging, search, drafts, edits, tombstones, reactions, read state, replies, threads, and mentions
+- Durable conversation whiteboards with Excalidraw editing, canonical operation replay, reconnect-safe saving, and ephemeral collaborator cursors
 - One-to-one, group, and channel audio/video calls with explicit camera and microphone consent, responsive participant grid, screen sharing, device controls, short-lived source-restricted provider grants, and durable participant eviction after access changes
 - Phoenix Channels, Presence, typing state, inactive-conversation notifications, and durable in-app notification state
 - Version-bound S3-compatible attachment upload/download, checksum verification, malware scanning, quarantine, and safe deletion

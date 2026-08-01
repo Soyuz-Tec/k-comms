@@ -69,3 +69,33 @@ CREATE TABLE messages (
   UNIQUE (conversation_id, conversation_sequence),
   UNIQUE (tenant_id, sender_device_id, client_message_id)
 );
+
+CREATE TABLE whiteboards (
+  id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  conversation_id uuid NOT NULL REFERENCES conversations(id),
+  sequence bigint NOT NULL DEFAULT 0 CHECK (sequence >= 0),
+  inserted_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  UNIQUE (tenant_id, conversation_id)
+);
+
+CREATE TABLE whiteboard_operations (
+  id uuid PRIMARY KEY,
+  whiteboard_id uuid NOT NULL REFERENCES whiteboards(id),
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  conversation_id uuid NOT NULL REFERENCES conversations(id),
+  actor_user_id uuid NOT NULL,
+  actor_device_id uuid NOT NULL,
+  client_operation_id text NOT NULL,
+  sequence bigint NOT NULL CHECK (sequence > 0),
+  kind text NOT NULL CHECK (kind IN ('scene.update', 'board.clear')),
+  payload jsonb NOT NULL,
+  inserted_at timestamptz NOT NULL,
+  UNIQUE (whiteboard_id, sequence),
+  UNIQUE (tenant_id, actor_device_id, conversation_id, client_operation_id)
+);
+
+CREATE INDEX whiteboard_operations_clear_generation
+  ON whiteboard_operations (whiteboard_id, sequence)
+  WHERE kind = 'board.clear';

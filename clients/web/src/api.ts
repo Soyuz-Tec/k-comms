@@ -52,7 +52,10 @@ import type {
   UserRole,
   User,
   WebhookDelivery,
-  WebhookEndpoint
+  WebhookEndpoint,
+  WhiteboardElementData,
+  WhiteboardOperation,
+  WhiteboardOperationPage
 } from "./types";
 import {
   normalizeInstantRoomPreview,
@@ -74,7 +77,7 @@ import type {
   SendMessageInput,
   UpdateTenantInput
 } from "./api/contracts";
-import type { AccountsApi, RoomsApi, AdministrationApi, NotificationsApi, IntegrationsApi, CallsApi, MessagingApi, FilesApi, SystemApi } from "./api/domain-types";
+import type { AccountsApi, RoomsApi, AdministrationApi, NotificationsApi, IntegrationsApi, CallsApi, MessagingApi, FilesApi, SystemApi, WhiteboardsApi } from "./api/domain-types";
 import { createAccountsApi } from "./api/domains/accounts";
 import { createRoomsApi } from "./api/domains/rooms";
 import { createAdministrationApi } from "./api/domains/administration";
@@ -84,6 +87,7 @@ import { createCallsApi } from "./api/domains/calls";
 import { createMessagingApi } from "./api/domains/messaging";
 import { createFilesApi } from "./api/domains/files";
 import { createSystemApi } from "./api/domains/system";
+import { createWhiteboardsApi } from "./api/domains/whiteboards";
 export type { AuditExportFile, AuditExportInput, BootstrapInput, CreateConversationInput, CreateServiceAccountInput, LoginInput, SendMessageInput, UpdateTenantInput } from "./api/contracts";
 export { ApiError } from "./api/errors";
 export { GuestApiClient } from "./api/guest/GuestApiClient";
@@ -112,6 +116,7 @@ export class ApiClient {
   private readonly messagingApi: MessagingApi;
   private readonly filesApi: FilesApi;
   private readonly systemApi: SystemApi;
+  private readonly whiteboardsApi: WhiteboardsApi;
 
   constructor(
     baseUrl: string,
@@ -140,6 +145,7 @@ export class ApiClient {
     this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
     this.filesApi = createFilesApi(request, { attachmentContentType });
     this.systemApi = createSystemApi(request);
+    this.whiteboardsApi = createWhiteboardsApi(request);
   }
 
   setSession(session: Session | null): void {
@@ -621,6 +627,35 @@ export class ApiClient {
 
   markRead(conversationId: string, sequence: number): Promise<void>{
     return this.messagingApi.markRead(conversationId, sequence);
+  }
+
+  whiteboardOperations(
+    conversationId: string,
+    afterSequence = 0,
+    limit = 500
+  ): Promise<WhiteboardOperationPage>{
+    return this.whiteboardsApi.operations(conversationId, afterSequence, limit);
+  }
+
+  appendWhiteboardSceneUpdate(
+    conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation>{
+    return this.whiteboardsApi.appendSceneUpdate(
+      conversationId,
+      clientOperationId,
+      baseSequence,
+      elements
+    );
+  }
+
+  clearWhiteboard(
+    conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation>{
+    return this.whiteboardsApi.clearWhiteboard(conversationId, clientOperationId);
   }
 
   files(options: FilesQueryOptions = {}): Promise<FilesPageResponse>{

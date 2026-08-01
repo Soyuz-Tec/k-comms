@@ -5,6 +5,10 @@
 - Bootstrap/login, access-token validation, single-use refresh rotation, logout, and revocation tests pass.
 - Tenant substitution, membership removal, and session/device mismatch tests fail closed.
 - Direct/group creation, ordered idempotent send, edit/delete, reaction, read cursor, search, and replay tests pass.
+- Conversation whiteboard authorization, bounded/idempotent operations,
+  concurrent canonical sequence, reconnect replay, multi-client editing,
+  cursor presence, clear-for-everyone with stale in-flight update rejection,
+  revocation, narrow-screen, keyboard, and accessibility checks pass.
 - Canonical one-to-one/group audio/video call routes, immutable media kind,
   independent tenant policies, source-restricted grants, durable eight-hour
   expiry/eviction, two-party bidirectional RTP, three-participant group state,

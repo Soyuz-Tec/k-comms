@@ -4631,6 +4631,42 @@ function Invoke-MediaSpec {
     Write-Host "PASS real $Kind media qualification"
 }
 
+function Invoke-WhiteboardSpec {
+    param([Parameter(Mandatory)][string]$Playwright)
+
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_AUDIO_E2E",
+        "false",
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_VIDEO_E2E",
+        "false",
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_WHITEBOARD_E2E",
+        "true",
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        "K_COMMS_LIVE_WHITEBOARD_BASE_URL",
+        $script:BaseUri,
+        "Process"
+    )
+
+    Write-Host "Running real collaborative whiteboard qualification..."
+    & $Playwright `
+        "test" `
+        "e2e/live-whiteboard.spec.ts" `
+        "--project=chromium" `
+        "--workers=1"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Real collaborative whiteboard qualification failed with exit code $LASTEXITCODE"
+    }
+    Write-Host "PASS real collaborative whiteboard qualification"
+}
+
 function Invoke-PackagedReleaseQualification {
     Invoke-JsonEndpointCheck -Path "/health/live" -Validator ${function:Assert-LivenessPayload}
     Invoke-JsonEndpointCheck -Path "/health/ready" -Validator ${function:Assert-ReadinessPayload}
@@ -4665,7 +4701,9 @@ function Invoke-PackagedReleaseQualification {
         "K_COMMS_LIVE_AUDIO_E2E",
         "K_COMMS_LIVE_AUDIO_BASE_URL",
         "K_COMMS_LIVE_VIDEO_E2E",
-        "K_COMMS_LIVE_VIDEO_BASE_URL"
+        "K_COMMS_LIVE_VIDEO_BASE_URL",
+        "K_COMMS_LIVE_WHITEBOARD_E2E",
+        "K_COMMS_LIVE_WHITEBOARD_BASE_URL"
     )
     $previousEnvironment = @{}
     foreach ($name in $environmentNames) {
@@ -4753,6 +4791,7 @@ function Invoke-PackagedReleaseQualification {
                     Invoke-GuestSpec -Playwright $playwright
                     Invoke-MediaSpec -Kind "audio" -Playwright $playwright
                     Invoke-MediaSpec -Kind "video" -Playwright $playwright
+                    Invoke-WhiteboardSpec -Playwright $playwright
                 }
             }
             finally {

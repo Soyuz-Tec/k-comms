@@ -14,7 +14,11 @@ describe("MemberAreaLinks", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: "Workspace navigation" });
-    expect(navigation.querySelectorAll("svg")).toHaveLength(5);
+    expect(navigation.querySelectorAll("svg")).toHaveLength(6);
+    expect(screen.getByRole("link", { name: "Whiteboard" })).toHaveAttribute(
+      "href",
+      "/app/whiteboard"
+    );
     expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("title", "Inbox");
     expect(screen.getByRole("link", { name: "Inbox" }).querySelector("span")).toHaveClass(
       "visually-hidden"

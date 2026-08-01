@@ -7,6 +7,7 @@
 - Channels, membership, and roles
 - Durable messages, edits, deletions, reactions, mentions, and replies
 - Presence, typing indicators, read cursors, and unread state
+- Durable conversation whiteboards with ephemeral collaborator cursors
 - One-to-one and group audio/video calls with explicit capture controls and
   screen sharing through an external media-plane boundary
 - Attachments through object storage
@@ -25,6 +26,8 @@
 - Cross-organization federation
 - Client-side end-to-end encryption unless explicitly approved before build
 - Unlimited historical import formats
+- Whiteboard images, external embeds, guest/instant-room whiteboards, and
+  service-principal whiteboard automation without a dedicated follow-up ADR
 - Per-message blockchain or distributed-ledger storage
 
 Non-goals must be reviewed with product leadership before detailed estimation.

@@ -587,12 +587,14 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
         )
         self.assertEqual(self.document.count('"e2e/live-audio.spec.ts"'), 1)
         self.assertEqual(self.document.count('"e2e/live-video.spec.ts"'), 1)
-        self.assertEqual(self.document.count('"--workers=1"'), 3)
+        self.assertEqual(self.document.count('"e2e/live-whiteboard.spec.ts"'), 1)
+        self.assertEqual(self.document.count('"--workers=1"'), 4)
         self.assertIn('"K_COMMS_EXTERNAL_E2E_SERVER"', self.document)
         self.assertIn('"K_COMMS_LIVE_INSTANT_ROOM_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_GUEST_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_AUDIO_E2E"', self.document)
         self.assertIn('"K_COMMS_LIVE_VIDEO_E2E"', self.document)
+        self.assertIn('"K_COMMS_LIVE_WHITEBOARD_E2E"', self.document)
         self.assertIn("[switch]$LanTextOnly", self.document)
         self.assertIn(
             "if ($script:QualificationMode.LanTextOnly)",
@@ -627,6 +629,7 @@ class PackagedLocalReleaseQualifierTest(unittest.TestCase):
             "K_COMMS_LIVE_GUEST_BASE_URL",
             "K_COMMS_LIVE_AUDIO_BASE_URL",
             "K_COMMS_LIVE_VIDEO_BASE_URL",
+            "K_COMMS_LIVE_WHITEBOARD_BASE_URL",
         ):
             self.assertRegex(
                 self.document,

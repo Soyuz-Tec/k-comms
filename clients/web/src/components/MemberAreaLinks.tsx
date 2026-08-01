@@ -2,7 +2,7 @@ import { NavLink } from "react-router";
 import { AppIcon, type AppIconName } from "./AppIcon";
 
 type MemberDestination = {
-  label: "Inbox" | "Calls" | "Directory" | "Files" | "You";
+  label: "Inbox" | "Calls" | "Whiteboard" | "Directory" | "Files" | "You";
   path: string;
   icon: AppIconName;
 };
@@ -17,6 +17,11 @@ export const memberDestinations: MemberDestination[] = [
     label: "Calls",
     path: "/app/calls",
     icon: "phone"
+  },
+  {
+    label: "Whiteboard",
+    path: "/app/whiteboard",
+    icon: "whiteboard"
   },
   {
     label: "Directory",

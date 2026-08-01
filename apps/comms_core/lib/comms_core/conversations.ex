@@ -87,6 +87,9 @@ defmodule CommsCore.Conversations do
   def authorize_upload_attachment(conversation_id, subject),
     do: AccessPolicy.authorize_upload_attachment(conversation_id, subject)
 
+  def authorize_use_whiteboard(conversation_id, subject),
+    do: AccessPolicy.authorize_use_whiteboard(conversation_id, subject)
+
   def authorize_manage(conversation_id, subject),
     do: AccessPolicy.authorize_manage(conversation_id, subject)
 

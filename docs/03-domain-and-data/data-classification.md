@@ -5,7 +5,7 @@
 | Public | Published documentation, public channel metadata when configured | Standard integrity controls |
 | Internal | Service configuration, non-sensitive telemetry | Access-controlled; no public exposure |
 | Confidential | User profiles, memberships, message metadata, call lifecycle/media kind, opaque participant admission identities and authorization bindings | Encryption, least privilege, audit; exclude provider identities from ordinary logs and support views |
-| Restricted | Message bodies, private attachments, auth tokens including transient call participant JWTs, key material, live audio, camera video, and screen-share content | Strong encryption, redaction, short access paths, enhanced audit; never persist participant JWTs, frames, or screen media in the baseline |
+| Restricted | Message bodies, whiteboard elements and text, private attachments, auth tokens including transient call participant JWTs, key material, live audio, camera video, and screen-share content | Strong encryption, redaction, short access paths, enhanced audit; never persist participant JWTs, frames, or screen media in the baseline |
 
 ## Rules
 

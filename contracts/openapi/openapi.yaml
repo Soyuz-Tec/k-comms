@@ -1178,6 +1178,57 @@ paths:
               schema: {$ref: '#/components/schemas/SenderLabelRefreshResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/whiteboard/operations:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Whiteboards]
+      operationId: listWhiteboardOperations
+      summary: Replay the durable conversation whiteboard operation stream
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: after_sequence
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 500, default: 500}
+      responses:
+        '200':
+          description: Canonically ordered operations; a fresh replay begins at the latest clear
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WhiteboardOperationPage'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Whiteboards]
+      operationId: appendWhiteboardOperation
+      summary: Commit one idempotent scene update or collaborative clear
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WhiteboardOperationRequest'}
+      responses:
+        '200':
+          description: Existing canonical operation returned for an exact idempotent replay
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WhiteboardOperationResponse'}
+        '201':
+          description: Canonical operation committed and eligible for post-commit broadcast
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WhiteboardOperationResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/read-cursor:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -2577,7 +2628,7 @@ components:
         capabilities:
           type: object
           additionalProperties: false
-          required: [administration, audio_calls, video_calls, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, secure_account_actions, secure_media_actions, webhooks]
+          required: [administration, audio_calls, video_calls, whiteboards, attachment_scanning, bootstrap, guest_links, instant_rooms, notifications, push_notifications, realtime, secure_account_actions, secure_media_actions, webhooks]
           properties:
             administration: {type: boolean}
             audio_calls:
@@ -2586,6 +2637,9 @@ components:
             video_calls:
               type: boolean
               description: True only while the cached, bounded LiveKit control-plane readiness probe is fresh and successful.
+            whiteboards:
+              type: boolean
+              description: True when durable workspace-member conversation whiteboards are available.
             attachment_scanning: {type: boolean}
             bootstrap: {type: boolean}
             guest_links: {type: boolean}
@@ -3974,6 +4028,87 @@ components:
             has_more: {type: boolean}
             next_after_sequence: {type: [integer, 'null']}
             reset_required: {type: boolean}
+    WhiteboardElement:
+      type: object
+      description: Bounded Excalidraw element data. Images, embeds, links, and custom data are not accepted.
+      required: [id, type, version, versionNonce]
+      properties:
+        id: {type: string, minLength: 8, maxLength: 128}
+        type: {enum: [rectangle, diamond, ellipse, line, arrow, freedraw, text, frame]}
+        version: {type: integer, minimum: 1}
+        versionNonce: {type: integer}
+        link: {type: 'null'}
+        customData: {type: 'null'}
+      additionalProperties: true
+    WhiteboardScenePayload:
+      type: object
+      additionalProperties: false
+      required: [elements]
+      properties:
+        elements:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: {$ref: '#/components/schemas/WhiteboardElement'}
+    WhiteboardClearPayload:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    WhiteboardOperationRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, base_sequence, payload]
+          properties:
+            kind: {const: scene.update}
+            base_sequence: {type: integer, minimum: 0}
+            payload: {$ref: '#/components/schemas/WhiteboardScenePayload'}
+        - type: object
+          additionalProperties: false
+          required: [kind, payload]
+          properties:
+            kind: {const: board.clear}
+            payload: {$ref: '#/components/schemas/WhiteboardClearPayload'}
+    WhiteboardOperation:
+      type: object
+      additionalProperties: false
+      required: [id, whiteboard_id, tenant_id, conversation_id, actor_user_id, client_operation_id, sequence, kind, payload, inserted_at]
+      properties:
+        id: {type: string, format: uuid}
+        whiteboard_id: {type: string, format: uuid}
+        tenant_id: {type: string, format: uuid}
+        conversation_id: {type: string, format: uuid}
+        actor_user_id: {type: string, format: uuid}
+        client_operation_id: {type: string, minLength: 8, maxLength: 128}
+        sequence: {type: integer, minimum: 1}
+        kind: {enum: [scene.update, board.clear]}
+        payload:
+          oneOf:
+            - {$ref: '#/components/schemas/WhiteboardScenePayload'}
+            - {$ref: '#/components/schemas/WhiteboardClearPayload'}
+        inserted_at: {type: string, format: date-time}
+    WhiteboardOperationResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/WhiteboardOperation'}
+    WhiteboardOperationPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 500
+          items: {$ref: '#/components/schemas/WhiteboardOperation'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [has_more, next_after_sequence]
+          properties:
+            has_more: {type: boolean}
+            next_after_sequence: {type: integer, minimum: 0}
     MessageSearchPage:
       type: object
       additionalProperties: false

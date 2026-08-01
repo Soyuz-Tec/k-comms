@@ -7,3 +7,4 @@ export type { CallsApi } from "./domains/calls";
 export type { MessagingApi } from "./domains/messaging";
 export type { FilesApi } from "./domains/files";
 export type { SystemApi } from "./domains/system";
+export type { WhiteboardsApi } from "./domains/whiteboards";

@@ -65,6 +65,16 @@ defmodule CommsCore.Conversations.AccessPolicy do
   def authorize_upload_attachment(conversation_id, subject),
     do: authorize_active_membership(conversation_id, subject)
 
+  def authorize_use_whiteboard(conversation_id, subject) do
+    case Accounts.access_grant(subject) do
+      {:ok, %{account_type: :human, access_scope: :workspace}} ->
+        authorize_active_membership(conversation_id, subject)
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
   def authorize_manage(conversation_id, subject),
     do: authorize_management(:manage_conversation, conversation_id, subject)
 
