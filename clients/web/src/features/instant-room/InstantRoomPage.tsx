@@ -36,7 +36,9 @@ import {
   useInstantRoomSession,
   type ActiveRoom
 } from "./useInstantRoomSession";
+import { PublicLandingPage } from "./PublicLandingPage";
 import "./InstantRoomPage.css";
+import "./PublicLandingPage.css";
 
 export function InstantRoomPage() {
   const navigate = useNavigate();
@@ -111,8 +113,10 @@ export function InstantRoomPage() {
   });
 
   useEffect(() => {
-    document.title = "Instant room | K-Comms";
-  }, []);
+    document.title = activeRoom
+      ? "Instant room | K-Comms"
+      : "K-Comms | Message, meet, and create";
+  }, [activeRoom]);
 
   useEffect(() => {
     if (!transportPolicyReady || !accountSession) return;
@@ -365,8 +369,7 @@ export function InstantRoomPage() {
   }
 
   if (!activeRoom || !roomApi) {
-    return (
-      <main className="instant-room-entry" id="main-content">
+    const launcher = (
         <section
           className="instant-room-start"
           aria-labelledby="instant-room-start-title"
@@ -374,7 +377,7 @@ export function InstantRoomPage() {
           <span className="instant-room-kicker">
             {leftRoom ? "Start again" : "No account needed"}
           </span>
-          <h1 id="instant-room-start-title" data-route-focus>
+          <h1 id="instant-room-start-title">
             Start an instant room
           </h1>
           <p>
@@ -524,7 +527,13 @@ export function InstantRoomPage() {
             </Link>
           </div>
         </section>
-      </main>
+    );
+
+    return (
+      <PublicLandingPage
+        launcher={launcher}
+        signedIn={Boolean(accountSession)}
+      />
     );
   }
 
