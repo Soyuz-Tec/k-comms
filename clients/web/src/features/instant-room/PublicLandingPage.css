@@ -837,7 +837,7 @@
   gap: .55rem;
 }
 
-.public-workspace-preview-chat > div > span {
+.public-workspace-preview-chat > div:not(.public-workspace-preview-composer) > span {
   width: 2rem;
   height: 2rem;
   flex: 0 0 auto;
