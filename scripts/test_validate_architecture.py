@@ -706,34 +706,11 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # A manifest transition authorizes one widening against one immutable
-        # base, so pin the complete content-bound declaration here. It is spent
-        # when this widening lands and must then be removed by the next protected
-        # change; the base-comparison gate rejects a stale declaration.
+        # Reviewed transitions are single-use. The instant-room widening landed
+        # on the protected base in PR #93, so no reusable authorization remains.
         self.assertEqual(
             manifest["enforcement"]["reviewed_manifest_transitions"],
-            [
-                {
-                    "id": (
-                        "instant-room-whiteboard-uses-distributed-public-rate-limit"
-                    ),
-                    "previous_manifest_sha256": (
-                        "e99bdbc69a313774d8c39d1fbdb40de6b7aa207b39959022f6de083880f179f9"
-                    ),
-                    "approved_changes": [
-                        "technical_interfaces:web-distributed-public-rate-limit:"
-                        'callers:add:"CommsWeb.InstantRoomWhiteboardRateLimit"'
-                    ],
-                    "adr": (
-                        "docs/02-architecture/adr/"
-                        "0065-instant-room-collaboration-workspaces.md"
-                    ),
-                    "removal_condition": (
-                        "Remove after this exact declaration lands on the "
-                        "protected base branch."
-                    ),
-                }
-            ],
+            [],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:

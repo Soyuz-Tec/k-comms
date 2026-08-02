@@ -23,6 +23,10 @@ const uiHarness = vi.hoisted(() => ({
   delegatedTicket: ""
 }));
 
+vi.mock("@excalidraw/excalidraw", () => ({
+  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+}));
+
 vi.mock("../guest/QrCode", () => ({
   QrCode: ({
     value,

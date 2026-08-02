@@ -8,14 +8,20 @@ function renderLandingPage(signedIn = false) {
     <BrowserRouter>
       <PublicLandingPage
         signedIn={signedIn}
-        launcher={<section aria-label="Room launcher">Working room form</section>}
+        workspace={
+          <section aria-label="Working workspace">
+            <h1>Message. Draw. Share.</h1>
+            <div aria-label="Private drawing canvas">Canvas</div>
+            <div aria-label="Workspace messages">Messages</div>
+          </section>
+        }
       />
     </BrowserRouter>
   );
 }
 
 describe("PublicLandingPage", () => {
-  it("opens with a collaboration-first workspace launcher", () => {
+  it("opens with the working collaboration workspace", () => {
     renderLandingPage();
 
     expect(
@@ -24,22 +30,16 @@ describe("PublicLandingPage", () => {
       })
     ).toBeVisible();
     expect(screen.getByText("Instant collaboration")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Room launcher" })).toHaveTextContent(
-      "Working room form"
-    );
-    expect(screen.getByText("Live conversation")).toBeVisible();
-    expect(screen.getByText("Shared drawing canvas")).toBeVisible();
-    expect(screen.getByText("QR and invitation link")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Working workspace" })).toBeVisible();
+    expect(screen.getByLabelText("Private drawing canvas")).toBeVisible();
+    expect(screen.getByLabelText("Workspace messages")).toBeVisible();
   });
 
   it("shows the message-and-canvas workspace before room creation", () => {
     renderLandingPage();
 
-    const preview = screen.getByRole("region", {
-      name: "K-Comms workspace preview"
-    });
-    expect(within(preview).getByText("Ideas stay visible")).toBeVisible();
-    expect(within(preview).getByText("Message the room")).toBeVisible();
+    expect(screen.getByLabelText("Private drawing canvas")).toHaveTextContent("Canvas");
+    expect(screen.getByLabelText("Workspace messages")).toHaveTextContent("Messages");
     expect(screen.getByText("Conversation-scoped access")).toBeVisible();
   });
 

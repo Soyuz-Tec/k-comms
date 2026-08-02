@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import {
   loadStoredGuestSession,
   storeGuestSession
@@ -37,6 +36,11 @@ import {
   type ActiveRoom
 } from "./useInstantRoomSession";
 import { PublicLandingPage } from "./PublicLandingPage";
+import {
+  InstantWorkspaceDraft,
+  type DraftActivationRequest
+} from "./InstantWorkspaceDraft";
+import { clearInstantWorkspaceDraft } from "./instantWorkspaceDraftStore";
 import "./InstantRoomPage.css";
 import "./PublicLandingPage.css";
 
@@ -93,12 +97,6 @@ export function InstantRoomPage() {
   const [retryVersion, setRetryVersion] = useState(0);
   const [leftRoom, setLeftRoom] = useState(false);
   const [clock, setClock] = useState(Date.now());
-  const [displayName, setDisplayName] = useState(
-    accountSession?.user.display_name || ""
-  );
-  const [displayNameError, setDisplayNameError] = useState("");
-  const [roomTitle, setRoomTitle] = useState("");
-  const displayNameInputRef = useRef<HTMLInputElement>(null);
   const restoredMemberSessionRef = useRef<string | null>(
     initialStateRef.current.member && accountSession
       ? memberSessionIdentity(accountSession)
@@ -120,8 +118,6 @@ export function InstantRoomPage() {
 
   useEffect(() => {
     if (!transportPolicyReady || !accountSession) return;
-    setDisplayName(accountSession.user.display_name);
-
     if (activeRoom?.mode === "guest" && !activeRoom.returnsToAccount) {
       setActiveRoom({
         ...activeRoom,
@@ -250,17 +246,17 @@ export function InstantRoomPage() {
     ? Math.max(0, Math.ceil((retryAt - clock) / 1_000))
     : 0;
 
-  async function startInstantRoom(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function activateDraftWorkspace(
+    request: DraftActivationRequest
+  ): Promise<boolean> {
     const chosenName =
-      accountSession?.user.display_name.trim() || displayName.trim();
-    const chosenTitle = roomTitle.trim();
+      accountSession?.user.display_name.trim() || request.displayName.trim();
+    const chosenTitle = request.roomTitle.trim();
     if (!chosenName) {
-      setDisplayNameError("Enter your display name to continue.");
-      displayNameInputRef.current?.focus();
-      return;
+      setError("Enter the name other participants should see.");
+      return false;
     }
-    if (loading || retrySeconds > 0) return;
+    if (loading || retrySeconds > 0) return false;
 
     if (leftRoom || memberContinuity) {
       clearMemberInstantRoomContinuity();
@@ -272,7 +268,6 @@ export function InstantRoomPage() {
     const key = instantRoomIdempotencyKey();
     setLoading(true);
     setError("");
-    setDisplayNameError("");
     setRetryAt(null);
 
     try {
@@ -300,6 +295,12 @@ export function InstantRoomPage() {
           : returnedGuestSession;
         guestApi.setSession(guestSession);
         storeGuestSession(guestSession);
+        await seedDraftWorkspace(
+          guestApi,
+          result.conversation.id,
+          request
+        );
+        clearInstantWorkspaceDraft();
         setActiveRoom({
           mode: "guest",
           session: guestSession,
@@ -307,7 +308,7 @@ export function InstantRoomPage() {
           shareUrl: result.share_url,
           returnsToAccount: Boolean(accountSession)
         });
-        return;
+        return true;
       }
 
       if (!accountSession) {
@@ -326,6 +327,16 @@ export function InstantRoomPage() {
         result.room,
         result.share_url
       );
+      const memberRoomApi = new MemberRoomApi(
+        memberApi,
+        result.conversation.id
+      );
+      await seedDraftWorkspace(
+        memberRoomApi,
+        result.conversation.id,
+        request
+      );
+      clearInstantWorkspaceDraft();
       storeMemberInstantRoomContinuity(accountSession, {
         room: result.room,
         conversation: result.conversation,
@@ -337,6 +348,7 @@ export function InstantRoomPage() {
         room: result.room,
         shareUrl: result.share_url
       });
+      return true;
     } catch (reason: unknown) {
       const display = instantRoomError(reason);
       setError(display.message);
@@ -345,6 +357,7 @@ export function InstantRoomPage() {
           ? Date.now() + display.retryAfterSeconds * 1_000
           : null
       );
+      return false;
     } finally {
       setLoading(false);
     }
@@ -369,170 +382,49 @@ export function InstantRoomPage() {
   }
 
   if (!activeRoom || !roomApi) {
-    const launcher = (
-        <section
-          className="instant-room-start"
-          aria-labelledby="instant-room-start-title"
-        >
-          <span className="instant-room-kicker">
-            {leftRoom ? "Start again" : "No account needed"}
-          </span>
-          <h1 id="instant-room-start-title">
-            Start an instant room
-          </h1>
-          <p>
-            {accountSession
-              ? "Create it with your workspace identity, then share the link."
-              : "Add your name, share one link, and start talking."}
-          </p>
-          {!transportPolicyReady && (
-            <div className="transport-warning" role="status">
-              <strong>Checking the secure connection…</strong>
-              <span>
-                Secure account and media controls remain unavailable until
-                K-Comms verifies this deployment.
-              </span>
-            </div>
-          )}
-          {secureActionsUnavailable && (
-            <div className="transport-warning" role="alert">
-              <strong>Text-only mode is active.</strong>
-              <span>
-                K-Comms could not verify a trusted HTTPS path to this
-                deployment. Use non-sensitive content only. Account actions,
-                microphone, camera, and screen sharing remain disabled.
-              </span>
-            </div>
-          )}
-          {error && <p className="form-error" role="alert">{error}</p>}
-          <form
-            className="instant-room-start-form"
-            onSubmit={(event) => void startInstantRoom(event)}
-            aria-busy={loading}
-            noValidate
-          >
-            {accountSession ? (
-              <p className="instant-room-account-identity">
-                <span>Starting as</span>
-                <strong>{accountSession.user.display_name}</strong>
-                <small>Managed by your workspace profile</small>
-              </p>
-            ) : (
-              <div className="field">
-                <label
-                  className="instant-room-field-label"
-                  htmlFor="instant-room-display-name"
-                >
-                  Your display name
-                  <span className="required" aria-hidden="true">Required</span>
-                </label>
-                <input
-                  ref={displayNameInputRef}
-                  id="instant-room-display-name"
-                  name="display_name"
-                  type="text"
-                  minLength={1}
-                  maxLength={120}
-                  autoComplete="name"
-                  value={displayName}
-                  onChange={(event) => {
-                    setDisplayName(event.target.value);
-                    if (event.target.value.trim()) setDisplayNameError("");
-                  }}
-                  placeholder="Your name"
-                  aria-describedby={[
-                    "instant-room-display-name-help",
-                    displayNameError
-                      ? "instant-room-display-name-error"
-                      : ""
-                  ].filter(Boolean).join(" ")}
-                  aria-invalid={Boolean(displayNameError)}
-                  disabled={loading}
-                  required
-                />
-                <small id="instant-room-display-name-help">
-                  Visible to everyone in the room.
-                </small>
-                {displayNameError && (
-                  <small
-                    className="instant-room-field-error"
-                    id="instant-room-display-name-error"
-                    role="alert"
-                  >
-                    {displayNameError}
-                  </small>
-                )}
-              </div>
-            )}
-            <div className="field">
-              <label
-                className="instant-room-field-label"
-                htmlFor="instant-room-title"
-              >
-                Room name <span className="optional">Optional</span>
-              </label>
-              <input
-                id="instant-room-title"
-                name="title"
-                type="text"
-                maxLength={160}
-                autoComplete="off"
-                value={roomTitle}
-                onChange={(event) => setRoomTitle(event.target.value)}
-                placeholder="Daily check-in"
-                aria-describedby="instant-room-title-help"
-                disabled={loading}
-              />
-              <small id="instant-room-title-help">
-                Defaults to “Instant room”.
-              </small>
-            </div>
-            <button
-              className="button primary full"
-              type="submit"
-              aria-disabled={loading || retrySeconds > 0}
-            >
-              {loading
-                ? "Opening room…"
-                : retrySeconds > 0
-                ? `Try again in ${retrySeconds}s`
-                : error
-                  ? "Try again"
-                  : "Start instant room"}
-            </button>
-          </form>
-          <span className="sr-only" role="status" aria-live="polite">
-            {loading ? "Opening your room. Please wait." : ""}
-          </span>
-          {memberContinuity && error && (
-            <button
-              className="button ghost full"
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                setRetryVersion((version) => version + 1);
-              }}
-            >
-              Retry existing room
-            </button>
-          )}
-          <div className="instant-room-entry-actions">
-            <Link
-              className="button ghost"
-              to={accountSession ? "/app/" : "/sign-in"}
-            >
-              {accountSession
-                ? "Return to workspace"
-                : "Have a workspace? Sign in"}
-            </Link>
-          </div>
-        </section>
-    );
-
     return (
       <PublicLandingPage
-        launcher={launcher}
         signedIn={Boolean(accountSession)}
+        workspace={
+          <>
+            {!transportPolicyReady && (
+              <div className="transport-warning" role="status">
+                <strong>Checking the secure connection…</strong>
+                <span>Drawing stays local while K-Comms verifies this deployment.</span>
+              </div>
+            )}
+            {secureActionsUnavailable && (
+              <div className="transport-warning" role="alert">
+                <strong>Text-only mode is active.</strong>
+                <span>
+                  K-Comms could not verify a trusted HTTPS path to this
+                  deployment. Use non-sensitive content only. Account actions,
+                  microphone, camera, and screen sharing remain disabled.
+                </span>
+              </div>
+            )}
+            {memberContinuity && error && (
+              <button
+                className="button ghost"
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  setRetryVersion((version) => version + 1);
+                }}
+              >
+                Retry existing room
+              </button>
+            )}
+            <InstantWorkspaceDraft
+              activating={loading}
+              error={error}
+              identityManaged={Boolean(accountSession)}
+              initialDisplayName={accountSession?.user.display_name}
+              retrySeconds={retrySeconds}
+              onActivate={activateDraftWorkspace}
+            />
+          </>
+        }
       />
     );
   }
@@ -643,5 +535,27 @@ export function InstantRoomPage() {
   );
 }
 
+async function seedDraftWorkspace(
+  api: GuestRoomApi,
+  conversationId: string,
+  request: DraftActivationRequest
+): Promise<void> {
+  if (request.elements.length > 0) {
+    await api.appendWhiteboardSceneUpdate(
+      conversationId,
+      request.whiteboardOperationId,
+      0,
+      request.elements
+    );
+  }
+
+  if (request.initialMessage) {
+    await api.sendMessage({
+      client_message_id: request.messageClientId,
+      body: request.initialMessage,
+      attachment_ids: []
+    });
+  }
+}
 
 export { createInstantRoomOnce } from "./instantRoomCreation";

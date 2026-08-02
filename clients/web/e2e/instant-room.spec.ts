@@ -13,7 +13,7 @@ const entryViewports = [
 
 test.describe("instant-room front door", () => {
   for (const viewport of entryViewports) {
-    test(`keeps the empty entry form usable at ${viewport.width}px`, async ({
+    test(`opens a local-first workspace at ${viewport.width}px`, async ({
       page
     }, testInfo) => {
       await page.setViewportSize(viewport);
@@ -24,8 +24,10 @@ test.describe("instant-room front door", () => {
       const landingHeading = page.getByRole("heading", {
         name: "Message. Draw. Share."
       });
-      const roomHeading = page.getByRole("heading", {
-        name: "Start an instant room"
+      const canvas = page.getByLabel("Private drawing canvas");
+      const messagesTab = page.getByRole("button", {
+        name: "Messages",
+        exact: true
       });
       const displayName = page.getByRole("textbox", {
         name: "Your display name"
@@ -33,42 +35,34 @@ test.describe("instant-room front door", () => {
       const roomName = page.getByRole("textbox", { name: /Room name/ });
       const start = page.getByRole("button", { name: "Start instant room" });
       const signIn = page.getByRole("link", {
-        name: "Have a workspace? Sign in"
+        name: "Sign in"
       });
 
       await expect(landingHeading).toBeVisible();
       await expect(landingHeading).toBeFocused();
       await expectContained(landingHeading, viewport);
+      await expect(canvas).toBeVisible();
+      await expect(messagesTab).toBeVisible();
+      await expect(messagesTab).toHaveAttribute("aria-pressed", "false");
+      await expect(page.getByText("Private draft", { exact: true })).toBeHidden();
+      await expectMinimumTarget(messagesTab);
       await expectNoDocumentOverflow(page);
 
+      expect(fixture.createRequests).toHaveLength(0);
+      await messagesTab.click();
+      await expect(messagesTab).toHaveAttribute("aria-pressed", "true");
       await expect(displayName).toBeVisible();
       await expect(roomName).toBeVisible();
       await expect(start).toBeVisible();
       await expect(start).toBeEnabled();
       await expect(signIn).toBeVisible();
-      const headingMetrics = await roomHeading.evaluate((element) => {
-        const style = window.getComputedStyle(element);
-        const rect = element.getBoundingClientRect();
-        return {
-          height: rect.height,
-          lineHeight: Number.parseFloat(style.lineHeight),
-          scrollWidth: element.scrollWidth,
-          clientWidth: element.clientWidth
-        };
-      });
-      expect(headingMetrics.height).toBeLessThanOrEqual(
-        headingMetrics.lineHeight * 1.1
-      );
-      expect(headingMetrics.scrollWidth).toBeLessThanOrEqual(
-        headingMetrics.clientWidth + 1
-      );
+      await expect(displayName).toHaveValue(/^Guest \d{4}$/);
       await expect(displayName).toHaveCSS("font-size", "16px");
       await expect(roomName).toHaveCSS("font-size", "16px");
       await expectMinimumTarget(displayName);
       await expectMinimumTarget(roomName);
       await expectMinimumTarget(start);
       await expectMinimumTarget(signIn);
-      await expectContained(roomHeading, viewport);
       await expectContained(displayName, viewport);
       await expectContained(roomName, viewport);
       await start.scrollIntoViewIfNeeded();
@@ -89,34 +83,9 @@ test.describe("instant-room front door", () => {
         });
       }
 
-      await page.keyboard.press("Tab");
-      await expect(displayName).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(roomName).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(start).toBeFocused();
-      await page.keyboard.press("Enter");
-
-      await expect(
-        page.getByText("Enter your display name to continue.")
-      ).toBeVisible();
-      await expect(displayName).toBeFocused();
-      await expect(displayName).toHaveAttribute("aria-invalid", "true");
-      expect(fixture.createRequests).toHaveLength(0);
-
       await displayName.fill("Taylor Host");
       await expect(displayName).toHaveAttribute("aria-invalid", "false");
-      await page.keyboard.press("Tab");
-      await expect(roomName).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(start).toBeFocused();
-      if (testInfo.project.name === "webkit") {
-        expect(await signIn.evaluate((element) => element.tabIndex))
-          .toBeGreaterThanOrEqual(0);
-        await signIn.focus();
-      } else {
-        await page.keyboard.press("Tab");
-      }
+      await signIn.focus();
       await expect(signIn).toBeFocused();
     });
   }
@@ -132,8 +101,9 @@ test.describe("instant-room front door", () => {
     await page.goto("/");
 
     await expect(
-      page.getByRole("heading", { name: "Start an instant room" })
+      page.getByRole("heading", { name: "Message. Draw. Share." })
     ).toBeVisible();
+    await page.getByRole("button", { name: "Messages", exact: true }).click();
     expect(fixture.createRequests).toHaveLength(0);
     await page
       .getByRole("textbox", { name: "Your display name" })
@@ -351,6 +321,13 @@ test.describe("instant-room front door", () => {
       await page.setViewportSize(viewport);
       const fixture = await installInstantRoomFixture(page);
       await page.goto("/");
+      const draftMessagesTab = page.getByRole("button", {
+        name: "Messages",
+        exact: true
+      });
+      if (await draftMessagesTab.isVisible()) {
+        await draftMessagesTab.click();
+      }
       await page
         .getByRole("textbox", { name: "Your display name" })
         .fill("Taylor Host");

@@ -22,6 +22,10 @@ const uiHarness = vi.hoisted(() => ({
   delegatedTicket: ""
 }));
 
+vi.mock("@excalidraw/excalidraw", () => ({
+  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+}));
+
 vi.mock("../guest/QrCode", () => ({
   QrCode: ({
     value,
@@ -278,6 +282,7 @@ describe("InstantRoomPage", () => {
     const start = screen.getByRole("button", { name: "Start instant room" });
 
     expect(displayName).toBeRequired();
+    expect((displayName as HTMLInputElement).value).toMatch(/^Guest \d{4}$/);
     expect(roomName).not.toBeRequired();
     expect(displayName).not.toHaveFocus();
     expect(displayName).toHaveAccessibleDescription(
@@ -291,6 +296,7 @@ describe("InstantRoomPage", () => {
     expect(screen.getByText("Defaults to “Instant room”.")).toBeVisible();
     expect(start).toBeEnabled();
 
+    await user.clear(displayName);
     await user.click(start);
 
     const validation = screen.getByRole("alert");
@@ -301,7 +307,7 @@ describe("InstantRoomPage", () => {
     expect(displayName).toHaveAttribute("aria-invalid", "true");
     expect(displayName).toHaveAttribute(
       "aria-describedby",
-      "instant-room-display-name-help instant-room-display-name-error"
+      "instant-draft-display-name-help instant-draft-name-error"
     );
     expect(create).not.toHaveBeenCalled();
 
@@ -331,7 +337,7 @@ describe("InstantRoomPage", () => {
 
     renderPage(true);
     expect(
-      screen.getByRole("heading", { name: "Start an instant room" })
+      screen.getByRole("heading", { name: "Message. Draw. Share." })
     ).toBeVisible();
     expect(create).not.toHaveBeenCalled();
     await startRoom(user, {
@@ -357,9 +363,11 @@ describe("InstantRoomPage", () => {
       within(screen.getByRole("dialog", { name: "Invite someone" }))
         .getByText(/available for 1 hour after everyone leaves/i)
     ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Invite someone" })
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Invite someone" })
+      ).toHaveFocus()
+    );
     await user.click(screen.getByRole("button", { name: "Show QR code" }));
     expect(screen.getByLabelText("Local QR")).toHaveTextContent(shareUrl);
     expect(uiHarness.qrValue).toBe(shareUrl);

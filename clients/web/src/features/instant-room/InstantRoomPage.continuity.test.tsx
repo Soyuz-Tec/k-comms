@@ -18,6 +18,10 @@ import type {
   Session
 } from "../../types";
 import { InstantRoomPage } from "./InstantRoomPage";
+
+vi.mock("@excalidraw/excalidraw", () => ({
+  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+}));
 import { storeMemberInstantRoomContinuity } from "./memberContinuity";
 
 const uiHarness = vi.hoisted(() => ({
@@ -464,11 +468,11 @@ describe("InstantRoomPage", () => {
     });
 
     const first = renderPage();
-    expect(await screen.findByText("Starting as")).toBeVisible();
-    expect(
-      screen.queryByRole("textbox", { name: "Your display name" })
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(accountSession.user.display_name)).toBeVisible();
+    const managedName = await screen.findByRole("textbox", {
+      name: "Your display name"
+    });
+    expect(managedName).toHaveValue(accountSession.user.display_name);
+    expect(managedName).toBeDisabled();
     await startRoom(user, { displayName: undefined });
     expect(await screen.findByRole("heading", { name: "Live room" })).toBeVisible();
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty("display_name");
@@ -534,7 +538,7 @@ describe("InstantRoomPage", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "Start an instant room" })
+      await screen.findByRole("heading", { name: "Message. Draw. Share." })
     ).toBeVisible();
     expect(screen.queryByText("Opening your room…")).not.toBeInTheDocument();
     expect(
