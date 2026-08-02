@@ -65,6 +65,7 @@ export function GuestShell({
   onConverted,
   roomBanner,
   roomMenuInvite,
+  openRoomMenuOnEntry = false,
   whiteboardEnabled = false,
   identityLabel = "Guest",
   initialPresenceCount = 1,
@@ -83,6 +84,7 @@ export function GuestShell({
   ) => void;
   roomBanner?: ReactNode | ((participantCount: number) => ReactNode);
   roomMenuInvite?: ReactNode | ((participantCount: number) => ReactNode);
+  openRoomMenuOnEntry?: boolean;
   whiteboardEnabled?: boolean;
   identityLabel?: "Guest" | "Host" | "Member";
   initialPresenceCount?: number;
@@ -117,7 +119,21 @@ export function GuestShell({
   const accountWasOpenRef = useRef(false);
   const restoreRoomHeadingFocusRef = useRef(false);
   const roomMenuTriggerFocusedRef = useRef(false);
+  const openedRoomMenuOnEntryRef = useRef(false);
   const mobileRoomLayout = useMobileRoomLayout();
+
+  useEffect(() => {
+    if (
+      openedRoomMenuOnEntryRef.current ||
+      !openRoomMenuOnEntry ||
+      !mobileRoomLayout ||
+      !roomMenuInvite
+    ) {
+      return;
+    }
+    openedRoomMenuOnEntryRef.current = true;
+    setShowRoomMenu(true);
+  }, [mobileRoomLayout, openRoomMenuOnEntry, roomMenuInvite]);
   const {
     composerRef,
     isNearBottom,

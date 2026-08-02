@@ -96,6 +96,7 @@ export function InstantRoomPage() {
   const [retryAt, setRetryAt] = useState<number | null>(null);
   const [retryVersion, setRetryVersion] = useState(0);
   const [leftRoom, setLeftRoom] = useState(false);
+  const [openInviteOnEntry, setOpenInviteOnEntry] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const restoredMemberSessionRef = useRef<string | null>(
     initialStateRef.current.member && accountSession
@@ -301,6 +302,7 @@ export function InstantRoomPage() {
           request
         );
         clearInstantWorkspaceDraft();
+        setOpenInviteOnEntry(request.intent === "share");
         setActiveRoom({
           mode: "guest",
           session: guestSession,
@@ -337,6 +339,7 @@ export function InstantRoomPage() {
         request
       );
       clearInstantWorkspaceDraft();
+      setOpenInviteOnEntry(request.intent === "share");
       storeMemberInstantRoomContinuity(accountSession, {
         room: result.room,
         conversation: result.conversation,
@@ -438,6 +441,7 @@ export function InstantRoomPage() {
           shareUrl={activeRoom.shareUrl!}
           title={activeRoom.session.conversation.title || "Instant room"}
           participantCount={participantCount}
+          initiallyExpanded={openInviteOnEntry}
         />
       )
     ) : undefined;
@@ -468,8 +472,10 @@ export function InstantRoomPage() {
       initialPresenceCount={1}
       roomBanner={shareBanner}
       roomMenuInvite={shareMenu}
+      openRoomMenuOnEntry={openInviteOnEntry}
       whiteboardEnabled
       onAccessEnded={() => {
+        setOpenInviteOnEntry(false);
         clearMemberInstantRoomContinuity();
         storeGuestSession(null);
         setActiveRoom(null);
@@ -479,6 +485,7 @@ export function InstantRoomPage() {
         setLeftRoom(true);
       }}
       onLeave={() => {
+        setOpenInviteOnEntry(false);
         if (activeRoom.mode === "member" || activeRoom.returnsToAccount) {
           clearMemberInstantRoomContinuity();
           storeGuestSession(null);

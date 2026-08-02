@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AppIcon } from "../../components/AppIcon";
 import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
@@ -12,16 +13,20 @@ export function InstantRoomSharePanel({
   room,
   shareUrl,
   title,
-  participantCount
+  participantCount,
+  initiallyExpanded = false
 }: {
   placement?: "banner" | "menu";
   room: InstantRoom;
   shareUrl: string;
   title: string;
   participantCount: number;
+  initiallyExpanded?: boolean;
 }) {
   const [notice, setNotice] = useState("");
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    placement === "banner" && initiallyExpanded
+  );
   const [linkRevealed, setLinkRevealed] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrDownload, setQrDownload] = useState<Blob | null>(null);
@@ -266,7 +271,7 @@ export function InstantRoomSharePanel({
         </div>
       </section>
 
-      {expanded && (
+      {expanded && createPortal(
         <div
           className="instant-room-invite-backdrop"
           onPointerDown={(event) => {
@@ -364,7 +369,8 @@ export function InstantRoomSharePanel({
               </div>
             )}
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
