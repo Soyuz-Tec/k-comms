@@ -23,3 +23,4 @@
 | Local-first instant workspace drafts | ADR-0066 | Accepted | 2026-08-01 | Cross-device drafts, local encryption, server-side draft persistence, or transactional aggregate promotion |
 | Reclaim expired instant-room whiteboards | ADR-0068 | Accepted | 2026-08-02 | Post-expiry room conversion, an approved backfill for already-expired rooms, whiteboard attachments needing blob reclamation, or an expiry policy for durable-conversation boards |
 | Materialise whiteboard scene snapshots | ADR-0069 | Accepted | 2026-08-02 | An agreed retention policy enabling log truncation, client adoption of the snapshot field, boards hitting the operation cap, or snapshot rebuild cost appearing in append latency |
+| Accept whole-element whiteboard merge | ADR-0070 | Accepted | 2026-08-02 | Reported or measured loss of concurrent edits, a replacement engine with per-property convergence, or Excalidraw gaining per-property versioning |
