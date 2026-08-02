@@ -8,7 +8,10 @@ import type {
   GuestAccountConversionResult,
   Message,
   MessagePage,
-  RetainedSenderLabel
+  RetainedSenderLabel,
+  WhiteboardElementData,
+  WhiteboardOperation,
+  WhiteboardOperationPage
 } from "../../types";
 
 export interface GuestRoomApi {
@@ -22,6 +25,21 @@ export interface GuestRoomApi {
     attachment_ids: string[];
   }): Promise<Message>;
   markRead(sequence: number): Promise<void>;
+  whiteboardOperations(
+    conversationId: string,
+    afterSequence?: number,
+    limit?: number
+  ): Promise<WhiteboardOperationPage>;
+  appendWhiteboardSceneUpdate(
+    conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation>;
+  clearWhiteboard(
+    conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation>;
   socketTicket(): Promise<{ ticket: string; expires_in: number }>;
   call(conversationId?: string): Promise<Call | null>;
   startCall(
@@ -74,6 +92,35 @@ export class MemberRoomApi implements GuestRoomApi {
 
   markRead(sequence: number): Promise<void> {
     return this.api.markRead(this.conversationId, sequence);
+  }
+
+  whiteboardOperations(
+    _conversationId: string,
+    afterSequence = 0,
+    limit = 500
+  ): Promise<WhiteboardOperationPage> {
+    return this.api.whiteboardOperations(this.conversationId, afterSequence, limit);
+  }
+
+  appendWhiteboardSceneUpdate(
+    _conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation> {
+    return this.api.appendWhiteboardSceneUpdate(
+      this.conversationId,
+      clientOperationId,
+      baseSequence,
+      elements
+    );
+  }
+
+  clearWhiteboard(
+    _conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation> {
+    return this.api.clearWhiteboard(this.conversationId, clientOperationId);
   }
 
   socketTicket(): Promise<{ ticket: string; expires_in: number }> {
@@ -140,6 +187,35 @@ export class DelegatingRoomApi implements GuestRoomApi {
 
   markRead(sequence: number): Promise<void> {
     return this.delegate.markRead(sequence);
+  }
+
+  whiteboardOperations(
+    conversationId: string,
+    afterSequence = 0,
+    limit = 500
+  ): Promise<WhiteboardOperationPage> {
+    return this.delegate.whiteboardOperations(conversationId, afterSequence, limit);
+  }
+
+  appendWhiteboardSceneUpdate(
+    conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation> {
+    return this.delegate.appendWhiteboardSceneUpdate(
+      conversationId,
+      clientOperationId,
+      baseSequence,
+      elements
+    );
+  }
+
+  clearWhiteboard(
+    conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation> {
+    return this.delegate.clearWhiteboard(conversationId, clientOperationId);
   }
 
   socketTicket(): Promise<{ ticket: string; expires_in: number }> {

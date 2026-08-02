@@ -176,6 +176,19 @@ defmodule CommsWeb.Router do
     post("/conversation/message-sender-labels", GuestCommunicationController, :sender_labels)
     post("/conversation/messages", GuestCommunicationController, :create_message)
     put("/conversation/read-cursor", GuestCommunicationController, :update_read_cursor)
+
+    get(
+      "/conversation/whiteboard/operations",
+      GuestCommunicationController,
+      :whiteboard_operations
+    )
+
+    post(
+      "/conversation/whiteboard/operations",
+      GuestCommunicationController,
+      :create_whiteboard_operation
+    )
+
     post("/socket-tickets", GuestCommunicationController, :socket_ticket)
     get("/conversation/call", GuestCommunicationController, :show_call)
     post("/conversation/calls", GuestCommunicationController, :create_call)

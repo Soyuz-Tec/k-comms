@@ -49,6 +49,12 @@ const GuestCallPanel = lazy(() =>
   import("../calls/CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
 );
 
+const GuestWhiteboard = lazy(() =>
+  import("../whiteboard/CollaborativeWhiteboard").then(
+    ({ CollaborativeWhiteboard }) => ({ default: CollaborativeWhiteboard })
+  )
+);
+
 export function GuestShell({
   api,
   initialSession,
@@ -59,6 +65,7 @@ export function GuestShell({
   onConverted,
   roomBanner,
   roomMenuInvite,
+  whiteboardEnabled = false,
   identityLabel = "Guest",
   initialPresenceCount = 1,
   onPresenceChange
@@ -76,6 +83,7 @@ export function GuestShell({
   ) => void;
   roomBanner?: ReactNode | ((participantCount: number) => ReactNode);
   roomMenuInvite?: ReactNode | ((participantCount: number) => ReactNode);
+  whiteboardEnabled?: boolean;
   identityLabel?: "Guest" | "Host" | "Member";
   initialPresenceCount?: number;
   onPresenceChange?: (count: number) => void;
@@ -95,6 +103,9 @@ export function GuestShell({
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState("");
   const [showRoomMenu, setShowRoomMenu] = useState(false);
+  const [activeWorkspaceTool, setActiveWorkspaceTool] = useState<
+    "canvas" | "messages"
+  >("canvas");
   const visibleMessageAuthorsRef = useRef<
     Array<{ senderUserId: string; messageId: string }>
   >([]);
@@ -330,6 +341,24 @@ export function GuestShell({
     () => duplicateParticipantNames(visibleSenderIdentities.values()),
     [visibleSenderIdentities]
   );
+  const whiteboardOptions = useMemo(() => {
+    const collaborators = new Map(
+      members.map(({ user }) => [user.id, user.display_name])
+    );
+    collaborators.set(
+      initialSession.user.id,
+      initialSession.user.display_name
+    );
+    return {
+      api,
+      userId: initialSession.user.id,
+      deviceId: initialSession.device.id,
+      users: [...collaborators].map(([id, display_name]) => ({
+        id,
+        display_name
+      }))
+    };
+  }, [api, initialSession.device.id, initialSession.user, members]);
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -562,28 +591,86 @@ export function GuestShell({
         </Suspense>
       </section>
 
-      <GuestMessageViewport
-        autoFocus={!roomBanner}
-        composer={composer}
-        composerRef={composerRef}
-        conversationTitle={conversationTitle(conversation)}
-        currentUserId={initialSession.user.id}
-        identityLabel={identityLabel}
-        isNearBottom={isNearBottom}
-        loadError={loadError}
-        loading={loading}
-        messages={messages}
-        messageScrollRef={messageScrollRef}
-        mobile={mobileRoomLayout}
-        newMessageCount={newMessageCount}
-        onComposerChange={setComposer}
-        onJumpToLatest={jumpToLatest}
-        onRetryLoad={() => setLoadRetry((attempt) => attempt + 1)}
-        onScroll={messageScrollChanged}
-        onSubmit={(event) => void sendMessage(event)}
-        resolveSender={resolveMessageSender}
-        sending={sending}
-      />
+      {whiteboardEnabled && (
+        <div
+          className="guest-workspace-tools"
+          role="group"
+          aria-label="Workspace tools"
+        >
+          <button
+            className="button ghost"
+            type="button"
+            aria-pressed={activeWorkspaceTool === "canvas"}
+            onClick={() => setActiveWorkspaceTool("canvas")}
+          >
+            <AppIcon name="whiteboard" /> Canvas
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            aria-pressed={activeWorkspaceTool === "messages"}
+            onClick={() => setActiveWorkspaceTool("messages")}
+          >
+            <AppIcon name="messages" /> Messages
+            {newMessageCount > 0 && (
+              <span className="guest-tool-count" aria-label={`${newMessageCount} unread`}>
+                {newMessageCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      <div
+        className={`guest-collaboration-workspace${
+          whiteboardEnabled ? "" : " without-whiteboard"
+        }`}
+        data-mobile-view={activeWorkspaceTool}
+      >
+        {whiteboardEnabled && (
+          <div className="guest-whiteboard-panel" aria-label="Shared drawing canvas">
+            <Suspense
+              fallback={
+                <div className="whiteboard-loading" role="status">
+                  <span className="spinner" aria-hidden="true" />
+                  Preparing shared canvas…
+                </div>
+              }
+            >
+              <GuestWhiteboard
+                conversationId={conversation.id}
+                conversationTitle={conversationTitle(conversation)}
+                collaborationOptions={whiteboardOptions}
+                compact
+              />
+            </Suspense>
+          </div>
+        )}
+        <div className="guest-chat-panel" aria-label="Room messages">
+          <GuestMessageViewport
+            autoFocus={!roomBanner && !whiteboardEnabled}
+            composer={composer}
+            composerRef={composerRef}
+            conversationTitle={conversationTitle(conversation)}
+            currentUserId={initialSession.user.id}
+            identityLabel={identityLabel}
+            isNearBottom={isNearBottom}
+            loadError={loadError}
+            loading={loading}
+            messages={messages}
+            messageScrollRef={messageScrollRef}
+            mobile={mobileRoomLayout}
+            newMessageCount={newMessageCount}
+            onComposerChange={setComposer}
+            onJumpToLatest={jumpToLatest}
+            onRetryLoad={() => setLoadRetry((attempt) => attempt + 1)}
+            onScroll={messageScrollChanged}
+            onSubmit={(event) => void sendMessage(event)}
+            resolveSender={resolveMessageSender}
+            sending={sending}
+          />
+        </div>
+      </div>
 
       {error && (
         <div className="guest-shell-error" role="alert">

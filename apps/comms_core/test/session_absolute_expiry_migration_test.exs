@@ -12,6 +12,7 @@ defmodule CommsCore.SessionAbsoluteExpiryMigrationTest do
 
   @absolute_expiry_schema_version 20_260_713_000_120
   @rollback_compatibility_schema_version 20_260_713_000_130
+  @wall_clock_repair_schema_version 20_260_801_000_120
 
   setup do
     database =
@@ -74,6 +75,57 @@ defmodule CommsCore.SessionAbsoluteExpiryMigrationTest do
 
     Ecto.Migrator.run(repo, migrations_path(), :down, step: 1, log: false)
     assert_previous_release_insert(repo, fixture)
+  end
+
+  test "forward migration repairs the installed guest authority clock", %{repo: repo} do
+    migrate_to(repo, @rollback_compatibility_schema_version)
+
+    assert [[original_guard]] =
+             SQL.query!(
+               repo,
+               "SELECT prosrc FROM pg_proc WHERE proname = 'prevent_session_absolute_expiry_update'"
+             ).rows
+
+    assert original_guard =~ "sessions.absolute_expires_at is immutable"
+    refute original_guard =~ "clock_timestamp()"
+
+    Code.require_file(
+      Path.join(
+        migrations_path(),
+        "20260801000120_repair_session_absolute_expiry_wall_clock.exs"
+      )
+    )
+
+    Ecto.Migrator.up(
+      repo,
+      @wall_clock_repair_schema_version,
+      CommsCore.Repo.Migrations.RepairSessionAbsoluteExpiryWallClock,
+      log: false
+    )
+
+    assert [[wall_clock_guard]] =
+             SQL.query!(
+               repo,
+               "SELECT prosrc FROM pg_proc WHERE proname = 'prevent_session_absolute_expiry_update'"
+             ).rows
+
+    assert wall_clock_guard =~ "clock_timestamp()"
+    refute wall_clock_guard =~ "CURRENT_TIMESTAMP"
+
+    Ecto.Migrator.down(
+      repo,
+      @wall_clock_repair_schema_version,
+      CommsCore.Repo.Migrations.RepairSessionAbsoluteExpiryWallClock,
+      log: false
+    )
+
+    assert [[rolled_back_guard]] =
+             SQL.query!(
+               repo,
+               "SELECT prosrc FROM pg_proc WHERE proname = 'prevent_session_absolute_expiry_update'"
+             ).rows
+
+    assert rolled_back_guard =~ "CURRENT_TIMESTAMP"
   end
 
   defp migrate_to(repo, version) do

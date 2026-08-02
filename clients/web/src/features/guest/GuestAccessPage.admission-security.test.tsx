@@ -57,7 +57,19 @@ const callPanelHarness = vi.hoisted(() => ({
   }
 }));
 
+const whiteboardHarness = vi.hoisted(() => ({
+  props: null as null | {
+    conversationId: string;
+    compact: boolean;
+    collaborationOptions: {
+      userId: string;
+      deviceId: string;
+    };
+  }
+}));
+
 vi.mock("../../lib/transportSecurity", () => ({
+  isEncryptedUrl: () => false,
   isInsecureNonLoopbackOrigin: () => transportHarness.insecureNetworkOrigin
 }));
 
@@ -76,6 +88,20 @@ vi.mock("../calls/CallPanel", () => ({
         </button>
       </div>
     );
+  }
+}));
+
+vi.mock("../whiteboard/CollaborativeWhiteboard", () => ({
+  CollaborativeWhiteboard: (props: {
+    conversationId: string;
+    compact: boolean;
+    collaborationOptions: {
+      userId: string;
+      deviceId: string;
+    };
+  }) => {
+    whiteboardHarness.props = props;
+    return <div aria-label="Mock shared canvas">Shared canvas ready</div>;
   }
 }));
 
@@ -283,6 +309,7 @@ describe("GuestAccessPage", () => {
     expect(screen.getByLabelText("Guest call controls")).toBeVisible();
     expect(screen.getByRole("region", { name: "Message history" }))
       .toHaveAttribute("tabindex", "0");
+    expect(screen.queryByLabelText("Mock shared canvas")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "Open mocked room chat" }));
     await waitFor(() =>
@@ -470,6 +497,54 @@ describe("GuestAccessPage", () => {
     );
     expect(GuestApiClient.prototype.logout).toHaveBeenCalled();
     expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it("combines the instant-room canvas and messages behind mobile-friendly controls", async () => {
+    const api = new GuestApiClient("", guestSession, vi.fn());
+
+    render(
+      <BrowserRouter>
+        <GuestShell
+          api={api}
+          initialSession={guestSession}
+          accountActionsAllowed
+          mediaActionsAllowed
+          onLeave={vi.fn()}
+          onConverted={vi.fn()}
+          identityLabel="Host"
+          whiteboardEnabled
+        />
+      </BrowserRouter>
+    );
+
+    expect(await screen.findByLabelText("Mock shared canvas")).toBeVisible();
+    expect(screen.getByLabelText("Shared drawing canvas")).toBeVisible();
+    expect(screen.getByLabelText("Room messages")).toBeVisible();
+    expect(whiteboardHarness.props).toMatchObject({
+      conversationId: conversation.id,
+      compact: true,
+      collaborationOptions: {
+        userId: guestSession.user.id,
+        deviceId: guestSession.device.id
+      }
+    });
+
+    const workspaceTools = document.querySelector(".guest-workspace-tools");
+    expect(workspaceTools).not.toBeNull();
+    const workspaceButtons = within(workspaceTools as HTMLElement)
+      .getAllByRole("button", { hidden: true });
+    const canvas = workspaceButtons[0]!;
+    const messages = workspaceButtons[1]!;
+    expect(canvas).toHaveTextContent("Canvas");
+    expect(messages).toHaveTextContent("Messages");
+    expect(canvas).toHaveAttribute("aria-pressed", "true");
+    expect(messages).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(messages);
+    expect(messages).toHaveAttribute("aria-pressed", "true");
+    expect(canvas).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelector(".guest-collaboration-workspace"))
+      .toHaveAttribute("data-mobile-view", "messages");
   });
 
   it("keeps credential and media controls blocked when a LAN release is opened through loopback", async () => {
@@ -795,7 +870,11 @@ describe("GuestAccessPage", () => {
         )
       )
       .mockResolvedValueOnce(instantSession);
-    window.history.replaceState({}, "", "/join#guest=instant-secret");
+    window.history.replaceState(
+      {},
+      "",
+      `/join#guest=${"a".repeat(43)}`
+    );
 
     renderPage();
     await user.type(
@@ -807,6 +886,8 @@ describe("GuestAccessPage", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
+    expect(await screen.findByLabelText("Mock shared canvas")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Invite people" })).toBeVisible();
     expect(joinInstantRoom).toHaveBeenCalledTimes(2);
     expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(
       joinInstantRoom.mock.calls[0]![1]

@@ -39,6 +39,17 @@
   box-shadow: var(--shadow-card);
 }
 
+.whiteboard-room-compact {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.whiteboard-room-compact .whiteboard-statusbar {
+  background: var(--surface-raised);
+}
+
 .whiteboard-statusbar {
   min-height: 48px;
   display: flex;

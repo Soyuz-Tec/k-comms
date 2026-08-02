@@ -141,7 +141,7 @@ test("conversation whiteboard renders a usable responsive Excalidraw workspace",
   await expect(page.getByRole("heading", { name: "Whiteboard" })).toBeVisible();
   await expect(page.getByLabel("Conversation")).toHaveValue(conversationId);
   await expect(page.getByText("Offline editing", { exact: true })).toBeVisible();
-  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
 
   const canvas = page.locator("canvas.excalidraw__canvas.interactive");
@@ -176,7 +176,7 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
   expect(fixture.writes[0].payload.elements).toEqual([
     expect.objectContaining({ type: "rectangle", isDeleted: false })
   ]);
-  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
   await page.reload();
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
@@ -191,5 +191,5 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
 
   await expect.poll(() => fixture.writes.length).toBe(2);
   expect(fixture.writes[1]).toEqual({ kind: "board.clear", payload: {} });
-  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 });

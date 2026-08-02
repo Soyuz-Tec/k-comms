@@ -66,6 +66,7 @@ CALL_REALTIME_MESSAGES = {
 }
 
 WHITEBOARD_PATH = "/api/v1/conversations/{conversationId}/whiteboard/operations"
+GUEST_WHITEBOARD_PATH = "/api/v1/guest/conversation/whiteboard/operations"
 WHITEBOARD_ELEMENT_TYPES = {
     "rectangle",
     "diamond",
@@ -97,6 +98,7 @@ REQUIRED_MUTATION_BODIES = {
     ("/api/v1/conversations/{conversationId}/archive", "post"),
     ("/api/v1/conversations/{conversationId}/calls", "post"),
     (WHITEBOARD_PATH, "post"),
+    (GUEST_WHITEBOARD_PATH, "post"),
     ("/api/v1/moderation/cases", "post"),
     ("/api/v1/moderation/cases/{caseId}/actions", "post"),
     ("/api/v1/admin/users/{userId}", "patch"),
@@ -115,6 +117,15 @@ REQUIRED_MUTATION_BODIES = {
 }
 
 REQUIRED_OPERATION_STATUSES = {
+    (GUEST_WHITEBOARD_PATH, "post"): {
+        "200",
+        "201",
+        "401",
+        "403",
+        "409",
+        "422",
+        "429",
+    },
     ("/api/v1/instant-rooms", "post"): {
         "200",
         "201",
@@ -1806,7 +1817,7 @@ def validate_call_realtime_contract(asyncapi: dict[str, Any]) -> None:
 
 
 def validate_whiteboard_contract(openapi: dict[str, Any]) -> None:
-    """Keep durable whiteboard limits and member API semantics explicit."""
+    """Keep durable whiteboard limits and scoped member/guest APIs explicit."""
 
     paths = openapi.get("paths", {})
     route = paths.get(WHITEBOARD_PATH, {})
@@ -1840,6 +1851,67 @@ def validate_whiteboard_contract(openapi: dict[str, Any]) -> None:
         raise ValueError("OpenAPI whiteboard writes require WhiteboardOperationRequest")
     if set(post.get("responses", {})) != {"200", "201", "403", "409", "422"}:
         raise ValueError("OpenAPI whiteboard writes must preserve replay/conflict responses")
+
+    guest_route = paths.get(GUEST_WHITEBOARD_PATH, {})
+    if set(guest_route) != {"get", "post"}:
+        raise ValueError(
+            "OpenAPI guest whiteboard route must expose only server-scoped GET and POST"
+        )
+
+    for method in ("get", "post"):
+        if guest_route.get(method, {}).get("security") != [{"guestBearerAuth": []}]:
+            raise ValueError(
+                "OpenAPI guest whiteboard operations must require guestBearerAuth"
+            )
+
+    guest_get = guest_route["get"]
+    guest_get_ref = (
+        guest_get.get("responses", {})
+        .get("200", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+        .get("$ref")
+    )
+    if (
+        set(guest_get.get("responses", {})) != {"200", "401", "403"}
+        or guest_get_ref != "#/components/schemas/WhiteboardOperationPage"
+    ):
+        raise ValueError(
+            "OpenAPI guest whiteboard reads must preserve scoped replay responses"
+        )
+
+    guest_post = guest_route["post"]
+    guest_header = next(
+        (
+            item
+            for item in guest_post.get("parameters", [])
+            if item.get("name") == "Idempotency-Key" and item.get("in") == "header"
+        ),
+        None,
+    )
+    if not guest_header or guest_header.get("required") is not True or guest_header.get(
+        "schema"
+    ) != {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 128,
+    }:
+        raise ValueError(
+            "OpenAPI guest whiteboard writes require the bounded Idempotency-Key"
+        )
+
+    guest_request_ref = (
+        guest_post.get("requestBody", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+        .get("$ref")
+    )
+    if guest_request_ref != "#/components/schemas/WhiteboardOperationRequest":
+        raise ValueError(
+            "OpenAPI guest whiteboard writes require WhiteboardOperationRequest"
+        )
 
     schemas = openapi.get("components", {}).get("schemas", {})
     element = schemas.get("WhiteboardElement", {})

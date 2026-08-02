@@ -711,7 +711,7 @@ technical_interfaces:
   - id: web-distributed-public-rate-limit
     owner: platform_runtime
     interface: CommsCore.PlatformRateLimits
-    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.Plugs.DistributedRateLimit]
+    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
     operations:
       - {name: "allow?", arity: 4}
     dispatch: direct

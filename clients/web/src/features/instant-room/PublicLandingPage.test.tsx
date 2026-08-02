@@ -15,40 +15,32 @@ function renderLandingPage(signedIn = false) {
 }
 
 describe("PublicLandingPage", () => {
-  it("presents the available collaboration product and working room entry", () => {
+  it("opens with a collaboration-first workspace launcher", () => {
     renderLandingPage();
 
     expect(
       screen.getByRole("heading", {
-        name: /One place to talk,\s*meet, and make\./
+        name: "Message. Draw. Share."
       })
     ).toBeVisible();
-    expect(screen.getByText("Web app available now")).toBeVisible();
+    expect(screen.getByText("Instant collaboration")).toBeVisible();
     expect(screen.getByRole("region", { name: "Room launcher" })).toHaveTextContent(
       "Working room form"
     );
-
-    const product = document.getElementById("product");
-    expect(product).not.toBeNull();
-    expect(within(product!).getByText("Messaging that stays organized")).toBeVisible();
-    expect(within(product!).getByText("Calls built into the work")).toBeVisible();
-    expect(within(product!).getByText("A canvas everyone can shape")).toBeVisible();
-    expect(within(product!).getByText("Files where people need them")).toBeVisible();
+    expect(screen.getByText("Live conversation")).toBeVisible();
+    expect(screen.getByText("Shared drawing canvas")).toBeVisible();
+    expect(screen.getByText("QR and invitation link")).toBeVisible();
   });
 
-  it("labels released web experiences separately from unreleased native packages", () => {
+  it("shows the message-and-canvas workspace before room creation", () => {
     renderLandingPage();
 
-    const apps = document.getElementById("apps");
-    expect(apps).not.toBeNull();
-    expect(within(apps!).getByRole("heading", { name: "Desktop web app" })).toBeVisible();
-    expect(within(apps!).getByRole("heading", { name: "Mobile web app" })).toBeVisible();
-    expect(within(apps!).getAllByText("Available now")).toHaveLength(2);
-    expect(within(apps!).getByRole("heading", { name: "Native app packages" })).toBeVisible();
-    expect(within(apps!).getByText("Roadmap")).toBeVisible();
-    expect(
-      within(apps!).getByText(/planned, not released yet/i)
-    ).toBeVisible();
+    const preview = screen.getByRole("region", {
+      name: "K-Comms workspace preview"
+    });
+    expect(within(preview).getByText("Ideas stay visible")).toBeVisible();
+    expect(within(preview).getByText("Message the room")).toBeVisible();
+    expect(screen.getByText("Conversation-scoped access")).toBeVisible();
   });
 
   it("routes signed-out visitors to sign in and members to their workspace", () => {

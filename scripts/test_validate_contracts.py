@@ -48,6 +48,22 @@ class ContractValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "safe SDK subset"):
             validate_whiteboard_contract(openapi)
 
+    def test_guest_whiteboard_contract_is_server_scoped_and_authenticated(self) -> None:
+        openapi = copy.deepcopy(self.openapi)
+        guest_path = "/api/v1/guest/conversation/whiteboard/operations"
+        openapi["paths"][guest_path]["get"]["security"] = []
+
+        with self.assertRaisesRegex(ValueError, "guestBearerAuth"):
+            validate_whiteboard_contract(openapi)
+
+        openapi = copy.deepcopy(self.openapi)
+        openapi["paths"][guest_path]["parameters"] = [
+            {"name": "conversationId", "in": "path", "required": True}
+        ]
+
+        with self.assertRaisesRegex(ValueError, "server-scoped"):
+            validate_whiteboard_contract(openapi)
+
     def test_conversation_counterpart_id_is_nullable_and_uuid_shaped(self) -> None:
         conversation = self.openapi["components"]["schemas"]["Conversation"]
         self.assertIn("counterpart_user_id", conversation["required"])

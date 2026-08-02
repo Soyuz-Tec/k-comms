@@ -48,6 +48,14 @@ defmodule CommsWeb.GuestCommunicationController do
     CommsWeb.ReadCursorController.update(conn, scoped(params, conn))
   end
 
+  def whiteboard_operations(conn, params) do
+    CommsWeb.WhiteboardController.index(conn, scoped(params, conn))
+  end
+
+  def create_whiteboard_operation(conn, params) do
+    CommsWeb.WhiteboardController.create(conn, scoped(params, conn))
+  end
+
   def socket_ticket(conn, _params) do
     with {:ok, result} <- Accounts.issue_guest_socket_ticket(conn.assigns.current_subject) do
       conn

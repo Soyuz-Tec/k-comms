@@ -662,6 +662,57 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   min-height: 44px;
 }
 
+.guest-workspace-tools {
+  display: none;
+}
+
+.guest-collaboration-workspace {
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(320px, .75fr);
+  gap: .7rem;
+  padding: .7rem;
+  overflow: hidden;
+  background: var(--surface-canvas);
+}
+
+.guest-collaboration-workspace.without-whiteboard {
+  width: min(960px, 100%);
+  align-self: center;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+}
+
+.guest-whiteboard-panel,
+.guest-chat-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.guest-chat-panel .guest-room {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.guest-tool-count {
+  min-width: 1.35rem;
+  height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 .3rem;
+  border-radius: 999px;
+  color: var(--accent-contrast);
+  background: var(--accent-solid);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
 .compact-room-layout {
   overflow-x: hidden;
 }
@@ -1288,6 +1339,49 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     min-height: 44px;
     flex: 1 1 0;
     padding-inline: .55rem;
+  }
+
+  .guest-workspace-tools {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .35rem;
+    padding: .42rem max(.55rem, var(--safe-right)) .42rem max(.55rem, var(--safe-left));
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-raised);
+  }
+
+  .guest-workspace-tools .button {
+    min-height: 44px;
+    justify-content: center;
+    border-radius: 12px;
+  }
+
+  .guest-workspace-tools .button[aria-pressed="true"] {
+    color: var(--accent-text);
+    border-color: var(--accent-border);
+    background: var(--accent-quiet);
+  }
+
+  .guest-collaboration-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .guest-collaboration-workspace:not(.without-whiteboard)[data-mobile-view="canvas"] .guest-chat-panel,
+  .guest-collaboration-workspace:not(.without-whiteboard)[data-mobile-view="messages"] .guest-whiteboard-panel {
+    display: none;
+  }
+
+  .guest-whiteboard-panel,
+  .guest-chat-panel {
+    height: 100%;
+  }
+
+  .guest-chat-panel .guest-room {
+    border: 0;
+    border-radius: 0;
   }
 
   .guest-room {

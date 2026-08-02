@@ -30,6 +30,8 @@
 - `/api/v1/guest-links/preview` and `/api/v1/guest-sessions` for the
   unauthenticated link exchange, followed by the allow-listed
   `/api/v1/guest/*` conversation session surface
+- `/api/v1/guest/conversation/whiteboard/operations` for REST replay and
+  idempotent scene updates in an admitted instant room only
 
 ## Mutation input and replay rules
 
@@ -227,6 +229,9 @@ Guest bearer tokens are accepted only on the allow-listed guest routes:
 - one-time `/api/v1/guest/socket-tickets` restricted to that conversation;
 - that conversation's canonical audio/video call lookup, start, join, and end
   operations;
+- whiteboard replay and mutation only when that conversation is an active or
+  idle instant room; the verified guest claim supplies the conversation ID,
+  and ordinary durable-conversation guest links remain denied;
 - `/api/v1/guest/sessions/refresh`, which rotates credentials without extending
   the immutable guest deadline;
 - `/api/v1/guest/sessions/current` for logout; and
@@ -242,6 +247,13 @@ guest session/device; and returns a fresh normal human session. Missing,
 malformed, and incorrect verification codes share the same
 `guest_account_conversion_verification_failed` response. Conversion attempts
 have separate five-per-minute per-IP and per-identity limits.
+
+Instant-room whiteboard writes retain the member whiteboard operation,
+element, generation, and idempotency limits and additionally consume a
+cluster-wide per-tenant/user/session/room rate bucket. A participant joining an
+instant room receives the current complete board scene; this is an explicit
+workspace-sharing rule and does not widen the post-admission message-history
+boundary.
 
 ## Browser push subscriptions
 

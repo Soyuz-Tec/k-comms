@@ -56,7 +56,14 @@ const callPanelHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("../../lib/transportSecurity", () => ({
+  isEncryptedUrl: () => false,
   isInsecureNonLoopbackOrigin: () => transportHarness.insecureNetworkOrigin
+}));
+
+vi.mock("../whiteboard/CollaborativeWhiteboard", () => ({
+  CollaborativeWhiteboard: () => (
+    <div aria-label="Mock shared canvas">Shared canvas ready</div>
+  )
 }));
 
 vi.mock("../calls/CallPanel", () => ({

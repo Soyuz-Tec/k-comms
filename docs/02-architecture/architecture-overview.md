@@ -105,8 +105,9 @@ compiled into the production release and are outside the runtime source rule.
   one-to-one/group audio and video communication, screen sharing, search,
   files, notifications, profile, and personal device/session controls.
 - **Instant room entry (`/` and `/join`):** feature-gated, conversation-only
-  text, audio, and video communication created from the minimal front page or
-  reached through one fragment-bearing link or locally rendered QR. Every
+  text, durable drawing-canvas, audio, and video communication created from the
+  application-first workspace launcher or reached through one fragment-bearing
+  link or locally rendered QR. Every
   instant-room create and admission resolves only the
   server-configured public tenant; request data and bearer claims can never
   select or override that tenant. The production flag defaults off until email
@@ -136,7 +137,10 @@ discovery, unrelated conversations, conversation creation, administration,
 operations, integrations, and service credentials. A later workspace
 invitation is a separate identity-proof and authority-widening workflow. The
 self-service email is not a verified-email claim; production enablement
-requires an approved verification provider and workflow.
+requires an approved verification provider and workflow. ADR-0065 permits these
+identities to use the complete current whiteboard only for an active instant
+room in which they retain active membership; ordinary guest links remain
+whiteboard-ineligible.
 
 ## Data systems
 

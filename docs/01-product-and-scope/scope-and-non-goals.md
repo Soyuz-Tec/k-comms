@@ -26,8 +26,9 @@
 - Cross-organization federation
 - Client-side end-to-end encryption unless explicitly approved before build
 - Unlimited historical import formats
-- Whiteboard images, external embeds, guest/instant-room whiteboards, and
-  service-principal whiteboard automation without a dedicated follow-up ADR
+- Whiteboard images, external embeds, ordinary durable-conversation guest
+  whiteboards, and service-principal whiteboard automation without a dedicated
+  follow-up ADR; ADR-0065 permits only active instant-room participants
 - Per-message blockchain or distributed-ledger storage
 
 Non-goals must be reviewed with product leadership before detailed estimation.

@@ -22,7 +22,8 @@ defmodule CommsWeb.Plugs.DistributedRateLimit do
     :instant_room_create,
     :instant_room_join,
     :instant_room_conversion,
-    :instant_room_message
+    :instant_room_message,
+    :instant_room_whiteboard
   ]
   @key_sources [:client_network, :authenticated_subject]
   @key_derivation_context "k-comms:public-rate-limit:privacy-key:v1"

@@ -43,7 +43,7 @@ channels:
         $ref: '#/components/messages/AudioCallEnded'
   whiteboard:
     address: whiteboard:{conversationId}
-    description: Workspace-human, active-member topic for durable whiteboard commit signals and ephemeral collaborator presence. Authorization is repeated for every inbound and intercepted outbound event.
+    description: Active workspace-human or scoped instant-room participant topic for durable whiteboard commit signals and ephemeral collaborator presence. Ordinary conversation guest links remain denied. Authorization is repeated for every inbound and intercepted outbound event.
     parameters:
       conversationId:
         description: Conversation UUID authorized at join and on every event

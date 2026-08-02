@@ -23,6 +23,11 @@ defmodule CommsWeb.WhiteboardController do
   def create(conn, %{"conversation_id" => conversation_id} = params) do
     with [idempotency_key] <- get_req_header(conn, "idempotency-key"),
          true <- byte_size(idempotency_key) in 8..128 || {:error, :invalid_whiteboard_operation},
+         :ok <-
+           CommsWeb.InstantRoomWhiteboardRateLimit.check(
+             conversation_id,
+             conn.assigns.current_subject
+           ),
          {:ok, operation, status} <-
            Whiteboards.append_operation(
              conversation_id,
@@ -50,7 +55,23 @@ defmodule CommsWeb.WhiteboardController do
     else
       [] -> {:error, :idempotency_key_required}
       [_ | _] -> {:error, :invalid_whiteboard_operation}
+      {:error, :rate_limited, retry_after} -> rate_limited(conn, retry_after)
       {:error, _} = error -> error
     end
+  end
+
+  defp rate_limited(conn, retry_after) do
+    retry_after = max(retry_after, 1)
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> put_status(:too_many_requests)
+    |> json(%{
+      error: %{
+        code: "rate_limited",
+        detail: "Too many requests",
+        retry_after: retry_after
+      }
+    })
   end
 end
