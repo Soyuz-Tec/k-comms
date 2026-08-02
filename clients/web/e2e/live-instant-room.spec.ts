@@ -94,13 +94,13 @@ test.describe("real-stack instant-room acceptance", () => {
         })
       ).toBeVisible({ timeout: 30_000 });
       await qualificationPage
-        .getByRole("button", { name: "Messages", exact: true })
+        .getByRole("button", { name: "Room", exact: true })
         .click();
       await qualificationPage
         .getByRole("textbox", { name: "Your display name" })
         .fill("Live Room Host");
       await qualificationPage
-        .getByRole("button", { name: "Start instant room" })
+        .getByRole("button", { name: "Create room" })
         .click();
       await expect(
         qualificationPage.getByRole("heading", { name: "Instant room" })

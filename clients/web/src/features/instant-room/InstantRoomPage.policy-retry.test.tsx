@@ -221,7 +221,7 @@ async function startRoom(
     );
   }
   await user.click(
-    screen.getByRole("button", { name: "Start instant room" })
+    screen.getByRole("button", { name: "Create room" })
   );
 }
 
@@ -272,7 +272,7 @@ describe("InstantRoomPage", () => {
     });
     await user.type(displayName, "Taylor Host");
     await user.click(
-      screen.getByRole("button", { name: "Start instant room" })
+      screen.getByRole("button", { name: "Create room" })
     );
 
     const progress = screen.getByRole("button", { name: "Opening room…" });

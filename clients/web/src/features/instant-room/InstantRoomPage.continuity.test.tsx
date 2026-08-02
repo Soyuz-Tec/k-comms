@@ -234,7 +234,7 @@ async function startRoom(
     );
   }
   await user.click(
-    screen.getByRole("button", { name: "Start instant room" })
+    screen.getByRole("button", { name: "Create room" })
   );
 }
 

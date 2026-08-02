@@ -2,7 +2,9 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
+import { useModalDialog } from "../../components/useModalDialog";
 import type { WhiteboardElementData } from "../../types";
 import { KCommsDrawingCanvas } from "../whiteboard/KCommsDrawingCanvas";
 import {
@@ -21,7 +23,7 @@ export interface DraftActivationRequest {
   roomTitle: string;
   elements: WhiteboardElementData[];
   initialMessage?: string;
-  intent: "message" | "room" | "share" | "audio-call" | "video-call";
+  intent: "message" | "room";
   messageClientId: string;
   whiteboardOperationId: string;
 }
@@ -31,7 +33,6 @@ export function InstantWorkspaceDraft({
   error,
   identityManaged,
   initialDisplayName,
-  mediaActionsAllowed,
   retrySeconds,
   onActivate
 }: {
@@ -39,12 +40,15 @@ export function InstantWorkspaceDraft({
   error: string;
   identityManaged: boolean;
   initialDisplayName?: string;
-  mediaActionsAllowed: boolean;
   retrySeconds: number;
   onActivate: (request: DraftActivationRequest) => Promise<boolean>;
 }) {
+  const generatedGuestNameRef = useRef("");
+  if (!generatedGuestNameRef.current) {
+    generatedGuestNameRef.current = defaultGuestDisplayName();
+  }
   const fallbackDisplayName =
-    initialDisplayName?.trim() || defaultGuestDisplayName();
+    initialDisplayName?.trim() || generatedGuestNameRef.current;
   const [draft, setDraft] = useState<InstantWorkspaceDraftRecord>(() => {
     const restored = loadInstantWorkspaceDraft(fallbackDisplayName);
     return identityManaged
@@ -53,9 +57,8 @@ export function InstantWorkspaceDraft({
   });
   const [message, setMessage] = useState("");
   const [elementCount, setElementCount] = useState(draft.elements.length);
-  const [mobileView, setMobileView] = useState<"canvas" | "messages">(
-    "canvas"
-  );
+  const [mobileView, setMobileView] = useState<"canvas" | "room">("canvas");
+  const [showClearConfirmation, setShowClearConfirmation] = useState(false);
   const [showHint, setShowHint] = useState(() => {
     try {
       return window.localStorage.getItem(hintStorageKey) !== "dismissed";
@@ -67,6 +70,11 @@ export function InstantWorkspaceDraft({
   const editorRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const draftRef = useRef(draft);
   const pendingSaveRef = useRef<number | null>(null);
+  const createRoomRef = useRef<HTMLButtonElement | null>(null);
+  const clearDialogRef = useModalDialog(
+    () => setShowClearConfirmation(false),
+    showClearConfirmation
+  );
 
   useEffect(
     () => () => {
@@ -126,7 +134,7 @@ export function InstantWorkspaceDraft({
     const displayName = draftRef.current.displayName.trim();
     if (!displayName) {
       setNameError("Enter your display name to continue.");
-      setMobileView("messages");
+      setMobileView("room");
       document.getElementById("instant-draft-display-name")?.focus();
       return false;
     }
@@ -148,17 +156,21 @@ export function InstantWorkspaceDraft({
     await activate("message", message);
   }
 
-  function startNewDraft() {
+  function clearDraft() {
     const next = newInstantWorkspaceDraft(
-      identityManaged ? fallbackDisplayName : defaultGuestDisplayName()
+      identityManaged
+        ? fallbackDisplayName
+        : draftRef.current.displayName.trim() || fallbackDisplayName
     );
     draftRef.current = next;
     setDraft(next);
     setElementCount(0);
     setMessage("");
     setNameError("");
+    setShowClearConfirmation(false);
     editorRef.current?.resetScene();
     saveInstantWorkspaceDraft(next);
+    window.requestAnimationFrame(() => createRoomRef.current?.focus());
   }
 
   function dismissHint() {
@@ -171,6 +183,8 @@ export function InstantWorkspaceDraft({
   }
 
   const blocked = activating || retrySeconds > 0;
+  const hasDraftWork =
+    elementCount > 0 || Boolean(message.trim()) || Boolean(draft.roomTitle.trim());
 
   return (
     <section
@@ -178,37 +192,19 @@ export function InstantWorkspaceDraft({
       aria-labelledby="instant-draft-title"
       aria-busy={activating}
     >
-      <header className="instant-draft-toolbar">
+      <div className="instant-draft-toolbar">
         <div className="instant-draft-title-group">
           <span className="instant-draft-status">
-            <span aria-hidden="true" /> Private draft
+            <span aria-hidden="true" /> Local draft
           </span>
           <div>
             <h1 id="instant-draft-title" data-route-focus>
               Message. Draw. Share.
             </h1>
-            <p>Draw immediately. A durable room starts only when you message or share.</p>
+            <p>Sketch locally. Create a room before inviting people or starting a call.</p>
           </div>
         </div>
-        <div className="instant-draft-actions" role="group" aria-label="Workspace actions">
-          <button className="button ghost" type="button" onClick={startNewDraft} disabled={activating}>
-            <AppIcon name="plus" /> New
-          </button>
-          <button
-            className="button primary"
-            type="button"
-            disabled={blocked}
-            onClick={() => void activate("share")}
-          >
-            <AppIcon name="share" />
-            {activating
-              ? "Opening…"
-              : retrySeconds > 0
-                ? `Retry in ${retrySeconds}s`
-                : "Share"}
-          </button>
-        </div>
-      </header>
+      </div>
 
       {error && (
         <div className="instant-draft-error" role="alert">
@@ -232,20 +228,20 @@ export function InstantWorkspaceDraft({
         <button
           className="button ghost"
           type="button"
-          aria-pressed={mobileView === "messages"}
-          onClick={() => setMobileView("messages")}
+          aria-pressed={mobileView === "room"}
+          onClick={() => setMobileView("room")}
         >
-          <AppIcon name="messages" /> Messages
+          <AppIcon name="users" /> Room
         </button>
       </div>
 
       <div className="instant-draft-body" data-mobile-view={mobileView}>
-        <div className="instant-draft-canvas" aria-label="Private drawing canvas">
+        <div className="instant-draft-canvas" aria-label="Local drawing canvas">
           {showHint && (
             <aside className="instant-draft-hint" aria-label="Drawing tip">
               <div>
                 <strong>Start anywhere</strong>
-                <span>Choose a tool and draw. Your private draft stays on this device.</span>
+                <span>Choose a tool and draw. This draft stays in this browser for up to 24 hours.</span>
               </div>
               <button type="button" aria-label="Dismiss drawing tip" onClick={dismissHint}>
                 <AppIcon name="x" />
@@ -266,103 +262,117 @@ export function InstantWorkspaceDraft({
           />
         </div>
 
-        <aside className="instant-draft-chat" aria-label="Workspace messages">
-          <div className="instant-draft-chat-heading">
-            <span className="instant-draft-chat-icon"><AppIcon name="messages" /></span>
-            <div>
-              <h2>Messages</h2>
-              <p>Your first message starts the live room and preserves this canvas.</p>
+        <aside className="instant-draft-chat" aria-label="Room setup">
+          <div className="instant-draft-setup-scroll">
+            <div className="instant-draft-chat-heading">
+              <span className="instant-draft-chat-icon"><AppIcon name="users" /></span>
+              <div>
+                <h2>Create a room</h2>
+                <p>Confirm who you are, then open the collaboration controls.</p>
+              </div>
             </div>
-          </div>
 
-          <div className="instant-draft-room-details">
-            <div className="field">
-              <label htmlFor="instant-draft-display-name">
-                Your display name <span aria-hidden="true">Required</span>
-              </label>
-              <input
-                id="instant-draft-display-name"
-                name="display_name"
-                type="text"
-                maxLength={120}
-                autoComplete="name"
-                value={draft.displayName}
-                disabled={identityManaged || activating}
-                aria-invalid={Boolean(nameError)}
-                aria-describedby={
-                  nameError
-                    ? "instant-draft-display-name-help instant-draft-name-error"
-                    : "instant-draft-display-name-help"
-                }
-                onChange={(event) => {
-                  updateDraft({ displayName: event.target.value });
-                  if (event.target.value.trim()) setNameError("");
-                }}
-                required
-              />
-              <small id="instant-draft-display-name-help">
-                Visible to everyone in the room.
-              </small>
-              {nameError && (
-                <small
-                  id="instant-draft-name-error"
-                  className="instant-draft-field-error"
-                  role="alert"
-                >
-                  {nameError}
+            <ol className="instant-draft-workflow" aria-label="Collaboration workflow">
+              <li className="current"><span>1</span> Local draft</li>
+              <li><span>2</span> Create room</li>
+              <li><span>3</span> Invite and call</li>
+            </ol>
+
+            <div className="instant-draft-room-details">
+              <div className="field">
+                <label htmlFor="instant-draft-display-name">
+                  Your display name <span aria-hidden="true">Required</span>
+                </label>
+                <input
+                  id="instant-draft-display-name"
+                  name="display_name"
+                  type="text"
+                  maxLength={120}
+                  autoComplete="name"
+                  value={draft.displayName}
+                  disabled={identityManaged || activating}
+                  aria-invalid={Boolean(nameError)}
+                  aria-describedby={
+                    nameError
+                      ? "instant-draft-display-name-help instant-draft-name-error"
+                      : "instant-draft-display-name-help"
+                  }
+                  onChange={(event) => {
+                    updateDraft({ displayName: event.target.value });
+                    if (event.target.value.trim()) setNameError("");
+                  }}
+                  required
+                />
+                <small id="instant-draft-display-name-help">
+                  Visible to everyone in the room.
                 </small>
-              )}
+                {nameError && (
+                  <small
+                    id="instant-draft-name-error"
+                    className="instant-draft-field-error"
+                    role="alert"
+                  >
+                    {nameError}
+                  </small>
+                )}
+              </div>
+              <div className="field">
+                <label htmlFor="instant-draft-room-title">
+                  Room name <span aria-hidden="true">Optional</span>
+                </label>
+                <input
+                  id="instant-draft-room-title"
+                  name="title"
+                  type="text"
+                  maxLength={160}
+                  autoComplete="off"
+                  value={draft.roomTitle}
+                  disabled={activating}
+                  placeholder="Instant workspace"
+                  aria-describedby="instant-draft-room-title-help"
+                  onChange={(event) => updateDraft({ roomTitle: event.target.value })}
+                />
+                <small id="instant-draft-room-title-help">
+                  Defaults to “Instant room”.
+                </small>
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="instant-draft-room-title">
-                Room name <span aria-hidden="true">Optional</span>
-              </label>
-              <input
-                id="instant-draft-room-title"
-                name="title"
-                type="text"
-                maxLength={160}
-                autoComplete="off"
-                value={draft.roomTitle}
+
+            <form className="instant-draft-composer" onSubmit={(event) => void sendMessage(event)}>
+              <label htmlFor="instant-draft-message">Optional first message</label>
+              <textarea
+                id="instant-draft-message"
+                value={message}
+                maxLength={10_000}
+                rows={2}
                 disabled={activating}
-                placeholder="Instant workspace"
-                aria-describedby="instant-draft-room-title-help"
-                onChange={(event) => updateDraft({ roomTitle: event.target.value })}
+                placeholder="Add a message to send when the room opens…"
+                onChange={(event) => setMessage(event.target.value)}
               />
-              <small id="instant-draft-room-title-help">
-                Defaults to “Instant room”.
-              </small>
-            </div>
-          </div>
+              <div>
+                <span>{elementCount} canvas {elementCount === 1 ? "object" : "objects"}</span>
+                <button className="button ghost" type="submit" disabled={!message.trim() || blocked}>
+                  <AppIcon name="send" /> Create &amp; send
+                </button>
+              </div>
+            </form>
 
-          <div className="instant-draft-chat-empty">
-            <span><AppIcon name="lock" /></span>
-            <strong>Nothing has been shared yet</strong>
-            <p>Write a message or select Share when you are ready to invite people.</p>
-          </div>
-
-          <form className="instant-draft-composer" onSubmit={(event) => void sendMessage(event)}>
-            <label className="sr-only" htmlFor="instant-draft-message">Message the room</label>
-            <textarea
-              id="instant-draft-message"
-              value={message}
-              maxLength={10_000}
-              rows={3}
-              disabled={activating}
-              placeholder="Message the room…"
-              onChange={(event) => setMessage(event.target.value)}
-            />
-            <div>
-              <span>{elementCount} canvas {elementCount === 1 ? "object" : "objects"}</span>
-              <button className="button primary" type="submit" disabled={!message.trim() || blocked}>
-                <AppIcon name="send" /> Send
+            {hasDraftWork && (
+              <button
+                className="instant-draft-clear"
+                type="button"
+                disabled={activating}
+                onClick={() => setShowClearConfirmation(true)}
+              >
+                Clear local draft
               </button>
-            </div>
-          </form>
+            )}
+          </div>
 
           <div className="instant-draft-live-actions">
             <button
-              className="button ghost full instant-draft-start"
+              ref={createRoomRef}
+              className="button primary full instant-draft-start"
               type="button"
               disabled={blocked}
               aria-disabled={blocked}
@@ -375,41 +385,47 @@ export function InstantWorkspaceDraft({
                   ? `Try again in ${retrySeconds}s`
                   : error
                     ? "Try again"
-                    : "Start instant room"}
+                    : "Create room"}
             </button>
-            <div
-              className="instant-draft-call-actions"
-              role="group"
-              aria-label="Start a call"
-              aria-describedby="instant-draft-call-guidance"
-            >
-              <button
-                className="button ghost"
-                type="button"
-                disabled={blocked || !mediaActionsAllowed}
-                onClick={() => void activate("audio-call")}
-              >
-                <AppIcon name="phone" />
-                Start audio call
-              </button>
-              <button
-                className="button ghost"
-                type="button"
-                disabled={blocked || !mediaActionsAllowed}
-                onClick={() => void activate("video-call")}
-              >
-                <AppIcon name="video" />
-                Start video call
-              </button>
-            </div>
-            <small id="instant-draft-call-guidance">
-              {mediaActionsAllowed
-                ? "K-Comms opens the room first, then lets you choose microphone and camera access before joining."
-                : "Calls become available after K-Comms verifies a trusted HTTPS connection."}
-            </small>
+            <small>Invite links, QR sharing, audio, and video appear inside the room.</small>
+            <Link className="instant-draft-account-link" to={identityManaged ? "/app/" : "/sign-in"}>
+              {identityManaged ? "Open your full workspace" : "Already have an account? Sign in"}
+            </Link>
           </div>
         </aside>
       </div>
+
+      {showClearConfirmation && (
+        <div className="instant-draft-dialog-backdrop">
+          <section
+            ref={clearDialogRef}
+            className="instant-draft-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="instant-draft-clear-title"
+            aria-describedby="instant-draft-clear-description"
+            tabIndex={-1}
+          >
+            <h2 id="instant-draft-clear-title">Clear this local draft?</h2>
+            <p id="instant-draft-clear-description">
+              The room name, unsent message, and canvas objects in this browser will be removed.
+            </p>
+            <div>
+              <button
+                data-initial-focus
+                className="button ghost"
+                type="button"
+                onClick={() => setShowClearConfirmation(false)}
+              >
+                Cancel
+              </button>
+              <button className="button danger" type="button" onClick={clearDraft}>
+                Clear local draft
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
