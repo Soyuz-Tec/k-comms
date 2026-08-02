@@ -61,6 +61,23 @@ export function CollaborativeWhiteboard({
       className={`whiteboard-room${compact ? " whiteboard-room-compact" : ""}`}
       aria-label={`Whiteboard for ${conversationTitle}`}
     >
+      {/*
+        The canvas is invisible to assistive technology: its contents are pixels,
+        not DOM, so a screen reader is handed an empty region no matter how well
+        the surrounding controls are labelled. This mirrors the scene as real
+        elements. It is not decoration, and it must not be removed to tidy the
+        markup.
+      */}
+      <section className="visually-hidden" aria-live="polite">
+        <h2>{`Whiteboard contents, ${collaboration.sceneSummary.length} object${collaboration.sceneSummary.length === 1 ? "" : "s"}`}</h2>
+        {collaboration.sceneSummary.length > 0 && (
+          <ul>
+            {collaboration.sceneSummary.map((object) => (
+              <li key={object.id}>{object.label}</li>
+            ))}
+          </ul>
+        )}
+      </section>
       <div className="whiteboard-statusbar" role="status">
         <span
           className={`connection-dot ${collaboration.connectionStatus}`}

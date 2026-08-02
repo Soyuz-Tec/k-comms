@@ -45,6 +45,18 @@ export interface WhiteboardOperationPage {
   };
 }
 
+/**
+ * One canvas object, described for assistive technology.
+ *
+ * The canvas itself exposes nothing to a screen reader — pixels carry no
+ * semantics — so the interface renders these as real DOM alongside it.
+ */
+export interface WhiteboardObjectSummary {
+  id: string;
+  type: string;
+  label: string;
+}
+
 export interface WhiteboardPresenceEvent {
   user_id: string;
   device_id: string;

@@ -13,6 +13,7 @@ import { socketEndpoint } from "../../realtime";
 import type {
   ConnectionStatus,
   WhiteboardElementData,
+  WhiteboardObjectSummary,
   WhiteboardOperation,
   WhiteboardOperationPage,
   WhiteboardPresenceEvent
@@ -104,6 +105,7 @@ export function useWhiteboardCollaboration(
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [collaboratorCount, setCollaboratorCount] = useState(0);
   const [elementCount, setElementCount] = useState(0);
+  const [sceneSummary, setSceneSummary] = useState<WhiteboardObjectSummary[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const persistence = useMemo(
     () =>
@@ -118,7 +120,10 @@ export function useWhiteboardCollaboration(
         clearedRevisions: clearedRevisionsRef,
         acceptOperation: (operation) =>
           applyRemoteOperationRef.current(operation),
-        onElementCount: setElementCount,
+        onElementCount: (count: number) => {
+          setElementCount(count);
+          setSceneSummary(summarizeScene(sceneRef.current));
+        },
         onSaveStatus: setSaveStatus,
         onError: setError,
         onReplayRequested: () =>
@@ -250,6 +255,7 @@ export function useWhiteboardCollaboration(
         clearedRevisionsRef.current.clear();
       }
       setElementCount(visibleElementCount(sceneRef.current));
+      setSceneSummary(summarizeScene(sceneRef.current));
       const restored = restoreElements(
         elements as never,
         editorRef.current?.getSceneElementsIncludingDeleted() ?? null
@@ -306,6 +312,7 @@ export function useWhiteboardCollaboration(
       const next = applyWhiteboardOperation(sceneRef.current, operation);
       sceneRef.current = next;
       setElementCount(visibleElementCount(next));
+      setSceneSummary(summarizeScene(next));
       if (operation.kind === "scene.update") {
         noteRevisions(revisionsRef.current, operation.payload.elements ?? []);
         for (const element of operation.payload.elements ?? []) {
@@ -522,6 +529,7 @@ export function useWhiteboardCollaboration(
     historyError,
     collaboratorCount,
     elementCount,
+    sceneSummary,
     attachEditor,
     handleEditorChange,
     selectedElementIds,
@@ -558,4 +566,39 @@ function collaboratorColor(userId: string): Collaborator["color"] {
 function visibleElementCount(scene: WhiteboardScene): number {
   return Array.from(scene.values()).filter((element) => element.isDeleted !== true)
     .length;
+}
+
+/**
+ * Describes the canvas for assistive technology.
+ *
+ * Canvas pixels carry no semantics, so a screen reader is handed an empty
+ * region no matter how well the surrounding controls are labelled. This mirrors
+ * the scene into text the interface can render as real DOM.
+ *
+ * Ordering follows the scene, which is paint order, so the description matches
+ * what a sighted collaborator is describing out loud.
+ */
+function summarizeScene(scene: WhiteboardScene): WhiteboardObjectSummary[] {
+  return Array.from(scene.values())
+    .filter((element) => element.isDeleted !== true)
+    .map((element, index) => {
+      const type = typeof element.type === "string" ? element.type : "object";
+      const text = typeof element.text === "string" ? element.text.trim() : "";
+      const position = describePosition(element);
+
+      return {
+        id: element.id,
+        type,
+        label: text
+          ? `${type} ${index + 1}, "${text}"${position}`
+          : `${type} ${index + 1}${position}`
+      };
+    });
+}
+
+function describePosition(element: WhiteboardElementData): string {
+  const x = element.x;
+  const y = element.y;
+  if (typeof x !== "number" || typeof y !== "number") return "";
+  return `, at ${Math.round(x)}, ${Math.round(y)}`;
 }

@@ -299,6 +299,27 @@ describe("useWhiteboardCollaboration", () => {
     );
   });
 
+  it("describes the canvas for assistive technology", async () => {
+    const labelled = { ...element("labelled-element", 1, 10), x: 12.4, y: 34.6 };
+
+    mocks.whiteboardOperations.mockResolvedValue({
+      data: [operation("described", [labelled], "scene.update", "user-two", 1)],
+      page: { has_more: false, next_after_sequence: 1 }
+    });
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    // Without this the canvas is an empty region to a screen reader, however
+    // well the surrounding controls are labelled.
+    await waitFor(() =>
+      expect(result.current.sceneSummary).toEqual([
+        { id: "labelled-element", type: "rectangle", label: "rectangle 1, at 12, 35" }
+      ])
+    );
+  });
+
   it("replays normally when the server returns no snapshot", async () => {
     const restored = element("restored-element", 2, 200);
 
