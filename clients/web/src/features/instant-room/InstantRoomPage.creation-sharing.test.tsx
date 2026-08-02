@@ -363,9 +363,11 @@ describe("InstantRoomPage", () => {
       within(screen.getByRole("dialog", { name: "Invite someone" }))
         .getByText(/available for 1 hour after everyone leaves/i)
     ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Invite someone" })
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Invite someone" })
+      ).toHaveFocus()
+    );
     await user.click(screen.getByRole("button", { name: "Show QR code" }));
     expect(screen.getByLabelText("Local QR")).toHaveTextContent(shareUrl);
     expect(uiHarness.qrValue).toBe(shareUrl);
