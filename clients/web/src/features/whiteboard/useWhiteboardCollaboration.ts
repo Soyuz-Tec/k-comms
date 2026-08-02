@@ -21,6 +21,7 @@ import {
   applyWhiteboardOperation,
   noteRevisions,
   replayWhiteboardOperations,
+  sceneFromElements,
   type WhiteboardScene
 } from "./sceneModel";
 import {
@@ -207,9 +208,21 @@ export function useWhiteboardCollaboration(
       const operations: WhiteboardOperation[] = [];
       let afterSequence = 0;
       let hasMore = true;
+      let base: WhiteboardScene = sceneRef.current;
+      let snapshotSequence = 0;
 
       while (current && hasMore) {
         const page = await api.whiteboardOperations(conversationId, afterSequence);
+
+        // Only the first page can carry one, and only for a fresh replay. It
+        // replaces the starting scene rather than adding to it: the server has
+        // already folded every operation up to through_sequence, so the page's
+        // operations continue from there.
+        if (page.snapshot) {
+          base = sceneFromElements(page.snapshot.elements);
+          snapshotSequence = page.snapshot.through_sequence;
+        }
+
         operations.push(...page.data);
         afterSequence = page.page.next_after_sequence;
         hasMore = page.page.has_more;
@@ -221,12 +234,12 @@ export function useWhiteboardCollaboration(
         ...bufferedOperationsRef.current
       ]);
       bufferedOperationsRef.current = [];
-      const replay = replayWhiteboardOperations(
-        all,
-        sceneRef.current
-      );
+      const replay = replayWhiteboardOperations(all, base);
       sceneRef.current = replay.scene;
-      latestSequenceRef.current = replay.latestSequence;
+      // A snapshot alone can leave no operations to replay, and the client must
+      // still know where it is. Losing this would make the next incremental
+      // fetch re-request history the snapshot already contains.
+      latestSequenceRef.current = Math.max(replay.latestSequence, snapshotSequence);
       operationQueueRef.current.clear();
       const elements = Array.from(replay.scene.values());
       if (replay.includesClear) {

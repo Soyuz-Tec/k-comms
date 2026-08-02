@@ -8,10 +8,12 @@ defmodule CommsWeb.WhiteboardController do
     with {:ok, page} <-
            Whiteboards.list_operations(conversation_id, conn.assigns.current_subject,
              after_sequence: params["after_sequence"] || 0,
-             limit: params["limit"] || 500
+             limit: params["limit"] || 500,
+             snapshot: truthy?(params["snapshot"])
            ) do
       json(conn, %{
         data: Enum.map(page.operations, &Presenter.whiteboard_operation/1),
+        snapshot: Presenter.whiteboard_snapshot(page.snapshot),
         page: %{
           has_more: page.has_more,
           next_after_sequence: page.next_after_sequence
@@ -19,6 +21,10 @@ defmodule CommsWeb.WhiteboardController do
       })
     end
   end
+
+  # Query parameters arrive as strings. Anything other than an explicit opt-in
+  # means the caller wants the full replay, which is always correct.
+  defp truthy?(value), do: value in [true, "true", "1"]
 
   def create(conn, %{"conversation_id" => conversation_id} = params) do
     with [idempotency_key] <- get_req_header(conn, "idempotency-key"),

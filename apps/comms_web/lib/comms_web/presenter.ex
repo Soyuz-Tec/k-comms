@@ -54,4 +54,5 @@ defmodule CommsWeb.Presenter do
   defdelegate attachment(value), to: ConversationContent
   defdelegate file(value), to: ConversationContent
   defdelegate whiteboard_operation(value), to: ConversationContent
+  defdelegate whiteboard_snapshot(value), to: ConversationContent
 end

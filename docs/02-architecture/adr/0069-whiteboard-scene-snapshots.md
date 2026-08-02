@@ -97,10 +97,9 @@ owner.
   conversation and a public instant room.
 - **Storage still grows with history.** Truncation is deferred, so this ADR
   addresses latency only.
-- **No client asks for a snapshot yet.** The server can serve one; the REST
-  contract and the web client have not been updated, so the product does not yet
-  benefit. That work is deliberately separated so the storage layer can land and
-  be observed on its own.
+- Both the member and guest clients now pass `snapshot=true` unconditionally.
+  They do not reason about when a snapshot is available; the server decides and
+  returns `null` when it is not, keeping that rule in one place.
 
 ### Operational consequences
 
@@ -124,15 +123,19 @@ behind the same `authorize_use_whiteboard/2` check as replay.
 - An incremental caller is never handed one.
 - A clear invalidates the snapshot rather than resurrecting the cleared scene.
 - A snapshot taken after a clear covers only the new generation.
-- Verified: 9/9 whiteboard core tests, 44 tests across core and web with no
-  regression in controller, channel, instant-room collaboration, or ephemeral
-  room suites.
+- Client tests cover starting from a snapshot and continuing with the operations
+  after it, a snapshot with no operations at all, replaying normally when the
+  field is absent, paint order surviving the snapshot, and a snapshot-plus-tail
+  producing the same scene as a full replay.
+- Verified: 9/9 whiteboard core tests, 27 backend tests across core and web with
+  no regression, 19 client tests, typecheck and lint clean, contract validation
+  passing across both OpenAPI mirrors.
 
 ## Revisit triggers
 
 - A retention policy for whiteboard history is agreed, enabling truncation.
-- The REST contract and client are updated to request snapshots, at which point
-  join latency should be measured against the pre-snapshot baseline.
+- Join latency is measured against the pre-snapshot baseline on a board with
+  substantial history, confirming the win in practice rather than by argument.
 - Boards routinely exceed the operation cap, suggesting the cap rather than the
   join is the binding constraint.
 - Snapshot rebuild cost becomes visible in append latency, suggesting the
