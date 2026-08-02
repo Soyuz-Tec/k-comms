@@ -25,6 +25,7 @@ test.describe("instant-room front door", () => {
         name: "Message. Draw. Share."
       });
       const canvas = page.getByLabel("Private drawing canvas");
+      const drawingSurface = page.getByTestId("k-comms-drawing-surface");
       const messagesTab = page.getByRole("button", {
         name: "Messages",
         exact: true
@@ -42,6 +43,12 @@ test.describe("instant-room front door", () => {
       await expect(landingHeading).toBeFocused();
       await expectContained(landingHeading, viewport);
       await expect(canvas).toBeVisible();
+      await expect(drawingSurface).not.toContainText(/Excalidraw/i);
+      await expect(
+        drawingSurface.locator(
+          'a[href*="excalidraw"], a[href*="discord.gg/UexuTaE"]'
+        )
+      ).toHaveCount(0);
       await expect(messagesTab).toBeVisible();
       await expect(messagesTab).toHaveAttribute("aria-pressed", "false");
       await expect(page.getByText("Private draft", { exact: true })).toBeHidden();
@@ -89,6 +96,48 @@ test.describe("instant-room front door", () => {
       await expect(signIn).toBeFocused();
     });
   }
+
+  test("keeps the drawing engine fully white-labeled", async ({
+    page
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the deterministic white-label interaction runs once in Chromium"
+    );
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await installInstantRoomFixture(page);
+
+    await page.goto("/");
+    const drawingSurface = page.getByTestId("k-comms-drawing-surface");
+    await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
+    await expect(drawingSurface).not.toContainText(/Excalidraw/i);
+    await expect(
+      drawingSurface.locator(
+        'a[href*="excalidraw"], a[href*="discord.gg/UexuTaE"]'
+      )
+    ).toHaveCount(0);
+    await expect(
+      drawingSurface.getByRole("button", { name: "Help" })
+    ).toHaveCount(0);
+    await expect(
+      drawingSurface.getByRole("checkbox", { name: /Library/i })
+    ).toHaveCount(0);
+
+    await drawingSurface.getByTestId("main-menu-trigger").click();
+    await expect(
+      drawingSurface.getByRole("button", { name: /mode$/i })
+    ).toBeVisible();
+    await expect(drawingSurface.getByText("Excalidraw links")).toHaveCount(0);
+    await expect(
+      drawingSurface.getByRole("link", { name: /GitHub|Discord|X/i })
+    ).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await drawingSurface
+      .locator("canvas.excalidraw__canvas.interactive")
+      .press("?");
+    await expect(page.getByRole("dialog", { name: "Help" })).toHaveCount(0);
+  });
 
   test("opens the complete invite dialog from one Share action", async ({
     page

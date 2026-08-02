@@ -1,11 +1,10 @@
-import { Excalidraw } from "@excalidraw/excalidraw";
-import "@excalidraw/excalidraw/index.css";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { AppIcon } from "../../components/AppIcon";
 import type { WhiteboardElementData } from "../../types";
+import { KCommsDrawingCanvas } from "../whiteboard/KCommsDrawingCanvas";
 import {
   defaultGuestDisplayName,
   loadInstantWorkspaceDraft,
@@ -253,7 +252,7 @@ export function InstantWorkspaceDraft({
               </button>
             </aside>
           )}
-          <Excalidraw
+          <KCommsDrawingCanvas
             initialData={{
               elements: draft.elements as never,
               appState: { name: draft.roomTitle || "K-Comms workspace" }
@@ -264,7 +263,6 @@ export function InstantWorkspaceDraft({
             onChange={updateElements}
             onLinkOpen={(_element, event) => event.preventDefault()}
             validateEmbeddable={false}
-            UIOptions={{ tools: { image: false } }}
           />
         </div>
 

@@ -181,7 +181,7 @@ async function mockWhiteboardWorkspace(page: Page) {
   return { operations, sentMessages, writes };
 }
 
-test("conversation whiteboard renders a usable responsive Excalidraw workspace", async ({
+test("conversation whiteboard renders a usable white-labeled drawing workspace", async ({
   page
 }) => {
   await mockWhiteboardWorkspace(page);
@@ -192,6 +192,14 @@ test("conversation whiteboard renders a usable responsive Excalidraw workspace",
   await expect(page.getByText("Offline editing", { exact: true })).toBeVisible();
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
+
+  const drawingSurface = page.getByTestId("k-comms-drawing-surface");
+  await expect(drawingSurface).not.toContainText(/Excalidraw/i);
+  await expect(
+    drawingSurface.locator(
+      'a[href*="excalidraw"], a[href*="discord.gg/UexuTaE"]'
+    )
+  ).toHaveCount(0);
 
   const canvas = page.locator("canvas.excalidraw__canvas.interactive");
   await expect(canvas).toHaveCount(1);

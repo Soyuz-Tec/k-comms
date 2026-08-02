@@ -1,5 +1,3 @@
-import { Excalidraw } from "@excalidraw/excalidraw";
-import "@excalidraw/excalidraw/index.css";
 import { useState } from "react";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
@@ -7,6 +5,7 @@ import {
   useWhiteboardCollaboration,
   type WhiteboardCollaborationOptions
 } from "./useWhiteboardCollaboration";
+import { KCommsDrawingCanvas } from "./KCommsDrawingCanvas";
 import "./whiteboard.css";
 
 export function CollaborativeWhiteboard({
@@ -150,7 +149,7 @@ export function CollaborativeWhiteboard({
         onKeyDownCapture={collaboration.armLocalChanges}
         onPointerDownCapture={collaboration.armLocalChanges}
       >
-        <Excalidraw
+        <KCommsDrawingCanvas
           initialData={{
             elements: collaboration.initialElements,
             appState: { name: `${conversationTitle} whiteboard` }
@@ -161,13 +160,6 @@ export function CollaborativeWhiteboard({
           onPointerUpdate={collaboration.sendPointerUpdate}
           onLinkOpen={(_element, event) => event.preventDefault()}
           validateEmbeddable={false}
-          UIOptions={{
-            canvasActions: {
-              loadScene: false,
-              saveToActiveFile: false
-            },
-            tools: { image: false }
-          }}
         />
       </div>
     </section>

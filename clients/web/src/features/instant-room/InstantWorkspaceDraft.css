@@ -102,7 +102,7 @@
   background: var(--surface-raised);
 }
 
-.instant-draft-canvas .excalidraw {
+.instant-draft-canvas .k-comms-drawing-surface {
   position: absolute;
   inset: 0;
 }

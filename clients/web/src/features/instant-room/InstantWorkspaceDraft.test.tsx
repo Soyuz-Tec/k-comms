@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InstantWorkspaceDraft } from "./InstantWorkspaceDraft";
 
-vi.mock("@excalidraw/excalidraw", () => ({
-  Excalidraw: ({
+vi.mock("../whiteboard/KCommsDrawingCanvas", () => ({
+  KCommsDrawingCanvas: ({
     initialData,
     onChange
   }: {
@@ -12,7 +12,7 @@ vi.mock("@excalidraw/excalidraw", () => ({
     onChange?: (elements: unknown[]) => void;
   }) => (
     <div
-      data-testid="draft-excalidraw"
+      data-testid="draft-drawing-surface"
       data-elements={initialData?.elements?.length || 0}
     >
       <button
@@ -148,7 +148,7 @@ describe("InstantWorkspaceDraft", () => {
     first.unmount();
     renderDraft();
 
-    expect(screen.getByTestId("draft-excalidraw")).toHaveAttribute(
+    expect(screen.getByTestId("draft-drawing-surface")).toHaveAttribute(
       "data-elements",
       "1"
     );
