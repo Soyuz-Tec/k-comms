@@ -69,5 +69,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0063 | Add conversation whiteboards through a replaceable Excalidraw adapter | Accepted |
 | 0064 | Make the protected Proxmox deployment runner portable | Accepted |
 | 0065 | Make instant rooms collaboration workspaces | Accepted |
+| 0066 | Allow local-first instant workspace drafts | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

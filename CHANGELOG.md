@@ -4,10 +4,10 @@
 
 ### Added
 
-- Added a responsive public product landing page for desktop and mobile web
-  visitors, with an embedded account-free instant-room launcher, current
-  collaboration capabilities, and explicit web/PWA versus native-app
-  availability labels.
+- Added a local-first instant workspace that opens directly into Excalidraw,
+  restores a private device-local draft, supplies an editable guest identity,
+  and promotes the scene and first message through the existing idempotent room
+  contracts only when the visitor sends, shares, or explicitly starts a room.
 
 ### Documentation
 
