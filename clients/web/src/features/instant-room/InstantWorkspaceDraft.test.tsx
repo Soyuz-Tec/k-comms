@@ -37,7 +37,11 @@ vi.mock("@excalidraw/excalidraw", () => ({
 
 function renderDraft(
   onActivate = vi.fn().mockResolvedValue(true),
-  options: { identityManaged?: boolean; initialDisplayName?: string } = {}
+  options: {
+    identityManaged?: boolean;
+    initialDisplayName?: string;
+    mediaActionsAllowed?: boolean;
+  } = {}
 ) {
   return {
     onActivate,
@@ -47,6 +51,7 @@ function renderDraft(
         error=""
         identityManaged={options.identityManaged ?? false}
         initialDisplayName={options.initialDisplayName}
+        mediaActionsAllowed={options.mediaActionsAllowed ?? true}
         retrySeconds={0}
         onActivate={onActivate}
       />
@@ -97,6 +102,37 @@ describe("InstantWorkspaceDraft", () => {
         whiteboardOperationId: expect.stringMatching(/^[0-9a-f-]{36}$/i)
       })
     );
+  });
+
+  it("promotes directly into audio or video call intent", async () => {
+    const user = userEvent.setup();
+    const { onActivate } = renderDraft();
+
+    await user.click(screen.getByRole("button", { name: "Start audio call" }));
+    await user.click(screen.getByRole("button", { name: "Start video call" }));
+
+    expect(onActivate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ intent: "audio-call" })
+    );
+    expect(onActivate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ intent: "video-call" })
+    );
+  });
+
+  it("keeps call creation unavailable until secure media is verified", () => {
+    renderDraft(vi.fn(), { mediaActionsAllowed: false });
+
+    expect(
+      screen.getByRole("button", { name: "Start audio call" })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Start video call" })
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/trusted HTTPS connection/i)
+    ).toBeVisible();
   });
 
   it("restores a private canvas draft after the component is reopened", async () => {

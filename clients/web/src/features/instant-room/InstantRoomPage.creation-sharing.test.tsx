@@ -19,7 +19,8 @@ const uiHarness = vi.hoisted(() => ({
   qrValue: "",
   shellRenders: 0,
   roomApis: [] as unknown[],
-  delegatedTicket: ""
+  delegatedTicket: "",
+  initialCallOnEntry: null as "audio" | "video" | null
 }));
 
 vi.mock("@excalidraw/excalidraw", () => ({
@@ -49,7 +50,8 @@ vi.mock("../guest/GuestAccessPage", () => ({
     onConverted,
     onLeave,
     roomBanner,
-    roomMenuInvite
+    roomMenuInvite,
+    initialCallOnEntry
   }: {
     api: { socketTicket: () => Promise<{ ticket: string; expires_in: number }> };
     initialSession: GuestSession;
@@ -57,14 +59,19 @@ vi.mock("../guest/GuestAccessPage", () => ({
     onLeave: () => void;
     roomBanner?: React.ReactNode | ((participantCount: number) => React.ReactNode);
     roomMenuInvite?: React.ReactNode | ((participantCount: number) => React.ReactNode);
+    initialCallOnEntry?: "audio" | "video" | null;
   }) => {
     const [roomMenuOpen, setRoomMenuOpen] = useState(false);
     uiHarness.shellRenders += 1;
     uiHarness.roomApis.push(api);
+    uiHarness.initialCallOnEntry = initialCallOnEntry || null;
     return (
       <main>
         <h1>Live room</h1>
         <span>{initialSession.user.account_type}</span>
+        {initialCallOnEntry && (
+          <span aria-label="Initial call request">{initialCallOnEntry}</span>
+        )}
         {initialSession.capabilities.self_service_conversion === true && (
           <span>Account creation available</span>
         )}
@@ -246,6 +253,7 @@ describe("InstantRoomPage", () => {
     uiHarness.shellRenders = 0;
     uiHarness.roomApis = [];
     uiHarness.delegatedTicket = "";
+    uiHarness.initialCallOnEntry = null;
     vi.spyOn(ApiClient.prototype, "status").mockResolvedValue({
       service: "k-comms",
       version: "test",
@@ -349,6 +357,32 @@ describe("InstantRoomPage", () => {
       ).toHaveFocus()
     );
   });
+
+  it.each([
+    ["audio", "Start audio call"],
+    ["video", "Start video call"]
+  ] as const)(
+    "creates once and carries the %s call intent into the live room",
+    async (kind, actionName) => {
+      const user = userEvent.setup();
+      const create = vi
+        .spyOn(ApiClient.prototype, "createInstantRoom")
+        .mockResolvedValue(result);
+
+      renderPage();
+      const action = screen.getByRole("button", { name: actionName });
+      await waitFor(() => expect(action).toBeEnabled());
+      await user.click(action);
+
+      expect(await screen.findByRole("heading", { name: "Live room" }))
+        .toBeVisible();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText("Initial call request")).toHaveTextContent(
+        kind
+      );
+      expect(uiHarness.initialCallOnEntry).toBe(kind);
+    }
+  );
 
   it("creates once under StrictMode, enters the room and shares the exact server URL", async () => {
     const user = userEvent.setup();

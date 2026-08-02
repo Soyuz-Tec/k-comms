@@ -288,6 +288,29 @@
   font-size: 0.74rem;
 }
 
+.instant-draft-live-actions,
+.instant-draft-call-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.instant-draft-call-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.instant-draft-call-actions .button {
+  min-height: 44px;
+  justify-content: center;
+  padding-inline: 8px;
+}
+
+.instant-draft-live-actions > small {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .instant-draft-mobile-tabs {
   display: none;
 }
@@ -384,6 +407,10 @@
 
   .instant-draft-actions .button.primary {
     padding-inline: 12px;
+  }
+
+  .instant-draft-call-actions {
+    grid-template-columns: 1fr;
   }
 
   .instant-draft-canvas,
