@@ -31,4 +31,8 @@ defmodule CommsCore.Whiteboards do
   @doc "Contributes whiteboard erasure to an existing governance transaction."
   defdelegate erase_for_governance(tenant_id, target_type, target_id, timestamp),
     to: Erasure
+
+  @doc "Contributes board reclamation to an expiring instant room's transaction."
+  defdelegate discard_for_expired_room(tenant_id, conversation_id, timestamp),
+    to: Erasure
 end

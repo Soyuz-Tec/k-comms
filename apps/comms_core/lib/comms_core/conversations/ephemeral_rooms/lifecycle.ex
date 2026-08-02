@@ -3,7 +3,7 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
 
   import Ecto.Query
 
-  alias CommsCore.{Accounts, Repo}
+  alias CommsCore.{Accounts, Repo, Whiteboards}
 
   alias CommsCore.Conversations.{
     Conversation,
@@ -294,6 +294,21 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
       {:error, reason} -> Repo.rollback(reason)
     end
 
+    # Reclaimed here, in the same transaction that ends every path to the board.
+    # Archiving alone only makes it unreachable: the rows survive, retention only
+    # ages messages, and governance erasure needs a deletion request nobody
+    # files for an abandoned room. An instant room's board is working canvas,
+    # not a durable document, so expiry is the end of its life.
+    discarded =
+      case Whiteboards.discard_for_expired_room(
+             room.tenant_id,
+             room.conversation_id,
+             timestamp
+           ) do
+        {:ok, result} -> result
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
     expired =
       room
       |> EphemeralRoom.changeset(%{
@@ -309,7 +324,12 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
       expired,
       "ephemeral_room.expired.v1",
       nil,
-      %{conversation_id: archived.id, generation: expired.generation},
+      %{
+        conversation_id: archived.id,
+        generation: expired.generation,
+        whiteboards_discarded: discarded.whiteboards_deleted,
+        whiteboard_operations_discarded: discarded.whiteboard_operations_deleted
+      },
       "ephemeral-room-expiry:#{expired.id}:#{expired.generation}"
     )
 

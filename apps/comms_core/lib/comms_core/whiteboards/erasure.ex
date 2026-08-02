@@ -42,6 +42,46 @@ defmodule CommsCore.Whiteboards.Erasure do
 
   def erase_for_governance(_, _, _, _), do: {:error, :invalid_erasure_scope}
 
+  @doc """
+  Reclaims an expired instant room's board inside the expiry transaction.
+
+  Mechanically identical to conversation governance erasure, deliberately named
+  and specified apart from it. Governance erasure answers a legal deletion
+  request and carries its own audit evidence; this answers room expiry and is an
+  ordinary lifecycle reclamation. Sharing one entry point would make audit
+  queries unable to tell a compliance deletion from a routine one.
+
+  Safe only for ephemeral rooms, whose access authority has already ended by the
+  time this runs. A durable conversation's board is a persistent document and
+  must never reach here.
+  """
+  @spec discard_for_expired_room(Ecto.UUID.t(), Ecto.UUID.t(), DateTime.t()) ::
+          {:ok,
+           %{
+             whiteboards_deleted: non_neg_integer(),
+             whiteboard_operations_deleted: non_neg_integer(),
+             whiteboard_operations_neutralized: non_neg_integer()
+           }}
+          | {:error, :invalid_erasure_scope | :transaction_required}
+  def discard_for_expired_room(tenant_id, conversation_id, %DateTime{})
+      when is_binary(tenant_id) and is_binary(conversation_id) do
+    if Repo.in_transaction?() do
+      with {:ok, tenant_id} <- Ecto.UUID.cast(tenant_id),
+           {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id) do
+        erase(tenant_id, :conversation, conversation_id)
+      else
+        _ -> {:error, :invalid_erasure_scope}
+      end
+    else
+      # The board must disappear in the same transaction that ends access.
+      # Reclaiming afterwards leaves a window where the rows outlive the
+      # authority to read them, and a crash in that window leaks them forever.
+      {:error, :transaction_required}
+    end
+  end
+
+  def discard_for_expired_room(_, _, _), do: {:error, :invalid_erasure_scope}
+
   defp erase(tenant_id, :conversation, conversation_id) do
     {operations_deleted, _} =
       Repo.delete_all(

@@ -71,5 +71,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0065 | Make instant rooms collaboration workspaces | Accepted |
 | 0066 | Allow local-first instant workspace drafts | Accepted |
 | 0067 | Add durable messaging receipts and authorized call collaboration controls | Accepted |
+| 0068 | Reclaim an instant room's whiteboard when the room expires | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -10,8 +10,11 @@ defmodule CommsCore.Conversations.EphemeralRooms.LifecycleTest do
     Conversations,
     Messaging,
     Repo,
-    RuntimePorts
+    RuntimePorts,
+    Whiteboards
   }
+
+  alias CommsCore.Whiteboards.{Operation, Whiteboard}
 
   alias CommsCore.Conversations.{
     Conversation,
@@ -40,6 +43,110 @@ defmodule CommsCore.Conversations.EphemeralRooms.LifecycleTest do
 
   @tag :presence
   @tag :concurrency
+  test "expiry reclaims the room's whiteboard instead of only archiving it" do
+    account = Fixtures.account_fixture()
+
+    assert {:ok, created} =
+             Conversations.create_ephemeral_room(
+               guest_create_attrs(account.tenant.id, secret()),
+               :guest
+             )
+
+    subject = guest_subject(created)
+
+    assert {:ok, _operation, :created} =
+             Whiteboards.append_operation(
+               created.conversation.id,
+               %{
+                 client_operation_id: "expiry-board-operation",
+                 kind: "scene.update",
+                 payload: %{"elements" => [whiteboard_element()]}
+               },
+               subject
+             )
+
+    assert Repo.aggregate(Whiteboard, :count) == 1
+    assert Repo.aggregate(Operation, :count) == 1
+
+    expired_at =
+      DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:microsecond)
+
+    Repo.update_all(
+      from(room in EphemeralRoom, where: room.id == ^created.room.id),
+      set: [
+        status: :idle,
+        idle_since: DateTime.add(expired_at, -120, :second),
+        expires_at: expired_at
+      ]
+    )
+
+    lifecycle = RuntimePorts.job_worker!(:ephemeral_room_lifecycle)
+    generation = Repo.get!(EphemeralRoom, created.room.id).generation
+
+    assert {:ok, :expired} =
+             Conversations.expire_ephemeral_room(
+               created.room.id,
+               generation,
+               lifecycle
+             )
+
+    # Archiving alone leaves the rows behind forever: retention only ages
+    # messages, and governance erasure waits for a deletion request nobody files
+    # for an abandoned public room.
+    assert Repo.aggregate(Whiteboard, :count) == 0
+    assert Repo.aggregate(Operation, :count) == 0
+
+    assert %Conversation{archived_at: %DateTime{}} =
+             Repo.get!(Conversation, created.conversation.id)
+  end
+
+  test "expiry leaves other tenants' boards untouched" do
+    account = Fixtures.account_fixture()
+    bystander = Fixtures.account_fixture()
+    bystander_subject = Fixtures.subject(bystander)
+
+    assert {:ok, _operation, :created} =
+             Whiteboards.append_operation(
+               bystander.conversation.id,
+               %{
+                 client_operation_id: "bystander-operation",
+                 kind: "scene.update",
+                 payload: %{"elements" => [whiteboard_element()]}
+               },
+               bystander_subject
+             )
+
+    assert {:ok, created} =
+             Conversations.create_ephemeral_room(
+               guest_create_attrs(account.tenant.id, secret()),
+               :guest
+             )
+
+    expired_at =
+      DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:microsecond)
+
+    Repo.update_all(
+      from(room in EphemeralRoom, where: room.id == ^created.room.id),
+      set: [
+        status: :idle,
+        idle_since: DateTime.add(expired_at, -120, :second),
+        expires_at: expired_at
+      ]
+    )
+
+    assert {:ok, :expired} =
+             Conversations.expire_ephemeral_room(
+               created.room.id,
+               Repo.get!(EphemeralRoom, created.room.id).generation,
+               RuntimePorts.job_worker!(:ephemeral_room_lifecycle)
+             )
+
+    # Reclamation is scoped by tenant and conversation. A wildcard delete here
+    # would silently destroy durable boards belonging to unrelated tenants.
+    assert Repo.aggregate(Whiteboard, :count) == 1
+    assert Repo.aggregate(Operation, :count) == 1
+  end
+
   test "presence leases reactivate, reconcile with generation fencing, and expire atomically" do
     account = Fixtures.account_fixture()
 
@@ -357,5 +464,21 @@ defmodule CommsCore.Conversations.EphemeralRooms.LifecycleTest do
 
     assert %Oban.Job{state: "scheduled", scheduled_at: scheduled_at} = Repo.one!(lifecycle_jobs)
     assert DateTime.compare(scheduled_at, expires_at) == :eq
+  end
+
+  defp whiteboard_element do
+    %{
+      "id" => "expiry-element",
+      "type" => "rectangle",
+      "version" => 1,
+      "versionNonce" => 42,
+      "link" => nil,
+      "customData" => nil,
+      "x" => 10,
+      "y" => 20,
+      "width" => 100,
+      "height" => 80,
+      "isDeleted" => false
+    }
   end
 end
