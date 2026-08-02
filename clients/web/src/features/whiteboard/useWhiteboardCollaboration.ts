@@ -6,12 +6,14 @@ import type {
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../app/session";
-import { useWorkspaceData } from "../../app/workspace-data";
+import { useOptionalWorkspaceData } from "../../app/workspace-data";
 import { errorText } from "../../lib/format";
 import { socketEndpoint } from "../../realtime";
 import type {
   ConnectionStatus,
+  WhiteboardElementData,
   WhiteboardOperation,
+  WhiteboardOperationPage,
   WhiteboardPresenceEvent
 } from "../../types";
 import {
@@ -32,11 +34,42 @@ type PointerUpdate = {
   button: "up" | "down";
 };
 
-export function useWhiteboardCollaboration(conversationId: string) {
-  const { api, session } = useSession();
-  const sessionUserId = session?.user.id;
-  const sessionDeviceId = session?.device.id;
-  const { users } = useWorkspaceData();
+export interface WhiteboardCollaborationApi {
+  socketTicket(): Promise<{ ticket: string; expires_in: number }>;
+  whiteboardOperations(
+    conversationId: string,
+    afterSequence?: number,
+    limit?: number
+  ): Promise<WhiteboardOperationPage>;
+  appendWhiteboardSceneUpdate(
+    conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation>;
+  clearWhiteboard(
+    conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation>;
+}
+
+export interface WhiteboardCollaborationOptions {
+  api: WhiteboardCollaborationApi;
+  userId: string;
+  deviceId: string;
+  users: ReadonlyArray<{ id: string; display_name: string }>;
+}
+
+export function useWhiteboardCollaboration(
+  conversationId: string,
+  options?: WhiteboardCollaborationOptions
+) {
+  const sessionContext = useSession();
+  const workspaceData = useOptionalWorkspaceData();
+  const api = options?.api ?? sessionContext.api;
+  const sessionUserId = options?.userId ?? sessionContext.session?.user.id;
+  const sessionDeviceId = options?.deviceId ?? sessionContext.session?.device.id;
+  const users = options?.users ?? workspaceData?.users ?? [];
   const editorRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const editorAttachFrameRef = useRef<number | null>(null);
   const remoteApplyFrameRef = useRef<number | null>(null);

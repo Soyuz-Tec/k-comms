@@ -576,6 +576,7 @@ export function InstantRoomPage() {
       initialPresenceCount={1}
       roomBanner={shareBanner}
       roomMenuInvite={shareMenu}
+      whiteboardEnabled
       onAccessEnded={() => {
         clearMemberInstantRoomContinuity();
         storeGuestSession(null);

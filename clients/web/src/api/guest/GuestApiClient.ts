@@ -11,7 +11,10 @@ import type {
   ListResponse,
   Message,
   MessagePage,
-  RetainedSenderLabel
+  RetainedSenderLabel,
+  WhiteboardElementData,
+  WhiteboardOperation,
+  WhiteboardOperationPage
 } from "../../types";
 import type { ApiRequestOptions, SendMessageInput } from "../contracts";
 import { ApiError, retryAfterSeconds } from "../errors";
@@ -166,6 +169,54 @@ export class GuestApiClient {
       method: "PUT",
       body: JSON.stringify({ sequence })
     });
+  }
+
+  whiteboardOperations(
+    _conversationId: string,
+    afterSequence = 0,
+    limit = 500
+  ): Promise<WhiteboardOperationPage> {
+    const query = new URLSearchParams({
+      after_sequence: String(Math.max(0, afterSequence)),
+      limit: String(Math.max(1, Math.min(limit, 500)))
+    });
+    return this.request(
+      `/api/v1/guest/conversation/whiteboard/operations?${query.toString()}`
+    );
+  }
+
+  appendWhiteboardSceneUpdate(
+    _conversationId: string,
+    clientOperationId: string,
+    baseSequence: number,
+    elements: WhiteboardElementData[]
+  ): Promise<WhiteboardOperation> {
+    return this.request<DataResponse<WhiteboardOperation>>(
+      "/api/v1/guest/conversation/whiteboard/operations",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": clientOperationId },
+        body: JSON.stringify({
+          kind: "scene.update",
+          base_sequence: Math.max(0, baseSequence),
+          payload: { elements }
+        })
+      }
+    ).then((response) => response.data);
+  }
+
+  clearWhiteboard(
+    _conversationId: string,
+    clientOperationId: string
+  ): Promise<WhiteboardOperation> {
+    return this.request<DataResponse<WhiteboardOperation>>(
+      "/api/v1/guest/conversation/whiteboard/operations",
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": clientOperationId },
+        body: JSON.stringify({ kind: "board.clear", payload: {} })
+      }
+    ).then((response) => response.data);
   }
 
   socketTicket(): Promise<{ ticket: string; expires_in: number }> {

@@ -243,3 +243,7 @@ export function useWorkspaceData(): WorkspaceDataValue {
   if (!value) throw new Error("useWorkspaceData must be used within WorkspaceDataProvider");
   return value;
 }
+
+export function useOptionalWorkspaceData(): WorkspaceDataValue | null {
+  return useContext(WorkspaceDataContext);
+}

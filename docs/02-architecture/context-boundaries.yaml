@@ -6,7 +6,13 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: instant-room-whiteboard-uses-distributed-public-rate-limit
+      previous_manifest_sha256: e99bdbc69a313774d8c39d1fbdb40de6b7aa207b39959022f6de083880f179f9
+      approved_changes:
+        - 'technical_interfaces:web-distributed-public-rate-limit:callers:add:"CommsWeb.InstantRoomWhiteboardRateLimit"'
+      adr: docs/02-architecture/adr/0065-instant-room-collaboration-workspaces.md
+      removal_condition: Remove after this exact declaration lands on the protected base branch.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -711,7 +717,7 @@ technical_interfaces:
   - id: web-distributed-public-rate-limit
     owner: platform_runtime
     interface: CommsCore.PlatformRateLimits
-    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.Plugs.DistributedRateLimit]
+    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
     operations:
       - {name: "allow?", arity: 4}
     dispatch: direct

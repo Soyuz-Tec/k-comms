@@ -1,11 +1,7 @@
-import { Excalidraw } from "@excalidraw/excalidraw";
-import "@excalidraw/excalidraw/index.css";
-import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
-import { useWhiteboardCollaboration } from "./useWhiteboardCollaboration";
-import "./whiteboard.css";
+import { CollaborativeWhiteboard } from "./CollaborativeWhiteboard";
 
 export function WhiteboardPage() {
   const { conversations, loading } = useWorkspaceData();
@@ -56,7 +52,7 @@ export function WhiteboardPage() {
       </header>
 
       {activeConversation ? (
-        <WhiteboardRoom
+        <CollaborativeWhiteboard
           key={activeConversation.id}
           conversationId={activeConversation.id}
           conversationTitle={activeConversation.title || "Untitled conversation"}
@@ -69,147 +65,5 @@ export function WhiteboardPage() {
         </section>
       )}
     </main>
-  );
-}
-
-function WhiteboardRoom({
-  conversationId,
-  conversationTitle
-}: {
-  conversationId: string;
-  conversationTitle: string;
-}) {
-  const [confirmClear, setConfirmClear] = useState(false);
-  const collaboration = useWhiteboardCollaboration(conversationId);
-
-  if (collaboration.initialElements === null) {
-    if (collaboration.historyError) {
-      return (
-        <section className="whiteboard-loading whiteboard-load-error" role="alert">
-          <AppIcon name="triangleAlert" />
-          <h2>We couldn’t restore this whiteboard</h2>
-          <p>{collaboration.historyError}</p>
-          <button
-            className="button primary"
-            type="button"
-            onClick={collaboration.retryHistory}
-          >
-            Try again
-          </button>
-        </section>
-      );
-    }
-    return (
-      <section className="whiteboard-loading" aria-busy="true">
-        <span className="spinner" aria-hidden="true" />
-        <p>Restoring durable board history…</p>
-      </section>
-    );
-  }
-
-  return (
-    <section
-      className="whiteboard-room"
-      aria-label={`Whiteboard for ${conversationTitle}`}
-    >
-      <div className="whiteboard-statusbar" role="status">
-        <span
-          className={`connection-dot ${collaboration.connectionStatus}`}
-          aria-hidden="true"
-        />
-        <strong>
-          {collaboration.connectionStatus === "live"
-            ? "Live collaboration"
-            : collaboration.connectionStatus === "offline"
-              ? "Offline editing"
-              : "Reconnecting"}
-        </strong>
-        <span>{collaboration.collaboratorCount + 1} active</span>
-        <span>
-          {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
-        </span>
-        <span>
-          {collaboration.saveStatus === "saved"
-            ? "All changes saved"
-            : collaboration.saveStatus === "saving"
-              ? "Saving…"
-              : "Save needs attention"}
-        </span>
-        <button
-          className="button ghost compact"
-          type="button"
-          onClick={() => setConfirmClear(true)}
-        >
-          <AppIcon name="trash" /> Clear board
-        </button>
-      </div>
-
-      {collaboration.error && (
-        <div className="whiteboard-error" role="alert">
-          {collaboration.error}
-        </div>
-      )}
-
-      {confirmClear && (
-        <div
-          className="whiteboard-confirm"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="whiteboard-clear-title"
-        >
-          <h2 id="whiteboard-clear-title">Clear this shared whiteboard?</h2>
-          <p>
-            Everyone in this conversation will see a blank board. Earlier operations
-            remain in the durable board history.
-          </p>
-          <div>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setConfirmClear(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="button danger"
-              type="button"
-              onClick={() => {
-                setConfirmClear(false);
-                void collaboration.clearBoard();
-              }}
-            >
-              Clear for everyone
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div
-        className="whiteboard-canvas"
-        data-testid="whiteboard-canvas"
-        onKeyDownCapture={collaboration.armLocalChanges}
-        onPointerDownCapture={collaboration.armLocalChanges}
-      >
-        <Excalidraw
-          initialData={{
-            elements: collaboration.initialElements,
-            appState: { name: `${conversationTitle} whiteboard` }
-          }}
-          excalidrawAPI={collaboration.attachEditor}
-          isCollaborating
-          onChange={collaboration.handleEditorChange}
-          onPointerUpdate={collaboration.sendPointerUpdate}
-          onLinkOpen={(_element, event) => event.preventDefault()}
-          validateEmbeddable={false}
-          UIOptions={{
-            canvasActions: {
-              loadScene: false,
-              saveToActiveFile: false
-            },
-            tools: { image: false }
-          }}
-        />
-      </div>
-    </section>
   );
 }

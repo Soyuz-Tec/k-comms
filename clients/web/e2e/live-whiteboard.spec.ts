@@ -65,7 +65,7 @@ test.describe("live collaborative whiteboard", () => {
 
       await expect(firstPage.getByText("1 object", { exact: true })).toBeVisible();
       await expect(secondPage.getByText("1 object", { exact: true })).toBeVisible();
-      await expect(firstPage.getByText("All changes saved", { exact: true })).toBeVisible();
+      await expect(firstPage.getByText("Saved", { exact: true })).toBeVisible();
       await expect.poll(
         () => operationCount(request, conversation.id, secondSession),
         { timeout: 10_000 }

@@ -19,3 +19,4 @@
 | Retrospectively accept the full PR #16 endgame scope | ADR-0044 | Accepted | 2026-07-18 | Production promotion of the integrated migration set or a similarly broad merge proposal |
 | Harden zero-baseline architecture assurance | ADR-0045 | Accepted | 2026-07-18 | A new persistence write shape, migration exception, manifest permission, or adapter-facing operation category |
 | Conversation guest links and convertible guest identities | ADR-0049 | Accepted | 2026-07-24 | Wider guest capabilities, longer expiry, guest files/search, tenant-wide guest policy, or independently deployable guest access |
+| Instant-room collaboration workspaces | ADR-0065 | Accepted | 2026-08-01 | Durable-conversation guest boards, images/embeds, offline merge, service automation, or independent scale |

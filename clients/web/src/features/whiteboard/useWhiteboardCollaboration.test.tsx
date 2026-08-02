@@ -47,7 +47,7 @@ vi.mock("../../app/session", () => ({
 }));
 
 vi.mock("../../app/workspace-data", () => ({
-  useWorkspaceData: () => ({
+  useOptionalWorkspaceData: () => ({
     users: [{ id: "user-two", display_name: "Second collaborator" }]
   })
 }));

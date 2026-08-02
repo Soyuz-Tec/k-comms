@@ -22,7 +22,7 @@ test.describe("instant-room front door", () => {
       await page.goto("/");
 
       const landingHeading = page.getByRole("heading", {
-        name: "One place to talk, meet, and make."
+        name: "Message. Draw. Share."
       });
       const roomHeading = page.getByRole("heading", {
         name: "Start an instant room"
@@ -41,8 +41,6 @@ test.describe("instant-room front door", () => {
       await expectContained(landingHeading, viewport);
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("link", { name: "Start a room" }).click();
-      await expect(roomHeading).toBeFocused();
       await expect(displayName).toBeVisible();
       await expect(roomName).toBeVisible();
       await expect(start).toBeVisible();
@@ -291,6 +289,7 @@ test.describe("instant-room front door", () => {
     await expect(page.getByRole("list", { name: "Room participants" })).toHaveCount(0);
 
     await expectLargeCenteredCallLaunchers(page, { width: 320, height: 700 });
+    await page.getByRole("button", { name: "Messages" }).click();
     const composer = page.getByRole("textbox", { name: "Message" });
     const send = page.getByRole("button", { name: "Send" });
     await expect(composer).toBeVisible();
@@ -364,6 +363,9 @@ test.describe("instant-room front door", () => {
         name: "Participants",
         exact: true
       });
+      if (viewport.width <= 520) {
+        await page.getByRole("button", { name: "Messages" }).click();
+      }
       const controls = [
         menuTrigger,
         participantToggle,

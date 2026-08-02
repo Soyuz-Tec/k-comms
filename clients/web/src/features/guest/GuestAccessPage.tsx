@@ -18,6 +18,7 @@ import {
 import {
   beginNewInstantRoomVisit
 } from "../instant-room/idempotency";
+import { InstantRoomSharePanel } from "../instant-room/InstantRoomSharePanel";
 import {
   capturedInstantRoomShareUrl,
   clearMemberInstantRoomContinuity,
@@ -230,6 +231,19 @@ export function GuestAccessPage() {
   }
 
   if (activeRoomSession) {
+    const sharePanel =
+      activeRoomSession.instant_room && activeRoomSession.share_url
+        ? (placement: "banner" | "menu") => (participantCount: number) => (
+            <InstantRoomSharePanel
+              placement={placement}
+              room={activeRoomSession.instant_room!}
+              shareUrl={activeRoomSession.share_url!}
+              title={activeRoomSession.conversation.title || "Instant room"}
+              participantCount={participantCount}
+            />
+          )
+        : null;
+
     return (
       <GuestShell
         api={roomApi}
@@ -239,6 +253,9 @@ export function GuestAccessPage() {
         identityLabel={
           activeRoomSession.user.account_type === "guest" ? "Guest" : "Member"
         }
+        roomBanner={sharePanel?.("banner")}
+        roomMenuInvite={sharePanel?.("menu")}
+        whiteboardEnabled={Boolean(activeRoomSession.instant_room)}
         onAccessEnded={() => {
           clearMemberInstantRoomContinuity();
           if (continuedSession || accountSession) {

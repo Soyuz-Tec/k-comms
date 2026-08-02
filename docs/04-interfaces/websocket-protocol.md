@@ -17,12 +17,18 @@ command and outbound event. Revocation disconnects the session socket.
 ```text
 user:<user_id>
 conversation:<conversation_id>
+whiteboard:<conversation_id>
 ```
 
 Only the authenticated user may join `user:<user_id>`. That topic carries
 content-free conversation activity/membership and notification-availability
 signals for inbox refresh. It does not carry message or notification bodies.
 Conversation topics require active membership.
+Whiteboard topics require current whiteboard authorization. Workspace humans
+must hold active membership. A conversation-only human or guest must hold an
+active membership in that exact active or idle instant room; an ordinary guest
+link is denied. The server rechecks this boundary on join, inbound pointer or
+selection commands, and outbound event interception.
 
 ## Join payload
 
@@ -79,6 +85,12 @@ capability. Clients reconcile through `GET
 /api/v1/conversations/{conversation_id}/call`; they never exchange provider
 credentials, participant state, camera/screen state, SDP, ICE, RTP, or SRTP over
 Phoenix.
+
+The whiteboard topic carries durable `whiteboard.operation_applied.v1` notices
+and ephemeral bounded `whiteboard.presence.v1` pointer/selection state. Clients
+replay canonical operations over their authorized member or server-scoped guest
+REST route after reconnect or a sequence gap. Phoenix does not own scene
+durability, canonical ordering, or authorization state.
 
 ## Rules
 

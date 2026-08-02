@@ -224,7 +224,7 @@ test("instant-room entry and empty-name guidance satisfy automated WCAG A and AA
   await page.goto("/");
 
   const heading = page.getByRole("heading", {
-    name: "One place to talk, meet, and make."
+    name: "Message. Draw. Share."
   });
   const displayName = page.getByRole("textbox", {
     name: "Your display name"

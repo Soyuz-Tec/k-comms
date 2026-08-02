@@ -112,6 +112,65 @@ describe("guest communication API", () => {
     );
   });
 
+  it("keeps guest whiteboard replay and writes scoped to the admitted room", async () => {
+    const operation = {
+      id: "operation-1",
+      tenant_id: "tenant-1",
+      conversation_id: "conversation-1",
+      actor_user_id: "guest-1",
+      client_operation_id: "canvas-operation-0001",
+      sequence: 1,
+      generation: 1,
+      kind: "scene.update" as const,
+      payload: { elements: [] },
+      inserted_at: "2026-08-01T12:00:00Z"
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [operation],
+        page: { has_more: false, next_after_sequence: 1 }
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: operation }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { ...operation, id: "operation-2", kind: "board.clear" }
+      }), { status: 201, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = new GuestApiClient("https://comms.test", guestSession, vi.fn());
+
+    await api.whiteboardOperations("caller-controlled-room", 7, 900);
+    await api.appendWhiteboardSceneUpdate(
+      "caller-controlled-room",
+      "canvas-operation-0001",
+      7,
+      []
+    );
+    await api.clearWhiteboard(
+      "caller-controlled-room",
+      "canvas-operation-0002"
+    );
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://comms.test/api/v1/guest/conversation/whiteboard/operations?after_sequence=7&limit=500",
+      "https://comms.test/api/v1/guest/conversation/whiteboard/operations",
+      "https://comms.test/api/v1/guest/conversation/whiteboard/operations"
+    ]);
+    expect(fetchMock.mock.calls.every(([, options]) =>
+      new Headers(options?.headers).get("Authorization") === "Bearer guest-access"
+    )).toBe(true);
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("Idempotency-Key"))
+      .toBe("canvas-operation-0001");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      kind: "scene.update",
+      base_sequence: 7,
+      payload: { elements: [] }
+    });
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("caller-controlled-room");
+  });
+
   it("refreshes rendered sender labels through bounded member and guest batches", async () => {
     const messageIds = Array.from(
       { length: 201 },

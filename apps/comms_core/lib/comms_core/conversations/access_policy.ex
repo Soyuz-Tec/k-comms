@@ -4,7 +4,7 @@ defmodule CommsCore.Conversations.AccessPolicy do
   import Ecto.Query
 
   alias CommsCore.{Accounts, Administration, Repo, ServiceAccounts}
-  alias CommsCore.Conversations.{AvailabilityQuery, Conversation, Membership}
+  alias CommsCore.Conversations.{AvailabilityQuery, Conversation, EphemeralRoom, Membership}
 
   def authorize_service_access(subject, required_scope, conversation_id)
       when is_map(subject) and is_binary(required_scope) and is_binary(conversation_id) do
@@ -69,6 +69,10 @@ defmodule CommsCore.Conversations.AccessPolicy do
     case Accounts.access_grant(subject) do
       {:ok, %{account_type: :human, access_scope: :workspace}} ->
         authorize_active_membership(conversation_id, subject)
+
+      {:ok, %{account_type: account_type, access_scope: :conversation_only} = grant}
+      when account_type in [:guest, :human] ->
+        authorize_active_ephemeral_membership(conversation_id, grant)
 
       _ ->
         {:error, :forbidden}
@@ -178,6 +182,31 @@ defmodule CommsCore.Conversations.AccessPolicy do
 
   defp authorize_active_membership(_conversation_id, _subject),
     do: {:error, :forbidden}
+
+  defp authorize_active_ephemeral_membership(conversation_id, grant)
+       when is_binary(conversation_id) do
+    with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
+         %Membership{} <- active_membership(grant, conversation_id),
+         true <- active_ephemeral_room?(grant, conversation_id) do
+      :ok
+    else
+      _ -> {:error, :forbidden}
+    end
+  end
+
+  defp authorize_active_ephemeral_membership(_conversation_id, _grant),
+    do: {:error, :forbidden}
+
+  defp active_ephemeral_room?(grant, conversation_id) do
+    Repo.exists?(
+      from(room in EphemeralRoom,
+        where:
+          room.tenant_id == ^grant.tenant_id and
+            room.conversation_id == ^conversation_id and
+            room.status in [:active, :idle]
+      )
+    )
+  end
 
   defp authorize_management(action, conversation_id, subject)
        when action in [:manage_conversation, :manage_conversation_ownership] and

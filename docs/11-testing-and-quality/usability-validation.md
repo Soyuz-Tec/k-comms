@@ -240,6 +240,19 @@ The study completion date and release approval date must be valid UTC calendar
 dates no later than the UTC day on which the scorer runs; future-dated receipts
 are rejected.
 
+### Instant collaboration canvas candidate check
+
+The fixed version 4 human-study matrix remains unchanged. Any candidate that
+includes the instant-room canvas must also retain a candidate-bound two-browser
+workflow receipt outside the privacy-preserving scorecard. Using only synthetic
+content, prove that a signed-out host can enter through the single start submit,
+draw and message, reveal a QR or copy the invitation, admit a second named
+participant, and see that participant replay the existing scene and contribute
+a simultaneous edit. Repeat at a mobile viewport and prove the Canvas/Messages
+switch, reconnect reconciliation, room expiry or revocation denial, and absence
+of raw invitation or element content in logs. This engineering receipt does not
+substitute for, fabricate, or raise the formal usability score.
+
 ## Accessibility matrix
 
 Automated checks run against representative public room start, share/QR,

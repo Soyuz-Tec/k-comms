@@ -17,7 +17,8 @@ defmodule CommsCore.PlatformRateLimits do
     :instant_room_create,
     :instant_room_join,
     :instant_room_conversion,
-    :instant_room_message
+    :instant_room_message,
+    :instant_room_whiteboard
   ]
 
   @consume_sql """
@@ -91,6 +92,7 @@ defmodule CommsCore.PlatformRateLimits do
           | :instant_room_join
           | :instant_room_conversion
           | :instant_room_message
+          | :instant_room_whiteboard
 
   @spec scopes() :: [scope()]
   def scopes, do: @scopes
