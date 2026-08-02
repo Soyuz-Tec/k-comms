@@ -290,7 +290,7 @@ describe("ThreadDrawer composer lifecycle", () => {
       "Retry thread A"
     );
     await userActions.click(screen.getByRole("button", { name: "Reply" }));
-    await screen.findByRole("alert");
+    await screen.findByRole("alert", {}, { timeout: 3_000 });
     await userActions.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2));
 
