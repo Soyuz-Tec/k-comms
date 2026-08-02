@@ -43,7 +43,12 @@ vi.mock("@excalidraw/excalidraw", () => {
       [key: string]: unknown;
     }) => {
       drawingEngineHarness.props = props;
-      return <div aria-label="Drawing engine test surface">{children}</div>;
+      return (
+        <div aria-label="Drawing engine test surface">
+          <button data-testid="main-menu-trigger" type="button" />
+          {children}
+        </div>
+      );
     },
     MainMenu
   };
@@ -71,6 +76,9 @@ describe("KCommsDrawingCanvas", () => {
     );
 
     expect(screen.getByLabelText("K-Comms canvas menu")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Canvas settings" })
+    ).toHaveAttribute("title", "Canvas settings");
     expect(screen.getByRole("button", { name: "Theme" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Canvas background" })

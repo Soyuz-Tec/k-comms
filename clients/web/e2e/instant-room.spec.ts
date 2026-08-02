@@ -24,19 +24,19 @@ test.describe("instant-room front door", () => {
       const landingHeading = page.getByRole("heading", {
         name: "Message. Draw. Share."
       });
-      const canvas = page.getByLabel("Private drawing canvas");
+      const canvas = page.getByLabel("Local drawing canvas");
       const drawingSurface = page.getByTestId("k-comms-drawing-surface");
-      const messagesTab = page.getByRole("button", {
-        name: "Messages",
+      const roomTab = page.getByRole("button", {
+        name: "Room",
         exact: true
       });
       const displayName = page.getByRole("textbox", {
         name: "Your display name"
       });
       const roomName = page.getByRole("textbox", { name: /Room name/ });
-      const start = page.getByRole("button", { name: "Start instant room" });
+      const start = page.getByRole("button", { name: "Create room" });
       const signIn = page.getByRole("link", {
-        name: "Sign in"
+        name: /Sign in/i
       });
 
       await expect(landingHeading).toBeVisible();
@@ -49,15 +49,16 @@ test.describe("instant-room front door", () => {
           'a[href*="excalidraw"], a[href*="discord.gg/UexuTaE"]'
         )
       ).toHaveCount(0);
-      await expect(messagesTab).toBeVisible();
-      await expect(messagesTab).toHaveAttribute("aria-pressed", "false");
-      await expect(page.getByText("Private draft", { exact: true })).toBeHidden();
-      await expectMinimumTarget(messagesTab);
+      await expect(roomTab).toBeVisible();
+      await expect(roomTab).toHaveAttribute("aria-pressed", "false");
+      await expectMinimumTarget(roomTab);
       await expectNoDocumentOverflow(page);
+      await expectDocumentFitsViewport(page);
+      await expectNoWcagFailures(page);
 
       expect(fixture.createRequests).toHaveLength(0);
-      await messagesTab.click();
-      await expect(messagesTab).toHaveAttribute("aria-pressed", "true");
+      await roomTab.click();
+      await expect(roomTab).toHaveAttribute("aria-pressed", "true");
       await expect(displayName).toBeVisible();
       await expect(roomName).toBeVisible();
       await expect(start).toBeVisible();
@@ -72,11 +73,12 @@ test.describe("instant-room front door", () => {
       await expectMinimumTarget(signIn);
       await expectContained(displayName, viewport);
       await expectContained(roomName, viewport);
-      await start.scrollIntoViewIfNeeded();
       await expectContained(start, viewport);
-      await signIn.scrollIntoViewIfNeeded();
       await expectContained(signIn, viewport);
       await expectNoDocumentOverflow(page);
+      await expectDocumentFitsViewport(page);
+      await expectOnlyDraftSetupScroller(page);
+      await expectNoWcagFailures(page);
       expect(fixture.createRequests).toHaveLength(0);
 
       if (
@@ -96,6 +98,30 @@ test.describe("instant-room front door", () => {
       await expect(signIn).toBeFocused();
     });
   }
+
+  test("keeps the complete pre-room workflow inside a 1366 by 768 viewport", async ({
+    page
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the desktop layout qualification runs once in Chromium"
+    );
+    const viewport = { width: 1366, height: 768 };
+    await page.setViewportSize(viewport);
+    const fixture = await installInstantRoomFixture(page);
+
+    await page.goto("/");
+
+    await expect(page.getByRole("banner")).toHaveCount(0);
+    await expect(page.getByLabel("Local drawing canvas")).toBeVisible();
+    await expect(page.getByLabel("Room setup")).toBeVisible();
+    const createRoom = page.getByRole("button", { name: "Create room" });
+    await expect(createRoom).toBeVisible();
+    await expectContained(createRoom, viewport);
+    await expectDocumentFitsViewport(page);
+    await expectNoDocumentOverflow(page);
+    expect(fixture.createRequests).toHaveLength(0);
+  });
 
   test("keeps the drawing engine fully white-labeled", async ({
     page
@@ -123,7 +149,14 @@ test.describe("instant-room front door", () => {
       drawingSurface.getByRole("checkbox", { name: /Library/i })
     ).toHaveCount(0);
 
-    await drawingSurface.getByTestId("main-menu-trigger").click();
+    await expect(
+      drawingSurface.getByRole("button", { name: "Canvas settings" })
+    ).toBeVisible();
+    await expect(
+      drawingSurface.getByRole("checkbox", { name: "K-Comms canvas resources" })
+    ).toHaveCount(0);
+
+    await drawingSurface.getByRole("button", { name: "Canvas settings" }).click();
     await expect(
       drawingSurface.getByRole("button", { name: /mode$/i })
     ).toBeVisible();
@@ -139,7 +172,7 @@ test.describe("instant-room front door", () => {
     await expect(page.getByRole("dialog", { name: "Help" })).toHaveCount(0);
   });
 
-  test("opens the complete invite dialog from one Share action", async ({
+  test("opens invite details only after room creation", async ({
     page
   }, testInfo) => {
     test.skip(
@@ -151,7 +184,10 @@ test.describe("instant-room front door", () => {
 
     await page.goto("/");
     expect(fixture.createRequests).toHaveLength(0);
-    await page.getByRole("button", { name: "Share" }).click();
+    await expect(page.getByRole("button", { name: "Share" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Create room" }).click();
+    await expect(page.getByRole("dialog", { name: "Invite someone" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Invite people" }).click();
 
     const invite = page.getByRole("dialog", { name: "Invite someone" });
     await expect(invite).toBeVisible();
@@ -166,7 +202,7 @@ test.describe("instant-room front door", () => {
     await expectNoDocumentOverflow(page);
   });
 
-  test("opens mobile invite actions from one Share action", async ({
+  test("opens mobile invite actions from the live room menu", async ({
     page
   }, testInfo) => {
     test.skip(
@@ -178,7 +214,10 @@ test.describe("instant-room front door", () => {
 
     await page.goto("/");
     expect(fixture.createRequests).toHaveLength(0);
-    await page.getByRole("button", { name: "Share" }).click();
+    await page.getByRole("button", { name: "Room", exact: true }).click();
+    await page.getByRole("button", { name: "Create room" }).click();
+    await expect(page.getByRole("dialog", { name: "Room menu" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Open room menu" }).click();
 
     const roomMenu = page.getByRole("dialog", { name: "Room menu" });
     await expect(roomMenu).toBeVisible();
@@ -212,7 +251,7 @@ test.describe("instant-room front door", () => {
       viewport: { width: 390, height: 844 }
     }
   ] as const) {
-    test(`opens the ${callJourney.kind} prejoin from one draft action`, async ({
+    test(`opens the ${callJourney.kind} prejoin from the live room`, async ({
       page
     }, testInfo) => {
       test.skip(
@@ -224,11 +263,13 @@ test.describe("instant-room front door", () => {
 
       await page.goto("/");
       if (callJourney.viewport.width <= 520) {
-        await page.getByRole("button", { name: "Messages", exact: true }).click();
+        await page.getByRole("button", { name: "Room", exact: true }).click();
       }
+      await expect(page.getByRole("button", { name: callJourney.action })).toHaveCount(0);
+      await page.getByRole("button", { name: "Create room" }).click();
       const action = page.getByRole("button", { name: callJourney.action });
       await expect(action).toBeEnabled();
-      expect(fixture.createRequests).toHaveLength(0);
+      expect(fixture.createRequests).toHaveLength(1);
       await action.click();
 
       const dialog = page.getByRole("dialog", { name: callJourney.dialog });
@@ -256,7 +297,7 @@ test.describe("instant-room front door", () => {
     await expect(
       page.getByRole("heading", { name: "Message. Draw. Share." })
     ).toBeVisible();
-    await page.getByRole("button", { name: "Messages", exact: true }).click();
+    await page.getByRole("button", { name: "Room", exact: true }).click();
     expect(fixture.createRequests).toHaveLength(0);
     await page
       .getByRole("textbox", { name: "Your display name" })
@@ -264,7 +305,7 @@ test.describe("instant-room front door", () => {
     await page
       .getByRole("textbox", { name: /Room name/ })
       .fill("Instant room");
-    await page.getByRole("button", { name: "Start instant room" }).click();
+    await page.getByRole("button", { name: "Create room" }).click();
 
     await expect(page.getByRole("heading", { name: "Instant room" })).toBeVisible();
     await expect(
@@ -474,17 +515,17 @@ test.describe("instant-room front door", () => {
       await page.setViewportSize(viewport);
       const fixture = await installInstantRoomFixture(page);
       await page.goto("/");
-      const draftMessagesTab = page.getByRole("button", {
-        name: "Messages",
+      const draftRoomTab = page.getByRole("button", {
+        name: "Room",
         exact: true
       });
-      if (await draftMessagesTab.isVisible()) {
-        await draftMessagesTab.click();
+      if (await draftRoomTab.isVisible()) {
+        await draftRoomTab.click();
       }
       await page
         .getByRole("textbox", { name: "Your display name" })
         .fill("Taylor Host");
-      await page.getByRole("button", { name: "Start instant room" }).click();
+      await page.getByRole("button", { name: "Create room" }).click();
 
       const menuTrigger = page.getByRole("button", {
         name: "Open room menu"
@@ -763,6 +804,31 @@ async function expectNoDocumentOverflow(page: Page) {
     ) - document.documentElement.clientWidth
   );
   expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectDocumentFitsViewport(page: Page) {
+  const overflow = await page.evaluate(() => Math.max(
+    document.documentElement.scrollHeight,
+    document.body.scrollHeight
+  ) - document.documentElement.clientHeight);
+  expect(overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectOnlyDraftSetupScroller(page: Page) {
+  const activeScrollers = await page.locator("body *").evaluateAll((elements) =>
+    elements
+      .filter((element) => {
+        const style = window.getComputedStyle(element);
+        return ["auto", "scroll"].includes(style.overflowY)
+          && element.scrollHeight > element.clientHeight + 1;
+      })
+      .map((element) => element.className)
+  );
+  expect(
+    activeScrollers.every((className) =>
+      typeof className === "string" && className.includes("instant-draft-setup-scroll")
+    )
+  ).toBe(true);
 }
 
 async function expectOnlyMessageScroller(page: Page) {

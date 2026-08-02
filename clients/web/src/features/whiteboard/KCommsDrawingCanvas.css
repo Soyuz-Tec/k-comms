@@ -9,6 +9,11 @@
   height: 100%;
 }
 
+.k-comms-drawing-surface [data-testid="main-menu-trigger"] {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 /*
  * Defense in depth for SDK fallbacks. The supported React composition in
  * KCommsDrawingCanvas removes these entry points; these selectors keep a
@@ -16,6 +21,8 @@
  */
 .k-comms-drawing-surface .help-icon,
 .k-comms-drawing-surface .default-sidebar-trigger,
+.k-comms-drawing-surface .sidebar-trigger__label-element,
+.k-comms-drawing-surface .k-comms-hidden-drawing-sidebar-trigger,
 .k-comms-drawing-surface .welcome-screen-center__logo,
 .k-comms-drawing-surface a[href*="excalidraw.com"],
 .k-comms-drawing-surface a[href*="github.com/excalidraw"],

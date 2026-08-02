@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InstantWorkspaceDraft } from "./InstantWorkspaceDraft";
 
@@ -40,21 +41,21 @@ function renderDraft(
   options: {
     identityManaged?: boolean;
     initialDisplayName?: string;
-    mediaActionsAllowed?: boolean;
   } = {}
 ) {
   return {
     onActivate,
     ...render(
-      <InstantWorkspaceDraft
-        activating={false}
-        error=""
-        identityManaged={options.identityManaged ?? false}
-        initialDisplayName={options.initialDisplayName}
-        mediaActionsAllowed={options.mediaActionsAllowed ?? true}
-        retrySeconds={0}
-        onActivate={onActivate}
-      />
+      <MemoryRouter>
+        <InstantWorkspaceDraft
+          activating={false}
+          error=""
+          identityManaged={options.identityManaged ?? false}
+          initialDisplayName={options.initialDisplayName}
+          retrySeconds={0}
+          onActivate={onActivate}
+        />
+      </MemoryRouter>
     )
   };
 }
@@ -64,20 +65,25 @@ describe("InstantWorkspaceDraft", () => {
     window.localStorage.clear();
   });
 
-  it("opens as a usable private canvas with an editable generated identity", () => {
+  it("opens as a usable local canvas with room creation as the next step", () => {
     renderDraft();
 
     expect(
       screen.getByRole("heading", { name: "Message. Draw. Share." })
     ).toBeVisible();
-    expect(screen.getByLabelText("Private drawing canvas")).toBeVisible();
-    expect(screen.getByLabelText("Workspace messages")).toBeVisible();
+    expect(screen.getByLabelText("Local drawing canvas")).toBeVisible();
+    expect(screen.getByLabelText("Room setup")).toBeVisible();
     expect(
       (screen.getByRole("textbox", {
         name: "Your display name"
       }) as HTMLInputElement).value
     ).toMatch(/^Guest \d{4}$/);
-    expect(screen.getByText("Nothing has been shared yet")).toBeVisible();
+    expect(screen.getAllByText("Local draft", { exact: true })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
+      "href",
+      "/sign-in"
+    );
   });
 
   it("promotes the draft scene and first message with stable idempotency keys", async () => {
@@ -86,10 +92,10 @@ describe("InstantWorkspaceDraft", () => {
 
     await user.click(screen.getByRole("button", { name: "Draw rectangle" }));
     await user.type(
-      screen.getByRole("textbox", { name: "Message the room" }),
+      screen.getByRole("textbox", { name: "Optional first message" }),
       "Let’s plan this together"
     );
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByRole("button", { name: "Create & send" }));
 
     await waitFor(() => expect(onActivate).toHaveBeenCalledOnce());
     expect(onActivate).toHaveBeenCalledWith(
@@ -104,35 +110,19 @@ describe("InstantWorkspaceDraft", () => {
     );
   });
 
-  it("promotes directly into audio or video call intent", async () => {
+  it("keeps invite and call actions behind room creation", async () => {
     const user = userEvent.setup();
     const { onActivate } = renderDraft();
 
-    await user.click(screen.getByRole("button", { name: "Start audio call" }));
-    await user.click(screen.getByRole("button", { name: "Start video call" }));
+    expect(screen.queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start audio call" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start video call" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Invite links, QR sharing, audio, and video appear inside the room/i)).toBeVisible();
 
-    expect(onActivate).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ intent: "audio-call" })
+    await user.click(screen.getByRole("button", { name: "Create room" }));
+    expect(onActivate).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "room" })
     );
-    expect(onActivate).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ intent: "video-call" })
-    );
-  });
-
-  it("keeps call creation unavailable until secure media is verified", () => {
-    renderDraft(vi.fn(), { mediaActionsAllowed: false });
-
-    expect(
-      screen.getByRole("button", { name: "Start audio call" })
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Start video call" })
-    ).toBeDisabled();
-    expect(
-      screen.getByText(/trusted HTTPS connection/i)
-    ).toBeVisible();
   });
 
   it("restores a private canvas draft after the component is reopened", async () => {
@@ -172,10 +162,33 @@ describe("InstantWorkspaceDraft", () => {
       name: "Your display name"
     });
     await user.clear(guestName);
-    await user.click(screen.getByRole("button", { name: "Share" }));
+    await user.click(screen.getByRole("button", { name: "Create room" }));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Enter your display name to continue."
     );
     expect(guestName).toHaveFocus();
+  });
+
+  it("requires confirmation before clearing local work", async () => {
+    const user = userEvent.setup();
+    renderDraft();
+    await user.type(
+      screen.getByRole("textbox", { name: "Room name" }),
+      "Planning room"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear local draft" }));
+    const dialog = screen.getByRole("dialog", { name: "Clear this local draft?" });
+    expect(dialog).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus()
+    );
+    expect(document.getElementById("instant-draft-room-title")).toHaveValue(
+      "Planning room"
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Clear local draft" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Room name" })).toHaveValue("");
   });
 });

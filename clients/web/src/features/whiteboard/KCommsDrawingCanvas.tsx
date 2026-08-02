@@ -5,6 +5,7 @@ import {
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ComponentProps, KeyboardEvent } from "react";
+import { useEffect, useRef } from "react";
 import "./KCommsDrawingCanvas.css";
 
 type DrawingEngineProps = ComponentProps<typeof DrawingEngine>;
@@ -63,6 +64,7 @@ export function KCommsDrawingCanvas({
   UIOptions,
   ...drawingProps
 }: KCommsDrawingCanvasProps) {
+  const drawingSurfaceRef = useRef<HTMLDivElement | null>(null);
   const mergedUIOptions = {
     ...UIOptions,
     canvasActions: {
@@ -75,8 +77,28 @@ export function KCommsDrawingCanvas({
     }
   };
 
+  useEffect(() => {
+    const surface = drawingSurfaceRef.current;
+    if (!surface) return;
+
+    const labelCanvasMenu = () => {
+      const trigger = surface.querySelector<HTMLElement>(
+        '[data-testid="main-menu-trigger"]'
+      );
+      if (!trigger) return;
+      trigger.setAttribute("aria-label", "Canvas settings");
+      trigger.setAttribute("title", "Canvas settings");
+    };
+
+    labelCanvasMenu();
+    const observer = new MutationObserver(labelCanvasMenu);
+    observer.observe(surface, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div
+      ref={drawingSurfaceRef}
       className="k-comms-drawing-surface"
       data-testid="k-comms-drawing-surface"
       onKeyDownCapture={stopVendorHelpAndCommandMenus}
