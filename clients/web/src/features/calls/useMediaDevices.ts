@@ -18,8 +18,10 @@ export function useMediaDevices({
 }: UseMediaDevicesOptions) {
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
   const [selectedMicrophone, setSelectedMicrophone] = useState("");
   const [selectedCamera, setSelectedCamera] = useState("");
+  const [selectedSpeaker, setSelectedSpeaker] = useState("");
   const [prejoinMicrophone, setPrejoinMicrophone] = useState(false);
   const [prejoinCamera, setPrejoinCamera] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -49,17 +51,20 @@ export function useMediaDevices({
     accept: () => boolean
   ) => {
     try {
-      const [audioDevices, videoDevices] = await Promise.all([
+      const [audioDevices, videoDevices, outputDevices] = await Promise.all([
         Room.getLocalDevices("audioinput", false).catch(() => []),
         kind === "video"
           ? Room.getLocalDevices("videoinput", false).catch(() => [])
-          : Promise.resolve([])
+          : Promise.resolve([]),
+        Room.getLocalDevices("audiooutput", false).catch(() => [])
       ]);
       if (!accept()) return;
       setMicrophones(audioDevices);
       setSelectedMicrophone((current) => current || audioDevices[0]?.deviceId || "");
       setCameras(videoDevices);
       setSelectedCamera((current) => current || videoDevices[0]?.deviceId || "");
+      setSpeakers(outputDevices);
+      setSelectedSpeaker((current) => current || outputDevices[0]?.deviceId || "");
     } catch {
       // Labels can remain unavailable until the user explicitly enables a device.
     }
@@ -125,6 +130,7 @@ export function useMediaDevices({
     previewVideoRef,
     selectedCamera,
     selectedMicrophone,
+    selectedSpeaker,
     selectPrejoinCamera,
     setCameras,
     setMicrophones,
@@ -132,6 +138,9 @@ export function useMediaDevices({
     setPrejoinMicrophone,
     setSelectedCamera,
     setSelectedMicrophone,
+    setSelectedSpeaker,
+    setSpeakers,
+    speakers,
     stopPreview,
     togglePrejoinCamera
   };

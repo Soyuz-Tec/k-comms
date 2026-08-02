@@ -24,7 +24,7 @@ import {
   type ParticipantIdentity
 } from "../../lib/participantIdentity";
 import { canManageUsers } from "../../lib/roles";
-import type { Message } from "../../types";
+import type { Message, MessageMetadata, WhiteboardMessageReference } from "../../types";
 import { ConversationDetails } from "./ConversationDetails";
 import {
   ConversationSidebar,
@@ -41,6 +41,7 @@ import {
   safeUuid
 } from "./chatSupport";
 import { ConversationPane } from "./ConversationPane";
+import { ConversationActivityTimeline } from "./ConversationActivityTimeline";
 import { useChatAttachments } from "./useChatAttachments";
 import { useChatComposer } from "./useChatComposer";
 import { useChatNavigation } from "./useChatNavigation";
@@ -78,10 +79,22 @@ export function ChatPage() {
   const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
   const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
   const linkedCallKind = safeCallKind(searchParams.get("call"));
+  const whiteboardReference = useMemo(
+    () => readWhiteboardReference(searchParams),
+    [searchParams]
+  );
+  const clearWhiteboardReference = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("whiteboard_elements");
+    next.delete("whiteboard_sequence");
+    next.delete("whiteboard_label");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
   const [threadTargetId, setThreadTargetId] = useState<string | null>(null);
   const [showCreateConversation, setShowCreateConversation] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [showGuestShare, setShowGuestShare] = useState(false);
   const [showBrowseChannels, setShowBrowseChannels] = useState(false);
   const [focusTarget, setFocusTarget] = useState<FocusTarget | null>(null);
@@ -106,6 +119,7 @@ export function ChatPage() {
     setShowDetails(false);
     setShowBrowseChannels(false);
     setShowGuestShare(false);
+    setShowActivity(false);
   }, []);
   const {
     conversationButtonRefs,
@@ -164,6 +178,7 @@ export function ChatPage() {
     onlineUsers,
     typingUsers,
     readCursors,
+    deliveryCursors,
     isNearBottom,
     newMessageCount,
     latestSequence,
@@ -215,6 +230,10 @@ export function ChatPage() {
     clearPendingAttachments,
     forceScrollToLatestRef,
     onConversationChanged,
+    messageMetadata: whiteboardReference
+      ? ({ whiteboard_reference: whiteboardReference } satisfies MessageMetadata)
+      : undefined,
+    onMetadataSent: clearWhiteboardReference,
     readyAttachmentIds,
     receiveMessages,
     reserveAttachmentsForSend,
@@ -575,10 +594,13 @@ export function ChatPage() {
         onlineUsers={onlineUsers}
         pendingAttachments={pendingAttachments}
         readCursors={readCursors}
+        deliveryCursors={deliveryCursors}
+        whiteboardReference={whiteboardReference}
         replyTo={replyTo}
         scrollRef={scrollRef}
         sending={sending}
         showDetails={showDetails}
+        showActivity={showActivity}
         showSearch={showSearch}
         uploading={uploading}
         videoCallsAvailable={videoCallsAvailable}
@@ -618,21 +640,45 @@ export function ChatPage() {
           setShowDetails((visible) => !visible);
           setShowGuestShare(false);
         }}
+        onToggleActivity={() => {
+          setShowActivity((visible) => !visible);
+          setShowDetails(false);
+          setShowSearch(false);
+        }}
         onToggleSearch={() => {
           setShowSearch((visible) => !visible);
           setShowBrowseChannels(false);
           setShowDetails(false);
           setShowGuestShare(false);
         }}
+        onClearWhiteboardReference={clearWhiteboardReference}
         setReplyTo={setReplyTo}
       />
 
       {showSearch && <SearchPanel api={api} conversations={conversations} users={users} onClose={() => setShowSearch(false)} onSelect={(message) => { setFocusTarget({ id: message.id, conversationId: message.conversation_id, sequence: message.conversation_sequence }); setSearchParams({ conversation: message.conversation_id, search_message: message.id, search_sequence: String(message.conversation_sequence) }); setShowDetails(false); setShowBrowseChannels(false); setShowSearch(false); }} />}
       {showBrowseChannels && <ChannelBrowser api={api} enabled={capabilities?.allow_public_channels === true} onClose={() => setShowBrowseChannels(false)} onJoined={(joined) => { setConversations((current) => [joined, ...current.filter((value) => value.id !== joined.id)]); void refreshConversations().catch(() => undefined); }} onOpen={(id) => { selectConversation(id); setShowBrowseChannels(false); }} />}
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
+      {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}
       {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
       {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );
+}
+
+function readWhiteboardReference(
+  params: URLSearchParams
+): WhiteboardMessageReference | null {
+  const elementIds = (params.get("whiteboard_elements") || "")
+    .split(",")
+    .filter((id) => id.length >= 8 && id.length <= 128)
+    .slice(0, 20);
+  const sequence = safePositiveInteger(params.get("whiteboard_sequence"));
+  if (elementIds.length === 0 || !sequence) return null;
+  const suppliedLabel = (params.get("whiteboard_label") || "").trim().slice(0, 120);
+  return {
+    element_ids: elementIds,
+    board_sequence: sequence,
+    label: suppliedLabel || "Whiteboard selection"
+  };
 }

@@ -16,6 +16,12 @@ async function mockChannelWorkspace(page: Page, allowPublicChannels: boolean, co
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: conversations() } }));
   await page.route("**/api/v1/conversations/*/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/channel-1/messages**", (route) => route.fulfill({ json: { data: [], page: { has_more: false, next_after_sequence: null, reset_required: false } } }));
+  await page.route("**/api/v1/conversations/channel-1/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations/channel-1/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(user.id) } }));
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-12T10:00:00Z", read_at: null };
 }
 
 test("user discovers, joins, and opens a public channel", async ({ page }) => {

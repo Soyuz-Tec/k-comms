@@ -11,7 +11,7 @@ defmodule CommsCore.AudioCalls do
   @behaviour CommsCore.Administration.CallLifecyclePort
   @behaviour CommsCore.Conversations.CallLifecyclePort
 
-  alias CommsCore.AudioCalls.Lifecycle
+  alias CommsCore.AudioCalls.{Activity, Collaboration, Lifecycle}
 
   @doc false
   defdelegate release_tenant_fingerprint_fragment(repo, tenant_id), to: Lifecycle
@@ -176,4 +176,19 @@ defmodule CommsCore.AudioCalls do
         provider_cleanup,
         expected_kind
       )
+
+  defdelegate activity(conversation_id, subject, opts \\ []), to: Activity, as: :list
+  defdelegate list_participants(conversation_id, call_id, subject), to: Collaboration
+  defdelegate authorize_participant(conversation_id, call_id, subject), to: Collaboration
+  defdelegate set_hand(conversation_id, call_id, raised, subject), to: Collaboration
+
+  defdelegate moderation_target(conversation_id, call_id, provider_identity, subject),
+    to: Collaboration
+
+  defdelegate remove_participant(conversation_id, call_id, provider_identity, subject),
+    to: Collaboration
+
+  defdelegate record_participant_mute(target, conversation_id, subject),
+    to: Collaboration,
+    as: :record_mute
 end

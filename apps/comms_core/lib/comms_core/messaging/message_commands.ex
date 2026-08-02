@@ -10,6 +10,7 @@ defmodule CommsCore.Messaging.MessageCommands do
   alias CommsCore.Messaging.{
     Message,
     MessageDeletionCandidate,
+    MessageMetadata,
     MessageMention,
     MessageRevision,
     ReadModel
@@ -375,7 +376,7 @@ defmodule CommsCore.Messaging.MessageCommands do
         {:error, :metadata_too_large}
 
       true ->
-        :ok
+        MessageMetadata.validate(attrs.metadata)
     end
   end
 

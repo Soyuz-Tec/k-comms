@@ -6,6 +6,7 @@ import type {
   ConversationActivityEvent,
   ConversationMembershipEvent,
   Message,
+  MessageDeliveryCursor,
   MembershipEvent,
   NotificationAvailableEvent,
   ReactionEvent,
@@ -93,6 +94,7 @@ export interface RealtimeCallbacks {
   onReactionAdded: (event: ReactionEvent) => void;
   onReactionRemoved: (event: ReactionEvent) => void;
   onRead: (event: ReadCursorEvent) => void;
+  onDelivery?: (event: MessageDeliveryCursor) => void;
   onMembershipChanged: (event: MembershipEvent) => void;
   onConversationChanged: () => void;
   onCallStarted?: (event: CallRealtimeEvent) => void;
@@ -243,6 +245,9 @@ export class RealtimeConversation {
     this.channel.on("conversation.read.v1", (payload?: unknown) => {
       if (!this.stopped && isReadCursorEvent(payload)) this.callbacks.onRead(payload);
     });
+    this.channel.on("message.delivery.v1", (payload?: unknown) => {
+      if (!this.stopped && isDeliveryCursor(payload)) this.callbacks.onDelivery?.(payload);
+    });
     this.channel.on("membership.changed.v1", (payload?: unknown) => {
       if (!this.stopped && isMembershipEvent(payload)) this.callbacks.onMembershipChanged(payload);
     });
@@ -324,6 +329,102 @@ export class RealtimeConversation {
     this.reconnectRequested = true;
     this.socket.disconnect();
     this.callbacks.onReconnectRequired();
+  }
+}
+
+export interface RealtimeCallCallbacks {
+  onReady: (raisedUserIds: string[]) => void;
+  onHand: (userId: string, raised: boolean) => void;
+  onReaction: (event: { userId: string; emoji: string; occurredAt: string }) => void;
+  onParticipantMuted: (userId: string) => void;
+  onParticipantRemoved: (userId: string) => void;
+  onError: (message: string) => void;
+}
+
+export class RealtimeCall {
+  private readonly socket: Socket;
+  private readonly channel: Channel;
+  private stopped = false;
+
+  constructor(
+    endpoint: string,
+    socketTicket: string,
+    callId: string,
+    conversationId: string,
+    private readonly callbacks: RealtimeCallCallbacks
+  ) {
+    this.socket = new Socket(endpoint, {
+      params: { socket_ticket: socketTicket },
+      reconnectAfterMs: (tries) => [1_000, 2_000, 5_000, 10_000][tries - 1] ?? 15_000
+    });
+    this.channel = (this.socket as DynamicSocket).channel(`call:${callId}`, {
+      conversation_id: conversationId
+    });
+    this.channel.on("call.hand.v1", (payload?: unknown) => {
+      const userId = readString(payload, "user_id");
+      const raised = readBoolean(payload, "raised");
+      if (!this.stopped && userId && raised !== null) callbacks.onHand(userId, raised);
+    });
+    this.channel.on("call.reaction.v1", (payload?: unknown) => {
+      const userId = readString(payload, "user_id");
+      const emoji = readString(payload, "emoji");
+      const occurredAt = readString(payload, "occurred_at");
+      if (!this.stopped && userId && emoji && occurredAt) callbacks.onReaction({ userId, emoji, occurredAt });
+    });
+    this.channel.on("call.participant_muted.v1", (payload?: unknown) => {
+      const userId = readString(payload, "user_id");
+      if (!this.stopped && userId) callbacks.onParticipantMuted(userId);
+    });
+    this.channel.on("call.participant_removed.v1", (payload?: unknown) => {
+      const userId = readString(payload, "user_id");
+      if (!this.stopped && userId) callbacks.onParticipantRemoved(userId);
+    });
+  }
+
+  connect(): void {
+    this.socket.connect();
+    this.channel.join()
+      .receive("ok", (response?: unknown) => {
+        if (this.stopped) return;
+        const values = response && typeof response === "object"
+          ? (response as { raised_user_ids?: unknown }).raised_user_ids
+          : [];
+        this.callbacks.onReady(Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : []);
+      })
+      .receive("error", (response?: unknown) => {
+        if (!this.stopped) this.callbacks.onError(readReason(response, "Call collaboration is unavailable"));
+      })
+      .receive("timeout", () => {
+        if (!this.stopped) this.callbacks.onError("Call collaboration connection timed out");
+      });
+  }
+
+  disconnect(): void {
+    this.stopped = true;
+    this.channel.leave();
+    this.socket.disconnect();
+  }
+
+  setHand(raised: boolean): Promise<void> {
+    return this.push("call.hand.set.v1", { raised });
+  }
+
+  react(emoji: string): Promise<void> {
+    return this.push("call.reaction.v1", { emoji });
+  }
+
+  private push(event: string, payload: Record<string, unknown>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.stopped) {
+        reject(new Error("Call collaboration is disconnected"));
+        return;
+      }
+
+      this.channel.push(event, payload)
+        .receive("ok", () => resolve())
+        .receive("error", (response?: unknown) => reject(new Error(readReason(response, `${event} failed`))))
+        .receive("timeout", () => reject(new Error(`${event} timed out`)));
+    });
   }
 }
 
@@ -443,10 +544,25 @@ function isReadCursorEvent(value: unknown): value is ReadCursorEvent {
   );
 }
 
+function isDeliveryCursor(value: unknown): value is MessageDeliveryCursor {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<MessageDeliveryCursor>;
+  return typeof candidate.recipient_user_id === "string"
+    && typeof candidate.device_ref === "string"
+    && typeof candidate.delivered_sequence === "number"
+    && typeof candidate.read_sequence === "number";
+}
+
 function readString(value: unknown, key: string): string | null {
   if (!value || typeof value !== "object") return null;
   const candidate = (value as Record<string, unknown>)[key];
   return typeof candidate === "string" ? candidate : null;
+}
+
+function readBoolean(value: unknown, key: string): boolean | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "boolean" ? candidate : null;
 }
 
 function readReason(value: unknown, fallback: string): string {

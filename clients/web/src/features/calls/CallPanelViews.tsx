@@ -21,12 +21,17 @@ export interface VideoTrackView {
 
 export interface ParticipantView {
   id: string;
+  userId?: string | null;
+  providerIdentity?: string;
+  microphoneTrackSid?: string | null;
   name: string;
   local: boolean;
   microphoneEnabled: boolean;
   cameraEnabled: boolean;
   screenShareEnabled: boolean;
   speaking: boolean;
+  handRaised?: boolean;
+  connectionQuality?: "excellent" | "good" | "poor" | "lost" | "unknown";
   videoTracks: VideoTrackView[];
 }
 
@@ -183,20 +188,22 @@ export function CallPrejoinDialog({
       <details className="prejoin-device-settings">
         <summary>Device settings</summary>
         <div className="call-device-grid prejoin-device-grid">
-          <label className="field">Microphone
-            <select value={selectedMicrophone} disabled={joining || microphones.length === 0} onChange={(event) => onMicrophone(event.target.value)}>
+          <div className="field">
+            <label htmlFor="prejoin-audio-input">Microphone</label>
+            <select id="prejoin-audio-input" value={selectedMicrophone} disabled={joining || microphones.length === 0} onChange={(event) => onMicrophone(event.target.value)}>
               {microphones.length === 0 && <option value="">Browser default</option>}
               {microphones.map((device, index) => <option key={device.deviceId || `prejoin-microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
             </select>
             <small>Permission is requested only if you choose to use your microphone.</small>
-          </label>
-          {kind === "video" && <label className="field">Camera
-            <select value={selectedCamera} disabled={joining || previewBusy || cameras.length === 0} onChange={(event) => onCamera(event.target.value)}>
+          </div>
+          {kind === "video" && <div className="field">
+            <label htmlFor="prejoin-video-input">Camera</label>
+            <select id="prejoin-video-input" value={selectedCamera} disabled={joining || previewBusy || cameras.length === 0} onChange={(event) => onCamera(event.target.value)}>
               {cameras.length === 0 && <option value="">Browser default</option>}
               {cameras.map((device, index) => <option key={device.deviceId || `prejoin-camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
             </select>
             <small>Camera permission is requested when you turn the preview on.</small>
-          </label>}
+          </div>}
         </div>
       </details>
       <div className="form-actions audio-prejoin-actions">
@@ -239,6 +246,7 @@ export function AudioParticipantStage({ participants }: { participants: Particip
           <span className="audio-participant-avatar" aria-hidden="true">
             {initials(participant.name)}
           </span>
+          {participant.handRaised && <span className="call-raised-hand" aria-label="Hand raised">✋</span>}
           <strong>{identifier}{participant.local ? " (you)" : ""}</strong>
           <span className="audio-participant-media">
             <AppIcon name={participant.microphoneEnabled ? "mic" : "micOff"} />

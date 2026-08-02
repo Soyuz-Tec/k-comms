@@ -15,6 +15,7 @@ defmodule CommsCore.AudioCalls.AudioCallParticipant do
     field(:credential_issue_count, :integer, default: 0)
     field(:revoked_at, :utc_datetime_usec)
     field(:revocation_reason, :string)
+    field(:hand_raised_at, :utc_datetime_usec)
 
     field(:eviction_status, Ecto.Enum,
       values: [:not_required, :pending, :enforcing, :completed],
@@ -46,6 +47,7 @@ defmodule CommsCore.AudioCalls.AudioCallParticipant do
       :credential_issue_count,
       :revoked_at,
       :revocation_reason,
+      :hand_raised_at,
       :eviction_status,
       :eviction_enforce_until,
       :last_eviction_attempt_at,

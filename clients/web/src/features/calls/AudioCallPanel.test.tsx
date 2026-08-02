@@ -229,14 +229,14 @@ describe("AudioCallPanel", () => {
     render(<AudioCallPanel api={api} conversation={conversation} enabled currentUserDisplayName="Ada" />);
 
     await user.click(await screen.findByRole("button", { name: "Join audio call" }));
-    await user.selectOptions(screen.getByRole("combobox"), "mic-2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "mic-2");
     await user.click(screen.getByRole("button", { name: "Join with microphone" }));
 
     expect(await screen.findByRole("button", { name: "Mute microphone" })).toBeVisible();
     expect(api.joinAudioCall).toHaveBeenCalledWith("conversation-1", "call-1");
     expect(livekit.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true, expect.objectContaining({ deviceId: "mic-2" }));
 
-    await user.selectOptions(screen.getByRole("combobox"), "mic-1");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "mic-1");
     expect(livekit.switchActiveDevice).toHaveBeenCalledWith("audioinput", "mic-1", true);
     await user.click(screen.getByRole("button", { name: "Mute microphone" }));
     expect(livekit.localParticipant.setMicrophoneEnabled).toHaveBeenLastCalledWith(false);
@@ -274,9 +274,12 @@ describe("AudioCallPanel", () => {
   it("keeps the prejoin dialog open and does not create a call when microphone permission is denied", async () => {
     const api = apiWith(null);
     const user = userEvent.setup();
-    livekit.getLocalDevices
-      .mockResolvedValueOnce([microphone("mic-1", "Built-in microphone")])
-      .mockRejectedValueOnce(new DOMException("denied", "NotAllowedError"));
+    livekit.getLocalDevices.mockImplementation(
+      async (_kind: MediaDeviceKind, requestPermissions?: boolean) => {
+        if (requestPermissions) throw new DOMException("denied", "NotAllowedError");
+        return [microphone("mic-1", "Built-in microphone")];
+      }
+    );
     render(<AudioCallPanel api={api} conversation={conversation} enabled currentUserDisplayName="Ada" />);
 
     await user.click(await screen.findByRole("button", { name: "Start audio call" }));

@@ -9,7 +9,14 @@ defmodule CommsWeb.AudioCallController do
 
   plug(
     CommsWeb.Plugs.RequireSecureTransport
-    when action in [:create, :create_audio, :join, :join_audio]
+    when action in [
+           :create,
+           :create_audio,
+           :join,
+           :join_audio,
+           :mute_participant,
+           :remove_participant
+         ]
   )
 
   def index(conn, params) do
@@ -68,6 +75,7 @@ defmodule CommsWeb.AudioCallController do
              &issue_credential(
                &1,
                conn.assigns.current_user.display_name,
+               subject.user_id,
                authorization_expires_at
              )
            ) do
@@ -103,6 +111,7 @@ defmodule CommsWeb.AudioCallController do
              &issue_credential(
                &1,
                conn.assigns.current_user.display_name,
+               subject.user_id,
                authorization_expires_at
              )
            ) do
@@ -123,6 +132,96 @@ defmodule CommsWeb.AudioCallController do
       ) do
     end_call_with_kind(conn, conversation_id, call_id, params, :audio)
   end
+
+  def participants(conn, %{"conversation_id" => conversation_id, "call_id" => call_id}) do
+    with {:ok, participants} <-
+           AudioCalls.list_participants(conversation_id, call_id, conn.assigns.current_subject) do
+      json(conn, %{
+        data:
+          Enum.map(participants, fn participant ->
+            %{
+              id: participant.id,
+              user_id: participant.user_id,
+              status: participant.status,
+              hand_raised: participant.hand_raised,
+              hand_raised_at: participant.hand_raised_at
+            }
+          end)
+      })
+    end
+  end
+
+  def mute_participant(
+        conn,
+        %{
+          "conversation_id" => conversation_id,
+          "call_id" => call_id,
+          "provider_identity" => provider_identity,
+          "track_sid" => track_sid
+        }
+      ) do
+    subject = conn.assigns.current_subject
+
+    with :ok <- validate_provider_control(provider_identity, track_sid),
+         {:ok, target} <-
+           AudioCalls.moderation_target(conversation_id, call_id, provider_identity, subject),
+         :ok <- reject_self_target(target, subject),
+         :ok <-
+           RoomService.mute_participant(
+             target.provider_room,
+             target.provider_identity,
+             track_sid
+           ),
+         {:ok, _audit} <- AudioCalls.record_participant_mute(target, conversation_id, subject) do
+      Broadcast.call_event(call_id, "call.participant_muted.v1", %{
+        participant_id: target.participant_id,
+        user_id: target.user_id,
+        media: "microphone"
+      })
+
+      json(conn, %{data: %{participant_id: target.participant_id, muted: true}})
+    end
+  end
+
+  def mute_participant(_conn, _params), do: {:error, :invalid_call_signal}
+
+  def remove_participant(
+        conn,
+        %{
+          "conversation_id" => conversation_id,
+          "call_id" => call_id,
+          "provider_identity" => provider_identity
+        }
+      ) do
+    subject = conn.assigns.current_subject
+
+    with :ok <- validate_provider_identity(provider_identity),
+         {:ok, target} <-
+           AudioCalls.remove_participant(conversation_id, call_id, provider_identity, subject) do
+      enforcement =
+        case RoomService.remove_participant(target.provider_room, target.provider_identity) do
+          :ok -> "immediate"
+          {:error, _reason} -> "queued"
+        end
+
+      Broadcast.call_event(call_id, "call.participant_removed.v1", %{
+        participant_id: target.participant_id,
+        user_id: target.user_id
+      })
+
+      conn
+      |> put_status(:accepted)
+      |> json(%{
+        data: %{
+          participant_id: target.participant_id,
+          status: "revoked",
+          enforcement: enforcement
+        }
+      })
+    end
+  end
+
+  def remove_participant(_conn, _params), do: {:error, :invalid_call_signal}
 
   defp end_call_with_kind(conn, conversation_id, call_id, params, expected_kind) do
     subject = conn.assigns.current_subject
@@ -179,6 +278,7 @@ defmodule CommsWeb.AudioCallController do
            provider_identity: provider_identity
          },
          display_name,
+         user_id,
          authorization_expires_at
        ) do
     LiveKitToken.issue(
@@ -186,7 +286,8 @@ defmodule CommsWeb.AudioCallController do
       media_kind,
       provider_identity,
       display_name,
-      authorization_expires_at
+      authorization_expires_at,
+      %{"user_id" => user_id}
     )
   end
 
@@ -204,5 +305,28 @@ defmodule CommsWeb.AudioCallController do
       media_kind when media_kind in ["audio", :audio] -> :ok
       _ -> {:error, :invalid_media_kind}
     end
+  end
+
+  defp validate_provider_control(provider_identity, track_sid) do
+    with :ok <- validate_provider_identity(provider_identity),
+         true <- is_binary(track_sid) and byte_size(String.trim(track_sid)) in 2..128 do
+      :ok
+    else
+      _ -> {:error, :invalid_call_signal}
+    end
+  end
+
+  defp validate_provider_identity(value) when is_binary(value) do
+    if byte_size(String.trim(value)) in 16..200,
+      do: :ok,
+      else: {:error, :invalid_call_signal}
+  end
+
+  defp validate_provider_identity(_value), do: {:error, :invalid_call_signal}
+
+  defp reject_self_target(%{user_id: user_id}, subject) do
+    if user_id == Map.get(subject, :user_id),
+      do: {:error, :forbidden},
+      else: :ok
   end
 end

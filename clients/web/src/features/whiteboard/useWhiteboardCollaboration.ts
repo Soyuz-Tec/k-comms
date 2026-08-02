@@ -1,10 +1,11 @@
 import { reconcileElements, restoreElements } from "@excalidraw/excalidraw";
 import type {
+  AppState,
   Collaborator,
   ExcalidrawImperativeAPI
 } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../app/session";
 import { useOptionalWorkspaceData } from "../../app/workspace-data";
 import { errorText } from "../../lib/format";
@@ -62,7 +63,8 @@ export interface WhiteboardCollaborationOptions {
 
 export function useWhiteboardCollaboration(
   conversationId: string,
-  options?: WhiteboardCollaborationOptions
+  options?: WhiteboardCollaborationOptions,
+  focusElementIds: readonly string[] = []
 ) {
   const sessionContext = useSession();
   const workspaceData = useOptionalWorkspaceData();
@@ -101,6 +103,7 @@ export function useWhiteboardCollaboration(
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [collaboratorCount, setCollaboratorCount] = useState(0);
   const [elementCount, setElementCount] = useState(0);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const persistence = useMemo(
     () =>
       new WhiteboardPersistence({
@@ -128,6 +131,7 @@ export function useWhiteboardCollaboration(
   );
   usersByIdRef.current = usersById;
 
+  const focusElementKey = focusElementIds.join("\0");
   useEffect(() => {
     if (!sessionUserId || !sessionDeviceId) return;
     let current = true;
@@ -461,6 +465,42 @@ export function useWhiteboardCollaboration(
     });
   }
 
+  const handleEditorChange = useCallback((
+    elements: readonly ExcalidrawElement[],
+    appState?: Pick<AppState, "selectedElementIds">
+  ) => {
+    const nextSelectedElementIds = Object.keys(appState?.selectedElementIds ?? {});
+    setSelectedElementIds((current) =>
+      current.length === nextSelectedElementIds.length &&
+      current.every((id, index) => id === nextSelectedElementIds[index])
+        ? current
+        : nextSelectedElementIds
+    );
+    persistence.handleEditorChange(elements);
+  }, [persistence]);
+
+  const messageReference = () => {
+    const elementIds = Object.keys(
+      editorRef.current?.getAppState().selectedElementIds ?? {}
+    ).slice(0, 20);
+    if (elementIds.length === 0) return null;
+    return {
+      element_ids: elementIds,
+      board_sequence: latestSequenceRef.current,
+      label: elementIds.length === 1 ? "Whiteboard object" : `${elementIds.length} whiteboard objects`
+    };
+  };
+
+  useEffect(() => {
+    if (!editorReadyRef.current || !editorRef.current || focusElementIds.length === 0) return;
+    const selection = Object.fromEntries(focusElementIds.map((id) => [id, true as const]));
+    editorRef.current.updateScene({ appState: { selectedElementIds: selection } });
+    const selected = editorRef.current
+      .getSceneElements()
+      .filter((element) => selection[element.id]);
+    if (selected.length > 0) editorRef.current.scrollToContent(selected, { fitToContent: true });
+  }, [focusElementKey, initialElements]);
+
   return {
     initialElements,
     connectionStatus,
@@ -470,7 +510,9 @@ export function useWhiteboardCollaboration(
     collaboratorCount,
     elementCount,
     attachEditor,
-    handleEditorChange: persistence.handleEditorChange,
+    handleEditorChange,
+    selectedElementIds,
+    messageReference,
     sendPointerUpdate,
     armLocalChanges: persistence.armLocalChanges,
     retryHistory: () => {

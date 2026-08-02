@@ -372,6 +372,8 @@ async function installAuthenticatedMocks(
   await page.route("**/api/v1/conversations/conversation-1/messages**", (route) => route.fulfill({
     json: { data: options.populated ? [message] : [], page: { has_more: false, next_after_sequence: null, reset_required: false } }
   }));
+  await page.route("**/api/v1/conversations/conversation-1/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations/conversation-1/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(session.user.id) } }));
   await page.route("**/api/v1/conversations/conversation-1/members", (route) => route.fulfill({ json: { data: [] } }));
   await page.route("**/api/v1/conversations/conversation-1/read-cursor", (route) => route.fulfill({ status: 204 }));
   await page.route("**/api/v1/search**", (route) => route.fulfill({ json: { data: options.populated ? [message] : [] } }));
@@ -408,6 +410,10 @@ async function installAuthenticatedMocks(
       }
     }
   }));
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-14T10:00:00Z", read_at: null };
 }
 
 function tenantAdministration() {

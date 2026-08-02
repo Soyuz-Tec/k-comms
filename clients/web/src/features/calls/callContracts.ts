@@ -29,6 +29,7 @@ export interface CallPanelSessionState {
 }
 
 export interface CallApi {
+  socketTicket?: () => Promise<{ ticket: string; expires_in: number }>;
   call?: (conversationId: string) => Promise<Call | null>;
   startCall?: (
     conversationId: string,
@@ -39,6 +40,8 @@ export interface CallApi {
     callId: string
   ) => Promise<CallSessionResponse>;
   endCall?: (conversationId: string, callId: string) => Promise<Call>;
+  muteCallParticipant?: (conversationId: string, callId: string, providerIdentity: string, trackSid: string) => Promise<void>;
+  removeCallParticipant?: (conversationId: string, callId: string, providerIdentity: string) => Promise<void>;
   audioCall?: (conversationId: string) => Promise<Call | null>;
   startAudioCall?: (conversationId: string) => Promise<CallSessionResponse>;
   joinAudioCall?: (

@@ -92,6 +92,20 @@ defmodule CommsCore.Conversations.AccessPolicy do
     active_membership_authorization_query(tenant_id, user_id)
   end
 
+  def active_conversation_ids(subject) when is_map(subject) do
+    with {:ok, grant} <- Accounts.access_grant(subject) do
+      ids =
+        grant
+        |> active_membership_authorization_query()
+        |> Repo.all()
+        |> Enum.map(& &1.conversation_id)
+
+      {:ok, ids}
+    end
+  end
+
+  def active_conversation_ids(_subject), do: {:error, :forbidden}
+
   def active_service_membership_authorization_query(subject, required_scope)
       when is_map(subject) and is_binary(required_scope) do
     with :ok <- ServiceAccounts.authorize_service(subject, required_scope),

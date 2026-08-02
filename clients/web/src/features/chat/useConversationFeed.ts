@@ -13,6 +13,7 @@ import type {
   ConnectionStatus,
   Conversation,
   Message,
+  MessageDeliveryCursor,
   ReactionEvent,
   RetainedSenderLabel,
   Session
@@ -72,6 +73,7 @@ export function useConversationFeed({
     () => new Set()
   );
   const [readCursors, setReadCursors] = useState<Record<string, number>>({});
+  const [deliveryCursors, setDeliveryCursors] = useState<MessageDeliveryCursor[]>([]);
   const [contiguousSequence, setContiguousSequence] = useState(0);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [newMessageCount, setNewMessageCount] = useState(0);
@@ -200,6 +202,7 @@ export function useConversationFeed({
     setOlderLoading,
     setOnlineUsers,
     setReadCursors,
+    setDeliveryCursors,
     setTypingUsers
   });
 
@@ -209,6 +212,25 @@ export function useConversationFeed({
     latestSequence,
     contiguousSequence
   );
+
+  useEffect(() => {
+    if (
+      !activeConversationId ||
+      contiguousSequence <= 0 ||
+      typeof api.markDelivered !== "function"
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void api.markDelivered(activeConversationId, contiguousSequence)
+        .then((incoming) => setDeliveryCursors((cursors) => {
+          const key = `${incoming.recipient_user_id}:${incoming.device_ref}`;
+          return [...cursors.filter((cursor) => `${cursor.recipient_user_id}:${cursor.device_ref}` !== key), incoming];
+        }))
+        .catch(() => undefined);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [activeConversationId, api, contiguousSequence]);
 
   useEffect(() => {
     if (
@@ -373,6 +395,7 @@ export function useConversationFeed({
     onlineUsers,
     typingUsers,
     readCursors,
+    deliveryCursors,
     isNearBottom,
     newMessageCount,
     latestSequence,

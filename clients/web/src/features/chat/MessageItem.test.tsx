@@ -90,6 +90,47 @@ describe("MessageItem", () => {
     expect(screen.getByText(/quarantined/i)).toBeInTheDocument();
   });
 
+  it("renders safe link and whiteboard reference cards from typed metadata", () => {
+    render(
+      <MessageItem
+        message={{
+          ...message,
+          attachments: [],
+          metadata: {
+            links: [{ url: "https://docs.example.test/guide", label: "Team guide" }],
+            whiteboard_reference: {
+              element_ids: ["element-0001", "element-0002"],
+              board_sequence: 17,
+              label: "Architecture sketch"
+            }
+          }
+        }}
+        currentUserId="user-1"
+        seenCount={0}
+        focused={false}
+        onReaction={vi.fn()}
+        onAttachment={vi.fn()}
+        onReply={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onReport={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: /architecture sketch/i })).toHaveAttribute(
+      "href",
+      "/app/whiteboard?conversation=conversation-1&focus_elements=element-0001%2Celement-0002"
+    );
+    expect(screen.getByRole("link", { name: /team guide/i })).toHaveAttribute(
+      "href",
+      "https://docs.example.test/guide"
+    );
+    expect(screen.getByRole("link", { name: /team guide/i })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer nofollow"
+    );
+  });
+
   it("confirms message deletion without a native browser prompt and restores focus on cancel", async () => {
     const user = userEvent.setup();
     const onDelete = vi.fn().mockResolvedValue(undefined);

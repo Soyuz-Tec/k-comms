@@ -120,4 +120,43 @@ defmodule CommsIntegrations.Audio.LiveKitRoomServiceTest do
                fn _request -> {:ok, %Finch.Response{status: 404, body: ""}} end
              )
   end
+
+  test "mutes one exact published track with a short exact-room admin credential" do
+    parent = self()
+
+    requester = fn request ->
+      send(parent, {:mute_request, request})
+      {:ok, %Finch.Response{status: 200, body: "{}"}}
+    end
+
+    assert :ok =
+             LiveKitRoomService.mute_participant(
+               "kc_audio_exact_room",
+               "kc_exact_participant_identity",
+               "TR_microphone_exact",
+               requester
+             )
+
+    assert_receive {:mute_request, request}
+    assert request.method == "POST"
+    assert request.path == "/twirp/livekit.RoomService/MutePublishedTrack"
+
+    assert Jason.decode!(request.body) == %{
+             "room" => "kc_audio_exact_room",
+             "identity" => "kc_exact_participant_identity",
+             "track_sid" => "TR_microphone_exact",
+             "muted" => true
+           }
+
+    {"authorization", "Bearer " <> token} =
+      Enum.find(request.headers, fn {name, _value} -> name == "authorization" end)
+
+    [_header, encoded_claims, _signature] = String.split(token, ".")
+    claims = encoded_claims |> Base.url_decode64!(padding: false) |> Jason.decode!()
+
+    assert claims["video"] == %{
+             "room" => "kc_audio_exact_room",
+             "roomAdmin" => true
+           }
+  end
 end

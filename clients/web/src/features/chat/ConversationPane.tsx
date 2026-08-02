@@ -13,6 +13,8 @@ import type {
   Conversation,
   ConversationMembership,
   Message,
+  MessageDeliveryCursor,
+  WhiteboardMessageReference,
   UserCapabilities
 } from "../../types";
 import {
@@ -60,10 +62,13 @@ export function ConversationPane({
   onlineUsers,
   pendingAttachments,
   readCursors,
+  deliveryCursors,
+  whiteboardReference,
   replyTo,
   scrollRef,
   sending,
   showDetails,
+  showActivity,
   showSearch,
   uploading,
   videoCallsAvailable,
@@ -89,7 +94,9 @@ export function ConversationPane({
   onShowConversationList,
   onThread,
   onToggleDetails,
+  onToggleActivity,
   onToggleSearch,
+  onClearWhiteboardReference,
   setReplyTo
 }: {
   activeConversation: Conversation | null;
@@ -117,10 +124,13 @@ export function ConversationPane({
   onlineUsers: number;
   pendingAttachments: PendingAttachmentUpload[];
   readCursors: Record<string, number>;
+  deliveryCursors: MessageDeliveryCursor[];
+  whiteboardReference: WhiteboardMessageReference | null;
   replyTo: Message | null;
   scrollRef: RefObject<HTMLDivElement | null>;
   sending: boolean;
   showDetails: boolean;
+  showActivity: boolean;
   showSearch: boolean;
   uploading: boolean;
   videoCallsAvailable: boolean;
@@ -146,7 +156,9 @@ export function ConversationPane({
   onShowConversationList: () => void;
   onThread: (message: Message) => void;
   onToggleDetails: () => void;
+  onToggleActivity: () => void;
   onToggleSearch: () => void;
+  onClearWhiteboardReference: () => void;
   setReplyTo: (message: Message | null) => void;
 }) {
   const title = activeConversation
@@ -222,6 +234,15 @@ export function ConversationPane({
                   Invite guest
                 </button>
               )}
+              <button
+                className="button ghost compact"
+                type="button"
+                aria-expanded={showActivity}
+                onClick={onToggleActivity}
+              >
+                <AppIcon name="activity" />
+                Activity
+              </button>
               <button
                 className="button ghost compact"
                 type="button"
@@ -315,6 +336,7 @@ export function ConversationPane({
                               sequence >= message.conversation_sequence
                           ).length
                         }
+                        deliveredDeviceCount={deliveryCursors.filter((cursor) => cursor.recipient_user_id !== currentUserId && cursor.delivered_sequence >= message.conversation_sequence).length}
                         focused={focusTargetId === message.id}
                         onReaction={(emoji) => onReaction(message, emoji)}
                         onAttachment={onOpenAttachment}
@@ -404,6 +426,12 @@ export function ConversationPane({
                 >
                   <AppIcon name="x" />
                 </button>
+              </div>
+            )}
+            {whiteboardReference && (
+              <div className="composer-reply composer-whiteboard-reference">
+                <span><strong>{whiteboardReference.label || "Whiteboard selection"}</strong><small>{whiteboardReference.element_ids.length} referenced {whiteboardReference.element_ids.length === 1 ? "object" : "objects"}</small></span>
+                <button type="button" aria-label="Remove whiteboard reference" onClick={onClearWhiteboardReference}><AppIcon name="x" /></button>
               </div>
             )}
             {pendingAttachments.length > 0 && (

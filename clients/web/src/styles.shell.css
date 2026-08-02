@@ -169,6 +169,36 @@
 .inline-edit textarea { width: 100%; resize: vertical; padding: .6rem; border: 1px solid var(--border-strong); border-radius: 8px; }
 .message-attachments button:disabled { cursor: not-allowed; opacity: .72; }
 .message-attachments button.unsafe-attachment { border-color: var(--danger-border); color: var(--danger-text); background: var(--danger-quiet); }
+.message-reference-card,
+.message-link-cards a,
+.workspace-search-related a {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .4rem;
+  padding: .58rem .68rem;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  text-decoration: none;
+}
+.message-reference-card:hover,
+.message-link-cards a:hover,
+.workspace-search-related a:hover { border-color: var(--border-strong); background: var(--accent-quiet); }
+.message-reference-card > span,
+.message-link-cards a > span { min-width: 0; display: grid; gap: .15rem; }
+.message-reference-card strong,
+.message-reference-card small,
+.message-link-cards strong,
+.message-link-cards small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-reference-card small,
+.message-link-cards small,
+.workspace-search-related small { color: var(--text-secondary); font-size: .58rem; }
+.message-link-cards,
+.workspace-search-related { display: grid; gap: .4rem; margin: .45rem 0 .7rem; }
+.workspace-search-related a { display: grid; margin: 0; }
 .failed-send { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .55rem; padding: .55rem .65rem; border: 1px solid var(--danger-border); border-radius: 8px; color: var(--danger-text); background: var(--danger-quiet); font-size: .67rem; }
 .composer-reply { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .55rem; padding: .5rem .65rem; border-left: 3px solid var(--border-strong); border-radius: 6px; background: var(--surface-canvas); font-size: .68rem; }
 .composer-reply > span { display: flex; min-width: 0; flex-direction: column; gap: .15rem; }
@@ -197,6 +227,12 @@
 .channel-discovery-list small { color: var(--text-secondary); font-size: .65rem; }
 .compact-empty { min-height: 12rem; padding: 1rem; text-align: center; }
 .search-results small, .search-results time { color: var(--text-secondary); font-size: .58rem; }
+.activity-timeline-list { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; }
+.activity-timeline-list li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: .65rem; padding: .65rem; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); }
+.activity-timeline-list li > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; color: var(--accent-text); background: var(--accent-quiet); }
+.activity-timeline-list li > div { min-width: 0; display: grid; gap: .15rem; }
+.activity-timeline-list strong, .activity-timeline-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-timeline-list small, .activity-timeline-list time { color: var(--text-secondary); font-size: .6rem; }
 .compact-list { margin-bottom: 1.2rem; }
 .details-panel h3 { margin: 0; font-family: var(--font-display); }
 .channel-membership-actions { display: flex; justify-content: flex-end; margin: .8rem 0; padding-bottom: .8rem; border-bottom: 1px solid var(--border-default); }

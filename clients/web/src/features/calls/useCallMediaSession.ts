@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import type { Participant, Room } from "livekit-client";
+import { Track, type Participant, type Room } from "livekit-client";
 import type { CallMediaKind } from "../../types";
 import type { ParticipantView } from "./CallPanelViews";
 import { participantVideoTracks } from "./callMedia";
@@ -46,6 +46,9 @@ export function useCallMediaSession({
       setParticipants(
         all.map((participant) => ({
           id: participant.identity || participant.sid,
+          userId: participantUserId(participant.metadata),
+          providerIdentity: participant.identity,
+          microphoneTrackSid: microphoneTrackSid(participant),
           name: participant.isLocal
             ? currentUserDisplayName
             : participant.name ||
@@ -56,6 +59,7 @@ export function useCallMediaSession({
           cameraEnabled: participant.isCameraEnabled,
           screenShareEnabled: participant.isScreenShareEnabled,
           speaking: participant.isSpeaking,
+          connectionQuality: normalizedConnectionQuality(participant.connectionQuality),
           videoTracks: participantVideoTracks(participant)
         }))
       );
@@ -85,4 +89,36 @@ export function useCallMediaSession({
     updateRoomState,
     videoBlocked
   };
+}
+
+function microphoneTrackSid(participant: Participant): string | null {
+  const microphoneSource = Track.Source?.Microphone;
+  if (microphoneSource && typeof participant.getTrackPublication === "function") {
+    return participant.getTrackPublication(microphoneSource)?.trackSid || null;
+  }
+  for (const publication of participant.audioTrackPublications?.values() || []) {
+    if (!microphoneSource || publication.source === microphoneSource) {
+      return publication.trackSid || null;
+    }
+  }
+  return null;
+}
+
+function participantUserId(metadata: string | undefined): string | null {
+  if (!metadata) return null;
+  try {
+    const value = JSON.parse(metadata) as { user_id?: unknown };
+    return typeof value.user_id === "string" ? value.user_id : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizedConnectionQuality(value: unknown): ParticipantView["connectionQuality"] {
+  const quality = String(value || "unknown").toLowerCase();
+  if (quality.includes("excellent")) return "excellent";
+  if (quality.includes("good")) return "good";
+  if (quality.includes("poor")) return "poor";
+  if (quality.includes("lost")) return "lost";
+  return "unknown";
 }

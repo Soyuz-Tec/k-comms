@@ -11,7 +11,7 @@ import type {
 import type { SendMessageInput } from "../../api";
 import { clientMessageId, errorText } from "../../lib/format";
 import { loadDraft, storeDraft } from "../../lib/drafts";
-import type { Message, Session } from "../../types";
+import type { Message, MessageMetadata, Session } from "../../types";
 import type { AttachmentSendReservation } from "./useChatAttachments";
 
 export interface FailedChatSend {
@@ -27,6 +27,8 @@ interface UseChatComposerOptions {
   clearPendingAttachments: () => void;
   forceScrollToLatestRef: MutableRefObject<boolean>;
   onConversationChanged: () => void;
+  messageMetadata?: MessageMetadata;
+  onMetadataSent?: () => void;
   readyAttachmentIds: string[];
   receiveMessages: (messages: Message[]) => void;
   reserveAttachmentsForSend: (
@@ -49,6 +51,8 @@ export function useChatComposer({
   clearPendingAttachments,
   forceScrollToLatestRef,
   onConversationChanged,
+  messageMetadata,
+  onMetadataSent,
   readyAttachmentIds,
   receiveMessages,
   reserveAttachmentsForSend,
@@ -171,6 +175,7 @@ export function useChatComposer({
     setReplyTo(null);
     setMentionedUserIds([]);
     setFailedSend(null);
+    onMetadataSent?.();
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -192,7 +197,8 @@ export function useChatComposer({
       body,
       attachment_ids: readyAttachmentIds,
       reply_to_message_id: replyTo?.id || null,
-      mentioned_user_ids: mentionedUserIds
+      mentioned_user_ids: mentionedUserIds,
+      metadata: combinedMessageMetadata(body, messageMetadata)
     };
     setSending(true);
     setError(null);
@@ -282,4 +288,18 @@ export function useChatComposer({
     setMentionedUserIds,
     setReplyTo
   };
+}
+
+function combinedMessageMetadata(
+  body: string,
+  supplied?: MessageMetadata
+): MessageMetadata | undefined {
+  const links = Array.from(
+    new Set(body.match(/https:\/\/[^\s<>]+/gi) ?? [])
+  )
+    .slice(0, 5)
+    .map((url) => ({ url }));
+  const metadata: MessageMetadata = { ...(supplied ?? {}) };
+  if (links.length > 0) metadata.links = links;
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }

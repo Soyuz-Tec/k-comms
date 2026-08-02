@@ -212,6 +212,12 @@ export async function installWorkspace(
     if (method === "GET" && path === `/api/v1/conversations/${conversationId}/messages`) {
       return json(route, { data: [message], page: { has_more: false, next_after_sequence: null, reset_required: false } });
     }
+    if (method === "GET" && path === `/api/v1/conversations/${conversationId}/delivery-cursors`) {
+      return json(route, { data: [] });
+    }
+    if (method === "PUT" && path === `/api/v1/conversations/${conversationId}/delivery-cursor`) {
+      return json(route, { data: deliveryCursor(userId) });
+    }
     if (method === "PUT" && path === `/api/v1/conversations/${conversationId}/read-cursor`) {
       state.readCursorRequests += 1;
       return route.fulfill({ status: 204 });
@@ -245,6 +251,10 @@ export async function installWorkspace(
   });
 
   return state;
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-15T12:00:00Z", read_at: null };
 }
 
 export async function installDeterministicMediaDevices(page: Page) {

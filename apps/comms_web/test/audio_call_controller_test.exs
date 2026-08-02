@@ -7,6 +7,27 @@ defmodule CommsWeb.AudioCallControllerTest.RoomService do
 
     Application.get_env(:comms_integrations, :audio_room_service_test_result, :ok)
   end
+
+  def remove_participant(provider_room, provider_identity) do
+    send(Application.fetch_env!(:comms_integrations, :audio_room_service_test_pid), {
+      :remove_audio_participant,
+      provider_room,
+      provider_identity
+    })
+
+    Application.get_env(:comms_integrations, :audio_room_service_test_result, :ok)
+  end
+
+  def mute_participant(provider_room, provider_identity, track_sid) do
+    send(Application.fetch_env!(:comms_integrations, :audio_room_service_test_pid), {
+      :mute_audio_participant,
+      provider_room,
+      provider_identity,
+      track_sid
+    })
+
+    Application.get_env(:comms_integrations, :audio_room_service_test_result, :ok)
+  end
 end
 
 defmodule CommsWeb.AudioCallControllerTest do

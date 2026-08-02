@@ -25,6 +25,8 @@ channels:
         $ref: '#/components/messages/ReactionRemoved'
       readCursor:
         $ref: '#/components/messages/ReadCursor'
+      messageDelivery:
+        $ref: '#/components/messages/MessageDelivery'
       membershipChanged:
         $ref: '#/components/messages/MembershipChanged'
       typing:
@@ -54,6 +56,25 @@ channels:
         $ref: '#/components/messages/WhiteboardPresenceCommand'
       presence:
         $ref: '#/components/messages/WhiteboardPresence'
+  call:
+    address: call:{callId}
+    description: Active admitted-participant topic. Session, membership, call state, and admission are reauthorized for every inbound and intercepted outbound event.
+    parameters:
+      callId:
+        description: Active call UUID; join payload also carries its authorized conversation UUID
+    messages:
+      handCommand:
+        $ref: '#/components/messages/CallHandCommand'
+      reactionCommand:
+        $ref: '#/components/messages/CallReactionCommand'
+      hand:
+        $ref: '#/components/messages/CallHand'
+      reaction:
+        $ref: '#/components/messages/CallReaction'
+      participantMuted:
+        $ref: '#/components/messages/CallParticipantMuted'
+      participantRemoved:
+        $ref: '#/components/messages/CallParticipantRemoved'
   userInbox:
     address: user:{userId}
     description: Human-account-only content-free conversation-list, membership, and notification-availability events; guest sockets cannot join this channel and a human socket may join only its own user id.
@@ -83,6 +104,7 @@ operations:
       - {$ref: '#/channels/conversation/messages/reactionAdded'}
       - {$ref: '#/channels/conversation/messages/reactionRemoved'}
       - {$ref: '#/channels/conversation/messages/readCursor'}
+      - {$ref: '#/channels/conversation/messages/messageDelivery'}
       - {$ref: '#/channels/conversation/messages/membershipChanged'}
       - {$ref: '#/channels/conversation/messages/typing'}
       - {$ref: '#/channels/conversation/messages/presenceState'}
@@ -102,6 +124,20 @@ operations:
     messages:
       - {$ref: '#/channels/whiteboard/messages/operationApplied'}
       - {$ref: '#/channels/whiteboard/messages/presence'}
+  sendCallCollaborationCommand:
+    action: send
+    channel: {$ref: '#/channels/call'}
+    messages:
+      - {$ref: '#/channels/call/messages/handCommand'}
+      - {$ref: '#/channels/call/messages/reactionCommand'}
+  receiveCallCollaborationEvent:
+    action: receive
+    channel: {$ref: '#/channels/call'}
+    messages:
+      - {$ref: '#/channels/call/messages/hand'}
+      - {$ref: '#/channels/call/messages/reaction'}
+      - {$ref: '#/channels/call/messages/participantMuted'}
+      - {$ref: '#/channels/call/messages/participantRemoved'}
   receiveUserInboxEvent:
     action: receive
     channel: {$ref: '#/channels/userInbox'}
@@ -161,6 +197,11 @@ components:
         properties:
           user_id: {type: string, format: uuid}
           sequence: {type: integer, minimum: 0}
+    MessageDelivery:
+      name: message.delivery.v1
+      description: Content-free acceleration signal for a durable per-device delivery/read cursor; clients reconcile over REST after reconnect.
+      payload:
+        $ref: '#/components/schemas/MessageDeliveryCursorPayload'
     MembershipChanged:
       name: membership.changed.v1
       description: Content-free membership delta emitted after committed administrative, self-service public-channel, or guest-link admission changes; no link token or digest is present.
@@ -212,6 +253,61 @@ components:
       description: Audio-only compatibility alias emitted alongside call.ended.v1; new clients should consume the canonical call event.
       payload:
         $ref: '#/components/schemas/AudioCallEndedPayload'
+    CallHandCommand:
+      name: call.hand.set.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [raised]
+        properties:
+          raised: {type: boolean}
+    CallReactionCommand:
+      name: call.reaction.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [emoji]
+        properties:
+          emoji: {enum: ['👍', '👏', '❤️', '😂', '🎉']}
+    CallHand:
+      name: call.hand.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [user_id, raised, raised_at]
+        properties:
+          user_id: {type: string, format: uuid}
+          raised: {type: boolean}
+          raised_at: {type: [string, 'null'], format: date-time}
+    CallReaction:
+      name: call.reaction.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [user_id, emoji, occurred_at]
+        properties:
+          user_id: {type: string, format: uuid}
+          emoji: {enum: ['👍', '👏', '❤️', '😂', '🎉']}
+          occurred_at: {type: string, format: date-time}
+    CallParticipantMuted:
+      name: call.participant_muted.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [participant_id, user_id, media]
+        properties:
+          participant_id: {type: string, format: uuid}
+          user_id: {type: string, format: uuid}
+          media: {const: microphone}
+    CallParticipantRemoved:
+      name: call.participant_removed.v1
+      payload:
+        type: object
+        additionalProperties: false
+        required: [participant_id, user_id]
+        properties:
+          participant_id: {type: string, format: uuid}
+          user_id: {type: string, format: uuid}
     WhiteboardOperationApplied:
       name: whiteboard.operation_applied.v1
       description: Post-commit durable operation signal. Clients reconcile canonical history over REST after gaps or reconnects.
@@ -262,6 +358,17 @@ components:
           message_id: {type: [string, 'null'], format: uuid}
           unread_count: {type: integer, minimum: 0}
   schemas:
+    MessageDeliveryCursorPayload:
+      type: object
+      additionalProperties: false
+      required: [recipient_user_id, device_ref, delivered_sequence, read_sequence, delivered_at, read_at]
+      properties:
+        recipient_user_id: {type: string, format: uuid}
+        device_ref: {type: string, minLength: 12, maxLength: 12}
+        delivered_sequence: {type: integer, minimum: 0}
+        read_sequence: {type: integer, minimum: 0}
+        delivered_at: {type: [string, 'null'], format: date-time}
+        read_at: {type: [string, 'null'], format: date-time}
     WhiteboardPointer:
       type: object
       additionalProperties: false

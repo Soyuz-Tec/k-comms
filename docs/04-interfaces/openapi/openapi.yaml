@@ -1039,6 +1039,59 @@ paths:
               schema: {$ref: '#/components/schemas/AudioCallResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls/{callId}/participants:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    get:
+      tags: [Calls]
+      operationId: listCallParticipants
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Active admitted participant collaboration state; provider identities are excluded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CallParticipantPage'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls/{callId}/participants/mute:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: muteCallParticipant
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MuteCallParticipantRequest'}
+      responses:
+        '200': {description: Exact published microphone track muted by an authorized moderator}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/calls/{callId}/participants/remove:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Calls]
+      operationId: removeCallParticipant
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RemoveCallParticipantRequest'}
+      responses:
+        '202': {description: Admission revoked durably; provider enforcement is immediate or queued}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/audio-call:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -1300,6 +1353,63 @@ paths:
                 sequence: {type: integer, minimum: 0}
       responses:
         '200': {description: Stored monotonic read cursor}
+  /api/v1/conversations/{conversationId}/delivery-cursors:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Messages]
+      operationId: listMessageDeliveryCursors
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Authorized per-device delivery/read projections with hashed device references
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageDeliveryCursorPage'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/delivery-cursor:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    put:
+      tags: [Messages]
+      operationId: updateMessageDeliveryCursor
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sequence]
+              properties:
+                sequence: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Stored monotonic delivery cursor bounded to durable message history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageDeliveryCursorResponse'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/conversations/{conversationId}/activity:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [Conversations]
+      operationId: listConversationActivity
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Bounded owner-composed message, file, whiteboard, and call activity
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WorkspaceActivityPage'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/conversations/{conversationId}/messages/{messageId}/thread:
     parameters:
       - $ref: '#/components/parameters/ConversationId'
@@ -3751,7 +3861,7 @@ components:
       properties:
         body: {type: string, minLength: 1, maxLength: 65535}
         reply_to_message_id: {type: [string, 'null'], format: uuid}
-        metadata: {type: object, maxProperties: 32}
+        metadata: {$ref: '#/components/schemas/MessageMetadata'}
     ServiceConversationListResponse:
       type: object
       additionalProperties: false
@@ -3896,6 +4006,37 @@ components:
         server_url: {type: string, pattern: '^wss?://'}
         participant_token: {type: string, readOnly: true}
         expires_in: {type: integer, minimum: 60, maximum: 300}
+    CallParticipant:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, status, hand_raised, hand_raised_at]
+      properties:
+        id: {type: string, format: uuid}
+        user_id: {type: string, format: uuid}
+        status: {const: admitted}
+        hand_raised: {type: boolean}
+        hand_raised_at: {type: [string, 'null'], format: date-time}
+    CallParticipantPage:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/CallParticipant'}
+    MuteCallParticipantRequest:
+      type: object
+      additionalProperties: false
+      required: [provider_identity, track_sid]
+      properties:
+        provider_identity: {type: string, minLength: 16, maxLength: 200, writeOnly: true}
+        track_sid: {type: string, minLength: 2, maxLength: 128, writeOnly: true}
+    RemoveCallParticipantRequest:
+      type: object
+      additionalProperties: false
+      required: [provider_identity]
+      properties:
+        provider_identity: {type: string, minLength: 16, maxLength: 200, writeOnly: true}
     GuestAudioCallCredential:
       type: object
       additionalProperties: false
@@ -4028,7 +4169,7 @@ components:
           maxItems: 20
           uniqueItems: true
           items: {type: string, format: uuid}
-        metadata: {type: object, maxProperties: 32}
+        metadata: {$ref: '#/components/schemas/MessageMetadata'}
     Message:
       type: object
       additionalProperties: false
@@ -4050,13 +4191,106 @@ components:
           uniqueItems: true
           items: {type: string, format: uuid}
         body: {type: [string, 'null']}
-        metadata: {type: object}
+        metadata: {$ref: '#/components/schemas/MessageMetadata'}
         status: {enum: [active, deleted, moderated]}
         edited_at: {type: [string, 'null'], format: date-time}
         deleted_at: {type: [string, 'null'], format: date-time}
         inserted_at: {type: string, format: date-time}
         attachments: {type: array, items: {type: object}}
         reactions: {type: array, items: {type: object}}
+    MessageLink:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: {type: string, format: uri, pattern: '^https://', maxLength: 2048}
+        label: {type: string, minLength: 1, maxLength: 160}
+    WhiteboardMessageReference:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [element_ids]
+        - required: [region]
+      properties:
+        element_ids:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items: {type: string, minLength: 8, maxLength: 128}
+        board_sequence: {type: integer, minimum: 0}
+        label: {type: string, minLength: 1, maxLength: 120}
+        region:
+          type: object
+          additionalProperties: false
+          required: [x, y, width, height]
+          properties:
+            x: {type: number, minimum: -10000000, maximum: 10000000}
+            y: {type: number, minimum: -10000000, maximum: 10000000}
+            width: {type: number, exclusiveMinimum: 0, maximum: 10000000}
+            height: {type: number, exclusiveMinimum: 0, maximum: 10000000}
+    MessageMetadata:
+      type: object
+      maxProperties: 32
+      properties:
+        links:
+          type: array
+          maxItems: 5
+          items: {$ref: '#/components/schemas/MessageLink'}
+        whiteboard_reference: {$ref: '#/components/schemas/WhiteboardMessageReference'}
+    MessageDeliveryCursor:
+      type: object
+      additionalProperties: false
+      required: [recipient_user_id, device_ref, delivered_sequence, read_sequence, delivered_at, read_at]
+      properties:
+        recipient_user_id: {type: string, format: uuid}
+        device_ref: {type: string, minLength: 12, maxLength: 12}
+        delivered_sequence: {type: integer, minimum: 0}
+        read_sequence: {type: integer, minimum: 0}
+        delivered_at: {type: [string, 'null'], format: date-time}
+        read_at: {type: [string, 'null'], format: date-time}
+    MessageDeliveryCursorResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/MessageDeliveryCursor'}
+    MessageDeliveryCursorPage:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/MessageDeliveryCursor'}
+    WorkspaceActivityEntry:
+      type: object
+      additionalProperties: false
+      required: [id, category, conversation_id, actor_user_id, kind, occurred_at]
+      properties:
+        id: {type: string}
+        category: {enum: [messaging, whiteboard, call, file]}
+        conversation_id: {type: string, format: uuid}
+        actor_user_id: {type: string, format: uuid}
+        kind: {type: string, minLength: 1, maxLength: 120}
+        sequence: {type: [integer, 'null'], minimum: 0}
+        occurred_at: {type: string, format: date-time}
+        label: {type: string, maxLength: 255}
+    WorkspaceActivityPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/WorkspaceActivityEntry'}
+        page:
+          type: object
+          additionalProperties: false
+          required: [limit, has_more]
+          properties:
+            limit: {type: integer, minimum: 1, maximum: 100}
+            has_more: {type: boolean}
     MessagePage:
       type: object
       required: [data, page]
@@ -4067,12 +4301,19 @@ components:
         included:
           type: object
           additionalProperties: false
-          required: [sender_labels]
           properties:
             sender_labels:
               type: array
               maxItems: 200
               items: {$ref: '#/components/schemas/RetainedSenderLabel'}
+            files:
+              type: array
+              maxItems: 100
+              items: {$ref: '#/components/schemas/FileSummary'}
+            whiteboards:
+              type: array
+              maxItems: 50
+              items: {$ref: '#/components/schemas/WhiteboardSearchResult'}
         page:
           type: object
           required: [has_more, reset_required]
@@ -4186,6 +4427,16 @@ components:
             limit: {type: integer, minimum: 1, maximum: 200}
             has_more: {type: boolean}
             next_cursor: {type: [string, 'null']}
+    WhiteboardSearchResult:
+      type: object
+      additionalProperties: false
+      required: [conversation_id, element_id, sequence, text, inserted_at]
+      properties:
+        conversation_id: {type: string, format: uuid}
+        element_id: {type: string, minLength: 8, maxLength: 128}
+        sequence: {type: integer, minimum: 1}
+        text: {type: string}
+        inserted_at: {type: string, format: date-time}
     MessageThreadResponse:
       type: object
       additionalProperties: false

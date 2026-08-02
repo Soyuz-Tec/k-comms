@@ -102,8 +102,10 @@ compiled into the production release and are outside the runtime source rule.
 ## Product surfaces
 
 - **User workspace (`/app`):** tenant-scoped text, conversation whiteboards,
-  one-to-one/group audio and video communication, screen sharing, search,
-  files, notifications, profile, and personal device/session controls.
+  one-to-one/group audio and video communication, screen sharing, participant
+  collaboration/moderation, per-device delivery/read evidence, unified
+  authorized search/activity, files, notifications, profile, and personal
+  device/session controls.
 - **Instant room entry (`/` and `/join`):** feature-gated, conversation-only
   text, durable drawing-canvas, audio, and video communication created from the
   application-first workspace launcher or reached through one fragment-bearing
@@ -144,7 +146,8 @@ whiteboard-ineligible.
 
 ## Data systems
 
-- PostgreSQL: authoritative messages, whiteboard operation history,
+- PostgreSQL: authoritative messages and per-device delivery/read cursors,
+  whiteboard operation history,
   memberships, policies, unified call
   lifecycles/media kind/admissions, atomically scheduled expiry and eviction
   jobs, outbox, and audit.
@@ -159,6 +162,9 @@ Call creation and its unique eight-hour expiry job commit together. The
 worker runtime owns provider-room cleanup and then invokes the same durable
 ended/outbox/admission-revocation transition used by an authorized manual end;
 provider failure retries without transferring lifecycle authority to LiveKit.
+Raised-hand state is Calls-owned durable participant state; allowlisted call
+reactions and Phoenix delivery signals are ephemeral acceleration paths.
+Recording, transcription, and LiveKit data-channel publication remain disabled.
 
 ## Business boundaries
 

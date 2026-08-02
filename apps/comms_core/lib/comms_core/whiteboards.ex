@@ -1,7 +1,7 @@
 defmodule CommsCore.Whiteboards do
   @moduledoc "Durable, conversation-scoped collaborative whiteboards."
 
-  alias CommsCore.Whiteboards.{Commands, Erasure, History, OperationView}
+  alias CommsCore.Whiteboards.{Commands, Erasure, History, OperationView, Queries}
 
   @spec append_operation(Ecto.UUID.t(), map(), map()) ::
           {:ok, OperationView.t(), :created | :duplicate}
@@ -24,6 +24,9 @@ defmodule CommsCore.Whiteboards do
           | {:error, :forbidden}
   def list_operations(conversation_id, subject, opts \\ []),
     do: History.list(conversation_id, subject, opts)
+
+  defdelegate search(query, subject, opts \\ []), to: Queries
+  defdelegate activity(conversation_id, subject, opts \\ []), to: Queries
 
   @doc "Contributes whiteboard erasure to an existing governance transaction."
   defdelegate erase_for_governance(tenant_id, target_type, target_id, timestamp),

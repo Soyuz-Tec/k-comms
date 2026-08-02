@@ -1,6 +1,7 @@
 import { Excalidraw } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import { useState } from "react";
+import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
 import {
   useWhiteboardCollaboration,
@@ -12,17 +13,22 @@ export function CollaborativeWhiteboard({
   conversationId,
   conversationTitle,
   collaborationOptions,
+  focusElementIds = [],
+  onMessageReference,
   compact = false
 }: {
   conversationId: string;
   conversationTitle: string;
   collaborationOptions?: WhiteboardCollaborationOptions;
+  focusElementIds?: readonly string[];
+  onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
 }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const collaboration = useWhiteboardCollaboration(
     conversationId,
-    collaborationOptions
+    collaborationOptions,
+    focusElementIds
   );
 
   if (collaboration.initialElements === null) {
@@ -78,6 +84,17 @@ export function CollaborativeWhiteboard({
               ? "Saving…"
               : "Save needs attention"}
         </span>
+        {onMessageReference && <button
+          className="button ghost compact"
+          type="button"
+          disabled={collaboration.selectedElementIds.length === 0}
+          onClick={() => {
+            const reference = collaboration.messageReference();
+            if (reference) onMessageReference(reference);
+          }}
+        >
+          <AppIcon name="message" /> Message selection
+        </button>}
         <button
           className="button ghost compact"
           type="button"

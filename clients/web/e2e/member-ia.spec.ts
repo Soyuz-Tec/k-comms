@@ -389,6 +389,12 @@ async function installWorkspace(
         page: { has_more: false, next_after_sequence: null, reset_required: false }
       });
     }
+    if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/delivery-cursors$/.test(path)) {
+      return json(route, { data: [] });
+    }
+    if (method === "PUT" && /^\/api\/v1\/conversations\/[^/]+\/delivery-cursor$/.test(path)) {
+      return json(route, { data: deliveryCursor(userId) });
+    }
     if (method === "PUT" && /^\/api\/v1\/conversations\/[^/]+\/read-cursor$/.test(path)) {
       return route.fulfill({ status: 204 });
     }
@@ -496,6 +502,10 @@ async function installWorkspace(
   });
 
   return state;
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 7, read_sequence: 0, delivered_at: "2026-07-24T12:00:00Z", read_at: null };
 }
 
 async function installDeterministicMediaDevices(page: Page) {
