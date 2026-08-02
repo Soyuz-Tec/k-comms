@@ -11,10 +11,15 @@
 | `conversation.created.v1` | Yes | Conversation | Audit and future projections |
 | `membership.changed.v1` | Yes | Conversation | Clients, authorization, audit; content-free administrative and self-service membership deltas |
 | `conversation.read.v1` | No | User/conversation | Connected clients, unread projections |
+| `message.delivery.v1` | No | User device/conversation | Connected clients; content-free monotonic delivery/read cursor projection |
 | `whiteboard.operation_applied.v1` | Yes | Conversation whiteboard | Active workspace members and exact-room instant participants; clients reconcile durable history over authorized member or guest REST after gaps |
 | `whiteboard.presence.v1` | No | User/conversation whiteboard | Other currently authorized workspace members or exact-room instant participants; bounded pointer and selection state only |
 | `call.started.v1` | Yes | Conversation | Clients refresh active-call state; content-free ID, conversation ID, media kind, status, and lifecycle times only |
 | `call.ended.v1` | Yes | Conversation | Clients detach media and refresh active-call state; includes media kind and lifecycle metadata, never provider data |
+| `call.hand.v1` | No | Active call | Admitted participants; durable raised-hand state projected over an authorized call topic |
+| `call.reaction.v1` | No | Active call | Admitted participants; allowlisted, rate-limited, ephemeral reaction |
+| `call.participant_muted.v1` | No | Active call | Admitted participants refresh media state after exact-room moderation |
+| `call.participant_removed.v1` | No | Active call | Admitted participants refresh state; removed participant is durably revoked and evicted |
 | `ephemeral_room.created.v1` / `ephemeral_room.reactivated.v1` | Yes | Instant room | Audit, operations, and authorized outbox consumers; not a client conversation-channel event |
 | `ephemeral_room.idle.v1` / `ephemeral_room.expired.v1` | Yes | Instant room | Audit, lifecycle operations, and authorized outbox consumers; not a client conversation-channel event |
 | `ephemeral_room.owner_upgraded.v1` | Yes | Instant room | Audit, identity/lifecycle operations, and authorized outbox consumers; not a client conversation-channel event |
@@ -30,6 +35,10 @@ Call events use the same tenant/conversation authorization and outbox boundary.
 Both event payloads include `media_kind: "audio" | "video"`. They must not
 include participant tokens, provider rooms or identities, device names, SDP,
 ICE, media tracks, camera/screen state, or quality telemetry.
+
+Call collaboration events use the dedicated `call:<call_id>` authorization
+boundary and are never lifecycle authority. Message delivery events accelerate
+the durable per-device receipt table but clients reconcile after reconnect.
 
 Instant-room lifecycle evidence is durable Audit/Outbox data, not part of the
 client-visible AsyncAPI conversation channel. Clients reconcile authorized room

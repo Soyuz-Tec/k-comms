@@ -31,7 +31,13 @@ async function mockWorkspace(page: Page, role: Role, conversations: unknown[] = 
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: conversations } }));
   await page.route("**/api/v1/conversations/*/members", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations/*/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations/*/delivery-cursor", (route) => route.fulfill({ json: { data: deliveryCursor(session.user.id) } }));
   return session;
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 5, read_sequence: 0, delivered_at: "2026-07-12T10:00:00Z", read_at: null };
 }
 
 async function openClientRoute(page: Page, path: string) {

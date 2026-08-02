@@ -23,10 +23,13 @@ import type {
   LegalHold,
   MeResponse,
   Message,
+  MessageDeliveryCursor,
   MessagePage,
   MessageSearchOptions,
   MessageSearchPage,
   MessageThread,
+  WorkspaceActivityEntry,
+  CallParticipantState,
   ModerationCase,
   NotificationAttempt,
   NotificationIntent,
@@ -499,6 +502,18 @@ export class ApiClient {
     return this.callsApi.endCall(conversationId, callId);
   }
 
+  callParticipants(conversationId: string, callId: string): Promise<CallParticipantState[]>{
+    return this.callsApi.callParticipants(conversationId, callId);
+  }
+
+  muteCallParticipant(conversationId: string, callId: string, providerIdentity: string, trackSid: string): Promise<void>{
+    return this.callsApi.muteCallParticipant(conversationId, callId, providerIdentity, trackSid);
+  }
+
+  removeCallParticipant(conversationId: string, callId: string, providerIdentity: string): Promise<void>{
+    return this.callsApi.removeCallParticipant(conversationId, callId, providerIdentity);
+  }
+
   audioCall(conversationId: string): Promise<Call | null>{
     return this.callsApi.audioCall(conversationId);
   }
@@ -627,6 +642,18 @@ export class ApiClient {
 
   markRead(conversationId: string, sequence: number): Promise<void>{
     return this.messagingApi.markRead(conversationId, sequence);
+  }
+
+  deliveryCursors(conversationId: string): Promise<MessageDeliveryCursor[]>{
+    return this.messagingApi.deliveryCursors(conversationId);
+  }
+
+  markDelivered(conversationId: string, sequence: number): Promise<MessageDeliveryCursor>{
+    return this.messagingApi.markDelivered(conversationId, sequence);
+  }
+
+  conversationActivity(conversationId: string, limit = 50): Promise<WorkspaceActivityEntry[]>{
+    return this.messagingApi.conversationActivity(conversationId, limit);
   }
 
   whiteboardOperations(

@@ -7,6 +7,7 @@ import type {
   ConnectionStatus,
   Conversation,
   Message,
+  MessageDeliveryCursor,
   ReactionEvent,
   ReadCursorEvent,
   RetainedSenderLabel,
@@ -54,6 +55,7 @@ interface UseConversationRealtimeOptions {
   setOlderLoading: Dispatch<SetStateAction<boolean>>;
   setOnlineUsers: Dispatch<SetStateAction<number>>;
   setReadCursors: Dispatch<SetStateAction<Record<string, number>>>;
+  setDeliveryCursors: Dispatch<SetStateAction<MessageDeliveryCursor[]>>;
   setTypingUsers: Dispatch<SetStateAction<Set<string>>>;
 }
 
@@ -91,6 +93,7 @@ export function useConversationRealtime({
   setOlderLoading,
   setOnlineUsers,
   setReadCursors,
+  setDeliveryCursors,
   setTypingUsers
 }: UseConversationRealtimeOptions) {
   useEffect(() => {
@@ -111,6 +114,7 @@ export function useConversationRealtime({
     knownMessageIdsRef.current.clear();
     setTypingUsers(new Set());
     setReadCursors({});
+    setDeliveryCursors([]);
     setMessagesLoading(true);
     setConnectionStatus("connecting");
     setError(null);
@@ -302,6 +306,10 @@ export function useConversationRealtime({
                 }));
               }
             },
+            onDelivery: (event) => {
+              if (!current || activeConversationIdRef.current !== conversationId) return;
+              setDeliveryCursors((cursors) => mergeDeliveryCursor(cursors, event));
+            },
             onTyping: (userId, active) =>
               setTypingUsers((currentUsers) => {
                 if (
@@ -408,12 +416,14 @@ export function useConversationRealtime({
         );
         contiguousSequenceRef.current = start;
         setContiguousSequence(start);
-        const page = await api.messages(
-          conversationId,
-          start,
-          100
-        );
+        const [page, deliveryCursors] = await Promise.all([
+          api.messages(conversationId, start, 100),
+          typeof api.deliveryCursors === "function"
+            ? api.deliveryCursors(conversationId).catch(() => [])
+            : Promise.resolve([])
+        ]);
         if (!current) return;
+        setDeliveryCursors(deliveryCursors);
         mergeRetainedSenderLabels(
           page.included?.sender_labels || []
         );
@@ -461,4 +471,16 @@ export function useConversationRealtime({
     session?.user.id
   ]);
 
+}
+
+function mergeDeliveryCursor(
+  cursors: MessageDeliveryCursor[],
+  incoming: MessageDeliveryCursor
+): MessageDeliveryCursor[] {
+  const key = `${incoming.recipient_user_id}:${incoming.device_ref}`;
+  const next = cursors.filter(
+    (cursor) => `${cursor.recipient_user_id}:${cursor.device_ref}` !== key
+  );
+  next.push(incoming);
+  return next;
 }

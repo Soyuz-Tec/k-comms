@@ -1,12 +1,17 @@
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
 import { CollaborativeWhiteboard } from "./CollaborativeWhiteboard";
 
 export function WhiteboardPage() {
   const { conversations, loading } = useWorkspaceData();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const requested = searchParams.get("conversation");
+  const focusElementIds = (searchParams.get("focus_elements") || "")
+    .split(",")
+    .filter((id) => id.length >= 8 && id.length <= 128)
+    .slice(0, 20);
   const activeConversation =
     conversations.find((conversation) => conversation.id === requested) ??
     conversations[0] ??
@@ -56,6 +61,16 @@ export function WhiteboardPage() {
           key={activeConversation.id}
           conversationId={activeConversation.id}
           conversationTitle={activeConversation.title || "Untitled conversation"}
+          focusElementIds={focusElementIds}
+          onMessageReference={(reference) => {
+            const params = new URLSearchParams({
+              conversation: activeConversation.id,
+              whiteboard_elements: reference.element_ids.join(","),
+              whiteboard_sequence: String(reference.board_sequence),
+              whiteboard_label: reference.label || "Whiteboard selection"
+            });
+            navigate(`/app/?${params.toString()}`);
+          }}
         />
       ) : (
         <section className="empty-state whiteboard-empty">

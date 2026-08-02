@@ -147,13 +147,58 @@ export interface Message {
   client_message_id: string;
   conversation_sequence: number;
   body: string | null;
-  metadata: Record<string, unknown>;
+  metadata: MessageMetadata;
   status: "active" | "deleted" | "moderated";
   edited_at?: string | null;
   deleted_at?: string | null;
   inserted_at: string;
   attachments: Attachment[];
   reactions: Reaction[];
+}
+
+export interface MessageLink {
+  url: string;
+  label?: string;
+}
+
+export interface WhiteboardMessageReference {
+  element_ids: string[];
+  board_sequence: number;
+  label?: string;
+  region?: { x: number; y: number; width: number; height: number };
+}
+
+export interface MessageMetadata extends Record<string, unknown> {
+  links?: MessageLink[];
+  whiteboard_reference?: WhiteboardMessageReference;
+}
+
+export interface MessageDeliveryCursor {
+  recipient_user_id: string;
+  device_ref: string;
+  delivered_sequence: number;
+  read_sequence: number;
+  delivered_at: string | null;
+  read_at: string | null;
+}
+
+export interface WhiteboardSearchResult {
+  conversation_id: string;
+  element_id: string;
+  sequence: number;
+  text: string;
+  inserted_at: string;
+}
+
+export interface WorkspaceActivityEntry {
+  id: string;
+  category: "messaging" | "whiteboard" | "call" | "file";
+  conversation_id: string;
+  actor_user_id: string;
+  kind: string;
+  sequence?: number | null;
+  occurred_at: string;
+  label?: string;
 }
 
 export interface MessageThread {
@@ -208,6 +253,8 @@ export interface MessageSearchPage {
   data: Message[];
   included?: {
     sender_labels: RetainedSenderLabel[];
+    files?: FileSummary[];
+    whiteboards?: WhiteboardSearchResult[];
   };
   page: {
     limit: number;

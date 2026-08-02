@@ -226,6 +226,12 @@ async function installAuthApi(
         page: { has_more: false, next_after_sequence: null, reset_required: false }
       });
     }
+    if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/delivery-cursors$/.test(path)) {
+      return json(route, { data: [] });
+    }
+    if (method === "PUT" && /^\/api\/v1\/conversations\/[^/]+\/delivery-cursor$/.test(path)) {
+      return json(route, { data: deliveryCursor(user.id) });
+    }
     if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/call$/.test(path)) {
       return json(route, { data: null });
     }
@@ -249,6 +255,10 @@ async function installAuthApi(
 
 function serviceStatus(bootstrap: boolean) {
   return mockServiceStatus({ bootstrap });
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-24T00:00:00Z", read_at: null };
 }
 
 function json(route: Route, body: unknown, status = 200) {

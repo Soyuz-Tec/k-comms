@@ -9,6 +9,8 @@ defmodule CommsCore.Messaging do
   import Ecto.Query
 
   alias CommsCore.Messaging.{
+    DeliveryCursors,
+    Activity,
     GovernanceQueries,
     History,
     Message,
@@ -65,4 +67,9 @@ defmodule CommsCore.Messaging do
 
   defdelegate search(query_text, subject, opts \\ []), to: Search
   defdelegate search_page(query_text, subject, opts \\ []), to: Search
+
+  defdelegate mark_delivered(conversation_id, sequence, subject), to: DeliveryCursors
+  defdelegate mark_read(conversation_id, sequence, subject), to: DeliveryCursors
+  defdelegate list_delivery_cursors(conversation_id, subject), to: DeliveryCursors, as: :list
+  defdelegate activity(conversation_id, subject, opts \\ []), to: Activity, as: :list
 end

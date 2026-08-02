@@ -1,4 +1,4 @@
-import type { ServiceAccountScope } from "../types";
+import type { MessageMetadata, ServiceAccountScope } from "../types";
 
 export interface ApiRequestOptions extends RequestInit {
   retryAuthentication?: boolean;
@@ -35,6 +35,7 @@ export interface SendMessageInput {
   attachment_ids: string[];
   reply_to_message_id?: string | null;
   mentioned_user_ids?: string[];
+  metadata?: MessageMetadata;
 }
 
 export interface UpdateTenantInput {

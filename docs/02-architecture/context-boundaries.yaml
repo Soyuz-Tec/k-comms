@@ -322,6 +322,8 @@ contexts:
     fold_in: [Attachments]
     public_facades: [CommsCore.Messaging, CommsCore.Attachments]
     public_contracts:
+      - CommsCore.Messaging.ActivityView
+      - CommsCore.Messaging.DeliveryCursorView
       - CommsCore.Messaging.MessageView
       - CommsCore.Messaging.MessageDeletionCandidate
       - CommsCore.Messaging.GovernanceImpact
@@ -346,7 +348,9 @@ contexts:
     current_contexts: [Whiteboards]
     public_facades: [CommsCore.Whiteboards]
     public_contracts:
+      - CommsCore.Whiteboards.ActivityView
       - CommsCore.Whiteboards.OperationView
+      - CommsCore.Whiteboards.SearchResult
     internal_namespaces: [CommsCore.Whiteboards]
     allowed_dependencies: [conversations]
     publishes: [collaboration.whiteboard_operation_applied.v1]
@@ -358,11 +362,14 @@ contexts:
     fold_in: []
     public_facades: [CommsCore.AudioCalls]
     public_contracts:
+      - CommsCore.AudioCalls.ActivityView
+      - CommsCore.AudioCalls.CallParticipantView
       - CommsCore.AudioCalls.CallSessionView
       - CommsCore.AudioCalls.CallView
       - CommsCore.AudioCalls.CredentialRequest
       - CommsCore.AudioCalls.EvictionClaim
       - CommsCore.AudioCalls.EvictionProgress
+      - CommsCore.AudioCalls.ModerationTarget
       - CommsCore.AudioCalls.ProviderCall
     internal_namespaces: [CommsCore.AudioCalls]
     allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
@@ -796,6 +803,7 @@ tables:
   conversation_ephemeral_rooms: {owner: conversations, canonical_schema: CommsCore.Conversations.EphemeralRoom, role: source}
   conversation_ephemeral_presence_leases: {owner: conversations, canonical_schema: CommsCore.Conversations.EphemeralPresenceLease, role: source}
   messages: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Message, role: source}
+  message_delivery_cursors: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageDeliveryCursor, role: source}
   message_mentions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageMention, role: source}
   message_reactions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.Reaction, role: source}
   message_revisions: {owner: conversation_content, canonical_schema: CommsCore.Messaging.MessageRevision, role: source}

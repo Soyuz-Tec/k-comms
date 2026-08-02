@@ -12,17 +12,27 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
         provider_identity,
         display_name,
         authorization_expires_at \\ nil
-      )
+      ),
+      do:
+        issue(
+          provider_room,
+          media_kind,
+          provider_identity,
+          display_name,
+          authorization_expires_at,
+          %{}
+        )
 
   def issue(
         provider_room,
         media_kind,
         provider_identity,
         display_name,
-        authorization_expires_at
+        authorization_expires_at,
+        metadata
       )
       when is_binary(provider_room) and media_kind in [:audio, :video, "audio", "video"] and
-             is_binary(provider_identity) and is_binary(display_name) do
+             is_binary(provider_identity) and is_binary(display_name) and is_map(metadata) do
     now = System.system_time(:second)
 
     with {:ok, config} <- configuration(),
@@ -56,6 +66,11 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
         }
       }
 
+      claims =
+        if map_size(metadata) > 0,
+          do: Map.put(claims, "metadata", Jason.encode!(metadata)),
+          else: claims
+
       {:ok,
        %{
          server_url: config.server_url,
@@ -73,7 +88,7 @@ defmodule CommsIntegrations.Audio.LiveKitToken do
     end
   end
 
-  def issue(_, _, _, _, _), do: {:error, :audio_identity_invalid}
+  def issue(_, _, _, _, _, _), do: {:error, :audio_identity_invalid}
 
   def issue_room_control(provider_room) when is_binary(provider_room) do
     with {:ok, config} <- configuration(),

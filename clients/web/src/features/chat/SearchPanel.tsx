@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApiClient } from "../../api";
-import type { Conversation, Message, RetainedSenderLabel, User } from "../../types";
+import type { Conversation, FileSummary, Message, RetainedSenderLabel, User, WhiteboardSearchResult } from "../../types";
 import { errorText, formatTime } from "../../lib/format";
 import {
   conversationParticipantIdentifier,
@@ -41,6 +41,8 @@ export function SearchPanel({
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Message[]>([]);
+  const [files, setFiles] = useState<FileSummary[]>([]);
+  const [whiteboards, setWhiteboards] = useState<WhiteboardSearchResult[]>([]);
   const [conversationId, setConversationId] = useState("all");
   const [senderId, setSenderId] = useState("all");
   const [dateScope, setDateScope] = useState<DateScope>("any");
@@ -205,6 +207,10 @@ export function SearchPanel({
       });
       if (currentRequest !== requestId.current) return;
       setResults((current) => append ? [...current, ...response.data] : response.data);
+      if (!append) {
+        setFiles(response.included?.files || []);
+        setWhiteboards(response.included?.whiteboards || []);
+      }
       setRetainedSenderLabelsById((current) =>
         append
           ? mergeRetainedSenderLabels(current, response.included?.sender_labels)
@@ -217,6 +223,8 @@ export function SearchPanel({
       if (currentRequest !== requestId.current) return;
       if (!append) {
         setResults([]);
+        setFiles([]);
+        setWhiteboards([]);
         setCursor(null);
         setHasMore(false);
         setHasSearched(false);
@@ -236,6 +244,8 @@ export function SearchPanel({
   function resetResults() {
     requestId.current += 1;
     setResults([]);
+    setFiles([]);
+    setWhiteboards([]);
     setRetainedSenderLabelsById(new Map());
     setCursor(null);
     setHasMore(false);
@@ -267,7 +277,7 @@ export function SearchPanel({
     <div className="drawer-backdrop">
       <aside ref={dialogRef} className="search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title">
         <header>
-          <div><span className="eyebrow">Authorized results</span><h2 id="message-search-title">Search messages</h2></div>
+          <div><span className="eyebrow">Messages, files, and whiteboards</span><h2 id="message-search-title">Search messages</h2></div>
           <AppSurfaceControlButton
             accessibleLabel="Close search"
             kind="close"
@@ -276,7 +286,7 @@ export function SearchPanel({
         </header>
         <form className="search-form message-search-form" role="search" onSubmit={(event) => void search(event)}>
           <label className="sr-only" htmlFor="message-search">Search accessible messages</label>
-          <input id="message-search" type="search" value={query} onChange={(event) => queryChanged(event.target.value)} placeholder="Search messages" autoFocus data-initial-focus />
+          <input id="message-search" type="search" value={query} onChange={(event) => queryChanged(event.target.value)} placeholder="Search messages, files, and whiteboards" autoFocus data-initial-focus />
           <button className="button primary compact" type="submit" disabled={busy || !query.trim()}>{busy ? "Searching…" : "Search"}</button>
           <fieldset className="message-search-filters">
             <legend>Refine results</legend>
@@ -304,8 +314,12 @@ export function SearchPanel({
           <p className="search-filter-note">Filters refine the authorized messages returned by this search.</p>
         </form>
         {error && <div className="form-error" role="alert">{error}</div>}
-        {hasSearched && <p id="message-search-summary" className="search-result-summary" role="status" aria-live="polite" aria-atomic="true">{results.length} {results.length === 1 ? "result" : "results"} shown.</p>}
-        {!busy && hasSearched && results.length === 0 && <p className="empty-copy">No accessible messages match this search.</p>}
+        {hasSearched && <p id="message-search-summary" className="search-result-summary" role="status" aria-live="polite" aria-atomic="true">{results.length + files.length + whiteboards.length} results shown.</p>}
+        {!busy && hasSearched && results.length + files.length + whiteboards.length === 0 && <p className="empty-copy">No accessible workspace content matches this search.</p>}
+        {(files.length > 0 || whiteboards.length > 0) && <section className="workspace-search-related" aria-label="Files and whiteboards">
+          {files.map((file) => <a key={file.id} href={`/app/files?conversation=${encodeURIComponent(file.conversation_id)}&file=${encodeURIComponent(file.id)}`}><strong>{file.file_name}</strong><small>File · {conversationsById.get(file.conversation_id)?.title || "Conversation"}</small></a>)}
+          {whiteboards.map((result) => <a key={`${result.conversation_id}:${result.element_id}`} href={`/app/whiteboard?conversation=${encodeURIComponent(result.conversation_id)}&focus_elements=${encodeURIComponent(result.element_id)}`}><strong>{result.text}</strong><small>Whiteboard · {conversationsById.get(result.conversation_id)?.title || "Conversation"}</small></a>)}
+        </section>}
         <ol className="search-results" aria-describedby={hasSearched ? "message-search-summary" : undefined}>
           {results.map((message, index) => {
             const conversation = conversationsById.get(message.conversation_id);

@@ -27,7 +27,51 @@
     },
     "metadata": {
       "type": "object",
-      "maxProperties": 32
+      "maxProperties": 32,
+      "properties": {
+        "links": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url"],
+            "properties": {
+              "url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+              "label": {"type": "string", "minLength": 1, "maxLength": 160}
+            }
+          }
+        },
+        "whiteboard_reference": {
+          "type": "object",
+          "additionalProperties": false,
+          "anyOf": [
+            {"required": ["element_ids"]},
+            {"required": ["region"]}
+          ],
+          "properties": {
+            "element_ids": {
+              "type": "array",
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 8, "maxLength": 128}
+            },
+            "board_sequence": {"type": "integer", "minimum": 0},
+            "label": {"type": "string", "minLength": 1, "maxLength": 120},
+            "region": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["x", "y", "width", "height"],
+              "properties": {
+                "x": {"type": "number", "minimum": -10000000, "maximum": 10000000},
+                "y": {"type": "number", "minimum": -10000000, "maximum": 10000000},
+                "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000000},
+                "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000000}
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

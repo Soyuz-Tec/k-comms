@@ -173,6 +173,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
             audioEnabled={audioPolicyEnabled}
             videoEnabled={videoPolicyEnabled}
             currentUserDisplayName={session.user.display_name}
+            currentUserId={session.user.id}
             realtimeEvent={realtimeEvent}
             launchRequest={launchRequest?.kind}
             launchRequestId={launchRequest?.id}

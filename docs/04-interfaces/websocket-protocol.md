@@ -18,6 +18,7 @@ command and outbound event. Revocation disconnects the session socket.
 user:<user_id>
 conversation:<conversation_id>
 whiteboard:<conversation_id>
+call:<call_id>
 ```
 
 Only the authenticated user may join `user:<user_id>`. That topic carries
@@ -29,6 +30,9 @@ must hold active membership. A conversation-only human or guest must hold an
 active membership in that exact active or idle instant room; an ordinary guest
 link is denied. The server rechecks this boundary on join, inbound pointer or
 selection commands, and outbound event interception.
+Call topics require an active admitted call participant and the exact
+conversation ID. The server rechecks session, membership, call state, and
+admission before every hand/reaction command and before every outbound event.
 
 ## Join payload
 
@@ -85,6 +89,19 @@ capability. Clients reconcile through `GET
 /api/v1/conversations/{conversation_id}/call`; they never exchange provider
 credentials, participant state, camera/screen state, SDP, ICE, RTP, or SRTP over
 Phoenix.
+
+The call topic accepts `call.hand.set.v1` with a boolean `raised` field and
+`call.reaction.v1` with one allowlisted emoji. It emits `call.hand.v1`,
+`call.reaction.v1`, `call.participant_muted.v1`, and
+`call.participant_removed.v1`. Raised-hand state is durable Calls-owned state;
+reactions are bounded, rate-limited, and ephemeral. These payloads contain user
+or participant IDs only and never provider rooms, provider identities, track
+SIDs, credentials, signaling, or media.
+
+Conversation topics emit `message.delivery.v1` after an authorized device
+advances its delivery/read cursor. The payload is a content-free cursor
+projection with a conversation-scoped hashed device reference. Clients always
+reconcile receipts through REST after reconnect.
 
 The whiteboard topic carries durable `whiteboard.operation_applied.v1` notices
 and ephemeral bounded `whiteboard.presence.v1` pointer/selection state. Clients

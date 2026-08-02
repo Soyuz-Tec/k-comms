@@ -37,6 +37,7 @@ defmodule CommsCore.Attachments.FileQueries do
     with {:ok, grant} <- Accounts.access_grant(subject),
          {:ok, scope} <- file_scope(value(params, :scope)),
          {:ok, conversation_id} <- optional_file_conversation(value(params, :conversation_id)),
+         {:ok, search_query} <- optional_search_query(value(params, :q)),
          {:ok, cursor} <- optional_file_cursor(value(params, :cursor)) do
       authorization_query = Conversations.active_membership_authorization_query(grant)
 
@@ -70,6 +71,7 @@ defmodule CommsCore.Attachments.FileQueries do
           )
           |> maybe_filter_file_scope(scope, grant.user_id)
           |> maybe_filter_file_conversation(conversation_id)
+          |> maybe_filter_file_search(search_query)
           |> maybe_before_file_cursor(cursor)
           |> limit(^(limit + 1))
           |> Repo.all()
@@ -145,6 +147,33 @@ defmodule CommsCore.Attachments.FileQueries do
         [message: message],
         type(field(message, :conversation_id), :binary_id) == ^conversation_id
       )
+
+  defp optional_search_query(nil), do: {:ok, nil}
+  defp optional_search_query(""), do: {:ok, nil}
+
+  defp optional_search_query(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if String.length(value) in 2..160,
+      do: {:ok, value},
+      else: {:error, :invalid_search_query}
+  end
+
+  defp optional_search_query(_), do: {:error, :invalid_search_query}
+
+  defp maybe_filter_file_search(query, nil), do: query
+
+  defp maybe_filter_file_search(query, search_query) do
+    pattern = "%" <> escape_like(search_query) <> "%"
+    where(query, [attachment: attachment], ilike(attachment.file_name, ^pattern))
+  end
+
+  defp escape_like(value),
+    do:
+      value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
 
   defp optional_file_cursor(nil), do: {:ok, nil}
   defp optional_file_cursor(""), do: {:ok, nil}

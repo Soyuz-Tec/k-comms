@@ -6,6 +6,7 @@ import {
   RoomEvent
 } from "livekit-client";
 import { errorText } from "../../lib/format";
+import { RealtimeCall, socketEndpoint } from "../../realtime";
 import type { Call, CallMediaKind, CallRealtimeEvent, Conversation } from "../../types";
 import { CALL_SESSION_TEARDOWN_EVENT } from "./callSessionEvents";
 import type { CallApi, CallPanelSessionState, CallPhase } from "./callContracts";
@@ -34,6 +35,7 @@ export interface CallPanelProps {
   audioEnabled: boolean;
   videoEnabled: boolean;
   currentUserDisplayName: string;
+  currentUserId?: string;
   realtimeEvent?: CallRealtimeEvent | null;
   showVideoAction?: boolean;
   launchRequest?: CallMediaKind | null;
@@ -51,6 +53,7 @@ export function useCallSession({
   audioEnabled,
   videoEnabled,
   currentUserDisplayName,
+  currentUserId = "",
   realtimeEvent,
   launchRequest,
   launchRequestId,
@@ -71,6 +74,9 @@ export function useCallSession({
   const accessRevokedRef = useRef(false);
   const latestRealtimeEventRef = useRef<CallRealtimeEvent | null>(null);
   const handledLaunchRequestRef = useRef<number | CallMediaKind | null>(null);
+  const callRealtimeRef = useRef<RealtimeCall | null>(null);
+  const [raisedUserIds, setRaisedUserIds] = useState<Set<string>>(() => new Set());
+  const [callReactions, setCallReactions] = useState<Array<{ id: string; userId: string; emoji: string }>>([]);
   const {
     attachRemoteAudio,
     audioBlocked,
@@ -96,6 +102,7 @@ export function useCallSession({
     screenShareEnabled,
     selectedCamera,
     selectedMicrophone,
+    selectedSpeaker,
     selectPrejoinCamera,
     setCameras,
     setMicrophones,
@@ -103,6 +110,9 @@ export function useCallSession({
     setPrejoinMicrophone,
     setSelectedCamera,
     setSelectedMicrophone,
+    setSelectedSpeaker,
+    setSpeakers,
+    speakers,
     setAudioBlocked,
     setVideoBlocked,
     stopPreview,
@@ -159,6 +169,8 @@ export function useCallSession({
     roomMediaKindRef.current = null;
     pendingMediaKindRef.current = null;
     await disconnectRoom(room);
+    callRealtimeRef.current?.disconnect();
+    callRealtimeRef.current = null;
     if (!operationIsCurrent(generation)) return;
     clearAllRemoteAudio();
     resetConnectedState();
@@ -206,6 +218,8 @@ export function useCallSession({
       roomMediaKindRef.current = null;
       pendingMediaKindRef.current = null;
       if (room) void disconnectRoom(room);
+      callRealtimeRef.current?.disconnect();
+      callRealtimeRef.current = null;
       clearAllRemoteAudio();
     };
   }, [disconnectRoom, invalidateOperations, stopPreview]);
@@ -219,6 +233,8 @@ export function useCallSession({
       roomMediaKindRef.current = null;
       pendingMediaKindRef.current = null;
       if (room) void disconnectRoom(room);
+      callRealtimeRef.current?.disconnect();
+      callRealtimeRef.current = null;
       clearAllRemoteAudio();
       if (event.type === CALL_SESSION_TEARDOWN_EVENT && mountedRef.current) {
         resetConnectedState();
@@ -248,6 +264,8 @@ export function useCallSession({
     roomMediaKindRef.current = null;
     pendingMediaKindRef.current = null;
     if (room) void disconnectRoom(room);
+    callRealtimeRef.current?.disconnect();
+    callRealtimeRef.current = null;
     clearAllRemoteAudio();
     resetConnectedState();
     setCall(null);
@@ -274,6 +292,8 @@ export function useCallSession({
     roomMediaKindRef.current = null;
     pendingMediaKindRef.current = null;
     if (room) void disconnectRoom(room);
+    callRealtimeRef.current?.disconnect();
+    callRealtimeRef.current = null;
     clearAllRemoteAudio();
     resetConnectedState();
     setError(`${mediaLabel(kind)} calls were disabled by workspace policy.`);
@@ -385,6 +405,10 @@ export function useCallSession({
     pendingMediaKindRef.current = kind;
     stopPreview();
     const previousRoom = roomRef.current;
+    callRealtimeRef.current?.disconnect();
+    callRealtimeRef.current = null;
+    setRaisedUserIds(new Set());
+    setCallReactions([]);
     roomRef.current = null;
     roomMediaKindRef.current = null;
     if (previousRoom) void disconnectRoom(previousRoom);
@@ -466,6 +490,9 @@ export function useCallSession({
         }
         setAudioBlocked(true);
       }
+      if (selectedSpeaker) {
+        await room.switchActiveDevice("audiooutput", selectedSpeaker, true).catch(() => false);
+      }
       if (kind === "video") {
         try {
           await room.startVideo();
@@ -509,6 +536,7 @@ export function useCallSession({
       pendingMediaKindRef.current = null;
       updateRoomState(room);
       setPhase("connected");
+      void connectCallRealtime(response.data.id, generation, room);
     } catch (reason: unknown) {
       if (room) await disconnectRoom(room);
       if (roomRef.current === room) roomRef.current = null;
@@ -534,6 +562,7 @@ export function useCallSession({
     room.on(RoomEvent.TrackMuted, update);
     room.on(RoomEvent.TrackUnmuted, update);
     room.on(RoomEvent.ActiveSpeakersChanged, update);
+    room.on(RoomEvent.ConnectionQualityChanged, update);
     room.on(RoomEvent.TrackSubscribed, (track) => {
       if (roomRef.current !== room) return;
       attachRemoteAudio(track);
@@ -580,6 +609,8 @@ export function useCallSession({
       invalidateOperations();
       clearAllRemoteAudio();
       resetConnectedState();
+      callRealtimeRef.current?.disconnect();
+      callRealtimeRef.current = null;
       if (manualDisconnectRoomsRef.current.has(room)) return;
 
       if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
@@ -609,15 +640,18 @@ export function useCallSession({
     const generation = operationGenerationRef.current;
     if (!room) return;
     try {
-      const [audioDevices, videoDevices] = await Promise.all([
+      const [audioDevices, videoDevices, outputDevices] = await Promise.all([
         Room.getLocalDevices("audioinput", false),
-        kind === "video" ? Room.getLocalDevices("videoinput", false) : Promise.resolve([])
+        kind === "video" ? Room.getLocalDevices("videoinput", false) : Promise.resolve([]),
+        Room.getLocalDevices("audiooutput", false).catch(() => [])
       ]);
       if (!operationIsCurrent(generation) || roomRef.current !== room) return;
       setMicrophones(audioDevices);
       setSelectedMicrophone((current) => deviceSelection(current, audioDevices));
       setCameras(videoDevices);
       setSelectedCamera((current) => deviceSelection(current, videoDevices));
+      setSpeakers(outputDevices);
+      setSelectedSpeaker((current) => deviceSelection(current, outputDevices));
     } catch {
       // Retain the last known device list through transient browser changes.
     }
@@ -658,6 +692,87 @@ export function useCallSession({
       setSelectedCamera(previousDeviceId);
       setError(mediaErrorText(reason, "camera"));
     }
+  }
+
+  async function selectSpeaker(deviceId: string) {
+    const previousDeviceId = selectedSpeaker;
+    setSelectedSpeaker(deviceId);
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      const switched = await room.switchActiveDevice("audiooutput", deviceId, true);
+      if (!switched) throw new Error("The selected speaker could not be activated.");
+      setError(null);
+    } catch (reason: unknown) {
+      setSelectedSpeaker(previousDeviceId);
+      setError(mediaErrorText(reason, "device"));
+    }
+  }
+
+  async function connectCallRealtime(callId: string, generation: number, room: Room) {
+    if (!api.socketTicket) return;
+    try {
+      const { ticket } = await api.socketTicket();
+      if (!operationIsCurrent(generation) || roomRef.current !== room) return;
+      const realtime = new RealtimeCall(
+        socketEndpoint(import.meta.env.VITE_API_BASE_URL || ""),
+        ticket,
+        callId,
+        conversation.id,
+        {
+          onReady: (userIds) => setRaisedUserIds(new Set(userIds)),
+          onHand: (userId, raised) => setRaisedUserIds((current) => {
+            const next = new Set(current);
+            if (raised) next.add(userId); else next.delete(userId);
+            return next;
+          }),
+          onReaction: handleCallReaction,
+          onParticipantMuted: () => roomRef.current && updateRoomState(roomRef.current),
+          onParticipantRemoved: () => roomRef.current && updateRoomState(roomRef.current),
+          onError: (message) => setError(message)
+        }
+      );
+      callRealtimeRef.current?.disconnect();
+      callRealtimeRef.current = realtime;
+      realtime.connect();
+    } catch (reason: unknown) {
+      setError(`Call collaboration controls are unavailable. ${errorText(reason)}`);
+    }
+  }
+
+  async function toggleHand() {
+    const realtime = callRealtimeRef.current;
+    if (!realtime) { setError("Call collaboration controls are reconnecting."); return; }
+    const raised = !raisedUserIds.has(currentUserId);
+    try { await realtime.setHand(raised); } catch (reason: unknown) { setError(errorText(reason)); }
+  }
+
+  async function sendCallReaction(emoji: string) {
+    const realtime = callRealtimeRef.current;
+    if (!realtime) { setError("Call collaboration controls are reconnecting."); return; }
+    try { await realtime.react(emoji); } catch (reason: unknown) { setError(errorText(reason)); }
+  }
+
+  function handleCallReaction(event: { userId: string; emoji: string }) {
+    const id = crypto.randomUUID();
+    setCallReactions((current) => [...current.slice(-7), { id, userId: event.userId, emoji: event.emoji }]);
+    window.setTimeout(() => {
+      if (mountedRef.current) {
+        setCallReactions((current) => current.filter((reaction) => reaction.id !== id));
+      }
+    }, 5_000);
+  }
+
+  async function muteParticipant(providerIdentity: string, trackSid: string) {
+    if (!call || !api.muteCallParticipant) return;
+    try { await api.muteCallParticipant(conversation.id, call.id, providerIdentity, trackSid); }
+    catch (reason: unknown) { setError(`Unable to mute participant. ${errorText(reason)}`); }
+  }
+
+  async function removeParticipant(providerIdentity: string) {
+    if (!call || !api.removeCallParticipant) return;
+    try { await api.removeCallParticipant(conversation.id, call.id, providerIdentity); }
+    catch (reason: unknown) { setError(`Unable to remove participant. ${errorText(reason)}`); }
   }
 
   async function toggleMicrophone() {
@@ -762,6 +877,8 @@ export function useCallSession({
     roomMediaKindRef.current = null;
     pendingMediaKindRef.current = null;
     if (room) await disconnectRoom(room);
+    callRealtimeRef.current?.disconnect();
+    callRealtimeRef.current = null;
     if (!operationIsCurrent(generation)) return;
     clearAllRemoteAudio();
     resetConnectedState();
@@ -785,6 +902,8 @@ export function useCallSession({
       roomMediaKindRef.current = null;
       pendingMediaKindRef.current = null;
       if (room) await disconnectRoom(room);
+      callRealtimeRef.current?.disconnect();
+      callRealtimeRef.current = null;
       if (!operationIsCurrent(generation)) return;
       clearAllRemoteAudio();
       resetConnectedState();
@@ -862,6 +981,8 @@ export function useCallSession({
     openMobileCallMenu: presentation.openMobileCallMenu,
     openPrejoin,
     participants,
+    raisedUserIds,
+    callReactions,
     phase,
     prejoinCamera,
     prejoinKind,
@@ -873,7 +994,9 @@ export function useCallSession({
     selectCamera,
     selectedCamera,
     selectedMicrophone,
+    selectedSpeaker,
     selectMicrophone,
+    selectSpeaker,
     selectPrejoinCamera,
     setCallWorkspaceTab: presentation.setCallWorkspaceTab,
     setEndConfirmationOpen: presentation.setEndConfirmationOpen,
@@ -886,6 +1009,11 @@ export function useCallSession({
     toggleMicrophone,
     togglePrejoinCamera,
     toggleScreenShare,
+    toggleHand,
+    sendCallReaction,
+    muteParticipant,
+    removeParticipant,
+    speakers,
     videoBlocked
   };
 }

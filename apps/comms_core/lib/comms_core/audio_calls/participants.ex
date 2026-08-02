@@ -122,6 +122,22 @@ defmodule CommsCore.AudioCalls.Participants do
 
   def revoke_for_call(_, _, _), do: {:error, :invalid_audio_revocation_scope}
 
+  def revoke_for_call_participant(tenant_id, call_id, participant_id, reason)
+      when is_binary(tenant_id) and is_binary(call_id) and is_binary(participant_id) and
+             is_binary(reason) do
+    revoke_matching(
+      from(participant in AudioCallParticipant,
+        where:
+          participant.tenant_id == ^tenant_id and participant.audio_call_id == ^call_id and
+            participant.id == ^participant_id
+      ),
+      reason
+    )
+  end
+
+  def revoke_for_call_participant(_, _, _, _),
+    do: {:error, :invalid_audio_revocation_scope}
+
   def claim_eviction(participant_id, caller) when is_binary(participant_id) do
     if RuntimePorts.authorized_job_worker?(:audio_participant_eviction, caller) do
       Repo.transaction(fn ->

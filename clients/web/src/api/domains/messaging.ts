@@ -1,4 +1,4 @@
-import type { Conversation, ConversationMembership, DataResponse, ListResponse, Message, MessagePage, MessageSearchOptions, MessageSearchPage, MessageThread, PublicChannelDiscoveryPage, PublicChannelMembershipResponse, RetainedSenderLabel } from "../../types";
+import type { Conversation, ConversationMembership, DataResponse, ListResponse, Message, MessageDeliveryCursor, MessagePage, MessageSearchOptions, MessageSearchPage, MessageThread, PublicChannelDiscoveryPage, PublicChannelMembershipResponse, RetainedSenderLabel, WorkspaceActivityEntry } from "../../types";
 import type { ApiRequest, CreateConversationInput, SendMessageInput } from "../contracts";
 
 interface MessagingApiSupport {
@@ -209,6 +209,26 @@ export function createMessagingApi(request: ApiRequest, { resolveSenderLabelBatc
           method: "PUT",
           body: JSON.stringify({ sequence })
         });
+      },
+
+    deliveryCursors(conversationId: string): Promise<MessageDeliveryCursor[]> {
+        return request<ListResponse<MessageDeliveryCursor>>(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/delivery-cursors`
+        ).then((response) => response.data);
+      },
+
+    markDelivered(conversationId: string, sequence: number): Promise<MessageDeliveryCursor> {
+        return request<DataResponse<MessageDeliveryCursor>>(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/delivery-cursor`,
+          { method: "PUT", body: JSON.stringify({ sequence }) }
+        ).then((response) => response.data);
+      },
+
+    conversationActivity(conversationId: string, limit = 50): Promise<WorkspaceActivityEntry[]> {
+        const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 100))) });
+        return request<ListResponse<WorkspaceActivityEntry>>(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/activity?${params.toString()}`
+        ).then((response) => response.data);
       }
   };
   return api;

@@ -4,6 +4,7 @@ defmodule CommsIntegrations.Audio.LiveKitRoomService do
   @timeout_ms 5_000
   @delete_room_path "/twirp/livekit.RoomService/DeleteRoom"
   @remove_participant_path "/twirp/livekit.RoomService/RemoveParticipant"
+  @mute_published_track_path "/twirp/livekit.RoomService/MutePublishedTrack"
 
   def delete_room(provider_room), do: delete_room(provider_room, &request/1)
 
@@ -56,6 +57,40 @@ defmodule CommsIntegrations.Audio.LiveKitRoomService do
   end
 
   def remove_participant(_, _, _), do: {:error, :audio_provider_unavailable}
+
+  def mute_participant(provider_room, identity, track_sid),
+    do: mute_participant(provider_room, identity, track_sid, &request/1)
+
+  def mute_participant(provider_room, identity, track_sid, requester)
+      when is_binary(provider_room) and is_binary(identity) and is_binary(track_sid) and
+             is_function(requester, 1) do
+    with true <- String.trim(identity) != "" and String.trim(track_sid) != "",
+         {:ok, credential} <- LiveKitToken.issue_room_admin(provider_room),
+         {:ok, body} <-
+           Jason.encode(%{
+             room: credential.room,
+             identity: identity,
+             track_sid: track_sid,
+             muted: true
+           }),
+         request <-
+           Finch.build(
+             :post,
+             String.trim_trailing(credential.api_url, "/") <> @mute_published_track_path,
+             [
+               {"authorization", "Bearer " <> credential.token},
+               {"content-type", "application/json"}
+             ],
+             body
+           ),
+         {:ok, response} <- requester.(request) do
+      classify(response)
+    else
+      _ -> {:error, :audio_provider_unavailable}
+    end
+  end
+
+  def mute_participant(_, _, _, _), do: {:error, :audio_provider_unavailable}
 
   defp request(request) do
     Finch.request(request, CommsIntegrations.Finch, receive_timeout: @timeout_ms)

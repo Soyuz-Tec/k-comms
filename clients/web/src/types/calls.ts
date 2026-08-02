@@ -45,6 +45,14 @@ export interface CallSessionResponse {
   credential: CallCredential;
 }
 
+export interface CallParticipantState {
+  id: string;
+  user_id: string;
+  status: "admitted";
+  hand_raised: boolean;
+  hand_raised_at: string | null;
+}
+
 export type CallsScope = "active" | "recent";
 
 export interface CallSummary {

@@ -35,6 +35,7 @@ export function CallPanel({
   audioEnabled,
   videoEnabled,
   currentUserDisplayName,
+  currentUserId,
   realtimeEvent,
   showVideoAction = true,
   launchRequest,
@@ -80,6 +81,8 @@ export function CallPanel({
     openMobileCallMenu,
     openPrejoin,
     participants,
+    raisedUserIds,
+    callReactions,
     phase,
     prejoinCamera,
     prejoinKind,
@@ -91,7 +94,9 @@ export function CallPanel({
     selectCamera,
     selectedCamera,
     selectedMicrophone,
+    selectedSpeaker,
     selectMicrophone,
+    selectSpeaker,
     selectPrejoinCamera,
     setCallWorkspaceTab,
     setEndConfirmationOpen,
@@ -104,6 +109,11 @@ export function CallPanel({
     toggleMicrophone,
     togglePrejoinCamera,
     toggleScreenShare,
+    toggleHand,
+    sendCallReaction,
+    muteParticipant,
+    removeParticipant,
+    speakers,
     videoBlocked
   } = useCallSession({
     api,
@@ -111,6 +121,7 @@ export function CallPanel({
     audioEnabled,
     videoEnabled,
     currentUserDisplayName,
+    currentUserId,
     realtimeEvent,
     launchRequest,
     launchRequestId,
@@ -126,6 +137,10 @@ export function CallPanel({
       : "Connected";
   const participantCountLabel =
     `${participants.length} ${participants.length === 1 ? "participant" : "participants"}`;
+  const displayParticipants = participants.map((participant) => ({
+    ...participant,
+    handRaised: participant.userId ? raisedUserIds.has(participant.userId) : false
+  }));
 
   return (
     <div className="call-control audio-call-control">
@@ -348,11 +363,15 @@ export function CallPanel({
                 )}
                 {callWorkspaceTab === "people" && (
                   <ul className="call-workspace-people">
-                    {participants.map((participant) => (
+                    {displayParticipants.map((participant) => (
                       <li key={participant.id}>
                         <span aria-hidden="true">{initials(participant.name)}</span>
                         <strong>{participant.name}{participant.local ? " (you)" : ""}</strong>
-                        <small>{participant.microphoneEnabled ? "Microphone on" : "Muted"}</small>
+                        <small>{participant.handRaised ? "Hand raised · " : ""}{participant.microphoneEnabled ? "Microphone on" : "Muted"} · {participant.connectionQuality || "quality pending"}</small>
+                        {call?.can_end && !participant.local && participant.providerIdentity && <span className="call-participant-moderation">
+                          {participant.microphoneTrackSid && participant.microphoneEnabled && <button type="button" onClick={() => void muteParticipant(participant.providerIdentity!, participant.microphoneTrackSid!)}>Mute</button>}
+                          <button className="danger-text" type="button" onClick={() => void removeParticipant(participant.providerIdentity!)}>Remove</button>
+                        </span>}
                       </li>
                     ))}
                   </ul>
@@ -402,14 +421,16 @@ export function CallPanel({
             </section>
             <div className="call-stage">
               {error && <div className="form-error" role="alert">{error}</div>}
+              <div className="call-policy-notice" role="note">Recording and transcription are off by workspace policy.</div>
+              {callReactions.length > 0 && <div className="call-reaction-overlay" aria-live="polite">{callReactions.slice(-5).map((reaction) => <span key={reaction.id}>{reaction.emoji}</span>)}</div>}
               {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
               {joinedKind === "video" && (
                 <VideoParticipantGrid
-                  participants={prioritizeVideoParticipants(participants)}
+                  participants={prioritizeVideoParticipants(displayParticipants)}
                 />
               )}
               {joinedKind === "audio" && (
-                <AudioParticipantStage participants={participants} />
+                <AudioParticipantStage participants={displayParticipants} />
               )}
             </div>
             <div className="call-device-grid">
@@ -420,6 +441,13 @@ export function CallPanel({
                   {microphones.map((device, index) => <option key={device.deviceId || `microphone-${index}`} value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
                 </select>
               </div>
+              <div className="audio-device-row">
+                <label htmlFor="active-audio-output">Speaker</label>
+                <select id="active-audio-output" value={selectedSpeaker} disabled={phase !== "connected" || speakers.length === 0} onChange={(event) => void selectSpeaker(event.target.value)}>
+                  {speakers.length === 0 && <option value="">Browser default speaker</option>}
+                  {speakers.map((device, index) => <option key={device.deviceId || `speaker-${index}`} value={device.deviceId}>{device.label || `Speaker ${index + 1}`}</option>)}
+                </select>
+              </div>
               {joinedKind === "video" && <div className="audio-device-row">
                 <label htmlFor="active-video-input">Camera</label>
                 <select id="active-video-input" value={selectedCamera} disabled={phase !== "connected" || cameras.length === 0} onChange={(event) => void selectCamera(event.target.value)}>
@@ -427,6 +455,10 @@ export function CallPanel({
                   {cameras.map((device, index) => <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
                 </select>
               </div>}
+            </div>
+            <div className="call-collaboration-actions">
+              <button className={`button compact ${currentUserId && raisedUserIds.has(currentUserId) ? "primary" : "ghost"}`} type="button" aria-pressed={currentUserId ? raisedUserIds.has(currentUserId) : false} disabled={phase !== "connected"} onClick={() => void toggleHand()}><span className="call-action-glyph" aria-hidden="true">✋</span><span className="call-action-label">{currentUserId && raisedUserIds.has(currentUserId) ? "Lower hand" : "Raise hand"}</span></button>
+              <div className="call-reaction-actions" aria-label="Call reactions">{["👍", "👏", "❤️", "😂", "🎉"].map((emoji) => <button className="button ghost compact" type="button" key={emoji} aria-label={`React ${emoji}`} onClick={() => void sendCallReaction(emoji)}>{emoji}</button>)}</div>
             </div>
             <div className="audio-call-actions">
               <button

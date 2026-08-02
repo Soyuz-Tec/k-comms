@@ -6,6 +6,10 @@ defmodule CommsIntegrations.Audio.RoomService do
       when is_binary(provider_room) and is_binary(identity),
       do: adapter().remove_participant(provider_room, identity)
 
+  def mute_participant(provider_room, identity, track_sid)
+      when is_binary(provider_room) and is_binary(identity) and is_binary(track_sid),
+      do: adapter().mute_participant(provider_room, identity, track_sid)
+
   defp adapter do
     Application.get_env(
       :comms_integrations,

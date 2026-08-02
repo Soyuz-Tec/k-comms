@@ -254,6 +254,8 @@ defmodule CommsCore.Conversations do
   def active_membership_authorization_query(grant),
     do: AccessPolicy.active_membership_authorization_query(grant)
 
+  def active_conversation_ids(subject), do: AccessPolicy.active_conversation_ids(subject)
+
   def active_service_membership_authorization_query(subject, required_scope),
     do: AccessPolicy.active_service_membership_authorization_query(subject, required_scope)
 

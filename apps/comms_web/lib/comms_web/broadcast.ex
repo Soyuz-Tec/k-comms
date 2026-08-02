@@ -11,6 +11,11 @@ defmodule CommsWeb.Broadcast do
     CommsWeb.Endpoint.broadcast("whiteboard:#{conversation_id}", event, payload)
   end
 
+  def call_event(call_id, event, payload)
+      when is_binary(call_id) and is_binary(event) and is_map(payload) do
+    CommsWeb.Endpoint.broadcast("call:#{call_id}", event, payload)
+  end
+
   def conversation_activity(tenant_id, conversation_id, latest_sequence, event_type)
       when is_binary(tenant_id) and is_binary(conversation_id) and
              is_integer(latest_sequence) and is_binary(event_type) do

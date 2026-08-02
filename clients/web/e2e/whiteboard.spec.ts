@@ -50,6 +50,7 @@ async function mockWhiteboardWorkspace(page: Page) {
   };
   const operations: unknown[] = [];
   const writes: Array<{ kind: string; payload: { elements?: unknown[] } }> = [];
+  const sentMessages: Array<Record<string, unknown>> = [];
 
   await page.addInitScript((value) => {
     sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value));
@@ -88,6 +89,54 @@ async function mockWhiteboardWorkspace(page: Page) {
         meta: { unread_count: 0 }
       }
     })
+  );
+  await page.route(`**/api/v1/conversations/${conversationId}/members`, (route) =>
+    route.fulfill({ json: { data: [] } })
+  );
+  await page.route(`**/api/v1/conversations/${conversationId}/messages**`, async (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      sentMessages.push(body);
+      await route.fulfill({
+        status: 201,
+        json: {
+          data: {
+            id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            tenant_id: session.tenant.id,
+            conversation_id: conversationId,
+            sender_user_id: session.user.id,
+            sender_device_id: session.device.id,
+            client_message_id: body.client_message_id,
+            conversation_sequence: 1,
+            body: body.body,
+            metadata: body.metadata,
+            status: "active",
+            thread_root_message_id: null,
+            thread_reply_count: 0,
+            mentioned_user_ids: [],
+            inserted_at: "2026-08-01T12:01:00Z",
+            attachments: [],
+            reactions: []
+          }
+        }
+      });
+      return;
+    }
+    await route.fulfill({
+      json: { data: [], page: { has_more: false, next_after_sequence: null, reset_required: false } }
+    });
+  });
+  await page.route(`**/api/v1/conversations/${conversationId}/delivery-cursors`, (route) =>
+    route.fulfill({ json: { data: [] } })
+  );
+  await page.route(`**/api/v1/conversations/${conversationId}/delivery-cursor`, (route) =>
+    route.fulfill({ json: { data: { recipient_user_id: session.user.id, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-08-01T12:01:00Z", read_at: null } } })
+  );
+  await page.route(`**/api/v1/conversations/${conversationId}/read-cursor`, (route) =>
+    route.fulfill({ status: 204 })
+  );
+  await page.route(`**/api/v1/conversations/${conversationId}/call`, (route) =>
+    route.fulfill({ json: { data: null } })
   );
   await page.route(
     `**/api/v1/conversations/${conversationId}/whiteboard/operations**`,
@@ -129,7 +178,7 @@ async function mockWhiteboardWorkspace(page: Page) {
     }
   );
 
-  return { operations, writes };
+  return { operations, sentMessages, writes };
 }
 
 test("conversation whiteboard renders a usable responsive Excalidraw workspace", async ({
@@ -178,7 +227,27 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
   ]);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
-  await page.reload();
+  const messageSelection = page.getByRole("button", { name: "Message selection" });
+  await expect(messageSelection).toBeEnabled();
+  await messageSelection.click();
+  await expect(page.getByText("Whiteboard object", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message", exact: true }).fill("Review this shape");
+  await page.getByRole("button", { name: /^Send/ }).click();
+
+  await expect.poll(() => fixture.sentMessages.length).toBe(1);
+  expect(fixture.sentMessages[0]).toMatchObject({
+    body: "Review this shape",
+    metadata: {
+      whiteboard_reference: {
+        board_sequence: 1,
+        element_ids: [expect.any(String)],
+        label: "Whiteboard object"
+      }
+    }
+  });
+  await expect(page).not.toHaveURL(/whiteboard_elements=/);
+
+  await page.goto(`/app/whiteboard?conversation=${conversationId}`);
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
   expect(fixture.operations).toHaveLength(1);
 

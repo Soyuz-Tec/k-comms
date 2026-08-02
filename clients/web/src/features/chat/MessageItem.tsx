@@ -14,6 +14,7 @@ export function MessageItem({
   replySenderName,
   replyPreview,
   seenCount,
+  deliveredDeviceCount = 0,
   focused,
   onReaction,
   onAttachment,
@@ -30,6 +31,7 @@ export function MessageItem({
   replySenderName?: string;
   replyPreview?: Message;
   seenCount: number;
+  deliveredDeviceCount?: number;
   focused: boolean;
   onReaction: (emoji: string) => void;
   onAttachment: (attachment: Attachment) => void;
@@ -105,6 +107,18 @@ export function MessageItem({
 
         {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <AttachmentButton attachment={attachment} key={attachment.id} onOpen={onAttachment} onRequestThumbnail={onRequestThumbnail} />)}</div>}
 
+        {message.status === "active" && message.metadata.whiteboard_reference && (
+          <a className="message-reference-card" href={`/app/whiteboard?conversation=${encodeURIComponent(message.conversation_id)}&focus_elements=${encodeURIComponent(message.metadata.whiteboard_reference.element_ids.join(","))}`}>
+            <AppIcon name="whiteboard" />
+            <span><strong>{message.metadata.whiteboard_reference.label || "Whiteboard selection"}</strong><small>Open referenced objects on the shared canvas</small></span>
+          </a>
+        )}
+        {message.status === "active" && (message.metadata.links?.length || 0) > 0 && (
+          <div className="message-link-cards" aria-label="Links in this message">
+            {message.metadata.links?.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer nofollow"><AppIcon name="externalLink" /><span><strong>{link.label || linkHost(link.url)}</strong><small>{link.url}</small></span></a>)}
+          </div>
+        )}
+
         <div className="message-meta">
           <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
           {message.edited_at && <span>edited</span>}
@@ -128,7 +142,7 @@ export function MessageItem({
           </button>
           <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button><button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>{mine && <button type="button" onClick={() => { setActionsOpen(false); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
-        {mine && seenCount > 0 && <small className="seen-copy">Seen by {seenCount}</small>}
+        {mine && (seenCount > 0 || deliveredDeviceCount > 0) && <small className="seen-copy">{deliveredDeviceCount > 0 ? `Delivered to ${deliveredDeviceCount} ${deliveredDeviceCount === 1 ? "device" : "devices"}` : "Sent"}{seenCount > 0 ? ` · Read by ${seenCount}` : ""}</small>}
       </article>
     </li>
     {deleteOpen && <ConfirmDialog title="Delete this message?" description="This removes the message body from the conversation." impact="Conversation members will see that a message was removed. Retention and audit records remain subject to workspace policy." confirmLabel="Delete message" tone="danger" busy={busy} error={deleteError} onCancel={() => { if (!busy) setDeleteOpen(false); }} onConfirm={() => void remove()} />}
@@ -209,4 +223,8 @@ function groupReactions(message: Message, currentUserId: string) {
     grouped.set(reaction.emoji, value);
   }
   return [...grouped.values()];
+}
+
+function linkHost(value: string): string {
+  try { return new URL(value).hostname; } catch { return "Secure link"; }
 }

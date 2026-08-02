@@ -25,6 +25,8 @@ test("admin exports filtered audit evidence and selects governance targets by na
   await page.route("**/api/v1/in-app-notifications?limit=50", (route) => route.fulfill({ json: { data: [], page: { limit: 50, has_more: false, next_cursor: null }, meta: { unread_count: 0 } } }));
   await page.route("**/api/v1/users", (route) => route.fulfill({ json: { data: [session.user, activeUser, deletedUser] } }));
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [activeConversation, archivedConversation] } }));
+  await page.route("**/api/v1/conversations/*/delivery-cursors", (route) => route.fulfill({ json: { data: [] } }));
+  await page.route("**/api/v1/conversations/*/delivery-cursor", (route) => route.fulfill({ json: { data: { recipient_user_id: session.user.id, device_ref: "test-device", delivered_sequence: 7, read_sequence: 0, delivered_at: "2026-07-12T10:00:00Z", read_at: null } } }));
   await page.route("**/api/v1/admin/tenant", (route) => {
     const limits = { max_active_users: 500, max_active_conversations: 2000, max_conversation_members: 250 };
     const flags = { active_users: false, active_conversations: false, conversation_members: false, any: false };

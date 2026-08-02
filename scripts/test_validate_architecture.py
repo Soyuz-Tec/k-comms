@@ -1146,6 +1146,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(
             content["public_contracts"],
             [
+                "CommsCore.Messaging.ActivityView",
+                "CommsCore.Messaging.DeliveryCursorView",
                 "CommsCore.Messaging.MessageView",
                 "CommsCore.Messaging.MessageDeletionCandidate",
                 "CommsCore.Messaging.GovernanceImpact",
@@ -1687,18 +1689,23 @@ class ValidateArchitectureTest(unittest.TestCase):
         manifest = read_yaml(root / "docs/02-architecture/context-boundaries.yaml")
         calls = manifest["contexts"]["calls"]
         public_contracts = {
+            "CommsCore.AudioCalls.ActivityView",
+            "CommsCore.AudioCalls.CallParticipantView",
             "CommsCore.AudioCalls.CallView",
             "CommsCore.AudioCalls.CallSessionView",
             "CommsCore.AudioCalls.CredentialRequest",
             "CommsCore.AudioCalls.EvictionClaim",
             "CommsCore.AudioCalls.EvictionProgress",
+            "CommsCore.AudioCalls.ModerationTarget",
             "CommsCore.AudioCalls.ProviderCall",
         }
         internal_modules = {
             "CommsCore.AudioCalls.Access",
+            "CommsCore.AudioCalls.Activity",
             "CommsCore.AudioCalls.AudioCall",
             "CommsCore.AudioCalls.AudioCallParticipant",
             "CommsCore.AudioCalls.AuthorizationPolicy",
+            "CommsCore.AudioCalls.Collaboration",
             "CommsCore.AudioCalls.Lifecycle",
             "CommsCore.AudioCalls.Participants",
             "CommsCore.AudioCalls.Projector",

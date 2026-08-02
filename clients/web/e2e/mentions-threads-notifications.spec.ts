@@ -102,6 +102,8 @@ async function mockWorkspace(page: Page) {
   await page.route("**/api/v1/conversations", (route) => route.fulfill({ json: { data: [conversation] } }));
   await page.route(`**/api/v1/conversations/${conversationId}/members`, (route) => route.fulfill({ json: { data: users.map((user, index) => ({ id: `membership-${index}`, role: "member", joined_at: "2026-07-12T12:00:00Z", last_read_sequence: 0, user })) } }));
   await page.route(`**/api/v1/conversations/${conversationId}/messages**`, messages);
+  await page.route(`**/api/v1/conversations/${conversationId}/delivery-cursors`, (route) => route.fulfill({ json: { data: [] } }));
+  await page.route(`**/api/v1/conversations/${conversationId}/delivery-cursor`, (route) => route.fulfill({ json: { data: deliveryCursor(userId) } }));
   await page.route(`**/api/v1/conversations/${conversationId}/read-cursor`, (route) => route.fulfill({ json: { data: { sequence: 1 } } }));
 }
 
@@ -116,6 +118,10 @@ function messages(route: Route) {
 
 function human(id: string, displayName: string) {
   return { id, tenant_id: tenantId, display_name: displayName, account_type: "human", role: "member", status: "active" };
+}
+
+function deliveryCursor(recipientUserId: string) {
+  return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-12T12:00:00Z", read_at: null };
 }
 
 function message() {

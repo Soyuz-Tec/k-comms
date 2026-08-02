@@ -1,4 +1,4 @@
-import type { Call, CallMediaKind, CallSessionResponse, CallsPageResponse, CallsQueryOptions, DataResponse } from "../../types";
+import type { Call, CallMediaKind, CallParticipantState, CallSessionResponse, CallsPageResponse, CallsQueryOptions, DataResponse, ListResponse } from "../../types";
 import type { ApiRequest } from "../contracts";
 
 export function createCallsApi(request: ApiRequest) {
@@ -38,6 +38,26 @@ export function createCallsApi(request: ApiRequest) {
           `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/end`,
           { method: "POST" }
         ).then((response) => response.data);
+      },
+
+    callParticipants(conversationId: string, callId: string): Promise<CallParticipantState[]> {
+        return request<ListResponse<CallParticipantState>>(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/participants`
+        ).then((response) => response.data);
+      },
+
+    muteCallParticipant(conversationId: string, callId: string, providerIdentity: string, trackSid: string): Promise<void> {
+        return request(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/participants/mute`,
+          { method: "POST", body: JSON.stringify({ provider_identity: providerIdentity, track_sid: trackSid }) }
+        );
+      },
+
+    removeCallParticipant(conversationId: string, callId: string, providerIdentity: string): Promise<void> {
+        return request(
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}/calls/${encodeURIComponent(callId)}/participants/remove`,
+          { method: "POST", body: JSON.stringify({ provider_identity: providerIdentity }) }
+        );
       }
   };
   return {
