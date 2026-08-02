@@ -707,14 +707,33 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
         # A manifest transition authorizes one widening against one immutable
-        # base, so it is spent the moment that widening lands. Leaving it in
-        # place makes it stale against the branch it just became part of, which
-        # fails this validator for every later change. The list is pinned empty
-        # so a spent transition cannot be left behind, and so a new widening is
-        # a deliberate edit here rather than an incidental one.
+        # base, so pin the complete content-bound declaration here. It is spent
+        # when this widening lands and must then be removed by the next protected
+        # change; the base-comparison gate rejects a stale declaration.
         self.assertEqual(
             manifest["enforcement"]["reviewed_manifest_transitions"],
-            [],
+            [
+                {
+                    "id": (
+                        "instant-room-whiteboard-uses-distributed-public-rate-limit"
+                    ),
+                    "previous_manifest_sha256": (
+                        "e99bdbc69a313774d8c39d1fbdb40de6b7aa207b39959022f6de083880f179f9"
+                    ),
+                    "approved_changes": [
+                        "technical_interfaces:web-distributed-public-rate-limit:"
+                        'callers:add:"CommsWeb.InstantRoomWhiteboardRateLimit"'
+                    ],
+                    "adr": (
+                        "docs/02-architecture/adr/"
+                        "0065-instant-room-collaboration-workspaces.md"
+                    ),
+                    "removal_condition": (
+                        "Remove after this exact declaration lands on the "
+                        "protected base branch."
+                    ),
+                }
+            ],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
