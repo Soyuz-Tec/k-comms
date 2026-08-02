@@ -706,11 +706,48 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # Reviewed transitions are single-use. The instant-room widening landed
-        # on the protected base in PR #93, so no reusable authorization remains.
+        # Reviewed transitions are single-use and content-bound. This branch
+        # carries only the exact ADR-0067 widening relative to its immutable
+        # protected base; a later protected-base change must remove it.
         self.assertEqual(
             manifest["enforcement"]["reviewed_manifest_transitions"],
-            [],
+            [
+                {
+                    "id": "durable-messaging-receipts-and-call-collaboration",
+                    "previous_manifest_sha256": (
+                        "ebc5e6844d31f85e4dc6b0174a915f8301b5509028dc7fe5027eb158506ed717"
+                    ),
+                    "approved_changes": [
+                        "context:calls:public_contracts:add:"
+                        "CommsCore.AudioCalls.ActivityView",
+                        "context:calls:public_contracts:add:"
+                        "CommsCore.AudioCalls.CallParticipantView",
+                        "context:calls:public_contracts:add:"
+                        "CommsCore.AudioCalls.ModerationTarget",
+                        "context:collaboration:public_contracts:add:"
+                        "CommsCore.Whiteboards.ActivityView",
+                        "context:collaboration:public_contracts:add:"
+                        "CommsCore.Whiteboards.SearchResult",
+                        "context:conversation_content:public_contracts:add:"
+                        "CommsCore.Messaging.ActivityView",
+                        "context:conversation_content:public_contracts:add:"
+                        "CommsCore.Messaging.DeliveryCursorView",
+                        "table:message_delivery_cursors:add:"
+                        '{"canonical_schema":"CommsCore.Messaging.MessageDeliveryCursor",'
+                        '"owner":"conversation_content","role":"source"}',
+                    ],
+                    "adr": (
+                        "docs/02-architecture/adr/0067-durable-messaging-"
+                        "receipts-and-call-collaboration.md"
+                    ),
+                    "removal_condition": (
+                        "Remove this exact transition after the ADR-0067 messaging, "
+                        "collaboration, and calls boundary additions are present on "
+                        "the protected branch; it may not authorize any later "
+                        "manifest delta."
+                    ),
+                }
+            ],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
