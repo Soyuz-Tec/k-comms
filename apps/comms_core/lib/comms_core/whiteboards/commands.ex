@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Commands do
   import Ecto.Query
 
   alias CommsCore.{Conversations, Repo}
-  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Whiteboard}
+  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Snapshots, Whiteboard}
 
   @maximum_operations 100_000
 
@@ -62,6 +62,10 @@ defmodule CommsCore.Whiteboards.Commands do
             whiteboard
             |> Ecto.Changeset.change(sequence: sequence)
             |> Repo.update!()
+
+            # Inside the same transaction and under the same row lock, so the
+            # snapshot can only ever describe committed operations.
+            Snapshots.maintain(whiteboard, sequence)
 
             {Projector.operation(operation), :created}
         end
