@@ -76,7 +76,6 @@
 }
 
 .whiteboard-canvas { min-height: 0; position: relative; flex: 1 1 0; background: #fff; }
-.whiteboard-canvas .excalidraw { height: 100%; }
 .whiteboard-loading { min-height: 420px; display: grid; place-content: center; justify-items: center; gap: 12px; }
 
 .whiteboard-load-error {

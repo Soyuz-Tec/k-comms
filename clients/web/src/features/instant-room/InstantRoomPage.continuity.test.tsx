@@ -19,8 +19,8 @@ import type {
 } from "../../types";
 import { InstantRoomPage } from "./InstantRoomPage";
 
-vi.mock("@excalidraw/excalidraw", () => ({
-  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+vi.mock("../whiteboard/KCommsDrawingCanvas", () => ({
+  KCommsDrawingCanvas: () => <div aria-label="Drawing test canvas" />
 }));
 import { storeMemberInstantRoomContinuity } from "./memberContinuity";
 

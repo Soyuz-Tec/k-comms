@@ -23,8 +23,8 @@ const uiHarness = vi.hoisted(() => ({
   initialCallOnEntry: null as "audio" | "video" | null
 }));
 
-vi.mock("@excalidraw/excalidraw", () => ({
-  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+vi.mock("../whiteboard/KCommsDrawingCanvas", () => ({
+  KCommsDrawingCanvas: () => <div aria-label="Drawing test canvas" />
 }));
 
 vi.mock("../guest/QrCode", () => ({
