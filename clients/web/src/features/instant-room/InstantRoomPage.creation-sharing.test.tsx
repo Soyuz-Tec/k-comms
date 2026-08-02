@@ -329,6 +329,27 @@ describe("InstantRoomPage", () => {
     }));
   });
 
+  it("opens the invite dialog directly from the draft Share action", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(ApiClient.prototype, "createInstantRoom")
+      .mockResolvedValue(result);
+
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Share" }));
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole("dialog", { name: "Invite someone" })
+    ).toBeVisible();
+    expect(screen.getByLabelText("Secure room link")).not.toHaveValue(shareUrl);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Invite someone" })
+      ).toHaveFocus()
+    );
+  });
+
   it("creates once under StrictMode, enters the room and shares the exact server URL", async () => {
     const user = userEvent.setup();
     const create = vi

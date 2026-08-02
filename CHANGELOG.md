@@ -8,6 +8,8 @@
   restores a private device-local draft, supplies an editable guest identity,
   and promotes the scene and first message through the existing idempotent room
   contracts only when the visitor sends, shares, or explicitly starts a room.
+- Made the draft Share action open the complete secure-link, native-share, and
+  QR invite dialog immediately after durable room promotion.
 
 ### Documentation
 

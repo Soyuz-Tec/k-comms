@@ -90,6 +90,65 @@ test.describe("instant-room front door", () => {
     });
   }
 
+  test("opens the complete invite dialog from one Share action", async ({
+    page
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the deterministic one-action journey runs once in Chromium"
+    );
+    await page.setViewportSize({ width: 1024, height: 768 });
+    const fixture = await installInstantRoomFixture(page);
+
+    await page.goto("/");
+    expect(fixture.createRequests).toHaveLength(0);
+    await page.getByRole("button", { name: "Share" }).click();
+
+    const invite = page.getByRole("dialog", { name: "Invite someone" });
+    await expect(invite).toBeVisible();
+    await expect(
+      invite.getByRole("heading", { name: "Invite someone" })
+    ).toBeFocused();
+    await expect(invite.getByLabel(/room (?:invite )?link/i)).toBeVisible();
+    await expect(
+      invite.getByRole("button", { name: "Show QR code" })
+    ).toBeVisible();
+    expect(fixture.createRequests).toHaveLength(1);
+    await expectNoDocumentOverflow(page);
+  });
+
+  test("opens mobile invite actions from one Share action", async ({
+    page
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the deterministic one-action journey runs once in Chromium"
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installInstantRoomFixture(page);
+
+    await page.goto("/");
+    expect(fixture.createRequests).toHaveLength(0);
+    await page.getByRole("button", { name: "Share" }).click();
+
+    const roomMenu = page.getByRole("dialog", { name: "Room menu" });
+    await expect(roomMenu).toBeVisible();
+    await expect(
+      roomMenu.getByRole("heading", { name: "Scan to join" })
+    ).toBeVisible();
+    await expect(
+      roomMenu.getByRole("img", { name: "Scan to join Instant room" })
+    ).toBeVisible();
+    await expect(
+      roomMenu.getByRole("button", { name: "Copy invite link" })
+    ).toBeVisible();
+    await expect(
+      roomMenu.getByRole("button", { name: "Share invite link" })
+    ).toBeVisible();
+    expect(fixture.createRequests).toHaveLength(1);
+    await expectNoDocumentOverflow(page);
+  });
+
   test("creates once and exposes a one-step shareable room at 320px", async ({ page }, testInfo) => {
     test.skip(
       testInfo.project.name !== "chromium",
