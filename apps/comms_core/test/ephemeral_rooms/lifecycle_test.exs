@@ -43,6 +43,63 @@ defmodule CommsCore.Conversations.EphemeralRooms.LifecycleTest do
 
   @tag :presence
   @tag :concurrency
+  test "the orphan-counting query finds boards left by rooms that expired before the fix" do
+    account = Fixtures.account_fixture()
+
+    assert {:ok, created} =
+             Conversations.create_ephemeral_room(
+               guest_create_attrs(account.tenant.id, secret()),
+               :guest
+             )
+
+    assert {:ok, _operation, :created} =
+             Whiteboards.append_operation(
+               created.conversation.id,
+               %{
+                 client_operation_id: "orphan-count-operation",
+                 kind: "scene.update",
+                 payload: %{"elements" => [whiteboard_element()]}
+               },
+               guest_subject(created)
+             )
+
+    # Marks the room expired *without* going through Lifecycle.expire, which
+    # now reclaims. That reproduces the pre-ADR-0068 state the backlog is made
+    # of, which is the only state the counting query is meant to find.
+    expired_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    Repo.update_all(
+      from(room in EphemeralRoom, where: room.id == ^created.room.id),
+      set: [
+        status: :expired,
+        # The table's state check requires an expired row to be internally
+        # consistent, so all three timestamps have to be set together.
+        idle_since: DateTime.add(expired_at, -120, :second),
+        expires_at: expired_at,
+        expired_at: expired_at
+      ]
+    )
+
+    # Guards the join in ops/runtime/count_orphaned_instant_room_boards.sql.
+    # An empty result there is indistinguishable from a wrong join, and the
+    # composite tenant+conversation key is exactly what a schema change would
+    # break silently.
+    assert %{rows: [[boards, operations]]} =
+             Repo.query!("""
+             SELECT COUNT(DISTINCT w.id), COUNT(o.id)
+             FROM whiteboards w
+             JOIN conversation_ephemeral_rooms r
+               ON r.tenant_id = w.tenant_id
+              AND r.conversation_id = w.conversation_id
+             LEFT JOIN whiteboard_operations o
+               ON o.whiteboard_id = w.id
+             WHERE r.status = 'expired'
+             """)
+
+    assert boards == 1
+    assert operations == 1
+  end
+
   test "expiry reclaims the room's whiteboard instead of only archiving it" do
     account = Fixtures.account_fixture()
 
