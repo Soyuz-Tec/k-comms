@@ -22,7 +22,7 @@ export interface DraftActivationRequest {
   roomTitle: string;
   elements: WhiteboardElementData[];
   initialMessage?: string;
-  intent: "message" | "room" | "share";
+  intent: "message" | "room" | "share" | "audio-call" | "video-call";
   messageClientId: string;
   whiteboardOperationId: string;
 }
@@ -32,6 +32,7 @@ export function InstantWorkspaceDraft({
   error,
   identityManaged,
   initialDisplayName,
+  mediaActionsAllowed,
   retrySeconds,
   onActivate
 }: {
@@ -39,6 +40,7 @@ export function InstantWorkspaceDraft({
   error: string;
   identityManaged: boolean;
   initialDisplayName?: string;
+  mediaActionsAllowed: boolean;
   retrySeconds: number;
   onActivate: (request: DraftActivationRequest) => Promise<boolean>;
 }) {
@@ -360,22 +362,54 @@ export function InstantWorkspaceDraft({
             </div>
           </form>
 
-          <button
-            className="button ghost full instant-draft-start"
-            type="button"
-            disabled={blocked}
-            aria-disabled={blocked}
-            onClick={() => void activate("room")}
-          >
-            <AppIcon name="video" />
-            {activating
-              ? "Opening room…"
-              : retrySeconds > 0
-                ? `Try again in ${retrySeconds}s`
-                : error
-                  ? "Try again"
-                  : "Start instant room"}
-          </button>
+          <div className="instant-draft-live-actions">
+            <button
+              className="button ghost full instant-draft-start"
+              type="button"
+              disabled={blocked}
+              aria-disabled={blocked}
+              onClick={() => void activate("room")}
+            >
+              <AppIcon name="users" />
+              {activating
+                ? "Opening room…"
+                : retrySeconds > 0
+                  ? `Try again in ${retrySeconds}s`
+                  : error
+                    ? "Try again"
+                    : "Start instant room"}
+            </button>
+            <div
+              className="instant-draft-call-actions"
+              role="group"
+              aria-label="Start a call"
+              aria-describedby="instant-draft-call-guidance"
+            >
+              <button
+                className="button ghost"
+                type="button"
+                disabled={blocked || !mediaActionsAllowed}
+                onClick={() => void activate("audio-call")}
+              >
+                <AppIcon name="phone" />
+                Start audio call
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                disabled={blocked || !mediaActionsAllowed}
+                onClick={() => void activate("video-call")}
+              >
+                <AppIcon name="video" />
+                Start video call
+              </button>
+            </div>
+            <small id="instant-draft-call-guidance">
+              {mediaActionsAllowed
+                ? "K-Comms opens the room first, then lets you choose microphone and camera access before joining."
+                : "Calls become available after K-Comms verifies a trusted HTTPS connection."}
+            </small>
+          </div>
         </aside>
       </div>
     </section>

@@ -18,6 +18,7 @@ import {
   errorText
 } from "../../lib/format";
 import type {
+  CallMediaKind,
   Conversation,
   GuestSession,
   Message,
@@ -66,6 +67,8 @@ export function GuestShell({
   roomBanner,
   roomMenuInvite,
   openRoomMenuOnEntry = false,
+  initialCallOnEntry = null,
+  onInitialCallConsumed,
   whiteboardEnabled = false,
   identityLabel = "Guest",
   initialPresenceCount = 1,
@@ -85,6 +88,8 @@ export function GuestShell({
   roomBanner?: ReactNode | ((participantCount: number) => ReactNode);
   roomMenuInvite?: ReactNode | ((participantCount: number) => ReactNode);
   openRoomMenuOnEntry?: boolean;
+  initialCallOnEntry?: CallMediaKind | null;
+  onInitialCallConsumed?: () => void;
   whiteboardEnabled?: boolean;
   identityLabel?: "Guest" | "Host" | "Member";
   initialPresenceCount?: number;
@@ -602,6 +607,8 @@ export function GuestShell({
             }
             currentUserDisplayName={initialSession.user.display_name}
             realtimeEvent={realtimeCall}
+            launchRequest={initialCallOnEntry}
+            onLaunchRequestConsumed={onInitialCallConsumed}
             onOpenChat={openRoomChat}
           />
         </Suspense>

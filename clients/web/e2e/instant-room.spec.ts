@@ -149,6 +149,51 @@ test.describe("instant-room front door", () => {
     await expectNoDocumentOverflow(page);
   });
 
+  for (const callJourney of [
+    {
+      kind: "audio",
+      action: "Start audio call",
+      dialog: "Start an audio call",
+      viewport: { width: 1024, height: 768 }
+    },
+    {
+      kind: "video",
+      action: "Start video call",
+      dialog: "Start a video call",
+      viewport: { width: 390, height: 844 }
+    }
+  ] as const) {
+    test(`opens the ${callJourney.kind} prejoin from one draft action`, async ({
+      page
+    }, testInfo) => {
+      test.skip(
+        testInfo.project.name !== "chromium",
+        "the deterministic direct-call journey runs once in Chromium"
+      );
+      await page.setViewportSize(callJourney.viewport);
+      const fixture = await installInstantRoomFixture(page);
+
+      await page.goto("/");
+      if (callJourney.viewport.width <= 520) {
+        await page.getByRole("button", { name: "Messages", exact: true }).click();
+      }
+      const action = page.getByRole("button", { name: callJourney.action });
+      await expect(action).toBeEnabled();
+      expect(fixture.createRequests).toHaveLength(0);
+      await action.click();
+
+      const dialog = page.getByRole("dialog", { name: callJourney.dialog });
+      await expect(dialog).toBeVisible();
+      await expect(
+        dialog.getByRole("heading", { name: "Ready to join?" })
+      ).toBeVisible();
+      expect(fixture.createRequests).toHaveLength(1);
+      await expect(page.getByRole("dialog", { name: "Invite someone" }))
+        .toHaveCount(0);
+      await expectNoDocumentOverflow(page);
+    });
+  }
+
   test("creates once and exposes a one-step shareable room at 320px", async ({ page }, testInfo) => {
     test.skip(
       testInfo.project.name !== "chromium",

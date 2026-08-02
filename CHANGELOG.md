@@ -10,6 +10,10 @@
   contracts only when the visitor sends, shares, or explicitly starts a room.
 - Made the draft Share action open the complete secure-link, native-share, and
   QR invite dialog immediately after durable room promotion.
+- Added direct audio-call and video-call actions to the private workspace draft.
+  Each action promotes the draft through the existing idempotent room contract
+  exactly once, preserves the draft content, and opens the existing
+  permission-aware prejoin flow before any media capture begins.
 
 ### Documentation
 

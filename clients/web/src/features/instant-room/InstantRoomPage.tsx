@@ -6,7 +6,7 @@ import {
 } from "../../api";
 import { useSession } from "../../app/session";
 import { browserName } from "../../lib/format";
-import type { GuestSession } from "../../types";
+import type { CallMediaKind, GuestSession } from "../../types";
 import { GuestShell } from "../guest/GuestAccessPage";
 import {
   type GuestRoomApi,
@@ -97,6 +97,7 @@ export function InstantRoomPage() {
   const [retryVersion, setRetryVersion] = useState(0);
   const [leftRoom, setLeftRoom] = useState(false);
   const [openInviteOnEntry, setOpenInviteOnEntry] = useState(false);
+  const [callOnEntry, setCallOnEntry] = useState<CallMediaKind | null>(null);
   const [clock, setClock] = useState(Date.now());
   const restoredMemberSessionRef = useRef<string | null>(
     initialStateRef.current.member && accountSession
@@ -270,6 +271,7 @@ export function InstantRoomPage() {
     setLoading(true);
     setError("");
     setRetryAt(null);
+    setCallOnEntry(null);
 
     try {
       const result = await createInstantRoomOnce(memberApi, key, {
@@ -303,6 +305,7 @@ export function InstantRoomPage() {
         );
         clearInstantWorkspaceDraft();
         setOpenInviteOnEntry(request.intent === "share");
+        setCallOnEntry(callKindForIntent(request.intent));
         setActiveRoom({
           mode: "guest",
           session: guestSession,
@@ -340,6 +343,7 @@ export function InstantRoomPage() {
       );
       clearInstantWorkspaceDraft();
       setOpenInviteOnEntry(request.intent === "share");
+      setCallOnEntry(callKindForIntent(request.intent));
       storeMemberInstantRoomContinuity(accountSession, {
         room: result.room,
         conversation: result.conversation,
@@ -423,6 +427,9 @@ export function InstantRoomPage() {
               error={error}
               identityManaged={Boolean(accountSession)}
               initialDisplayName={accountSession?.user.display_name}
+              mediaActionsAllowed={
+                transportPolicyReady && mediaActionsAllowed
+              }
               retrySeconds={retrySeconds}
               onActivate={activateDraftWorkspace}
             />
@@ -473,9 +480,12 @@ export function InstantRoomPage() {
       roomBanner={shareBanner}
       roomMenuInvite={shareMenu}
       openRoomMenuOnEntry={openInviteOnEntry}
+      initialCallOnEntry={callOnEntry}
+      onInitialCallConsumed={() => setCallOnEntry(null)}
       whiteboardEnabled
       onAccessEnded={() => {
         setOpenInviteOnEntry(false);
+        setCallOnEntry(null);
         clearMemberInstantRoomContinuity();
         storeGuestSession(null);
         setActiveRoom(null);
@@ -486,6 +496,7 @@ export function InstantRoomPage() {
       }}
       onLeave={() => {
         setOpenInviteOnEntry(false);
+        setCallOnEntry(null);
         if (activeRoom.mode === "member" || activeRoom.returnsToAccount) {
           clearMemberInstantRoomContinuity();
           storeGuestSession(null);
@@ -540,6 +551,14 @@ export function InstantRoomPage() {
       }}
     />
   );
+}
+
+function callKindForIntent(
+  intent: DraftActivationRequest["intent"]
+): CallMediaKind | null {
+  if (intent === "audio-call") return "audio";
+  if (intent === "video-call") return "video";
+  return null;
 }
 
 async function seedDraftWorkspace(
