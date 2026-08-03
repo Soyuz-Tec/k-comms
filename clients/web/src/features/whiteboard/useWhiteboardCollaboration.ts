@@ -106,7 +106,31 @@ export function useWhiteboardCollaboration(
   const [collaboratorCount, setCollaboratorCount] = useState(0);
   const [elementCount, setElementCount] = useState(0);
   const [sceneSummary, setSceneSummary] = useState<WhiteboardObjectSummary[]>([]);
+  const sceneSummaryRef = useRef<WhiteboardObjectSummary[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  // Only publishes when the description actually changed. `summarizeScene`
+  // builds a fresh array every call, so setting it unconditionally would make
+  // every element-count callback a real re-render of the editor tree - including
+  // the ones that changed nothing. Excalidraw is re-rendered by those, and it is
+  // mid-drag when many of them fire.
+  const describeScene = useCallback((scene: WhiteboardScene) => {
+    const next = summarizeScene(scene);
+    const previous = sceneSummaryRef.current;
+    const unchanged =
+      previous.length === next.length &&
+      next.every((item, index) => {
+        const before = previous[index];
+        return (
+          before !== undefined &&
+          before.id === item.id &&
+          before.label === item.label
+        );
+      });
+    if (unchanged) return;
+    sceneSummaryRef.current = next;
+    setSceneSummary(next);
+  }, []);
+
   const persistence = useMemo(
     () =>
       new WhiteboardPersistence({
@@ -122,7 +146,7 @@ export function useWhiteboardCollaboration(
           applyRemoteOperationRef.current(operation),
         onElementCount: (count: number) => {
           setElementCount(count);
-          setSceneSummary(summarizeScene(sceneRef.current));
+          describeScene(sceneRef.current);
         },
         onSaveStatus: setSaveStatus,
         onError: setError,
@@ -255,7 +279,7 @@ export function useWhiteboardCollaboration(
         clearedRevisionsRef.current.clear();
       }
       setElementCount(visibleElementCount(sceneRef.current));
-      setSceneSummary(summarizeScene(sceneRef.current));
+      describeScene(sceneRef.current);
       const restored = restoreElements(
         elements as never,
         editorRef.current?.getSceneElementsIncludingDeleted() ?? null
@@ -312,7 +336,7 @@ export function useWhiteboardCollaboration(
       const next = applyWhiteboardOperation(sceneRef.current, operation);
       sceneRef.current = next;
       setElementCount(visibleElementCount(next));
-      setSceneSummary(summarizeScene(next));
+      describeScene(next);
       if (operation.kind === "scene.update") {
         noteRevisions(revisionsRef.current, operation.payload.elements ?? []);
         for (const element of operation.payload.elements ?? []) {
