@@ -192,19 +192,9 @@ export function InstantWorkspaceDraft({
       aria-labelledby="instant-draft-title"
       aria-busy={activating}
     >
-      <div className="instant-draft-toolbar">
-        <div className="instant-draft-title-group">
-          <span className="instant-draft-status">
-            <span aria-hidden="true" /> Local draft
-          </span>
-          <div>
-            <h1 id="instant-draft-title" data-route-focus>
-              Message. Draw. Share.
-            </h1>
-            <p>Sketch locally. Create a room before inviting people or starting a call.</p>
-          </div>
-        </div>
-      </div>
+      <h1 id="instant-draft-title" className="sr-only" data-route-focus>
+        Message. Draw. Share.
+      </h1>
 
       {error && (
         <div className="instant-draft-error" role="alert">

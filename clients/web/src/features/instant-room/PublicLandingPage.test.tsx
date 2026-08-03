@@ -34,21 +34,12 @@ describe("PublicLandingPage", () => {
     expect(screen.getByLabelText("Room setup")).toBeVisible();
   });
 
-  it("shows the message-and-canvas workspace before room creation", () => {
+  it("shows the message-and-canvas workspace without surrounding chrome", () => {
     renderLandingPage();
 
     expect(screen.getByLabelText("Local drawing canvas")).toHaveTextContent("Canvas");
     expect(screen.getByLabelText("Room setup")).toHaveTextContent("Room setup");
-    expect(screen.getByText("Local drafts expire after 24 hours")).toBeVisible();
-  });
-
-  it("keeps public trust guidance outside the primary workflow", () => {
-    renderLandingPage();
-
-    const footer = screen.getByRole("contentinfo", {
-      name: "Draft privacy and room lifecycle"
-    });
-    expect(footer).toHaveTextContent("Shared rooms expire after inactivity");
-    expect(footer).toHaveTextContent("Calls request permission inside the room");
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(screen.queryByRole("contentinfo")).not.toBeInTheDocument();
   });
 });
