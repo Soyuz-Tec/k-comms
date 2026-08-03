@@ -1,6 +1,13 @@
 defmodule CommsCore.Whiteboards do
   @moduledoc "Durable, conversation-scoped collaborative whiteboards."
 
+  # Conversations owns the reclamation contract; Collaboration implements it.
+  # The dependency is inverted precisely because Collaboration already depends
+  # on Conversations for authorization, and calling back directly would close a
+  # business-context cycle. See ADR-0068.
+  @behaviour CommsCore.Conversations.WhiteboardReclamationPort
+
+  alias CommsCore.Conversations.WhiteboardReclamationReceipt
   alias CommsCore.Whiteboards.{Commands, Erasure, History, OperationView, Queries}
 
   @spec append_operation(Ecto.UUID.t(), map(), map()) ::
@@ -33,6 +40,18 @@ defmodule CommsCore.Whiteboards do
     to: Erasure
 
   @doc "Contributes board reclamation to an expiring instant room's transaction."
-  defdelegate discard_for_expired_room(tenant_id, conversation_id, timestamp),
-    to: Erasure
+  @impl CommsCore.Conversations.WhiteboardReclamationPort
+  def discard_for_expired_room(tenant_id, conversation_id, timestamp) do
+    case Erasure.discard_for_expired_room(tenant_id, conversation_id, timestamp) do
+      {:ok, %{whiteboards_deleted: boards, whiteboard_operations_deleted: operations}} ->
+        {:ok,
+         %WhiteboardReclamationReceipt{
+           whiteboards_deleted: boards,
+           whiteboard_operations_deleted: operations
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end

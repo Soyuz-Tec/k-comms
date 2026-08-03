@@ -1760,6 +1760,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(collaborations),
             {
                 "conversation-call-lifecycle",
+                "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",
@@ -1988,6 +1989,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(collaborations),
             {
                 "conversation-call-lifecycle",
+                "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",

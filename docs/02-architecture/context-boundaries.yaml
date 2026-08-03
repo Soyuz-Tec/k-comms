@@ -304,6 +304,8 @@ contexts:
       - CommsCore.Conversations.GuestLinkView
       - CommsCore.Conversations.MessageWriteSlot
       - CommsCore.Conversations.MembershipView
+      - CommsCore.Conversations.WhiteboardReclamationPort
+      - CommsCore.Conversations.WhiteboardReclamationReceipt
     internal_namespaces: [CommsCore.Conversations]
     allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
     publishes:
@@ -557,6 +559,25 @@ namespace_dependency_rules:
     condition: Authorization policy belongs to the owner of protected state; the deleted centralized authorization namespace must not be declared or referenced again.
 
 runtime_collaborations:
+  - id: conversation-whiteboard-reclamation
+    consumer: conversations
+    provider: collaboration
+    port: CommsCore.Conversations.WhiteboardReclamationPort
+    result_contract: CommsCore.Conversations.WhiteboardReclamationReceipt
+    implementation: CommsCore.Whiteboards
+    callers: [CommsCore.Conversations.EphemeralRooms.Lifecycle]
+    operations:
+      - {name: discard_for_expired_room, arity: 3}
+    binding:
+      application: comms_core
+      key: conversation_whiteboard_reclamation_adapter
+      module: CommsCore.Whiteboards
+    transaction: required
+    graph_semantics:
+      control_flow: conversations_to_collaboration
+      compile_dependency: collaboration_to_conversations
+      static_cycle_policy: dependency_inversion
+    condition: ADR-0068 requires an expiring instant room's board to be reclaimed inside the transaction that ends access to it, but Collaboration already depends on Conversations for authorization; Conversations therefore owns the reclamation contract and Collaboration implements it on the caller transaction. Scope is one operation from one caller and applies only to ephemeral rooms - durable conversation boards remain reachable by governance erasure alone.
   - id: identity-call-lifecycle
     consumer: identity_access
     provider: calls
@@ -812,6 +833,7 @@ tables:
   attachment_variants: {owner: conversation_content, canonical_schema: CommsCore.Attachments.AttachmentVariant, role: source}
   whiteboards: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Whiteboard, role: source}
   whiteboard_operations: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Operation, role: source}
+  whiteboard_snapshots: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Snapshot, role: derived}
   audio_calls: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCall, role: source}
   audio_call_participants: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCallParticipant, role: source}
   notification_preferences: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Preference, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}

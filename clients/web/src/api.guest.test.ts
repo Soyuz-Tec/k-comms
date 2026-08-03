@@ -154,7 +154,7 @@ describe("guest communication API", () => {
     );
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      "https://comms.test/api/v1/guest/conversation/whiteboard/operations?after_sequence=7&limit=500",
+      "https://comms.test/api/v1/guest/conversation/whiteboard/operations?after_sequence=7&limit=500&snapshot=true",
       "https://comms.test/api/v1/guest/conversation/whiteboard/operations",
       "https://comms.test/api/v1/guest/conversation/whiteboard/operations"
     ]);

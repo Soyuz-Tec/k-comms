@@ -3,7 +3,7 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
 
   import Ecto.Query
 
-  alias CommsCore.{Accounts, Repo, Whiteboards}
+  alias CommsCore.{Accounts, Repo}
 
   alias CommsCore.Conversations.{
     Conversation,
@@ -20,6 +20,8 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
     Maintenance,
     Scheduler
   }
+
+  alias CommsCore.Conversations.WhiteboardReclamationPort
 
   @authority_horizon_seconds 24 * 60 * 60
   @global_reconcile_limit 100
@@ -299,8 +301,11 @@ defmodule CommsCore.Conversations.EphemeralRooms.Lifecycle do
     # ages messages, and governance erasure needs a deletion request nobody
     # files for an abandoned room. An instant room's board is working canvas,
     # not a durable document, so expiry is the end of its life.
+    # Through a Conversations-owned port rather than calling Collaboration
+    # directly: Collaboration already depends on Conversations for
+    # authorization, so a direct call here would close a business-context cycle.
     discarded =
-      case Whiteboards.discard_for_expired_room(
+      case WhiteboardReclamationPort.discard_for_expired_room(
              room.tenant_id,
              room.conversation_id,
              timestamp
