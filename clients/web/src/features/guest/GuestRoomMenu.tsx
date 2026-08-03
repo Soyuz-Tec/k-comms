@@ -12,12 +12,10 @@ export function GuestRoomMenu({
   identityLabel,
   inviteContent,
   leaving,
-  messagesOpen,
   onClearBoard,
   onClose,
   onKeepRoom,
   onLeave,
-  onToggleMessages,
   open = true,
   participantContent,
   roomMeta,
@@ -30,12 +28,10 @@ export function GuestRoomMenu({
   identityLabel: "Guest" | "Host" | "Member";
   inviteContent?: ReactNode;
   leaving: boolean;
-  messagesOpen?: boolean;
   onClearBoard?: () => void;
   onClose: () => void;
   onKeepRoom: () => void;
   onLeave: () => void;
-  onToggleMessages?: () => void;
   open?: boolean;
   participantContent?: ReactNode;
   roomMeta?: ReactNode;
@@ -63,45 +59,25 @@ export function GuestRoomMenu({
       </header>
 
       <div className="guest-room-menu-sections">
-        {(onToggleMessages || onClearBoard) && (
+        {onClearBoard && (
           <section className="guest-room-menu-section" aria-labelledby="guest-room-menu-workspace">
-            <h3 id="guest-room-menu-workspace">Workspace</h3>
+            <h3 id="guest-room-menu-workspace">Canvas</h3>
             <div className="guest-room-menu-actions">
-              {onToggleMessages && (
-                <button
-                  className="guest-room-menu-action"
-                  type="button"
-                  aria-label="Messages"
-                  aria-pressed={messagesOpen}
-                  onClick={() => {
-                    onToggleMessages();
-                    onClose();
-                  }}
-                >
-                  <AppIcon name="messages" />
-                  <div>
-                    <strong>{messagesOpen ? "Hide messages" : "Show messages"}</strong>
-                    <span>Move the compact message panel anywhere over the canvas.</span>
-                  </div>
-                </button>
-              )}
-              {onClearBoard && (
-                <button
-                  className="guest-room-menu-action danger"
-                  type="button"
-                  aria-label="Clear canvas"
-                  onClick={() => {
-                    onClearBoard();
-                    onClose();
-                  }}
-                >
-                  <AppIcon name="trash" />
-                  <div>
-                    <strong>Clear canvas</strong>
-                    <span>Confirm before clearing the board for everyone.</span>
-                  </div>
-                </button>
-              )}
+              <button
+                className="guest-room-menu-action danger"
+                type="button"
+                aria-label="Clear canvas"
+                onClick={() => {
+                  onClearBoard();
+                  onClose();
+                }}
+              >
+                <AppIcon name="trash" />
+                <div>
+                  <strong>Clear canvas</strong>
+                  <span>Confirm before clearing the board for everyone.</span>
+                </div>
+              </button>
             </div>
           </section>
         )}
@@ -200,7 +176,7 @@ export function GuestRoomMenu({
           {...dialogProps}
           ref={dialogRef}
           className="guest-room-menu-positioner"
-          dragLabel="room menu"
+          dragLabel="room controls"
         >
           <aside className="guest-room-menu">{contents}</aside>
         </DraggableSurface>

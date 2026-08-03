@@ -536,35 +536,47 @@ describe("GuestAccessPage", () => {
       }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
+    const messageMenuTrigger = screen.getByRole("button", {
+      name: "Open message menu"
+    });
+    expect(messageMenuTrigger.closest(".guest-floating-chat")).not.toBeNull();
+    fireEvent.click(messageMenuTrigger);
+    const messageMenu = screen.getByRole("menu", {
+      name: "Message controls"
+    });
+    expect(within(messageMenu).getByRole("menuitem", {
+      name: /Write a message/
+    })).toBeVisible();
+    expect(within(messageMenu).getByRole("menuitem", {
+      name: /Jump to latest/
+    })).toBeVisible();
+    expect(within(messageMenu).queryByText(/Participants|Calls|Clear canvas/))
+      .not.toBeInTheDocument();
+    fireEvent.click(within(messageMenu).getByRole("menuitem", {
+      name: /Collapse messages/
+    }));
+    expect(document.querySelector(".guest-floating-chat")).toHaveClass(
+      "is-collapsed"
+    );
+    expect(screen.queryByLabelText("Room messages")).not.toBeInTheDocument();
+    fireEvent.click(messageMenuTrigger);
+    expect(screen.getByLabelText("Room messages")).toBeVisible();
+    fireEvent.keyDown(
+      screen.getByRole("menu", { name: "Message controls" }),
+      { key: "Escape" }
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open room controls" }));
     const menu = screen.getByRole("dialog", {
       name: conversation.title ?? "Conversation"
     });
-    const messages = within(menu).getByRole("button", { name: "Messages" });
-    expect(messages).toHaveAttribute("aria-pressed", "true");
+    expect(within(menu).queryByText(/Write a message|Jump to latest/))
+      .not.toBeInTheDocument();
     expect(within(menu).getByRole("button", { name: "Participants" })).toBeVisible();
     expect(within(menu).getByRole("heading", { name: "Calls" })).toBeVisible();
     expect(whiteboardHarness.props?.clearRequestId).toBe(0);
     fireEvent.click(within(menu).getByRole("button", { name: "Clear canvas" }));
     expect(whiteboardHarness.props?.clearRequestId).toBe(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
-    const reopenedMenu = screen.getByRole("dialog", {
-      name: conversation.title ?? "Conversation"
-    });
-    const reopenedMessages = within(reopenedMenu).getByRole("button", {
-      name: "Messages"
-    });
-
-    fireEvent.click(reopenedMessages);
-    expect(document.querySelector(".guest-floating-chat")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
-    fireEvent.click(
-      within(screen.getByRole("dialog", {
-        name: conversation.title ?? "Conversation"
-      }))
-        .getByRole("button", { name: "Messages" })
-    );
     expect(document.querySelector(".guest-floating-chat")).not.toBeNull();
   });
 
@@ -908,7 +920,7 @@ describe("GuestAccessPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
     expect(await screen.findByLabelText("Mock shared canvas")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    await user.click(screen.getByRole("button", { name: "Open room controls" }));
     expect(
       within(screen.getByRole("dialog", { name: "Launch room" }))
         .getByRole("heading", { name: "Scan to join" })
@@ -1027,7 +1039,7 @@ describe("GuestAccessPage", () => {
       window.sessionStorage.getItem("k-comms.guest-session.v1")
     ).toContain("guest-access");
 
-    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    await user.click(screen.getByRole("button", { name: "Open room controls" }));
     await user.click(
       within(screen.getByRole("dialog", { name: "Launch room" }))
         .getByRole("button", { name: /Leave room/ })

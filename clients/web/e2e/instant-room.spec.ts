@@ -313,7 +313,7 @@ test.describe("instant-room front door", () => {
     await expect(
       page.getByRole("button", { name: "Invite people" })
     ).toHaveCount(0);
-    const roomMenu = page.getByRole("button", { name: "Open room menu" });
+    const roomMenu = page.getByRole("button", { name: "Open room controls" });
     await expect(roomMenu).toBeVisible();
     await expectMinimumTarget(roomMenu);
     const roomMenuBox = await roomMenu.boundingBox();
@@ -444,6 +444,52 @@ test.describe("instant-room front door", () => {
 
     await expectCompactCallActions(reopenedMenu, { width: 320, height: 700 });
     await reopenedMenu.getByRole("button", { name: "Close" }).click();
+    const floatingChat = page.locator(".guest-floating-chat");
+    const messageMenuTrigger = floatingChat.getByRole("button", {
+      name: "Open message menu"
+    });
+    await expect(messageMenuTrigger).toBeVisible();
+    await expect(messageMenuTrigger.locator("svg.lucide-menu")).toHaveCount(1);
+    await messageMenuTrigger.click();
+    const messageMenu = floatingChat.getByRole("menu", {
+      name: "Message controls"
+    });
+    await expect(messageMenu).toBeVisible();
+    await expect(
+      messageMenu.getByRole("menuitem", { name: "Write a message" })
+    ).toBeVisible();
+    await expect(
+      messageMenu.getByRole("menuitem", { name: "Jump to latest" })
+    ).toBeVisible();
+    await expect(
+      messageMenu.getByRole("menuitem", { name: "Collapse messages" })
+    ).toBeVisible();
+    for (const roomAction of [
+      "Participants",
+      "Start audio call",
+      "Start video call",
+      "Copy invite link",
+      "Clear canvas"
+    ]) {
+      await expect(
+        messageMenu.getByRole("menuitem", { name: roomAction })
+      ).toHaveCount(0);
+    }
+    await messageMenu
+      .getByRole("menuitem", { name: "Collapse messages" })
+      .click();
+    await expect(floatingChat).toHaveClass(/is-collapsed/);
+    await expect(
+      floatingChat.getByRole("region", { name: "Room messages" })
+    ).toHaveCount(0);
+    await expect(messageMenuTrigger).toBeVisible();
+    await messageMenuTrigger.click();
+    await expect(floatingChat).not.toHaveClass(/is-collapsed/);
+    await expect(messageMenu).toBeVisible();
+    await messageMenu.press("Escape");
+    await expect(messageMenu).toHaveCount(0);
+    await expect(messageMenuTrigger).toBeFocused();
+
     const composer = page.getByRole("textbox", { name: "Message" });
     const send = page.getByRole("button", { name: "Send" });
     await expect(composer).toBeVisible();
@@ -464,7 +510,6 @@ test.describe("instant-room front door", () => {
     await expectNoDocumentOverflow(page);
     await expectNoWcagFailures(page);
 
-    const floatingChat = page.locator(".guest-floating-chat");
     const chatBeforeMove = await floatingChat.boundingBox();
     expect(chatBeforeMove).not.toBeNull();
     const chatMoveHandle = page.getByRole("button", {
@@ -530,7 +575,7 @@ test.describe("instant-room front door", () => {
       await page.getByRole("button", { name: "Create room" }).click();
 
       const menuTrigger = page.getByRole("button", {
-        name: "Open room menu"
+        name: "Open room controls"
       });
       const initiallyOpenMenu = page.getByRole("dialog", {
         name: "Instant room"
@@ -538,8 +583,13 @@ test.describe("instant-room front door", () => {
       if (await initiallyOpenMenu.isVisible()) {
         await initiallyOpenMenu.getByRole("button", { name: "Close" }).click();
       }
+      const floatingChat = page.locator(".guest-floating-chat");
+      const messageMenuTrigger = floatingChat.getByRole("button", {
+        name: "Open message menu"
+      });
       const controls = [
         menuTrigger,
+        messageMenuTrigger,
         page.getByRole("button", { name: "Send" })
       ];
       for (const control of controls) {
@@ -551,7 +601,7 @@ test.describe("instant-room front door", () => {
         page.getByLabel("Whiteboard for Instant room")
       ).toBeVisible();
       for (const layerHandle of [
-        page.getByRole("button", { name: "Move room menu button" }),
+        page.getByRole("button", { name: "Move room controls button" }),
         page.getByRole("button", { name: "Move canvas status" }),
         page.getByRole("button", { name: "Move messages" })
       ]) {
@@ -589,6 +639,27 @@ test.describe("instant-room front door", () => {
       await expectOnlyMessageScroller(page);
       await expectNoDocumentOverflow(page);
       expect(fixture.createRequests).toHaveLength(1);
+
+      await messageMenuTrigger.click();
+      const messageMenu = floatingChat.getByRole("menu", {
+        name: "Message controls"
+      });
+      await expect(messageMenu).toBeVisible();
+      await expect(
+        messageMenu.getByRole("menuitem", { name: "Write a message" })
+      ).toBeVisible();
+      await expect(
+        messageMenu.getByRole("menuitem", { name: "Jump to latest" })
+      ).toBeVisible();
+      await expect(
+        messageMenu.getByRole("menuitem", { name: "Collapse messages" })
+      ).toBeVisible();
+      await expect(messageMenu.getByText("Participants")).toHaveCount(0);
+      await expect(messageMenu.getByText("Calls")).toHaveCount(0);
+      await expect(messageMenu.getByText("Invite and share")).toHaveCount(0);
+      await messageMenu.press("Escape");
+      await expect(messageMenu).toHaveCount(0);
+      await expect(messageMenuTrigger).toBeFocused();
 
       const menuDialog = await ensureRoomMenuOpen(page);
       await expect(menuDialog).toHaveCount(1);
@@ -641,7 +712,7 @@ test.describe("instant-room front door", () => {
         const menuBeforeMove = await menuDialog.boundingBox();
         expect(menuBeforeMove).not.toBeNull();
         const menuMoveHandle = menuDialog.getByRole("button", {
-          name: "Move room menu"
+          name: "Move room controls"
         });
         await menuMoveHandle.focus();
         await menuMoveHandle.press("ArrowUp");
@@ -933,7 +1004,7 @@ async function expectCompactCallActions(
 async function ensureRoomMenuOpen(page: Page): Promise<Locator> {
   const menu = page.getByRole("dialog", { name: "Instant room" });
   if (!(await menu.isVisible())) {
-    await page.getByRole("button", { name: "Open room menu" }).click();
+    await page.getByRole("button", { name: "Open room controls" }).click();
   }
   await expect(menu).toBeVisible();
   return menu;
