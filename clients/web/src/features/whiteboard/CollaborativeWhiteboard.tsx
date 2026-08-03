@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
+import { DraggableSurface } from "../../components/DraggableSurface";
 import {
   useWhiteboardCollaboration,
   type WhiteboardCollaborationOptions
@@ -12,6 +13,7 @@ export function CollaborativeWhiteboard({
   conversationId,
   conversationTitle,
   collaborationOptions,
+  clearRequestId = 0,
   focusElementIds = [],
   onMessageReference,
   compact = false
@@ -19,6 +21,7 @@ export function CollaborativeWhiteboard({
   conversationId: string;
   conversationTitle: string;
   collaborationOptions?: WhiteboardCollaborationOptions;
+  clearRequestId?: number;
   focusElementIds?: readonly string[];
   onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
@@ -29,6 +32,10 @@ export function CollaborativeWhiteboard({
     collaborationOptions,
     focusElementIds
   );
+
+  useEffect(() => {
+    if (clearRequestId > 0) setConfirmClear(true);
+  }, [clearRequestId]);
 
   if (collaboration.initialElements === null) {
     if (collaboration.historyError) {
@@ -54,6 +61,53 @@ export function CollaborativeWhiteboard({
       </section>
     );
   }
+
+  const statusbar = (
+    <div className="whiteboard-statusbar" role="status">
+      <span
+        className={`connection-dot ${collaboration.connectionStatus}`}
+        aria-hidden="true"
+      />
+      <strong>
+        {collaboration.connectionStatus === "live"
+          ? "Live canvas"
+          : collaboration.connectionStatus === "offline"
+            ? "Offline editing"
+            : "Reconnecting"}
+      </strong>
+      <span>{collaboration.collaboratorCount + 1} active</span>
+      <span>
+        {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
+      </span>
+      <span>
+        {collaboration.saveStatus === "saved"
+          ? "Saved"
+          : collaboration.saveStatus === "saving"
+            ? "Saving…"
+            : "Save needs attention"}
+      </span>
+      {onMessageReference && <button
+        className="button ghost compact"
+        type="button"
+        disabled={collaboration.selectedElementIds.length === 0}
+        onClick={() => {
+          const reference = collaboration.messageReference();
+          if (reference) onMessageReference(reference);
+        }}
+      >
+        <AppIcon name="message" /> Message selection
+      </button>}
+      {!compact && (
+        <button
+          className="button ghost compact"
+          type="button"
+          onClick={() => setConfirmClear(true)}
+        >
+          <AppIcon name="trash" /> Clear board
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <section
@@ -83,48 +137,14 @@ export function CollaborativeWhiteboard({
           </ul>
         )}
       </section>
-      <div className="whiteboard-statusbar" role="status">
-        <span
-          className={`connection-dot ${collaboration.connectionStatus}`}
-          aria-hidden="true"
-        />
-        <strong>
-          {collaboration.connectionStatus === "live"
-            ? "Live canvas"
-            : collaboration.connectionStatus === "offline"
-              ? "Offline editing"
-              : "Reconnecting"}
-        </strong>
-        <span>{collaboration.collaboratorCount + 1} active</span>
-        <span>
-          {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
-        </span>
-        <span>
-          {collaboration.saveStatus === "saved"
-            ? "Saved"
-            : collaboration.saveStatus === "saving"
-              ? "Saving…"
-              : "Save needs attention"}
-        </span>
-        {onMessageReference && <button
-          className="button ghost compact"
-          type="button"
-          disabled={collaboration.selectedElementIds.length === 0}
-          onClick={() => {
-            const reference = collaboration.messageReference();
-            if (reference) onMessageReference(reference);
-          }}
+      {compact ? (
+        <DraggableSurface
+          className="whiteboard-floating-status"
+          dragLabel="canvas status"
         >
-          <AppIcon name="message" /> Message selection
-        </button>}
-        <button
-          className="button ghost compact"
-          type="button"
-          onClick={() => setConfirmClear(true)}
-        >
-          <AppIcon name="trash" /> Clear board
-        </button>
-      </div>
+          {statusbar}
+        </DraggableSurface>
+      ) : statusbar}
 
       {collaboration.error && (
         <div className="whiteboard-error" role="alert">

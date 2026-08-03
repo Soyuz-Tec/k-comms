@@ -1,0 +1,43 @@
+.draggable-surface {
+  position: absolute;
+  will-change: transform;
+}
+
+.draggable-surface-handle {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+
+.draggable-surface-handle:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.draggable-surface-handle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.draggable-surface[data-dragging="true"] {
+  user-select: none;
+}
+
+.draggable-surface[data-dragging="true"] .draggable-surface-handle {
+  cursor: grabbing;
+}
+
+.draggable-surface-handle .app-icon {
+  width: 18px;
+  height: 18px;
+}

@@ -59,6 +59,7 @@ const callPanelHarness = vi.hoisted(() => ({
 
 const whiteboardHarness = vi.hoisted(() => ({
   props: null as null | {
+    clearRequestId?: number;
     conversationId: string;
     compact: boolean;
     collaborationOptions: {
@@ -93,6 +94,7 @@ vi.mock("../calls/CallPanel", () => ({
 
 vi.mock("../whiteboard/CollaborativeWhiteboard", () => ({
   CollaborativeWhiteboard: (props: {
+    clearRequestId?: number;
     conversationId: string;
     compact: boolean;
     collaborationOptions: {
@@ -499,7 +501,7 @@ describe("GuestAccessPage", () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
-  it("combines the instant-room canvas and messages behind mobile-friendly controls", async () => {
+  it("fills the instant room with canvas and moves room functions into floating controls", async () => {
     const api = new GuestApiClient("", guestSession, vi.fn());
 
     render(
@@ -520,6 +522,11 @@ describe("GuestAccessPage", () => {
     expect(await screen.findByLabelText("Mock shared canvas")).toBeVisible();
     expect(screen.getByLabelText("Shared drawing canvas")).toBeVisible();
     expect(screen.getByLabelText("Room messages")).toBeVisible();
+    expect(document.querySelector(".guest-shell-header")).toBeNull();
+    expect(document.querySelector(".guest-collaboration-workspace"))
+      .toHaveClass("canvas-workspace");
+    expect(document.querySelector(".guest-floating-chat")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Move messages" })).toBeVisible();
     expect(whiteboardHarness.props).toMatchObject({
       conversationId: conversation.id,
       compact: true,
@@ -529,22 +536,36 @@ describe("GuestAccessPage", () => {
       }
     });
 
-    const workspaceTools = document.querySelector(".guest-workspace-tools");
-    expect(workspaceTools).not.toBeNull();
-    const workspaceButtons = within(workspaceTools as HTMLElement)
-      .getAllByRole("button", { hidden: true });
-    const canvas = workspaceButtons[0]!;
-    const messages = workspaceButtons[1]!;
-    expect(canvas).toHaveTextContent("Canvas");
-    expect(messages).toHaveTextContent("Messages");
-    expect(canvas).toHaveAttribute("aria-pressed", "true");
-    expect(messages).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(messages);
+    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
+    const menu = screen.getByRole("dialog", {
+      name: conversation.title ?? "Conversation"
+    });
+    const messages = within(menu).getByRole("button", { name: "Messages" });
     expect(messages).toHaveAttribute("aria-pressed", "true");
-    expect(canvas).toHaveAttribute("aria-pressed", "false");
-    expect(document.querySelector(".guest-collaboration-workspace"))
-      .toHaveAttribute("data-mobile-view", "messages");
+    expect(within(menu).getByRole("button", { name: "Participants" })).toBeVisible();
+    expect(within(menu).getByRole("heading", { name: "Calls" })).toBeVisible();
+    expect(whiteboardHarness.props?.clearRequestId).toBe(0);
+    fireEvent.click(within(menu).getByRole("button", { name: "Clear canvas" }));
+    expect(whiteboardHarness.props?.clearRequestId).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
+    const reopenedMenu = screen.getByRole("dialog", {
+      name: conversation.title ?? "Conversation"
+    });
+    const reopenedMessages = within(reopenedMenu).getByRole("button", {
+      name: "Messages"
+    });
+
+    fireEvent.click(reopenedMessages);
+    expect(document.querySelector(".guest-floating-chat")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open room menu" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", {
+        name: conversation.title ?? "Conversation"
+      }))
+        .getByRole("button", { name: "Messages" })
+    );
+    expect(document.querySelector(".guest-floating-chat")).not.toBeNull();
   });
 
   it("keeps credential and media controls blocked when a LAN release is opened through loopback", async () => {
@@ -887,7 +908,11 @@ describe("GuestAccessPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Launch room" })).toBeVisible();
     expect(await screen.findByLabelText("Mock shared canvas")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Invite people" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Launch room" }))
+        .getByRole("heading", { name: "Scan to join" })
+    ).toBeVisible();
     expect(joinInstantRoom).toHaveBeenCalledTimes(2);
     expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(
       joinInstantRoom.mock.calls[0]![1]
@@ -1002,7 +1027,11 @@ describe("GuestAccessPage", () => {
       window.sessionStorage.getItem("k-comms.guest-session.v1")
     ).toContain("guest-access");
 
-    await user.click(screen.getByRole("button", { name: "Leave" }));
+    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Launch room" }))
+        .getByRole("button", { name: /Leave room/ })
+    );
 
     await waitFor(() => expect(window.location.pathname).toBe("/app/"));
     expect(

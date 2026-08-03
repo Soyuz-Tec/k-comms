@@ -392,7 +392,7 @@ describe("GuestAccessPage", () => {
       "Taylor Human"
     );
     await user.type(
-      screen.getByRole("textbox", { name: "Work email" }),
+      await screen.findByRole("textbox", { name: "Work email" }),
       "taylor@example.test"
     );
     await user.type(
@@ -494,10 +494,14 @@ describe("GuestAccessPage", () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole("button", { name: "Keep this conversation" })
+      await screen.findByRole("button", { name: "Open room menu" })
+    );
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Launch room" }))
+        .getByRole("button", { name: /Keep this conversation/ })
     );
     await user.type(
-      screen.getByRole("textbox", { name: "Work email" }),
+      await screen.findByRole("textbox", { name: "Work email" }),
       "taylor@example.test"
     );
     await user.type(
@@ -518,7 +522,11 @@ describe("GuestAccessPage", () => {
     );
     expect(window.location.pathname).toBe("/join");
     expect(screen.getByRole("textbox", { name: "Message" })).toBeVisible();
-    expect(screen.getByText("Member", { selector: ".guest-badge" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    expect(
+      within(screen.getByRole("dialog", { name: "Launch room" }))
+        .getByText("Member", { selector: ".guest-badge" })
+    ).toBeVisible();
     expect(
       screen.queryByText(/You joined as a guest/i)
     ).not.toBeInTheDocument();
@@ -592,10 +600,14 @@ describe("GuestAccessPage", () => {
       screen.getByRole("button", { name: "Join conversation" })
     );
     await user.click(
-      await screen.findByRole("button", { name: "Keep this conversation" })
+      await screen.findByRole("button", { name: "Open room menu" })
+    );
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Launch room" }))
+        .getByRole("button", { name: /Keep this conversation/ })
     );
     await user.type(
-      screen.getByRole("textbox", { name: "Work email" }),
+      await screen.findByRole("textbox", { name: "Work email" }),
       "taylor@example.test"
     );
     await user.type(
