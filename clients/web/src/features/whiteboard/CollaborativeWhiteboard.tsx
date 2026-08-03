@@ -68,7 +68,13 @@ export function CollaborativeWhiteboard({
         markup.
       */}
       <section className="visually-hidden" aria-live="polite">
-        <h2>{`Whiteboard contents, ${collaboration.sceneSummary.length} object${collaboration.sceneSummary.length === 1 ? "" : "s"}`}</h2>
+        {/*
+          Deliberately "Canvas" rather than "Whiteboard": the page already has a
+          "Whiteboard" heading, and accessible-name matching is substring-based,
+          so a second heading containing that word makes every by-role lookup
+          ambiguous for assistive technology and for tests alike.
+        */}
+        <h2>{`Canvas contents, ${collaboration.sceneSummary.length} object${collaboration.sceneSummary.length === 1 ? "" : "s"}`}</h2>
         {collaboration.sceneSummary.length > 0 && (
           <ul>
             {collaboration.sceneSummary.map((object) => (
