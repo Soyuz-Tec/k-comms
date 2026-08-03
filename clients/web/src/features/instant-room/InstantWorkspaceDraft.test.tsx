@@ -70,7 +70,7 @@ describe("InstantWorkspaceDraft", () => {
 
     expect(
       screen.getByRole("heading", { name: "Message. Draw. Share." })
-    ).toBeVisible();
+    ).toHaveClass("sr-only");
     expect(screen.getByLabelText("Local drawing canvas")).toBeVisible();
     expect(screen.getByLabelText("Room setup")).toBeVisible();
     expect(
@@ -78,7 +78,7 @@ describe("InstantWorkspaceDraft", () => {
         name: "Your display name"
       }) as HTMLInputElement).value
     ).toMatch(/^Guest \d{4}$/);
-    expect(screen.getAllByText("Local draft", { exact: true })).toHaveLength(2);
+    expect(screen.getAllByText("Local draft", { exact: true })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
     expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
       "href",

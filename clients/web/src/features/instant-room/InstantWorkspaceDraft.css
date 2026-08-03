@@ -8,66 +8,22 @@
   overflow: hidden;
 }
 
-.instant-draft-toolbar {
-  display: flex;
-  min-height: 64px;
-  align-items: center;
-  padding: 9px 18px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-}
-
-.instant-draft-title-group,
 .instant-draft-chat-heading,
 .instant-draft-composer > div {
   display: flex;
   align-items: center;
 }
 
-.instant-draft-title-group {
-  min-width: 0;
-  gap: 16px;
-}
-
-.instant-draft-title-group h1,
 .instant-draft-chat-heading h2,
 .instant-draft-dialog h2 {
   margin: 0;
   color: var(--text-primary);
 }
 
-.instant-draft-title-group h1 {
-  font-size: clamp(1.05rem, 2vw, 1.35rem);
-  line-height: 1.2;
-}
-
-.instant-draft-title-group p,
 .instant-draft-chat-heading p {
   margin: 2px 0 0;
   color: var(--text-muted);
   font-size: .81rem;
-}
-
-.instant-draft-status {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 9px;
-  border: 1px solid var(--success-border);
-  border-radius: 999px;
-  color: var(--success-text);
-  background: var(--success-quiet);
-  font-size: .74rem;
-  font-weight: 750;
-}
-
-.instant-draft-status > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--success-solid);
-  box-shadow: 0 0 0 3px var(--success-border);
 }
 
 .instant-draft-error {
@@ -426,20 +382,6 @@
 }
 
 @media (max-width: 760px) {
-  .instant-draft-toolbar {
-    min-height: 54px;
-    padding: 7px 12px;
-  }
-
-  .instant-draft-title-group {
-    gap: 0;
-  }
-
-  .instant-draft-title-group > .instant-draft-status,
-  .instant-draft-title-group p {
-    display: none;
-  }
-
   .instant-draft-mobile-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -505,10 +447,6 @@
 }
 
 @media (max-width: 430px) {
-  .instant-draft-title-group h1 {
-    font-size: 1rem;
-  }
-
   .instant-draft-workflow li {
     font-size: .64rem;
   }
