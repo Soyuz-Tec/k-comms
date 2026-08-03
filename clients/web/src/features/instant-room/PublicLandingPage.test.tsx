@@ -1,18 +1,17 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { BrowserRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { PublicLandingPage } from "./PublicLandingPage";
 
-function renderLandingPage(signedIn = false) {
+function renderLandingPage() {
   return render(
     <BrowserRouter>
       <PublicLandingPage
-        signedIn={signedIn}
         workspace={
           <section aria-label="Working workspace">
             <h1>Message. Draw. Share.</h1>
-            <div aria-label="Private drawing canvas">Canvas</div>
-            <div aria-label="Workspace messages">Messages</div>
+            <div aria-label="Local drawing canvas">Canvas</div>
+            <div aria-label="Room setup">Room setup</div>
           </section>
         }
       />
@@ -29,34 +28,27 @@ describe("PublicLandingPage", () => {
         name: "Message. Draw. Share."
       })
     ).toBeVisible();
-    expect(screen.getByText("Instant collaboration")).toBeVisible();
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Working workspace" })).toBeVisible();
-    expect(screen.getByLabelText("Private drawing canvas")).toBeVisible();
-    expect(screen.getByLabelText("Workspace messages")).toBeVisible();
+    expect(screen.getByLabelText("Local drawing canvas")).toBeVisible();
+    expect(screen.getByLabelText("Room setup")).toBeVisible();
   });
 
   it("shows the message-and-canvas workspace before room creation", () => {
     renderLandingPage();
 
-    expect(screen.getByLabelText("Private drawing canvas")).toHaveTextContent("Canvas");
-    expect(screen.getByLabelText("Workspace messages")).toHaveTextContent("Messages");
-    expect(screen.getByText("Conversation-scoped access")).toBeVisible();
+    expect(screen.getByLabelText("Local drawing canvas")).toHaveTextContent("Canvas");
+    expect(screen.getByLabelText("Room setup")).toHaveTextContent("Room setup");
+    expect(screen.getByText("Local drafts expire after 24 hours")).toBeVisible();
   });
 
-  it("routes signed-out visitors to sign in and members to their workspace", () => {
-    const view = renderLandingPage();
-    const signedOutHeader = screen.getByRole("banner");
-    expect(within(signedOutHeader).getByRole("link", { name: "Sign in" })).toHaveAttribute(
-      "href",
-      "/sign-in"
-    );
+  it("keeps public trust guidance outside the primary workflow", () => {
+    renderLandingPage();
 
-    view.unmount();
-    renderLandingPage(true);
-    const signedInHeader = screen.getByRole("banner");
-    expect(within(signedInHeader).getByRole("link", { name: "Open workspace" })).toHaveAttribute(
-      "href",
-      "/app/"
-    );
+    const footer = screen.getByRole("contentinfo", {
+      name: "Draft privacy and room lifecycle"
+    });
+    expect(footer).toHaveTextContent("Shared rooms expire after inactivity");
+    expect(footer).toHaveTextContent("Calls request permission inside the room");
   });
 });

@@ -1,6 +1,7 @@
 import type { WhiteboardElementData } from "../../types";
 
 const storageKey = "k-comms.instant-workspace-draft.v1";
+export const INSTANT_WORKSPACE_DRAFT_TTL_MS = 24 * 60 * 60 * 1_000;
 
 export interface InstantWorkspaceDraftRecord {
   version: 1;
@@ -27,8 +28,19 @@ export function loadInstantWorkspaceDraft(
       typeof value.roomTitle !== "string" ||
       !Array.isArray(value.elements) ||
       typeof value.messageClientId !== "string" ||
-      typeof value.whiteboardOperationId !== "string"
+      typeof value.whiteboardOperationId !== "string" ||
+      typeof value.updatedAt !== "string"
     ) {
+      clearInstantWorkspaceDraft();
+      return newInstantWorkspaceDraft(fallbackDisplayName);
+    }
+    const updatedAt = Date.parse(value.updatedAt);
+    if (
+      !Number.isFinite(updatedAt) ||
+      updatedAt > Date.now() + 60_000 ||
+      Date.now() - updatedAt > INSTANT_WORKSPACE_DRAFT_TTL_MS
+    ) {
+      clearInstantWorkspaceDraft();
       return newInstantWorkspaceDraft(fallbackDisplayName);
     }
     return {
@@ -39,12 +51,10 @@ export function loadInstantWorkspaceDraft(
       elements: value.elements.filter(isWhiteboardElement),
       messageClientId: value.messageClientId,
       whiteboardOperationId: value.whiteboardOperationId,
-      updatedAt:
-        typeof value.updatedAt === "string"
-          ? value.updatedAt
-          : new Date().toISOString()
+      updatedAt: value.updatedAt
     };
   } catch {
+    clearInstantWorkspaceDraft();
     return newInstantWorkspaceDraft(fallbackDisplayName);
   }
 }

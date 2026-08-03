@@ -231,12 +231,12 @@ test("instant-room entry and empty-name guidance satisfy automated WCAG A and AA
   });
   await expect(heading).toBeVisible();
   await expect(heading).toBeFocused();
-  await page.getByRole("button", { name: "Messages", exact: true }).click();
+  await page.getByRole("button", { name: "Room", exact: true }).click();
   await expect(displayName).toHaveCSS("font-size", "16px");
   await expectNoWcagFailures(page);
 
   await displayName.fill("");
-  await page.getByRole("button", { name: "Start instant room" }).click();
+  await page.getByRole("button", { name: "Create room" }).click();
   await expect(
     page.getByText("Enter your display name to continue.")
   ).toBeVisible();

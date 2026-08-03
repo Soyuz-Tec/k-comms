@@ -23,8 +23,8 @@ const uiHarness = vi.hoisted(() => ({
   delegatedTicket: ""
 }));
 
-vi.mock("@excalidraw/excalidraw", () => ({
-  Excalidraw: () => <div aria-label="Excalidraw test canvas" />
+vi.mock("../whiteboard/KCommsDrawingCanvas", () => ({
+  KCommsDrawingCanvas: () => <div aria-label="Drawing test canvas" />
 }));
 
 vi.mock("../guest/QrCode", () => ({
@@ -221,7 +221,7 @@ async function startRoom(
     );
   }
   await user.click(
-    screen.getByRole("button", { name: "Start instant room" })
+    screen.getByRole("button", { name: "Create room" })
   );
 }
 
@@ -272,7 +272,7 @@ describe("InstantRoomPage", () => {
     });
     await user.type(displayName, "Taylor Host");
     await user.click(
-      screen.getByRole("button", { name: "Start instant room" })
+      screen.getByRole("button", { name: "Create room" })
     );
 
     const progress = screen.getByRole("button", { name: "Opening room…" });
