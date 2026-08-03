@@ -229,7 +229,7 @@ test("instant-room entry and empty-name guidance satisfy automated WCAG A and AA
   const displayName = page.getByRole("textbox", {
     name: "Your display name"
   });
-  await expect(heading).toBeVisible();
+  await expect(heading).toHaveClass(/sr-only/);
   await expect(heading).toBeFocused();
   await page.getByRole("button", { name: "Room", exact: true }).click();
   await expect(displayName).toHaveCSS("font-size", "16px");

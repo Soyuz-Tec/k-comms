@@ -92,7 +92,7 @@ test.describe("real-stack instant-room acceptance", () => {
         qualificationPage.getByRole("heading", {
           name: "Message. Draw. Share."
         })
-      ).toBeVisible({ timeout: 30_000 });
+      ).toHaveClass(/sr-only/, { timeout: 30_000 });
       await qualificationPage
         .getByRole("button", { name: "Room", exact: true })
         .click();

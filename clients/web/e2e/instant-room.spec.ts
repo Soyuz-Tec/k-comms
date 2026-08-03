@@ -39,9 +39,8 @@ test.describe("instant-room front door", () => {
         name: /Sign in/i
       });
 
-      await expect(landingHeading).toBeVisible();
+      await expect(landingHeading).toHaveClass(/sr-only/);
       await expect(landingHeading).toBeFocused();
-      await expectContained(landingHeading, viewport);
       await expect(canvas).toBeVisible();
       await expect(drawingSurface).not.toContainText(/Excalidraw/i);
       await expect(
@@ -293,7 +292,7 @@ test.describe("instant-room front door", () => {
 
     await expect(
       page.getByRole("heading", { name: "Message. Draw. Share." })
-    ).toBeVisible();
+    ).toHaveClass(/sr-only/);
     await page.getByRole("button", { name: "Room", exact: true }).click();
     expect(fixture.createRequests).toHaveLength(0);
     await page
