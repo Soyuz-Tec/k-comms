@@ -42,12 +42,48 @@
 .whiteboard-room-compact {
   width: 100%;
   height: 100%;
-  border-radius: 16px;
+  border: 0;
+  border-radius: 0;
   box-shadow: none;
 }
 
-.whiteboard-room-compact .whiteboard-statusbar {
-  background: var(--surface-raised);
+.whiteboard-floating-status {
+  z-index: 28;
+  top: max(16px, var(--safe-top));
+  left: max(106px, calc(var(--safe-left) + 106px));
+  max-width: calc(100% - max(122px, var(--safe-left) + var(--safe-right) + 122px));
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgb(94 96 122 / 22%);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 10px 28px rgb(38 40 64 / 14%);
+  backdrop-filter: blur(14px);
+}
+
+.whiteboard-floating-status > .draggable-surface-handle {
+  position: static;
+  flex: 0 0 auto;
+  height: 40px;
+  min-height: 40px;
+}
+
+.whiteboard-room-compact .whiteboard-floating-status .whiteboard-statusbar {
+  min-width: 0;
+  min-height: 40px;
+  overflow: hidden;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.whiteboard-room-compact .whiteboard-floating-status .whiteboard-statusbar button {
+  min-height: 36px;
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 
 .whiteboard-statusbar {
@@ -116,4 +152,46 @@
   .whiteboard-statusbar { flex-wrap: wrap; }
   .whiteboard-statusbar button { margin-left: 0; }
   .whiteboard-room { border-radius: 14px; }
+
+  .whiteboard-room-compact { border-radius: 0; }
+
+  .whiteboard-floating-status {
+    top: max(8px, var(--safe-top));
+    left: max(92px, calc(var(--safe-left) + 92px));
+    max-width: calc(100% - max(100px, var(--safe-left) + var(--safe-right) + 100px));
+  }
+
+  .whiteboard-floating-status .whiteboard-statusbar {
+    flex-wrap: nowrap;
+  }
+
+  .whiteboard-floating-status .whiteboard-statusbar > span:nth-of-type(n + 3) {
+    display: none;
+  }
+
+  .whiteboard-floating-status .whiteboard-statusbar button {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .whiteboard-floating-status .whiteboard-statusbar button .app-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 420px) {
+  .whiteboard-floating-status .whiteboard-statusbar > span:nth-of-type(n + 2) {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .whiteboard-floating-status {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    backdrop-filter: none;
+  }
 }

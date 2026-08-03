@@ -255,6 +255,92 @@ describe("useWhiteboardCollaboration", () => {
     expect(result.current.connectionStatus).toBe("connecting");
   });
 
+  it("starts from a server snapshot and continues with the operations after it", async () => {
+    const folded = element("folded-element", 3, 300);
+    const tail = element("tail-element", 1, 100);
+
+    mocks.whiteboardOperations.mockResolvedValue({
+      data: [operation("after-snapshot", [tail], "scene.update", "user-two", 9)],
+      snapshot: { elements: [folded], through_sequence: 8 },
+      page: { has_more: false, next_after_sequence: 9 }
+    });
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    await waitFor(() =>
+      expect(result.current.initialElements?.map((item) => item.id)).toEqual([
+        "folded-element",
+        "tail-element"
+      ])
+    );
+  });
+
+  it("loads a snapshot that has no operations after it", async () => {
+    const folded = element("folded-element", 3, 300);
+
+    // Everything is already folded in, so the page carries no operations at
+    // all. Before snapshots this response meant "empty board".
+    mocks.whiteboardOperations.mockResolvedValue({
+      data: [],
+      snapshot: { elements: [folded], through_sequence: 8 },
+      page: { has_more: false, next_after_sequence: 8 }
+    });
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    await waitFor(() =>
+      expect(result.current.initialElements?.map((item) => item.id)).toEqual([
+        "folded-element"
+      ])
+    );
+  });
+
+  it("describes the canvas for assistive technology", async () => {
+    const labelled = { ...element("labelled-element", 1, 10), x: 12.4, y: 34.6 };
+
+    mocks.whiteboardOperations.mockResolvedValue({
+      data: [operation("described", [labelled], "scene.update", "user-two", 1)],
+      page: { has_more: false, next_after_sequence: 1 }
+    });
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    // Without this the canvas is an empty region to a screen reader, however
+    // well the surrounding controls are labelled.
+    await waitFor(() =>
+      expect(result.current.sceneSummary).toEqual([
+        { id: "labelled-element", type: "rectangle", label: "rectangle 1, at 12, 35" }
+      ])
+    );
+  });
+
+  it("replays normally when the server returns no snapshot", async () => {
+    const restored = element("restored-element", 2, 200);
+
+    // An older server omits the field entirely. The operations alone must still
+    // reconstruct the scene.
+    mocks.whiteboardOperations.mockResolvedValue({
+      data: [operation("legacy", [restored], "scene.update", "user-two", 1)],
+      page: { has_more: false, next_after_sequence: 1 }
+    });
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    await waitFor(() =>
+      expect(result.current.initialElements?.map((item) => item.id)).toEqual([
+        "restored-element"
+      ])
+    );
+  });
+
   it("does not persist Excalidraw's durable-scene initialization as a local edit", async () => {
     const restored = element("restored-element", 4, 400);
     mocks.whiteboardOperations.mockResolvedValue({

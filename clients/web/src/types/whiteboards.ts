@@ -20,12 +20,41 @@ export interface WhiteboardOperation {
   inserted_at: string;
 }
 
+/**
+ * A materialised scene the returned operations continue from.
+ *
+ * Deliberately not shaped like an operation: it has no actor and no idempotency
+ * key, because nobody performed it — the server projected it.
+ */
+export interface WhiteboardSceneSnapshot {
+  elements: WhiteboardElementData[];
+  through_sequence: number;
+}
+
 export interface WhiteboardOperationPage {
   data: WhiteboardOperation[];
+  /**
+   * Absent on a server that predates snapshots, and null whenever the caller
+   * must replay from the latest clear instead. Either way the operations alone
+   * still reconstruct the scene.
+   */
+  snapshot?: WhiteboardSceneSnapshot | null;
   page: {
     has_more: boolean;
     next_after_sequence: number;
   };
+}
+
+/**
+ * One canvas object, described for assistive technology.
+ *
+ * The canvas itself exposes nothing to a screen reader — pixels carry no
+ * semantics — so the interface renders these as real DOM alongside it.
+ */
+export interface WhiteboardObjectSummary {
+  id: string;
+  type: string;
+  label: string;
 }
 
 export interface WhiteboardPresenceEvent {

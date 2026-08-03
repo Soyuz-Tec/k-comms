@@ -178,7 +178,8 @@ export class GuestApiClient {
   ): Promise<WhiteboardOperationPage> {
     const query = new URLSearchParams({
       after_sequence: String(Math.max(0, afterSequence)),
-      limit: String(Math.max(1, Math.min(limit, 500)))
+      limit: String(Math.max(1, Math.min(limit, 500))),
+      snapshot: "true"
     });
     return this.request(
       `/api/v1/guest/conversation/whiteboard/operations?${query.toString()}`

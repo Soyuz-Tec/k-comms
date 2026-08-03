@@ -492,6 +492,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 500, default: 500}
+        - name: snapshot
+          in: query
+          description: Opt in to a materialised scene for a fresh replay. Ignored when after_sequence is greater than zero, because an incremental caller already holds a scene.
+          schema: {type: boolean, default: false}
       responses:
         '200':
           description: Canonically ordered operations for the admitted active instant room; ordinary guest links are denied
@@ -1298,6 +1302,10 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 500, default: 500}
+        - name: snapshot
+          in: query
+          description: Opt in to a materialised scene for a fresh replay. Ignored when after_sequence is greater than zero, because an incremental caller already holds a scene.
+          schema: {type: boolean, default: false}
       responses:
         '200':
           description: Canonically ordered operations; a fresh replay begins at the latest clear
@@ -4386,6 +4394,19 @@ components:
       required: [data]
       properties:
         data: {$ref: '#/components/schemas/WhiteboardOperation'}
+    WhiteboardSceneSnapshot:
+      type: object
+      additionalProperties: false
+      required: [elements, through_sequence]
+      properties:
+        elements:
+          type: array
+          maxItems: 100000
+          items: {$ref: '#/components/schemas/WhiteboardElement'}
+        through_sequence:
+          type: integer
+          minimum: 1
+          description: Highest operation sequence folded into elements. Returned operations begin after it.
     WhiteboardOperationPage:
       type: object
       additionalProperties: false
@@ -4395,6 +4416,11 @@ components:
           type: array
           maxItems: 500
           items: {$ref: '#/components/schemas/WhiteboardOperation'}
+        snapshot:
+          description: Materialised scene the operations continue from, or null when the caller must replay from the latest clear.
+          oneOf:
+            - {$ref: '#/components/schemas/WhiteboardSceneSnapshot'}
+            - {type: 'null'}
         page:
           type: object
           additionalProperties: false

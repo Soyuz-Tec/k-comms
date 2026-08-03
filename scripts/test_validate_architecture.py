@@ -706,11 +706,34 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # Reviewed transitions are single-use. The ADR-0067 widening landed on
-        # the protected base in PR #97, so no reusable authorization remains.
+        # Reviewed transitions are single-use: each authorizes exactly one
+        # widening against one immutable base hash, and is removed once it
+        # lands. The ADR-0067 widening landed on the protected base in PR #97.
+        # The ADR-0068 inversion and its ADR-0069 derived table are authorized
+        # here and must be removed after merge, or the next PR inherits a
+        # stale authorization it did not review.
+        transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
         self.assertEqual(
-            manifest["enforcement"]["reviewed_manifest_transitions"],
-            [],
+            [transition["id"] for transition in transitions],
+            ["conversation-whiteboard-reclamation-and-scene-snapshots"],
+        )
+        self.assertEqual(
+            transitions[0]["adr"],
+            "docs/02-architecture/adr/0068-reclaim-expired-instant-room-whiteboards.md",
+        )
+        # Scope is pinned by prefix so a future edit cannot quietly widen the
+        # approved set behind the same reviewed id.
+        self.assertEqual(
+            sorted(
+                change.split(":add:", 1)[0]
+                for change in transitions[0]["approved_changes"]
+            ),
+            [
+                "context:conversations:public_contracts",
+                "context:conversations:public_contracts",
+                "runtime_collaborations:conversation-whiteboard-reclamation",
+                "table:whiteboard_snapshots",
+            ],
         )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
@@ -1760,6 +1783,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(collaborations),
             {
                 "conversation-call-lifecycle",
+                "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",
@@ -1988,6 +2012,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(collaborations),
             {
                 "conversation-call-lifecycle",
+                "conversation-whiteboard-reclamation",
                 "identity-call-lifecycle",
                 "identity-initial-conversation-bootstrap",
                 "identity-notification-lifecycle",

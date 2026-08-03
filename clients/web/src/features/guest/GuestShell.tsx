@@ -11,7 +11,11 @@ import {
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
-import { AppMenuTrigger } from "../../components/AppMenuControls";
+import {
+  AppMenuTrigger,
+  AppSurfaceControlButton
+} from "../../components/AppMenuControls";
+import { DraggableSurface } from "../../components/DraggableSurface";
 import {
   clientMessageId,
   conversationTitle,
@@ -110,9 +114,8 @@ export function GuestShell({
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState("");
   const [showRoomMenu, setShowRoomMenu] = useState(false);
-  const [activeWorkspaceTool, setActiveWorkspaceTool] = useState<
-    "canvas" | "messages"
-  >("canvas");
+  const [messagesOpen, setMessagesOpen] = useState(true);
+  const [clearBoardRequestId, setClearBoardRequestId] = useState(0);
   const visibleMessageAuthorsRef = useRef<
     Array<{ senderUserId: string; messageId: string }>
   >([]);
@@ -126,19 +129,20 @@ export function GuestShell({
   const roomMenuTriggerFocusedRef = useRef(false);
   const openedRoomMenuOnEntryRef = useRef(false);
   const mobileRoomLayout = useMobileRoomLayout();
+  const usesRoomMenu = mobileRoomLayout || whiteboardEnabled;
 
   useEffect(() => {
     if (
       openedRoomMenuOnEntryRef.current ||
       !openRoomMenuOnEntry ||
-      !mobileRoomLayout ||
+      !usesRoomMenu ||
       !roomMenuInvite
     ) {
       return;
     }
     openedRoomMenuOnEntryRef.current = true;
     setShowRoomMenu(true);
-  }, [mobileRoomLayout, openRoomMenuOnEntry, roomMenuInvite]);
+  }, [openRoomMenuOnEntry, roomMenuInvite, usesRoomMenu]);
   const {
     composerRef,
     isNearBottom,
@@ -164,17 +168,17 @@ export function GuestShell({
   }, []);
 
   useEffect(() => {
-    if (!mobileRoomLayout && showRoomMenu) {
+    if (!usesRoomMenu && showRoomMenu) {
       restoreRoomHeadingFocusRef.current = true;
       setShowRoomMenu(false);
-    } else if (!mobileRoomLayout && roomMenuTriggerFocusedRef.current) {
+    } else if (!usesRoomMenu && roomMenuTriggerFocusedRef.current) {
       roomMenuTriggerFocusedRef.current = false;
       roomHeadingRef.current?.focus();
     }
-  }, [mobileRoomLayout, showRoomMenu]);
+  }, [showRoomMenu, usesRoomMenu]);
 
   useLayoutEffect(() => {
-    if (!mobileRoomLayout && !showRoomMenu && restoreRoomHeadingFocusRef.current) {
+    if (!usesRoomMenu && !showRoomMenu && restoreRoomHeadingFocusRef.current) {
       restoreRoomHeadingFocusRef.current = false;
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
@@ -184,7 +188,7 @@ export function GuestShell({
         });
       });
     }
-  }, [mobileRoomLayout, showRoomMenu]);
+  }, [showRoomMenu, usesRoomMenu]);
 
   const mergeRetainedSenderLabels = useCallback((
     incoming: RetainedSenderLabel[]
@@ -424,11 +428,12 @@ export function GuestShell({
   }
 
   const openRoomChat = useCallback(() => {
+    if (whiteboardEnabled) setMessagesOpen(true);
     window.requestAnimationFrame(() => {
       composerRef.current?.focus();
       composerRef.current?.scrollIntoView?.({ block: "nearest" });
     });
-  }, []);
+  }, [whiteboardEnabled, composerRef]);
 
   function resolveMessageSender(message: Message) {
     const activeSender = activeUsersById.get(message.sender_user_id);
@@ -445,90 +450,182 @@ export function GuestShell({
     };
   }
 
+  const roomTitle = conversationTitle(conversation);
+  const roomMeta = (
+    <>
+      {presenceKnown
+        ? `${onlineUsers} ${onlineUsers === 1 ? "person" : "people"} online`
+        : "presence unknown"}{" "}
+      ·{" "}
+      <span
+        className={`guest-connection ${connectionStatus}`}
+        role={mobileRoomLayout && !whiteboardEnabled ? undefined : "status"}
+        aria-live={mobileRoomLayout && !whiteboardEnabled ? undefined : "polite"}
+        aria-atomic={mobileRoomLayout && !whiteboardEnabled ? undefined : "true"}
+      >
+        {connectionStatus}
+      </span>
+    </>
+  );
+  const participantRoster = (
+    <ParticipantRoster
+      members={members}
+      onlineUserIds={onlineUserIds}
+      currentUserId={initialSession.user.id}
+      presenceKnown={presenceKnown}
+      compact={whiteboardEnabled || mobileRoomLayout}
+    />
+  );
+  const callPanel = (
+    <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
+      <GuestCallPanel
+        api={api}
+        conversation={conversation}
+        audioEnabled={
+          initialSession.capabilities.allow_audio_calls &&
+          mediaActionsAllowed
+        }
+        videoEnabled={
+          initialSession.capabilities.allow_video_calls &&
+          mediaActionsAllowed
+        }
+        currentUserDisplayName={initialSession.user.display_name}
+        realtimeEvent={realtimeCall}
+        launchRequest={initialCallOnEntry}
+        onLaunchRequestConsumed={onInitialCallConsumed}
+        onOpenChat={openRoomChat}
+      />
+    </Suspense>
+  );
+  const messageViewport = (
+    <GuestMessageViewport
+      autoFocus={!roomBanner && !whiteboardEnabled}
+      composer={composer}
+      composerRef={composerRef}
+      conversationTitle={roomTitle}
+      currentUserId={initialSession.user.id}
+      identityLabel={identityLabel}
+      isNearBottom={isNearBottom}
+      loadError={loadError}
+      loading={loading}
+      messages={messages}
+      messageScrollRef={messageScrollRef}
+      mobile={mobileRoomLayout}
+      newMessageCount={newMessageCount}
+      onComposerChange={setComposer}
+      onJumpToLatest={jumpToLatest}
+      onRetryLoad={() => setLoadRetry((attempt) => attempt + 1)}
+      onScroll={messageScrollChanged}
+      onSubmit={(event) => void sendMessage(event)}
+      resolveSender={resolveMessageSender}
+      sending={sending}
+    />
+  );
+
   return (
     <main
-      className={`guest-shell${mobileRoomLayout ? " compact-room-layout" : ""}`}
+      className={`guest-shell${mobileRoomLayout ? " compact-room-layout" : ""}${
+        whiteboardEnabled ? " canvas-room-layout" : ""
+      }`}
       id="main-content"
     >
-      <header className="guest-shell-header">
-        <div className="guest-room-heading">
-          <span className="guest-badge">{identityLabel}</span>
-          <div>
-            <h1 ref={roomHeadingRef} tabIndex={-1}>
-              {conversationTitle(conversation)}
-            </h1>
-            <p
-              role={mobileRoomLayout ? "status" : undefined}
-              aria-live={mobileRoomLayout ? "polite" : undefined}
-              aria-atomic={mobileRoomLayout ? "true" : undefined}
-            >
-              <span className="guest-room-workspace">
-                {initialSession.tenant.name} ·{" "}
-              </span>
-              {presenceKnown
-                ? `${onlineUsers} ${onlineUsers === 1 ? "person" : "people"} online`
-                : "presence unknown"}{" "}
-              ·{" "}
-              <span
-                className={`guest-connection ${connectionStatus}`}
-                role={mobileRoomLayout ? undefined : "status"}
-                aria-live={mobileRoomLayout ? undefined : "polite"}
-                aria-atomic={mobileRoomLayout ? undefined : "true"}
+      {whiteboardEnabled ? (
+        <>
+          <h1 ref={roomHeadingRef} className="visually-hidden" tabIndex={-1}>
+            {roomTitle}
+          </h1>
+          <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+            {presenceKnown
+              ? `${onlineUsers} ${onlineUsers === 1 ? "person" : "people"} online`
+              : "presence unknown"}{" "}
+            · {connectionStatus}
+          </p>
+          <DraggableSurface
+            className="guest-floating-menu-launcher"
+            dragLabel="room menu button"
+          >
+            <AppMenuTrigger
+              ref={roomMenuTriggerRef}
+              className="guest-room-menu-trigger"
+              accessibleLabel="Open room menu"
+              expanded={showRoomMenu}
+              controls="guest-room-menu"
+              overlay
+              onFocus={() => {
+                roomMenuTriggerFocusedRef.current = true;
+              }}
+              onClick={() => setShowRoomMenu(true)}
+            />
+          </DraggableSurface>
+        </>
+      ) : (
+        <header className="guest-shell-header">
+          <div className="guest-room-heading">
+            <span className="guest-badge">{identityLabel}</span>
+            <div>
+              <h1 ref={roomHeadingRef} tabIndex={-1}>{roomTitle}</h1>
+              <p
+                role={mobileRoomLayout ? "status" : undefined}
+                aria-live={mobileRoomLayout ? "polite" : undefined}
+                aria-atomic={mobileRoomLayout ? "true" : undefined}
               >
-                {connectionStatus}
-              </span>
-            </p>
+                <span className="guest-room-workspace">
+                  {initialSession.tenant.name} ·{" "}
+                </span>
+                {roomMeta}
+              </p>
+            </div>
           </div>
-        </div>
-        {mobileRoomLayout ? (
-          <AppMenuTrigger
-            ref={roomMenuTriggerRef}
-            className="guest-room-menu-trigger"
-            accessibleLabel="Open room menu"
-            expanded={showRoomMenu}
-            controls="guest-room-menu"
-            onFocus={() => {
-              roomMenuTriggerFocusedRef.current = true;
-            }}
-            onClick={() => setShowRoomMenu(true)}
-          />
-        ) : (
-          <div className="guest-shell-actions">
-            {conversionEnabled && !conversionReceipt && (
-              <button
-                ref={accountToggleRef}
-                className="button ghost"
-                type="button"
-                aria-expanded={showAccount}
-                aria-controls="guest-account-conversion"
-                onClick={(event) => {
-                  accountReturnFocusRef.current = event.currentTarget;
-                  setShowAccount((value) => !value);
-                }}
-              >
-                <AppIcon name="bookmark" />
-                {identityLabel === "Host"
-                  ? "Save this room"
-                  : "Keep this conversation"}
+          {mobileRoomLayout ? (
+            <AppMenuTrigger
+              ref={roomMenuTriggerRef}
+              className="guest-room-menu-trigger"
+              accessibleLabel="Open room menu"
+              expanded={showRoomMenu}
+              controls="guest-room-menu"
+              onFocus={() => {
+                roomMenuTriggerFocusedRef.current = true;
+              }}
+              onClick={() => setShowRoomMenu(true)}
+            />
+          ) : (
+            <div className="guest-shell-actions">
+              {conversionEnabled && !conversionReceipt && (
+                <button
+                  ref={accountToggleRef}
+                  className="button ghost"
+                  type="button"
+                  aria-expanded={showAccount}
+                  aria-controls="guest-account-conversion"
+                  onClick={(event) => {
+                    accountReturnFocusRef.current = event.currentTarget;
+                    setShowAccount((value) => !value);
+                  }}
+                >
+                  <AppIcon name="bookmark" />
+                  {identityLabel === "Host"
+                    ? "Save this room"
+                    : "Keep this conversation"}
+                </button>
+              )}
+              {identityLabel === "Host" && (
+                <Link className="button ghost" to="/sign-in">
+                  <AppIcon name="logIn" /> Sign in
+                </Link>
+              )}
+              <button className="button danger" type="button" disabled={leaving} onClick={leave}>
+                <AppIcon name="logOut" /> {leaving ? "Leaving…" : "Leave"}
               </button>
-            )}
-            {identityLabel === "Host" && (
-              <Link className="button ghost" to="/sign-in">
-                <AppIcon name="logIn" />
-                Sign in
-              </Link>
-            )}
-            <button className="button danger" type="button" disabled={leaving} onClick={leave}>
-              <AppIcon name="logOut" />
-              {leaving ? "Leaving…" : "Leave"}
-            </button>
-          </div>
-        )}
-      </header>
+            </div>
+          )}
+        </header>
+      )}
 
-      {showRoomMenu && (
+      {(whiteboardEnabled || showRoomMenu) && (
         <GuestRoomMenu
           canKeepRoom={conversionEnabled && !conversionReceipt}
+          callContent={whiteboardEnabled ? callPanel : undefined}
+          floating={whiteboardEnabled}
           identityLabel={identityLabel}
           inviteContent={
             typeof roomMenuInvite === "function"
@@ -536,6 +633,12 @@ export function GuestShell({
               : roomMenuInvite
           }
           leaving={leaving}
+          messagesOpen={whiteboardEnabled ? messagesOpen : undefined}
+          onClearBoard={
+            whiteboardEnabled
+              ? () => setClearBoardRequestId((requestId) => requestId + 1)
+              : undefined
+          }
           onClose={() => setShowRoomMenu(false)}
           onKeepRoom={() => {
             accountReturnFocusRef.current = roomMenuTriggerRef.current;
@@ -545,6 +648,15 @@ export function GuestShell({
             });
           }}
           onLeave={leave}
+          onToggleMessages={
+            whiteboardEnabled
+              ? () => setMessagesOpen((current) => !current)
+              : undefined
+          }
+          open={showRoomMenu}
+          participantContent={whiteboardEnabled ? participantRoster : undefined}
+          roomMeta={whiteboardEnabled ? roomMeta : undefined}
+          roomTitle={whiteboardEnabled ? roomTitle : undefined}
           warnsOfGuestHostLoss={
             identityLabel === "Host" &&
             initialSession.user.account_type === "guest"
@@ -566,7 +678,7 @@ export function GuestShell({
         selfServiceConversion={selfServiceConversion}
       />
 
-      {(!mobileRoomLayout || !roomMenuInvite) &&
+      {!whiteboardEnabled && (!mobileRoomLayout || !roomMenuInvite) &&
         (typeof roomBanner === "function"
           ? roomBanner(members.length)
           : roomBanner)}
@@ -580,75 +692,21 @@ export function GuestShell({
         </div>
       )}
 
-      <ParticipantRoster
-        members={members}
-        onlineUserIds={onlineUserIds}
-        currentUserId={initialSession.user.id}
-        presenceKnown={presenceKnown}
-        compact={mobileRoomLayout}
-      />
-
-      <section className="guest-live-tools" aria-label="Room call">
-        <div>
-          <strong>Talk live</strong>
-          <span>Start or join without losing the room conversation.</span>
-        </div>
-        <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
-          <GuestCallPanel
-            api={api}
-            conversation={conversation}
-            audioEnabled={
-              initialSession.capabilities.allow_audio_calls &&
-              mediaActionsAllowed
-            }
-            videoEnabled={
-              initialSession.capabilities.allow_video_calls &&
-              mediaActionsAllowed
-            }
-            currentUserDisplayName={initialSession.user.display_name}
-            realtimeEvent={realtimeCall}
-            launchRequest={initialCallOnEntry}
-            onLaunchRequestConsumed={onInitialCallConsumed}
-            onOpenChat={openRoomChat}
-          />
-        </Suspense>
-      </section>
-
-      {whiteboardEnabled && (
-        <div
-          className="guest-workspace-tools"
-          role="group"
-          aria-label="Workspace tools"
-        >
-          <button
-            className="button ghost"
-            type="button"
-            aria-pressed={activeWorkspaceTool === "canvas"}
-            onClick={() => setActiveWorkspaceTool("canvas")}
-          >
-            <AppIcon name="whiteboard" /> Canvas
-          </button>
-          <button
-            className="button ghost"
-            type="button"
-            aria-pressed={activeWorkspaceTool === "messages"}
-            onClick={() => setActiveWorkspaceTool("messages")}
-          >
-            <AppIcon name="messages" /> Messages
-            {newMessageCount > 0 && (
-              <span className="guest-tool-count" aria-label={`${newMessageCount} unread`}>
-                {newMessageCount}
-              </span>
-            )}
-          </button>
-        </div>
+      {!whiteboardEnabled && participantRoster}
+      {!whiteboardEnabled && (
+        <section className="guest-live-tools" aria-label="Room call">
+          <div>
+            <strong>Talk live</strong>
+            <span>Start or join without losing the room conversation.</span>
+          </div>
+          {callPanel}
+        </section>
       )}
 
       <div
         className={`guest-collaboration-workspace${
-          whiteboardEnabled ? "" : " without-whiteboard"
+          whiteboardEnabled ? " canvas-workspace" : " without-whiteboard"
         }`}
-        data-mobile-view={activeWorkspaceTool}
       >
         {whiteboardEnabled && (
           <div className="guest-whiteboard-panel" aria-label="Shared drawing canvas">
@@ -661,38 +719,44 @@ export function GuestShell({
               }
             >
               <GuestWhiteboard
+                clearRequestId={clearBoardRequestId}
                 conversationId={conversation.id}
-                conversationTitle={conversationTitle(conversation)}
+                conversationTitle={roomTitle}
                 collaborationOptions={whiteboardOptions}
                 compact
               />
             </Suspense>
           </div>
         )}
-        <div className="guest-chat-panel" aria-label="Room messages">
-          <GuestMessageViewport
-            autoFocus={!roomBanner && !whiteboardEnabled}
-            composer={composer}
-            composerRef={composerRef}
-            conversationTitle={conversationTitle(conversation)}
-            currentUserId={initialSession.user.id}
-            identityLabel={identityLabel}
-            isNearBottom={isNearBottom}
-            loadError={loadError}
-            loading={loading}
-            messages={messages}
-            messageScrollRef={messageScrollRef}
-            mobile={mobileRoomLayout}
-            newMessageCount={newMessageCount}
-            onComposerChange={setComposer}
-            onJumpToLatest={jumpToLatest}
-            onRetryLoad={() => setLoadRetry((attempt) => attempt + 1)}
-            onScroll={messageScrollChanged}
-            onSubmit={(event) => void sendMessage(event)}
-            resolveSender={resolveMessageSender}
-            sending={sending}
-          />
-        </div>
+        {whiteboardEnabled ? (
+          messagesOpen && (
+            <DraggableSurface
+              className="guest-floating-chat"
+              dragLabel="messages"
+            >
+              <div className="guest-floating-chat-heading">
+                <strong>Messages</strong>
+                {newMessageCount > 0 && (
+                  <span className="guest-tool-count" aria-label={`${newMessageCount} unread`}>
+                    {newMessageCount}
+                  </span>
+                )}
+                <AppSurfaceControlButton
+                  accessibleLabel="Hide messages"
+                  kind="close"
+                  onClick={() => setMessagesOpen(false)}
+                />
+              </div>
+              <div className="guest-chat-panel" aria-label="Room messages">
+                {messageViewport}
+              </div>
+            </DraggableSurface>
+          )
+        ) : (
+          <div className="guest-chat-panel" aria-label="Room messages">
+            {messageViewport}
+          </div>
+        )}
       </div>
 
       {error && (

@@ -15,7 +15,11 @@ export function createWhiteboardsApi(request: ApiRequest) {
     ): Promise<WhiteboardOperationPage> {
       const query = new URLSearchParams({
         after_sequence: String(Math.max(0, afterSequence)),
-        limit: String(Math.max(1, Math.min(limit, 500)))
+        limit: String(Math.max(1, Math.min(limit, 500))),
+        // Only a fresh replay can start from a snapshot; the server ignores the
+        // flag once after_sequence advances, and asking anyway keeps this call
+        // site free of that rule.
+        snapshot: "true"
       });
 
       return request(

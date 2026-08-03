@@ -364,6 +364,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   background: rgb(12 32 30 / 52%);
 }
 
+.guest-room-menu-backdrop[hidden] {
+  display: none;
+}
+
 .guest-room-menu {
   width: min(360px, 100%);
   height: 100%;
@@ -394,6 +398,55 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   margin: 0;
   font-family: var(--font-body);
   font-size: 1.15rem;
+}
+
+.guest-room-menu-kicker {
+  display: block;
+  margin-bottom: .16rem;
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.guest-room-menu-title-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.guest-room-menu > header p {
+  margin: .2rem 0 0;
+  color: var(--text-secondary);
+  font-size: .76rem;
+}
+
+.guest-room-menu-sections,
+.guest-room-menu-section {
+  display: grid;
+}
+
+.guest-room-menu-sections {
+  gap: 1rem;
+}
+
+.guest-room-menu-section {
+  gap: .55rem;
+}
+
+.guest-room-menu-section + .guest-room-menu-section {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.guest-room-menu-section > h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .065em;
+  text-transform: uppercase;
 }
 
 .guest-room-menu-actions {
@@ -1462,5 +1515,372 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-badge,
   .guest-qr {
     border: 1px solid CanvasText;
+  }
+}
+
+/* Canvas-first instant rooms keep the editor as the page and move every
+   room-level function into a compact, movable surface. */
+.canvas-room-layout {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  isolation: isolate;
+}
+
+.canvas-room-layout .guest-collaboration-workspace.canvas-workspace {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.canvas-room-layout .guest-whiteboard-panel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.guest-floating-menu-launcher {
+  z-index: 52;
+  top: max(16px, var(--safe-top));
+  left: max(16px, var(--safe-left));
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgb(94 96 122 / 22%);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 10px 28px rgb(38 40 64 / 14%);
+  backdrop-filter: blur(14px);
+}
+
+.guest-floating-menu-launcher .draggable-surface-handle {
+  position: static;
+  width: 28px;
+  min-width: 28px;
+  height: 40px;
+  min-height: 40px;
+}
+
+.canvas-room-layout .guest-floating-menu-launcher .guest-room-menu-trigger {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.canvas-room-layout .guest-floating-menu-launcher .guest-room-menu-trigger:hover,
+.canvas-room-layout .guest-floating-menu-launcher .guest-room-menu-trigger[aria-expanded="true"] {
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+}
+
+.canvas-room-layout .guest-room-menu-backdrop {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 0;
+  background: rgb(24 25 41 / 10%);
+  backdrop-filter: blur(2px);
+}
+
+.canvas-room-layout .guest-room-menu-positioner {
+  z-index: 2;
+  top: max(76px, calc(var(--safe-top) + 60px));
+  left: max(16px, var(--safe-left));
+  width: min(410px, calc(100vw - max(32px, var(--safe-left) + var(--safe-right))));
+  max-height: calc(var(--app-viewport-height) - max(92px, var(--safe-top) + var(--safe-bottom) + 76px));
+}
+
+.canvas-room-layout .guest-room-menu-positioner > .draggable-surface-handle {
+  position: absolute;
+  z-index: 4;
+  top: 13px;
+  left: 13px;
+}
+
+.canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
+  width: 100%;
+  height: auto;
+  max-height: inherit;
+  gap: .8rem;
+  padding: 1rem;
+  border: 1px solid rgb(94 96 122 / 22%);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 97%);
+  box-shadow: 0 24px 70px rgb(38 40 64 / 24%);
+  backdrop-filter: blur(18px);
+}
+
+.canvas-room-layout .guest-room-menu > header {
+  min-height: 36px;
+  padding-left: 40px;
+  background: transparent;
+}
+
+.canvas-room-layout .guest-room-menu-section + .guest-room-menu-section {
+  padding-top: .8rem;
+}
+
+.canvas-room-layout .guest-room-menu-action {
+  min-height: 52px;
+  padding: .65rem .7rem;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 72%);
+}
+
+.canvas-room-layout .guest-room-menu-action[aria-pressed="true"] {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+}
+
+.canvas-room-layout .guest-room-menu-invite-section .instant-room-menu-invite {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.canvas-room-layout .guest-room-menu .guest-participant-roster {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.canvas-room-layout .guest-room-menu .guest-participant-toggle {
+  min-height: 48px;
+  padding: .6rem .7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 72%);
+}
+
+.canvas-room-layout .guest-room-menu .guest-participant-roster ul {
+  margin-top: .45rem;
+}
+
+.canvas-room-layout .guest-room-menu-call-section .audio-call-control {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+}
+
+.canvas-room-layout .guest-room-menu-call-section .call-launch-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  justify-content: flex-start;
+  padding: .65rem .7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  white-space: normal;
+}
+
+.guest-floating-chat {
+  z-index: 34;
+  right: max(16px, var(--safe-right));
+  bottom: max(16px, var(--safe-bottom));
+  width: min(360px, calc(100vw - 32px));
+  height: min(440px, calc(var(--app-viewport-height) - 108px));
+  display: grid;
+  grid-template-rows: 46px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgb(94 96 122 / 24%);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 20px 60px rgb(38 40 64 / 18%);
+  backdrop-filter: blur(18px);
+}
+
+.guest-floating-chat > .draggable-surface-handle {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  left: 7px;
+}
+
+.guest-floating-chat-heading {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: 6px 6px 6px 44px;
+  border-bottom: 1px solid var(--border-default);
+  background: rgb(255 255 255 / 78%);
+}
+
+.guest-floating-chat-heading > strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: .84rem;
+}
+
+.guest-floating-chat-heading .app-surface-control {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+}
+
+.guest-floating-chat .guest-chat-panel,
+.guest-floating-chat .guest-room {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.guest-floating-chat .guest-room {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.guest-floating-chat .guest-message-scroll {
+  padding: .75rem;
+  background: transparent;
+}
+
+.guest-floating-chat .guest-message-empty {
+  padding: 1rem;
+}
+
+.guest-floating-chat .guest-message-empty h2 {
+  font-size: 1rem;
+}
+
+.guest-floating-chat .guest-message-empty p {
+  font-size: .78rem;
+}
+
+.guest-floating-chat .guest-composer {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: .42rem;
+  padding: .5rem;
+  background: rgb(255 255 255 / 82%);
+}
+
+.guest-floating-chat .guest-composer textarea {
+  min-height: 44px;
+  max-height: 88px;
+  padding: .64rem .72rem;
+  border-radius: 13px;
+  font-size: 16px;
+}
+
+.guest-floating-chat .guest-composer .button {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 13px;
+}
+
+.guest-floating-chat .guest-send-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.canvas-room-layout .guest-transport-warning {
+  position: absolute;
+  z-index: 42;
+  top: max(16px, var(--safe-top));
+  right: max(16px, var(--safe-right));
+  width: min(420px, calc(100vw - 120px));
+  margin: 0;
+  border-radius: 14px;
+  box-shadow: 0 12px 34px rgb(38 40 64 / 14%);
+}
+
+.canvas-room-layout .guest-account-card,
+.canvas-room-layout .guest-conversion-receipt {
+  position: absolute;
+  z-index: 64;
+  top: max(76px, calc(var(--safe-top) + 60px));
+  left: 50%;
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(var(--app-viewport-height) - 96px);
+  overflow-y: auto;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgb(38 40 64 / 24%);
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .guest-floating-menu-launcher {
+    top: max(8px, var(--safe-top));
+    left: max(8px, var(--safe-left));
+  }
+
+  .canvas-room-layout .guest-room-menu-positioner {
+    top: max(68px, calc(var(--safe-top) + 60px));
+    left: max(8px, var(--safe-left));
+    width: calc(100vw - max(16px, var(--safe-left) + var(--safe-right)));
+    max-height: calc(var(--app-viewport-height) - max(76px, var(--safe-top) + var(--safe-bottom) + 68px));
+  }
+
+  .canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
+    border-radius: 16px;
+  }
+
+  .guest-floating-chat {
+    right: max(8px, var(--safe-right));
+    bottom: max(8px, var(--safe-bottom));
+    width: min(340px, calc(100vw - 16px));
+    height: min(330px, calc(var(--app-viewport-height) - 92px));
+    border-radius: 16px;
+  }
+
+  .canvas-room-layout .guest-room-menu-call-section .call-launch-button {
+    min-height: 56px;
+  }
+
+  .canvas-room-layout .guest-account-card,
+  .canvas-room-layout .guest-conversion-receipt {
+    top: max(68px, calc(var(--safe-top) + 60px));
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 76px);
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .canvas-room-layout .guest-room-menu-call-section .audio-call-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .canvas-room-layout .guest-transport-warning {
+    top: 68px;
+    right: 8px;
+    width: calc(100vw - 16px);
+  }
+}
+
+@media (forced-colors: active) {
+  .guest-floating-menu-launcher,
+  .guest-floating-chat,
+  .canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    backdrop-filter: none;
   }
 }

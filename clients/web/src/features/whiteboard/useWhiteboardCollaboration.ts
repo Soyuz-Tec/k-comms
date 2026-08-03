@@ -13,6 +13,7 @@ import { socketEndpoint } from "../../realtime";
 import type {
   ConnectionStatus,
   WhiteboardElementData,
+  WhiteboardObjectSummary,
   WhiteboardOperation,
   WhiteboardOperationPage,
   WhiteboardPresenceEvent
@@ -21,6 +22,7 @@ import {
   applyWhiteboardOperation,
   noteRevisions,
   replayWhiteboardOperations,
+  sceneFromElements,
   type WhiteboardScene
 } from "./sceneModel";
 import {
@@ -103,7 +105,32 @@ export function useWhiteboardCollaboration(
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [collaboratorCount, setCollaboratorCount] = useState(0);
   const [elementCount, setElementCount] = useState(0);
+  const [sceneSummary, setSceneSummary] = useState<WhiteboardObjectSummary[]>([]);
+  const sceneSummaryRef = useRef<WhiteboardObjectSummary[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  // Only publishes when the description actually changed. `summarizeScene`
+  // builds a fresh array every call, so setting it unconditionally would make
+  // every element-count callback a real re-render of the editor tree - including
+  // the ones that changed nothing. Excalidraw is re-rendered by those, and it is
+  // mid-drag when many of them fire.
+  const describeScene = useCallback((scene: WhiteboardScene) => {
+    const next = summarizeScene(scene);
+    const previous = sceneSummaryRef.current;
+    const unchanged =
+      previous.length === next.length &&
+      next.every((item, index) => {
+        const before = previous[index];
+        return (
+          before !== undefined &&
+          before.id === item.id &&
+          before.label === item.label
+        );
+      });
+    if (unchanged) return;
+    sceneSummaryRef.current = next;
+    setSceneSummary(next);
+  }, []);
+
   const persistence = useMemo(
     () =>
       new WhiteboardPersistence({
@@ -117,7 +144,10 @@ export function useWhiteboardCollaboration(
         clearedRevisions: clearedRevisionsRef,
         acceptOperation: (operation) =>
           applyRemoteOperationRef.current(operation),
-        onElementCount: setElementCount,
+        onElementCount: (count: number) => {
+          setElementCount(count);
+          describeScene(sceneRef.current);
+        },
         onSaveStatus: setSaveStatus,
         onError: setError,
         onReplayRequested: () =>
@@ -207,9 +237,21 @@ export function useWhiteboardCollaboration(
       const operations: WhiteboardOperation[] = [];
       let afterSequence = 0;
       let hasMore = true;
+      let base: WhiteboardScene = sceneRef.current;
+      let snapshotSequence = 0;
 
       while (current && hasMore) {
         const page = await api.whiteboardOperations(conversationId, afterSequence);
+
+        // Only the first page can carry one, and only for a fresh replay. It
+        // replaces the starting scene rather than adding to it: the server has
+        // already folded every operation up to through_sequence, so the page's
+        // operations continue from there.
+        if (page.snapshot) {
+          base = sceneFromElements(page.snapshot.elements);
+          snapshotSequence = page.snapshot.through_sequence;
+        }
+
         operations.push(...page.data);
         afterSequence = page.page.next_after_sequence;
         hasMore = page.page.has_more;
@@ -221,12 +263,12 @@ export function useWhiteboardCollaboration(
         ...bufferedOperationsRef.current
       ]);
       bufferedOperationsRef.current = [];
-      const replay = replayWhiteboardOperations(
-        all,
-        sceneRef.current
-      );
+      const replay = replayWhiteboardOperations(all, base);
       sceneRef.current = replay.scene;
-      latestSequenceRef.current = replay.latestSequence;
+      // A snapshot alone can leave no operations to replay, and the client must
+      // still know where it is. Losing this would make the next incremental
+      // fetch re-request history the snapshot already contains.
+      latestSequenceRef.current = Math.max(replay.latestSequence, snapshotSequence);
       operationQueueRef.current.clear();
       const elements = Array.from(replay.scene.values());
       if (replay.includesClear) {
@@ -237,6 +279,7 @@ export function useWhiteboardCollaboration(
         clearedRevisionsRef.current.clear();
       }
       setElementCount(visibleElementCount(sceneRef.current));
+      describeScene(sceneRef.current);
       const restored = restoreElements(
         elements as never,
         editorRef.current?.getSceneElementsIncludingDeleted() ?? null
@@ -293,6 +336,7 @@ export function useWhiteboardCollaboration(
       const next = applyWhiteboardOperation(sceneRef.current, operation);
       sceneRef.current = next;
       setElementCount(visibleElementCount(next));
+      describeScene(next);
       if (operation.kind === "scene.update") {
         noteRevisions(revisionsRef.current, operation.payload.elements ?? []);
         for (const element of operation.payload.elements ?? []) {
@@ -509,6 +553,7 @@ export function useWhiteboardCollaboration(
     historyError,
     collaboratorCount,
     elementCount,
+    sceneSummary,
     attachEditor,
     handleEditorChange,
     selectedElementIds,
@@ -545,4 +590,39 @@ function collaboratorColor(userId: string): Collaborator["color"] {
 function visibleElementCount(scene: WhiteboardScene): number {
   return Array.from(scene.values()).filter((element) => element.isDeleted !== true)
     .length;
+}
+
+/**
+ * Describes the canvas for assistive technology.
+ *
+ * Canvas pixels carry no semantics, so a screen reader is handed an empty
+ * region no matter how well the surrounding controls are labelled. This mirrors
+ * the scene into text the interface can render as real DOM.
+ *
+ * Ordering follows the scene, which is paint order, so the description matches
+ * what a sighted collaborator is describing out loud.
+ */
+function summarizeScene(scene: WhiteboardScene): WhiteboardObjectSummary[] {
+  return Array.from(scene.values())
+    .filter((element) => element.isDeleted !== true)
+    .map((element, index) => {
+      const type = typeof element.type === "string" ? element.type : "object";
+      const text = typeof element.text === "string" ? element.text.trim() : "";
+      const position = describePosition(element);
+
+      return {
+        id: element.id,
+        type,
+        label: text
+          ? `${type} ${index + 1}, "${text}"${position}`
+          : `${type} ${index + 1}${position}`
+      };
+    });
+}
+
+function describePosition(element: WhiteboardElementData): string {
+  const x = element.x;
+  const y = element.y;
+  if (typeof x !== "number" || typeof y !== "number") return "";
+  return `, at ${Math.round(x)}, ${Math.round(y)}`;
 }

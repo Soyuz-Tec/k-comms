@@ -86,6 +86,18 @@ defmodule CommsWeb.Presenters.ConversationContent do
     }
   end
 
+  @doc """
+  Presents a materialised scene, or `nil` when the caller must replay instead.
+
+  Deliberately not shaped like an operation: it carries no actor and no
+  idempotency key, because it is a projection rather than something anybody did.
+  """
+  def whiteboard_snapshot(nil), do: nil
+
+  def whiteboard_snapshot(%{elements: elements, through_sequence: through_sequence}) do
+    %{elements: elements, through_sequence: through_sequence}
+  end
+
   defp verified_variant_kinds(%AttachmentView{variants: variants}) when is_list(variants) do
     variants
     |> Enum.filter(&is_binary(Map.get(&1, :object_version_id)))

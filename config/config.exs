@@ -3,6 +3,7 @@ import Config
 config :comms_core,
   ecto_repos: [CommsCore.Repo],
   conversation_call_lifecycle_adapter: CommsCore.AudioCalls,
+  conversation_whiteboard_reclamation_adapter: CommsCore.Whiteboards,
   identity_conversation_bootstrap_adapter: CommsCore.Conversations,
   identity_call_lifecycle_adapter: CommsCore.AudioCalls,
   identity_notification_adapter: CommsCore.Notifications,

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
+import { DraggableSurface } from "../../components/DraggableSurface";
 import {
   useWhiteboardCollaboration,
   type WhiteboardCollaborationOptions
@@ -12,6 +13,7 @@ export function CollaborativeWhiteboard({
   conversationId,
   conversationTitle,
   collaborationOptions,
+  clearRequestId = 0,
   focusElementIds = [],
   onMessageReference,
   compact = false
@@ -19,6 +21,7 @@ export function CollaborativeWhiteboard({
   conversationId: string;
   conversationTitle: string;
   collaborationOptions?: WhiteboardCollaborationOptions;
+  clearRequestId?: number;
   focusElementIds?: readonly string[];
   onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
@@ -29,6 +32,10 @@ export function CollaborativeWhiteboard({
     collaborationOptions,
     focusElementIds
   );
+
+  useEffect(() => {
+    if (clearRequestId > 0) setConfirmClear(true);
+  }, [clearRequestId]);
 
   if (collaboration.initialElements === null) {
     if (collaboration.historyError) {
@@ -55,45 +62,42 @@ export function CollaborativeWhiteboard({
     );
   }
 
-  return (
-    <section
-      className={`whiteboard-room${compact ? " whiteboard-room-compact" : ""}`}
-      aria-label={`Whiteboard for ${conversationTitle}`}
-    >
-      <div className="whiteboard-statusbar" role="status">
-        <span
-          className={`connection-dot ${collaboration.connectionStatus}`}
-          aria-hidden="true"
-        />
-        <strong>
-          {collaboration.connectionStatus === "live"
-            ? "Live canvas"
-            : collaboration.connectionStatus === "offline"
-              ? "Offline editing"
-              : "Reconnecting"}
-        </strong>
-        <span>{collaboration.collaboratorCount + 1} active</span>
-        <span>
-          {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
-        </span>
-        <span>
-          {collaboration.saveStatus === "saved"
-            ? "Saved"
-            : collaboration.saveStatus === "saving"
-              ? "Saving…"
-              : "Save needs attention"}
-        </span>
-        {onMessageReference && <button
-          className="button ghost compact"
-          type="button"
-          disabled={collaboration.selectedElementIds.length === 0}
-          onClick={() => {
-            const reference = collaboration.messageReference();
-            if (reference) onMessageReference(reference);
-          }}
-        >
-          <AppIcon name="message" /> Message selection
-        </button>}
+  const statusbar = (
+    <div className="whiteboard-statusbar" role="status">
+      <span
+        className={`connection-dot ${collaboration.connectionStatus}`}
+        aria-hidden="true"
+      />
+      <strong>
+        {collaboration.connectionStatus === "live"
+          ? "Live canvas"
+          : collaboration.connectionStatus === "offline"
+            ? "Offline editing"
+            : "Reconnecting"}
+      </strong>
+      <span>{collaboration.collaboratorCount + 1} active</span>
+      <span>
+        {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
+      </span>
+      <span>
+        {collaboration.saveStatus === "saved"
+          ? "Saved"
+          : collaboration.saveStatus === "saving"
+            ? "Saving…"
+            : "Save needs attention"}
+      </span>
+      {onMessageReference && <button
+        className="button ghost compact"
+        type="button"
+        disabled={collaboration.selectedElementIds.length === 0}
+        onClick={() => {
+          const reference = collaboration.messageReference();
+          if (reference) onMessageReference(reference);
+        }}
+      >
+        <AppIcon name="message" /> Message selection
+      </button>}
+      {!compact && (
         <button
           className="button ghost compact"
           type="button"
@@ -101,7 +105,46 @@ export function CollaborativeWhiteboard({
         >
           <AppIcon name="trash" /> Clear board
         </button>
-      </div>
+      )}
+    </div>
+  );
+
+  return (
+    <section
+      className={`whiteboard-room${compact ? " whiteboard-room-compact" : ""}`}
+      aria-label={`Whiteboard for ${conversationTitle}`}
+    >
+      {/*
+        The canvas is invisible to assistive technology: its contents are pixels,
+        not DOM, so a screen reader is handed an empty region no matter how well
+        the surrounding controls are labelled. This mirrors the scene as real
+        elements. It is not decoration, and it must not be removed to tidy the
+        markup.
+      */}
+      <section className="visually-hidden" aria-live="polite">
+        {/*
+          Deliberately "Canvas" rather than "Whiteboard": the page already has a
+          "Whiteboard" heading, and accessible-name matching is substring-based,
+          so a second heading containing that word makes every by-role lookup
+          ambiguous for assistive technology and for tests alike.
+        */}
+        <h2>{`Canvas contents, ${collaboration.sceneSummary.length} object${collaboration.sceneSummary.length === 1 ? "" : "s"}`}</h2>
+        {collaboration.sceneSummary.length > 0 && (
+          <ul>
+            {collaboration.sceneSummary.map((object) => (
+              <li key={object.id}>{object.label}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {compact ? (
+        <DraggableSurface
+          className="whiteboard-floating-status"
+          dragLabel="canvas status"
+        >
+          {statusbar}
+        </DraggableSurface>
+      ) : statusbar}
 
       {collaboration.error && (
         <div className="whiteboard-error" role="alert">

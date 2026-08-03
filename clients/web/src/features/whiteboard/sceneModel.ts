@@ -12,6 +12,22 @@ export type WhiteboardReplay = {
   includesClear: boolean;
 };
 
+/**
+ * Build a scene from a server snapshot.
+ *
+ * Insertion order is the paint order, and the server preserves it, so the map
+ * is populated in the order given rather than sorted here.
+ */
+export function sceneFromElements(
+  elements: readonly WhiteboardElementData[]
+): WhiteboardScene {
+  const scene: WhiteboardScene = new Map();
+  for (const element of elements) {
+    scene.set(element.id, element);
+  }
+  return scene;
+}
+
 export function applyWhiteboardOperation(
   scene: WhiteboardScene,
   operation: WhiteboardOperation

@@ -4,8 +4,44 @@ import {
   applyWhiteboardOperations,
   changedElements,
   noteRevisions,
-  replayWhiteboardOperations
+  replayWhiteboardOperations,
+  sceneFromElements
 } from "./sceneModel";
+
+describe("server snapshots", () => {
+  it("preserves paint order from the snapshot", () => {
+    const scene = sceneFromElements([
+      element("first-element", 1, 10),
+      element("second-element", 1, 20),
+      element("third-element", 1, 30)
+    ]);
+
+    // Insertion order is z-order. Reordering here would silently restack the
+    // board relative to what every other replica sees.
+    expect([...scene.keys()]).toEqual([
+      "first-element",
+      "second-element",
+      "third-element"
+    ]);
+  });
+
+  it("continues from a snapshot exactly as a full replay would", () => {
+    const base = element("shared-element", 2, 200);
+    const later = element("shared-element", 5, 50);
+
+    const fromSnapshot = replayWhiteboardOperations(
+      [operation(9, "scene.update", [later])],
+      sceneFromElements([base])
+    );
+
+    const fromReplay = applyWhiteboardOperations([
+      operation(8, "scene.update", [base]),
+      operation(9, "scene.update", [later])
+    ]);
+
+    expect([...fromSnapshot.scene.values()]).toEqual([...fromReplay.values()]);
+  });
+});
 
 describe("whiteboard scene replay", () => {
   it("replays in sequence order and resets at the latest clear", () => {
