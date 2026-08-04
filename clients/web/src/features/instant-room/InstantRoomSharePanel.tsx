@@ -45,7 +45,7 @@ export function InstantRoomSharePanel({
   const lifetime = instantRoomLifetime(room);
   const dialogRef = useModalDialog(
     closeDetails,
-    placement === "banner" && expanded
+    expanded
   );
 
   useEffect(() => {
@@ -136,67 +136,37 @@ export function InstantRoomSharePanel({
     setNotice("QR code downloaded.");
   }
 
-  if (placement === "menu") {
-    return (
+  const compactMenu = (
       <section
         className="instant-room-menu-invite"
         aria-labelledby="instant-room-menu-invite-title"
       >
         <div className="instant-room-menu-invite-heading">
           <span className="instant-room-kicker">Invite people</span>
-          <h3 id="instant-room-menu-invite-title">Scan to join</h3>
-          <p>Let someone scan this code, or send the invite.</p>
-        </div>
-        <div className="instant-room-menu-qr-card">
-          <div className="instant-room-menu-qr">
-            <QrCode
-              value={shareUrl}
-              label={`Scan to join ${title}`}
-              onReady={handleQrReady}
-            />
-          </div>
-          <p className="instant-room-menu-invite-id" dir="ltr">
-            {secureLink ? "Secure room invite" : "Test-network room invite"}
-          </p>
+          <h3 id="instant-room-menu-invite-title">Share this room</h3>
+          <p>{participantCount} {participantCount === 1 ? "person" : "people"} here · {lifetime}</p>
         </div>
         <div
-          className="instant-room-menu-invite-actions"
+          className="instant-room-menu-compact-actions"
           role="group"
           aria-label="Invite actions"
         >
           <button
-            className="instant-room-menu-invite-action"
+            className="button primary"
+            type="button"
+            aria-expanded={expanded}
+            aria-controls="instant-room-invite-dialog"
+            onClick={() => setExpanded(true)}
+          >
+            <AppIcon name="userPlus" /> Invite
+          </button>
+          <button
+            className="button ghost"
             type="button"
             aria-label="Copy invite link"
             onClick={() => void copyLink()}
           >
-            <span className="instant-room-menu-invite-action-icon">
-              <AppIcon name="copy" />
-            </span>
-            <span>Copy</span>
-          </button>
-          <button
-            className="instant-room-menu-invite-action"
-            type="button"
-            aria-label="Download QR code"
-            disabled={!qrDownload}
-            onClick={() => void downloadQrCode()}
-          >
-            <span className="instant-room-menu-invite-action-icon">
-              <AppIcon name="download" />
-            </span>
-            <span>Download</span>
-          </button>
-          <button
-            className="instant-room-menu-invite-action"
-            type="button"
-            aria-label="Share invite link"
-            onClick={() => void shareLink()}
-          >
-            <span className="instant-room-menu-invite-action-icon">
-              <AppIcon name="share" />
-            </span>
-            <span>Share</span>
+            <AppIcon name="copy" /> Copy
           </button>
         </div>
         {linkRevealed && (
@@ -223,7 +193,6 @@ export function InstantRoomSharePanel({
             </div>
           </div>
         )}
-        <p className="instant-room-lifetime">{lifetime}</p>
         {!secureLink && (
           <p className="transport-warning" role="note">
             <strong>This invite uses unencrypted HTTP.</strong>
@@ -235,15 +204,14 @@ export function InstantRoomSharePanel({
           role="status"
           aria-live="polite"
         >
-          {notice || "Invite QR ready."}
+          {notice || "Invite actions ready."}
         </p>
       </section>
-    );
-  }
+  );
 
   return (
     <>
-      <section className="instant-room-share collapsed" aria-label="Invite people">
+      {placement === "menu" ? compactMenu : <section className="instant-room-share collapsed" aria-label="Invite people">
         <div className="instant-room-share-compact-copy">
           <strong>Invite people</strong>
           <span>{participantCount} {participantCount === 1 ? "participant" : "participants"}</span>
@@ -269,7 +237,7 @@ export function InstantRoomSharePanel({
             Copy
           </button>
         </div>
-      </section>
+      </section>}
 
       {expanded && createPortal(
         <div
@@ -364,8 +332,20 @@ export function InstantRoomSharePanel({
             </div>
             {showQr && (
               <div className="instant-room-qr-panel" id="instant-room-qr-panel">
-                <QrCode value={shareUrl} label={`Scan to join ${title}`} />
+                <QrCode
+                  value={shareUrl}
+                  label={`Scan to join ${title}`}
+                  onReady={handleQrReady}
+                />
                 <p>Anyone who scans this code can use the room invite.</p>
+                <button
+                  className="button ghost"
+                  type="button"
+                  disabled={!qrDownload}
+                  onClick={() => void downloadQrCode()}
+                >
+                  <AppIcon name="download" /> Download QR code
+                </button>
               </div>
             )}
           </section>

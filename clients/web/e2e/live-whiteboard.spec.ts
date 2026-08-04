@@ -77,10 +77,11 @@ test.describe("live collaborative whiteboard", () => {
       });
       await expect(secondPage.getByText("1 object", { exact: true })).toBeVisible();
 
-      await firstPage.getByRole("button", { name: "Clear board" }).click();
+      await firstPage.getByRole("button", { name: "Open canvas controls" }).click();
+      await firstPage.getByRole("button", { name: "Clear canvas" }).click();
       await firstPage
-        .getByRole("alertdialog", { name: "Clear this shared whiteboard?" })
-        .getByRole("button", { name: "Clear for everyone" })
+        .getByRole("alertdialog", { name: "Clear this canvas?" })
+        .getByRole("button", { name: "Clear canvas" })
         .click();
       await expect(firstPage.getByText("0 objects", { exact: true })).toBeVisible();
       await expect(secondPage.getByText("0 objects", { exact: true })).toBeVisible();

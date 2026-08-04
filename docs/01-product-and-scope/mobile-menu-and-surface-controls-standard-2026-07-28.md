@@ -61,6 +61,27 @@ call navigation drawer rather than closing the call.
 - Safe-area insets and 200 percent text zoom must not cause horizontal
   scrolling.
 
+## Canvas and room control ownership
+
+- Local drafts and joined rooms use one host-owned `Canvas controls` surface.
+- Canvas appearance, background, zoom, fit-to-canvas, selection messaging, and
+  clear-canvas actions live only in Canvas controls. Room and message menus do
+  not duplicate them.
+- Selection actions appear only while supported objects are selected.
+- Clear canvas is the final Canvas controls section, is disabled for an empty
+  canvas, and always opens a modal confirmation with Cancel focused first.
+- The replaceable drawing engine exposes only direct drawing tools supported by
+  ADR-0063. Image, Web Embed, Mermaid conversion, vendor branding, and vendor
+  external links remain unavailable.
+- The room hamburger remains the rightmost overlay trigger and opens a
+  right-edge drawer. The drawer groups People, Calls, Invite, Account, and Room
+  actions; Leave room is the final room action.
+- The room drawer shows a compact Invite and Copy row. QR display, download,
+  reveal, and native sharing live in the dedicated Invite dialog opened by the
+  user.
+- Message minimize or restore is a single header control. The Message menu is
+  limited to message navigation and composition actions.
+
 ## Full-bleed active video
 
 On a phone or short viewport, active video occupies the complete viewport.
@@ -118,6 +139,10 @@ and the change is announced through a polite status region.
   landscape, every
   hamburger is rightmost and fully contained.
 - Member and room drawers align with the viewport right edge.
+- Canvas controls remain contained and usable at every required viewport, and
+  unsupported drawing tools have no visible or keyboard-reachable entry point.
+- Room drawers contain no canvas actions or expanded QR card; the Invite dialog
+  owns QR, download, reveal, and share actions.
 - All dismissible drawers and dialogs expose the shared Close control and keep
   their prior task-specific Cancel action where applicable.
 - Active video touches every viewport edge beneath overlays.

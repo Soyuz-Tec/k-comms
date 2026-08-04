@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { useState } from "react";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
 import { DraggableSurface } from "../../components/DraggableSurface";
@@ -7,6 +8,7 @@ import {
   type WhiteboardCollaborationOptions
 } from "./useWhiteboardCollaboration";
 import { KCommsDrawingCanvas } from "./KCommsDrawingCanvas";
+import { CanvasControls } from "./CanvasControls";
 import "./whiteboard.css";
 
 export function CollaborativeWhiteboard({
@@ -26,16 +28,12 @@ export function CollaborativeWhiteboard({
   onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
 }) {
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [editor, setEditor] = useState<ExcalidrawImperativeAPI | null>(null);
   const collaboration = useWhiteboardCollaboration(
     conversationId,
     collaborationOptions,
     focusElementIds
   );
-
-  useEffect(() => {
-    if (clearRequestId > 0) setConfirmClear(true);
-  }, [clearRequestId]);
 
   if (collaboration.initialElements === null) {
     if (collaboration.historyError) {
@@ -86,26 +84,6 @@ export function CollaborativeWhiteboard({
             ? "Saving…"
             : "Save needs attention"}
       </span>
-      {onMessageReference && <button
-        className="button ghost compact"
-        type="button"
-        disabled={collaboration.selectedElementIds.length === 0}
-        onClick={() => {
-          const reference = collaboration.messageReference();
-          if (reference) onMessageReference(reference);
-        }}
-      >
-        <AppIcon name="message" /> Message selection
-      </button>}
-      {!compact && (
-        <button
-          className="button ghost compact"
-          type="button"
-          onClick={() => setConfirmClear(true)}
-        >
-          <AppIcon name="trash" /> Clear board
-        </button>
-      )}
     </div>
   );
 
@@ -152,40 +130,6 @@ export function CollaborativeWhiteboard({
         </div>
       )}
 
-      {confirmClear && (
-        <div
-          className="whiteboard-confirm"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="whiteboard-clear-title"
-        >
-          <h2 id="whiteboard-clear-title">Clear this shared whiteboard?</h2>
-          <p>
-            Everyone in this room will see a blank board. Earlier operations
-            remain in the durable board history.
-          </p>
-          <div>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setConfirmClear(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="button danger"
-              type="button"
-              onClick={() => {
-                setConfirmClear(false);
-                void collaboration.clearBoard();
-              }}
-            >
-              Clear for everyone
-            </button>
-          </div>
-        </div>
-      )}
-
       <div
         className="whiteboard-canvas"
         data-testid="whiteboard-canvas"
@@ -197,12 +141,27 @@ export function CollaborativeWhiteboard({
             elements: collaboration.initialElements,
             appState: { name: `${conversationTitle} whiteboard` }
           }}
-          excalidrawAPI={collaboration.attachEditor}
+          excalidrawAPI={(nextEditor) => {
+            setEditor(nextEditor);
+            collaboration.attachEditor(nextEditor);
+          }}
           isCollaborating
           onChange={collaboration.handleEditorChange}
           onPointerUpdate={collaboration.sendPointerUpdate}
           onLinkOpen={(_element, event) => event.preventDefault()}
           validateEmbeddable={false}
+        />
+        <CanvasControls
+          clearRequestId={clearRequestId}
+          editor={editor}
+          elementCount={collaboration.elementCount}
+          onClearCanvas={collaboration.clearBoard}
+          onMessageSelection={onMessageReference ? () => {
+            const reference = collaboration.messageReference();
+            if (reference) onMessageReference(reference);
+          } : undefined}
+          selectedCount={collaboration.selectedElementIds.length}
+          shared
         />
       </div>
     </section>

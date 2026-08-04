@@ -398,9 +398,19 @@
 }
 
 .instant-room-menu-invite-heading h3,
-.instant-room-menu-invite-heading p,
-.instant-room-menu-invite .instant-room-lifetime {
+.instant-room-menu-invite-heading p {
   margin: 0;
+}
+
+.instant-room-menu-compact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .55rem;
+}
+
+.instant-room-menu-compact-actions .button {
+  min-width: 0;
+  min-height: 48px;
 }
 
 .instant-room-menu-invite-heading h3 {
@@ -410,62 +420,10 @@
   letter-spacing: -.02em;
 }
 
-.instant-room-menu-invite-heading p,
-.instant-room-menu-invite .instant-room-lifetime {
+.instant-room-menu-invite-heading p {
   color: var(--text-secondary);
   font-size: .75rem;
   line-height: 1.4;
-}
-
-.instant-room-menu-qr-card {
-  width: min(100%, 340px);
-  display: grid;
-  justify-items: center;
-  gap: .9rem;
-  padding: clamp(14px, 4vw, 22px);
-  border: 1px solid var(--border-default);
-  border-radius: 24px;
-  background: var(--surface-raised);
-  box-shadow: 0 14px 34px rgb(11 18 32 / 10%);
-}
-
-.instant-room-menu-qr {
-  width: 100%;
-  display: grid;
-  place-items: center;
-}
-
-.instant-room-menu-qr .guest-qr {
-  width: clamp(220px, 68vw, 280px);
-  max-width: 100%;
-  min-height: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: var(--surface-raised);
-}
-
-.instant-room-menu-qr .guest-qr img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.instant-room-menu-invite-id {
-  width: 100%;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-size: .9rem;
-  font-weight: 650;
-  letter-spacing: .035em;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.instant-room-menu-invite .instant-room-lifetime {
-  text-align: center;
 }
 
 .instant-room-menu-link-recovery {
@@ -504,92 +462,6 @@
 
 .instant-room-menu-link-row .button {
   padding-inline: .65rem;
-}
-
-.instant-room-menu-invite-actions {
-  width: min(100%, 420px);
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr));
-  gap: clamp(.5rem, 4vw, 1.25rem);
-}
-
-.instant-room-menu-invite-action {
-  min-width: 0;
-  min-height: 88px;
-  display: grid;
-  align-content: start;
-  justify-items: center;
-  gap: .5rem;
-  padding: .25rem;
-  border: 0;
-  border-radius: 14px;
-  color: var(--text-primary);
-  background: transparent;
-  font: inherit;
-  font-size: .88rem;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.instant-room-menu-invite-action-icon {
-  width: 64px;
-  height: 64px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-default);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  background: var(--surface-canvas);
-  transition:
-    border-color 150ms ease,
-    background-color 150ms ease,
-    color 150ms ease,
-    transform 150ms ease;
-}
-
-.instant-room-menu-invite-action-icon .app-icon {
-  width: 28px;
-  height: 28px;
-  stroke-width: 2;
-}
-
-.instant-room-menu-invite-action > span:last-child {
-  max-width: 100%;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-  text-align: center;
-}
-
-.instant-room-menu-invite-action:hover .instant-room-menu-invite-action-icon {
-  border-color: var(--border-default);
-  color: var(--accent-text);
-  background: var(--accent-quiet);
-}
-
-.instant-room-menu-invite-action:active .instant-room-menu-invite-action-icon {
-  transform: scale(.96);
-}
-
-.instant-room-menu-invite-action:focus-visible {
-  outline: 3px solid var(--accent-solid);
-  outline-offset: 3px;
-}
-
-.instant-room-menu-invite-action:disabled {
-  cursor: wait;
-  opacity: .55;
-}
-
-.instant-room-menu-invite-action,
-.instant-room-menu-invite-action-icon {
-  -webkit-tap-highlight-color: transparent;
-}
-
-.instant-room-menu-invite-actions .button {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  padding-inline: .55rem;
 }
 
 .instant-room-menu-invite .transport-warning {
@@ -826,37 +698,6 @@
     min-height: 82px;
   }
 
-  .instant-room-menu-qr .guest-qr {
-    width: min(220px, 100%);
-    min-height: auto;
-  }
-
-  .instant-room-menu-invite-actions {
-    width: calc(100vw - 32px);
-    max-width: none;
-    gap: .5rem;
-  }
-
-  .instant-room-menu-qr-card {
-    width: calc(100vw - 32px);
-    max-width: none;
-  }
-
-  .instant-room-menu-invite-action {
-    min-height: 80px;
-    font-size: .8rem;
-  }
-
-  .instant-room-menu-invite-action-icon {
-    width: 56px;
-    height: 56px;
-  }
-
-  .instant-room-menu-invite-action-icon .app-icon {
-    width: 25px;
-    height: 25px;
-  }
-
   .instant-room-entry-actions {
     grid-template-columns: 1fr;
   }
@@ -873,16 +714,5 @@
   .instant-room-start,
   .instant-room-share {
     border: 1px solid CanvasText;
-  }
-
-  .instant-room-menu-qr-card,
-  .instant-room-menu-invite-action-icon {
-    border: 1px solid CanvasText;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .instant-room-menu-invite-action-icon {
-    transition: none;
   }
 }

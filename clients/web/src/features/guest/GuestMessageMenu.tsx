@@ -8,13 +8,11 @@ import { AppIcon } from "../../components/AppIcon";
 
 export function GuestMessageMenu({
   onClose,
-  onCollapse,
   onFocusComposer,
   onJumpToLatest,
   triggerRef
 }: {
   onClose: () => void;
-  onCollapse: () => void;
   onFocusComposer: () => void;
   onJumpToLatest: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
@@ -105,17 +103,6 @@ export function GuestMessageMenu({
         <span>
           <strong>Jump to latest</strong>
           <small>Show the newest message in this room.</small>
-        </span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => run(onCollapse)}
-      >
-        <AppIcon name="minimize" />
-        <span>
-          <strong>Collapse messages</strong>
-          <small>Keep the message header available on the canvas.</small>
         </span>
       </button>
     </div>

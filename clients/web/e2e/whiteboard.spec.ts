@@ -235,6 +235,7 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
   ]);
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
+  await page.getByRole("button", { name: "Open canvas controls" }).click();
   const messageSelection = page.getByRole("button", { name: "Message selection" });
   await expect(messageSelection).toBeEnabled();
   await messageSelection.click();
@@ -259,12 +260,13 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
   expect(fixture.operations).toHaveLength(1);
 
-  await page.getByRole("button", { name: "Clear board" }).click();
+  await page.getByRole("button", { name: "Open canvas controls" }).click();
+  await page.getByRole("button", { name: "Clear canvas" }).click();
   const dialog = page.getByRole("alertdialog", {
-    name: "Clear this shared whiteboard?"
+    name: "Clear this canvas?"
   });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: "Clear for everyone" }).click();
+  await dialog.getByRole("button", { name: "Clear canvas" }).click();
 
   await expect.poll(() => fixture.writes.length).toBe(2);
   expect(fixture.writes[1]).toEqual({ kind: "board.clear", payload: {} });

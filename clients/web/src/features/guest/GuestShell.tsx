@@ -117,7 +117,6 @@ export function GuestShell({
   const [showRoomMenu, setShowRoomMenu] = useState(false);
   const [showMessageMenu, setShowMessageMenu] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(true);
-  const [clearBoardRequestId, setClearBoardRequestId] = useState(0);
   const visibleMessageAuthorsRef = useRef<
     Array<{ senderUserId: string; messageId: string }>
   >([]);
@@ -547,18 +546,14 @@ export function GuestShell({
               : "presence unknown"}{" "}
             · {connectionStatus}
           </p>
-          <DraggableSurface
-            className="guest-floating-room-launcher"
-            dragLabel="room controls button"
-          >
-            <button
+          <div className="guest-floating-room-launcher">
+            <AppMenuTrigger
               ref={roomMenuTriggerRef}
               className="guest-room-controls-trigger"
-              type="button"
-              aria-label="Open room controls"
-              aria-haspopup="dialog"
-              aria-expanded={showRoomMenu}
-              aria-controls="guest-room-menu"
+              accessibleLabel="Open room controls"
+              controls="guest-room-menu"
+              expanded={showRoomMenu}
+              overlay
               title="Room controls"
               onFocus={() => {
                 roomMenuTriggerFocusedRef.current = true;
@@ -567,11 +562,8 @@ export function GuestShell({
                 setShowMessageMenu(false);
                 setShowRoomMenu(true);
               }}
-            >
-              <AppIcon name="settings" />
-              <span className="visually-hidden">Room controls</span>
-            </button>
-          </DraggableSurface>
+            />
+          </div>
         </>
       ) : (
         <header className="guest-shell-header">
@@ -640,7 +632,6 @@ export function GuestShell({
         <GuestRoomMenu
           canKeepRoom={conversionEnabled && !conversionReceipt}
           callContent={whiteboardEnabled ? callPanel : undefined}
-          floating={whiteboardEnabled}
           identityLabel={identityLabel}
           inviteContent={
             typeof roomMenuInvite === "function"
@@ -648,11 +639,6 @@ export function GuestShell({
               : roomMenuInvite
           }
           leaving={leaving}
-          onClearBoard={
-            whiteboardEnabled
-              ? () => setClearBoardRequestId((requestId) => requestId + 1)
-              : undefined
-          }
           onClose={() => setShowRoomMenu(false)}
           onKeepRoom={() => {
             accountReturnFocusRef.current = roomMenuTriggerRef.current;
@@ -728,7 +714,6 @@ export function GuestShell({
               }
             >
               <GuestWhiteboard
-                clearRequestId={clearBoardRequestId}
                 conversationId={conversation.id}
                 conversationTitle={roomTitle}
                 collaborationOptions={whiteboardOptions}
@@ -764,7 +749,7 @@ export function GuestShell({
               )}
               <AppSurfaceControlButton
                 accessibleLabel={messagesOpen ? "Collapse messages" : "Expand messages"}
-                kind={messagesOpen ? "close" : "restore"}
+                kind={messagesOpen ? "minimize" : "restore"}
                 onClick={() => {
                   setShowMessageMenu(false);
                   setMessagesOpen((current) => !current);
@@ -774,7 +759,6 @@ export function GuestShell({
             {showMessageMenu && (
               <GuestMessageMenu
                 onClose={closeMessageMenu}
-                onCollapse={() => setMessagesOpen(false)}
                 onFocusComposer={openRoomChat}
                 onJumpToLatest={() => {
                   setMessagesOpen(true);

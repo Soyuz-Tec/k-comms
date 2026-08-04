@@ -9,9 +9,15 @@
   height: 100%;
 }
 
-.k-comms-drawing-surface [data-testid="main-menu-trigger"] {
+.k-comms-drawing-surface .App-toolbar__extra-tools-trigger {
+  width: 44px !important;
+  height: 44px !important;
   min-width: 44px;
   min-height: 44px;
+}
+
+.k-comms-drawing-surface [data-testid="main-menu-trigger"] {
+  display: none !important;
 }
 
 /*
