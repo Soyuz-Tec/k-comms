@@ -259,7 +259,7 @@
 
 .instant-draft-composer .composer-shell textarea {
   width: auto;
-  min-height: 42px;
+  min-height: 52px;
   max-height: 120px;
   resize: none;
   padding: .55rem .1rem;

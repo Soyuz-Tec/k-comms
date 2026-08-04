@@ -926,13 +926,19 @@ async function expectOnlyDraftSetupScroller(page: Page) {
         return ["auto", "scroll"].includes(style.overflowY)
           && element.scrollHeight > element.clientHeight + 1;
       })
-      .map((element) => element.className)
+      .map((element) => ({
+        tagName: element.tagName,
+        className: typeof element.className === "string" ? element.className : "",
+        id: element.id,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }))
   );
   expect(
-    activeScrollers.every((className) =>
-      typeof className === "string" && className.includes("instant-draft-setup-scroll")
+    activeScrollers.filter(
+      ({ className }) => !className.includes("instant-draft-setup-scroll")
     )
-  ).toBe(true);
+  ).toEqual([]);
 }
 
 async function expectOnlyMessageScroller(page: Page) {
