@@ -988,27 +988,24 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: .65rem;
+  display: block;
   padding: .8rem;
   border-top: 1px solid var(--border-default);
   background: var(--surface-raised);
 }
 
-.guest-composer textarea {
-  min-height: 52px;
-  resize: none;
-  padding: .75rem .85rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  color: var(--text-primary);
-  background: var(--surface-raised);
+.guest-composer .composer-shell {
+  min-width: 0;
 }
 
-.guest-composer .button {
-  min-width: 96px;
+.guest-composer .composer-shell textarea {
   min-height: 52px;
+  resize: none;
+  padding-block: .75rem;
+}
+
+.guest-composer .composer-icon-button {
+  flex: 0 0 auto;
 }
 
 .guest-shell-error {
@@ -1461,8 +1458,6 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
   .guest-composer {
     z-index: 4;
-    grid-template-columns: minmax(0, 1fr) 48px;
-    gap: .42rem;
     padding:
       .48rem max(.55rem, var(--safe-right))
       max(.52rem, var(--safe-bottom))
@@ -1472,30 +1467,22 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     box-shadow: 0 -8px 22px rgb(15 23 42 / 5%);
   }
 
-  .guest-composer textarea {
+  .guest-composer .composer-shell textarea {
     min-height: 48px;
     max-height: 104px;
-    padding: .72rem .78rem;
-    border-color: var(--border-default);
-    border-radius: 15px;
+    padding: .72rem .1rem;
+    border: 0;
+    border-radius: 0;
     font-size: 16px;
   }
 
-  .guest-composer .button {
+  .guest-composer .composer-icon-button {
     width: 48px;
     min-width: 48px;
+    height: 48px;
     min-height: 48px;
-    padding: .5rem;
-    border-radius: 14px;
-  }
-
-  .guest-send-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+    padding: 0;
+    border-radius: 50%;
   }
 
   .guest-shell-error {
@@ -1866,35 +1853,25 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-floating-chat .guest-composer {
-  grid-template-columns: minmax(0, 1fr) 44px;
-  gap: .42rem;
+  display: block;
   padding: .5rem;
   background: rgb(255 255 255 / 82%);
 }
 
-.guest-floating-chat .guest-composer textarea {
+.guest-floating-chat .guest-composer .composer-shell textarea {
   min-height: 44px;
   max-height: 88px;
-  padding: .64rem .72rem;
-  border-radius: 13px;
+  padding: .64rem .1rem;
   font-size: 16px;
 }
 
-.guest-floating-chat .guest-composer .button {
+.guest-floating-chat .guest-composer .composer-icon-button {
   width: 44px;
   min-width: 44px;
+  height: 44px;
   min-height: 44px;
   padding: 0;
-  border-radius: 13px;
-}
-
-.guest-floating-chat .guest-send-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+  border-radius: 50%;
 }
 
 .canvas-room-layout .guest-transport-warning {

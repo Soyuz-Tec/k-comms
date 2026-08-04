@@ -161,51 +161,52 @@ export function GuestMessageViewport({
         className="guest-composer"
         onSubmit={(event) => onSubmit(event)}
       >
-        <label className="sr-only" htmlFor="guest-message-composer">
-          Message
-        </label>
-        <textarea
-          ref={composerRef}
-          id="guest-message-composer"
-          rows={mobile ? 1 : 2}
-          maxLength={65_535}
-          value={composer}
-          readOnly={sending || loading || Boolean(loadError)}
-          aria-busy={sending}
-          aria-disabled={loading || Boolean(loadError)}
-          autoFocus={autoFocus}
-          placeholder={
-            mobile ? "Write a message" : `Message ${conversationTitle}`
-          }
-          onChange={(event) => onComposerChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing
-            ) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
+        <div className="composer-shell">
+          <label className="sr-only" htmlFor="guest-message-composer">
+            Message
+          </label>
+          <textarea
+            ref={composerRef}
+            id="guest-message-composer"
+            rows={mobile ? 1 : 2}
+            maxLength={65_535}
+            value={composer}
+            readOnly={sending || loading || Boolean(loadError)}
+            aria-busy={sending}
+            aria-disabled={loading || Boolean(loadError)}
+            autoFocus={autoFocus}
+            placeholder={
+              mobile ? "Write a message" : `Message ${conversationTitle}`
             }
-          }}
-        />
-        <button
-          className="button primary"
-          type="submit"
-          aria-busy={sending}
-          aria-label={sending ? "Sending message" : "Send"}
-          disabled={
-            sending || loading || Boolean(loadError) || !composer.trim()
-          }
-        >
-          <AppIcon
-            name={sending ? "loader" : "send"}
-            className={sending ? "spin" : ""}
+            onChange={(event) => onComposerChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
-          <span className="guest-send-label">
-            {sending ? "Sending…" : "Send"}
-          </span>
-        </button>
+          <div className="composer-inline-actions">
+            <button
+              className="composer-icon-button composer-send send-button"
+              type="submit"
+              aria-busy={sending}
+              aria-label={sending ? "Sending message" : "Send"}
+              disabled={
+                sending || loading || Boolean(loadError) || !composer.trim()
+              }
+            >
+              <AppIcon
+                name={sending ? "loader" : "send"}
+                className={sending ? "spin" : ""}
+              />
+            </button>
+          </div>
+        </div>
       </form>
     </section>
   );

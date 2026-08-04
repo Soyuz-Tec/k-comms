@@ -152,6 +152,8 @@ test.describe("authenticated mobile web acceptance", () => {
       const attachment = page.locator(".composer .attachment-button");
       const mention = page.locator(".composer .mention-trigger");
       const send = page.locator(".composer .send-button");
+      const composerShell = page.locator(".composer .composer-shell");
+      const composerField = page.getByRole("textbox", { name: "Message" });
 
       await expectMinimumTarget(back, "conversation back control");
       await expectMinimumTarget(startAudio, "audio-call control");
@@ -160,6 +162,16 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(attachment, "attachment control");
       await expectMinimumTarget(mention, "mention control");
       await expectMinimumTarget(send, "send control");
+      const composerShellBox = await composerShell.boundingBox();
+      const composerFieldBox = await composerField.boundingBox();
+      const sendBox = await send.boundingBox();
+      expect(composerShellBox).not.toBeNull();
+      expect(composerFieldBox).not.toBeNull();
+      expect(sendBox).not.toBeNull();
+      expect(composerShellBox!.width).toBeGreaterThan(viewport.width * .75);
+      expect(composerFieldBox!.width).toBeGreaterThan(120);
+      expect(sendBox!.x + sendBox!.width)
+        .toBeLessThanOrEqual(composerShellBox!.x + composerShellBox!.width + 1);
       await moreMessageActions.click();
       await expectNoDocumentOverflow(page);
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
