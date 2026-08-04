@@ -552,19 +552,17 @@ describe("GuestAccessPage", () => {
     })).toBeVisible();
     expect(within(messageMenu).queryByText(/Participants|Calls|Clear canvas/))
       .not.toBeInTheDocument();
-    fireEvent.click(within(messageMenu).getByRole("menuitem", {
+    expect(within(messageMenu).queryByRole("menuitem", {
       name: /Collapse messages/
-    }));
+    })).not.toBeInTheDocument();
+    fireEvent.keyDown(messageMenu, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse messages" }));
     expect(document.querySelector(".guest-floating-chat")).toHaveClass(
       "is-collapsed"
     );
     expect(screen.queryByLabelText("Room messages")).not.toBeInTheDocument();
-    fireEvent.click(messageMenuTrigger);
+    fireEvent.click(screen.getByRole("button", { name: "Expand messages" }));
     expect(screen.getByLabelText("Room messages")).toBeVisible();
-    fireEvent.keyDown(
-      screen.getByRole("menu", { name: "Message controls" }),
-      { key: "Escape" }
-    );
 
     fireEvent.click(screen.getByRole("button", { name: "Open room controls" }));
     const menu = screen.getByRole("dialog", {
@@ -574,9 +572,9 @@ describe("GuestAccessPage", () => {
       .not.toBeInTheDocument();
     expect(within(menu).getByRole("button", { name: "Participants" })).toBeVisible();
     expect(within(menu).getByRole("heading", { name: "Calls" })).toBeVisible();
-    expect(whiteboardHarness.props?.clearRequestId).toBe(0);
-    fireEvent.click(within(menu).getByRole("button", { name: "Clear canvas" }));
-    expect(whiteboardHarness.props?.clearRequestId).toBe(1);
+    expect(within(menu).queryByRole("button", { name: "Clear canvas" }))
+      .not.toBeInTheDocument();
+    expect(whiteboardHarness.props?.clearRequestId).toBeUndefined();
     expect(document.querySelector(".guest-floating-chat")).not.toBeNull();
   });
 
@@ -923,7 +921,7 @@ describe("GuestAccessPage", () => {
     await user.click(screen.getByRole("button", { name: "Open room controls" }));
     expect(
       within(screen.getByRole("dialog", { name: "Launch room" }))
-        .getByRole("heading", { name: "Scan to join" })
+        .getByRole("heading", { name: "Share this room" })
     ).toBeVisible();
     expect(joinInstantRoom).toHaveBeenCalledTimes(2);
     expect(joinInstantRoom.mock.calls[1]![1]).not.toBe(

@@ -1535,9 +1535,10 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .guest-floating-room-launcher {
+  position: absolute;
   z-index: 52;
   top: max(16px, var(--safe-top));
-  left: max(16px, var(--safe-left));
+  right: max(16px, var(--safe-right));
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1549,19 +1550,11 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   backdrop-filter: blur(14px);
 }
 
-.guest-floating-room-launcher .draggable-surface-handle {
-  position: static;
-  width: 28px;
-  min-width: 28px;
-  height: 40px;
-  min-height: 40px;
-}
-
 .canvas-room-layout .guest-floating-room-launcher .guest-room-controls-trigger {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -1578,45 +1571,28 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 }
 
 .canvas-room-layout .guest-room-menu-backdrop {
-  align-items: flex-start;
-  justify-content: flex-start;
+  align-items: stretch;
+  justify-content: flex-end;
   padding: 0;
-  background: rgb(24 25 41 / 10%);
-  backdrop-filter: blur(2px);
+  background: rgb(12 32 30 / 52%);
 }
 
-.canvas-room-layout .guest-room-menu-positioner {
-  z-index: 2;
-  top: max(76px, calc(var(--safe-top) + 60px));
-  left: max(16px, var(--safe-left));
-  width: min(410px, calc(100vw - max(32px, var(--safe-left) + var(--safe-right))));
-  max-height: calc(var(--app-viewport-height) - max(92px, var(--safe-top) + var(--safe-bottom) + 76px));
-}
-
-.canvas-room-layout .guest-room-menu-positioner > .draggable-surface-handle {
-  position: absolute;
-  z-index: 4;
-  top: 13px;
-  left: 13px;
-}
-
-.canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
-  width: 100%;
-  height: auto;
-  max-height: inherit;
+.canvas-room-layout .guest-room-menu {
+  width: min(410px, 100%);
+  height: 100%;
   gap: .8rem;
   padding: 1rem;
-  border: 1px solid rgb(94 96 122 / 22%);
-  border-radius: 18px;
-  background: rgb(255 255 255 / 97%);
-  box-shadow: 0 24px 70px rgb(38 40 64 / 24%);
-  backdrop-filter: blur(18px);
+  border: 0;
+  border-left: 1px solid var(--border-default);
+  border-radius: 0;
+  background: var(--surface-raised);
+  box-shadow: -20px 0 56px rgb(10 30 28 / 24%);
 }
 
 .canvas-room-layout .guest-room-menu > header {
   min-height: 36px;
-  padding-left: 40px;
-  background: transparent;
+  padding-left: 0;
+  background: var(--surface-raised);
 }
 
 .canvas-room-layout .guest-room-menu-section + .guest-room-menu-section {
@@ -1903,18 +1879,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 @media (max-width: 760px), (max-height: 560px) {
   .guest-floating-room-launcher {
     top: max(8px, var(--safe-top));
-    left: max(8px, var(--safe-left));
-  }
-
-  .canvas-room-layout .guest-room-menu-positioner {
-    top: max(68px, calc(var(--safe-top) + 60px));
-    left: max(8px, var(--safe-left));
-    width: calc(100vw - max(16px, var(--safe-left) + var(--safe-right)));
-    max-height: calc(var(--app-viewport-height) - max(76px, var(--safe-top) + var(--safe-bottom) + 68px));
-  }
-
-  .canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
-    border-radius: 16px;
+    right: max(8px, var(--safe-right));
   }
 
   .guest-floating-chat {
@@ -1954,7 +1919,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   .guest-floating-room-launcher,
   .guest-floating-chat,
   .guest-message-menu,
-  .canvas-room-layout .guest-room-menu-positioner .guest-room-menu {
+  .canvas-room-layout .guest-room-menu {
     border: 1px solid CanvasText;
     background: Canvas;
     backdrop-filter: none;

@@ -427,7 +427,7 @@ describe("InstantRoomPage", () => {
     expect(window.localStorage.getItem("k-comms.guest-session.v1")).toBeNull();
   });
 
-  it("renders the invite QR immediately inside the room menu only after it opens", async () => {
+  it("keeps the room menu compact and renders the QR only in invite details", async () => {
     const user = userEvent.setup();
     vi.spyOn(ApiClient.prototype, "createInstantRoom").mockResolvedValue(result);
 
@@ -442,15 +442,22 @@ describe("InstantRoomPage", () => {
 
     const menu = screen.getByRole("dialog", { name: "Room menu" });
     expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
-    expect(within(menu).getByRole("heading", { name: "Scan to join" })).toBeVisible();
-    expect(within(menu).getByLabelText("Local QR")).toHaveTextContent(shareUrl);
+    expect(within(menu).getByRole("heading", { name: "Share this room" })).toBeVisible();
+    expect(within(menu).queryByLabelText("Local QR")).not.toBeInTheDocument();
     expect(within(menu).queryByLabelText("Secure room link")).not.toBeInTheDocument();
-    expect(within(menu).getByText("Secure room invite")).toBeVisible();
     expect(within(menu).getByRole("button", { name: "Copy invite link" })).toBeVisible();
-    expect(within(menu).getByRole("button", { name: "Download QR code" })).toBeEnabled();
-    expect(within(menu).getByRole("button", { name: "Share invite link" })).toBeVisible();
+    expect(within(menu).getByRole("button", { name: "Invite" })).toBeVisible();
     expect(within(menu).getByRole("group", { name: "Invite actions" })).toBeVisible();
+
+    await user.click(within(menu).getByRole("button", { name: "Invite" }));
+    const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
+    expect(within(inviteDialog).queryByLabelText("Local QR")).not.toBeInTheDocument();
+    await user.click(within(inviteDialog).getByRole("button", { name: "Show QR code" }));
+    expect(within(inviteDialog).getByLabelText("Local QR")).toHaveTextContent(shareUrl);
+    expect(within(inviteDialog).getByRole("button", { name: "Download QR code" })).toBeEnabled();
     expect(uiHarness.qrValue).toBe(shareUrl);
+
+    await user.click(within(inviteDialog).getByRole("button", { name: "Hide invite details" }));
 
     await user.click(within(menu).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Room menu" })).not.toBeInTheDocument();
@@ -493,8 +500,10 @@ describe("InstantRoomPage", () => {
         "Secure link copied."
       );
 
+      await user.click(within(menu).getByRole("button", { name: "Invite" }));
+      const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
       await user.click(
-        within(menu).getByRole("button", { name: "Share invite link" })
+        within(inviteDialog).getByRole("button", { name: "Share" })
       );
       expect(share).toHaveBeenCalledOnce();
       expect(share).toHaveBeenCalledWith({
@@ -502,7 +511,7 @@ describe("InstantRoomPage", () => {
         text: "Join my K-Comms room. No account is required.",
         url: shareUrl
       });
-      expect(within(menu).getByRole("status")).toHaveTextContent(
+      expect(within(inviteDialog).getByRole("status")).toHaveTextContent(
         "Share sheet opened."
       );
     } finally {
@@ -540,18 +549,18 @@ describe("InstantRoomPage", () => {
 
     const menu = screen.getByRole("dialog", { name: "Room menu" });
     expect(within(menu).queryByLabelText("Secure room link")).not.toBeInTheDocument();
+    await user.click(within(menu).getByRole("button", { name: "Invite" }));
+    const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
     await user.click(
-      within(menu).getByRole("button", { name: "Share invite link" })
+      within(inviteDialog).getByRole("button", { name: "Share" })
     );
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(shareUrl));
-    const link = within(menu).getByLabelText("Secure room link");
+    const link = within(inviteDialog).getByLabelText("Secure room link");
     expect(link).toHaveValue(shareUrl);
-    expect(
-      within(menu).getByText(
-        "Copy failed. The full link is visible so you can copy it manually."
-      )
-    ).toHaveAttribute("role", "status");
+    expect(within(inviteDialog).getByRole("status")).toHaveTextContent(
+      "Copy failed. The full link is visible so you can copy it manually."
+    );
   });
 
   it("downloads the prepared QR as a generically named PNG", async () => {
@@ -586,7 +595,10 @@ describe("InstantRoomPage", () => {
         await screen.findByRole("button", { name: "Open room menu" })
       );
       const menu = screen.getByRole("dialog", { name: "Room menu" });
-      const download = within(menu).getByRole("button", {
+      await user.click(within(menu).getByRole("button", { name: "Invite" }));
+      const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
+      await user.click(within(inviteDialog).getByRole("button", { name: "Show QR code" }));
+      const download = within(inviteDialog).getByRole("button", {
         name: "Download QR code"
       });
       await waitFor(() => expect(download).toBeEnabled());
@@ -617,7 +629,7 @@ describe("InstantRoomPage", () => {
       });
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:k-comms-room-invite");
       schedule.mockRestore();
-      expect(within(menu).getByRole("status")).toHaveTextContent(
+      expect(within(inviteDialog).getByRole("status")).toHaveTextContent(
         "QR code downloaded."
       );
     } finally {
@@ -677,7 +689,10 @@ describe("InstantRoomPage", () => {
         await screen.findByRole("button", { name: "Open room menu" })
       );
       const menu = screen.getByRole("dialog", { name: "Room menu" });
-      const download = within(menu).getByRole("button", {
+      await user.click(within(menu).getByRole("button", { name: "Invite" }));
+      const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
+      await user.click(within(inviteDialog).getByRole("button", { name: "Show QR code" }));
+      const download = within(inviteDialog).getByRole("button", {
         name: "Download QR code"
       });
       await waitFor(() => expect(download).toBeEnabled());
@@ -695,7 +710,7 @@ describe("InstantRoomPage", () => {
         })
       );
       expect(createObjectURL).not.toHaveBeenCalled();
-      expect(within(menu).getByRole("status")).toHaveTextContent(
+      expect(within(inviteDialog).getByRole("status")).toHaveTextContent(
         "QR code save sheet opened."
       );
     } finally {
@@ -743,14 +758,16 @@ describe("InstantRoomPage", () => {
         within(menu).queryByLabelText("Secure room link")
       ).not.toBeInTheDocument();
 
+      await user.click(within(menu).getByRole("button", { name: "Invite" }));
+      const inviteDialog = screen.getByRole("dialog", { name: "Invite someone" });
       await user.click(
-        within(menu).getByRole("button", { name: "Share invite link" })
+        within(inviteDialog).getByRole("button", { name: "Share" })
       );
 
       expect(share).toHaveBeenCalledOnce();
-      expect(await within(menu).findByLabelText("Secure room link"))
+      expect(await within(inviteDialog).findByLabelText("Secure room link"))
         .toHaveValue(shareUrl);
-      expect(within(menu).getByRole("status")).toHaveTextContent(
+      expect(within(inviteDialog).getByRole("status")).toHaveTextContent(
         "Sharing was not completed. The full link is visible so you can copy it manually."
       );
     } finally {

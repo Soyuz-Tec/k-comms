@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
 import type { WhiteboardElementData } from "../../types";
+import { CanvasControls } from "../whiteboard/CanvasControls";
 import { KCommsDrawingCanvas } from "../whiteboard/KCommsDrawingCanvas";
 import {
   defaultGuestDisplayName,
@@ -67,6 +68,7 @@ export function InstantWorkspaceDraft({
     }
   });
   const [nameError, setNameError] = useState("");
+  const [editor, setEditor] = useState<ExcalidrawImperativeAPI | null>(null);
   const editorRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const draftRef = useRef(draft);
   const pendingSaveRef = useRef<number | null>(null);
@@ -173,6 +175,19 @@ export function InstantWorkspaceDraft({
     window.requestAnimationFrame(() => createRoomRef.current?.focus());
   }
 
+  function clearCanvas() {
+    const next = {
+      ...draftRef.current,
+      elements: [],
+      updatedAt: new Date().toISOString()
+    };
+    draftRef.current = next;
+    setDraft(next);
+    setElementCount(0);
+    editorRef.current?.resetScene();
+    saveInstantWorkspaceDraft(next);
+  }
+
   function dismissHint() {
     setShowHint(false);
     try {
@@ -245,10 +260,16 @@ export function InstantWorkspaceDraft({
             }}
             excalidrawAPI={(editor) => {
               editorRef.current = editor;
+              setEditor(editor);
             }}
             onChange={updateElements}
             onLinkOpen={(_element, event) => event.preventDefault()}
             validateEmbeddable={false}
+          />
+          <CanvasControls
+            editor={editor}
+            elementCount={elementCount}
+            onClearCanvas={clearCanvas}
           />
         </div>
 

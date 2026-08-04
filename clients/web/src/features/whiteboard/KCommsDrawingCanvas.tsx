@@ -4,7 +4,7 @@ import {
   MainMenu as DrawingMenu
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
-import type { ComponentProps, KeyboardEvent } from "react";
+import type { ComponentProps, KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useRef } from "react";
 import "./KCommsDrawingCanvas.css";
 
@@ -19,13 +19,13 @@ export type KCommsDrawingCanvasProps = Omit<
 
 export const K_COMMS_DRAWING_UI_OPTIONS = {
   canvasActions: {
-    changeViewBackgroundColor: true,
+    changeViewBackgroundColor: false,
     clearCanvas: false,
     export: false,
     loadScene: false,
     saveAsImage: false,
     saveToActiveFile: false,
-    toggleTheme: true
+    toggleTheme: false
   },
   tools: { image: false }
 } as const;
@@ -49,6 +49,36 @@ export function isBlockedDrawingShortcut(event: {
 function stopVendorHelpAndCommandMenus(event: KeyboardEvent<HTMLDivElement>) {
   if (!isBlockedDrawingShortcut(event)) return;
 
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+const unsupportedDrawingActions = [
+  "image",
+  "web embed",
+  "embeddable",
+  "mermaid to excalidraw",
+  "wireframe to code"
+] as const;
+
+export function isUnsupportedDrawingActionLabel(label: string) {
+  const normalized = label.trim().toLowerCase();
+  return unsupportedDrawingActions.some((action) => normalized.includes(action));
+}
+
+function actionLabel(element: Element): string {
+  return [
+    element.getAttribute("aria-label"),
+    element.getAttribute("title"),
+    element.textContent
+  ].filter(Boolean).join(" ");
+}
+
+function stopUnsupportedVendorAction(event: MouseEvent<HTMLDivElement>) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const action = target.closest("button, [role='menuitem']");
+  if (!action || !isUnsupportedDrawingActionLabel(actionLabel(action))) return;
   event.preventDefault();
   event.stopPropagation();
 }
@@ -81,17 +111,28 @@ export function KCommsDrawingCanvas({
     const surface = drawingSurfaceRef.current;
     if (!surface) return;
 
-    const labelCanvasMenu = () => {
+    const enforceHostBoundary = () => {
       const trigger = surface.querySelector<HTMLElement>(
         '[data-testid="main-menu-trigger"]'
       );
-      if (!trigger) return;
-      trigger.setAttribute("aria-label", "Canvas settings");
-      trigger.setAttribute("title", "Canvas settings");
+      if (trigger) {
+        trigger.hidden = true;
+        trigger.setAttribute("aria-hidden", "true");
+        trigger.tabIndex = -1;
+      }
+
+      for (const action of surface.querySelectorAll<HTMLElement>(
+        "button, [role='menuitem']"
+      )) {
+        if (!isUnsupportedDrawingActionLabel(actionLabel(action))) continue;
+        action.hidden = true;
+        action.setAttribute("aria-hidden", "true");
+        action.tabIndex = -1;
+      }
     };
 
-    labelCanvasMenu();
-    const observer = new MutationObserver(labelCanvasMenu);
+    enforceHostBoundary();
+    const observer = new MutationObserver(enforceHostBoundary);
     observer.observe(surface, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
@@ -101,6 +142,7 @@ export function KCommsDrawingCanvas({
       ref={drawingSurfaceRef}
       className="k-comms-drawing-surface"
       data-testid="k-comms-drawing-surface"
+      onClickCapture={stopUnsupportedVendorAction}
       onKeyDownCapture={stopVendorHelpAndCommandMenus}
     >
       <DrawingEngine {...drawingProps} UIOptions={mergedUIOptions}>

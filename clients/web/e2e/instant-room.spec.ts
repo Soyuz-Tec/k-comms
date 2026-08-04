@@ -149,21 +149,34 @@ test.describe("instant-room front door", () => {
     ).toHaveCount(0);
 
     await expect(
-      drawingSurface.getByRole("button", { name: "Canvas settings" })
+      page.getByRole("button", { name: "Open canvas controls" })
     ).toBeVisible();
     await expect(
       drawingSurface.getByRole("checkbox", { name: "K-Comms canvas resources" })
     ).toHaveCount(0);
 
-    await drawingSurface.getByRole("button", { name: "Canvas settings" }).click();
+    await page.getByRole("button", { name: "Open canvas controls" }).click();
     await expect(
-      drawingSurface.getByRole("button", { name: /mode$/i })
+      page.getByRole("dialog", { name: "Canvas controls" })
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Dark" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Fit canvas" })).toBeDisabled();
     await expect(drawingSurface.getByText("Excalidraw links")).toHaveCount(0);
     await expect(
       drawingSurface.getByRole("link", { name: /GitHub|Discord|X/i })
     ).toHaveCount(0);
 
+    await page.keyboard.press("Escape");
+    await drawingSurface.getByRole("button", { name: "More tools" }).click();
+    await expect(
+      drawingSurface.getByRole("button", { name: "Web Embed" })
+    ).toHaveCount(0);
+    await expect(
+      drawingSurface.getByRole("button", { name: "Mermaid to Excalidraw" })
+    ).toHaveCount(0);
+    await expect(
+      drawingSurface.getByRole("button", { name: "Frame" })
+    ).toBeVisible();
     await page.keyboard.press("Escape");
     await drawingSurface
       .locator("canvas.excalidraw__canvas.interactive")
@@ -187,13 +200,20 @@ test.describe("instant-room front door", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     const invite = await ensureRoomMenuOpen(page);
     await expect(
-      invite.getByRole("heading", { name: "Scan to join" })
+      invite.getByRole("heading", { name: "Share this room" })
     ).toBeVisible();
     await expect(
       invite.getByRole("img", { name: "Scan to join Instant room" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       invite.getByRole("button", { name: "Copy invite link" })
+    ).toBeVisible();
+    await invite.getByRole("button", { name: "Invite", exact: true }).click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite someone" });
+    await expect(inviteDialog).toBeVisible();
+    await inviteDialog.getByRole("button", { name: "Show QR code" }).click();
+    await expect(
+      inviteDialog.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
     expect(fixture.createRequests).toHaveLength(1);
     await expectNoDocumentOverflow(page);
@@ -215,16 +235,23 @@ test.describe("instant-room front door", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     const roomMenu = await ensureRoomMenuOpen(page);
     await expect(
-      roomMenu.getByRole("heading", { name: "Scan to join" })
+      roomMenu.getByRole("heading", { name: "Share this room" })
     ).toBeVisible();
     await expect(
       roomMenu.getByRole("img", { name: "Scan to join Instant room" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       roomMenu.getByRole("button", { name: "Copy invite link" })
     ).toBeVisible();
     await expect(
-      roomMenu.getByRole("button", { name: "Share invite link" })
+      roomMenu.getByRole("button", { name: "Invite", exact: true })
+    ).toBeVisible();
+    await roomMenu.getByRole("button", { name: "Invite", exact: true }).click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite someone" });
+    await expect(inviteDialog).toBeVisible();
+    await inviteDialog.getByRole("button", { name: "Show QR code" }).click();
+    await expect(
+      inviteDialog.getByRole("img", { name: "Scan to join Instant room" })
     ).toBeVisible();
     expect(fixture.createRequests).toHaveLength(1);
     await expectNoDocumentOverflow(page);
@@ -330,41 +357,33 @@ test.describe("instant-room front door", () => {
     await expect(menuDialog.getByRole("button", { name: "Close" })).toBeFocused();
     await expect(
       menuDialog.getByRole("button", { name: "Clear canvas" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
-      menuDialog.getByRole("heading", { name: "Scan to join" })
+      menuDialog.getByRole("heading", { name: "Share this room" })
     ).toBeVisible();
     await expect(
       menuDialog.getByRole("img", { name: "Scan to join Instant room" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(menuDialog.getByLabel("Room invite link")).toHaveCount(0);
-    const inviteIdentifier = menuDialog.locator(
-      ".instant-room-menu-invite-id"
-    );
-    await expect(inviteIdentifier).toBeVisible();
-    await expect(inviteIdentifier).not.toContainText(fixture.shareUrl);
-    const qr = menuDialog.locator(".instant-room-menu-qr-card .guest-qr");
-    const qrBox = await qr.boundingBox();
-    expect(qrBox).not.toBeNull();
-    expect(qrBox!.width).toBeGreaterThanOrEqual(220);
     const menuCopy = menuDialog.getByRole("button", {
       name: "Copy invite link"
     });
-    const menuDownload = menuDialog.getByRole("button", {
-      name: "Download QR code"
-    });
-    const menuShare = menuDialog.getByRole("button", {
-      name: "Share invite link"
-    });
+    const menuInvite = menuDialog.getByRole("button", { name: "Invite", exact: true });
     await expect(menuCopy).toBeVisible();
-    await expect(menuDownload).toBeEnabled();
-    await expect(menuShare).toBeVisible();
+    await expect(menuInvite).toBeVisible();
     await expectMinimumTarget(menuCopy);
-    await expectMinimumTarget(menuDownload);
-    await expectMinimumTarget(menuShare);
+    await expectMinimumTarget(menuInvite);
     await expect(menuCopy.locator("svg.lucide-copy")).toHaveCount(1);
-    await expect(menuDownload.locator("svg.lucide-download")).toHaveCount(1);
-    await expect(menuShare.locator("svg.lucide-share")).toHaveCount(1);
+    await expect(menuInvite.locator("svg.lucide-user-plus")).toHaveCount(1);
+
+    await menuInvite.click();
+    const inviteDialog = page.getByRole("dialog", { name: "Invite someone" });
+    await expect(inviteDialog).toBeVisible();
+    await inviteDialog.getByRole("button", { name: "Show QR code" }).click();
+    const qr = inviteDialog.getByRole("img", { name: "Scan to join Instant room" });
+    await expect(qr).toBeVisible();
+    const menuDownload = inviteDialog.getByRole("button", { name: "Download QR code" });
+    await expect(menuDownload).toBeEnabled();
     const downloadPromise = page.waitForEvent("download");
     await menuDownload.click();
     const qrDownload = await downloadPromise;
@@ -374,34 +393,26 @@ test.describe("instant-room front door", () => {
     await page.evaluate(() => {
       document.documentElement.style.fontSize = "200%";
     });
-    const scaledActions = [menuCopy, menuDownload, menuShare];
+    const scaledActions = [
+      inviteDialog.getByRole("button", { name: "Copy" }),
+      inviteDialog.getByRole("button", { name: "Share" }),
+      menuDownload
+    ];
     for (const action of scaledActions) {
       await action.scrollIntoViewIfNeeded();
       await expect(action).toBeVisible();
       await expectContained(action, { width: 320, height: 700 });
     }
-    const actionColumns = await menuDialog
-      .locator(".instant-room-menu-invite-actions")
-      .evaluate((element) =>
-        getComputedStyle(element).gridTemplateColumns
-          .split(" ")
-          .filter(Boolean).length
-      );
-    expect(actionColumns).toBe(1);
     await qr.scrollIntoViewIfNeeded();
     const scaledQrBox = await qr.boundingBox();
     expect(scaledQrBox).not.toBeNull();
-    expect(scaledQrBox!.width).toBeGreaterThanOrEqual(220);
+    expect(scaledQrBox!.width).toBeGreaterThanOrEqual(64);
     await expectNoDocumentOverflow(page);
     await page.evaluate(() => {
       document.documentElement.style.fontSize = "";
     });
-    await expect(
-      page.getByRole("dialog", { name: "Invite someone" })
-    ).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Show QR code" })
-    ).toHaveCount(0);
+    await inviteDialog.getByRole("button", { name: "Hide invite details" }).click();
+    await expect(inviteDialog).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(1);
     await expect(
       menuDialog.getByRole("button", { name: /Leave room/ })
@@ -463,7 +474,7 @@ test.describe("instant-room front door", () => {
     ).toBeVisible();
     await expect(
       messageMenu.getByRole("menuitem", { name: "Collapse messages" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     for (const roomAction of [
       "Participants",
       "Start audio call",
@@ -475,20 +486,15 @@ test.describe("instant-room front door", () => {
         messageMenu.getByRole("menuitem", { name: roomAction })
       ).toHaveCount(0);
     }
-    await messageMenu
-      .getByRole("menuitem", { name: "Collapse messages" })
-      .click();
+    await messageMenu.press("Escape");
+    await expect(messageMenu).toHaveCount(0);
+    await floatingChat.getByRole("button", { name: "Collapse messages" }).click();
     await expect(floatingChat).toHaveClass(/is-collapsed/);
     await expect(
       floatingChat.getByRole("region", { name: "Room messages" })
     ).toHaveCount(0);
-    await expect(messageMenuTrigger).toBeVisible();
-    await messageMenuTrigger.click();
+    await floatingChat.getByRole("button", { name: "Expand messages" }).click();
     await expect(floatingChat).not.toHaveClass(/is-collapsed/);
-    await expect(messageMenu).toBeVisible();
-    await messageMenu.press("Escape");
-    await expect(messageMenu).toHaveCount(0);
-    await expect(messageMenuTrigger).toBeFocused();
 
     const composer = page.getByRole("textbox", { name: "Message" });
     const send = page.getByRole("button", { name: "Send" });
@@ -549,6 +555,7 @@ test.describe("instant-room front door", () => {
     { width: 390, height: 844 },
     { width: 430, height: 860 },
     { width: 600, height: 900 },
+    { width: 700, height: 900 },
     { width: 760, height: 900 },
     { width: 844, height: 390 }
   ]) {
@@ -590,6 +597,7 @@ test.describe("instant-room front door", () => {
       const controls = [
         menuTrigger,
         messageMenuTrigger,
+        page.getByRole("button", { name: "Open canvas controls" }),
         page.getByRole("button", { name: "Send" })
       ];
       for (const control of controls) {
@@ -601,7 +609,6 @@ test.describe("instant-room front door", () => {
         page.getByLabel("Whiteboard for Instant room")
       ).toBeVisible();
       for (const layerHandle of [
-        page.getByRole("button", { name: "Move room controls button" }),
         page.getByRole("button", { name: "Move canvas status" }),
         page.getByRole("button", { name: "Move messages" })
       ]) {
@@ -653,7 +660,7 @@ test.describe("instant-room front door", () => {
       ).toBeVisible();
       await expect(
         messageMenu.getByRole("menuitem", { name: "Collapse messages" })
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expect(messageMenu.getByText("Participants")).toHaveCount(0);
       await expect(messageMenu.getByText("Calls")).toHaveCount(0);
       await expect(messageMenu.getByText("Invite and share")).toHaveCount(0);
@@ -668,7 +675,7 @@ test.describe("instant-room front door", () => {
       await expect(menuDialog.getByRole("button", { name: "Close" })).toBeFocused();
       await expect(
         menuDialog.getByRole("button", { name: "Clear canvas" })
-      ).toBeVisible();
+      ).toHaveCount(0);
       const participantToggle = menuDialog.getByRole("button", {
         name: "Participants",
         exact: true
@@ -677,49 +684,34 @@ test.describe("instant-room front door", () => {
       await expectMinimumTarget(participantToggle);
       await expectCompactCallActions(menuDialog, viewport);
       await expect(
-        menuDialog.getByRole("heading", { name: "Scan to join" })
+        menuDialog.getByRole("heading", { name: "Share this room" })
       ).toBeVisible();
       await expect(
         menuDialog.getByRole("img", { name: "Scan to join Instant room" })
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expect(
         menuDialog.getByRole("button", { name: "Copy invite link" })
       ).toBeVisible();
-      const downloadQr = menuDialog.getByRole("button", {
-        name: "Download QR code"
-      });
-      await expect(downloadQr).toBeEnabled();
-      await expectMinimumTarget(downloadQr);
-      await downloadQr.scrollIntoViewIfNeeded();
-      await expectContained(downloadQr, viewport);
       await expect(
-        menuDialog.getByRole("button", { name: "Share invite link" })
+        menuDialog.getByRole("button", { name: "Invite", exact: true })
       ).toBeVisible();
-      const qrCard = menuDialog.locator(".instant-room-menu-qr-card");
+      await menuDialog.getByRole("button", { name: "Invite", exact: true }).click();
+      const inviteDialog = page.getByRole("dialog", { name: "Invite someone" });
+      await expect(inviteDialog).toBeVisible();
+      await expectContained(inviteDialog, viewport);
+      await inviteDialog.getByRole("button", { name: "Show QR code" }).click();
+      const qrCard = inviteDialog.locator(".instant-room-qr-panel");
       await expect(qrCard).toBeVisible();
       await qrCard.scrollIntoViewIfNeeded();
       await expectContained(qrCard, viewport);
-      await expect(
-        page.getByRole("dialog", { name: "Invite someone" })
-      ).toHaveCount(0);
-      await expect(
-        page.getByRole("button", { name: "Show QR code" })
-      ).toHaveCount(0);
+      const downloadQr = inviteDialog.getByRole("button", { name: "Download QR code" });
+      await expect(downloadQr).toBeEnabled();
+      await expectMinimumTarget(downloadQr);
+      await inviteDialog.getByRole("button", { name: "Hide invite details" }).click();
+      await expect(inviteDialog).toHaveCount(0);
       await expect(page.getByRole("dialog")).toHaveCount(1);
       await expectContained(menuDialog, viewport);
       await expectNoDocumentOverflow(page);
-      if (viewport.width === 390) {
-        const menuBeforeMove = await menuDialog.boundingBox();
-        expect(menuBeforeMove).not.toBeNull();
-        const menuMoveHandle = menuDialog.getByRole("button", {
-          name: "Move room controls"
-        });
-        await menuMoveHandle.focus();
-        await menuMoveHandle.press("ArrowUp");
-        const menuAfterMove = await menuDialog.boundingBox();
-        expect(menuAfterMove).not.toBeNull();
-        expect(menuAfterMove!.y).toBeLessThan(menuBeforeMove!.y);
-      }
       await menuDialog.getByRole("button", { name: "Close" }).click();
       await expect(menuDialog).toHaveCount(0);
       await expect(menuTrigger).toHaveAttribute("aria-expanded", "false");

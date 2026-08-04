@@ -150,6 +150,7 @@ export class WhiteboardPersistence {
     } catch (reason) {
       this.dependencies.onSaveStatus("error");
       this.dependencies.onError(errorText(reason));
+      throw reason;
     } finally {
       this.clearRequested = false;
     }

@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   isBlockedDrawingShortcut,
+  isUnsupportedDrawingActionLabel,
   KCommsDrawingCanvas
 } from "./KCommsDrawingCanvas";
 
@@ -46,6 +47,8 @@ vi.mock("@excalidraw/excalidraw", () => {
       return (
         <div aria-label="Drawing engine test surface">
           <button data-testid="main-menu-trigger" type="button" />
+          <button type="button">Web Embed</button>
+          <button type="button">Frame</button>
           {children}
         </div>
       );
@@ -76,9 +79,10 @@ describe("KCommsDrawingCanvas", () => {
     );
 
     expect(screen.getByLabelText("K-Comms canvas menu")).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Canvas settings" })
-    ).toHaveAttribute("title", "Canvas settings");
+    expect(screen.getByTestId("main-menu-trigger")).not.toBeVisible();
+    expect(screen.queryByRole("button", { name: "Web Embed" }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Frame" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Theme" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Canvas background" })
@@ -86,19 +90,22 @@ describe("KCommsDrawingCanvas", () => {
     expect(screen.getByTestId("drawing-sidebar-trigger")).not.toBeVisible();
     expect(drawingEngineHarness.props?.UIOptions).toEqual({
       canvasActions: {
-        changeViewBackgroundColor: true,
+        changeViewBackgroundColor: false,
         clearCanvas: false,
         export: false,
         loadScene: false,
         saveAsImage: false,
         saveToActiveFile: false,
-        toggleTheme: true
+        toggleTheme: false
       },
       tools: { image: false }
     });
   });
 
   it("blocks shortcuts that can reopen vendor help or command surfaces", () => {
+    expect(isUnsupportedDrawingActionLabel("Web Embed")).toBe(true);
+    expect(isUnsupportedDrawingActionLabel("Mermaid to Excalidraw")).toBe(true);
+    expect(isUnsupportedDrawingActionLabel("Frame")).toBe(false);
     expect(
       isBlockedDrawingShortcut({
         key: "?",
