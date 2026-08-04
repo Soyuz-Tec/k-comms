@@ -9,7 +9,7 @@
 }
 
 .instant-draft-chat-heading,
-.instant-draft-composer > div {
+.instant-draft-composer > .composer-shell {
   display: flex;
   align-items: center;
 }
@@ -220,8 +220,7 @@
   font-weight: 500;
 }
 
-.instant-draft-room-details input,
-.instant-draft-composer textarea {
+.instant-draft-room-details input {
   width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
@@ -235,8 +234,7 @@
   padding: 8px 10px;
 }
 
-.instant-draft-room-details input:focus,
-.instant-draft-composer textarea:focus {
+.instant-draft-room-details input:focus {
   border-color: var(--accent-border);
   outline: 3px solid var(--focus-ring);
 }
@@ -249,37 +247,37 @@
 .instant-draft-composer {
   display: grid;
   gap: 6px;
-  padding: 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  padding: 2px 0 0;
+}
+
+.instant-draft-composer > .composer-shell {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
   background: var(--surface-overlay);
 }
 
-.instant-draft-composer:focus-within {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+.instant-draft-composer .composer-shell textarea {
+  width: auto;
+  min-height: 52px;
+  max-height: 120px;
+  resize: none;
+  padding: .55rem .1rem;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  color: var(--text-primary);
+  background: transparent;
+  font: inherit;
 }
 
-.instant-draft-composer textarea {
-  min-height: 58px;
-  resize: vertical;
-  padding: 7px;
+.instant-draft-composer .composer-shell textarea:focus {
+  border: 0;
   outline: 0;
 }
 
-.instant-draft-composer > div {
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.instant-draft-composer > div > span {
-  color: var(--text-muted);
-  font-size: .72rem;
-}
-
-.instant-draft-composer .button {
-  min-height: 40px;
-  padding-inline: 10px;
+.instant-draft-composer .composer-footnote {
+  margin-inline: .3rem;
 }
 
 .instant-draft-clear {

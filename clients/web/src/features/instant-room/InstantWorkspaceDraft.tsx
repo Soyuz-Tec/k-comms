@@ -330,21 +330,42 @@ export function InstantWorkspaceDraft({
 
             <form className="instant-draft-composer" onSubmit={(event) => void sendMessage(event)}>
               <label htmlFor="instant-draft-message">Optional first message</label>
-              <textarea
-                id="instant-draft-message"
-                value={message}
-                maxLength={10_000}
-                rows={2}
-                disabled={activating}
-                placeholder="Add a message to send when the room opens…"
-                onChange={(event) => setMessage(event.target.value)}
-              />
-              <div>
-                <span>{elementCount} canvas {elementCount === 1 ? "object" : "objects"}</span>
-                <button className="button ghost" type="submit" disabled={!message.trim() || blocked}>
-                  <AppIcon name="send" /> Create &amp; send
-                </button>
+              <div className="composer-shell">
+                <textarea
+                  id="instant-draft-message"
+                  value={message}
+                  maxLength={10_000}
+                  rows={1}
+                  disabled={activating}
+                  placeholder="Add a message to send when the room opens…"
+                  onChange={(event) => setMessage(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
+                <div className="composer-inline-actions">
+                  <button
+                    className="composer-icon-button composer-send send-button"
+                    type="submit"
+                    aria-label="Create & send"
+                    title="Create room and send message"
+                    disabled={!message.trim() || blocked}
+                  >
+                    <AppIcon name="send" />
+                  </button>
+                </div>
               </div>
+              <p className="composer-footnote">
+                <span>{elementCount} canvas {elementCount === 1 ? "object" : "objects"}</span>
+                <span>Enter to send · Shift+Enter for a new line</span>
+              </p>
             </form>
 
             {hasDraftWork && (

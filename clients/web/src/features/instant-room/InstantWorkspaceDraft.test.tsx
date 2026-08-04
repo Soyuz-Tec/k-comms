@@ -80,6 +80,15 @@ describe("InstantWorkspaceDraft", () => {
     ).toMatch(/^Guest \d{4}$/);
     expect(screen.getAllByText("Local draft", { exact: true })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
+    const firstMessage = screen.getByRole("textbox", {
+      name: "Optional first message"
+    });
+    const firstMessageShell = firstMessage.closest(".composer-shell");
+    const createAndSend = screen.getByRole("button", {
+      name: "Create & send"
+    });
+    expect(firstMessageShell).toBeVisible();
+    expect(firstMessageShell).toContainElement(createAndSend);
     expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
       "href",
       "/sign-in"
@@ -95,7 +104,7 @@ describe("InstantWorkspaceDraft", () => {
       screen.getByRole("textbox", { name: "Optional first message" }),
       "Let’s plan this together"
     );
-    await user.click(screen.getByRole("button", { name: "Create & send" }));
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(onActivate).toHaveBeenCalledOnce());
     expect(onActivate).toHaveBeenCalledWith(

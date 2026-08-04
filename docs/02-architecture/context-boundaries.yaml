@@ -6,16 +6,7 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions:
-    - id: conversation-whiteboard-reclamation-and-scene-snapshots
-      previous_manifest_sha256: 062527df7cba9848edda156ea669795681758d08055e0f153adae2eed9521c8f
-      approved_changes:
-        - 'context:conversations:public_contracts:add:CommsCore.Conversations.WhiteboardReclamationPort'
-        - 'context:conversations:public_contracts:add:CommsCore.Conversations.WhiteboardReclamationReceipt'
-        - 'runtime_collaborations:conversation-whiteboard-reclamation:add:{"binding":{"application":"comms_core","key":"conversation_whiteboard_reclamation_adapter","module":"CommsCore.Whiteboards"},"callers":["CommsCore.Conversations.EphemeralRooms.Lifecycle"],"condition":"ADR-0068 requires an expiring instant room''s board to be reclaimed inside the transaction that ends access to it, but Collaboration already depends on Conversations for authorization; Conversations therefore owns the reclamation contract and Collaboration implements it on the caller transaction. Scope is one operation from one caller and applies only to ephemeral rooms - durable conversation boards remain reachable by governance erasure alone.","consumer":"conversations","graph_semantics":{"compile_dependency":"collaboration_to_conversations","control_flow":"conversations_to_collaboration","static_cycle_policy":"dependency_inversion"},"id":"conversation-whiteboard-reclamation","implementation":"CommsCore.Whiteboards","operations":[{"arity":3,"name":"discard_for_expired_room"}],"port":"CommsCore.Conversations.WhiteboardReclamationPort","provider":"collaboration","result_contract":"CommsCore.Conversations.WhiteboardReclamationReceipt","transaction":"required"}'
-        - 'table:whiteboard_snapshots:add:{"canonical_schema":"CommsCore.Whiteboards.Snapshot","owner":"collaboration","role":"derived"}'
-      adr: docs/02-architecture/adr/0068-reclaim-expired-instant-room-whiteboards.md
-      removal_condition: Remove when instant-room boards no longer need transaction-scoped reclamation - either because expiry stops owning that responsibility, or because a replacement editor engine removes the Collaboration-to-Conversations authorization dependency that forces the inversion. The derived whiteboard_snapshots table is removed with it if scene materialisation is retired (ADR-0069).
+  reviewed_manifest_transitions: []
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff

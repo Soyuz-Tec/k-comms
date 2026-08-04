@@ -494,7 +494,7 @@ describe("GuestAccessPage", () => {
     renderPage();
 
     await user.click(
-      await screen.findByRole("button", { name: "Open room menu" })
+      await screen.findByRole("button", { name: "Open room controls" })
     );
     await user.click(
       within(screen.getByRole("dialog", { name: "Launch room" }))
@@ -522,7 +522,7 @@ describe("GuestAccessPage", () => {
     );
     expect(window.location.pathname).toBe("/join");
     expect(screen.getByRole("textbox", { name: "Message" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Open room menu" }));
+    await user.click(screen.getByRole("button", { name: "Open room controls" }));
     expect(
       within(screen.getByRole("dialog", { name: "Launch room" }))
         .getByText("Member", { selector: ".guest-badge" })
@@ -600,7 +600,7 @@ describe("GuestAccessPage", () => {
       screen.getByRole("button", { name: "Join conversation" })
     );
     await user.click(
-      await screen.findByRole("button", { name: "Open room menu" })
+      await screen.findByRole("button", { name: "Open room controls" })
     );
     await user.click(
       within(screen.getByRole("dialog", { name: "Launch room" }))

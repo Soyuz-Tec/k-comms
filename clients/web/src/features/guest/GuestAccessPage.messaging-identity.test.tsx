@@ -262,6 +262,11 @@ describe("GuestAccessPage", () => {
     storeGuestSession(guestSession);
     renderPage();
     const composer = await screen.findByRole("textbox", { name: "Message" });
+    const composerShell = composer.closest(".composer-shell");
+    expect(composerShell).toBeVisible();
+    expect(composerShell).toContainElement(
+      screen.getByRole("button", { name: "Send" })
+    );
     const scroll = document.querySelector(".guest-message-scroll") as HTMLDivElement;
     Object.defineProperties(scroll, {
       scrollHeight: { configurable: true, value: 1_000 },

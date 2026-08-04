@@ -11,6 +11,7 @@ interface AppMenuTriggerProps
   controls: string;
   expanded: boolean;
   overlay?: boolean;
+  popup?: "dialog" | "menu";
 }
 
 /**
@@ -28,6 +29,7 @@ export const AppMenuTrigger = forwardRef<
     controls,
     expanded,
     overlay = false,
+    popup = "dialog",
     title = "Menu",
     ...buttonProps
   },
@@ -40,7 +42,7 @@ export const AppMenuTrigger = forwardRef<
       className={`app-menu-trigger${overlay ? " app-menu-trigger-overlay" : ""} ${className}`.trim()}
       type="button"
       aria-label={accessibleLabel}
-      aria-haspopup="dialog"
+      aria-haspopup={popup}
       aria-expanded={expanded}
       aria-controls={controls}
       title={title}

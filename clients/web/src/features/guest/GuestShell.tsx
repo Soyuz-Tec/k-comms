@@ -31,6 +31,7 @@ import type {
   SocketHandoff
 } from "../../types";
 import { GuestConversionPanel } from "./GuestConversionPanel";
+import { GuestMessageMenu } from "./GuestMessageMenu";
 import { GuestMessageViewport } from "./GuestMessageViewport";
 import { GuestRoomMenu } from "./GuestRoomMenu";
 import { ParticipantRoster } from "./ParticipantRoster";
@@ -114,6 +115,7 @@ export function GuestShell({
   const [leaving, setLeaving] = useState(false);
   const [error, setError] = useState("");
   const [showRoomMenu, setShowRoomMenu] = useState(false);
+  const [showMessageMenu, setShowMessageMenu] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(true);
   const [clearBoardRequestId, setClearBoardRequestId] = useState(0);
   const visibleMessageAuthorsRef = useRef<
@@ -122,6 +124,7 @@ export function GuestShell({
   const accountToggleRef = useRef<HTMLButtonElement | null>(null);
   const accountReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const roomMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const messageMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roomHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const accountEmailRef = useRef<HTMLInputElement | null>(null);
   const accountWasOpenRef = useRef(false);
@@ -435,6 +438,10 @@ export function GuestShell({
     });
   }, [whiteboardEnabled, composerRef]);
 
+  const closeMessageMenu = useCallback(() => {
+    setShowMessageMenu(false);
+  }, []);
+
   function resolveMessageSender(message: Message) {
     const activeSender = activeUsersById.get(message.sender_user_id);
     const sender = visibleSenderIdentities.get(message.sender_user_id);
@@ -541,21 +548,29 @@ export function GuestShell({
             · {connectionStatus}
           </p>
           <DraggableSurface
-            className="guest-floating-menu-launcher"
-            dragLabel="room menu button"
+            className="guest-floating-room-launcher"
+            dragLabel="room controls button"
           >
-            <AppMenuTrigger
+            <button
               ref={roomMenuTriggerRef}
-              className="guest-room-menu-trigger"
-              accessibleLabel="Open room menu"
-              expanded={showRoomMenu}
-              controls="guest-room-menu"
-              overlay
+              className="guest-room-controls-trigger"
+              type="button"
+              aria-label="Open room controls"
+              aria-haspopup="dialog"
+              aria-expanded={showRoomMenu}
+              aria-controls="guest-room-menu"
+              title="Room controls"
               onFocus={() => {
                 roomMenuTriggerFocusedRef.current = true;
               }}
-              onClick={() => setShowRoomMenu(true)}
-            />
+              onClick={() => {
+                setShowMessageMenu(false);
+                setShowRoomMenu(true);
+              }}
+            >
+              <AppIcon name="settings" />
+              <span className="visually-hidden">Room controls</span>
+            </button>
           </DraggableSurface>
         </>
       ) : (
@@ -633,7 +648,6 @@ export function GuestShell({
               : roomMenuInvite
           }
           leaving={leaving}
-          messagesOpen={whiteboardEnabled ? messagesOpen : undefined}
           onClearBoard={
             whiteboardEnabled
               ? () => setClearBoardRequestId((requestId) => requestId + 1)
@@ -648,11 +662,6 @@ export function GuestShell({
             });
           }}
           onLeave={leave}
-          onToggleMessages={
-            whiteboardEnabled
-              ? () => setMessagesOpen((current) => !current)
-              : undefined
-          }
           open={showRoomMenu}
           participantContent={whiteboardEnabled ? participantRoster : undefined}
           roomMeta={whiteboardEnabled ? roomMeta : undefined}
@@ -729,29 +738,57 @@ export function GuestShell({
           </div>
         )}
         {whiteboardEnabled ? (
-          messagesOpen && (
-            <DraggableSurface
-              className="guest-floating-chat"
-              dragLabel="messages"
-            >
-              <div className="guest-floating-chat-heading">
-                <strong>Messages</strong>
-                {newMessageCount > 0 && (
-                  <span className="guest-tool-count" aria-label={`${newMessageCount} unread`}>
-                    {newMessageCount}
-                  </span>
-                )}
-                <AppSurfaceControlButton
-                  accessibleLabel="Hide messages"
-                  kind="close"
-                  onClick={() => setMessagesOpen(false)}
-                />
-              </div>
+          <DraggableSurface
+            className={`guest-floating-chat${messagesOpen ? "" : " is-collapsed"}`}
+            dragLabel="messages"
+          >
+            <div className="guest-floating-chat-heading">
+              <AppMenuTrigger
+                ref={messageMenuTriggerRef}
+                className="guest-message-menu-trigger"
+                accessibleLabel="Open message menu"
+                controls="guest-message-menu"
+                expanded={showMessageMenu}
+                popup="menu"
+                title="Message menu"
+                onClick={() => {
+                  setMessagesOpen(true);
+                  setShowMessageMenu((current) => !current);
+                }}
+              />
+              <strong>Messages</strong>
+              {newMessageCount > 0 && (
+                <span className="guest-tool-count" aria-label={`${newMessageCount} unread`}>
+                  {newMessageCount}
+                </span>
+              )}
+              <AppSurfaceControlButton
+                accessibleLabel={messagesOpen ? "Collapse messages" : "Expand messages"}
+                kind={messagesOpen ? "close" : "restore"}
+                onClick={() => {
+                  setShowMessageMenu(false);
+                  setMessagesOpen((current) => !current);
+                }}
+              />
+            </div>
+            {showMessageMenu && (
+              <GuestMessageMenu
+                onClose={closeMessageMenu}
+                onCollapse={() => setMessagesOpen(false)}
+                onFocusComposer={openRoomChat}
+                onJumpToLatest={() => {
+                  setMessagesOpen(true);
+                  window.requestAnimationFrame(jumpToLatest);
+                }}
+                triggerRef={messageMenuTriggerRef}
+              />
+            )}
+            {messagesOpen && (
               <div className="guest-chat-panel" aria-label="Room messages">
                 {messageViewport}
               </div>
-            </DraggableSurface>
-          )
+            )}
+          </DraggableSurface>
         ) : (
           <div className="guest-chat-panel" aria-label="Room messages">
             {messageViewport}
