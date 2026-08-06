@@ -18,7 +18,7 @@
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
     "livekit-client": "2.20.1",
-    "lucide-react": "1.27.0",
+    "lucide-react": "1.28.0",
     "phoenix": "1.8.9",
     "qrcode": "1.5.4",
     "react": "19.2.7",
