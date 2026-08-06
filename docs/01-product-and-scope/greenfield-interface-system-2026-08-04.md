@@ -89,6 +89,10 @@ Controls live with the object they affect:
 ### Public and sign-in
 
 - Instant-room creation remains canvas-first and works signed out or signed in.
+- Authentication opens as a focused gateway over the same local canvas instead
+  of replacing it with a separate promotional page. The canvas is visibly
+  preserved but inert while credential, invitation, or workspace-setup fields
+  are active; no protected workspace data loads before authentication.
 - Setup typography is legible at desktop and phone widths.
 - Account sign-in is clearly secondary to instant collaboration on the public page.
 - Invite and guest-join flows retain their security and identity disclosures.

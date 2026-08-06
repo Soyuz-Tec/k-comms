@@ -85,6 +85,9 @@ describe("AuthScreen", () => {
     render(<MemoryRouter><AuthScreen /></MemoryRouter>);
 
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Chat, call, and share files/i })
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
     expect(
       screen.getByRole("link", { name: /Start an instant room/i })

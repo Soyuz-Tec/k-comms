@@ -47,7 +47,16 @@ vi.mock("./features/guest/GuestAccessPage", () => ({
 }));
 
 vi.mock("./features/instant-room/InstantRoomPage", () => ({
-  InstantRoomPage: () => <main><h1>Instant front door</h1></main>
+  InstantRoomPage: ({
+    authenticationGateway
+  }: {
+    authenticationGateway?: React.ReactNode;
+  }) => (
+    <main>
+      <h1>Instant front door</h1>
+      {authenticationGateway}
+    </main>
+  )
 }));
 
 describe("application route priority", () => {
