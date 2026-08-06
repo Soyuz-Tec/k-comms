@@ -18,16 +18,10 @@ import type {
   UserCapabilities
 } from "../../types";
 import {
-  CallLaunchActions
-} from "../calls/CallSessionProvider";
-import {
-  canCreateGuestLink
-} from "../guest/ConversationShareDialog";
-import {
   AttachmentUploadList,
   type PendingAttachmentUpload
 } from "./AttachmentUploadList";
-import { connectionLabel } from "./chatSupport";
+import { ConversationWorkspaceHeader } from "./ConversationWorkspaceHeader";
 import { MentionPicker } from "./MentionPicker";
 import { MessageItem } from "./MessageItem";
 import type { FailedChatSend } from "./useChatComposer";
@@ -172,88 +166,25 @@ export function ConversationPane({
     <section className="conversation-pane" aria-label={title}>
       {activeConversation ? (
         <>
-          <header className="conversation-header">
-            <button
-              ref={mobileBackRef}
-              className="mobile-back"
-              type="button"
-              onClick={onShowConversationList}
-              aria-label="Back to conversations"
-            >
-              <AppIcon name="arrowLeft" />
-            </button>
-            <div>
-              <span className="eyebrow">
-                {activeConversation.kind} · {activeConversation.visibility}
-              </span>
-              <h2 data-route-focus>{title}</h2>
-            </div>
-            <div className="conversation-header-actions">
-              <div className="connection-summary" aria-live="polite">
-                <span
-                  className={`status-dot ${connectionStatus}`}
-                  aria-hidden="true"
-                />
-                <span>{connectionLabel(connectionStatus)}</span>
-                {onlineUsers > 0 && <small>{onlineUsers} online</small>}
-              </div>
-              <button
-                className="icon-button mobile-header-search"
-                type="button"
-                aria-label="Search messages"
-                aria-expanded={showSearch}
-                onClick={onToggleSearch}
-              >
-                <AppIcon name="search" />
-              </button>
-              <CallLaunchActions
-                conversation={activeConversation}
-                audioEnabled={
-                  capabilities?.allow_audio_calls === true &&
-                  audioCallsAvailable
-                }
-                videoEnabled={
-                  capabilities?.allow_video_calls === true &&
-                  videoCallsAvailable
-                }
-                availabilityDescriptionId={
-                  callGuidance
-                    ? "conversation-call-availability"
-                    : undefined
-                }
-              />
-              {(activeConversation.kind === "direct" ||
-                canCreateGuestLink(activeConversation)) && (
-                <button
-                  className="button ghost compact"
-                  type="button"
-                  aria-haspopup="dialog"
-                  onClick={onInviteGuest}
-                >
-                  <AppIcon name="userPlus" />
-                  Invite guest
-                </button>
-              )}
-              <button
-                className="button ghost compact"
-                type="button"
-                aria-expanded={showActivity}
-                onClick={onToggleActivity}
-              >
-                <AppIcon name="activity" />
-                Activity
-              </button>
-              <button
-                className="button ghost compact"
-                type="button"
-                aria-expanded={showDetails}
-                onClick={onToggleDetails}
-              >
-                <AppIcon name="more" />
-                Details
-              </button>
-            </div>
-          </header>
+          <ConversationWorkspaceHeader
+            conversation={activeConversation}
+            title={title}
+            connectionStatus={connectionStatus}
+            onlineUsers={onlineUsers}
+            capabilities={capabilities}
+            audioCallsAvailable={audioCallsAvailable}
+            videoCallsAvailable={videoCallsAvailable}
+            callGuidance={callGuidance}
+            mobileBackRef={mobileBackRef}
+            showSearch={showSearch}
+            showActivity={showActivity}
+            showDetails={showDetails}
+            onShowConversationList={onShowConversationList}
+            onToggleSearch={onToggleSearch}
+            onInviteGuest={onInviteGuest}
+            onToggleActivity={onToggleActivity}
+            onToggleDetails={onToggleDetails}
+          />
           {callGuidance && (
             <p
               className="call-availability-guidance conversation-call-guidance"
@@ -441,13 +372,16 @@ export function ConversationPane({
                 onRetry={onAttachmentRetry}
               />
             )}
-            <MentionPicker
-              members={members}
-              currentUserId={currentUserId}
-              selectedUserIds={mentionedUserIds}
-              disabled={sending}
-              onChange={onMentionedUserIdsChange}
-            />
+            <div className="composer-heading">
+              <span>
+                <AppIcon name="message" />
+                <strong>Message {title}</strong>
+              </span>
+              <span className="composer-draft-state">
+                <AppIcon name="check" />
+                Draft saved on this device
+              </span>
+            </div>
             <div className="composer-shell">
               <label className="sr-only" htmlFor="message-composer">
                 Message
@@ -501,10 +435,18 @@ export function ConversationPane({
                 </button>
               </div>
             </div>
-            <p className="composer-footnote">
-              <span>Draft saved</span>
-              <span>Enter to send · Shift+Enter for a new line</span>
-            </p>
+            <div className="composer-toolbar">
+              <MentionPicker
+                members={members}
+                currentUserId={currentUserId}
+                selectedUserIds={mentionedUserIds}
+                disabled={sending}
+                onChange={onMentionedUserIdsChange}
+              />
+              <p className="composer-footnote">
+                <span>Enter to send · Shift+Enter for a new line</span>
+              </p>
+            </div>
           </form>
         </>
       ) : (
