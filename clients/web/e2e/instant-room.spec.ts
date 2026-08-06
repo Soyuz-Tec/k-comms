@@ -184,6 +184,45 @@ test.describe("instant-room front door", () => {
     await expect(page.getByRole("dialog", { name: "Help" })).toHaveCount(0);
   });
 
+  test("adds searchable canvas templates without replacing draft work", async ({
+    page
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "the deterministic template interaction runs once in Chromium"
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installInstantRoomFixture(page);
+    await page.goto("/");
+
+    const trigger = page.getByRole("button", { name: "Open canvas controls" });
+    await trigger.click();
+    await page.getByRole("button", { name: /Start with a template/ }).click();
+
+    const templates = page.getByRole("dialog", { name: "Start with a template" });
+    await expect(templates).toBeVisible();
+    await expect(templates.getByRole("searchbox", { name: "Search templates" }))
+      .toBeFocused();
+    await templates.getByRole("searchbox", { name: "Search templates" }).fill("kanban");
+    await expect(templates.getByRole("button", { name: "Use Team board template" }))
+      .toBeVisible();
+    await expect(templates.getByRole("button", { name: "Use Brainstorm template" }))
+      .toHaveCount(0);
+
+    await templates.getByRole("searchbox", { name: "Search templates" }).fill("");
+    await templates.getByRole("button", { name: "Use Brainstorm template" }).click();
+    await expect(trigger.locator(".canvas-controls-count")).toHaveText("15");
+
+    await trigger.click();
+    await page.getByRole("button", { name: /Start with a template/ }).click();
+    await expect(page.getByText("Your work stays in place.", { exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Use SWOT analysis template" }).click();
+    await expect(trigger.locator(".canvas-controls-count")).toHaveText("24");
+    await expectNoDocumentOverflow(page);
+    await expectDocumentFitsViewport(page);
+  });
+
   test("opens invite details only after room creation", async ({
     page
   }, testInfo) => {

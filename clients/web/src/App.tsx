@@ -14,6 +14,7 @@ import "./theme.css";
 import "./styles.css";
 import "./mobile-experience.css";
 import "./desktop-experience.css";
+import "./interface-system.css";
 
 const AdminPage = lazy(() =>
   import("./features/admin/AdminPage").then(({ AdminPage: page }) => ({ default: page }))

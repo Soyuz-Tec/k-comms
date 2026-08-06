@@ -53,12 +53,23 @@ function tenantAdministration() {
 test("user and tenant-admin routes are independently navigable", async ({ page }) => {
   await page.goto("/app/");
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
-  const openMenu = page.getByRole("button", { name: "Open main menu" });
-  if (await openMenu.isVisible()) await openMenu.click();
-  await page.getByRole("link", { name: "You", exact: true }).click();
+  const primaryYou = page.getByRole("navigation", { name: "Primary navigation" })
+    .getByRole("link", { name: "You", exact: true });
+  if (await primaryYou.isVisible()) await primaryYou.click();
+  else await page.getByRole("link", { name: "You", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
-  if (await openMenu.isVisible()) await openMenu.click();
-  await page.getByRole("link", { name: "Workspace administration" }).click();
+  const openMenu = page.getByRole("button", { name: "Open more menu" });
+  if (await openMenu.isVisible()) {
+    await openMenu.click();
+    await page.getByRole("dialog", { name: "More" })
+      .getByRole("link", { name: "Workspace administration", exact: true })
+      .click();
+  } else {
+    await page.locator("summary.workspace-account-trigger").click();
+    await page.locator(".desktop-account-panel")
+      .getByRole("link", { name: "Workspace administration", exact: true })
+      .click();
+  }
   await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
   await page.getByRole("button", { name: "People" }).click();
   await expect(page.getByRole("heading", { name: "People, roles and sessions" })).toBeVisible();

@@ -107,38 +107,54 @@ function ProductShellContent() {
   return (
     <div className="app-shell">
         <a className="skip-link" href="#main-content">Skip to content</a>
-        {desktopShell && <aside className="desktop-workspace-rail" aria-label="Workspace navigation">
-          <div
-            className="desktop-workspace-identity"
-            title={session.tenant.name}
-          >
-            <span aria-hidden="true">{initials(session.tenant.name).slice(0, 1)}</span>
-            <span className="visually-hidden">Current workspace: {session.tenant.name}</span>
+        {desktopShell && <aside className="workspace-sidebar" aria-label="Workspace navigation">
+          <div className="workspace-sidebar-brand">
+            <span className="workspace-mark" aria-hidden="true">K</span>
+            <span className="workspace-brand-copy">
+              <strong>K-Comms</strong>
+              <small>Communication workspace</small>
+            </span>
           </div>
-          <nav className="desktop-rail-nav" aria-label="Member areas">
-            <MemberAreaLinks compact />
-          </nav>
+          <div className="workspace-sidebar-identity" title={session.tenant.name}>
+            <span className="workspace-avatar" aria-hidden="true">{initials(session.tenant.name).slice(0, 1)}</span>
+            <span className="workspace-identity-copy">
+              <small>Workspace</small>
+              <strong>{session.tenant.name}</strong>
+            </span>
+          </div>
           <button
-            className="desktop-instant-room"
+            className="workspace-instant-room"
             type="button"
-            aria-label="Start instant room"
-            title="Start instant room"
+            aria-label="New instant room"
+            title="New instant room"
             onClick={() => {
               beginNewInstantRoomVisit();
               navigate("/");
             }}
           >
             <AppIcon name="plus" />
+            <span>New instant room</span>
           </button>
-          <div className="desktop-rail-spacer" />
-          <NotificationCenter />
-          <details ref={desktopAccountRef} className="desktop-account-menu">
+          <nav className="workspace-sidebar-nav" aria-label="Member areas">
+            <MemberAreaLinks variant="grouped" />
+          </nav>
+          <div className="workspace-sidebar-spacer" />
+          <div className="workspace-sidebar-notifications">
+            <NotificationCenter />
+            <span>Notifications</span>
+          </div>
+          <details ref={desktopAccountRef} className="workspace-account-menu">
             <summary
-              className="desktop-account-trigger"
+              className="workspace-account-trigger"
               aria-label={`Account menu for ${session.user.display_name}`}
               title={session.user.display_name}
             >
               <span className="avatar" aria-hidden="true">{initials(session.user.display_name)}</span>
+              <span className="workspace-account-copy">
+                <strong>{session.user.display_name}</strong>
+                <small>{session.user.role}</small>
+              </span>
+              <AppIcon name="chevronDown" className="workspace-account-chevron" />
             </summary>
             <section className="desktop-account-panel" aria-label="Signed-in account">
               <div className="desktop-account-heading">
@@ -159,27 +175,18 @@ function ProductShellContent() {
           </details>
         </aside>}
         {!desktopShell && <header className="topbar">
-          <div className="mobile-workspace-heading">
-            <span>Workspace</span>
-            <strong>{session.tenant.name}</strong>
+          <div className="mobile-workspace-brand">
+            <span className="workspace-mark" aria-hidden="true">K</span>
+            <span className="mobile-workspace-heading">
+              <strong>K-Comms</strong>
+              <small>{session.tenant.name}</small>
+            </span>
           </div>
           <div className="topbar-control-cluster">
-            <button
-              className="button primary compact instant-room-launch"
-              type="button"
-              aria-label="Start instant room"
-              onClick={() => {
-                beginNewInstantRoomVisit();
-                navigate("/");
-              }}
-            >
-              <AppIcon name="plus" />
-              <span>Start instant room</span>
-            </button>
             <NotificationCenter />
             <AppMenuTrigger
               className="mobile-menu-trigger"
-              accessibleLabel="Open main menu"
+              accessibleLabel="Open more menu"
               expanded={mobileMenuOpen}
               controls="mobile-product-menu"
               onClick={() => setMobileMenuOpen(true)}
@@ -245,6 +252,11 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
+        {!desktopShell && (
+          <nav className="mobile-primary-nav" aria-label="Primary navigation">
+            <MemberAreaLinks variant="mobile-primary" />
+          </nav>
+        )}
         {installHelpMode && (
           <PwaInstallHelpDialog
             mode={installHelpMode}
@@ -297,23 +309,24 @@ function MobileProductMenu({
       >
         <header>
           <div>
-            <span className="eyebrow">Workspace menu</span>
-            <h2 id="mobile-product-menu-title">{tenantName}</h2>
+            <span className="eyebrow">{tenantName}</span>
+            <h2 id="mobile-product-menu-title">More</h2>
           </div>
           <AppMenuCloseButton
             data-initial-focus
-            accessibleLabel="Close main menu"
+            accessibleLabel="Close more menu"
             onClick={onClose}
           />
         </header>
+        <span className="mobile-menu-section-label">Collaboration</span>
         <nav
           className="mobile-menu-member-links"
-          aria-label="All product areas"
+          aria-label="More product areas"
           onClick={(event) => {
             if (event.target instanceof Element && event.target.closest("a")) onClose();
           }}
         >
-          <MemberAreaLinks />
+          <MemberAreaLinks variant="mobile-more" />
         </nav>
         <button className="mobile-menu-action" type="button" onClick={onInstantRoom}>
           <AppIcon name="plus" />

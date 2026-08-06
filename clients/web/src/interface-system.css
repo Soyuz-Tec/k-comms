@@ -1,0 +1,694 @@
+/*
+ * K-Comms adaptive interface system.
+ *
+ * This is the final composition layer for the authenticated workspace shell
+ * and shared page hierarchy. Feature CSS remains responsible for the internals
+ * of calls, messages, files, directory, whiteboard, and administration.
+ */
+
+.workspace-sidebar,
+.mobile-primary-nav {
+  display: none;
+}
+
+.workspace-mark {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  flex: 0 0 38px;
+  place-items: center;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  color: var(--text-on-accent);
+  background: var(--accent-solid);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -.04em;
+}
+
+/* One readable page measure and heading rhythm for member and privileged pages. */
+.page-shell,
+.member-page {
+  width: min(100%, 1180px);
+  margin-inline: auto;
+  padding: clamp(1.25rem, 2.5vw, 2.5rem);
+}
+
+.page-heading,
+.member-page-heading {
+  align-items: flex-start;
+  margin-bottom: clamp(1.25rem, 2.4vw, 2rem);
+}
+
+.page-heading h1,
+.member-page-heading h1,
+.admin-heading h1 {
+  margin: .28rem 0 .45rem;
+  font-size: clamp(2rem, 3vw, 2.85rem);
+  font-weight: 620;
+  letter-spacing: -.04em;
+  line-height: 1.04;
+}
+
+.page-heading p,
+.member-page-heading p {
+  max-width: 46rem;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: 1.55;
+}
+
+.eyebrow {
+  font-size: var(--text-xs);
+  letter-spacing: .09em;
+}
+
+.settings-card,
+.data-card,
+.admin-stats article {
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.button,
+.you-section-chooser a,
+.you-role-card-grid a,
+.mobile-menu-member-links a,
+.mobile-menu-role-links a {
+  text-decoration: none;
+}
+
+.calls-quick-actions a,
+.calls-quick-actions button,
+.call-session-actions a,
+.call-session-actions button {
+  gap: .38rem;
+}
+
+.whiteboard-heading h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3vw, 2.85rem);
+  font-weight: 620;
+  letter-spacing: -.04em;
+  line-height: 1.04;
+}
+
+@media (forced-colors: none) {
+  [data-route-focus][tabindex="-1"]:focus {
+    outline: none;
+  }
+}
+
+.you-page-prelude {
+  display: grid;
+  gap: .85rem;
+  margin-bottom: 1.25rem;
+}
+
+.you-page .you-section-chooser,
+.you-page .you-role-shortcuts {
+  width: 100%;
+  margin: 0;
+}
+
+@media (min-width: 761px) and (min-height: 561px) {
+  :root {
+    --desktop-rail-width: 248px;
+    --desktop-sidebar-width: clamp(320px, 27vw, 360px);
+  }
+
+  .app-shell {
+    min-width: 0;
+    padding-left: var(--desktop-rail-width);
+    background: var(--surface-canvas);
+  }
+
+  .workspace-sidebar {
+    position: fixed;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: var(--desktop-rail-width);
+    display: flex;
+    overflow: hidden auto;
+    flex-direction: column;
+    gap: .9rem;
+    padding: 1rem;
+    border-right: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    background: var(--surface-rail);
+  }
+
+  .workspace-sidebar-brand,
+  .workspace-sidebar-identity,
+  .workspace-account-trigger,
+  .workspace-sidebar-notifications {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+  }
+
+  .workspace-brand-copy,
+  .workspace-identity-copy,
+  .workspace-account-copy {
+    min-width: 0;
+    display: grid;
+    gap: .1rem;
+  }
+
+  .workspace-brand-copy strong,
+  .workspace-identity-copy strong,
+  .workspace-account-copy strong {
+    overflow: hidden;
+    font-size: .86rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-brand-copy small,
+  .workspace-identity-copy small,
+  .workspace-account-copy small {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: .68rem;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    text-transform: capitalize;
+    white-space: nowrap;
+  }
+
+  .workspace-sidebar-identity {
+    min-height: 54px;
+    padding: .45rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    background: var(--surface-raised);
+  }
+
+  .workspace-avatar {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    flex: 0 0 36px;
+    place-items: center;
+    border-radius: 10px;
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+    font-size: .78rem;
+    font-weight: 850;
+  }
+
+  .workspace-instant-room {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    padding: .7rem .85rem;
+    border: 1px solid var(--accent-solid);
+    border-radius: 13px;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+    font: inherit;
+    font-size: .8rem;
+    font-weight: 780;
+  }
+
+  .workspace-instant-room:hover {
+    background: var(--accent-solid-hover);
+  }
+
+  .workspace-instant-room .app-icon {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+  }
+
+  .workspace-sidebar-nav {
+    display: grid;
+    gap: .8rem;
+  }
+
+  .member-nav-group {
+    display: grid;
+    gap: .22rem;
+    margin: 0;
+  }
+
+  .member-nav-group-label {
+    margin: 0;
+    padding: 0 .65rem .2rem;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: .62rem;
+    font-weight: 820;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+
+  .workspace-sidebar-nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: .72rem;
+    padding: .65rem .72rem;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    color: var(--text-muted);
+    font-size: .8rem;
+    font-weight: 730;
+    text-decoration: none;
+  }
+
+  .workspace-sidebar-nav a:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+  }
+
+  .workspace-sidebar-nav a.active {
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+  }
+
+  .workspace-sidebar-nav .member-nav-icon {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+  }
+
+  .workspace-sidebar-spacer {
+    flex: 1;
+  }
+
+  .workspace-sidebar-notifications {
+    min-height: 44px;
+    padding-inline: .25rem;
+    color: var(--text-muted);
+    font-size: .76rem;
+    font-weight: 720;
+  }
+
+  .workspace-sidebar .notification-trigger,
+  .workspace-account-trigger {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    color: var(--text-primary);
+    background: transparent;
+  }
+
+  .workspace-account-menu {
+    position: relative;
+  }
+
+  .workspace-account-trigger {
+    width: 100%;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    justify-items: start;
+    list-style: none;
+  }
+
+  .workspace-account-trigger::-webkit-details-marker {
+    display: none;
+  }
+
+  .workspace-account-trigger:hover,
+  .workspace-account-menu[open] .workspace-account-trigger,
+  .workspace-sidebar .notification-trigger:hover {
+    background: var(--surface-hover);
+  }
+
+  .workspace-account-trigger .avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    color: var(--text-on-accent);
+    background: var(--accent-solid);
+  }
+
+  .workspace-account-chevron {
+    width: 17px;
+    height: 17px;
+    color: var(--text-muted);
+  }
+
+  .workspace-account-menu .desktop-account-panel {
+    left: calc(var(--desktop-rail-width) + .75rem);
+  }
+
+  body > .notification-panel {
+    left: calc(var(--desktop-rail-width) + .75rem);
+  }
+
+  .instant-draft-body {
+    grid-template-columns: minmax(0, 1fr) clamp(410px, 33vw, 480px);
+  }
+
+  .instant-draft-setup-scroll {
+    gap: 17px;
+    padding: 22px 22px 14px;
+  }
+
+  .instant-draft-chat-heading {
+    gap: 13px;
+  }
+
+  .instant-draft-chat-heading h2 {
+    font-size: 1.35rem;
+    letter-spacing: -.025em;
+  }
+
+  .instant-draft-chat-heading p {
+    margin-top: 4px;
+    font-size: .88rem;
+    line-height: 1.45;
+  }
+
+  .instant-draft-chat-icon {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+    border-radius: 13px;
+  }
+
+  .instant-draft-workflow {
+    gap: 8px;
+  }
+
+  .instant-draft-workflow li {
+    min-height: 66px;
+    align-content: center;
+    gap: 6px;
+    padding: 9px 5px;
+    border-radius: 12px;
+    font-size: .75rem;
+  }
+
+  .instant-draft-workflow li span {
+    width: 26px;
+    height: 26px;
+    font-size: .76rem;
+  }
+
+  .instant-draft-room-details {
+    gap: 14px;
+    padding: 15px;
+    border-radius: 15px;
+  }
+
+  .instant-draft-room-details .field {
+    gap: 6px;
+  }
+
+  .instant-draft-room-details label,
+  .instant-draft-composer > label {
+    font-size: .84rem;
+  }
+
+  .instant-draft-room-details input {
+    min-height: 48px;
+    padding: 10px 12px;
+  }
+
+  .instant-draft-composer {
+    gap: 8px;
+  }
+
+  .instant-draft-live-actions {
+    gap: 9px;
+    padding: 14px 22px 17px;
+  }
+
+  .instant-draft-live-actions .button {
+    min-height: 50px;
+  }
+
+  .instant-draft-live-actions > small,
+  .instant-draft-account-link {
+    font-size: .78rem;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1179px) and (min-height: 561px) {
+  :root {
+    --desktop-rail-width: 80px;
+    --desktop-sidebar-width: 300px;
+  }
+
+  .workspace-sidebar {
+    align-items: center;
+    gap: .65rem;
+    padding: .8rem .65rem;
+  }
+
+  .workspace-brand-copy,
+  .workspace-identity-copy,
+  .workspace-account-copy,
+  .workspace-account-chevron,
+  .workspace-sidebar-notifications > span,
+  .workspace-instant-room span,
+  .member-nav-group-label {
+    display: none;
+  }
+
+  .workspace-sidebar-brand,
+  .workspace-sidebar-identity,
+  .workspace-sidebar-notifications,
+  .workspace-account-menu,
+  .workspace-sidebar-nav,
+  .member-nav-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workspace-sidebar-identity {
+    min-height: 48px;
+    padding: .3rem;
+  }
+
+  .workspace-instant-room,
+  .workspace-sidebar-nav a,
+  .workspace-account-trigger {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+
+  .workspace-sidebar-nav a span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .workspace-sidebar-nav a {
+    margin-inline: auto;
+  }
+
+  .workspace-account-trigger {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  :root {
+    --mobile-topbar-height: 64px;
+    --mobile-nav-height: 68px;
+  }
+
+  .app-shell {
+    padding-bottom: var(--mobile-nav-total);
+  }
+
+  .app-shell > .topbar {
+    min-height: var(--mobile-topbar-total);
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding:
+      calc(.45rem + var(--safe-top))
+      calc(.65rem + var(--safe-right))
+      .45rem
+      calc(.75rem + var(--safe-left));
+  }
+
+  .mobile-workspace-brand {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+  }
+
+  .mobile-workspace-brand .workspace-mark {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-radius: 11px;
+  }
+
+  .mobile-workspace-heading {
+    min-width: 0;
+    display: grid;
+    gap: 0;
+  }
+
+  .mobile-workspace-heading strong,
+  .mobile-workspace-heading small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-workspace-heading strong {
+    font-size: .88rem;
+    line-height: 1.2;
+  }
+
+  .mobile-workspace-heading small {
+    color: var(--text-muted);
+    font-size: .68rem;
+    line-height: 1.3;
+  }
+
+  .mobile-primary-nav {
+    position: fixed;
+    z-index: 38;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    min-height: var(--mobile-nav-total);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: start;
+    padding:
+      .35rem max(.3rem, var(--safe-right))
+      max(.3rem, var(--safe-bottom)) max(.3rem, var(--safe-left));
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-overlay);
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-primary-nav a {
+    min-width: 0;
+    min-height: 56px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: .18rem;
+    padding: .25rem .1rem;
+    border-radius: 12px;
+    color: var(--text-muted);
+    font-size: .62rem;
+    font-weight: 760;
+    line-height: 1;
+    text-decoration: none;
+  }
+
+  .mobile-primary-nav .member-nav-icon {
+    width: 21px;
+    height: 21px;
+  }
+
+  .mobile-primary-nav a.active {
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+  }
+
+  .mobile-product-menu {
+    width: min(22rem, 92vw);
+  }
+
+  .mobile-menu-section-label {
+    margin: .15rem .8rem -.35rem;
+    color: var(--text-muted);
+    font-size: .64rem;
+    font-weight: 820;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+  }
+
+  .page-shell,
+  .member-page {
+    width: 100%;
+    padding: 1rem;
+  }
+
+  .page-heading,
+  .member-page-heading {
+    margin-bottom: 1rem;
+  }
+
+  .page-heading h1,
+  .member-page-heading h1,
+  .admin-heading h1 {
+    margin-top: .18rem;
+    font-size: clamp(1.65rem, 7vw, 2rem);
+    font-weight: 680;
+  }
+
+  .page-heading p,
+  .member-page-heading p {
+    font-size: .86rem;
+    line-height: 1.5;
+  }
+
+  .you-page .you-section-chooser,
+  .you-page .you-role-shortcuts {
+    width: 100%;
+  }
+
+  .you-page .you-section-chooser {
+    display: grid;
+    overflow: visible;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: .2rem;
+  }
+
+  .you-page .you-section-chooser > span {
+    display: none;
+  }
+
+  .you-page .you-section-chooser a {
+    min-width: 0;
+    justify-content: center;
+    padding-inline: .35rem;
+    font-size: .76rem;
+  }
+
+  body:has(.active-call-screen:not(.minimized)) .mobile-primary-nav,
+  body:has(.video-call-dock:not(.minimized)) .mobile-primary-nav,
+  body:has(.call-prejoin-dialog) .mobile-primary-nav {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar *,
+  .mobile-primary-nav * {
+    transition-duration: .01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .workspace-sidebar-nav a.active,
+  .mobile-primary-nav a.active,
+  .workspace-instant-room,
+  .workspace-account-trigger,
+  .workspace-sidebar .notification-trigger {
+    border: 1px solid ButtonText;
+  }
+}

@@ -4,6 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CanvasControls } from "./CanvasControls";
 
+vi.mock("@excalidraw/excalidraw", () => ({
+  convertToExcalidrawElements: (elements: Array<Record<string, unknown>>) =>
+    elements.map((element, index) => ({
+      width: 100,
+      height: 100,
+      version: 1,
+      versionNonce: index + 1,
+      isDeleted: false,
+      ...element,
+      id: `${String(element.id)}-${index}`
+    }))
+}));
+
 function editorHarness() {
   const updateScene = vi.fn();
   const scrollToContent = vi.fn();
@@ -13,6 +26,7 @@ function editorHarness() {
       viewBackgroundColor: "#ffffff",
       zoom: { value: 1 }
     })),
+    getSceneElements: vi.fn(() => []),
     scrollToContent,
     updateScene
   } as unknown as ExcalidrawImperativeAPI;
@@ -38,6 +52,7 @@ describe("CanvasControls", () => {
     );
 
     const trigger = screen.getByRole("button", { name: "Open canvas controls" });
+    expect(trigger.querySelector(".canvas-controls-count")).toHaveTextContent("3");
     await user.click(trigger);
     const panel = screen.getByRole("dialog", { name: "Canvas controls" });
     expect(within(panel).getByRole("heading", { name: "Appearance" })).toBeVisible();
@@ -45,24 +60,42 @@ describe("CanvasControls", () => {
     expect(within(panel).getByRole("heading", { name: "Selection" })).toBeVisible();
     expect(within(panel).getByRole("heading", { name: "Canvas data" })).toBeVisible();
 
-    await user.click(within(panel).getByRole("button", { name: "Dark" }));
+    await user.click(within(panel).getByRole("button", { name: /Start with a template/ }));
+    const templates = screen.getByRole("dialog", { name: "Start with a template" });
+    expect(within(templates).getByRole("button", { name: "Use Brainstorm template" })).toBeVisible();
+    await user.type(within(templates).getByRole("searchbox", { name: "Search templates" }), "kanban");
+    expect(within(templates).getByRole("button", { name: "Use Team board template" })).toBeVisible();
+    expect(within(templates).queryByRole("button", { name: "Use Brainstorm template" })).not.toBeInTheDocument();
+    await user.click(within(templates).getByRole("button", { name: "Use Team board template" }));
+    await waitFor(() => expect(updateScene).toHaveBeenCalledWith({
+      elements: expect.arrayContaining([expect.objectContaining({ type: "rectangle" })])
+    }));
+    await waitFor(() => expect(scrollToContent).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({ fitToViewport: true })
+    ));
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    await user.click(trigger);
+    const reopenedPanel = screen.getByRole("dialog", { name: "Canvas controls" });
+    await user.click(within(reopenedPanel).getByRole("button", { name: "Dark" }));
     expect(updateScene).toHaveBeenCalledWith({ appState: { theme: "dark" } });
-    await user.click(within(panel).getByRole("button", { name: "Warm canvas background" }));
+    await user.click(within(reopenedPanel).getByRole("button", { name: "Warm canvas background" }));
     expect(updateScene).toHaveBeenCalledWith({
       appState: { viewBackgroundColor: "#fff9db" }
     });
-    await user.click(within(panel).getByRole("button", { name: "Zoom in" }));
+    await user.click(within(reopenedPanel).getByRole("button", { name: "Zoom in" }));
     expect(updateScene).toHaveBeenCalledWith({
       appState: { zoom: { value: expect.closeTo(1.2) } }
     });
-    await user.click(within(panel).getByRole("button", { name: "Fit canvas" }));
+    await user.click(within(reopenedPanel).getByRole("button", { name: "Fit canvas" }));
     expect(scrollToContent).toHaveBeenCalledWith(undefined, {
       animate: true,
       fitToViewport: true,
       viewportZoomFactor: 0.85
     });
 
-    await user.click(within(panel).getByRole("button", { name: /Message selection/ }));
+    await user.click(within(reopenedPanel).getByRole("button", { name: /Message selection/ }));
     expect(onMessageSelection).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog", { name: "Canvas controls" })).not.toBeInTheDocument();
 
