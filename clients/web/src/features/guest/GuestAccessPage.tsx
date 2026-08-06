@@ -29,6 +29,11 @@ import {
 import { GuestJoin } from "./GuestJoin";
 import { GuestShell } from "./GuestShell";
 import {
+  callReadinessHostPath,
+  clearCallReadinessSearch,
+  safeCallReadinessMode
+} from "../calls/callReadinessNavigation";
+import {
   isDefinitiveRoomUnavailable,
   memberSessionIdentity,
   withoutGuestConversion
@@ -55,6 +60,12 @@ export function GuestAccessPage() {
   const secureMediaActionsAllowed =
     transportPolicyReady && mediaActionsAllowed;
   const [token] = useState(() => guestTokenFromFragment());
+  const [initialCallReadinessMode, setInitialCallReadinessMode] = useState(() => {
+    const search = new URLSearchParams(window.location.search);
+    return search.get("call") === "audio"
+      ? safeCallReadinessMode(search.get("call_readiness"))
+      : null;
+  });
   const [entryShareUrl] = useState(() =>
     token ? capturedInstantRoomShareUrl(token) : null
   );
@@ -253,6 +264,14 @@ export function GuestAccessPage() {
         identityLabel={
           activeRoomSession.user.account_type === "guest" ? "Guest" : "Member"
         }
+        initialCallOnEntry={initialCallReadinessMode ? "audio" : null}
+        initialCallReadinessMode={initialCallReadinessMode}
+        onInitialCallConsumed={() => {
+          setInitialCallReadinessMode(null);
+          const url = new URL(window.location.href);
+          url.search = clearCallReadinessSearch(url.searchParams).toString();
+          window.history.replaceState(window.history.state, "", url);
+        }}
         roomBanner={sharePanel?.("banner")}
         roomMenuInvite={sharePanel?.("menu")}
         whiteboardEnabled={Boolean(activeRoomSession.instant_room)}
@@ -367,9 +386,12 @@ export function GuestAccessPage() {
               share_url: entryShareUrl
             });
           }
-          navigate(`/app/?conversation=${encodeURIComponent(result.conversation.id)}`, {
-            replace: true
-          });
+          navigate(
+            initialCallReadinessMode
+              ? callReadinessHostPath(result.conversation.id)
+              : `/app/?conversation=${encodeURIComponent(result.conversation.id)}`,
+            { replace: true }
+          );
         }}
       />
   );

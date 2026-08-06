@@ -51,6 +51,9 @@ const callPanelHarness = vi.hoisted(() => ({
     audioEnabled: boolean;
     videoEnabled: boolean;
     onOpenChat?: () => void;
+    launchRequest?: "audio" | "video" | null;
+    launchReadinessMode?: "office" | null;
+    onLaunchRequestConsumed?: () => void;
   }
 }));
 
@@ -63,6 +66,9 @@ vi.mock("../calls/CallPanel", () => ({
     audioEnabled: boolean;
     videoEnabled: boolean;
     onOpenChat?: () => void;
+    launchRequest?: "audio" | "video" | null;
+    launchReadinessMode?: "office" | null;
+    onLaunchRequestConsumed?: () => void;
   }) => {
     callPanelHarness.props = props;
     return (
@@ -256,6 +262,25 @@ describe("GuestAccessPage", () => {
     });
     vi.spyOn(GuestApiClient.prototype, "markRead").mockResolvedValue(undefined);
     vi.spyOn(GuestApiClient.prototype, "logout").mockResolvedValue(undefined);
+  });
+
+  it("forwards and clears an office readiness launch after guest admission", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/join?call=audio&call_readiness=office&source=office"
+    );
+    storeGuestSession(guestSession);
+
+    renderPage();
+
+    expect(await screen.findByLabelText("Guest call controls")).toBeVisible();
+    expect(callPanelHarness.props).toMatchObject({
+      launchRequest: "audio",
+      launchReadinessMode: "office"
+    });
+    act(() => callPanelHarness.props?.onLaunchRequestConsumed?.());
+    expect(window.location.search).toBe("?source=office");
   });
 
   it("keeps unread realtime messages available when scrolled up and marks them read only at the bottom", async () => {

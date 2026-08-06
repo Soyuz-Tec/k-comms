@@ -36,6 +36,7 @@ import { GuestMessageViewport } from "./GuestMessageViewport";
 import { GuestRoomMenu } from "./GuestRoomMenu";
 import { ParticipantRoster } from "./ParticipantRoster";
 import type { GuestRoomApi } from "./roomApi";
+import type { CallReadinessMode } from "../calls/callReadinessNavigation";
 import {
   duplicateParticipantNames,
   mergeRetainedSenderLabelMaps,
@@ -73,6 +74,7 @@ export function GuestShell({
   roomMenuInvite,
   openRoomMenuOnEntry = false,
   initialCallOnEntry = null,
+  initialCallReadinessMode = null,
   onInitialCallConsumed,
   whiteboardEnabled = false,
   identityLabel = "Guest",
@@ -94,6 +96,7 @@ export function GuestShell({
   roomMenuInvite?: ReactNode | ((participantCount: number) => ReactNode);
   openRoomMenuOnEntry?: boolean;
   initialCallOnEntry?: CallMediaKind | null;
+  initialCallReadinessMode?: CallReadinessMode | null;
   onInitialCallConsumed?: () => void;
   whiteboardEnabled?: boolean;
   identityLabel?: "Guest" | "Host" | "Member";
@@ -498,6 +501,7 @@ export function GuestShell({
         currentUserDisplayName={initialSession.user.display_name}
         realtimeEvent={realtimeCall}
         launchRequest={initialCallOnEntry}
+        launchReadinessMode={initialCallReadinessMode}
         onLaunchRequestConsumed={onInitialCallConsumed}
         onOpenChat={openRoomChat}
       />

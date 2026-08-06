@@ -24,7 +24,7 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagement do
   }
 
   @default_expiry_seconds 24 * 60 * 60
-  @min_expiry_seconds 15 * 60
+  @min_expiry_seconds 10 * 60
   @max_expiry_seconds 24 * 60 * 60
   @default_max_uses 10
 

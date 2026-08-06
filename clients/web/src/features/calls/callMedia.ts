@@ -57,18 +57,24 @@ export function cameraCaptureOptions(deviceId: string) {
  * SDK on its own defaults, which is the portable single-host behaviour.
  */
 export function callRtcConfig(
-  iceServers?: CallIceServer[]
+  iceServers?: CallIceServer[],
+  iceTransportPolicy?: RTCIceTransportPolicy
 ): { rtcConfig?: RTCConfiguration } {
   const usable = (iceServers || []).filter((server) => server.urls?.length > 0);
-  if (usable.length === 0) return {};
+  if (usable.length === 0 && !iceTransportPolicy) return {};
 
   return {
     rtcConfig: {
-      iceServers: usable.map((server) => ({
-        urls: server.urls,
-        ...(server.username ? { username: server.username } : {}),
-        ...(server.credential ? { credential: server.credential } : {})
-      }))
+      ...(usable.length > 0
+        ? {
+            iceServers: usable.map((server) => ({
+              urls: server.urls,
+              ...(server.username ? { username: server.username } : {}),
+              ...(server.credential ? { credential: server.credential } : {})
+            }))
+          }
+        : {}),
+      ...(iceTransportPolicy ? { iceTransportPolicy } : {})
     }
   };
 }

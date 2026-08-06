@@ -52,6 +52,26 @@ describe("ChatPage durable sequence recovery", () => {
     expect(location).toHaveTextContent("source=directory");
   });
 
+  it("forwards and clears the one-shot office readiness mode", async () => {
+    render(
+      <MemoryRouter initialEntries={["/app?conversation=conversation-1&call=audio&call_readiness=office&source=calls"]}>
+        <ChatPage />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(harness.launchCall).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "conversation-1" }),
+      "audio",
+      "office"
+    ));
+    const location = screen.getByLabelText("location-search");
+    await waitFor(() => expect(location).not.toHaveTextContent("call="));
+    expect(location).not.toHaveTextContent("call_readiness=");
+    expect(location).toHaveTextContent("conversation=conversation-1");
+    expect(location).toHaveTextContent("source=calls");
+  });
+
   it("disables the audio action without probing calls when the media provider is unavailable", async () => {
     harness.audioCallsAvailable = false;
     harness.videoCallsAvailable = false;

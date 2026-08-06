@@ -45,6 +45,10 @@ import { ConversationActivityTimeline } from "./ConversationActivityTimeline";
 import { useChatAttachments } from "./useChatAttachments";
 import { useChatComposer } from "./useChatComposer";
 import { useChatNavigation } from "./useChatNavigation";
+import {
+  clearCallReadinessSearch,
+  safeCallReadinessMode
+} from "../calls/callReadinessNavigation";
 import { useConversationFeed } from "./useConversationFeed";
 import { useConversationMembers } from "./useConversationMembers";
 import "./ChatPage.css";
@@ -79,6 +83,9 @@ export function ChatPage() {
   const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
   const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
   const linkedCallKind = safeCallKind(searchParams.get("call"));
+  const linkedCallReadinessMode = safeCallReadinessMode(
+    searchParams.get("call_readiness")
+  );
   const whiteboardReference = useMemo(
     () => readWhiteboardReference(searchParams),
     [searchParams]
@@ -298,11 +305,21 @@ export function ChatPage() {
   );
   useEffect(() => {
     if (!linkedCallKind || !activeConversation) return;
-    launchCall(activeConversation, linkedCallKind);
-    const next = new URLSearchParams(searchParams);
-    next.delete("call");
+    if (linkedCallReadinessMode) {
+      launchCall(activeConversation, linkedCallKind, linkedCallReadinessMode);
+    } else {
+      launchCall(activeConversation, linkedCallKind);
+    }
+    const next = clearCallReadinessSearch(searchParams);
     setSearchParams(next, { replace: true });
-  }, [activeConversation, launchCall, linkedCallKind, searchParams, setSearchParams]);
+  }, [
+    activeConversation,
+    launchCall,
+    linkedCallKind,
+    linkedCallReadinessMode,
+    searchParams,
+    setSearchParams
+  ]);
 
   useEffect(() => {
     if (activeConversationId && linkedMessageId) setThreadTargetId(linkedMessageId);

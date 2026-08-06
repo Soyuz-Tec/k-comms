@@ -112,6 +112,28 @@ defmodule CommsCore.Conversations.GuestAccess.LinkManagementTest do
              )
   end
 
+  test "accepts a bounded ten-minute link and rejects a shorter link" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+
+    assert {:ok, %{guest_link: link}} =
+             Conversations.create_guest_link_view(
+               account.conversation.id,
+               %{expires_in_seconds: 600, max_uses: 1},
+               subject
+             )
+
+    remaining_seconds = DateTime.diff(link.expires_at, DateTime.utc_now(), :second)
+    assert remaining_seconds in 598..600
+
+    assert {:error, :invalid_guest_link_expiry} =
+             Conversations.create_guest_link_view(
+               account.conversation.id,
+               %{expires_in_seconds: 599, max_uses: 1},
+               subject
+             )
+  end
+
   test "conversation moderators retain communication-only link authority" do
     account = Fixtures.account_fixture()
     owner_subject = Fixtures.subject(account)

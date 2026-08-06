@@ -183,7 +183,7 @@ An active conversation owner or moderator may create a bounded,
 communication-only link with `POST
 /api/v1/conversations/{conversation_id}/guest-links`. Direct conversations are
 not shareable. The optional request fields are `expires_in_seconds`
-(900–86,400, default 86,400) and `max_uses` (1–25, default 10). A tenant owner
+(600–86,400, default 86,400) and `max_uses` (1–25, default 10). A tenant owner
 or administrator with a recent step-up may also provide `conversion_email`;
 that makes the link account-enabled, forces `max_uses` to exactly one, and
 allows conversion only to that normalized email. Creation and subsequent

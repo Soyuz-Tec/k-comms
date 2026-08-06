@@ -64,8 +64,10 @@ release, one PostgreSQL database, and the existing business-context directions.
 
 1. Only an active conversation owner or moderator may list, create, or revoke
    links. Direct conversations cannot create guest links.
-2. Creation accepts a 900-to-86,400 second lifetime and one-to-25 uses. Defaults
-   are 86,400 seconds and 10 uses. The raw high-entropy token and complete
+2. Creation initially accepted a 900-to-86,400 second lifetime and one-to-25
+   uses. ADR-0071 lowers the minimum to 600 seconds for bounded call-readiness
+   invitations. Defaults are 86,400 seconds and 10 uses. The raw high-entropy
+   token and complete
    `/join#guest=...` share URL are returned once; PostgreSQL stores only the
    token's SHA-256 digest.
 3. Links are communication-only by default. Account conversion can be enabled

@@ -20,6 +20,7 @@ import type {
 } from "../../types";
 import type { CallPanelSessionState } from "./CallPanel";
 import { requestCallSessionTeardown } from "./callSessionEvents";
+import type { CallReadinessMode } from "./callReadinessNavigation";
 
 const PersistentCallPanel = lazy(() =>
   import("./CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
@@ -28,13 +29,18 @@ const PersistentCallPanel = lazy(() =>
 interface LaunchRequest {
   id: number;
   kind: CallMediaKind;
+  readinessMode: CallReadinessMode | null;
 }
 
 interface CallSessionContextValue {
   targetConversation: Conversation | null;
   sessionState: CallPanelSessionState | null;
   launchRequest: LaunchRequest | null;
-  launchCall: (conversation: Conversation, kind: CallMediaKind) => boolean;
+  launchCall: (
+    conversation: Conversation,
+    kind: CallMediaKind,
+    readinessMode?: CallReadinessMode | null
+  ) => boolean;
   publishRealtimeEvent: (event: CallRealtimeEvent) => void;
   teardownCall: () => void;
 }
@@ -60,7 +66,11 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const sessionStateRef = useRef<CallPanelSessionState | null>(null);
   const launchRequestRef = useRef<LaunchRequest | null>(null);
 
-  const launchCall = useCallback((conversation: Conversation, kind: CallMediaKind) => {
+  const launchCall = useCallback((
+    conversation: Conversation,
+    kind: CallMediaKind,
+    readinessMode: CallReadinessMode | null = null
+  ) => {
     if (workspaceLoading || !capabilities) {
       setNotice("Call availability is still being checked. Try again shortly.");
       return false;
@@ -103,7 +113,11 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    const request = { id: ++requestSequenceRef.current, kind };
+    const request = {
+      id: ++requestSequenceRef.current,
+      kind,
+      readinessMode: kind === "audio" ? readinessMode : null
+    };
     targetConversationRef.current = conversation;
     launchRequestRef.current = request;
     sessionStateRef.current = null;
@@ -177,6 +191,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
             realtimeEvent={realtimeEvent}
             launchRequest={launchRequest?.kind}
             launchRequestId={launchRequest?.id}
+            launchReadinessMode={launchRequest?.readinessMode}
             onLaunchRequestConsumed={launchConsumed}
             onNavigate={navigate}
             onSessionStateChange={sessionChanged}

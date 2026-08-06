@@ -74,5 +74,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0068 | Reclaim an instant room's whiteboard when the room expires | Accepted |
 | 0069 | Materialise whiteboard scenes so joining is not O(history) | Accepted |
 | 0070 | Accept whole-element whiteboard merge until the editor engine changes | Accepted |
+| 0071 | Add client-side office call readiness qualification | Accepted for implementation |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.
