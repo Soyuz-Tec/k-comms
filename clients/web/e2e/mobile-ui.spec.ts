@@ -27,7 +27,10 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
-      await expect(page.getByRole("button", { name: "Open main menu" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Open more menu" })).toBeVisible();
+      const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
+      await expect(primaryNavigation.locator("a")).toHaveCount(5);
+      await expect(primaryNavigation.getByRole("link", { name: "Whiteboard" })).toHaveCount(0);
       await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await exposeInstallPrompt(page);
@@ -38,7 +41,7 @@ test.describe("authenticated mobile web acceptance", () => {
 
       const conversation = page.getByRole("button", { name: /General/ });
       await expectMinimumTarget(conversation, "conversation row");
-      const menuTrigger = page.getByRole("button", { name: "Open main menu" });
+      const menuTrigger = page.getByRole("button", { name: "Open more menu" });
       const notificationTrigger = page.getByRole("button", { name: "Notifications" });
       await expectMinimumTarget(menuTrigger, "main menu control");
       await expectMinimumTarget(notificationTrigger, "notification control");
@@ -53,7 +56,7 @@ test.describe("authenticated mobile web acceptance", () => {
         .toBeLessThanOrEqual(viewport.width + 1);
 
       await menuTrigger.click();
-      const productMenu = page.getByRole("dialog", { name: "Acme Workspace" });
+      const productMenu = page.getByRole("dialog", { name: "More" });
       await expect(productMenu).toBeVisible();
       const productMenuBox = await productMenu.boundingBox();
       expect(productMenuBox).not.toBeNull();
@@ -61,9 +64,11 @@ test.describe("authenticated mobile web acceptance", () => {
         productMenuBox!.x + productMenuBox!.width - viewport.width
       )).toBeLessThanOrEqual(1);
       await expectMinimumTargets(
-        productMenu.getByRole("navigation", { name: "All product areas" }).locator("a"),
-        "all product menu"
+        productMenu.getByRole("navigation", { name: "More product areas" }).locator("a"),
+        "more product menu"
       );
+      await expect(productMenu.getByRole("link", { name: "Whiteboard" })).toBeVisible();
+      await expect(productMenu.getByRole("button", { name: "Start instant room" })).toBeVisible();
       await expect(productMenu.getByRole("link", { name: "Workspace administration" })).toBeVisible();
       await expect(productMenu.getByRole("link", { name: "Service operations" })).toBeVisible();
       await expect(productMenu.getByRole("button", { name: "Install K-Comms" })).toBeVisible();
@@ -74,7 +79,7 @@ test.describe("authenticated mobile web acceptance", () => {
         52
       );
       const closeMainMenu = productMenu.getByRole("button", {
-        name: "Close main menu"
+        name: "Close more menu"
       });
       const closeMainMenuBox = await closeMainMenu.boundingBox();
       expect(closeMainMenuBox).not.toBeNull();
@@ -184,21 +189,20 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeVisible();
       await expect(conversation).toBeFocused();
 
-      await page.getByRole("button", { name: "Open main menu" }).click();
-      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "You" }).click();
+      await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
       await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
       await page.addStyleTag({ content: "html { overflow-y: scroll; scrollbar-gutter: stable; }" });
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("button", { name: "Open main menu" }).click();
-      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "Workspace administration" }).click();
+      await page.getByRole("button", { name: "Open more menu" }).click();
+      await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("button", { name: "Open main menu" }).click();
-      await page.getByRole("dialog", { name: "Acme Workspace" }).getByRole("link", { name: "Service operations" }).click();
+      await page.getByRole("button", { name: "Open more menu" }).click();
+      await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: "Service operations" }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);
@@ -234,12 +238,12 @@ test.describe("authenticated mobile web acceptance", () => {
     await installWorkspace(page, { tenantName: longWorkspaceName });
     await page.goto("/app/");
 
-    const trigger = page.getByRole("button", { name: "Open main menu" });
+    const trigger = page.getByRole("button", { name: "Open more menu" });
     await expect(trigger).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Workspace navigation" })).toHaveCount(0);
     await trigger.click();
 
-    const menu = page.getByRole("dialog", { name: longWorkspaceName });
+    const menu = page.getByRole("dialog", { name: "More" });
     await expect(menu).toBeVisible();
     await expectMinimumTargets(menu.locator("a, button"), "landscape mobile menu");
     await expectNoDocumentOverflow(page);
@@ -255,13 +259,13 @@ test.describe("authenticated mobile web acceptance", () => {
     await installWorkspace(page);
     await page.goto("/app/");
     await page.goto("/app/you");
-    await page.getByRole("button", { name: "Open main menu" }).click();
-    await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toBeVisible();
+    await page.getByRole("button", { name: "Open more menu" }).click();
+    await expect(page.getByRole("dialog", { name: "More" })).toBeVisible();
 
     await page.goBack();
 
     await expect(page).toHaveURL(/\/app\/$/);
-    await expect(page.getByRole("dialog", { name: "Acme Workspace" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "More" })).toHaveCount(0);
   });
 
   for (const viewport of [

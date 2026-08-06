@@ -384,7 +384,6 @@ export function InstantWorkspaceDraft({
                 </div>
               </div>
               <p className="composer-footnote">
-                <span>{elementCount} canvas {elementCount === 1 ? "object" : "objects"}</span>
                 <span>Enter to send · Shift+Enter for a new line</span>
               </p>
             </form>

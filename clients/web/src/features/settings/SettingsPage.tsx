@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { errorText, formatDateTime, stringValue } from "../../lib/format";
 import { useSession } from "../../app/session";
 import type { AccountSession, Device, NotificationAttempt, NotificationIntent, NotificationPreference } from "../../types";
@@ -26,7 +26,7 @@ interface ResourceLoadFailure {
   message: string;
 }
 
-export function SettingsPage() {
+export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = {}) {
   const { api, session, setSession } = useSession();
   const { installMode, requestInstall } = usePwa();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -232,6 +232,7 @@ export function SettingsPage() {
   return (
     <main className="page-shell" id="main-content">
       <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
+      {headerPrelude}
       {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
       {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       {loadFailures.length > 0 && (

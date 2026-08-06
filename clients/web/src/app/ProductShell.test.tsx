@@ -133,7 +133,7 @@ describe("ProductShell PWA controls", () => {
     const user = userEvent.setup();
     renderProductShell();
 
-    await user.click(screen.getByRole("button", { name: "Open main menu" }));
+    await user.click(screen.getByRole("button", { name: "Open more menu" }));
     const install = screen.getByRole("button", { name: "Install K-Comms" });
     expect(install.querySelector(".lucide-download")).toBeInTheDocument();
     await user.click(install);
@@ -161,7 +161,7 @@ describe("ProductShell PWA controls", () => {
     const user = userEvent.setup();
     const view = renderProductShell();
 
-    await user.click(screen.getByRole("button", { name: "Open main menu" }));
+    await user.click(screen.getByRole("button", { name: "Open more menu" }));
     await user.click(screen.getByRole("button", { name: "Install K-Comms" }));
 
     await waitFor(() => expect(harness.pwa.requestInstall).toHaveBeenCalledOnce());
@@ -180,13 +180,13 @@ describe("ProductShell PWA controls", () => {
     const user = userEvent.setup();
     const view = renderProductShell();
 
-    await user.click(screen.getByRole("button", { name: "Open main menu" }));
+    await user.click(screen.getByRole("button", { name: "Open more menu" }));
     expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
 
     view.unmount();
     harness.pwa.installMode = "unavailable";
     renderProductShell();
-    await user.click(screen.getByRole("button", { name: "Open main menu" }));
+    await user.click(screen.getByRole("button", { name: "Open more menu" }));
     expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
   });
 

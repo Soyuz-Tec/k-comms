@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { AppIcon } from "../../components/AppIcon";
 import { useModalDialog } from "../../components/useModalDialog";
+import { CanvasTemplateDialog } from "./CanvasTemplateDialog";
+import { createCanvasTemplateElements } from "./canvasTemplates";
 import "./CanvasControls.css";
 
 const canvasBackgrounds = [
@@ -40,6 +42,7 @@ export function CanvasControls({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState("");
@@ -132,6 +135,25 @@ export function CanvasControls({
     }
   }
 
+  async function applyTemplate(templateId: string) {
+    if (!editor) return;
+    const existing = editor.getSceneElements();
+    const inserted = await createCanvasTemplateElements(templateId, existing);
+    if (inserted.length === 0) return;
+    editor.updateScene({ elements: [...existing, ...inserted] });
+    editor.scrollToContent(inserted, {
+      animate: true,
+      fitToViewport: true,
+      viewportZoomFactor: 0.82
+    });
+    closeTemplates();
+  }
+
+  function closeTemplates() {
+    setTemplatesOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
   return (
     <>
       <div className="canvas-controls">
@@ -147,6 +169,7 @@ export function CanvasControls({
           onClick={() => setOpen((current) => !current)}
         >
           <AppIcon name="sliders" />
+          <span className="canvas-controls-count" aria-hidden="true">{elementCount}</span>
         </button>
 
         {open && (
@@ -175,6 +198,23 @@ export function CanvasControls({
             </header>
 
             <section aria-labelledby={`${controlsId}-appearance`}>
+              <button
+                className="canvas-template-launch"
+                type="button"
+                disabled={!editor}
+                onClick={() => {
+                  setOpen(false);
+                  setTemplatesOpen(true);
+                }}
+              >
+                <span className="canvas-template-launch-icon"><AppIcon name="sparkles" /></span>
+                <span>
+                  <strong>Start with a template</strong>
+                  <small>Brainstorms, plans, retrospectives, and more</small>
+                </span>
+                <AppIcon name="arrowUpRight" />
+              </button>
+
               <h2 id={`${controlsId}-appearance`}>Appearance</h2>
               <div className="canvas-controls-segmented" role="group" aria-label="Canvas theme">
                 <button
@@ -303,6 +343,14 @@ export function CanvasControls({
           </div>
         )}
       </div>
+
+      {templatesOpen && (
+        <CanvasTemplateDialog
+          elementCount={elementCount}
+          onApply={applyTemplate}
+          onClose={closeTemplates}
+        />
+      )}
 
       {confirmClear && createPortal(
         <div className="canvas-clear-backdrop">
