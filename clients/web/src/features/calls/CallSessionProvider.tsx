@@ -224,13 +224,15 @@ export function CallLaunchActions({
   audioEnabled,
   videoEnabled,
   showVideoAction = true,
-  availabilityDescriptionId
+  availabilityDescriptionId,
+  iconOnly = false
 }: {
   conversation: Conversation;
   audioEnabled: boolean;
   videoEnabled: boolean;
   showVideoAction?: boolean;
   availabilityDescriptionId?: string;
+  iconOnly?: boolean;
 }) {
   const { launchCall, launchRequest, sessionState, targetConversation } = useCallSession();
   const current = targetConversation?.id === conversation.id;
@@ -242,9 +244,27 @@ export function CallLaunchActions({
   const blockedTitle = blockedByAnotherConversation
     ? "Leave or cancel the current call before starting another."
     : undefined;
+  const audioLabel = !audioEnabled
+    ? "Audio calling unavailable"
+    : currentBusyKind === "audio"
+      ? sessionState?.joined
+        ? "In audio call"
+        : "Opening audio call…"
+      : "Start audio call";
+  const videoLabel = !videoEnabled
+    ? "Video calling unavailable"
+    : currentBusyKind === "video"
+      ? sessionState?.joined
+        ? "In video call"
+        : "Opening video call…"
+      : "Start video call";
 
   return (
-    <div className="call-control audio-call-control">
+    <div
+      className={`call-control audio-call-control ${
+        iconOnly ? "audio-call-icon-only" : ""
+      }`}
+    >
       <button
         className={`button compact ${currentBusyKind === "audio" ? "audio-call-active" : "ghost"}`}
         type="button"
@@ -256,11 +276,7 @@ export function CallLaunchActions({
         onClick={() => launchCall(conversation, "audio")}
       >
         <span aria-hidden="true"><CallKindIcon kind="audio" /></span>
-        {!audioEnabled
-          ? "Audio calling unavailable"
-          : currentBusyKind === "audio"
-            ? sessionState?.joined ? "In audio call" : "Opening audio call…"
-            : "Start audio call"}
+        <span className={iconOnly ? "sr-only" : undefined}>{audioLabel}</span>
       </button>
       {showVideoAction && (
         <button
@@ -274,11 +290,7 @@ export function CallLaunchActions({
           onClick={() => launchCall(conversation, "video")}
         >
           <span aria-hidden="true"><CallKindIcon kind="video" /></span>
-          {!videoEnabled
-            ? "Video calling unavailable"
-            : currentBusyKind === "video"
-              ? sessionState?.joined ? "In video call" : "Opening video call…"
-              : "Start video call"}
+          <span className={iconOnly ? "sr-only" : undefined}>{videoLabel}</span>
         </button>
       )}
     </div>

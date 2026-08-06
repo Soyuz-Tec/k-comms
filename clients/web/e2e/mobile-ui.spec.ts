@@ -138,6 +138,19 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
       await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
+      const conversationWorkspace = page.getByRole("navigation", {
+        name: "Conversation workspace"
+      });
+      await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+        .toHaveAttribute("aria-current", "page");
+      await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
+        .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
+      await expect(conversationWorkspace.getByRole("button", { name: "Activity" }))
+        .toBeVisible();
+      await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
+        .toBeVisible();
+      await expect(page.locator(".composer-heading")).toContainText("Message General");
+      await expect(page.locator(".composer-toolbar")).toBeVisible();
       const moreMessageActions = page.getByRole("button", { name: "More message actions" });
       await expectMinimumTarget(moreMessageActions, "more-message-actions control");
       await moreMessageActions.click();
@@ -149,6 +162,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(messageActions.getByRole("button", { name: "Delete" })).toBeVisible();
       await expectMinimumTargets(messageActions.locator("button"), "own-message actions");
       await expectNoHorizontalOverflow(page.locator(".message-scroll"), "message scroller");
+      await expectNoHorizontalOverflow(page.locator(".conversation-header"), "conversation header");
 
       const back = page.getByRole("button", { name: "Back to conversations" });
       const startAudio = page.getByRole("button", { name: "Start audio call" });
@@ -209,6 +223,42 @@ test.describe("authenticated mobile web acceptance", () => {
       expect(fixture.unexpectedRequests).toEqual([]);
     });
   }
+
+  test("desktop chat keeps the conversation workspace and composer in view", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await installWorkspace(page);
+    await page.goto(`/app/?conversation=${conversationId}`);
+
+    const conversationWorkspace = page.getByRole("navigation", {
+      name: "Conversation workspace"
+    });
+    await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+      .toHaveAttribute("aria-current", "page");
+    await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
+      .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
+    await expect(conversationWorkspace.getByRole("button", { name: "Activity" }))
+      .toBeVisible();
+    await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
+      .toBeVisible();
+    await expect(page.locator(".composer-heading")).toContainText("Message General");
+    await expect(page.locator(".composer-toolbar")).toBeVisible();
+    const conversationPane = page.getByRole("region", { name: "General" });
+    await expect(conversationPane.getByRole("button", { name: "Search messages" })).toBeVisible();
+    await expect(conversationPane.getByRole("button", { name: "Start audio call" })).toBeVisible();
+    await expect(conversationPane.getByRole("button", { name: "Start video call" })).toBeVisible();
+
+    await expectNoHorizontalOverflow(page.locator(".conversation-header"), "desktop conversation header");
+    await expectNoHorizontalOverflow(page.locator(".message-scroll"), "desktop message scroller");
+    await expectNoHorizontalOverflow(page.locator(".composer"), "desktop composer");
+    await expectNoDocumentOverflow(page);
+
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("chat-window-1280.png"),
+        fullPage: true
+      });
+    }
+  });
 
   test("desktop notification portal remains beside the workspace rail", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });

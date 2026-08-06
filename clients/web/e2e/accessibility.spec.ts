@@ -142,7 +142,10 @@ test("workspace refresh error satisfies automated WCAG A and AA checks", async (
 test("message search satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
-  await page.getByRole("button", { name: "Search messages" }).click();
+  await page
+    .getByRole("region", { name: "General" })
+    .getByRole("button", { name: "Search messages" })
+    .click();
   await expect(page.getByRole("heading", { name: "Search messages" })).toBeVisible();
   await expectNoWcagFailures(page);
 });

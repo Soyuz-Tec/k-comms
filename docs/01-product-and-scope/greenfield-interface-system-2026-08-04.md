@@ -61,7 +61,7 @@ The top bar contains only product/workspace identity, notifications, and `More`.
 Controls live with the object they affect:
 
 - Canvas controls: drawing tools, original K-Comms starter templates, canvas object count, undo/redo, board clear, zoom, export, and canvas collaboration state.
-- Conversation controls: message composition, attachments, reactions, replies, participants, and conversation sharing.
+- Conversation controls: conversation workspace navigation, message composition, attachments, reactions, replies, participants, and conversation sharing.
 - Call controls: microphone, camera, screen share, participants, device selection, minimize/restore, and leave/end call.
 - Room controls: invite link/QR, room membership, room lifecycle, save/leave, and room-level audio/video entry.
 - Account controls: profile, password, devices, sessions, notifications, install, and sign out.
@@ -98,6 +98,9 @@ Controls live with the object they affect:
 - Desktop retains the conversation list and message pane without overlapping the workspace sidebar.
 - Mobile supports direct movement to all five primary destinations.
 - Composer, attachment, participant, call, search, and detail controls remain reachable and named.
+- The conversation header separates identity and live status from contextual `Chat`, `Canvas`, `Activity`, and `Details` navigation.
+- Compact search, call, and invitation controls retain accessible names and 44-pixel targets.
+- The composer identifies its recipient and local draft state, groups the message field with its primary actions, and keeps mentions and keyboard guidance in a supporting toolbar.
 
 ### Calls
 
