@@ -21,13 +21,80 @@
 }
 
 .calls-launcher,
-.calls-history {
+.calls-history,
+.call-readiness-launcher {
   min-width: 0;
   padding: clamp(1rem, 2.5vw, 1.4rem);
   border: 1px solid var(--border-default);
   border-radius: 18px;
   background: var(--surface-raised);
   box-shadow: 0 10px 32px rgb(16 42 42 / 6%);
+}
+
+.call-readiness-launcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border-color: color-mix(in srgb, var(--accent-solid) 36%, var(--border-default));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-quiet) 72%, transparent), transparent 70%),
+    var(--surface-raised);
+}
+
+.call-readiness-launcher-copy {
+  max-width: 52rem;
+}
+
+.call-readiness-launcher-copy p {
+  margin: .4rem 0 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.call-readiness-create {
+  min-height: 48px;
+  white-space: nowrap;
+}
+
+.call-readiness-invite {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.call-readiness-invite-copy,
+.call-readiness-invite-copy label {
+  min-width: 0;
+  display: grid;
+  gap: .4rem;
+}
+
+.call-readiness-invite-copy input {
+  width: 100%;
+  min-height: 44px;
+}
+
+.call-readiness-invite-copy small {
+  color: var(--text-secondary);
+}
+
+.call-readiness-launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: .45rem;
+}
+
+.call-readiness-launcher > .form-success,
+.call-readiness-launcher > .form-error,
+.call-readiness-launcher > .calls-availability-note {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .calls-section-heading {
@@ -416,12 +483,16 @@
     order: 1;
   }
 
-  .calls-new-call-toggle {
+  .call-readiness-launcher {
     order: 2;
   }
 
-  .calls-launcher {
+  .calls-new-call-toggle {
     order: 3;
+  }
+
+  .calls-launcher {
+    order: 4;
   }
 
   .calls-launcher,
@@ -431,6 +502,40 @@
     border-radius: 0;
     background: var(--surface-raised);
     box-shadow: none;
+  }
+
+  .call-readiness-launcher {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .75rem;
+    padding: .85rem;
+    border-radius: 14px;
+    background: var(--surface-canvas);
+    box-shadow: none;
+  }
+
+  .call-readiness-launcher-copy .eyebrow {
+    display: block;
+  }
+
+  .call-readiness-launcher-copy p {
+    font-size: .8rem;
+  }
+
+  .call-readiness-create {
+    width: 100%;
+  }
+
+  .call-readiness-invite {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .call-readiness-launch-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .call-readiness-launch-actions .primary {
+    grid-column: 1 / -1;
   }
 
   .calls-launcher:not(.is-mobile-open) {
@@ -634,6 +739,7 @@
 @media (forced-colors: active) {
   .calls-launcher,
   .calls-history,
+  .call-readiness-launcher,
   .calls-launch-list > li,
   .call-session-row,
   .calls-segments button[aria-pressed="true"] {

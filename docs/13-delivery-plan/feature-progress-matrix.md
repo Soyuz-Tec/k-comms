@@ -68,7 +68,7 @@ planning assignments until a named owner accepts them.
 | F-05 | Presence, typing indicators, and read status | Realtime engineering | Complete | **Complete** | None | E2 | Continue reconnect and ephemeral-state reconstruction tests. |
 | F-06 | File sharing and attachment management | Content engineering | Complete | **Complete** | None | E2, E3 | Qualify approved malware scanning and production object-storage controls. |
 | F-07 | Notifications and browser push | Integrations engineering | Partial | **Partial** | None | E2, E3 | Qualify approved email, Web Push, and notification providers in production. |
-| F-08 | Audio calling | Media engineering | Partial | **Partial** | None | E4, E5 | Complete forced TURN/TLS, revocation, outage, and capacity qualification. |
+| F-08 | Audio calling | Media engineering | Partial | **Partial** | None | E4, E5 | Run the office readiness tool from both physical endpoints on the UAE network, then complete revocation, outage, and capacity qualification. |
 | F-09 | Video calling | Media engineering | Partial | **Partial** | None | E4, E5 | Complete broader resilience, privacy, and representative-network qualification. |
 | F-10 | Group conferencing | Media engineering | Partial | **Partial** | None | E3, E4 | Pass three-or-more-participant capacity, reconnect, and failure exercises. |
 | F-11 | Screen sharing | Media engineering | Partial | **Partial** | None | E3, E4 | Qualify external cross-platform sharing, audio, cleanup, and revocation. |

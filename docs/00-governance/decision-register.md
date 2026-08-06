@@ -19,6 +19,7 @@
 | Retrospectively accept the full PR #16 endgame scope | ADR-0044 | Accepted | 2026-07-18 | Production promotion of the integrated migration set or a similarly broad merge proposal |
 | Harden zero-baseline architecture assurance | ADR-0045 | Accepted | 2026-07-18 | A new persistence write shape, migration exception, manifest permission, or adapter-facing operation category |
 | Conversation guest links and convertible guest identities | ADR-0049 | Accepted | 2026-07-24 | Wider guest capabilities, longer expiry, guest files/search, tenant-wide guest policy, or independently deployable guest access |
+| Client-side office call readiness qualification | ADR-0071 | Accepted for implementation | 2026-08-06 | Persisted diagnostics, raw RTC stats, automated audio recording, or qualification beyond the exact endpoints and release |
 | Instant-room collaboration workspaces | ADR-0065 | Accepted | 2026-08-01 | Durable-conversation guest boards, images/embeds, offline merge, service automation, or independent scale |
 | Local-first instant workspace drafts | ADR-0066 | Accepted | 2026-08-01 | Cross-device drafts, local encryption, server-side draft persistence, or transactional aggregate promotion |
 | Reclaim expired instant-room whiteboards | ADR-0068 | Accepted | 2026-08-02 | Post-expiry room conversion, an approved backfill for already-expired rooms, whiteboard attachments needing blob reclamation, or an expiry policy for durable-conversation boards |

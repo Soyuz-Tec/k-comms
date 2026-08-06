@@ -10,6 +10,8 @@ import {
 import type { Call, CallMediaKind } from "../../types";
 import type { CallPhase } from "./callContracts";
 import { mediaEnabled, mediaLabel } from "./callMedia";
+import type { CallReadinessCheckResult } from "./callReadiness";
+import type { CallReadinessPhase } from "./useCallReadinessTest";
 
 type VideoTrack = LocalVideoTrack | RemoteVideoTrack;
 
@@ -109,10 +111,17 @@ export function CallPrejoinDialog({
   previewBusy,
   previewVideoRef,
   error,
+  readinessEnabled = false,
+  readinessPhase = "idle",
+  readinessChecks = [],
+  readinessFailure = null,
+  readinessReportAvailable = false,
   onMicrophone,
   onCamera,
   onMicrophoneEnabled,
   onCameraEnabled,
+  onReadinessEnabled,
+  onDownloadReadinessReport,
   onCancel,
   onJoin
 }: {
@@ -129,10 +138,17 @@ export function CallPrejoinDialog({
   previewBusy: boolean;
   previewVideoRef: React.RefObject<HTMLVideoElement | null>;
   error: string | null;
+  readinessEnabled?: boolean;
+  readinessPhase?: CallReadinessPhase;
+  readinessChecks?: CallReadinessCheckResult[];
+  readinessFailure?: string | null;
+  readinessReportAvailable?: boolean;
   onMicrophone: (deviceId: string) => void;
   onCamera: (deviceId: string) => void;
   onMicrophoneEnabled: (enabled: boolean) => void;
   onCameraEnabled: (enabled: boolean) => void;
+  onReadinessEnabled?: (enabled: boolean) => void;
+  onDownloadReadinessReport?: () => void;
   onCancel: () => void;
   onJoin: (publishMicrophone: boolean, publishCamera: boolean) => void;
 }) {
@@ -174,7 +190,7 @@ export function CallPrejoinDialog({
       </div>
       <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">
         <strong>Before joining</strong>
-        <span>Microphone is not capturing</span>
+        <span>{joining && readinessEnabled ? "Microphone relay check in progress" : "Microphone is not capturing"}</span>
         {kind === "video" && (
           <span className={cameraEnabled ? "active" : undefined}>
             Camera preview {cameraEnabled ? "on locally" : "off"}
@@ -182,9 +198,39 @@ export function CallPrejoinDialog({
         )}
       </div>
       <div className="prejoin-consent-grid">
-        <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
+        <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining || readinessEnabled} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
         {kind === "video" && <label className="checkbox-field"><input type="checkbox" checked={cameraEnabled} disabled={joining || previewBusy} onChange={(event) => onCameraEnabled(event.target.checked)} />Use camera when I join</label>}
       </div>
+      {kind === "audio" && onReadinessEnabled && (
+        <section className="prejoin-readiness-option" aria-labelledby="prejoin-readiness-title">
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={readinessEnabled}
+              disabled={joining}
+              onChange={(event) => onReadinessEnabled(event.target.checked)}
+            />
+            <span><strong id="prejoin-readiness-title">Run secure office network qualification</strong><small>Checks signaling, TURN relay, microphone publishing, recovery, and a 60-second two-way conversation.</small></span>
+          </label>
+          {readinessEnabled && joining && (
+            <ul className="prejoin-readiness-checks" aria-label="Office network qualification checks">
+              {readinessChecks.map((check) => <li key={check.id}><span>{check.label}</span><small>{check.status}</small></li>)}
+              {readinessPhase === "switching_transport" && <li><span>TURN/TLS path</span><small>running</small></li>}
+            </ul>
+          )}
+          {readinessEnabled && readinessPhase === "failed" && (
+            <div className="prejoin-readiness-failure" role="alert">
+              <strong>Office network qualification did not complete.</strong>
+              {readinessFailure && <span>{readinessFailure}</span>}
+              {readinessReportAvailable && onDownloadReadinessReport && (
+                <button className="button ghost compact" type="button" onClick={onDownloadReadinessReport}>
+                  <AppIcon name="download" /> Download privacy-safe report
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
       <details className="prejoin-device-settings">
         <summary>Device settings</summary>
         <div className="call-device-grid prejoin-device-grid">
@@ -209,8 +255,8 @@ export function CallPrejoinDialog({
       <div className="form-actions audio-prejoin-actions">
         <button className="button ghost prejoin-cancel-action" type="button" onClick={onCancel}>Cancel</button>
         {kind === "audio" ? <>
-          <button className="button ghost" type="button" disabled={joining} onClick={() => onJoin(false, false)}>{joining ? "Joining…" : "Join muted"}</button>
-          <button className="button primary" type="button" disabled={joining} onClick={() => onJoin(true, false)}>{joining ? "Joining…" : "Join with microphone"}</button>
+          {!readinessEnabled && <button className="button ghost" type="button" disabled={joining} onClick={() => onJoin(false, false)}>{joining ? "Joining…" : "Join muted"}</button>}
+          <button className="button primary" type="button" disabled={joining} onClick={() => onJoin(true, false)}>{joining ? (readinessEnabled ? "Checking network…" : "Joining…") : readinessEnabled ? "Run office call test" : "Join with microphone"}</button>
         </> : <button className="button primary" type="button" disabled={joining || previewBusy} onClick={() => onJoin(microphoneEnabled, cameraEnabled)}>{joining ? "Joining…" : "Join video call"}</button>}
       </div>
     </section>

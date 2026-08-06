@@ -3048,7 +3048,7 @@ components:
       properties:
         expires_in_seconds:
           type: integer
-          minimum: 900
+          minimum: 600
           maximum: 86400
           default: 86400
         max_uses:

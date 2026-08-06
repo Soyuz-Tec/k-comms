@@ -14,6 +14,8 @@ import {
 } from "./CallPanelViews";
 import { useCallSession, type CallPanelProps } from "./useCallSession";
 import { formatCallDuration, mediaLabel } from "./callMedia";
+import { CallReadinessPanel } from "./CallReadinessPanel";
+import { downloadCallReadinessReport } from "./callReadiness";
 
 export type {
   CallApi,
@@ -40,6 +42,7 @@ export function CallPanel({
   showVideoAction = true,
   launchRequest,
   launchRequestId,
+  launchReadinessMode,
   onLaunchRequestConsumed,
   renderActions = true,
   onNavigate,
@@ -83,6 +86,7 @@ export function CallPanel({
     participants,
     raisedUserIds,
     callReactions,
+    callReadiness,
     phase,
     prejoinCamera,
     prejoinKind,
@@ -103,6 +107,7 @@ export function CallPanel({
     setMinimized,
     setMobileWorkspaceOpen,
     setPrejoinMicrophone,
+    setReadinessEnabled,
     setSelectedMicrophone,
     toggleCallControlLabels,
     toggleCamera,
@@ -125,6 +130,7 @@ export function CallPanel({
     realtimeEvent,
     launchRequest,
     launchRequestId,
+    launchReadinessMode,
     onLaunchRequestConsumed,
     onNavigate,
     onOpenChat,
@@ -172,10 +178,19 @@ export function CallPanel({
           previewBusy={previewBusy}
           previewVideoRef={previewVideoRef}
           error={error}
+          readinessEnabled={callReadiness.enabled}
+          readinessPhase={callReadiness.phase}
+          readinessChecks={callReadiness.checks}
+          readinessFailure={callReadiness.failure}
+          readinessReportAvailable={Boolean(callReadiness.report)}
           onMicrophone={setSelectedMicrophone}
           onCamera={(deviceId) => void selectPrejoinCamera(deviceId)}
           onMicrophoneEnabled={setPrejoinMicrophone}
           onCameraEnabled={(enabled) => void togglePrejoinCamera(enabled)}
+          onReadinessEnabled={setReadinessEnabled}
+          onDownloadReadinessReport={() => {
+            if (callReadiness.report) downloadCallReadinessReport(callReadiness.report);
+          }}
           onCancel={() => void leave()}
           onJoin={(publishMicrophone, publishCamera) => void join({ publishMicrophone, publishCamera })}
         />,
@@ -419,11 +434,12 @@ export function CallPanel({
                 </div>
               )}
             </section>
-            <div className="call-stage">
+            <div className={`call-stage ${callReadiness.enabled ? "has-call-readiness" : ""}`}>
               {error && <div className="form-error" role="alert">{error}</div>}
               <div className="call-policy-notice" role="note">Recording and transcription are off by workspace policy.</div>
               {callReactions.length > 0 && <div className="call-reaction-overlay" aria-live="polite">{callReactions.slice(-5).map((reaction) => <span key={reaction.id}>{reaction.emoji}</span>)}</div>}
               {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
+              {callReadiness.enabled && <CallReadinessPanel readiness={callReadiness} />}
               {joinedKind === "video" && (
                 <VideoParticipantGrid
                   participants={prioritizeVideoParticipants(displayParticipants)}

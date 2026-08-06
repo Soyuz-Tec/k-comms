@@ -11,6 +11,7 @@ import {
   participantIdentifier
 } from "../../lib/participantIdentity";
 import { callAvailabilityGuidance } from "./callAvailability";
+import { CallReadinessLauncher } from "./CallReadinessLauncher";
 import { CallLaunchButton } from "./CallSessionProvider";
 import type {
   CallMediaKind,
@@ -32,6 +33,7 @@ export function CallsPage() {
     users,
     capabilities,
     audioCallsAvailable,
+    createConversation,
     loading: workspaceLoading,
     refreshCallAvailability,
     videoCallsAvailable
@@ -162,6 +164,12 @@ export function CallsPage() {
           {loading ? "Refreshing…" : "Refresh"}
         </button>
       </header>
+
+      <CallReadinessLauncher
+        api={api}
+        audioAvailable={canUseAudio}
+        createConversation={createConversation}
+      />
 
       <button
         className="calls-new-call-toggle"

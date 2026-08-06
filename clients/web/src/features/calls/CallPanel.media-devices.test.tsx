@@ -53,10 +53,26 @@ const livekit = vi.hoisted(() => ({
   canPlaybackAudio: true,
   canPlaybackVideo: true,
   supportsVP9: true,
+  checkWebsocket: vi.fn(),
+  checkTURN: vi.fn(),
+  checkPublishAudio: vi.fn(),
+  checkReconnect: vi.fn(),
+  simulateScenario: vi.fn(),
+  connectionCheckOptions: [] as Record<string, unknown>[],
   roomOptions: [] as Record<string, unknown>[]
 }));
 
 vi.mock("livekit-client", () => ({
+  CheckStatus: { SUCCESS: "success", FAILED: "failed", SKIPPED: "skipped", RUNNING: "running" },
+  ConnectionCheck: class MockConnectionCheck {
+    constructor(_serverUrl: string, _participantToken: string, options: Record<string, unknown>) {
+      livekit.connectionCheckOptions.push(options);
+    }
+    checkWebsocket() { return livekit.checkWebsocket(); }
+    checkTURN() { return livekit.checkTURN(); }
+    checkPublishAudio() { return livekit.checkPublishAudio(); }
+    checkReconnect() { return livekit.checkReconnect(); }
+  },
   ConnectionState: { Reconnecting: "reconnecting", SignalReconnecting: "signalReconnecting" },
   DisconnectReason: { PARTICIPANT_REMOVED: 4, ROOM_DELETED: 5 },
   RoomEvent: livekit.events,
@@ -66,7 +82,7 @@ vi.mock("livekit-client", () => ({
   supportsVP9: () => livekit.supportsVP9,
   Track: {
     Kind: { Audio: "audio", Video: "video" },
-    Source: { Camera: "camera", ScreenShare: "screen_share" }
+    Source: { Camera: "camera", Microphone: "microphone", ScreenShare: "screen_share" }
   },
   Room: class MockRoom {
     static getLocalDevices(kind: MediaDeviceKind, requestPermissions?: boolean) {
@@ -83,6 +99,11 @@ vi.mock("livekit-client", () => ({
       livekit.callbacks.set(event, callback);
       return this;
     }
+    off(event: string) {
+      livekit.callbacks.delete(event);
+      return this;
+    }
+    simulateScenario(scenario: string) { return livekit.simulateScenario(scenario); }
     connect(url: string, token: string, options: unknown) { return livekit.connect(url, token, options); }
     disconnect(stopTracks?: boolean) { return livekit.disconnect(stopTracks); }
     startAudio() { return livekit.startAudio(); }
@@ -201,7 +222,14 @@ describe("CallPanel calls", () => {
     window.localStorage.clear();
     livekit.callbacks.clear();
     livekit.remoteParticipants.clear();
+    livekit.connectionCheckOptions.length = 0;
     livekit.roomOptions.length = 0;
+    const passed = { status: "success" };
+    livekit.checkWebsocket.mockReset().mockResolvedValue(passed);
+    livekit.checkTURN.mockReset().mockResolvedValue(passed);
+    livekit.checkPublishAudio.mockReset().mockResolvedValue(passed);
+    livekit.checkReconnect.mockReset().mockResolvedValue(passed);
+    livekit.simulateScenario.mockReset().mockResolvedValue(undefined);
     livekit.supportsVP9 = true;
     livekit.localParticipant.isMicrophoneEnabled = false;
     livekit.localParticipant.isCameraEnabled = false;
@@ -443,6 +471,67 @@ describe("CallPanel calls", () => {
     expect(await screen.findByText("Connected")).toBeVisible();
 
     expect(livekit.roomOptions.at(-1)).not.toHaveProperty("rtcConfig");
+  });
+
+  it("runs the office preflight and forces relay for a readiness launch", async () => {
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        launchRequest="audio"
+        launchRequestId={42}
+        launchReadinessMode="office"
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Join the audio call" });
+    expect(within(dialog).getByRole("checkbox", { name: /Run secure office network qualification/ })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: "Use microphone when I join" })).toBeDisabled();
+    expect(within(dialog).queryByRole("button", { name: "Join muted" })).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Run office call test" }));
+    expect(await screen.findByText("Connected")).toBeVisible();
+
+    expect(livekit.checkWebsocket).toHaveBeenCalledOnce();
+    expect(livekit.checkTURN).toHaveBeenCalledOnce();
+    expect(livekit.checkPublishAudio).toHaveBeenCalledOnce();
+    expect(livekit.checkReconnect).toHaveBeenCalledOnce();
+    expect(livekit.connectionCheckOptions.at(-1)).toEqual({
+      connectOptions: { rtcConfig: { iceTransportPolicy: "relay" } }
+    });
+    expect(livekit.roomOptions.at(-1)?.rtcConfig).toEqual({ iceTransportPolicy: "relay" });
+    expect(livekit.simulateScenario).toHaveBeenCalledWith("force-tls");
+  });
+
+  it("keeps a failed readiness run in the lobby with an exportable report", async () => {
+    livekit.connect.mockRejectedValueOnce(new Error("relay unavailable"));
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        launchRequest="audio"
+        launchRequestId={43}
+        launchReadinessMode="office"
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Join the audio call" });
+    await user.click(within(dialog).getByRole("button", { name: "Run office call test" }));
+
+    expect(await within(dialog).findByText("Office network qualification did not complete."))
+      .toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Download privacy-safe report" }))
+      .toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Run office call test" }))
+      .toBeEnabled();
   });
 
   it("ignores old-room device and media failures after switching conversations", async () => {

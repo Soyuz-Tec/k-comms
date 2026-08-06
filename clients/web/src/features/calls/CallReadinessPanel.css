@@ -1,0 +1,255 @@
+.call-stage.has-call-readiness {
+  gap: .75rem;
+  align-items: stretch;
+}
+
+.prejoin-readiness-option {
+  margin: .65rem 0;
+  padding: .75rem;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-sunken);
+}
+
+.prejoin-readiness-option .checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  color: var(--text-primary);
+}
+
+.prejoin-readiness-option .checkbox-field input {
+  margin-top: .2rem;
+}
+
+.prejoin-readiness-option .checkbox-field span {
+  display: grid;
+  gap: .2rem;
+}
+
+.prejoin-readiness-option .checkbox-field small {
+  color: var(--text-muted);
+  font-weight: 450;
+  line-height: 1.4;
+}
+
+.prejoin-readiness-checks {
+  display: grid;
+  gap: .3rem;
+  margin: .65rem 0 0 1.4rem;
+  padding: 0;
+  font-size: .75rem;
+}
+
+.prejoin-readiness-checks li {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+}
+
+.prejoin-readiness-checks small {
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.prejoin-readiness-failure {
+  display: grid;
+  gap: .4rem;
+  margin-top: .65rem;
+  padding: .65rem;
+  border: 1px solid var(--danger-border);
+  border-radius: 10px;
+  color: var(--danger-text);
+  background: var(--danger-quiet);
+  font-size: .75rem;
+}
+
+.prejoin-readiness-failure .button {
+  width: fit-content;
+}
+
+.call-readiness-panel {
+  width: min(320px, 38%);
+  min-width: 260px;
+  flex: 0 0 auto;
+  overflow-y: auto;
+  padding: .85rem;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  scrollbar-width: thin;
+}
+
+.call-readiness-panel > header {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+
+.call-readiness-panel h3 {
+  margin: .1rem 0 0;
+  font-size: 1rem;
+}
+
+.call-readiness-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+}
+
+.call-readiness-progress {
+  margin: .85rem 0;
+}
+
+.call-readiness-progress > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem;
+}
+
+.call-readiness-progress strong {
+  font-size: 1.3rem;
+}
+
+.call-readiness-progress progress {
+  width: 100%;
+  accent-color: var(--accent-solid);
+}
+
+.call-readiness-guidance,
+.call-readiness-privacy {
+  color: var(--text-muted);
+  font-size: .75rem;
+  line-height: 1.45;
+}
+
+.call-readiness-checks {
+  display: grid;
+  gap: .35rem;
+  margin: .75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.call-readiness-checks li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .4rem;
+  font-size: .78rem;
+}
+
+.call-readiness-checks li > span:first-child,
+.call-readiness-checks .app-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.call-readiness-checks small {
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.call-readiness-checks .status-passed > span:first-child {
+  color: var(--success-text);
+}
+
+.call-readiness-checks .status-failed > span:first-child,
+.call-readiness-checks .status-skipped > span:first-child {
+  color: var(--danger-text);
+}
+
+.call-readiness-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .4rem;
+  margin: .75rem 0;
+}
+
+.call-readiness-metrics div {
+  min-width: 0;
+  padding: .5rem;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.call-readiness-metrics dt {
+  color: var(--text-muted);
+  font-size: .68rem;
+}
+
+.call-readiness-metrics dd {
+  overflow: hidden;
+  margin: .15rem 0 0;
+  font-size: .8rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-readiness-heard {
+  width: 100%;
+  justify-content: center;
+}
+
+.call-readiness-result {
+  margin-top: .75rem;
+  padding: .7rem;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+
+.call-readiness-result > strong {
+  display: block;
+  margin-bottom: .35rem;
+}
+
+.call-readiness-result p,
+.call-readiness-result ul {
+  margin: .35rem 0;
+  font-size: .75rem;
+  line-height: 1.4;
+}
+
+.call-readiness-result .button {
+  margin-top: .45rem;
+}
+
+.call-readiness-panel.verdict-pass .call-readiness-result,
+.call-readiness-panel.verdict-warning .call-readiness-result {
+  border-color: var(--success-border);
+}
+
+@media (max-width: 760px) {
+  .call-stage.has-call-readiness {
+    flex-direction: column;
+    overflow-y: auto !important;
+  }
+
+  .call-readiness-panel {
+    width: 100%;
+    min-width: 0;
+    flex-basis: auto;
+    overflow: visible;
+  }
+
+  .call-stage.has-call-readiness .audio-participant-stage {
+    min-height: 220px;
+    overflow: visible;
+  }
+}
+
+@media (forced-colors: active) {
+  .call-readiness-panel,
+  .call-readiness-result {
+    border: 1px solid CanvasText;
+  }
+}

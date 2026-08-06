@@ -1105,7 +1105,7 @@ def validate_guest_contract(openapi: dict[str, Any]) -> None:
     create_properties = create_link.get("properties", {})
     if (
         create_link.get("additionalProperties") is not False
-        or create_properties.get("expires_in_seconds", {}).get("minimum") != 900
+        or create_properties.get("expires_in_seconds", {}).get("minimum") != 600
         or create_properties.get("expires_in_seconds", {}).get("maximum") != 86400
         or create_properties.get("max_uses", {}).get("minimum") != 1
         or create_properties.get("max_uses", {}).get("maximum") != 25
@@ -1116,7 +1116,7 @@ def validate_guest_contract(openapi: dict[str, Any]) -> None:
         or create_properties.get("conversion_email", {}).get("writeOnly") is not True
     ):
         raise ValueError(
-            "CreateGuestLinkRequest must bound lifetime to 900..86400 seconds "
+            "CreateGuestLinkRequest must bound lifetime to 600..86400 seconds "
             "and uses to 1..25, with an optional write-only conversion email"
         )
 

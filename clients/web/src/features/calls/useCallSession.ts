@@ -28,6 +28,8 @@ import {
 import { useCallPresentationState } from "./useCallPresentationState";
 import { useCallControlPlane } from "./useCallControlPlane";
 import { useCallMediaSession } from "./useCallMediaSession";
+import { useCallReadinessTest } from "./useCallReadinessTest";
+import type { CallReadinessMode } from "./callReadinessNavigation";
 
 export interface CallPanelProps {
   api: CallApi;
@@ -40,6 +42,7 @@ export interface CallPanelProps {
   showVideoAction?: boolean;
   launchRequest?: CallMediaKind | null;
   launchRequestId?: number;
+  launchReadinessMode?: CallReadinessMode | null;
   onLaunchRequestConsumed?: () => void;
   renderActions?: boolean;
   onNavigate?: (path: string) => void;
@@ -57,6 +60,7 @@ export function useCallSession({
   realtimeEvent,
   launchRequest,
   launchRequestId,
+  launchReadinessMode,
   onLaunchRequestConsumed,
   onNavigate,
   onOpenChat,
@@ -124,6 +128,20 @@ export function useCallSession({
     mountedRef,
     setError
   });
+  const callReadiness = useCallReadinessTest({
+    microphoneEnabled,
+    participants,
+    roomRef
+  });
+  const {
+    beginTransportQualification: beginCallReadinessTransport,
+    enabled: callReadinessEnabled,
+    fail: failCallReadiness,
+    recordUnexpectedReconnect: recordCallReadinessReconnect,
+    reset: resetCallReadiness,
+    runPreflight: runCallReadinessPreflight,
+    setEnabled: setCallReadinessEnabled
+  } = callReadiness;
   const currentCallId = call?.id;
   const currentMediaKind = call ? callMediaKind(call) : prejoinKind;
   const joined = Boolean(roomRef.current) && ["connected", "reconnecting", "leaving"].includes(phase);
@@ -152,10 +170,12 @@ export function useCallSession({
     presentation.setMobileWorkspaceOpen(false);
     presentation.setEndConfirmationOpen(false);
     resetMediaState();
+    resetCallReadiness(false);
   }, [
     presentation.setCallWorkspaceTab,
     presentation.setEndConfirmationOpen,
     presentation.setMobileWorkspaceOpen,
+    resetCallReadiness,
     resetMediaState
   ]);
 
@@ -347,7 +367,10 @@ export function useCallSession({
     return () => window.cancelAnimationFrame(animationFrame);
   }, [phase]);
 
-  const openPrejoin = useCallback(async (requestedKind: CallMediaKind) => {
+  const openPrejoin = useCallback(async (
+    requestedKind: CallMediaKind,
+    readinessMode: CallReadinessMode | null = null
+  ) => {
     if (accessRevokedRef.current || roomRef.current) return;
     if (phase === "error") {
       setPhase("loading");
@@ -356,10 +379,12 @@ export function useCallSession({
     }
     const kind = call?.status === "active" ? callMediaKind(call) : requestedKind;
     if (!mediaEnabled(kind, audioEnabled, videoEnabled)) return;
+    const readinessEnabled = kind === "audio" && readinessMode === "office";
     const generation = operationGenerationRef.current;
     pendingMediaKindRef.current = kind;
     setPrejoinKind(kind);
-    setPrejoinMicrophone(false);
+    setCallReadinessEnabled(readinessEnabled);
+    setPrejoinMicrophone(readinessEnabled);
     setPrejoinCamera(false);
     stopPreview();
     setError(null);
@@ -375,6 +400,7 @@ export function useCallSession({
     operationIsCurrent,
     phase,
     refreshCall,
+    setCallReadinessEnabled,
     stopPreview,
     videoEnabled
   ]);
@@ -394,13 +420,16 @@ export function useCallSession({
       setError(`${mediaLabel(launchRequest)} calls are disabled for this workspace.`);
       return;
     }
-    void openPrejoin(launchRequest);
-  }, [audioEnabled, launchRequest, launchRequestId, onLaunchRequestConsumed, openPrejoin, phase, videoEnabled]);
+    void openPrejoin(launchRequest, launchReadinessMode);
+  }, [audioEnabled, launchReadinessMode, launchRequest, launchRequestId, onLaunchRequestConsumed, openPrejoin, phase, videoEnabled]);
 
   async function join(options: { publishMicrophone: boolean; publishCamera: boolean }) {
     if (accessRevokedRef.current) return;
     const kind = call?.status === "active" ? callMediaKind(call) : prejoinKind;
     if (!mediaEnabled(kind, audioEnabled, videoEnabled)) return;
+    const readinessEnabled = kind === "audio" && callReadinessEnabled;
+    const publishMicrophone = readinessEnabled || options.publishMicrophone;
+    if (readinessEnabled) resetCallReadiness(true);
     const generation = invalidateOperations();
     pendingMediaKindRef.current = kind;
     stopPreview();
@@ -415,9 +444,13 @@ export function useCallSession({
 
     let microphoneDeviceId = selectedMicrophone;
     let cameraDeviceId = selectedCamera;
-    if (options.publishMicrophone) {
+    if (publishMicrophone) {
       const boundaryError = mediaBoundaryError("microphone");
-      if (boundaryError) { setError(boundaryError); return; }
+      if (boundaryError) {
+        if (readinessEnabled) failCallReadiness(boundaryError);
+        setError(boundaryError);
+        return;
+      }
       try {
         const devices = await Room.getLocalDevices("audioinput", true);
         if (!operationIsCurrent(generation)) return;
@@ -426,7 +459,11 @@ export function useCallSession({
         setMicrophones(devices);
         setSelectedMicrophone(microphoneDeviceId);
       } catch (reason: unknown) {
-        if (operationIsCurrent(generation)) setError(mediaErrorText(reason, "microphone"));
+        if (operationIsCurrent(generation)) {
+          const message = mediaErrorText(reason, "microphone");
+          if (readinessEnabled) failCallReadiness(message);
+          setError(message);
+        }
         return;
       }
     }
@@ -457,13 +494,24 @@ export function useCallSession({
       if (!operationIsCurrent(generation)) return;
       setCall(response.data);
 
+      if (readinessEnabled) {
+        await runCallReadinessPreflight(
+          response.credential.server_url,
+          response.credential.participant_token
+        );
+        if (!operationIsCurrent(generation)) return;
+      }
+
       room = new Room({
         adaptiveStream: true,
         dynacast: true,
         audioCaptureDefaults: microphoneCaptureOptions(microphoneDeviceId),
         videoCaptureDefaults: cameraCaptureOptions(cameraDeviceId),
         publishDefaults: callPublishDefaults(),
-        ...callRtcConfig(response.credential.ice_servers)
+        ...callRtcConfig(
+          response.credential.ice_servers,
+          readinessEnabled ? "relay" : undefined
+        )
       });
       bindRoom(room, kind);
       roomRef.current = room;
@@ -510,7 +558,7 @@ export function useCallSession({
         }
       }
 
-      if (options.publishMicrophone) {
+      if (publishMicrophone) {
         try {
           await room.localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions(microphoneDeviceId));
         } catch (reason: unknown) {
@@ -536,6 +584,7 @@ export function useCallSession({
       pendingMediaKindRef.current = null;
       updateRoomState(room);
       setPhase("connected");
+      if (readinessEnabled) void beginCallReadinessTransport(room);
       void connectCallRealtime(response.data.id, generation, room);
     } catch (reason: unknown) {
       if (room) await disconnectRoom(room);
@@ -543,8 +592,10 @@ export function useCallSession({
       roomMediaKindRef.current = null;
       pendingMediaKindRef.current = null;
       if (!operationIsCurrent(generation)) return;
-      setError(`Unable to join the ${kind} call. ${errorText(reason)}`);
-      setPhase("error");
+      const message = `Unable to join the ${kind} call. ${errorText(reason)}`;
+      if (readinessEnabled) failCallReadiness(message);
+      setError(message);
+      setPhase(readinessEnabled ? "prejoin" : "error");
     }
   }
 
@@ -574,7 +625,10 @@ export function useCallSession({
       update();
     });
     room.on(RoomEvent.Reconnecting, () => {
-      if (roomRef.current === room) setPhase("reconnecting");
+      if (roomRef.current === room) {
+        recordCallReadinessReconnect();
+        setPhase("reconnecting");
+      }
     });
     room.on(RoomEvent.Reconnected, () => {
       if (roomRef.current !== room) return;
@@ -918,6 +972,11 @@ export function useCallSession({
 
   const activeKind = call?.status === "active" ? callMediaKind(call) : null;
 
+  const setReadinessEnabled = useCallback((enabled: boolean) => {
+    setCallReadinessEnabled(enabled);
+    if (enabled) setPrejoinMicrophone(true);
+  }, [setCallReadinessEnabled, setPrejoinMicrophone]);
+
   useEffect(() => {
     onSessionStateChange?.({
       conversationId: conversation.id,
@@ -983,6 +1042,7 @@ export function useCallSession({
     participants,
     raisedUserIds,
     callReactions,
+    callReadiness,
     phase,
     prejoinCamera,
     prejoinKind,
@@ -1003,6 +1063,7 @@ export function useCallSession({
     setMinimized: presentation.setMinimized,
     setMobileWorkspaceOpen: presentation.setMobileWorkspaceOpen,
     setPrejoinMicrophone,
+    setReadinessEnabled,
     setSelectedMicrophone,
     toggleCallControlLabels: presentation.toggleCallControlLabels,
     toggleCamera,
