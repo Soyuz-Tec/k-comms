@@ -105,7 +105,14 @@ function ApplicationRoutes() {
       <Routes>
         <Route path="/forgot-password" element={<><RouteOrientation authenticated={false} /><ForgotPasswordPage /></>} />
         <Route path="/reset-password" element={<><RouteOrientation authenticated={false} /><ResetPasswordPage /></>} />
-        <Route path="/sign-in" element={<AuthScreen />} />
+        <Route
+          path="/sign-in"
+          element={
+            <InstantRoomPage
+              authenticationGateway={<AuthScreen embedded />}
+            />
+          }
+        />
         <Route
           path="/app/"
           element={
