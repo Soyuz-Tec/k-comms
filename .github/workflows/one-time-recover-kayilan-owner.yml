@@ -350,9 +350,9 @@ jobs:
           "### One-time Kayilan owner recovery" |
               Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Target: `kayilan / cs@kayilan.com`" |
+          '- Target: `kayilan / cs@kayilan.com`' |
               Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "- Result: active owner password reset and prior access revoked" |
+          '- Result: active owner password reset and prior access revoked' |
               Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Remove the remote one-time password
