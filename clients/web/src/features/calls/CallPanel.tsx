@@ -91,6 +91,7 @@ export function CallPanel({
     prejoinCamera,
     prejoinKind,
     prejoinMicrophone,
+    preferDirectAudio,
     previewBusy,
     previewVideoRef,
     remoteAudioRef,
@@ -107,6 +108,7 @@ export function CallPanel({
     setMinimized,
     setMobileWorkspaceOpen,
     setPrejoinMicrophone,
+    setPreferDirectAudio,
     setReadinessEnabled,
     setSelectedMicrophone,
     toggleCallControlLabels,
@@ -119,6 +121,7 @@ export function CallPanel({
     muteParticipant,
     removeParticipant,
     speakers,
+    transportMode,
     videoBlocked
   } = useCallSession({
     api,
@@ -183,11 +186,14 @@ export function CallPanel({
           readinessChecks={callReadiness.checks}
           readinessFailure={callReadiness.failure}
           readinessReportAvailable={Boolean(callReadiness.report)}
+          directAudioAvailable={conversation.kind === "direct" && prejoinKind === "audio"}
+          preferDirectAudio={preferDirectAudio}
           onMicrophone={setSelectedMicrophone}
           onCamera={(deviceId) => void selectPrejoinCamera(deviceId)}
           onMicrophoneEnabled={setPrejoinMicrophone}
           onCameraEnabled={(enabled) => void togglePrejoinCamera(enabled)}
           onReadinessEnabled={setReadinessEnabled}
+          onPreferDirectAudio={setPreferDirectAudio}
           onDownloadReadinessReport={() => {
             if (callReadiness.report) downloadCallReadinessReport(callReadiness.report);
           }}
@@ -241,6 +247,17 @@ export function CallPanel({
                 >
                   {callStatusLabel}
                 </span>
+                {joinedKind === "audio" && (
+                  <span className={`status-pill ${transportMode === "direct" ? "success" : "neutral"}`} aria-live="polite">
+                    {transportMode === "direct"
+                      ? "Direct"
+                      : transportMode === "connecting_direct"
+                        ? "Switching to direct"
+                        : transportMode === "livekit_fallback"
+                          ? "LiveKit fallback"
+                          : "LiveKit"}
+                  </span>
+                )}
               </div>
             </div>
             <div

@@ -61,6 +61,15 @@ config :comms_integrations,
 
 config :comms_web,
   allow_bootstrap: true,
+  direct_audio_p2p_enabled:
+    System.get_env("DIRECT_AUDIO_P2P_ENABLED", "true")
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.==("true"),
+  direct_audio_stun_urls:
+    System.get_env("DIRECT_AUDIO_STUN_URLS", "stun:stun.cloudflare.com:3478")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1),
   instant_room_creation_rate_limits_enabled: false,
   public_share_origin: public_app_url,
   access_token_ttl_seconds: 3_600,

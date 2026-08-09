@@ -116,11 +116,14 @@ export function CallPrejoinDialog({
   readinessChecks = [],
   readinessFailure = null,
   readinessReportAvailable = false,
+  directAudioAvailable = false,
+  preferDirectAudio = false,
   onMicrophone,
   onCamera,
   onMicrophoneEnabled,
   onCameraEnabled,
   onReadinessEnabled,
+  onPreferDirectAudio,
   onDownloadReadinessReport,
   onCancel,
   onJoin
@@ -143,11 +146,14 @@ export function CallPrejoinDialog({
   readinessChecks?: CallReadinessCheckResult[];
   readinessFailure?: string | null;
   readinessReportAvailable?: boolean;
+  directAudioAvailable?: boolean;
+  preferDirectAudio?: boolean;
   onMicrophone: (deviceId: string) => void;
   onCamera: (deviceId: string) => void;
   onMicrophoneEnabled: (enabled: boolean) => void;
   onCameraEnabled: (enabled: boolean) => void;
   onReadinessEnabled?: (enabled: boolean) => void;
+  onPreferDirectAudio?: (enabled: boolean) => void;
   onDownloadReadinessReport?: () => void;
   onCancel: () => void;
   onJoin: (publishMicrophone: boolean, publishCamera: boolean) => void;
@@ -201,6 +207,22 @@ export function CallPrejoinDialog({
         <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining || readinessEnabled} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
         {kind === "video" && <label className="checkbox-field"><input type="checkbox" checked={cameraEnabled} disabled={joining || previewBusy} onChange={(event) => onCameraEnabled(event.target.checked)} />Use camera when I join</label>}
       </div>
+      {kind === "audio" && directAudioAvailable && !readinessEnabled && onPreferDirectAudio && (
+        <section className="prejoin-readiness-option" aria-labelledby="prejoin-direct-audio-title">
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={preferDirectAudio}
+              disabled={joining}
+              onChange={(event) => onPreferDirectAudio(event.target.checked)}
+            />
+            <span>
+              <strong id="prejoin-direct-audio-title">Prefer a direct connection</strong>
+              <small>When both people opt in, encrypted audio goes directly between their devices. This reveals each device&apos;s network address to the other person. K-Comms automatically falls back to LiveKit if the direct path cannot connect.</small>
+            </span>
+          </label>
+        </section>
+      )}
       {kind === "audio" && onReadinessEnabled && (
         <section className="prejoin-readiness-option" aria-labelledby="prejoin-readiness-title">
           <label className="checkbox-field">
