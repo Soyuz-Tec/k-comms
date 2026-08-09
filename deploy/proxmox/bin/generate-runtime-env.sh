@@ -117,6 +117,8 @@ install -m 0600 /dev/null "$output"
   printf 'AUDIO_PROVIDER_MODE=livekit\n'
   printf 'AUDIO_TOKEN_TTL_SECONDS=300\n'
   printf 'AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS=660\n'
+  printf 'DIRECT_AUDIO_P2P_ENABLED=true\n'
+  printf 'DIRECT_AUDIO_STUN_URLS=stun:stun.cloudflare.com:3478\n'
   printf 'MINIO_ROOT_USER=kcomms\n'
   printf 'MINIO_ROOT_PASSWORD=%s\n' "$minio_password"
   printf 'MINIO_API_CORS_ALLOW_ORIGIN=%s\n' "$app_origin"

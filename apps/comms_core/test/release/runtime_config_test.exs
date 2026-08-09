@@ -76,6 +76,14 @@ defmodule CommsCore.Release.RuntimeConfigTest do
       Map.update!(base_environment, "DATABASE_URL", &(&1 <> "?ssl=false")),
       "DATABASE_URL must not override the runtime TLS policy with an ssl query parameter"
     )
+
+    assert_runtime_config_rejected!(
+      Map.merge(base_environment, %{
+        "DIRECT_AUDIO_P2P_ENABLED" => "true",
+        "DIRECT_AUDIO_STUN_URLS" => "https://not-an-ice-endpoint.example.test"
+      }),
+      "DIRECT_AUDIO_STUN_URLS must contain one to four comma-separated stun: or stuns: URLs"
+    )
   end
 
   defp runtime_database_application_name! do

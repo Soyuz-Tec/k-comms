@@ -88,7 +88,7 @@ immutable `media_kind`, lifecycle status/times, and current caller end
 capability. Clients reconcile through `GET
 /api/v1/conversations/{conversation_id}/call`; they never exchange provider
 credentials, participant state, camera/screen state, SDP, ICE, RTP, or SRTP over
-Phoenix.
+Phoenix, except for the explicitly opted-in one-to-one audio negotiation below.
 
 The call topic accepts `call.hand.set.v1` with a boolean `raised` field and
 `call.reaction.v1` with one allowlisted emoji. It emits `call.hand.v1`,
@@ -97,6 +97,19 @@ The call topic accepts `call.hand.set.v1` with a boolean `raised` field and
 reactions are bounded, rate-limited, and ephemeral. These payloads contain user
 or participant IDs only and never provider rooms, provider identities, track
 SIDs, credentials, signaling, or media.
+
+For an active audio call in a direct conversation, a client may add
+`direct_audio: true` to the call-topic join. When the feature is enabled and the
+session remains admitted, the join response contains an unpredictable
+connection-scoped `peer_id` and a public STUN-only `ice_servers` list.
+`call.direct.peers.v1` carries only the active direct peer IDs and their user
+IDs. `call.direct.signal.v1` accepts a target peer ID and one allowlisted
+offer, answer, ICE candidate, microphone-state, or fallback signal. The server
+re-authorizes each command, requires the target to be a different present user,
+bounds SDP to 16 KiB and candidates to 2 KiB, and limits a call session to 240
+signals per minute. These events are ephemeral: they are not replayed,
+persisted, audited, placed in the outbox, or logged. RTP and SRTP media never
+traverse Phoenix.
 
 Conversation topics emit `message.delivery.v1` after an authorized device
 advances its delivery/read cursor. The payload is a content-free cursor

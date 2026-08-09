@@ -157,6 +157,10 @@ whiteboard-ineligible.
 - LiveKit media plane: ephemeral encrypted audio/video/screen transport and
   participant state; it owns neither tenant authorization nor durable call
   history.
+- Optional direct audio plane: ephemeral browser-to-browser SRTP for an active
+  direct-conversation audio call after both participants consent. Phoenix
+  carries only bounded, targeted negotiation; LiveKit stays connected for
+  lifecycle authority and automatic fallback. See ADR-0072.
 
 Call creation and its unique eight-hour expiry job commit together. The
 worker runtime owns provider-room cleanup and then invokes the same durable
