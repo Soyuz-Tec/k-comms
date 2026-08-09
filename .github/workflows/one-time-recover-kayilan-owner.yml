@@ -320,6 +320,7 @@ jobs:
           '@
 
           $remoteScript = $remoteScript.Replace("@@REMOTE_PASSWORD@@", $remotePassword)
+          $remoteScript = $remoteScript.Replace("`r`n", "`n")
           $encoded = [Convert]::ToBase64String(
               [Text.Encoding]::UTF8.GetBytes($remoteScript)
           )
