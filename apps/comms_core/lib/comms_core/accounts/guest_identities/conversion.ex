@@ -9,7 +9,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
     User
   }
 
-  alias CommsCore.Accounts.GuestIdentities.Validation
+  alias CommsCore.Accounts.GuestIdentities.{Persistence, Validation}
   alias CommsCore.{Audit, Repo}
   alias CommsCore.Security.Password
 
@@ -38,7 +38,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
           effects
         )
       end
-      |> run_transaction_aware()
+      |> Persistence.run_transaction_aware()
       |> normalize_account_result(effects)
     else
       {:error, :guest_account_conversion_email_mismatch}
@@ -63,7 +63,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
       not Repo.in_transaction?() ->
         {:error, :transaction_required}
 
-      not Validation.ephemeral_conversion_subject?(guest_subject) ->
+      not Validation.ephemeral_room_authority?(guest_subject) ->
         {:error, :forbidden}
 
       true ->
@@ -106,7 +106,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
           |> User.guest_conversion_changeset(changes)
           |> update_or_validation_error(effects)
 
-        revoked_at = now()
+        revoked_at = Persistence.now()
 
         session
         |> Session.changeset(%{revoked_at: revoked_at})
@@ -156,7 +156,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
           },
           request_id: Validation.optional_request_id(Validation.value(guest_subject, :request_id))
         })
-        |> audit_or_rollback()
+        |> Persistence.audit_or_rollback()
 
         {:ok,
          CommsCore.Accounts.Projector.authentication(%{
@@ -199,7 +199,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
           |> User.ephemeral_guest_conversion_changeset(changes)
           |> update_or_validation_error(effects)
 
-        converted_at = now()
+        converted_at = Persistence.now()
 
         session
         |> Session.changeset(%{revoked_at: converted_at})
@@ -226,7 +226,7 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
           },
           request_id: Validation.optional_request_id(Validation.value(guest_subject, :request_id))
         })
-        |> audit_or_rollback()
+        |> Persistence.audit_or_rollback()
 
         {:ok,
          CommsCore.Accounts.Projector.authentication(%{
@@ -258,22 +258,6 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
 
   defp normalize_account_result(result, _effects), do: result
 
-  defp run_transaction_aware(fun) when is_function(fun, 0) do
-    if Repo.in_transaction?() do
-      fun.()
-    else
-      case Repo.transaction(fn ->
-             case fun.() do
-               {:error, reason} -> Repo.rollback(reason)
-               result -> result
-             end
-           end) do
-        {:ok, result} -> result
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
-
   defp insert_or_rollback(changeset) do
     case Repo.insert(changeset) do
       {:ok, value} -> value
@@ -297,9 +281,4 @@ defmodule CommsCore.Accounts.GuestIdentities.Conversion do
         Repo.rollback(effects.validation_error_from_changeset.(invalid_changeset))
     end
   end
-
-  defp audit_or_rollback({:ok, event}), do: event
-  defp audit_or_rollback({:error, reason}), do: Repo.rollback(reason)
-
-  defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)
 end
