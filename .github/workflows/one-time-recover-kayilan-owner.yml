@@ -315,7 +315,15 @@ jobs:
             --env-file "$secret_path" \
             --env K_COMMS_INSTANCE_ID=one-time-owner-recovery \
             --env K_COMMS_RUNTIME_PURPOSE=one_shot \
+            --env K_COMMS_LOCAL_RELEASE=false \
+            --env K_COMMS_RELEASE_EXPOSURE_MODE= \
+            --env K_COMMS_TRUSTED_EDGE_CONFIRMATION= \
+            --env ALLOW_BOOTSTRAP=false \
             k-comms-app \
+            /usr/bin/env \
+            -u K_COMMS_QUALIFICATION_APP_ORIGIN \
+            -u K_COMMS_QUALIFICATION_APP_CONFIRMATION \
+            -u K_COMMS_QUALIFICATION_SHARE_ORIGIN \
             /app/bin/k_comms eval "$eval_code"
           '@
 
