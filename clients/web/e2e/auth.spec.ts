@@ -1,7 +1,8 @@
 import { expect, mockServiceStatus, test } from "./fixtures";
 import type { Page, Route } from "@playwright/test";
 
-test("production capability keeps the default page focused on sign-in", async ({ page }) => {
+test("production capability opens sign-in over the local canvas", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.route("**/api/v1/status", (route) => route.fulfill({
     json: serviceStatus(false)
   }));
@@ -9,7 +10,14 @@ test("production capability keeps the default page focused on sign-in", async ({
 
   const heading = page.getByRole("heading", { name: "Sign in to your workspace" });
   const workspace = page.getByLabel("Workspace address");
+  const canvas = page.getByTestId("authentication-canvas");
   await expect(heading).toBeVisible();
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("inert", "");
+  await expect(page.getByTestId("k-comms-drawing-surface")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Chat, call, and share files/i })
+  ).toHaveCount(0);
   await expect(workspace).toBeEnabled();
   await expect(heading).toBeFocused();
   await expect.poll(() => heading.evaluate((element) =>
@@ -19,6 +27,15 @@ test("production capability keeps the default page focused on sign-in", async ({
   await expect(page.getByRole("group", { name: "Other ways to continue" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Use invitation code" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create workspace" })).toHaveCount(0);
+
+  if (
+    process.env.K_COMMS_VISUAL_CAPTURE === "1" &&
+    testInfo.project.name === "chromium"
+  ) {
+    await page.screenshot({
+      path: testInfo.outputPath("authentication-canvas-1440.png")
+    });
+  }
 
   await page.keyboard.press("Tab");
   if (!(await workspace.evaluate((element) => element === document.activeElement))) {
@@ -38,6 +55,36 @@ test("production capability keeps the default page focused on sign-in", async ({
     page.getByText("Workspace creation is not available on this deployment.")
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Create workspace" })).toHaveCount(0);
+});
+
+test("authentication gateway remains usable over the canvas on a phone", async ({
+  page
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/v1/status", (route) => route.fulfill({
+    json: serviceStatus(false)
+  }));
+  await page.goto("/sign-in");
+
+  await expect(page.getByTestId("authentication-canvas")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to your workspace" })
+  ).toBeVisible();
+  await expect(page.getByLabel("Workspace address")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Start an instant room/i })).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth <= window.innerWidth
+  )).toBe(true);
+
+  if (
+    process.env.K_COMMS_VISUAL_CAPTURE === "1" &&
+    testInfo.project.name === "chromium"
+  ) {
+    await page.screenshot({
+      path: testInfo.outputPath("authentication-canvas-390.png")
+    });
+  }
 });
 
 test("returning member signs in with one submitted form and reaches Inbox", async ({ page }) => {
