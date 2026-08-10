@@ -707,43 +707,10 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
         # Reviewed transitions are single-use: each authorizes exactly one
-        # widening against one immutable base hash, and is removed once it
-        # lands. ADR-0073 adds the direct-audio adapter and weighted operation
-        # to the existing distributed rate-limit interface in this PR only.
+        # widening against one immutable base hash and is removed once it lands.
+        # The ADR-0073 widening is already present on the protected branch.
         transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
-        self.assertEqual(
-            transitions,
-            [
-                {
-                    "id": "direct-audio-distributed-rate-limit-interface",
-                    "previous_manifest_sha256": (
-                        "e5bc5cf646f244ea325c940415f770e40"
-                        "dfdec442b41e7025e3260bc9b75b15e"
-                    ),
-                    "approved_changes": [
-                        (
-                            "technical_interfaces:"
-                            "web-distributed-public-rate-limit:callers:add:"
-                            '"CommsWeb.DirectAudioRateLimit"'
-                        ),
-                        (
-                            "technical_interfaces:"
-                            "web-distributed-public-rate-limit:operations:add:"
-                            '{"arity":5,"name":"allow?"}'
-                        ),
-                    ],
-                    "adr": (
-                        "docs/02-architecture/adr/"
-                        "0073-harden-direct-audio-signaling-and-resource-boundaries.md"
-                    ),
-                    "removal_condition": (
-                        "Remove this exact review declaration after the ADR-0073 "
-                        "interface widening is present on the protected branch; it "
-                        "may not authorize any later manifest delta."
-                    ),
-                }
-            ],
-        )
+        self.assertEqual(transitions, [])
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
         root = Path(__file__).resolve().parents[1]
