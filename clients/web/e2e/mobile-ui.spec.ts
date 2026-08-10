@@ -153,7 +153,8 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
         .toBeVisible();
       await expect(page.locator(".composer-heading")).toHaveCount(0);
-      await expect(page.locator(".composer-toolbar")).toBeVisible();
+      await expect(page.locator(".composer-toolbar")).toHaveCount(0);
+      await expect(page.getByText(/Enter to send/)).toHaveCount(0);
       const moreMessageActions = page.getByRole("button", { name: "More message actions" });
       await expectMinimumTarget(moreMessageActions, "more-message-actions control");
       await moreMessageActions.click();
@@ -208,8 +209,19 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeFocused();
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
-      await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+      await page.getByRole("tab", { name: "Security" }).click();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
+      await expect(page.locator("#device-settings")).not.toHaveAttribute("open", "");
+      await expect(page.locator("#session-settings")).not.toHaveAttribute("open", "");
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`you-security-${viewport.width}.png`), fullPage: true });
+      }
+      await page.getByRole("tab", { name: "Notifications" }).click();
+      await expect(page.getByRole("heading", { name: "Notification preferences" })).toBeVisible();
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`you-notifications-${viewport.width}.png`), fullPage: true });
+      }
       await page.addStyleTag({ content: "html { overflow-y: scroll; scrollbar-gutter: stable; }" });
       await expectNoDocumentOverflow(page);
 
@@ -245,7 +257,8 @@ test.describe("authenticated mobile web acceptance", () => {
     await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
       .toBeVisible();
     await expect(page.locator(".composer-heading")).toHaveCount(0);
-    await expect(page.locator(".composer-toolbar")).toBeVisible();
+    await expect(page.locator(".composer-toolbar")).toHaveCount(0);
+    await expect(page.getByText(/Enter to send/)).toHaveCount(0);
     const conversationPane = page.getByRole("region", { name: "General" });
     await expect(conversationPane.getByRole("button", { name: "Search messages" })).toBeVisible();
     await expect(conversationPane.getByRole("button", { name: "Start audio call" })).toBeVisible();

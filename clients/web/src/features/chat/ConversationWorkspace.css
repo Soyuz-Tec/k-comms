@@ -318,31 +318,52 @@
   padding-block: .62rem;
 }
 
-.composer-toolbar {
-  min-height: 34px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: .6rem 1rem;
-  padding: .38rem .25rem 0;
+.conversation-empty-state {
+  min-height: 7rem;
+  padding: 1rem;
 }
 
-.composer-toolbar .mention-picker {
-  z-index: 2;
+.conversation-empty-state h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: .9rem;
+  font-weight: 700;
+}
+
+.composer-inline-actions .mention-picker {
   margin: 0;
 }
 
-.composer-toolbar .mention-trigger {
-  min-height: 32px;
-  padding: .35rem .55rem;
+.composer-inline-actions .mention-trigger {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  overflow: hidden;
+  padding: 0;
   border-color: transparent;
+  border-radius: 50%;
   background: transparent;
+  font-size: 0;
 }
 
-.composer-toolbar .composer-footnote {
+.composer-inline-actions .mention-trigger .app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.composer-inline-actions .mention-chips {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + .45rem);
+  max-width: min(24rem, calc(100vw - 2rem));
   justify-content: flex-end;
-  margin: .35rem 0 0;
-  text-align: right;
+  padding: .35rem;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
 }
 
 @media (max-width: 760px), (max-height: 560px) {
@@ -382,6 +403,10 @@
     gap: .28rem;
     margin-top: .14rem;
     font-size: .61rem;
+  }
+
+  .conversation-title-meta > span {
+    display: none;
   }
 
   .conversation-title-meta .connection-summary {
@@ -469,12 +494,7 @@
     font-size: 16px;
   }
 
-  .composer-toolbar {
-    align-items: center;
-    padding-top: .28rem;
-  }
-
-  .composer-toolbar .mention-trigger {
+  .composer-inline-actions .mention-trigger {
     width: 44px;
     min-width: 44px;
     height: 44px;
@@ -485,14 +505,9 @@
     font-size: 0;
   }
 
-  .composer-toolbar .mention-trigger .app-icon {
+  .composer-inline-actions .mention-trigger .app-icon {
     width: 19px;
     height: 19px;
-  }
-
-  .composer-toolbar .composer-footnote {
-    margin: 0;
-    font-size: .59rem;
   }
 }
 
@@ -518,10 +533,6 @@
 }
 
 @media (max-width: 360px) {
-  .conversation-title-meta > span:nth-child(-n + 3) {
-    display: none;
-  }
-
   .conversation-title-meta .connection-summary {
     margin-left: 0;
     padding-left: 0;
@@ -534,9 +545,6 @@
     padding-inline: .55rem;
   }
 
-  .composer-toolbar .composer-footnote {
-    max-width: 11rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -22,7 +22,6 @@ import {
   type PendingAttachmentUpload
 } from "./AttachmentUploadList";
 import { ConversationWorkspaceHeader } from "./ConversationWorkspaceHeader";
-import { CallLaunchActions } from "../calls/CallSessionProvider";
 import { MentionPicker } from "./MentionPicker";
 import { MessageItem } from "./MessageItem";
 import type { FailedChatSend } from "./useChatComposer";
@@ -74,7 +73,6 @@ export function ConversationPane({
   onDelete,
   onEdit,
   onFilesSelected,
-  onFocusComposer,
   onInviteGuest,
   onJumpToLatest,
   onLoadOlder,
@@ -137,7 +135,6 @@ export function ConversationPane({
   onDelete: (message: Message) => Promise<void>;
   onEdit: (message: Message, body: string) => Promise<void>;
   onFilesSelected: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
-  onFocusComposer: () => void;
   onInviteGuest: () => void;
   onJumpToLatest: () => void;
   onLoadOlder: (scroll: HTMLDivElement | null) => Promise<void>;
@@ -222,38 +219,8 @@ export function ConversationPane({
                 Loading messages…
               </div>
             ) : messages.length === 0 ? (
-              <div className="empty-state">
-                <span className="empty-mark" aria-hidden="true">
-                  <AppIcon name="sparkles" />
-                </span>
-                <h3>Start the conversation</h3>
-                <p>
-                  Write the first message or open a private call lobby.
-                </p>
-                <div className="empty-state-actions">
-                  <button
-                    className="button primary compact"
-                    type="button"
-                    onClick={onFocusComposer}
-                  >
-                    <AppIcon name="message" />
-                    Write first message
-                  </button>
-                  <CallLaunchActions
-                    conversation={activeConversation}
-                    audioEnabled={
-                      capabilities?.allow_audio_calls === true &&
-                      audioCallsAvailable
-                    }
-                    videoEnabled={
-                      capabilities?.allow_video_calls === true &&
-                      videoCallsAvailable
-                    }
-                    availabilityDescriptionId={
-                      callGuidance ? "conversation-call-availability" : undefined
-                    }
-                  />
-                </div>
+              <div className="empty-state conversation-empty-state">
+                <h3>No messages yet</h3>
               </div>
             ) : (
               <ol className="message-list">
@@ -430,6 +397,13 @@ export function ConversationPane({
                 disabled={sending}
               />
               <div className="composer-inline-actions">
+                <MentionPicker
+                  members={members}
+                  currentUserId={currentUserId}
+                  selectedUserIds={mentionedUserIds}
+                  disabled={sending}
+                  onChange={onMentionedUserIdsChange}
+                />
                 <label
                   className={`attachment-button composer-icon-button ${
                     sending ? "disabled" : ""
@@ -462,18 +436,6 @@ export function ConversationPane({
                   />
                 </button>
               </div>
-            </div>
-            <div className="composer-toolbar">
-              <MentionPicker
-                members={members}
-                currentUserId={currentUserId}
-                selectedUserIds={mentionedUserIds}
-                disabled={sending}
-                onChange={onMentionedUserIdsChange}
-              />
-              <p className="composer-footnote">
-                <span>Enter to send · Shift+Enter for a new line</span>
-              </p>
             </div>
           </form>
         </>

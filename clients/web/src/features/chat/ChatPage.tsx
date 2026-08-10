@@ -636,9 +636,6 @@ export function ChatPage() {
         onDelete={deleteMessage}
         onEdit={editMessage}
         onFilesSelected={filesSelected}
-        onFocusComposer={() =>
-          document.getElementById("message-composer")?.focus()
-        }
         onInviteGuest={() => {
           setShowGuestShare(true);
           setShowDetails(false);

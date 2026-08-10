@@ -130,9 +130,7 @@ export function FilesPage() {
     <main className="page-shell files-page" id="main-content">
       <header className="page-heading files-page-heading">
         <div>
-          <span className="eyebrow">Conversation content</span>
           <h1>Files</h1>
-          <p>Find files you can access, see their safety state, and return to the exact source message.</p>
         </div>
         <button
           className="button ghost"
@@ -233,13 +231,11 @@ export function FilesPage() {
           </div>
         ) : !error && files.length === 0 ? (
           <div className="files-state empty">
-            <strong>No shared files yet</strong>
-            <span>Attachments shared in your conversations will appear here.</span>
+            <strong>No shared files</strong>
           </div>
         ) : !error && visibleFiles.length === 0 ? (
           <div className="files-state empty">
             <strong>No {category} found</strong>
-            <span>Choose another file type or adjust the filters.</span>
           </div>
         ) : (
           <ol className="files-list" aria-busy={loadingMore}>

@@ -22,47 +22,17 @@ export function YouPage() {
   return (
     <div className="you-page">
       <SettingsPage
-        headerPrelude={(
-          <div className="you-page-prelude">
-            <nav className="you-section-chooser" aria-label="Profile and settings sections">
-              <span>Jump to</span>
-              <a href="#profile-settings">Profile</a>
-              <a href="#password-settings">Security</a>
-              <a href="#notification-settings">Notifications</a>
-            </nav>
-            {(showAdmin || showOperations) && (
-              <nav className="you-role-shortcuts" aria-label="Role tools">
-                <span>Role tools</span>
-                <div className="you-role-card-grid">
-                  {showPeople && (
-                    <Link to="/admin?section=people">
-                      <strong>People & invitations</strong>
-                      <small>Add teammates or update workspace access.</small>
-                    </Link>
-                  )}
-                  {showSafety && (
-                    <Link to="/admin?section=safety">
-                      <strong>Safety review</strong>
-                      <small>Open moderation and attachment safety queues.</small>
-                    </Link>
-                  )}
-                  {showAdmin && (
-                    <Link to="/admin">
-                      <strong>Workspace administration</strong>
-                      <small>Manage the rest of your tenant-scoped controls.</small>
-                    </Link>
-                  )}
-                  {showOperations && (
-                    <Link to="/ops">
-                      <strong>Service operations</strong>
-                      <small>Open content-blind platform health and triage.</small>
-                    </Link>
-                  )}
-                </div>
-              </nav>
-            )}
-          </div>
-        )}
+        roleTools={(showAdmin || showOperations) ? (
+          <nav className="you-role-shortcuts" aria-label="Role tools">
+            <span>Workspace tools</span>
+            <div className="you-role-card-grid">
+              {showPeople && <Link to="/admin?section=people">People & invitations</Link>}
+              {showSafety && <Link to="/admin?section=safety">Safety review</Link>}
+              {showAdmin && <Link to="/admin">Workspace administration</Link>}
+              {showOperations && <Link to="/ops">Service operations</Link>}
+            </div>
+          </nav>
+        ) : undefined}
       />
     </div>
   );

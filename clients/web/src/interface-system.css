@@ -107,6 +107,93 @@
   margin-bottom: 1.25rem;
 }
 
+.settings-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-page-heading {
+  margin-bottom: 0;
+}
+
+.settings-section-tabs {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .35rem;
+  padding: .25rem;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-canvas);
+}
+
+.settings-section-tabs button {
+  min-width: 0;
+  min-height: 44px;
+  padding: .55rem .7rem;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+.settings-section-tabs button[aria-selected="true"] {
+  color: var(--text-on-accent);
+  background: var(--accent-solid);
+}
+
+.settings-page [role="tabpanel"],
+.settings-security-inventories {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-page .you-role-shortcuts {
+  width: 100%;
+  margin: 0;
+}
+
+.settings-disclosure {
+  margin-top: 0;
+  padding: 0;
+  overflow: clip;
+}
+
+.settings-disclosure > summary {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-disclosure > summary h2 {
+  margin: 0;
+}
+
+.settings-disclosure > summary .status-pill {
+  margin-left: auto;
+}
+
+.settings-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.settings-disclosure > .security-list,
+.settings-disclosure > .empty-copy,
+.settings-disclosure > .advanced-settings {
+  margin: .75rem;
+}
+
 .you-page .you-section-chooser,
 .you-page .you-role-shortcuts {
   width: 100%;
