@@ -105,6 +105,15 @@ Controls live with the object they affect:
 - The conversation header separates identity and live status from contextual `Chat`, `Canvas`, `Activity`, and `Details` navigation.
 - Compact search, call, and invitation controls retain accessible names and 44-pixel targets.
 - The composer identifies its recipient and local draft state, groups the message field with its primary actions, and keeps mentions and keyboard guidance in a supporting toolbar.
+- Empty conversations offer the first message and policy-authorized call
+  lobbies directly; explanatory copy is not a substitute for the next action.
+- Realtime message transport is labelled `Connected`. `Live` or `Active call`
+  is reserved for actual call state.
+- Inbox summaries remain content-free. Unread and joined-call state may improve
+  scanning, but message bodies, senders, and mentions stay behind the
+  ConversationContent boundary.
+- At compact widths, separate audio and video controls retain the approved
+  one-action-to-lobby behavior even when the identity/action row is compressed.
 
 ### Calls
 

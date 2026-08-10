@@ -239,7 +239,7 @@ function ConversationDetailsPanel({
   const dialogRef = useModalDialog(onClose);
   return (
     <div className="drawer-backdrop">
-      <aside ref={dialogRef} className="details-panel" role="dialog" aria-modal="true" aria-labelledby="conversation-details-title">
+      <aside id="conversation-details-panel" ref={dialogRef} className="details-panel" role="dialog" aria-modal="true" aria-labelledby="conversation-details-title">
         <header>
           <div><span className="eyebrow">Conversation details</span><h2 id="conversation-details-title">{conversationTitle(conversation)}</h2></div>
           <AppSurfaceControlButton

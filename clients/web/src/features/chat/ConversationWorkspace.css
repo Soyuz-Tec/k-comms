@@ -449,8 +449,8 @@
     padding-inline: .25rem;
   }
 
-  .composer-heading .composer-draft-state {
-    font-size: 0;
+  .composer-heading .composer-recipient {
+    display: none;
   }
 
   .composer-heading .composer-draft-state .app-icon {
@@ -493,6 +493,27 @@
   .composer-toolbar .composer-footnote {
     margin: 0;
     font-size: .59rem;
+  }
+}
+
+@media (min-width: 380px) and (max-width: 760px) {
+  .workspace-grid.mobile-messages .conversation-header-main {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: .45rem;
+  }
+
+  .workspace-grid.mobile-messages .conversation-header-main > .mobile-back {
+    grid-column: 1;
+  }
+
+  .workspace-grid.mobile-messages .conversation-identity {
+    grid-column: 2;
+  }
+
+  .workspace-grid.mobile-messages .conversation-header-actions {
+    width: auto;
+    grid-column: 3;
+    grid-row: 1;
   }
 }
 

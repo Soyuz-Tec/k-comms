@@ -2,7 +2,7 @@ import type { MutableRefObject } from "react";
 import { Link } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { AppIcon } from "../../components/AppIcon";
-import { formatTime } from "../../lib/format";
+import { formatDateTime, formatTime } from "../../lib/format";
 import {
   participantIdentifier
 } from "../../lib/participantIdentity";
@@ -18,6 +18,7 @@ export type InboxFilter = "all" | "unread" | "direct" | "rooms";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
+  activeCallConversationId: string | null;
   capabilities: UserCapabilities | null;
   canInviteTeammates: boolean;
   conversations: Conversation[];
@@ -56,6 +57,7 @@ const peoplePath = "/admin?section=people#people-title";
 
 export function ConversationSidebar({
   activeConversationId,
+  activeCallConversationId,
   capabilities,
   canInviteTeammates,
   conversations,
@@ -101,7 +103,7 @@ export function ConversationSidebar({
             aria-expanded={showBrowseChannels}
             onClick={onToggleBrowseChannels}
           >
-            <AppIcon name="filter" />
+            <AppIcon name="compass" />
           </button>
           <button
             className="icon-button inbox-search-trigger"
@@ -310,69 +312,92 @@ export function ConversationSidebar({
             No conversations match these filters.
           </p>
         ) : (
-          filteredConversations.map((conversation) => (
-            <button
-              ref={(element) => {
-                if (element) {
-                  conversationButtonRefs.current.set(
-                    conversation.id,
-                    element
-                  );
-                } else {
-                  conversationButtonRefs.current.delete(conversation.id);
+          filteredConversations.map((conversation) => {
+            const unreadCount = conversation.unread_count || 0;
+            const hasActiveCall = conversation.id === activeCallConversationId;
+            return (
+              <button
+                ref={(element) => {
+                  if (element) {
+                    conversationButtonRefs.current.set(
+                      conversation.id,
+                      element
+                    );
+                  } else {
+                    conversationButtonRefs.current.delete(conversation.id);
+                  }
+                }}
+                type="button"
+                key={conversation.id}
+                className={`conversation-row ${unreadCount > 0 ? "unread" : ""} ${hasActiveCall ? "has-active-call" : ""} ${
+                  conversation.id === activeConversationId ? "active" : ""
+                }`}
+                aria-current={
+                  conversation.id === activeConversationId
+                    ? "page"
+                    : undefined
                 }
-              }}
-              type="button"
-              key={conversation.id}
-              className={`conversation-row ${
-                conversation.id === activeConversationId ? "active" : ""
-              }`}
-              aria-current={
-                conversation.id === activeConversationId
-                  ? "page"
-                  : undefined
-              }
-              onClick={() => onSelectConversation(conversation.id)}
-            >
-              <span
-                className={`conversation-icon ${conversation.kind}`}
-                aria-hidden="true"
+                onClick={() => onSelectConversation(conversation.id)}
               >
-                {conversation.kind === "channel" ? (
-                  <AppIcon name="hash" />
-                ) : conversation.kind === "direct" ? (
-                  conversationInitials(
-                    conversationIdentifier(conversation)
-                  )
-                ) : (
-                  <AppIcon name="users" />
-                )}
-              </span>
-              <span className="conversation-copy">
-                <span className="conversation-title-line">
-                  <strong>{conversationIdentifier(conversation)}</strong>
-                  <time dateTime={conversation.updated_at}>
-                    {formatTime(conversation.updated_at)}
-                  </time>
-                </span>
-                <small>
-                  {conversation.kind === "direct"
-                    ? "Direct message"
-                    : conversation.kind === "channel"
-                      ? "Room conversation"
-                      : "Group conversation"}
-                </small>
-              </span>
-              {(conversation.unread_count || 0) > 0 && (
                 <span
-                  className="unread-badge"
-                  aria-label={`${conversation.unread_count} unread messages`}
+                  className={`conversation-icon ${conversation.kind}`}
+                  aria-hidden="true"
                 >
-                  {conversation.unread_count}
+                  {conversation.kind === "channel" ? (
+                    <AppIcon name="hash" />
+                  ) : conversation.kind === "direct" ? (
+                    conversationInitials(
+                      conversationIdentifier(conversation)
+                    )
+                  ) : (
+                    <AppIcon name="users" />
+                  )}
                 </span>
-              )}
-            </button>
-          ))
+                <span className="conversation-copy">
+                  <span className="conversation-title-line">
+                    <strong>{conversationIdentifier(conversation)}</strong>
+                    <time
+                      dateTime={conversation.updated_at}
+                      title={formatDateTime(conversation.updated_at)}
+                    >
+                      {formatTime(conversation.updated_at)}
+                    </time>
+                  </span>
+                  <small className="conversation-summary-line">
+                    <span>
+                      {conversation.kind === "direct"
+                        ? "Direct message"
+                        : conversation.kind === "channel"
+                          ? "Room conversation"
+                          : "Group conversation"}
+                    </span>
+                    {hasActiveCall && (
+                      <span className="conversation-call-state">
+                        <AppIcon name="phone" />
+                        Active call
+                      </span>
+                    )}
+                    {unreadCount > 0 && (
+                      <span
+                        className="conversation-unread-copy"
+                        aria-hidden="true"
+                      >
+                        {unreadCount} unread
+                      </span>
+                    )}
+                  </small>
+                </span>
+                {unreadCount > 0 && (
+                  <span
+                    className="unread-badge"
+                    aria-label={`${unreadCount} unread messages`}
+                  >
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            );
+          })
         )}
       </nav>
     </aside>

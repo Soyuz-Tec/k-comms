@@ -106,6 +106,9 @@ function ProductShellContent() {
 
   return (
     <div className="app-shell">
+        {desktopShell && (
+          <div className="window-titlebar-drag-region" aria-hidden="true" />
+        )}
         <a className="skip-link" href="#main-content">Skip to content</a>
         {desktopShell && <aside className="workspace-sidebar" aria-label="Workspace navigation">
           <div className="workspace-sidebar-brand">

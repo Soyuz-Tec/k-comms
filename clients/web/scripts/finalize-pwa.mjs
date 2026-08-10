@@ -109,6 +109,14 @@ function validateManifest(manifest) {
   if (manifest.display !== "standalone") {
     throw new Error("The PWA manifest display mode must be standalone.");
   }
+  if (
+    !Array.isArray(manifest.display_override) ||
+    manifest.display_override[0] !== "window-controls-overlay" ||
+    manifest.display_override[1] !== "standalone" ||
+    manifest.display_override.length !== 2
+  ) {
+    throw new Error("The PWA manifest must prefer window-controls-overlay and retain standalone fallback.");
+  }
   if (manifest.prefer_related_applications !== false || manifest.related_applications?.length !== 0) {
     throw new Error("The PWA manifest must not prefer or advertise app-store applications.");
   }

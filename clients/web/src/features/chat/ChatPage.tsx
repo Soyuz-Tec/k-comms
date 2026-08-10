@@ -62,7 +62,12 @@ interface FocusTarget {
 export function ChatPage() {
   const { api, session } = useSession();
   const { runWithStepUp } = useStepUp();
-  const { launchCall, publishRealtimeEvent } = useCallSession();
+  const {
+    launchCall,
+    publishRealtimeEvent,
+    sessionState: callSessionState,
+    targetConversation: callTargetConversation
+  } = useCallSession();
   const {
     conversations,
     users,
@@ -536,6 +541,9 @@ export function ChatPage() {
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       <ConversationSidebar
         activeConversationId={activeConversationId}
+        activeCallConversationId={
+          callSessionState?.joined ? callTargetConversation?.id || null : null
+        }
         capabilities={capabilities}
         canInviteTeammates={canInviteTeammates}
         conversations={conversations}
@@ -628,6 +636,9 @@ export function ChatPage() {
         onDelete={deleteMessage}
         onEdit={editMessage}
         onFilesSelected={filesSelected}
+        onFocusComposer={() =>
+          document.getElementById("message-composer")?.focus()
+        }
         onInviteGuest={() => {
           setShowGuestShare(true);
           setShowDetails(false);

@@ -9,6 +9,7 @@ export const messageId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 export const viewportCases = [
   { width: 320, height: 640 },
   { width: 390, height: 844 },
+  { width: 513, height: 734 },
   { width: 700, height: 900 }
 ] as const;
 
@@ -294,6 +295,13 @@ export async function expectNoDocumentOverflow(page: Page) {
     document.documentElement.scrollWidth,
     document.body.scrollWidth
   ) - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+}
+
+export async function expectNoDocumentVerticalOverflow(page: Page) {
+  await expect.poll(() => page.evaluate(() => Math.max(
+    document.documentElement.scrollHeight,
+    document.body.scrollHeight
+  ) - document.documentElement.clientHeight)).toBeLessThanOrEqual(1);
 }
 
 export async function expectNoHorizontalOverflow(locator: Locator, label: string) {

@@ -22,6 +22,7 @@ import {
   type PendingAttachmentUpload
 } from "./AttachmentUploadList";
 import { ConversationWorkspaceHeader } from "./ConversationWorkspaceHeader";
+import { CallLaunchActions } from "../calls/CallSessionProvider";
 import { MentionPicker } from "./MentionPicker";
 import { MessageItem } from "./MessageItem";
 import type { FailedChatSend } from "./useChatComposer";
@@ -73,6 +74,7 @@ export function ConversationPane({
   onDelete,
   onEdit,
   onFilesSelected,
+  onFocusComposer,
   onInviteGuest,
   onJumpToLatest,
   onLoadOlder,
@@ -135,6 +137,7 @@ export function ConversationPane({
   onDelete: (message: Message) => Promise<void>;
   onEdit: (message: Message, body: string) => Promise<void>;
   onFilesSelected: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  onFocusComposer: () => void;
   onInviteGuest: () => void;
   onJumpToLatest: () => void;
   onLoadOlder: (scroll: HTMLDivElement | null) => Promise<void>;
@@ -225,9 +228,32 @@ export function ConversationPane({
                 </span>
                 <h3>Start the conversation</h3>
                 <p>
-                  Messages are durable, ordered, and replayed when you
-                  reconnect.
+                  Write the first message or open a private call lobby.
                 </p>
+                <div className="empty-state-actions">
+                  <button
+                    className="button primary compact"
+                    type="button"
+                    onClick={onFocusComposer}
+                  >
+                    <AppIcon name="message" />
+                    Write first message
+                  </button>
+                  <CallLaunchActions
+                    conversation={activeConversation}
+                    audioEnabled={
+                      capabilities?.allow_audio_calls === true &&
+                      audioCallsAvailable
+                    }
+                    videoEnabled={
+                      capabilities?.allow_video_calls === true &&
+                      videoCallsAvailable
+                    }
+                    availabilityDescriptionId={
+                      callGuidance ? "conversation-call-availability" : undefined
+                    }
+                  />
+                </div>
               </div>
             ) : (
               <ol className="message-list">
@@ -372,16 +398,18 @@ export function ConversationPane({
                 onRetry={onAttachmentRetry}
               />
             )}
-            <div className="composer-heading">
-              <span>
-                <AppIcon name="message" />
-                <strong>Message {title}</strong>
-              </span>
-              <span className="composer-draft-state">
-                <AppIcon name="check" />
-                Draft saved on this device
-              </span>
-            </div>
+            {composer.trim() && (
+              <div className="composer-heading" role="status">
+                <span className="composer-recipient">
+                  <AppIcon name="message" />
+                  <strong>Draft to {title}</strong>
+                </span>
+                <span className="composer-draft-state">
+                  <AppIcon name="check" />
+                  Saved on this device
+                </span>
+              </div>
+            )}
             <div className="composer-shell">
               <label className="sr-only" htmlFor="message-composer">
                 Message

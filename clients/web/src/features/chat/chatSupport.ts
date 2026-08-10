@@ -98,7 +98,7 @@ export function recordSenderLabelRefresh(
 }
 
 export function connectionLabel(status: ConnectionStatus): string {
-  if (status === "live") return "Live";
+  if (status === "live") return "Connected";
   if (status === "connecting") return "Connecting";
   if (status === "reconnecting") return "Reconnecting";
   return "Offline";
