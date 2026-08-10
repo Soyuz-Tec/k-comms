@@ -6,6 +6,8 @@ export type DirectAudioSignal =
 
 export type DirectAudioTransportState = "idle" | "connecting" | "connected" | "failed";
 
+const MAX_PENDING_ICE_CANDIDATES = 64;
+
 interface DirectAudioTransportOptions {
   iceServers: RTCIceServer[];
   audioHost: HTMLElement;
@@ -25,6 +27,8 @@ export class DirectAudioTransport {
   private microphoneDeviceId = "";
   private stopped = false;
   private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  private lifecycleGeneration = 0;
+  private microphoneReplacementGeneration = 0;
 
   constructor(private readonly options: DirectAudioTransportOptions) {}
 
@@ -36,6 +40,7 @@ export class DirectAudioTransport {
   ): Promise<void> {
     this.stop();
     this.stopped = false;
+    this.lifecycleGeneration += 1;
     this.microphoneDeviceId = microphoneDeviceId;
     this.options.onState("connecting");
 
@@ -54,9 +59,18 @@ export class DirectAudioTransport {
         sdp_mline_index: event.candidate.sdpMLineIndex
       });
     };
-    peerConnection.ontrack = (event) => this.attachRemoteAudio(
-      event.streams[0] || new MediaStream([event.track])
-    );
+    peerConnection.ontrack = (event) => {
+      if (event.track.kind !== "audio") {
+        event.track.stop();
+        this.fail();
+        return;
+      }
+      this.attachRemoteAudio(new MediaStream([event.track]));
+    };
+    peerConnection.ondatachannel = (event) => {
+      event.channel.close();
+      this.fail();
+    };
     peerConnection.onconnectionstatechange = () => {
       if (this.stopped || this.peerConnection !== peerConnection) return;
       if (peerConnection.connectionState === "connected") {
@@ -93,6 +107,10 @@ export class DirectAudioTransport {
         sdpMLineIndex: signal.sdp_mline_index
       };
       if (!peerConnection.remoteDescription) {
+        if (this.pendingCandidates.length >= MAX_PENDING_ICE_CANDIDATES) {
+          this.fail();
+          throw new Error("The direct audio ICE candidate limit was exceeded.");
+        }
         this.pendingCandidates.push(candidate);
       } else {
         await peerConnection.addIceCandidate(candidate);
@@ -100,6 +118,10 @@ export class DirectAudioTransport {
       return;
     }
 
+    if (!audioOnlySdp(signal.sdp)) {
+      this.fail();
+      throw new Error("The direct audio session description is not audio-only.");
+    }
     await peerConnection.setRemoteDescription({ type: signal.kind, sdp: signal.sdp });
     await this.flushCandidates(peerConnection);
     if (signal.kind === "offer") {
@@ -136,6 +158,8 @@ export class DirectAudioTransport {
 
   stop(): void {
     this.stopped = true;
+    this.lifecycleGeneration += 1;
+    this.microphoneReplacementGeneration += 1;
     this.clearConnectionTimeout();
     this.peerConnection?.close();
     this.peerConnection = null;
@@ -152,30 +176,52 @@ export class DirectAudioTransport {
   }
 
   private async replaceMicrophone(deviceId: string): Promise<void> {
+    const lifecycleGeneration = this.lifecycleGeneration;
+    const replacementGeneration = ++this.microphoneReplacementGeneration;
+    const peerConnection = this.peerConnection;
     const getUserMedia = this.options.getUserMedia || ((constraints) => (
       navigator.mediaDevices.getUserMedia(constraints)
     ));
-    const stream = await getUserMedia({
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-      video: false
-    });
-    const nextTrack = stream.getAudioTracks()[0];
-    if (!nextTrack) {
-      for (const track of stream.getTracks()) track.stop();
-      throw new Error("No microphone audio track was returned.");
-    }
+    let stream: MediaStream | null = null;
+    let committedTrack: MediaStreamTrack | null = null;
 
-    const sender = this.peerConnection?.getSenders().find((candidate) => (
-      candidate.track?.kind === "audio" || candidate.track === null
-    ));
-    if (!sender) {
-      nextTrack.stop();
-      throw new Error("The direct audio sender is unavailable.");
+    try {
+      stream = await getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+        video: false
+      });
+      const nextTrack = stream.getAudioTracks()[0];
+      if (!nextTrack) throw new Error("No microphone audio track was returned.");
+      if (
+        this.stopped ||
+        this.lifecycleGeneration !== lifecycleGeneration ||
+        this.microphoneReplacementGeneration !== replacementGeneration ||
+        this.peerConnection !== peerConnection
+      ) return;
+
+      const sender = peerConnection?.getSenders().find((candidate) => (
+        candidate.track?.kind === "audio" || candidate.track === null
+      ));
+      if (!sender) throw new Error("The direct audio sender is unavailable.");
+      await sender.replaceTrack(nextTrack);
+      if (
+        this.stopped ||
+        this.lifecycleGeneration !== lifecycleGeneration ||
+        this.microphoneReplacementGeneration !== replacementGeneration ||
+        this.peerConnection !== peerConnection
+      ) return;
+
+      const previousTrack = this.localTrack;
+      this.localTrack = nextTrack;
+      committedTrack = nextTrack;
+      previousTrack?.stop();
+    } finally {
+      if (stream) {
+        for (const track of new Set(stream.getTracks())) {
+          if (track !== committedTrack) track.stop();
+        }
+      }
     }
-    await sender.replaceTrack(nextTrack);
-    const previousTrack = this.localTrack;
-    this.localTrack = nextTrack;
-    previousTrack?.stop();
   }
 
   private attachRemoteAudio(stream?: MediaStream): void {
@@ -199,7 +245,20 @@ export class DirectAudioTransport {
   private fail(): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.lifecycleGeneration += 1;
+    this.microphoneReplacementGeneration += 1;
     this.clearConnectionTimeout();
+    this.peerConnection?.close();
+    this.peerConnection = null;
+    this.localTrack?.stop();
+    this.localTrack = null;
+    this.pendingCandidates = [];
+    if (this.remoteAudio) {
+      this.remoteAudio.pause();
+      this.remoteAudio.srcObject = null;
+      this.remoteAudio.remove();
+      this.remoteAudio = null;
+    }
     this.options.onState("failed");
   }
 
@@ -207,4 +266,21 @@ export class DirectAudioTransport {
     if (this.connectionTimeout) clearTimeout(this.connectionTimeout);
     this.connectionTimeout = null;
   }
+}
+
+function audioOnlySdp(sdp: string): boolean {
+  if (!sdp || new TextEncoder().encode(sdp).byteLength > 16_384 || sdp.includes("\0")) return false;
+  const lines = sdp.replaceAll("\r\n", "\n").split("\n").filter(Boolean);
+  const mediaLines = lines.filter((line) => line.startsWith("m="));
+  return (
+    lines[0] === "v=0" &&
+    mediaLines.length === 1 &&
+    /^m=audio \d{1,5} UDP\/TLS\/RTP\/SAVPF(?: \d{1,3})+$/.test(mediaLines[0] || "") &&
+    lines.some((line) => /^a=ice-ufrag:\S{4,256}$/.test(line)) &&
+    lines.some((line) => /^a=ice-pwd:\S{22,256}$/.test(line)) &&
+    lines.some((line) => /^a=fingerprint:sha-256 (?:[0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$/.test(line)) &&
+    lines.some((line) => ["a=setup:actpass", "a=setup:active", "a=setup:passive"].includes(line)) &&
+    lines.includes("a=rtcp-mux") &&
+    !lines.some((line) => line.startsWith("a=sctp-port:") || line.startsWith("a=sctpmap:"))
+  );
 }

@@ -106,10 +106,25 @@ connection-scoped `peer_id` and a public STUN-only `ice_servers` list.
 IDs. `call.direct.signal.v1` accepts a target peer ID and one allowlisted
 offer, answer, ICE candidate, microphone-state, or fallback signal. The server
 re-authorizes each command, requires the target to be a different present user,
-bounds SDP to 16 KiB and candidates to 2 KiB, and limits a call session to 240
-signals per minute. These events are ephemeral: they are not replayed,
-persisted, audited, placed in the outbox, or logged. RTP and SRTP media never
-traverse Phoenix.
+bounds SDP to 16 KiB and candidates to 2 KiB, and accepts offer/answer SDP only
+when it begins with `v=0` and contains exactly one audio media section with no
+SCTP attributes. At most one connection per user and two peers per call are
+projected. The lower random peer ID offers; answer, ICE, media-state, and
+fallback events are accepted only in their expected state and only for that
+selected peer. PostgreSQL-backed HMAC-keyed actor/call/target buckets cap both
+240 signals and 262,144 encoded bytes per minute across sessions and edge
+replicas; a node-local session bucket remains defense in depth.
+
+`call.direct.disable.v1` has an empty payload and removes the sender from direct
+Presence. `call.direct.disabled.v1` tells a client that duplicate admission or
+peer fallback has terminally disabled direct negotiation for that attempt. The
+client clears pending signals and restores LiveKit. These events are ephemeral:
+they are not replayed, persisted as call history, audited, placed in the
+outbox, or logged. RTP and SRTP media never traverse Phoenix.
+
+The WebSocket adapter and HTTP server both reject complete or fragmented
+messages larger than 1 MiB. Event-specific limits above remain authoritative
+inside that transport envelope.
 
 Conversation topics emit `message.delivery.v1` after an authorized device
 advances its delivery/read cursor. The payload is a content-free cursor

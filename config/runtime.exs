@@ -678,7 +678,14 @@ if config_env() == :prod do
 
   config :comms_web, CommsWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
-    http: [ip: {0, 0, 0, 0}, port: port],
+    http: [
+      ip: {0, 0, 0, 0},
+      port: port,
+      websocket_options: [
+        max_frame_size: 1_048_576,
+        max_fragmented_message_size: 1_048_576
+      ]
+    ],
     secret_key_base: secret_key_base,
     check_origin: cors_origins,
     server: role in ["all", "edge"]

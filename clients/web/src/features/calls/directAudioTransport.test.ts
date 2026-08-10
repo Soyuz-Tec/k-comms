@@ -5,12 +5,27 @@ import {
   type DirectAudioTransportState
 } from "./directAudioTransport";
 
+const AUDIO_SDP = [
+  "v=0",
+  "o=- 0 0 IN IP4 127.0.0.1",
+  "s=-",
+  "t=0 0",
+  "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+  "a=ice-ufrag:abcd",
+  "a=ice-pwd:abcdefghijklmnopqrstuv",
+  "a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00",
+  "a=setup:actpass",
+  "a=rtcp-mux",
+  ""
+].join("\r\n");
+
 class FakePeerConnection {
   connectionState: RTCPeerConnectionState = "new";
   remoteDescription: RTCSessionDescription | null = null;
   localDescription: RTCSessionDescription | null = null;
   onicecandidate: RTCPeerConnection["onicecandidate"] = null;
   ontrack: RTCPeerConnection["ontrack"] = null;
+  ondatachannel: RTCPeerConnection["ondatachannel"] = null;
   onconnectionstatechange: RTCPeerConnection["onconnectionstatechange"] = null;
   sender = {
     track: null as MediaStreamTrack | null,
@@ -19,8 +34,8 @@ class FakePeerConnection {
     })
   };
   addTransceiver = vi.fn();
-  createOffer = vi.fn(async () => ({ type: "offer", sdp: "offer-sdp" } as RTCSessionDescriptionInit));
-  createAnswer = vi.fn(async () => ({ type: "answer", sdp: "answer-sdp" } as RTCSessionDescriptionInit));
+  createOffer = vi.fn(async () => ({ type: "offer", sdp: AUDIO_SDP } as RTCSessionDescriptionInit));
+  createAnswer = vi.fn(async () => ({ type: "answer", sdp: AUDIO_SDP } as RTCSessionDescriptionInit));
   setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
     this.localDescription = description as RTCSessionDescription;
   });
@@ -49,6 +64,12 @@ function microphoneStream(track: MediaStreamTrack) {
   } as unknown as MediaStream;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => { resolve = resolver; });
+  return { promise, resolve };
+}
+
 describe("DirectAudioTransport", () => {
   it("creates a deterministic offer and controls a direct microphone track", async () => {
     const peer = new FakePeerConnection();
@@ -67,7 +88,7 @@ describe("DirectAudioTransport", () => {
 
     await transport.start("a-local-peer", "z-remote-peer", false, "microphone-1");
     expect(peer.addTransceiver).toHaveBeenCalledWith("audio", { direction: "sendrecv" });
-    expect(signals).toContainEqual({ kind: "offer", sdp: "offer-sdp" });
+    expect(signals).toContainEqual({ kind: "offer", sdp: AUDIO_SDP });
     expect(getUserMedia).not.toHaveBeenCalled();
 
     await transport.setMicrophoneEnabled(true);
@@ -111,11 +132,142 @@ describe("DirectAudioTransport", () => {
     });
     expect(peer.addIceCandidate).not.toHaveBeenCalled();
 
-    await transport.handleSignal({ kind: "offer", sdp: "remote-offer" });
-    expect(peer.setRemoteDescription).toHaveBeenCalledWith({ type: "offer", sdp: "remote-offer" });
+    await transport.handleSignal({ kind: "offer", sdp: AUDIO_SDP });
+    expect(peer.setRemoteDescription).toHaveBeenCalledWith({ type: "offer", sdp: AUDIO_SDP });
     expect(peer.addIceCandidate).toHaveBeenCalledTimes(1);
-    expect(signals).toContainEqual({ kind: "answer", sdp: "answer-sdp" });
+    expect(signals).toContainEqual({ kind: "answer", sdp: AUDIO_SDP });
     transport.stop();
+  });
+
+  it("stops a microphone acquired after the transport was stopped", async () => {
+    const peer = new FakePeerConnection();
+    const pendingStream = deferred<MediaStream>();
+    const track = microphoneTrack();
+    const transport = new DirectAudioTransport({
+      iceServers: [],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => peer as unknown as RTCPeerConnection,
+      getUserMedia: () => pendingStream.promise
+    });
+
+    await transport.start("z-local-peer", "a-remote-peer", false, "");
+    const enabling = transport.setMicrophoneEnabled(true);
+    transport.stop();
+    pendingStream.resolve(microphoneStream(track));
+    await enabling;
+
+    expect(track.stop).toHaveBeenCalledTimes(1);
+    expect(peer.sender.replaceTrack).not.toHaveBeenCalled();
+  });
+
+  it("stops an acquired microphone when sender replacement fails", async () => {
+    const peer = new FakePeerConnection();
+    peer.sender.replaceTrack.mockRejectedValueOnce(new Error("replacement failed"));
+    const track = microphoneTrack();
+    const transport = new DirectAudioTransport({
+      iceServers: [],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => peer as unknown as RTCPeerConnection,
+      getUserMedia: async () => microphoneStream(track)
+    });
+
+    await transport.start("z-local-peer", "a-remote-peer", false, "");
+    await expect(transport.setMicrophoneEnabled(true)).rejects.toThrow("replacement failed");
+    expect(track.stop).toHaveBeenCalledTimes(1);
+    transport.stop();
+  });
+
+  it("rejects descriptions with video or application media", async () => {
+    for (const media of ["video", "application"]) {
+      const peer = new FakePeerConnection();
+      const states: DirectAudioTransportState[] = [];
+      const transport = new DirectAudioTransport({
+        iceServers: [],
+        audioHost: document.body,
+        onSignal: vi.fn(),
+        onState: (state) => states.push(state),
+        peerConnectionFactory: () => peer as unknown as RTCPeerConnection
+      });
+
+      await transport.start("z-local-peer", "a-remote-peer", false, "");
+      await expect(transport.handleSignal({
+        kind: "offer",
+        sdp: `v=0\r\nm=${media} 9 UDP/TLS/RTP/SAVPF 96\r\n`
+      })).rejects.toThrow("not audio-only");
+      expect(peer.setRemoteDescription).not.toHaveBeenCalled();
+      expect(peer.close).toHaveBeenCalled();
+      expect(states).toContain("failed");
+    }
+  });
+
+  it("fails closed on unexpected data channels or non-audio tracks", async () => {
+    const dataPeer = new FakePeerConnection();
+    const dataStates: DirectAudioTransportState[] = [];
+    const dataTransport = new DirectAudioTransport({
+      iceServers: [],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: (state) => dataStates.push(state),
+      peerConnectionFactory: () => dataPeer as unknown as RTCPeerConnection
+    });
+    await dataTransport.start("z-local-peer", "a-remote-peer", false, "");
+    const close = vi.fn();
+    (dataPeer.ondatachannel as ((event: RTCDataChannelEvent) => void) | null)?.({
+      channel: { close }
+    } as unknown as RTCDataChannelEvent);
+    expect(close).toHaveBeenCalled();
+    expect(dataStates).toContain("failed");
+
+    const trackPeer = new FakePeerConnection();
+    const trackStates: DirectAudioTransportState[] = [];
+    const trackTransport = new DirectAudioTransport({
+      iceServers: [],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: (state) => trackStates.push(state),
+      peerConnectionFactory: () => trackPeer as unknown as RTCPeerConnection
+    });
+    await trackTransport.start("z-local-peer", "a-remote-peer", false, "");
+    const stop = vi.fn();
+    (trackPeer.ontrack as ((event: RTCTrackEvent) => void) | null)?.({
+      track: { kind: "video", stop }
+    } as unknown as RTCTrackEvent);
+    expect(stop).toHaveBeenCalled();
+    expect(trackStates).toContain("failed");
+  });
+
+  it("bounds ICE candidates queued before a remote description", async () => {
+    const peer = new FakePeerConnection();
+    const states: DirectAudioTransportState[] = [];
+    const transport = new DirectAudioTransport({
+      iceServers: [],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: (state) => states.push(state),
+      peerConnectionFactory: () => peer as unknown as RTCPeerConnection
+    });
+    await transport.start("z-local-peer", "a-remote-peer", false, "");
+
+    for (let index = 0; index < 64; index += 1) {
+      await transport.handleSignal({
+        kind: "ice",
+        candidate: `candidate:${index}`,
+        sdp_mid: "0",
+        sdp_mline_index: 0
+      });
+    }
+
+    await expect(transport.handleSignal({
+      kind: "ice",
+      candidate: "candidate:overflow",
+      sdp_mid: "0",
+      sdp_mline_index: 0
+    })).rejects.toThrow("candidate limit");
+    expect(states).toContain("failed");
   });
 
   it("fails closed when direct ICE does not connect within the bounded window", async () => {

@@ -128,6 +128,16 @@ describe("RealtimeCall direct audio", () => {
       }
     });
 
+    phoenix.handlers.get("call.direct.disabled.v1")?.({ reason: "peer_limit" });
+    expect(listener.onDirectReady).toHaveBeenLastCalledWith(null);
+    expect(listener.onDirectPeers).toHaveBeenLastCalledWith([]);
+
+    await realtime.disableDirectAudio();
+    expect(phoenix.pushed).toContainEqual({
+      event: "call.direct.disable.v1",
+      payload: {}
+    });
+
     phoenix.closeCallback?.();
     expect(listener.onDisconnected).toHaveBeenCalledTimes(1);
   });

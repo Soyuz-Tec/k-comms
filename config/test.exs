@@ -46,7 +46,14 @@ config :comms_web,
   public_share_origin: "http://localhost:5173"
 
 config :comms_web, CommsWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4002],
+  http: [
+    ip: {127, 0, 0, 1},
+    port: 4002,
+    websocket_options: [
+      max_frame_size: 1_048_576,
+      max_fragmented_message_size: 1_048_576
+    ]
+  ],
   secret_key_base: "test-secret-key-base-at-least-sixty-four-bytes-000000000000000000000000",
   server: false
 

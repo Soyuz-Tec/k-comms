@@ -82,7 +82,14 @@ config :comms_web,
     |> String.split(" ", trim: true)
 
 config :comms_web, CommsWeb.Endpoint,
-  http: [ip: {0, 0, 0, 0}, port: String.to_integer(System.get_env("PORT", "4000"))],
+  http: [
+    ip: {0, 0, 0, 0},
+    port: String.to_integer(System.get_env("PORT", "4000")),
+    websocket_options: [
+      max_frame_size: 1_048_576,
+      max_fragmented_message_size: 1_048_576
+    ]
+  ],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

@@ -410,6 +410,11 @@ export class RealtimeCall {
     this.channel.on("call.direct.peers.v1", (payload?: unknown) => {
       if (!this.stopped) callbacks.onDirectPeers?.(readDirectPeers(payload));
     });
+    this.channel.on("call.direct.disabled.v1", () => {
+      if (this.stopped) return;
+      callbacks.onDirectReady?.(null);
+      callbacks.onDirectPeers?.([]);
+    });
     this.channel.on("call.direct.signal.v1", (payload?: unknown) => {
       const event = readDirectSignalEvent(payload);
       if (!this.stopped && event) callbacks.onDirectSignal?.(event);
@@ -454,6 +459,10 @@ export class RealtimeCall {
 
   sendDirectSignal(targetPeerId: string, signal: RealtimeDirectAudioSignal): Promise<void> {
     return this.push("call.direct.signal.v1", { target_peer_id: targetPeerId, signal });
+  }
+
+  disableDirectAudio(): Promise<void> {
+    return this.push("call.direct.disable.v1", {});
   }
 
   private push(event: string, payload: Record<string, unknown>): Promise<void> {
