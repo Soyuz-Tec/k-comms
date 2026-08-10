@@ -214,4 +214,29 @@ describe("ProductShell PWA controls", () => {
     expect(harness.pwa.dismissUpdate).toHaveBeenCalledOnce();
     expect(harness.pwa.applyUpdate).not.toHaveBeenCalled();
   });
+
+  it("renders a desktop-only safe drag region for Window Controls Overlay", () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }));
+
+    const { container } = renderProductShell();
+    expect(container.querySelector(".window-titlebar-drag-region")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    expect(screen.getByRole("complementary", {
+      name: "Workspace navigation"
+    })).toBeVisible();
+    expect(screen.queryByRole("button", {
+      name: "Open more menu"
+    })).not.toBeInTheDocument();
+  });
 });

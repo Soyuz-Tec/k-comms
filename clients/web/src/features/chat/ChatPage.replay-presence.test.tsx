@@ -759,6 +759,6 @@ describe("ChatPage durable sequence recovery", () => {
     );
 
     await waitFor(() => expect(harness.callbacks).not.toBeNull());
-    expect(await screen.findByText("Live")).toBeInTheDocument();
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
   });
 });

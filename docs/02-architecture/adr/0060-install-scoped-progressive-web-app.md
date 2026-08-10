@@ -23,8 +23,9 @@ Add to Home Screen flow and do not expose Chromium's prompt event.
 K-Comms is an installable progressive web application with:
 
 - a manifest served at `/app/manifest.webmanifest`, a stable `/` ID and visual
-  scope, a `/app/` start URL, standalone display, and neutral launcher icons
-  sized for major browser requirements;
+  scope, a `/app/` start URL, standalone display, a progressive desktop
+  `window-controls-overlay` preference with standalone fallback, and neutral
+  launcher icons sized for major browser requirements;
 - one module service worker at the existing `/app/k-comms-sw.js` path and
   `/app/` registration scope so Web Push registration remains compatible;
 - eager service-worker registration at client startup without requesting
@@ -81,11 +82,14 @@ branding.
   outside that path are not controlled by this decision.
 - Physical iOS and Android installation, launch, update, and icon behavior
   remain release-device gates in addition to automated browser checks.
+- Window Controls Overlay remains a progressive desktop enhancement. Browsers
+  that do not implement it, mobile operating systems, and users who opt out
+  continue in the existing standalone window without a functional difference.
 
 ## Validation
 
-- Validate manifest fields, icon dimensions and purposes, start URL, scope, and
-  standalone display.
+- Validate manifest fields, icon dimensions and purposes, start URL, scope,
+  Window Controls Overlay preference, and standalone fallback.
 - Prove eager registration does not call `Notification.requestPermission()`.
 - Unit-test the request classifier so sensitive and non-GET traffic remains
   network-only.

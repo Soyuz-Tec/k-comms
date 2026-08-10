@@ -56,6 +56,7 @@ export function ConversationWorkspaceHeader({
   const canvasHref = `/app/whiteboard?conversation=${encodeURIComponent(
     conversation.id
   )}`;
+  const chatHref = `/app/?conversation=${encodeURIComponent(conversation.id)}`;
 
   return (
     <header className="conversation-header">
@@ -135,10 +136,10 @@ export function ConversationWorkspaceHeader({
         className="conversation-section-nav"
         aria-label="Conversation workspace"
       >
-        <span className="active" aria-current="page">
+        <Link className="active" to={chatHref} aria-current="page">
           <AppIcon name="message" />
           Chat
-        </span>
+        </Link>
         <Link to={canvasHref}>
           <AppIcon name="whiteboard" />
           Canvas
@@ -146,6 +147,7 @@ export function ConversationWorkspaceHeader({
         <button
           type="button"
           aria-expanded={showActivity}
+          aria-controls="conversation-activity-panel"
           onClick={onToggleActivity}
         >
           <AppIcon name="activity" />
@@ -154,6 +156,7 @@ export function ConversationWorkspaceHeader({
         <button
           type="button"
           aria-expanded={showDetails}
+          aria-controls="conversation-details-panel"
           onClick={onToggleDetails}
         >
           <AppIcon name="users" />

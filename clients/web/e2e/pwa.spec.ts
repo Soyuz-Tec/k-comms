@@ -35,6 +35,14 @@ test.describe("installable PWA runtime", () => {
       "href",
       "/app/manifest.webmanifest"
     );
+    const manifest = await page.evaluate(async () =>
+      fetch("/app/manifest.webmanifest").then((response) => response.json())
+    );
+    expect(manifest.display).toBe("standalone");
+    expect(manifest.display_override).toEqual([
+      "window-controls-overlay",
+      "standalone"
+    ]);
 
     const registration = await page.evaluate(async () => {
       const ready = await navigator.serviceWorker.ready;

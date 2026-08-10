@@ -4,6 +4,7 @@ import {
   expectMinimumTarget,
   expectMinimumTargets,
   expectNoDocumentOverflow,
+  expectNoDocumentVerticalOverflow,
   expectNoHorizontalOverflow,
   exposeInstallPrompt,
   installDeterministicMediaDevices,
@@ -35,8 +36,10 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await exposeInstallPrompt(page);
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("inbox-390.png"), fullPage: true });
+      await expectNoDocumentVerticalOverflow(page);
+      await expect(page.locator(".inbox-filter-trigger .lucide-compass")).toBeVisible();
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`inbox-${viewport.width}.png`), fullPage: true });
       }
 
       const conversation = page.getByRole("button", { name: /General/ });
@@ -86,8 +89,8 @@ test.describe("authenticated mobile web acceptance", () => {
       expect(closeMainMenuBox!.width).toBeGreaterThanOrEqual(52);
       expect(closeMainMenuBox!.height).toBeGreaterThanOrEqual(52);
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("menu-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`menu-${viewport.width}.png`), fullPage: true });
       }
       await closeMainMenu.click();
       await expect(productMenu).toHaveCount(0);
@@ -120,8 +123,8 @@ test.describe("authenticated mobile web acceptance", () => {
       expect(["auto", "scroll"]).toContain(notificationScroll.overflowY);
       expect(notificationScroll.scrollable).toBe(true);
       expect(notificationScroll.scrollTop).toBeGreaterThan(0);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("notifications-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`notifications-${viewport.width}.png`), fullPage: true });
       }
       await expectMinimumTarget(
         notificationDialog.getByRole("button", { name: "Close notifications" }),
@@ -141,7 +144,7 @@ test.describe("authenticated mobile web acceptance", () => {
       const conversationWorkspace = page.getByRole("navigation", {
         name: "Conversation workspace"
       });
-      await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+      await expect(conversationWorkspace.getByRole("link", { name: "Chat" }))
         .toHaveAttribute("aria-current", "page");
       await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
         .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
@@ -149,7 +152,7 @@ test.describe("authenticated mobile web acceptance", () => {
         .toBeVisible();
       await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
         .toBeVisible();
-      await expect(page.locator(".composer-heading")).toContainText("Message General");
+      await expect(page.locator(".composer-heading")).toHaveCount(0);
       await expect(page.locator(".composer-toolbar")).toBeVisible();
       const moreMessageActions = page.getByRole("button", { name: "More message actions" });
       await expectMinimumTarget(moreMessageActions, "more-message-actions control");
@@ -163,6 +166,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTargets(messageActions.locator("button"), "own-message actions");
       await expectNoHorizontalOverflow(page.locator(".message-scroll"), "message scroller");
       await expectNoHorizontalOverflow(page.locator(".conversation-header"), "conversation header");
+      await expectNoDocumentVerticalOverflow(page);
 
       const back = page.getByRole("button", { name: "Back to conversations" });
       const startAudio = page.getByRole("button", { name: "Start audio call" });
@@ -193,8 +197,8 @@ test.describe("authenticated mobile web acceptance", () => {
         .toBeLessThanOrEqual(composerShellBox!.x + composerShellBox!.width + 1);
       await moreMessageActions.click();
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("conversation-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`conversation-${viewport.width}.png`), fullPage: true });
       }
       await expect.poll(() => fixture.readCursorRequests).toBeGreaterThan(0);
 
@@ -232,7 +236,7 @@ test.describe("authenticated mobile web acceptance", () => {
     const conversationWorkspace = page.getByRole("navigation", {
       name: "Conversation workspace"
     });
-    await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+    await expect(conversationWorkspace.getByRole("link", { name: "Chat" }))
       .toHaveAttribute("aria-current", "page");
     await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
       .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
@@ -240,7 +244,7 @@ test.describe("authenticated mobile web acceptance", () => {
       .toBeVisible();
     await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
       .toBeVisible();
-    await expect(page.locator(".composer-heading")).toContainText("Message General");
+    await expect(page.locator(".composer-heading")).toHaveCount(0);
     await expect(page.locator(".composer-toolbar")).toBeVisible();
     const conversationPane = page.getByRole("region", { name: "General" });
     await expect(conversationPane.getByRole("button", { name: "Search messages" })).toBeVisible();

@@ -7,7 +7,8 @@
  */
 
 .workspace-sidebar,
-.mobile-primary-nav {
+.mobile-primary-nav,
+.window-titlebar-drag-region {
   display: none;
 }
 
@@ -690,5 +691,60 @@
   .workspace-account-trigger,
   .workspace-sidebar .notification-trigger {
     border: 1px solid ButtonText;
+  }
+}
+
+/*
+ * Installed desktop Chromium PWAs may opt into the Window Controls Overlay.
+ * Reserve the operating system control area on either side, keep the product
+ * controls interactive, and let unsupported browsers fall back to standalone.
+ */
+@media (display-mode: window-controls-overlay) {
+  .app-shell > .topbar {
+    min-height: max(
+      var(--mobile-topbar-total, 64px),
+      env(titlebar-area-height, 0px)
+    );
+    padding-left: max(
+      calc(.75rem + var(--safe-left)),
+      calc(env(titlebar-area-x, 0px) + .75rem)
+    );
+    padding-right: max(
+      calc(.65rem + var(--safe-right)),
+      calc(
+        100vw
+        - env(titlebar-area-x, 0px)
+        - env(titlebar-area-width, 100vw)
+        + .65rem
+      )
+    );
+    -webkit-app-region: drag;
+  }
+
+  .app-shell > .topbar :where(a, button, input, select, textarea, [tabindex]) {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@media (display-mode: window-controls-overlay) and (min-width: 761px) and (min-height: 561px) {
+  .app-shell {
+    padding-top: env(titlebar-area-height, 0px);
+  }
+
+  .window-titlebar-drag-region {
+    position: fixed;
+    z-index: 45;
+    top: env(titlebar-area-y, 0px);
+    left: env(titlebar-area-x, 0px);
+    width: env(titlebar-area-width, 100vw);
+    height: env(titlebar-area-height, 0px);
+    display: block;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-overlay);
+    -webkit-app-region: drag;
+  }
+
+  .workspace-sidebar {
+    top: env(titlebar-area-height, 0px);
   }
 }
