@@ -299,6 +299,64 @@ test.describe("authenticated mobile web acceptance", () => {
     await expectNoDocumentOverflow(page);
   });
 
+  test("desktop rail minimization and conversation width persist across reload", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installWorkspace(page);
+    await page.goto("/app/");
+
+    const rail = page.getByRole("complementary", { name: "Workspace navigation" });
+    const expandedRailBox = await rail.boundingBox();
+    expect(expandedRailBox).not.toBeNull();
+    expect(expandedRailBox!.width).toBeGreaterThan(200);
+
+    await page.getByRole("button", { name: "Collapse workspace navigation" }).click();
+    const collapsedRailBox = await rail.boundingBox();
+    expect(collapsedRailBox).not.toBeNull();
+    expect(collapsedRailBox!.width).toBeLessThanOrEqual(82);
+    await expect(page.getByRole("button", { name: "Expand workspace navigation" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    const separator = page.getByRole("separator", { name: "Resize conversation list" });
+    await expect(separator).toBeVisible();
+    const startingWidth = Number(await separator.getAttribute("aria-valuenow"));
+    await separator.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(separator).toHaveAttribute("aria-valuenow", String(startingWidth + 16));
+    const separatorBox = await separator.boundingBox();
+    expect(separatorBox).not.toBeNull();
+    await page.mouse.move(
+      separatorBox!.x + separatorBox!.width / 2,
+      separatorBox!.y + separatorBox!.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      separatorBox!.x + separatorBox!.width / 2 + 40,
+      separatorBox!.y + separatorBox!.height / 2
+    );
+    await page.mouse.up();
+    await expect(separator).toHaveAttribute("aria-valuenow", String(startingWidth + 56));
+
+    const sidebarHeadingBox = await page.locator(".sidebar-heading").boundingBox();
+    const conversationHeaderBox = await page.locator(".conversation-header").boundingBox();
+    expect(sidebarHeadingBox).not.toBeNull();
+    expect(conversationHeaderBox).not.toBeNull();
+    expect(sidebarHeadingBox!.height).toBeLessThanOrEqual(72);
+    expect(conversationHeaderBox!.height).toBeLessThanOrEqual(112);
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Expand workspace navigation" })).toBeVisible();
+    await expect(page.getByRole("separator", { name: "Resize conversation list" }))
+      .toHaveAttribute("aria-valuenow", String(startingWidth + 56));
+    await expectNoDocumentOverflow(page);
+
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("adjustable-workspace-1440.png"),
+        fullPage: true
+      });
+    }
+  });
+
   test("short landscape phones keep the hamburger and contain long workspace names", async ({ page }) => {
     const longWorkspaceName = "Workspace".repeat(15);
     await page.setViewportSize({ width: 844, height: 390 });

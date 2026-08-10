@@ -355,6 +355,8 @@ describe("AudioCallPanel", () => {
     expect(document.querySelector("[data-k-comms-call-audio='remote']")).toBeNull();
     expect(screen.getByRole("button", { name: "Start audio call" })).toBeVisible();
     expect(screen.getByText("The audio call was ended for everyone.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dismiss call notice" }));
+    expect(screen.queryByText("The audio call was ended for everyone.")).not.toBeInTheDocument();
   });
 
   it("treats participant removal as terminal access revocation without polling or rejoining", async () => {

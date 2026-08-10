@@ -220,11 +220,48 @@
     display: flex;
     overflow: hidden auto;
     flex-direction: column;
-    gap: .9rem;
-    padding: 1rem;
+    gap: .58rem;
+    padding: .72rem .78rem;
     border-right: 1px solid var(--border-subtle);
     color: var(--text-primary);
     background: var(--surface-rail);
+  }
+
+  .app-shell.workspace-sidebar-collapsed {
+    --desktop-rail-width: 80px;
+  }
+
+  .workspace-sidebar-header {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: .4rem;
+  }
+
+  .workspace-sidebar-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    color: var(--text-muted);
+    background: transparent;
+  }
+
+  .workspace-sidebar-toggle:hover {
+    color: var(--accent-text);
+    border-color: var(--border-default);
+    background: var(--surface-hover);
+  }
+
+  .workspace-sidebar-toggle:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 
   .workspace-sidebar-brand,
@@ -267,8 +304,8 @@
   }
 
   .workspace-sidebar-identity {
-    min-height: 54px;
-    padding: .45rem;
+    min-height: 48px;
+    padding: .35rem .42rem;
     border: 1px solid var(--border-subtle);
     border-radius: 14px;
     background: var(--surface-raised);
@@ -288,12 +325,12 @@
   }
 
   .workspace-instant-room {
-    min-height: 46px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: .6rem;
-    padding: .7rem .85rem;
+    padding: .58rem .75rem;
     border: 1px solid var(--accent-solid);
     border-radius: 13px;
     color: var(--text-on-accent);
@@ -315,12 +352,12 @@
 
   .workspace-sidebar-nav {
     display: grid;
-    gap: .8rem;
+    gap: .48rem;
   }
 
   .member-nav-group {
     display: grid;
-    gap: .22rem;
+    gap: .14rem;
     margin: 0;
   }
 
@@ -436,6 +473,73 @@
     left: calc(var(--desktop-rail-width) + .75rem);
   }
 
+  body:has(.workspace-sidebar.is-collapsed) > .notification-panel {
+    left: calc(80px + .75rem);
+  }
+
+  .workspace-sidebar.is-collapsed {
+    align-items: center;
+    padding-inline: .55rem;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-header {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: .18rem;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-brand-copy,
+  .workspace-sidebar.is-collapsed .workspace-identity-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-chevron,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications > span,
+  .workspace-sidebar.is-collapsed .workspace-instant-room span,
+  .workspace-sidebar.is-collapsed .member-nav-group-label {
+    display: none;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-identity {
+    display: none;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-brand,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications,
+  .workspace-sidebar.is-collapsed .workspace-account-menu,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav,
+  .workspace-sidebar.is-collapsed .member-nav-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-instant-room,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a,
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    margin-inline: auto;
+    padding: 0;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
   .instant-draft-body {
     grid-template-columns: minmax(0, 1fr) clamp(410px, 33vw, 480px);
   }
@@ -535,6 +639,16 @@
     align-items: center;
     gap: .65rem;
     padding: .8rem .65rem;
+  }
+
+  .workspace-sidebar-header {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .workspace-sidebar-toggle {
+    display: none;
   }
 
   .workspace-brand-copy,
