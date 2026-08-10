@@ -102,6 +102,14 @@ discovery endpoints, not secrets. The direct path has no dedicated TURN
 credential or K-Comms relay: if it cannot connect, the client restores the
 already-connected LiveKit microphone. Both people must consent in prejoin, and
 the option is never available for video, groups, or office readiness tests.
+Direct admission defaults to 8 attempts per actor and call per minute. Direct
+signaling defaults to 240 messages and 262,144 encoded bytes per actor, call,
+and target per minute. These HMAC-keyed counters use the existing PostgreSQL
+rate-limit table, intentionally span browser sessions and edge replicas, and
+add no service or credential. Phoenix and Bandit independently cap complete or
+fragmented WebSocket messages at 1 MiB; event-level direct SDP and ICE limits
+remain smaller. Changing any of these internal defaults requires an ADR review,
+capacity evidence, and matching client/server regression updates.
 LIVEKIT_API_KEY and LIVEKIT_API_SECRET are externally
 managed provider secrets; the secret must be at least 32 bytes, is never
 returned to a browser, and must not be logged. Edge and worker pods require the

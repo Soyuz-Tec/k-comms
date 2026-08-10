@@ -40,8 +40,10 @@ import {
   DirectAudioTransport,
   type DirectAudioSignal
 } from "./directAudioTransport";
+import { DirectSignalQueue } from "./directSignalQueue";
 
 export type CallTransportMode = "livekit" | "connecting_direct" | "direct" | "livekit_fallback";
+type DirectSignalingState = "idle" | "negotiating" | "connected" | "fallback";
 
 export interface CallPanelProps {
   api: CallApi;
@@ -95,7 +97,8 @@ export function useCallSession({
   const directConfigurationRef = useRef<DirectAudioConfiguration | null>(null);
   const directPeersRef = useRef<DirectAudioPeer[]>([]);
   const directRemotePeerIdRef = useRef<string | null>(null);
-  const pendingDirectSignalsRef = useRef<DirectAudioSignalEvent[]>([]);
+  const pendingDirectSignalsRef = useRef(new DirectSignalQueue<DirectAudioSignalEvent>());
+  const directSignalingStateRef = useRef<DirectSignalingState>("idle");
   const directStartAttemptRef = useRef(false);
   const desiredMicrophoneRef = useRef(false);
   const [preferDirectAudio, setPreferDirectAudio] = useState(false);
@@ -199,7 +202,8 @@ export function useCallSession({
     directConfigurationRef.current = null;
     directPeersRef.current = [];
     directRemotePeerIdRef.current = null;
-    pendingDirectSignalsRef.current = [];
+    pendingDirectSignalsRef.current.clear();
+    directSignalingStateRef.current = "idle";
     directStartAttemptRef.current = false;
     setDirectMicrophoneEnabled(false);
     setDirectRemoteMicrophoneEnabled(false);
@@ -864,17 +868,19 @@ export function useCallSession({
     realtime: RealtimeCall,
     notifyRemote: boolean
   ) {
+    if (directSignalingStateRef.current === "fallback") return;
+    directSignalingStateRef.current = "fallback";
     const transport = directTransportRef.current;
-    if (!transport) return;
     directTransportRef.current = null;
     if (notifyRemote && directRemotePeerIdRef.current) {
       void realtime.sendDirectSignal(directRemotePeerIdRef.current, { kind: "fallback" }).catch(() => undefined);
     }
-    transport.stop();
+    void realtime.disableDirectAudio().catch(() => undefined);
+    transport?.stop();
     directConfigurationRef.current = null;
     directPeersRef.current = [];
     directRemotePeerIdRef.current = null;
-    pendingDirectSignalsRef.current = [];
+    pendingDirectSignalsRef.current.clear();
     setTransportMode("livekit_fallback");
     setDirectMicrophoneEnabled(false);
     setDirectRemoteMicrophoneEnabled(false);
@@ -913,6 +919,7 @@ export function useCallSession({
     ) return;
 
     directStartAttemptRef.current = true;
+    directSignalingStateRef.current = "negotiating";
     directRemotePeerIdRef.current = remotePeer.peerId;
     setTransportMode("connecting_direct");
     setDirectMicrophoneEnabled(desiredMicrophoneRef.current);
@@ -930,6 +937,7 @@ export function useCallSession({
       onState: (state) => {
         if (directTransportRef.current !== transport) return;
         if (state === "connected") {
+          directSignalingStateRef.current = "connected";
           setTransportMode("direct");
           const remotePeerId = directRemotePeerIdRef.current;
           if (remotePeerId) {
@@ -958,7 +966,7 @@ export function useCallSession({
         desiredMicrophoneRef.current,
         selectedMicrophone
       );
-      const pendingSignals = pendingDirectSignalsRef.current.splice(0);
+      const pendingSignals = pendingDirectSignalsRef.current.drain();
       for (const event of pendingSignals) {
         if (event.fromPeerId === remotePeer.peerId) {
           if (event.signal.kind === "media") {
@@ -1014,7 +1022,17 @@ export function useCallSession({
           },
           onDirectReady: (configuration) => {
             directConfigurationRef.current = configuration;
-            if (configuration) void maybeStartDirectAudio(room, generation, realtime);
+            if (configuration) {
+              if (directSignalingStateRef.current !== "fallback") {
+                directSignalingStateRef.current = "negotiating";
+                void maybeStartDirectAudio(room, generation, realtime);
+              }
+            } else if (
+              directSignalingStateRef.current === "negotiating" ||
+              directSignalingStateRef.current === "connected"
+            ) {
+              void fallbackDirectAudio(room, generation, realtime, false);
+            }
           },
           onDirectPeers: (peers) => {
             directPeersRef.current = peers;
@@ -1031,6 +1049,7 @@ export function useCallSession({
             void maybeStartDirectAudio(room, generation, realtime);
           },
           onDirectSignal: (event) => {
+            if (directSignalingStateRef.current === "fallback") return;
             if (
               event.signal.kind === "media" &&
               event.fromUserId === conversation.counterpart_user_id
@@ -1040,7 +1059,12 @@ export function useCallSession({
             }
             const transport = directTransportRef.current;
             if (!transport || !directRemotePeerIdRef.current) {
-              pendingDirectSignalsRef.current.push(event);
+              if (
+                directSignalingStateRef.current === "negotiating" &&
+                !pendingDirectSignalsRef.current.enqueue(event)
+              ) {
+                void fallbackDirectAudio(room, generation, realtime, true);
+              }
               return;
             }
             if (event.fromPeerId !== directRemotePeerIdRef.current) return;

@@ -6,7 +6,14 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: direct-audio-distributed-rate-limit-interface
+      previous_manifest_sha256: e5bc5cf646f244ea325c940415f770e40dfdec442b41e7025e3260bc9b75b15e
+      approved_changes:
+        - 'technical_interfaces:web-distributed-public-rate-limit:callers:add:"CommsWeb.DirectAudioRateLimit"'
+        - 'technical_interfaces:web-distributed-public-rate-limit:operations:add:{"arity":5,"name":"allow?"}'
+      adr: docs/02-architecture/adr/0073-harden-direct-audio-signaling-and-resource-boundaries.md
+      removal_condition: Remove this exact review declaration after the ADR-0073 interface widening is present on the protected branch; it may not authorize any later manifest delta.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -739,13 +746,14 @@ technical_interfaces:
   - id: web-distributed-public-rate-limit
     owner: platform_runtime
     interface: CommsCore.PlatformRateLimits
-    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
+    callers: [CommsWeb.DirectAudioRateLimit, CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
     operations:
       - {name: "allow?", arity: 4}
+      - {name: "allow?", arity: 5}
     dispatch: direct
     contracts: [CommsCore.PlatformRateLimits.Decision]
     transaction: independent
-    condition: The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.
+    condition: The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window/cost values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision, weighted byte accounting, and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError

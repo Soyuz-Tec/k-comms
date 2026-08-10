@@ -159,8 +159,11 @@ whiteboard-ineligible.
   history.
 - Optional direct audio plane: ephemeral browser-to-browser SRTP for an active
   direct-conversation audio call after both participants consent. Phoenix
-  carries only bounded, targeted negotiation; LiveKit stays connected for
-  lifecycle authority and automatic fallback. See ADR-0072.
+  carries only bounded, targeted, audio-only negotiation; PostgreSQL-backed
+  actor/call/target counters bound signaling across edge replicas, while
+  Presence retains at most one connection per user and two peers per call.
+  LiveKit stays connected for lifecycle authority and terminal automatic
+  fallback. See ADR-0072 and ADR-0073.
 
 Call creation and its unique eight-hour expiry job commit together. The
 worker runtime owns provider-room cleanup and then invokes the same durable

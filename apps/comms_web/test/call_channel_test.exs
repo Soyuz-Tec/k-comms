@@ -12,6 +12,7 @@ defmodule CommsWeb.CallChannelTest do
   alias CommsWeb.CallChannel
 
   @endpoint CommsWeb.Endpoint
+  @audio_sdp "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:abcd\r\na=ice-pwd:abcdefghijklmnopqrstuv\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=setup:actpass\r\na=rtcp-mux\r\n"
 
   setup do
     owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Repo, shared: true)
@@ -125,7 +126,7 @@ defmodule CommsWeb.CallChannelTest do
     assert owner_direct.ice_servers == [%{urls: ["stun:stun.cloudflare.com:3478"]}]
     assert byte_size(owner_direct.peer_id) == 22
 
-    assert {:ok, %{direct_audio: member_direct}, _member_socket} =
+    assert {:ok, %{direct_audio: member_direct}, member_socket} =
              subscribe_and_join(
                socket(CommsWeb.UserSocket, "direct-member", member_subject),
                CallChannel,
@@ -138,40 +139,138 @@ defmodule CommsWeb.CallChannelTest do
 
     assert_direct_peer_set([owner_direct.peer_id, member_direct.peer_id])
 
-    signal_ref =
-      push(owner_socket, "call.direct.signal.v1", %{
-        "target_peer_id" => member_direct.peer_id,
-        "signal" => %{"kind" => "offer", "sdp" => "v=0\r\n"}
+    {offer_socket, answer_socket, offer_direct, answer_direct, offer_user_id} =
+      if owner_direct.peer_id < member_direct.peer_id do
+        {owner_socket, member_socket, owner_direct, member_direct, account.user.id}
+      else
+        {member_socket, owner_socket, member_direct, owner_direct, member.id}
+      end
+
+    wrong_offerer_ref =
+      push(answer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => offer_direct.peer_id,
+        "signal" => %{"kind" => "offer", "sdp" => @audio_sdp}
       })
 
-    assert_reply(signal_ref, :ok)
+    assert_reply(wrong_offerer_ref, :error, %{reason: "invalid_signal"})
 
-    assert_push("call.direct.signal.v1", %{
-      from_peer_id: owner_peer_id,
-      from_user_id: owner_user_id,
-      target_peer_id: member_peer_id,
-      signal: %{kind: "offer", sdp: "v=0\r\n"}
-    })
+    video_ref =
+      push(offer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => answer_direct.peer_id,
+        "signal" => %{
+          "kind" => "offer",
+          "sdp" => "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n"
+        }
+      })
 
-    assert owner_peer_id == owner_direct.peer_id
-    assert owner_user_id == account.user.id
-    assert member_peer_id == member_direct.peer_id
+    assert_reply(video_ref, :error, %{reason: "invalid_signal"})
 
     oversized_ref =
-      push(owner_socket, "call.direct.signal.v1", %{
-        "target_peer_id" => member_direct.peer_id,
+      push(offer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => answer_direct.peer_id,
         "signal" => %{"kind" => "offer", "sdp" => String.duplicate("x", 16_385)}
       })
 
     assert_reply(oversized_ref, :error, %{reason: "invalid_signal"})
 
     extra_field_ref =
-      push(owner_socket, "call.direct.signal.v1", %{
-        "target_peer_id" => member_direct.peer_id,
-        "signal" => %{"kind" => "offer", "sdp" => "v=0\r\n", "private" => "not-allowed"}
+      push(offer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => answer_direct.peer_id,
+        "signal" => %{"kind" => "offer", "sdp" => @audio_sdp, "private" => "not-allowed"}
       })
 
     assert_reply(extra_field_ref, :error, %{reason: "invalid_signal"})
+
+    signal_ref =
+      push(offer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => answer_direct.peer_id,
+        "signal" => %{"kind" => "offer", "sdp" => @audio_sdp}
+      })
+
+    assert_reply(signal_ref, :ok)
+
+    assert_push("call.direct.signal.v1", %{
+      from_peer_id: owner_peer_id,
+      from_user_id: ^offer_user_id,
+      target_peer_id: answer_peer_id,
+      signal: %{kind: "offer", sdp: @audio_sdp}
+    })
+
+    assert owner_peer_id == offer_direct.peer_id
+    assert answer_peer_id == answer_direct.peer_id
+
+    answer_ref =
+      push(answer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => offer_direct.peer_id,
+        "signal" => %{"kind" => "answer", "sdp" => @audio_sdp}
+      })
+
+    assert_reply(answer_ref, :ok)
+    assert_push("call.direct.signal.v1", %{signal: %{kind: "answer", sdp: @audio_sdp}})
+
+    fallback_ref =
+      push(answer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => offer_direct.peer_id,
+        "signal" => %{"kind" => "fallback"}
+      })
+
+    assert_reply(fallback_ref, :ok)
+    assert_push("call.direct.disabled.v1", %{reason: "peer_fallback"})
+    assert_push("call.direct.signal.v1", %{signal: %{kind: "fallback"}})
+
+    after_fallback_ref =
+      push(answer_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => offer_direct.peer_id,
+        "signal" => %{"kind" => "fallback"}
+      })
+
+    assert_reply(after_fallback_ref, :error, %{reason: "invalid_signal"})
+  end
+
+  test "a second direct session for the same user is disabled and cannot expand presence" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    {member, _member_subject} = member_subject_fixture(account)
+
+    assert {:ok, %{conversation: conversation}} =
+             Conversations.get_or_create_direct_view(member.id, subject)
+
+    assert {:ok, call, :created} = AudioCalls.start(conversation.id, subject)
+
+    assert {:ok, ^call, _identity} =
+             AudioCalls.with_join_authorized(
+               conversation.id,
+               call.id,
+               subject,
+               fn request -> {:ok, request.provider_identity} end
+             )
+
+    assert {:ok, %{direct_audio: first_direct}, _first_socket} =
+             subscribe_and_join(
+               socket(CommsWeb.UserSocket, "direct-primary", subject),
+               CallChannel,
+               "call:#{call.id}",
+               %{"conversation_id" => conversation.id, "direct_audio" => true}
+             )
+
+    assert first_direct.enabled == true
+    assert_direct_peer_set([first_direct.peer_id])
+
+    assert {:ok, %{direct_audio: %{enabled: false}}, second_socket} =
+             subscribe_and_join(
+               socket(CommsWeb.UserSocket, "direct-duplicate", subject),
+               CallChannel,
+               "call:#{call.id}",
+               %{"conversation_id" => conversation.id, "direct_audio" => true}
+             )
+
+    ref =
+      push(second_socket, "call.direct.signal.v1", %{
+        "target_peer_id" => first_direct.peer_id,
+        "signal" => %{"kind" => "fallback"}
+      })
+
+    assert_reply(ref, :error, %{reason: "invalid_signal"})
   end
 
   test "direct signaling stays unavailable for a non-direct conversation" do

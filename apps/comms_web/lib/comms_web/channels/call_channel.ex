@@ -3,7 +3,7 @@ defmodule CommsWeb.CallChannel do
 
   alias CommsCore.AudioCalls
   alias CommsWeb.ConversationChannel.AccessPolicy
-  alias CommsWeb.{DirectAudio, Presence}
+  alias CommsWeb.{DirectAudio, DirectAudioRateLimit, DirectAudioSignal, Presence}
 
   @reaction_allowlist ["👍", "👏", "❤️", "😂", "🎉"]
   @collaboration_events [
@@ -12,7 +12,8 @@ defmodule CommsWeb.CallChannel do
     "call.participant_muted.v1",
     "call.participant_removed.v1"
   ]
-  @direct_events ["presence_diff", "call.direct.peers.v1", "call.direct.signal.v1"]
+  @direct_events ["presence_diff", "call.direct.signal.v1"]
+  @direct_peer_limit 2
 
   intercept(@collaboration_events ++ @direct_events)
 
@@ -35,6 +36,8 @@ defmodule CommsWeb.CallChannel do
         |> assign(:call_id, call_id)
         |> assign(:call_conversation_id, conversation_id)
         |> assign(:direct_audio, false)
+        |> assign(:direct_signal_state, :disabled)
+        |> assign(:direct_expected_peer_id, nil)
 
       {response, socket} = enable_direct_audio(response, socket, payload)
 
@@ -54,11 +57,10 @@ defmodule CommsWeb.CallChannel do
            online_at: System.system_time(:second)
          }) do
       {:ok, _ref} ->
-        broadcast!(socket, "call.direct.peers.v1", %{})
-        {:noreply, socket}
+        {:noreply, enforce_direct_peer_limit(socket)}
 
       {:error, _reason} ->
-        {:noreply, assign(socket, :direct_audio, false)}
+        {:noreply, disable_direct_audio(socket, true)}
     end
   end
 
@@ -107,6 +109,17 @@ defmodule CommsWeb.CallChannel do
   def handle_in("call.reaction.v1", _payload, socket),
     do: {:reply, {:error, %{reason: "invalid_reaction"}}, socket}
 
+  def handle_in("call.direct.disable.v1", %{} = payload, socket)
+      when map_size(payload) == 0 do
+    case authorize(socket) do
+      :ok -> {:reply, :ok, disable_direct_audio(socket, false)}
+      _ -> {:stop, :unauthorized, socket}
+    end
+  end
+
+  def handle_in("call.direct.disable.v1", _payload, socket),
+    do: {:reply, {:error, %{reason: "invalid_signal"}}, socket}
+
   def handle_in(
         "call.direct.signal.v1",
         %{"target_peer_id" => target_peer_id, "signal" => signal},
@@ -120,7 +133,15 @@ defmodule CommsWeb.CallChannel do
              60
            ),
          {:ok, target_user_id} <- target_user(socket, target_peer_id),
-         {:ok, sanitized_signal} <- valid_signal(signal) do
+         {:ok, sanitized_signal} <- DirectAudioSignal.validate(signal),
+         :ok <- valid_outbound_signal_state(socket, target_peer_id, sanitized_signal),
+         :ok <-
+           DirectAudioRateLimit.allow_signal?(
+             socket.assigns.call_id,
+             target_user_id,
+             sanitized_signal,
+             AccessPolicy.subject(socket)
+           ) do
       broadcast_from!(socket, "call.direct.signal.v1", %{
         from_peer_id: socket.assigns.direct_peer_id,
         from_user_id: socket.assigns.user_id,
@@ -129,9 +150,11 @@ defmodule CommsWeb.CallChannel do
         signal: sanitized_signal
       })
 
+      socket = transition_after_outbound_signal(socket, target_peer_id, sanitized_signal)
       {:reply, :ok, socket}
     else
       false -> {:reply, {:error, %{reason: "rate_limited"}}, socket}
+      {:error, :rate_limited} -> {:reply, {:error, %{reason: "rate_limited"}}, socket}
       {:error, :unauthorized} -> {:stop, :unauthorized, socket}
       _ -> {:reply, {:error, %{reason: "invalid_signal"}}, socket}
     end
@@ -145,13 +168,9 @@ defmodule CommsWeb.CallChannel do
     deliver_direct_peers(socket)
   end
 
-  def handle_out("call.direct.peers.v1", _payload, socket) do
-    deliver_direct_peers(socket)
-  end
-
   def handle_out(
         "call.direct.signal.v1",
-        %{target_peer_id: target_peer_id} = payload,
+        %{from_peer_id: from_peer_id, target_peer_id: target_peer_id, signal: signal} = payload,
         socket
       ) do
     cond do
@@ -162,13 +181,17 @@ defmodule CommsWeb.CallChannel do
         {:noreply, socket}
 
       true ->
-        case authorize_direct(socket) do
-          :ok ->
-            push(socket, "call.direct.signal.v1", payload)
-            {:noreply, socket}
+        with :ok <- authorize_direct(socket),
+             {:ok, transitioned_socket} <-
+               transition_before_inbound_signal(socket, from_peer_id, signal) do
+          push(socket, "call.direct.signal.v1", payload)
+          {:noreply, transitioned_socket}
+        else
+          {:error, :unauthorized} ->
+            {:stop, :unauthorized, socket}
 
           _ ->
-            {:stop, :unauthorized, socket}
+            {:noreply, socket}
         end
     end
   end
@@ -199,29 +222,35 @@ defmodule CommsWeb.CallChannel do
   end
 
   defp enable_direct_audio(response, socket, %{"direct_audio" => true}) do
-    case DirectAudio.authorize(
-           socket.assigns.call_conversation_id,
-           socket.assigns.call_id,
-           AccessPolicy.subject(socket)
-         ) do
-      :ok ->
-        peer_id = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+    subject = AccessPolicy.subject(socket)
 
-        socket =
-          socket
-          |> assign(:direct_audio, true)
-          |> assign(:direct_peer_id, peer_id)
+    with :ok <-
+           DirectAudio.authorize(
+             socket.assigns.call_conversation_id,
+             socket.assigns.call_id,
+             subject
+           ),
+         :ok <- DirectAudioRateLimit.allow_join?(socket.assigns.call_id, subject),
+         false <- direct_peer_present_for_user?(socket, socket.assigns.user_id) do
+      peer_id = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-        send(self(), :track_direct_audio)
+      socket =
+        socket
+        |> assign(:direct_audio, true)
+        |> assign(:direct_peer_id, peer_id)
+        |> assign(:direct_signal_state, :ready)
+        |> assign(:direct_expected_peer_id, nil)
 
-        direct = %{
-          enabled: true,
-          peer_id: peer_id,
-          ice_servers: DirectAudio.ice_servers()
-        }
+      send(self(), :track_direct_audio)
 
-        {Map.put(response, :direct_audio, direct), socket}
+      direct = %{
+        enabled: true,
+        peer_id: peer_id,
+        ice_servers: DirectAudio.ice_servers()
+      }
 
+      {Map.put(response, :direct_audio, direct), socket}
+    else
       _ ->
         {Map.put(response, :direct_audio, %{enabled: false}), socket}
     end
@@ -248,6 +277,8 @@ defmodule CommsWeb.CallChannel do
   defp deliver_direct_peers(socket) do
     case authorize(socket) do
       :ok ->
+        socket = enforce_direct_peer_limit(socket)
+
         if socket.assigns[:direct_audio] do
           push(socket, "call.direct.peers.v1", %{peers: direct_peers(socket)})
         end
@@ -271,13 +302,16 @@ defmodule CommsWeb.CallChannel do
       _ ->
         []
     end)
-    |> Enum.uniq_by(& &1.peer_id)
+    |> Enum.group_by(& &1.user_id)
+    |> Enum.map(fn {_user_id, peers} -> Enum.min_by(peers, & &1.peer_id) end)
     |> Enum.sort_by(& &1.peer_id)
+    |> Enum.take(@direct_peer_limit)
   end
 
   defp target_user(socket, target_peer_id)
        when is_binary(target_peer_id) and byte_size(target_peer_id) == 22 do
     with true <- target_peer_id != socket.assigns.direct_peer_id,
+         true <- Enum.any?(direct_peers(socket), &(&1.peer_id == target_peer_id)),
          %{metas: metas} <- Presence.list(socket)[target_peer_id],
          %{user_id: target_user_id} <-
            Enum.find(metas, &(&1[:direct_audio] == true and is_binary(&1[:user_id]))),
@@ -290,43 +324,140 @@ defmodule CommsWeb.CallChannel do
 
   defp target_user(_socket, _target_peer_id), do: {:error, :target_unavailable}
 
-  defp valid_signal(%{"kind" => kind, "sdp" => sdp} = signal)
-       when map_size(signal) == 2 and kind in ["offer", "answer"] and is_binary(sdp) and
-              byte_size(sdp) in 1..16_384,
-       do: {:ok, %{kind: kind, sdp: sdp}}
+  defp valid_outbound_signal_state(socket, target_peer_id, %{kind: "offer"}) do
+    if socket.assigns.direct_signal_state == :ready and
+         socket.assigns.direct_peer_id < target_peer_id,
+       do: :ok,
+       else: {:error, :invalid_signal_state}
+  end
 
-  defp valid_signal(
-         %{
-           "kind" => "ice",
-           "candidate" => candidate
-         } = signal
-       )
-       when is_binary(candidate) and byte_size(candidate) in 1..2_048 do
-    sdp_mid = Map.get(signal, "sdp_mid")
-    sdp_mline_index = Map.get(signal, "sdp_mline_index")
+  defp valid_outbound_signal_state(socket, target_peer_id, %{kind: "answer"}) do
+    if socket.assigns.direct_signal_state == :offer_received and
+         socket.assigns.direct_expected_peer_id == target_peer_id,
+       do: :ok,
+       else: {:error, :invalid_signal_state}
+  end
 
-    if Enum.all?(Map.keys(signal), &(&1 in ["kind", "candidate", "sdp_mid", "sdp_mline_index"])) and
-         (is_nil(sdp_mid) or (is_binary(sdp_mid) and byte_size(sdp_mid) <= 256)) and
-         (is_nil(sdp_mline_index) or
-            (is_integer(sdp_mline_index) and sdp_mline_index in 0..65_535)) do
+  defp valid_outbound_signal_state(socket, target_peer_id, %{kind: "ice"}) do
+    if socket.assigns.direct_signal_state in [:offer_sent, :offer_received, :connected] and
+         socket.assigns.direct_expected_peer_id == target_peer_id,
+       do: :ok,
+       else: {:error, :invalid_signal_state}
+  end
+
+  defp valid_outbound_signal_state(socket, target_peer_id, %{kind: "media"}) do
+    if socket.assigns.direct_signal_state == :connected and
+         socket.assigns.direct_expected_peer_id == target_peer_id,
+       do: :ok,
+       else: {:error, :invalid_signal_state}
+  end
+
+  defp valid_outbound_signal_state(socket, target_peer_id, %{kind: "fallback"}) do
+    if expected_or_ready_peer?(socket, target_peer_id),
+      do: :ok,
+      else: {:error, :invalid_signal_state}
+  end
+
+  defp transition_after_outbound_signal(socket, target_peer_id, %{kind: "offer"}) do
+    socket
+    |> assign(:direct_signal_state, :offer_sent)
+    |> assign(:direct_expected_peer_id, target_peer_id)
+  end
+
+  defp transition_after_outbound_signal(socket, _target_peer_id, %{kind: "answer"}),
+    do: assign(socket, :direct_signal_state, :connected)
+
+  defp transition_after_outbound_signal(socket, _target_peer_id, %{kind: "fallback"}),
+    do: disable_direct_audio(socket, false)
+
+  defp transition_after_outbound_signal(socket, _target_peer_id, _signal), do: socket
+
+  defp transition_before_inbound_signal(socket, from_peer_id, %{kind: "offer"}) do
+    if socket.assigns.direct_signal_state == :ready and
+         from_peer_id < socket.assigns.direct_peer_id do
       {:ok,
-       %{
-         kind: "ice",
-         candidate: candidate,
-         sdp_mid: sdp_mid,
-         sdp_mline_index: sdp_mline_index
-       }}
+       socket
+       |> assign(:direct_signal_state, :offer_received)
+       |> assign(:direct_expected_peer_id, from_peer_id)}
     else
-      {:error, :invalid_signal}
+      {:error, :invalid_signal_state}
     end
   end
 
-  defp valid_signal(%{"kind" => "media", "enabled" => enabled} = signal)
-       when map_size(signal) == 2 and is_boolean(enabled),
-       do: {:ok, %{kind: "media", enabled: enabled}}
+  defp transition_before_inbound_signal(socket, from_peer_id, %{kind: "answer"}) do
+    if socket.assigns.direct_signal_state == :offer_sent and
+         socket.assigns.direct_expected_peer_id == from_peer_id,
+       do: {:ok, assign(socket, :direct_signal_state, :connected)},
+       else: {:error, :invalid_signal_state}
+  end
 
-  defp valid_signal(%{"kind" => "fallback"} = signal) when map_size(signal) == 1,
-    do: {:ok, %{kind: "fallback"}}
+  defp transition_before_inbound_signal(socket, from_peer_id, %{kind: kind})
+       when kind in ["ice", "media"] do
+    allowed_states =
+      if kind == "media", do: [:connected], else: [:offer_sent, :offer_received, :connected]
 
-  defp valid_signal(_signal), do: {:error, :invalid_signal}
+    if socket.assigns.direct_signal_state in allowed_states and
+         socket.assigns.direct_expected_peer_id == from_peer_id,
+       do: {:ok, socket},
+       else: {:error, :invalid_signal_state}
+  end
+
+  defp transition_before_inbound_signal(socket, from_peer_id, %{kind: "fallback"}) do
+    if expected_or_ready_peer?(socket, from_peer_id) do
+      push(socket, "call.direct.disabled.v1", %{reason: "peer_fallback"})
+      {:ok, disable_direct_audio(socket, false)}
+    else
+      {:error, :invalid_signal_state}
+    end
+  end
+
+  defp expected_or_ready_peer?(socket, peer_id) do
+    socket.assigns.direct_signal_state == :ready or
+      (socket.assigns.direct_signal_state in [:offer_sent, :offer_received, :connected] and
+         socket.assigns.direct_expected_peer_id == peer_id)
+  end
+
+  defp direct_peer_present_for_user?(socket, user_id) do
+    socket
+    |> Presence.list()
+    |> Enum.any?(fn
+      {_peer_id, %{metas: metas}} when is_list(metas) ->
+        Enum.any?(metas, &(&1[:direct_audio] == true and &1[:user_id] == user_id))
+
+      _ ->
+        false
+    end)
+  end
+
+  defp enforce_direct_peer_limit(%{assigns: %{direct_audio: true}} = socket) do
+    retained_peer =
+      socket
+      |> direct_peers()
+      |> Enum.find(&(&1.user_id == socket.assigns.user_id))
+
+    if retained_peer && retained_peer.peer_id == socket.assigns.direct_peer_id do
+      socket
+    else
+      push(socket, "call.direct.disabled.v1", %{reason: "peer_limit"})
+      disable_direct_audio(socket, false)
+    end
+  end
+
+  defp enforce_direct_peer_limit(socket), do: socket
+
+  defp disable_direct_audio(%{assigns: %{direct_audio: true}} = socket, notify_client?) do
+    if is_binary(socket.assigns[:direct_peer_id]) do
+      Presence.untrack(socket, socket.assigns.direct_peer_id)
+    end
+
+    if notify_client?, do: push(socket, "call.direct.disabled.v1", %{reason: "disabled"})
+
+    socket
+    |> assign(:direct_audio, false)
+    |> assign(:direct_peer_id, nil)
+    |> assign(:direct_signal_state, :disabled)
+    |> assign(:direct_expected_peer_id, nil)
+  end
+
+  defp disable_direct_audio(socket, _notify_client?), do: socket
 end

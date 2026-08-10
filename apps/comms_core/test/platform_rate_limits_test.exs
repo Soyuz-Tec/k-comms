@@ -121,6 +121,29 @@ defmodule CommsCore.PlatformRateLimitsTest do
              end)
   end
 
+  test "charges weighted byte costs atomically" do
+    digest = digest("weighted-direct-audio-signal")
+
+    assert %Decision{allowed: true} =
+             unboxed(fn ->
+               PlatformRateLimits.allow?(:direct_audio_signal, digest, 10, 600, 7)
+             end)
+
+    assert %Decision{allowed: false} =
+             unboxed(fn ->
+               PlatformRateLimits.allow?(:direct_audio_signal, digest, 10, 600, 4)
+             end)
+
+    assert [[11]] =
+             unboxed(fn ->
+               SQL.query!(
+                 Repo,
+                 "SELECT request_count FROM public_rate_limit_buckets WHERE key_digest = $1",
+                 [digest]
+               ).rows
+             end)
+  end
+
   test "rejects raw or malformed keys before they reach PostgreSQL" do
     assert_raise ArgumentError, fn ->
       PlatformRateLimits.allow?(:instant_room_join, "203.0.113.42", 10, 60)
@@ -137,6 +160,10 @@ defmodule CommsCore.PlatformRateLimitsTest do
 
     assert_raise ArgumentError, fn ->
       PlatformRateLimits.allow?(:unsupported, digest("opaque"), 10, 60)
+    end
+
+    assert_raise ArgumentError, fn ->
+      PlatformRateLimits.allow?(:direct_audio_signal, digest("opaque"), 10, 60, 0)
     end
 
     assert [[0]] =

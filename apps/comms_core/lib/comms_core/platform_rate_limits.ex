@@ -1,6 +1,6 @@
 defmodule CommsCore.PlatformRateLimits do
   @moduledoc """
-  Cluster-wide fixed-window admission for unauthenticated public mutations.
+  Cluster-wide fixed-window admission for bounded platform interactions.
 
   Keys crossing this boundary must already be opaque 32-byte digests. Raw
   addresses, room tokens, and bearer credentials are rejected rather than
@@ -18,7 +18,9 @@ defmodule CommsCore.PlatformRateLimits do
     :instant_room_join,
     :instant_room_conversion,
     :instant_room_message,
-    :instant_room_whiteboard
+    :instant_room_whiteboard,
+    :direct_audio_join,
+    :direct_audio_signal
   ]
 
   @consume_sql """
@@ -61,12 +63,12 @@ defmodule CommsCore.PlatformRateLimits do
       $2::bytea,
       $4::bigint,
       timezone('UTC', to_timestamp(current_window.started_epoch)),
-      1,
+      $6::bigint,
       timezone('UTC', to_timestamp(current_window.ends_epoch))
     FROM current_window
     ON CONFLICT (scope, key_digest, window_seconds, window_started_at)
     DO UPDATE
-    SET request_count = public_rate_limit_buckets.request_count + 1
+    SET request_count = public_rate_limit_buckets.request_count + $6::bigint
     RETURNING request_count
   ),
   cleanup_summary AS (
@@ -93,6 +95,8 @@ defmodule CommsCore.PlatformRateLimits do
           | :instant_room_conversion
           | :instant_room_message
           | :instant_room_whiteboard
+          | :direct_audio_join
+          | :direct_audio_signal
 
   @spec scopes() :: [scope()]
   def scopes, do: @scopes
@@ -102,6 +106,16 @@ defmodule CommsCore.PlatformRateLimits do
       when scope in @scopes and is_binary(key_digest) and byte_size(key_digest) == 32 and
              is_integer(limit) and limit > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
+    allow?(scope, key_digest, limit, window_seconds, 1)
+  end
+
+  def allow?(_scope, _key_digest, _limit, _window_seconds), do: invalid_arguments!()
+
+  @spec allow?(scope(), binary(), pos_integer(), pos_integer(), pos_integer()) :: Decision.t()
+  def allow?(scope, key_digest, limit, window_seconds, cost)
+      when scope in @scopes and is_binary(key_digest) and byte_size(key_digest) == 32 and
+             is_integer(limit) and limit > 0 and is_integer(window_seconds) and
+             window_seconds > 0 and is_integer(cost) and cost > 0 do
     case SQL.query!(
            Repo,
            @consume_sql,
@@ -110,7 +124,8 @@ defmodule CommsCore.PlatformRateLimits do
              key_digest,
              limit,
              window_seconds,
-             @cleanup_limit
+             @cleanup_limit,
+             cost
            ]
          ).rows do
       [[allowed, retry_after]]
@@ -122,9 +137,11 @@ defmodule CommsCore.PlatformRateLimits do
     end
   end
 
-  def allow?(_scope, _key_digest, _limit, _window_seconds) do
+  def allow?(_scope, _key_digest, _limit, _window_seconds, _cost), do: invalid_arguments!()
+
+  defp invalid_arguments! do
     raise ArgumentError,
-          "public rate limits require a supported scope, a 32-byte digest, " <>
-            "and positive integer limit/window values"
+          "platform rate limits require a supported scope, a 32-byte digest, " <>
+            "and positive integer limit/window/cost values"
   end
 end
