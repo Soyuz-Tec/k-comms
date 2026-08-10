@@ -42,6 +42,8 @@ The primary workspace action is `New instant room`. Notifications and the signed
 
 At tablet and compact desktop widths, the same sidebar collapses to an accessible icon rail. Labels remain available to assistive technology and as native titles; no destination changes position or meaning.
 
+At wide desktop widths, a person can minimize the labeled sidebar to the same accessible icon rail and restore it without losing their place. That preference persists in the browser. In Inbox, the divider between the conversation list and active conversation supports pointer and keyboard resizing within bounded widths; its saved width is a presentation preference only and never changes conversation data or authorization.
+
 ### Mobile workspace navigation
 
 The persistent bottom navigation contains exactly five daily destinations:
@@ -100,6 +102,7 @@ Controls live with the object they affect:
 ### Messaging
 
 - Desktop retains the conversation list and message pane without overlapping the workspace sidebar.
+- Desktop keeps the workspace rail minimizable and the conversation-list divider adjustable by pointer or keyboard, with both preferences surviving reload.
 - Mobile supports direct movement to all five primary destinations.
 - Composer, attachment, participant, call, search, and detail controls remain reachable and named.
 - The conversation header separates identity and live status from contextual `Chat`, `Canvas`, `Activity`, and `Details` navigation.

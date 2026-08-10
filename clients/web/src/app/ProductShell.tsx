@@ -24,6 +24,19 @@ import { usePwa, type PwaInstallMode } from "../pwa/PwaProvider";
 
 type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
 
+const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
+  "k-comms.workspace-sidebar-collapsed.v1";
+
+function readWorkspaceSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(
+      WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY
+    ) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function ProductShell() {
   const { session } = useSession();
   if (!session) return null;
@@ -49,6 +62,9 @@ function ProductShellContent() {
   } = usePwa();
   const [retrying, setRetrying] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(
+    readWorkspaceSidebarCollapsed
+  );
   const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
   const desktopShell = useDesktopShell();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
@@ -56,6 +72,17 @@ function ProductShellContent() {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [desktopShell, location.pathname, location.search]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY,
+        String(workspaceSidebarCollapsed)
+      );
+    } catch {
+      // A constrained storage context must not block workspace navigation.
+    }
+  }, [workspaceSidebarCollapsed]);
 
   useEffect(() => {
     function closeOutside(event: PointerEvent) {
@@ -105,18 +132,30 @@ function ProductShellContent() {
   const showInstallAction = installMode !== "installed" && installMode !== "unavailable";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
         {desktopShell && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
         <a className="skip-link" href="#main-content">Skip to content</a>
-        {desktopShell && <aside className="workspace-sidebar" aria-label="Workspace navigation">
-          <div className="workspace-sidebar-brand">
-            <span className="workspace-mark" aria-hidden="true">K</span>
-            <span className="workspace-brand-copy">
-              <strong>K-Comms</strong>
-              <small>Communication workspace</small>
-            </span>
+        {desktopShell && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
+          <div className="workspace-sidebar-header">
+            <div className="workspace-sidebar-brand">
+              <span className="workspace-mark" aria-hidden="true">K</span>
+              <span className="workspace-brand-copy">
+                <strong>K-Comms</strong>
+                <small>Communication workspace</small>
+              </span>
+            </div>
+            <button
+              className="workspace-sidebar-toggle"
+              type="button"
+              aria-label={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
+              aria-pressed={workspaceSidebarCollapsed}
+              title={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
+              onClick={() => setWorkspaceSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              <AppIcon name={workspaceSidebarCollapsed ? "panelLeftOpen" : "panelLeftClose"} />
+            </button>
           </div>
           <div className="workspace-sidebar-identity" title={session.tenant.name}>
             <span className="workspace-avatar" aria-hidden="true">{initials(session.tenant.name).slice(0, 1)}</span>

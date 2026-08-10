@@ -217,6 +217,28 @@
   height: 16px;
 }
 
+@media (min-width: 761px) and (min-height: 561px) {
+  .conversation-header-main {
+    padding: .52rem clamp(.9rem, 1.8vw, 1.35rem) .42rem;
+  }
+
+  .conversation-avatar {
+    width: 38px;
+    height: 38px;
+  }
+
+  .conversation-section-nav {
+    padding-inline: clamp(.9rem, 1.8vw, 1.35rem);
+  }
+
+  .conversation-section-nav a,
+  .conversation-section-nav button,
+  .conversation-section-nav > span {
+    min-height: 44px;
+    padding: .48rem .68rem .44rem;
+  }
+}
+
 .conversation-pane .message-scroll {
   padding: 1.35rem clamp(1rem, 4vw, 4rem) 1.65rem;
   background:

@@ -237,6 +237,10 @@ export function useCallSession({
     stopDirectAudio
   ]);
 
+  const dismissTerminalNotice = useCallback(() => {
+    setError(null);
+  }, []);
+
   const disconnectEndedCall = useCallback(async (
     room: Room,
     kind: CallMediaKind
@@ -1344,6 +1348,7 @@ export function useCallSession({
     cameras,
     closeMobileCallMenu: presentation.closeMobileCallMenu,
     currentMediaKind,
+    dismissTerminalNotice,
     elapsedSeconds: presentation.elapsedSeconds,
     enablePlayback,
     endConfirmationOpen: presentation.endConfirmationOpen,
