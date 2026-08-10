@@ -259,7 +259,7 @@ describe("ProductShell PWA controls", () => {
       name: "Workspace navigation"
     });
     const collapse = screen.getByRole("button", {
-      name: "Collapse workspace navigation"
+      name: "Collapse navigation sidebar"
     });
     expect(collapse).toHaveAttribute("aria-pressed", "false");
 
@@ -272,7 +272,7 @@ describe("ProductShell PWA controls", () => {
     view.unmount();
     renderProductShell();
     expect(screen.getByRole("button", {
-      name: "Expand workspace navigation"
+      name: "Expand navigation sidebar"
     })).toHaveAttribute("aria-pressed", "true");
   });
 });

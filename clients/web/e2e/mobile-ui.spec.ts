@@ -309,11 +309,11 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(expandedRailBox).not.toBeNull();
     expect(expandedRailBox!.width).toBeGreaterThan(200);
 
-    await page.getByRole("button", { name: "Collapse workspace navigation" }).click();
+    await page.getByRole("button", { name: "Collapse navigation sidebar" }).click();
     const collapsedRailBox = await rail.boundingBox();
     expect(collapsedRailBox).not.toBeNull();
     expect(collapsedRailBox!.width).toBeLessThanOrEqual(82);
-    await expect(page.getByRole("button", { name: "Expand workspace navigation" }))
+    await expect(page.getByRole("button", { name: "Expand navigation sidebar" }))
       .toHaveAttribute("aria-pressed", "true");
 
     const separator = page.getByRole("separator", { name: "Resize conversation list" });
@@ -344,7 +344,7 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(conversationHeaderBox!.height).toBeLessThanOrEqual(112);
 
     await page.reload();
-    await expect(page.getByRole("button", { name: "Expand workspace navigation" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Expand navigation sidebar" })).toBeVisible();
     await expect(page.getByRole("separator", { name: "Resize conversation list" }))
       .toHaveAttribute("aria-valuenow", String(startingWidth + 56));
     await expectNoDocumentOverflow(page);

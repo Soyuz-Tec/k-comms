@@ -149,9 +149,9 @@ function ProductShellContent() {
             <button
               className="workspace-sidebar-toggle"
               type="button"
-              aria-label={workspaceSidebarCollapsed ? "Expand workspace navigation" : "Collapse workspace navigation"}
+              aria-label={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
               aria-pressed={workspaceSidebarCollapsed}
-              title={workspaceSidebarCollapsed ? "Expand workspace navigation" : "Collapse workspace navigation"}
+              title={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
               onClick={() => setWorkspaceSidebarCollapsed((collapsed) => !collapsed)}
             >
               <AppIcon name={workspaceSidebarCollapsed ? "panelLeftOpen" : "panelLeftClose"} />
