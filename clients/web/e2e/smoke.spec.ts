@@ -57,7 +57,7 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
     .getByRole("link", { name: "You", exact: true });
   if (await primaryYou.isVisible()) await primaryYou.click();
   else await page.getByRole("link", { name: "You", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
   const openMenu = page.getByRole("button", { name: "Open more menu" });
   if (await openMenu.isVisible()) {
     await openMenu.click();

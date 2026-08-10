@@ -94,85 +94,83 @@ export function CallReadinessLauncher({
   }
 
   return (
-    <section className="call-readiness-launcher" aria-labelledby="call-readiness-heading">
-      <div className="call-readiness-launcher-copy">
-        <span className="eyebrow">Remote office qualification</span>
-        <h2 id="call-readiness-heading">Test a UAE office connection</h2>
-        <p>
-          Create a private audio test room, invite one office participant, and
-          verify signaling, microphone publishing, secure relay fallback, live
-          packet quality, and audible speech without recording the call.
-        </p>
-      </div>
+    <details className="call-readiness-launcher">
+      <summary>
+        <AppIcon name="lock" />
+        Office connection test
+      </summary>
+      <div className="call-readiness-content">
+        <p>Create a private, one-use audio test link. Calls are not recorded.</p>
 
-      {created ? (
-        <div className="call-readiness-invite">
-          <QrCode
-            value={created.guestUrl}
-            label="QR code for the UAE office call test"
-          />
-          <div className="call-readiness-invite-copy">
-            <label>
-              One-use office link
-              <input
-                type="text"
-                value={created.guestUrl}
-                readOnly
-                onFocus={(event) => event.currentTarget.select()}
-              />
-            </label>
-            <small>
-              Expires {formatDateTime(created.guestLink.expires_at)}. The first
-              admitted guest uses the link; audio is never recorded.
-            </small>
-            <div className="call-readiness-launch-actions">
-              <button className="button ghost" type="button" onClick={() => void copyLink()}>
-                <AppIcon name="copy" />
-                Copy link
-              </button>
-              <button className="button ghost" type="button" onClick={() => void shareLink()}>
-                <AppIcon name="share" />
-                Share
-              </button>
-              <button
-                className="button primary"
-                type="button"
-                onClick={() => navigate(callReadinessHostPath(created.conversation.id))}
-              >
-                <AppIcon name="phone" />
-                Open my test call
-              </button>
+        {created ? (
+          <div className="call-readiness-invite">
+            <QrCode
+              value={created.guestUrl}
+              label="QR code for the UAE office call test"
+            />
+            <div className="call-readiness-invite-copy">
+              <label>
+                One-use office link
+                <input
+                  type="text"
+                  value={created.guestUrl}
+                  readOnly
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </label>
+              <small>
+                Expires {formatDateTime(created.guestLink.expires_at)}. The first
+                admitted guest uses the link.
+              </small>
+              <div className="call-readiness-launch-actions">
+                <button className="button ghost" type="button" onClick={() => void copyLink()}>
+                  <AppIcon name="copy" />
+                  Copy link
+                </button>
+                <button className="button ghost" type="button" onClick={() => void shareLink()}>
+                  <AppIcon name="share" />
+                  Share
+                </button>
+                <button
+                  className="button primary"
+                  type="button"
+                  onClick={() => navigate(callReadinessHostPath(created.conversation.id))}
+                >
+                  <AppIcon name="phone" />
+                  Open my test call
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <button
-          className="button primary call-readiness-create"
-          type="button"
-          disabled={busy || !audioAvailable}
-          onClick={() => void createTestRoom()}
-        >
-          <AppIcon name="lock" />
-          {busy ? "Creating private test room…" : "Create office test link"}
-        </button>
-      )}
+        ) : (
+          <button
+            className="button primary call-readiness-create"
+            type="button"
+            disabled={busy || !audioAvailable}
+            onClick={() => void createTestRoom()}
+          >
+            <AppIcon name="lock" />
+            {busy ? "Creating private test room…" : "Create test link"}
+          </button>
+        )}
 
-      {!audioAvailable && (
-        <p className="calls-availability-note" role="status">
-          Audio calling must be enabled and healthy before an office test can start.
-        </p>
-      )}
-      {status && <p className="form-success" role="status">{status}</p>}
-      {error && (
-        <div className="form-error" role="alert">
-          <span>{error}</span>
-          {pendingConversation && (
-            <button className="button ghost compact" type="button" onClick={() => void createTestRoom()}>
-              Retry secure link
-            </button>
-          )}
-        </div>
-      )}
-    </section>
+        {!audioAvailable && (
+          <p className="calls-availability-note" role="status">
+            Audio calling is unavailable.
+          </p>
+        )}
+        {status && <p className="form-success" role="status">{status}</p>}
+        {error && (
+          <div className="form-error" role="alert">
+            <span>{error}</span>
+            {pendingConversation && (
+              <button className="button ghost compact" type="button" onClick={() => void createTestRoom()}>
+                Retry secure link
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

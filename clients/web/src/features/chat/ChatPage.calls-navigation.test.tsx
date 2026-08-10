@@ -46,14 +46,12 @@ describe("ChatPage durable sequence recovery", () => {
     });
     render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
 
-    const firstMessage = await screen.findByRole("button", {
-      name: "Write first message"
-    });
-    expect(screen.getByText("Write the first message or open a private call lobby.")).toBeVisible();
+    expect(await screen.findByText("No messages yet")).toBeVisible();
+    expect(screen.queryByText(/open a private call lobby/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
 
-    await user.click(firstMessage);
     const composer = screen.getByRole("textbox", { name: "Message" });
+    await user.click(composer);
     expect(composer).toHaveFocus();
     await user.type(composer, "Hello UAE office");
     expect(screen.getByText("Draft to General")).toBeVisible();

@@ -27,8 +27,16 @@ vi.mock("../../app/session", () => ({
 }));
 
 vi.mock("../settings/SettingsPage", () => ({
-  SettingsPage: ({ headerPrelude }: { headerPrelude?: ReactNode }) => (
-    <main id="main-content"><h1>Profile and settings</h1>{headerPrelude}</main>
+  SettingsPage: ({ roleTools }: { roleTools?: ReactNode }) => (
+    <main id="main-content">
+      <h1>You</h1>
+      <nav aria-label="Profile and settings sections">
+        <button type="button" role="tab">Profile</button>
+        <button type="button" role="tab">Security</button>
+        <button type="button" role="tab">Notifications</button>
+      </nav>
+      {roleTools}
+    </main>
   )
 }));
 
@@ -39,17 +47,17 @@ describe("YouPage", () => {
     harness.platformRoleExpiresAt = null;
     render(<MemoryRouter><YouPage /></MemoryRouter>);
 
-    expect(screen.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "You" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Role tools" })).not.toBeInTheDocument();
     const sections = screen.getByRole("navigation", { name: "Profile and settings sections" });
     expect(
-      screen.getByRole("heading", { name: "Profile and settings" }).compareDocumentPosition(sections)
+      screen.getByRole("heading", { name: "You" }).compareDocumentPosition(sections)
       & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Profile" })).toHaveAttribute("href", "#profile-settings");
-    expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("href", "#password-settings");
-    expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute("href", "#notification-settings");
-    expect(sections).toContainElement(screen.getByRole("link", { name: "Profile" }));
+    expect(screen.getByRole("tab", { name: "Profile" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Security" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Notifications" })).toBeVisible();
+    expect(sections).toContainElement(screen.getByRole("tab", { name: "Profile" }));
   });
 
   it("provides direct role-gated people, safety and operations entries", () => {

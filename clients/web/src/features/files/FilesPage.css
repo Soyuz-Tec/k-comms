@@ -306,12 +306,12 @@
 
 .files-state {
   display: flex;
-  min-height: 7rem;
+  min-height: 4.5rem;
   align-items: center;
   justify-content: center;
   gap: .65rem;
   padding: 1rem;
-  border: 1px dashed var(--border-default);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
   color: var(--text-secondary);
   text-align: center;
@@ -616,6 +616,10 @@
     font-size: .72rem;
   }
 
+  .file-row-copy p + p {
+    display: none;
+  }
+
   .file-safety {
     min-height: 20px;
     padding: .12rem .42rem;
@@ -623,7 +627,7 @@
   }
 
   .files-state {
-    border-color: var(--border-default);
+    border: 0;
     background: var(--surface-raised);
   }
 }

@@ -11,6 +11,9 @@ import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import { PwaInstallHelpDialog } from "../../app/ProductShell";
 
 type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
+type SettingsSection = "profile" | "security" | "notifications";
+
+const settingsSections: SettingsSection[] = ["profile", "security", "notifications"];
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -26,7 +29,7 @@ interface ResourceLoadFailure {
   message: string;
 }
 
-export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = {}) {
+export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
   const { api, session, setSession } = useSession();
   const { installMode, requestInstall } = usePwa();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -42,6 +45,7 @@ export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = 
   const [pendingRevocation, setPendingRevocation] = useState<PendingRevocation | null>(null);
   const [revocationError, setRevocationError] = useState<string | null>(null);
   const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
+  const [section, setSection] = useState<SettingsSection>("profile");
 
   async function refreshSecurity() {
     const [deviceResult, sessionResult] = await Promise.allSettled([
@@ -229,10 +233,49 @@ export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = 
     }
   }
 
+  function moveSettingsTab(key: string) {
+    const currentIndex = settingsSections.indexOf(section);
+    const nextIndex = key === "Home"
+      ? 0
+      : key === "End"
+        ? settingsSections.length - 1
+        : key === "ArrowLeft"
+          ? (currentIndex - 1 + settingsSections.length) % settingsSections.length
+          : key === "ArrowRight"
+            ? (currentIndex + 1) % settingsSections.length
+            : currentIndex;
+    if (nextIndex === currentIndex && key !== "Home" && key !== "End") return;
+    const nextSection = settingsSections[nextIndex];
+    if (!nextSection) return;
+    setSection(nextSection);
+    document.getElementById(`settings-${nextSection}-tab`)?.focus();
+  }
+
   return (
-    <main className="page-shell" id="main-content">
-      <header className="page-heading"><div><span className="eyebrow">Personal workspace</span><h1>Profile and settings</h1><p>Manage your identity, password, devices and active browser sessions.</p></div></header>
-      {headerPrelude}
+    <main className="page-shell settings-page" id="main-content">
+      <header className="page-heading settings-page-heading"><div><h1>You</h1></div></header>
+      <nav className="settings-section-tabs" aria-label="Profile and settings sections" role="tablist">
+        {settingsSections.map((value) => (
+          <button
+            key={value}
+            id={`settings-${value}-tab`}
+            type="button"
+            role="tab"
+            aria-selected={section === value}
+            aria-controls={`settings-${value}-panel`}
+            tabIndex={section === value ? 0 : -1}
+            onClick={() => setSection(value)}
+            onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                moveSettingsTab(event.key);
+              }
+            }}
+          >
+            {value === "profile" ? "Profile" : value === "security" ? "Security" : "Notifications"}
+          </button>
+        ))}
+      </nav>
       {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
       {notice && <div className="inline-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       {loadFailures.length > 0 && (
@@ -268,39 +311,40 @@ export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = 
         />
       )}
 
-      <div className="settings-grid">
+      {section === "profile" && roleTools}
+
+      {section === "profile" && <section id="settings-profile-panel" role="tabpanel" aria-labelledby="settings-profile-tab">
         <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
-          <div className="card-heading"><h2>Profile</h2><span className="status-pill success">Live API</span></div>
+          <div className="card-heading"><h2>Profile</h2></div>
           <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
-          <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">This recovery address is read-only until a separate verified email-change flow is available.</small></label>
+          <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">Verified account email</small></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
+      </section>}
 
+      {section === "security" && <section id="settings-security-panel" role="tabpanel" aria-labelledby="settings-security-tab">
         <form className="settings-card" id="password-settings" onSubmit={(event) => void changePassword(event)}>
-          <div className="card-heading"><h2>Password</h2><span className="status-pill success">Live API</span></div>
+          <div className="card-heading"><h2>Password</h2></div>
           <label className="field">Current password<input name="current_password" type="password" autoComplete="current-password" required /></label>
           <label className="field">New password<input name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required /></label>
           <label className="field">Confirm new password<input name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" required /></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "password"}>{busy === "password" ? "Changing…" : "Change password"}</button></div>
         </form>
-      </div>
+      </section>}
 
-      {installMode !== "unavailable" && (
+      {section === "profile" && installMode !== "unavailable" && (
         <section
           className="settings-card pwa-install-card"
           id="install-settings"
           aria-labelledby="install-settings-title"
         >
           <div className="card-heading">
-            <div>
-              <span className="eyebrow">No App Store needed</span>
-              <h2 id="install-settings-title">Install K-Comms</h2>
-            </div>
+            <h2 id="install-settings-title">Install K-Comms</h2>
             <span className={`status-pill ${installMode === "installed" ? "success" : "neutral"}`}>
               {installMode === "installed" ? "Installed" : "Available"}
             </span>
           </div>
-          <p>{installDescription(installMode)}</p>
+          {installMode !== "installed" && <p>{installDescription(installMode)}</p>}
           {installMode !== "installed" && (
             <div className="form-actions">
               <button
@@ -315,18 +359,21 @@ export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = 
         </section>
       )}
 
-      <section className="data-card settings-data-card" id="device-settings" aria-labelledby="devices-title">
-        <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="devices-title">Devices</h2></div><span className="status-pill success">{loading ? "Loading" : `${devices.length} known`}</span></div>
-        <ul className="security-list">{devices.map((device) => <li key={device.id}><div><strong>{device.name}</strong><small>{device.platform} · Last seen {formatDateTime(device.last_seen_at)}{device.id === session.device.id ? " · This device" : ""}</small></div><span className={`status-pill ${device.revoked_at ? "neutral" : "success"}`}>{device.revoked_at ? "Revoked" : "Active"}</span>{!device.revoked_at && <button className="button danger compact" type="button" disabled={busy === `device-${device.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "device", device }); }}>{device.id === session.device.id ? "Revoke and sign out" : "Revoke device"}</button>}</li>)}</ul>
-      </section>
+      {section === "security" && <section className="settings-security-inventories" aria-label="Account security">
+        <details className="data-card settings-data-card settings-disclosure" id="device-settings">
+          <summary><h2>Devices</h2><span className="status-pill success">{loading ? "Loading" : `${devices.length} known`}</span></summary>
+          <ul className="security-list">{devices.map((device) => <li key={device.id}><div><strong>{device.name}</strong><small>{device.platform} · Last seen {formatDateTime(device.last_seen_at)}{device.id === session.device.id ? " · This device" : ""}</small></div><span className={`status-pill ${device.revoked_at ? "neutral" : "success"}`}>{device.revoked_at ? "Revoked" : "Active"}</span>{!device.revoked_at && <button className="button danger compact" type="button" disabled={busy === `device-${device.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "device", device }); }}>{device.id === session.device.id ? "Revoke and sign out" : "Revoke device"}</button>}</li>)}</ul>
+        </details>
 
-      <section className="data-card settings-data-card" id="session-settings" aria-labelledby="sessions-title">
-        <div className="card-heading"><div><span className="eyebrow">Account security</span><h2 id="sessions-title">Sessions</h2></div><span className="status-pill success">{sessions.filter(({ revoked_at }) => !revoked_at).length} active</span></div>
-        <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
-      </section>
+        <details className="data-card settings-data-card settings-disclosure" id="session-settings">
+          <summary><h2>Sessions</h2><span className="status-pill success">{sessions.filter(({ revoked_at }) => !revoked_at).length} active</span></summary>
+          <ul className="security-list">{sessions.map((record) => <li key={record.id}><div><strong>{record.device_id === session.device.id ? "Current device session" : `Session ${record.id.slice(0, 8)}`}</strong><small>Last used {formatDateTime(record.last_used_at)} · Expires {formatDateTime(record.expires_at)}</small></div><span className={`status-pill ${record.revoked_at ? "neutral" : "success"}`}>{record.revoked_at ? "Revoked" : "Active"}</span>{!record.revoked_at && <button className="button danger compact" type="button" disabled={busy === `session-${record.id}`} onClick={() => { setRevocationError(null); setPendingRevocation({ kind: "session", record }); }}>Revoke</button>}</li>)}</ul>
+        </details>
+      </section>}
 
+      {section === "notifications" && <section id="settings-notifications-panel" role="tabpanel" aria-labelledby="settings-notifications-tab">
       {preference && <form className="settings-card notification-settings" id="notification-settings" onSubmit={(event) => void updateNotifications(event)}>
-        <div className="card-heading"><h2>Notification preferences</h2><span className="status-pill success">Live API</span></div>
+        <div className="card-heading"><h2>Notification preferences</h2></div>
         <fieldset className="settings-fieldset"><legend>Where should K-Comms notify you?</legend><div className="toggle-grid"><label><input name="in_app_enabled" type="checkbox" defaultChecked={preference.in_app_enabled} />In K-Comms</label><label><input name="email_enabled" type="checkbox" defaultChecked={preference.email_enabled} />By email</label><label><input name="push_enabled" type="checkbox" defaultChecked={preference.push_enabled} />On registered browsers</label></div></fieldset>
         <fieldset className="settings-fieldset"><legend>What should notify you?</legend><div className="toggle-grid">{notificationChoices.map(({ eventType, field, label }) => <label key={eventType}><input name={field} type="checkbox" defaultChecked={!preference.muted_event_types.includes(eventType)} />{label}</label>)}</div></fieldset>
         <details className="advanced-settings"><summary>Advanced notification categories</summary><label className="field">Additional categories to mute<input name="additional_muted_event_types" defaultValue={preference.muted_event_types.filter((value) => !notificationChoices.some(({ eventType }) => eventType === value)).join(", ")} /><small>Only use technical category names supplied by your administrator or support team.</small></label></details>
@@ -335,11 +382,12 @@ export function SettingsPage({ headerPrelude }: { headerPrelude?: ReactNode } = 
 
       {preference && <PushNotifications api={api} preference={preference} onPreference={setPreference} onNotice={setNotice} onError={setError} />}
 
-      <section className="data-card settings-data-card" id="notification-history" aria-labelledby="notification-history-title">
-        <div className="card-heading"><div><span className="eyebrow">Delivery visibility</span><h2 id="notification-history-title">Recent notifications</h2></div><span className="status-pill success">{notifications.length} recent</span></div>
+      <details className="data-card settings-data-card settings-disclosure" id="notification-history">
+        <summary><h2>Recent notifications</h2><span className="status-pill success">{notifications.length} recent</span></summary>
         {notifications.length === 0 ? <p className="empty-copy">No recent notification deliveries.</p> : <ul className="security-list">{notifications.slice(0, 20).map((intent) => <li key={intent.id}><div><strong>{notificationName(intent.event_type)}</strong><small>{notificationChannelName(intent.channel)} · {intent.destination_hint || "destination protected"} · {attemptSummary(intent.attempt_count)} · {formatDateTime(intent.inserted_at)}</small></div><span className={`status-pill ${intent.status === "delivered" ? "success" : "neutral"}`}>{notificationStatusName(intent.status)}</span>{canAdministerTenant(session.user.role) && ["failed", "dead_letter"].includes(intent.status) && <button className="button ghost compact" type="button" disabled={busy === `notification-${intent.id}`} onClick={() => void retryNotification(intent)}>Retry</button>}</li>)}</ul>}
         <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>
-      </section>
+      </details>
+      </section>}
     </main>
   );
 }

@@ -145,9 +145,7 @@ export function CallsPage() {
     <main className="page-shell calls-page" id="main-content">
       <header className="page-heading calls-page-heading">
         <div>
-          <span className="eyebrow">Workspace communication</span>
           <h1>Calls</h1>
-          <p>Join an active room, review recent room sessions, or start a call from an existing conversation.</p>
         </div>
         <button
           className="button ghost"
@@ -165,22 +163,18 @@ export function CallsPage() {
         </button>
       </header>
 
-      <CallReadinessLauncher
-        api={api}
-        audioAvailable={canUseAudio}
-        createConversation={createConversation}
-      />
-
-      <button
-        className="calls-new-call-toggle"
-        type="button"
-        aria-expanded={launcherExpanded || (!loading && calls.length === 0)}
-        aria-controls="calls-launcher"
-        onClick={() => setLauncherExpanded((expanded) => !expanded)}
-      >
-        <AppIcon name="plus" />
-        New call
-      </button>
+      {!loading && calls.length > 0 && (
+        <button
+          className="calls-new-call-toggle"
+          type="button"
+          aria-expanded={launcherExpanded}
+          aria-controls="calls-launcher"
+          onClick={() => setLauncherExpanded((expanded) => !expanded)}
+        >
+          <AppIcon name="plus" />
+          New call
+        </button>
+      )}
 
       <section
         className={`calls-launcher ${launcherExpanded || (!loading && calls.length === 0) ? "is-mobile-open" : ""}`}
@@ -189,7 +183,6 @@ export function CallsPage() {
       >
         <div className="calls-section-heading">
           <div>
-            <span className="eyebrow">One-step launch</span>
             <h2 id="new-call-heading">Start from a conversation</h2>
           </div>
           <label className="calls-search">
@@ -263,7 +256,6 @@ export function CallsPage() {
       <section className="calls-history" aria-labelledby="call-sessions-heading">
         <div className="calls-section-heading">
           <div>
-            <span className="eyebrow">Room lifecycle</span>
             <h2 id="call-sessions-heading">Call sessions</h2>
           </div>
           <div className="calls-filter-stack">
@@ -305,7 +297,6 @@ export function CallsPage() {
         ) : !error && calls.length === 0 ? (
           <div className="calls-state empty">
             <strong>{scope === "active" ? "No active call rooms" : "No recent call rooms"}</strong>
-            <span>{scope === "active" ? "Start one from a conversation above." : "Completed room sessions will appear here."}</span>
           </div>
         ) : (
           <ol className="call-session-list" aria-busy={loadingMore}>
@@ -336,6 +327,12 @@ export function CallsPage() {
           </button>
         )}
       </section>
+
+      <CallReadinessLauncher
+        api={api}
+        audioAvailable={canUseAudio}
+        createConversation={createConversation}
+      />
     </main>
   );
 }
@@ -384,7 +381,7 @@ function CallSessionRow({
         <div className="call-session-title">
           <strong>{title}</strong>
           <span className={`calls-status ${active ? "active" : ending ? "ending" : "ended"}`}>
-            {active ? "Active room" : ending ? "Ending room" : "Ended room"}
+            {active ? "Active" : ending ? "Ending" : "Ended"}
           </span>
         </div>
         <p>
@@ -395,7 +392,7 @@ function CallSessionRow({
         <p>
           <time dateTime={time}>{formatDateTime(time)}</time>
           <span aria-hidden="true"> · </span>
-          <span>{formatDuration(call.duration_seconds)} room duration</span>
+          <span>{formatDuration(call.duration_seconds)}</span>
         </p>
       </div>
       <div className="call-session-actions">

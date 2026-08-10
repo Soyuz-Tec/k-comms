@@ -32,24 +32,34 @@
 }
 
 .call-readiness-launcher {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 1rem;
+  padding: 0;
   border-color: color-mix(in srgb, var(--accent-solid) 36%, var(--border-default));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-quiet) 72%, transparent), transparent 70%),
-    var(--surface-raised);
+  background: var(--surface-raised);
 }
 
-.call-readiness-launcher-copy {
-  max-width: 52rem;
+.call-readiness-launcher > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .75rem 1rem;
+  color: var(--accent-text);
+  cursor: pointer;
+  font-weight: 800;
 }
 
-.call-readiness-launcher-copy p {
-  margin: .4rem 0 0;
+.call-readiness-content {
+  display: grid;
+  gap: .75rem;
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.call-readiness-content > p {
+  margin: .75rem 0 0;
   color: var(--text-secondary);
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  line-height: 1.45;
 }
 
 .call-readiness-create {
@@ -58,7 +68,6 @@
 }
 
 .call-readiness-invite {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -90,10 +99,9 @@
   margin-top: .45rem;
 }
 
-.call-readiness-launcher > .form-success,
-.call-readiness-launcher > .form-error,
-.call-readiness-launcher > .calls-availability-note {
-  grid-column: 1 / -1;
+.call-readiness-content > .form-success,
+.call-readiness-content > .form-error,
+.call-readiness-content > .calls-availability-note {
   margin: 0;
 }
 
@@ -289,12 +297,12 @@
 
 .calls-state {
   display: flex;
-  min-height: 7rem;
+  min-height: 4.5rem;
   align-items: center;
   justify-content: center;
   gap: .65rem;
   padding: 1rem;
-  border: 1px dashed var(--border-default);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
   color: var(--text-secondary);
   text-align: center;
@@ -483,11 +491,11 @@
     order: 1;
   }
 
-  .call-readiness-launcher {
+  .calls-new-call-toggle {
     order: 2;
   }
 
-  .calls-new-call-toggle {
+  .call-readiness-launcher {
     order: 3;
   }
 
@@ -504,21 +512,24 @@
     box-shadow: none;
   }
 
+  .calls-state.empty {
+    border: 0;
+  }
+
   .call-readiness-launcher {
-    grid-template-columns: minmax(0, 1fr);
-    gap: .75rem;
-    padding: .85rem;
+    padding: 0;
     border-radius: 14px;
-    background: var(--surface-canvas);
+    background: var(--surface-raised);
     box-shadow: none;
   }
 
-  .call-readiness-launcher-copy .eyebrow {
-    display: block;
+  .call-readiness-launcher > summary {
+    min-height: 50px;
+    padding: .75rem .85rem;
   }
 
-  .call-readiness-launcher-copy p {
-    font-size: .8rem;
+  .call-readiness-content {
+    padding: 0 .85rem .85rem;
   }
 
   .call-readiness-create {

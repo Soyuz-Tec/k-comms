@@ -99,11 +99,11 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     const email = screen.getByRole("textbox", { name: /Email address/i });
     expect(email).toHaveValue("verified@example.test");
     expect(email).toHaveAttribute("readonly");
-    expect(screen.getByText(/separate verified email-change flow/i)).toBeVisible();
+    expect(screen.getByText("Verified account email")).toBeVisible();
 
     const displayName = screen.getByLabelText("Display name");
     await user.clear(displayName);
@@ -123,7 +123,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     const displayName = screen.getByLabelText("Display name");
     await user.clear(displayName);
     await user.type(displayName, "Updated After Refresh");
@@ -154,7 +154,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(harness.api.updateProfile).toHaveBeenCalledOnce());
 
@@ -176,6 +176,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
+    await user.click(screen.getByRole("tab", { name: "Notifications" }));
     const messages = await screen.findByRole("checkbox", { name: "New messages" });
     const mentions = screen.getByRole("checkbox", { name: "Mentions and direct attention" });
     expect(messages).toBeChecked();
@@ -212,23 +213,29 @@ describe("profile settings", () => {
       updated_at: "2026-07-14T11:00:00Z"
     });
 
+    const user = userEvent.setup();
     render(<SettingsPage />);
 
-    expect(await screen.findByText("Session session-")).toBeVisible();
-    expect(screen.getByRole("checkbox", { name: "New messages" })).toBeVisible();
-    const warning = screen.getByRole("status");
+    const warning = await screen.findByRole("status");
     expect(warning).toHaveTextContent("Some settings could not be loaded");
     expect(warning).toHaveTextContent("Devices:");
     expect(warning).toHaveTextContent("Device service is unavailable");
     expect(screen.queryByText("Sessions:")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+
+    await user.click(screen.getByRole("tab", { name: "Security" }));
+    expect(screen.queryByRole("button", { name: "Save profile" })).not.toBeInTheDocument();
+    await user.click(screen.getByText("Sessions"));
+    expect(screen.getByText("Session session-")).toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "Notifications" }));
     expect(screen.getByRole("checkbox", { name: "New messages" })).toBeEnabled();
     expect(
       screen.getByRole("button", { name: "Dismiss settings load warning" })
     ).toBeEnabled();
   });
 
-  it("renders the in-page destinations used by the You shortcuts", async () => {
+  it("shows one settings section at a time", async () => {
     harness.api.notificationPreference.mockResolvedValue({
       email_enabled: true,
       push_enabled: false,
@@ -236,22 +243,34 @@ describe("profile settings", () => {
       muted_event_types: [],
       updated_at: "2026-07-14T11:00:00Z"
     });
+    const user = userEvent.setup();
     const { container } = render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     expect(container.querySelector("#profile-settings")).toBeVisible();
+    expect(container.querySelector("#password-settings")).not.toBeInTheDocument();
+    expect(container.querySelector("#notification-settings")).not.toBeInTheDocument();
+
+    const profileTab = screen.getByRole("tab", { name: "Profile" });
+    profileTab.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Security" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Security" })).toHaveAttribute("aria-selected", "true");
     expect(container.querySelector("#password-settings")).toBeVisible();
+    expect(container.querySelector("#profile-settings")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Notifications" }));
     expect(container.querySelector("#notification-settings")).toBeVisible();
+    expect(container.querySelector("#password-settings")).not.toBeInTheDocument();
   });
 
   it("shows installed status without offering another install action", async () => {
     harness.pwa.installMode = "installed";
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     const card = screen.getByRole("heading", { name: "Install K-Comms" }).closest("section");
     expect(card).toHaveTextContent("Installed");
-    expect(card).toHaveTextContent("opened from your home screen or app launcher");
     expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
   });
 
@@ -260,7 +279,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     const trigger = screen.getByRole("button", { name: "Show install steps" });
     trigger.focus();
     await user.click(trigger);
@@ -288,7 +307,7 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     const view = render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Install K-Comms" }));
 
     await waitFor(() => expect(harness.pwa.requestInstall).toHaveBeenCalledOnce());
@@ -306,7 +325,7 @@ describe("profile settings", () => {
     harness.pwa.installMode = "unavailable";
     render(<SettingsPage />);
 
-    await screen.findByText("0 known");
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
     expect(screen.queryByRole("heading", { name: "Install K-Comms" })).not.toBeInTheDocument();
   });
 
@@ -321,7 +340,9 @@ describe("profile settings", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
+    await user.click(screen.getByRole("tab", { name: "Security" }));
     await screen.findByText("1 known");
+    await user.click(screen.getByText("Devices"));
     await user.click(screen.getByRole("button", { name: "Revoke device" }));
 
     const dialog = screen.getByRole("alertdialog", { name: "Revoke device?" });

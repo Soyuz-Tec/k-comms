@@ -164,7 +164,7 @@ describe("DirectoryPage", () => {
 
     const peopleList = await screen.findByRole("list", { name: "People" });
     expect(within(peopleList).getByText("Grace Hopper")).toBeVisible();
-    expect(within(peopleList).getByText("Workspace member")).toBeVisible();
+    expect(within(peopleList).queryByText("Workspace member")).not.toBeInTheDocument();
     expect(within(peopleList).queryByText(/admin/i)).not.toBeInTheDocument();
     expect(harness.directoryUsers).toHaveBeenCalledWith("", 25);
 

@@ -154,6 +154,7 @@ test("desktop and mobile settings expose browser push without automatic registra
   });
 
   await openClientRoute(page, "/app/settings");
+  await page.getByRole("tab", { name: "Notifications" }).click();
   await expect(page.getByRole("heading", { name: "Browser push" })).toBeVisible();
   await expect(page.getByText(/Permission is requested only after|does not support service-worker push|server-side Web Push configuration is incomplete|Notifications are blocked by this browser/i)).toBeVisible();
   expect(registrations).toBe(0);
