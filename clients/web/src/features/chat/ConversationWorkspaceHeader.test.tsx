@@ -71,16 +71,20 @@ describe("ConversationWorkspaceHeader", () => {
     expect(screen.getByRole("heading", { name: "Team Meeting" })).toBeVisible();
     expect(screen.getByText("Direct message")).toBeVisible();
     expect(screen.getByText("private")).toBeVisible();
-    expect(screen.getByText("Live")).toBeVisible();
+    expect(screen.getByText("Connected")).toBeVisible();
     expect(screen.getByText("3 online")).toBeVisible();
 
     const workspace = screen.getByRole("navigation", {
       name: "Conversation workspace"
     });
     const workspaceQueries = within(workspace);
-    expect(workspaceQueries.getByText("Chat")).toHaveAttribute(
+    expect(workspaceQueries.getByRole("link", { name: "Chat" })).toHaveAttribute(
       "aria-current",
       "page"
+    );
+    expect(workspaceQueries.getByRole("link", { name: "Chat" })).toHaveAttribute(
+      "href",
+      "/app/?conversation=conversation-1"
     );
     expect(workspaceQueries.getByRole("link", { name: "Canvas" })).toHaveAttribute(
       "href",
@@ -93,8 +97,12 @@ describe("ConversationWorkspaceHeader", () => {
 
     await user.click(screen.getByRole("button", { name: "Search messages" }));
     await user.click(screen.getByRole("button", { name: "Invite guest" }));
-    await user.click(screen.getByRole("button", { name: "Activity" }));
-    await user.click(screen.getByRole("button", { name: "Details" }));
+    const activity = screen.getByRole("button", { name: "Activity" });
+    const details = screen.getByRole("button", { name: "Details" });
+    expect(activity).toHaveAttribute("aria-controls", "conversation-activity-panel");
+    expect(details).toHaveAttribute("aria-controls", "conversation-details-panel");
+    await user.click(activity);
+    await user.click(details);
     await user.click(
       screen.getByRole("button", { name: "Back to conversations" })
     );

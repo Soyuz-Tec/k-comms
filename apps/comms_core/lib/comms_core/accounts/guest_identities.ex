@@ -1,7 +1,13 @@
 defmodule CommsCore.Accounts.GuestIdentities do
   @moduledoc false
 
-  alias CommsCore.Accounts.GuestIdentities.{Conversion, SessionLifecycle}
+  alias CommsCore.Accounts.GuestIdentities.{
+    Conversion,
+    EphemeralAuthority,
+    Provisioning,
+    Revocation,
+    SessionReplay
+  }
 
   @spec provision(map(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
@@ -11,7 +17,7 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :invalid_guest_expiry
              | :active_user_quota_exceeded
              | :invalid_guest_identity}
-  defdelegate provision(attrs, effects), to: SessionLifecycle
+  defdelegate provision(attrs, effects), to: Provisioning
 
   @spec extend_ephemeral_authority(Ecto.UUID.t(), DateTime.t() | String.t()) ::
           {:ok,
@@ -22,7 +28,9 @@ defmodule CommsCore.Accounts.GuestIdentities do
              expires_at: DateTime.t()
            }}
           | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
-  defdelegate extend_ephemeral_authority(session_id, deadline), to: SessionLifecycle
+  defdelegate extend_ephemeral_authority(session_id, deadline),
+    to: EphemeralAuthority,
+    as: :extend
 
   @spec ensure_ephemeral_authority(Ecto.UUID.t(), DateTime.t() | String.t()) ::
           {:ok,
@@ -33,7 +41,9 @@ defmodule CommsCore.Accounts.GuestIdentities do
              expires_at: DateTime.t()
            }}
           | {:error, :transaction_required | :invalid_ephemeral_guest_deadline | :session_expired}
-  defdelegate ensure_ephemeral_authority(session_id, deadline), to: SessionLifecycle
+  defdelegate ensure_ephemeral_authority(session_id, deadline),
+    to: EphemeralAuthority,
+    as: :ensure
 
   @spec resume_ephemeral(map(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}
@@ -44,11 +54,11 @@ defmodule CommsCore.Accounts.GuestIdentities do
              | :tenant_unavailable
              | :invalid_ephemeral_guest_deadline
              | :invalid_guest_identity}
-  defdelegate resume_ephemeral(command, effects), to: SessionLifecycle
+  defdelegate resume_ephemeral(command, effects), to: SessionReplay
 
   @spec revoke_session(Ecto.UUID.t(), String.t(), map()) ::
           :ok | {:error, :not_found | :invalid_reason | term()}
-  defdelegate revoke_session(session_id, reason, effects), to: SessionLifecycle
+  defdelegate revoke_session(session_id, reason, effects), to: Revocation
 
   @spec convert(map(), map(), String.t(), map()) ::
           {:ok, CommsCore.Accounts.AuthenticationResult.t()}

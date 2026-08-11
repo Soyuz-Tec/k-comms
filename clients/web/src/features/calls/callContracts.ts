@@ -26,6 +26,7 @@ export interface CallPanelSessionState {
   screenShareEnabled: boolean;
   canEnd: boolean;
   accessRevoked: boolean;
+  transportMode: "livekit" | "connecting_direct" | "direct" | "livekit_fallback";
 }
 
 export interface CallApi {

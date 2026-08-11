@@ -42,6 +42,8 @@ The primary workspace action is `New instant room`. Notifications and the signed
 
 At tablet and compact desktop widths, the same sidebar collapses to an accessible icon rail. Labels remain available to assistive technology and as native titles; no destination changes position or meaning.
 
+At wide desktop widths, a person can minimize the labeled sidebar to the same accessible icon rail and restore it without losing their place. That preference persists in the browser. In Inbox, the divider between the conversation list and active conversation supports pointer and keyboard resizing within bounded widths; its saved width is a presentation preference only and never changes conversation data or authorization.
+
 ### Mobile workspace navigation
 
 The persistent bottom navigation contains exactly five daily destinations:
@@ -89,6 +91,10 @@ Controls live with the object they affect:
 ### Public and sign-in
 
 - Instant-room creation remains canvas-first and works signed out or signed in.
+- Authentication opens as a focused gateway over the same local canvas instead
+  of replacing it with a separate promotional page. The canvas is visibly
+  preserved but inert while credential, invitation, or workspace-setup fields
+  are active; no protected workspace data loads before authentication.
 - Setup typography is legible at desktop and phone widths.
 - Account sign-in is clearly secondary to instant collaboration on the public page.
 - Invite and guest-join flows retain their security and identity disclosures.
@@ -96,11 +102,21 @@ Controls live with the object they affect:
 ### Messaging
 
 - Desktop retains the conversation list and message pane without overlapping the workspace sidebar.
+- Desktop keeps the workspace rail minimizable and the conversation-list divider adjustable by pointer or keyboard, with both preferences surviving reload.
 - Mobile supports direct movement to all five primary destinations.
 - Composer, attachment, participant, call, search, and detail controls remain reachable and named.
 - The conversation header separates identity and live status from contextual `Chat`, `Canvas`, `Activity`, and `Details` navigation.
 - Compact search, call, and invitation controls retain accessible names and 44-pixel targets.
 - The composer identifies its recipient and local draft state, groups the message field with its primary actions, and keeps mentions and keyboard guidance in a supporting toolbar.
+- Empty conversations offer the first message and policy-authorized call
+  lobbies directly; explanatory copy is not a substitute for the next action.
+- Realtime message transport is labelled `Connected`. `Live` or `Active call`
+  is reserved for actual call state.
+- Inbox summaries remain content-free. Unread and joined-call state may improve
+  scanning, but message bodies, senders, and mentions stay behind the
+  ConversationContent boundary.
+- At compact widths, separate audio and video controls retain the approved
+  one-action-to-lobby behavior even when the identity/action row is compressed.
 
 ### Calls
 
@@ -112,6 +128,8 @@ Controls live with the object they affect:
 ### Whiteboard and canvas
 
 - Whiteboard is grouped under collaboration on desktop and available from `More` on mobile.
+- The standalone whiteboard uses a compact title and conversation strip, then gives every remaining pixel in the application shell to the canvas.
+- The canvas is edge-to-edge within that workspace, without decorative outer margin, border, corner radius, or shadow; global navigation remains available.
 - The searchable template gallery presents original K-Comms brainstorm, planning, strategy, and reflection layouts at desktop and phone widths.
 - Applying a template adds supported drawing objects beside existing work; it never replaces or clears the current scene.
 - Canvas-destructive actions require confirmation and remain in canvas controls.

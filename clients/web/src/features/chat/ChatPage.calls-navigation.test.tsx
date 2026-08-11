@@ -34,6 +34,41 @@ describe("ChatPage durable sequence recovery", () => {
     expect(harness.api.audioCall).not.toHaveBeenCalled();
   });
 
+  it("makes an empty conversation actionable and reports draft persistence only after typing", async () => {
+    const user = userEvent.setup();
+    harness.api.messages!.mockResolvedValue({
+      data: [],
+      page: {
+        has_more: false,
+        next_after_sequence: null,
+        reset_required: false
+      }
+    });
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+
+    expect(await screen.findByText("No messages yet")).toBeVisible();
+    expect(screen.queryByText(/open a private call lobby/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
+
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    await user.click(composer);
+    expect(composer).toHaveFocus();
+    await user.type(composer, "Hello UAE office");
+    expect(screen.getByText("Draft to General")).toBeVisible();
+    expect(screen.getByText("Saved on this device")).toBeVisible();
+  });
+
+  it("marks the current call in the content-free Inbox summary", async () => {
+    harness.callTargetConversation = harness.conversations[0]!;
+    harness.callSessionState = { joined: true };
+    render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+
+    const general = await screen.findByRole("button", { name: /General/ });
+    expect(within(general).getByText("Active call")).toBeVisible();
+    expect(general).toHaveClass("has-active-call");
+    expect(within(general).getByText("1 unread")).toBeVisible();
+  });
+
   it("consumes a one-shot call deep link and opens the default-off prejoin lobby", async () => {
     render(
       <MemoryRouter initialEntries={["/app?conversation=conversation-1&call=audio&source=directory"]}>

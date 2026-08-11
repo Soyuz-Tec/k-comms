@@ -131,10 +131,12 @@ describe("CallsPage", () => {
   it("shows truthful room-session state and one-click conversation lobby links", async () => {
     render(<MemoryRouter initialEntries={["/app/calls"]}><CallsPage /></MemoryRouter>);
 
-    const row = (await screen.findByText("Active room")).closest("li");
+    const row = (await screen.findByRole("button", {
+      name: "Join video call for Execution room"
+    })).closest("li");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("Video")).toBeVisible();
-    expect(within(row as HTMLElement).getByText(/4m 32s room duration/)).toBeVisible();
+    expect(within(row as HTMLElement).getByText("4m 32s room duration")).toBeVisible();
     expect(within(row as HTMLElement).getByRole("link", { name: "Open chat for Execution room" })).toHaveAttribute(
       "href",
       `/app/?conversation=${conversationId}`
@@ -193,7 +195,7 @@ describe("CallsPage", () => {
       .mockResolvedValue({ data: [], page: { limit: 25, has_more: false, next_cursor: null } });
 
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
-    await screen.findByText("Active room");
+    await screen.findByRole("button", { name: "Join video call for Execution room" });
 
     await user.click(screen.getByRole("button", { name: "Recent" }));
     await user.selectOptions(screen.getByLabelText("Media"), "audio");
@@ -224,7 +226,7 @@ describe("CallsPage", () => {
   it("refreshes both call sessions and current call availability", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
-    await screen.findByText("Active room");
+    await screen.findByRole("button", { name: "Join video call for Execution room" });
 
     await user.click(screen.getByRole("button", { name: "Refresh calls" }));
 
@@ -283,7 +285,9 @@ describe("CallsPage", () => {
 
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
 
-    const row = (await screen.findByText("Ended room")).closest("li");
+    const row = (await screen.findByRole("button", {
+      name: "Start audio call for Execution room"
+    })).closest("li");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByRole("button", {
       name: "Start audio call for Execution room"

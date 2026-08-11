@@ -1,10 +1,17 @@
 defmodule CommsWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :comms_web
 
+  @websocket_max_frame_size 1_048_576
+
   socket("/socket", CommsWeb.UserSocket,
-    websocket: [connect_info: [:peer_data, :x_headers]],
+    websocket: [
+      connect_info: [:peer_data, :x_headers],
+      max_frame_size: @websocket_max_frame_size
+    ],
     longpoll: false
   )
+
+  def websocket_max_frame_size, do: @websocket_max_frame_size
 
   # Establish trusted edge metadata before any response or route policy reads
   # the effective request scheme.

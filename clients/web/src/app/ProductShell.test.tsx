@@ -110,6 +110,7 @@ function renderProductShell() {
 describe("ProductShell PWA controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     harness.pwa.installMode = "unavailable";
     harness.pwa.updateAvailable = false;
     harness.pwa.requestInstall.mockResolvedValue("accepted");
@@ -223,5 +224,65 @@ describe("ProductShell PWA controls", () => {
     await user.click(screen.getByRole("button", { name: "Later" }));
     expect(harness.pwa.dismissUpdate).toHaveBeenCalledOnce();
     expect(harness.pwa.applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it("renders a desktop-only safe drag region for Window Controls Overlay", () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }));
+
+    const { container } = renderProductShell();
+    expect(container.querySelector(".window-titlebar-drag-region")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    expect(screen.getByRole("complementary", {
+      name: "Workspace navigation"
+    })).toBeVisible();
+    expect(screen.queryByRole("button", {
+      name: "Open more menu"
+    })).not.toBeInTheDocument();
+  });
+
+  it("persists an accessible compact workspace rail", async () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }));
+    const user = userEvent.setup();
+    const view = renderProductShell();
+
+    const sidebar = screen.getByRole("complementary", {
+      name: "Workspace navigation"
+    });
+    const collapse = screen.getByRole("button", {
+      name: "Collapse navigation sidebar"
+    });
+    expect(collapse).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(collapse);
+    expect(sidebar).toHaveClass("is-collapsed");
+    expect(window.localStorage.getItem(
+      "k-comms.workspace-sidebar-collapsed.v1"
+    )).toBe("true");
+
+    view.unmount();
+    renderProductShell();
+    expect(screen.getByRole("button", {
+      name: "Expand navigation sidebar"
+    })).toHaveAttribute("aria-pressed", "true");
   });
 });

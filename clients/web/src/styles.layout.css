@@ -189,6 +189,17 @@
  * experiences, compact touch controls, and a full-height media stage.
  */
 @media (max-width: 760px), (max-height: 560px) {
+  body:has(.workspace-grid) {
+    height: var(--app-viewport-height);
+    overflow: hidden;
+  }
+
+  body:has(.workspace-grid) .app-shell {
+    height: var(--app-viewport-height);
+    min-height: 0;
+    overflow: hidden;
+  }
+
   body:has(.call-prejoin-dialog) .app-shell > .topbar,
   body:has(.video-call-dock:not(.minimized)) .app-shell > .topbar {
     display: none;
@@ -203,30 +214,14 @@
     overflow: hidden;
   }
 
-  body:has(.workspace-grid.mobile-messages) .app-shell {
-    padding-bottom: 0;
-  }
-
   body:has(.workspace-grid.mobile-messages) .workspace-grid.mobile-messages,
   body:has(.workspace-grid.mobile-messages) .conversation-pane {
-    min-height: calc(var(--app-viewport-height) - var(--mobile-topbar-total));
-    height: calc(var(--app-viewport-height) - var(--mobile-topbar-total));
+    min-height: calc(var(--app-viewport-height) - var(--mobile-topbar-total) - var(--mobile-nav-total));
+    height: calc(var(--app-viewport-height) - var(--mobile-topbar-total) - var(--mobile-nav-total));
   }
 
   .workspace-grid.mobile-messages .conversation-header {
-    min-height: 108px;
-    grid-template-columns: 44px minmax(0, 1fr);
-    padding:
-      .35rem
-      max(.4rem, var(--safe-right))
-      .35rem
-      max(.4rem, var(--safe-left));
-  }
-
-  .workspace-grid.mobile-messages .conversation-header-actions {
-    width: 100%;
-    grid-column: 1 / -1;
-    grid-row: 2;
+    min-height: 0;
   }
 
   .workspace-grid.mobile-messages .conversation-header-actions .audio-call-control {

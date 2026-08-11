@@ -189,7 +189,7 @@ test("calls satisfies automated WCAG A and AA checks", async ({ page }) => {
 test("directory satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/directory");
-  await expect(page.getByRole("heading", { name: "Find people and rooms" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Directory" })).toBeVisible();
   await expect(page.getByRole("list", { name: "People" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
@@ -205,7 +205,7 @@ test("files satisfies automated WCAG A and AA checks", async ({ page }) => {
 test("You satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page);
   await page.goto("/app/you");
-  await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 

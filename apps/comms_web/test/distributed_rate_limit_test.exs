@@ -1,7 +1,6 @@
 defmodule CommsWeb.DistributedRateLimitTest do
   use CommsWeb.ConnCase, async: false
 
-  alias CommsCore.PlatformRateLimits
   alias CommsCore.Repo
   alias CommsWeb.Plugs.DistributedRateLimit
   alias CommsTestSupport.Fixtures
@@ -9,6 +8,13 @@ defmodule CommsWeb.DistributedRateLimitTest do
 
   @origin "http://localhost:5173"
   @privacy_key "test-public-rate-limit-privacy-key-at-least-32-bytes"
+  @http_scopes [
+    :instant_room_create,
+    :instant_room_join,
+    :instant_room_conversion,
+    :instant_room_message,
+    :instant_room_whiteboard
+  ]
 
   setup do
     SQL.query!(Repo, "DELETE FROM public_rate_limit_buckets", [])
@@ -380,16 +386,16 @@ defmodule CommsWeb.DistributedRateLimitTest do
     assert second.halted
   end
 
-  test "supports independent create, join, conversion, and message scopes" do
+  test "supports independent public HTTP scopes" do
     conn = client_conn({198, 51, 100, 80})
 
-    for scope <- PlatformRateLimits.scopes() do
+    for scope <- @http_scopes do
       refute conn
              |> DistributedRateLimit.call(opts(scope, 1, 600))
              |> Map.fetch!(:halted)
     end
 
-    for scope <- PlatformRateLimits.scopes() do
+    for scope <- @http_scopes do
       assert conn
              |> DistributedRateLimit.call(opts(scope, 1, 600))
              |> Map.fetch!(:halted)

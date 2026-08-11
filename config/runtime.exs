@@ -157,6 +157,26 @@ if config_env() == :prod do
       "INSTANT_ROOMS_ENABLED"
     )
 
+  direct_audio_p2p_enabled? =
+    parse_boolean.(
+      System.get_env("DIRECT_AUDIO_P2P_ENABLED", "true"),
+      "DIRECT_AUDIO_P2P_ENABLED"
+    )
+
+  direct_audio_stun_urls =
+    System.get_env("DIRECT_AUDIO_STUN_URLS", "stun:stun.cloudflare.com:3478")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+
+  if direct_audio_p2p_enabled? and
+       (direct_audio_stun_urls == [] or length(direct_audio_stun_urls) > 4 or
+          Enum.any?(direct_audio_stun_urls, fn url ->
+            not (String.starts_with?(url, "stun:") or String.starts_with?(url, "stuns:")) or
+              String.contains?(url, [" ", "\t", "\r", "\n"])
+          end)) do
+    raise "DIRECT_AUDIO_STUN_URLS must contain one to four comma-separated stun: or stuns: URLs"
+  end
+
   instant_room_tenant_slug =
     case System.get_env("INSTANT_ROOM_TENANT_SLUG") do
       nil -> nil
@@ -640,6 +660,8 @@ if config_env() == :prod do
 
   config :comms_web,
     allow_bootstrap: allow_bootstrap?,
+    direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
+    direct_audio_stun_urls: direct_audio_stun_urls,
     public_share_origin: public_share_origin,
     insecure_lan_release:
       local_release? and public_app_uri.scheme == "http" and
@@ -656,7 +678,14 @@ if config_env() == :prod do
 
   config :comms_web, CommsWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
-    http: [ip: {0, 0, 0, 0}, port: port],
+    http: [
+      ip: {0, 0, 0, 0},
+      port: port,
+      websocket_options: [
+        max_frame_size: 1_048_576,
+        max_fragmented_message_size: 1_048_576
+      ]
+    ],
     secret_key_base: secret_key_base,
     check_origin: cors_origins,
     server: role in ["all", "edge"]

@@ -7,7 +7,8 @@
  */
 
 .workspace-sidebar,
-.mobile-primary-nav {
+.mobile-primary-nav,
+.window-titlebar-drag-region {
   display: none;
 }
 
@@ -106,6 +107,93 @@
   margin-bottom: 1.25rem;
 }
 
+.settings-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-page-heading {
+  margin-bottom: 0;
+}
+
+.settings-section-tabs {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .35rem;
+  padding: .25rem;
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  background: var(--surface-canvas);
+}
+
+.settings-section-tabs button {
+  min-width: 0;
+  min-height: 44px;
+  padding: .55rem .7rem;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+.settings-section-tabs button[aria-selected="true"] {
+  color: var(--text-on-accent);
+  background: var(--accent-solid);
+}
+
+.settings-page [role="tabpanel"],
+.settings-security-inventories {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-page .you-role-shortcuts {
+  width: 100%;
+  margin: 0;
+}
+
+.settings-disclosure {
+  margin-top: 0;
+  padding: 0;
+  overflow: clip;
+}
+
+.settings-disclosure > summary {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-disclosure > summary h2 {
+  margin: 0;
+}
+
+.settings-disclosure > summary .status-pill {
+  margin-left: auto;
+}
+
+.settings-disclosure[open] > summary {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.settings-disclosure > .security-list,
+.settings-disclosure > .empty-copy,
+.settings-disclosure > .advanced-settings {
+  margin: .75rem;
+}
+
 .you-page .you-section-chooser,
 .you-page .you-role-shortcuts {
   width: 100%;
@@ -132,11 +220,48 @@
     display: flex;
     overflow: hidden auto;
     flex-direction: column;
-    gap: .9rem;
-    padding: 1rem;
+    gap: .58rem;
+    padding: .72rem .78rem;
     border-right: 1px solid var(--border-subtle);
     color: var(--text-primary);
     background: var(--surface-rail);
+  }
+
+  .app-shell.workspace-sidebar-collapsed {
+    --desktop-rail-width: 80px;
+  }
+
+  .workspace-sidebar-header {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: .4rem;
+  }
+
+  .workspace-sidebar-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    color: var(--text-muted);
+    background: transparent;
+  }
+
+  .workspace-sidebar-toggle:hover {
+    color: var(--accent-text);
+    border-color: var(--border-default);
+    background: var(--surface-hover);
+  }
+
+  .workspace-sidebar-toggle:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 
   .workspace-sidebar-brand,
@@ -179,8 +304,8 @@
   }
 
   .workspace-sidebar-identity {
-    min-height: 54px;
-    padding: .45rem;
+    min-height: 48px;
+    padding: .35rem .42rem;
     border: 1px solid var(--border-subtle);
     border-radius: 14px;
     background: var(--surface-raised);
@@ -200,12 +325,12 @@
   }
 
   .workspace-instant-room {
-    min-height: 46px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: .6rem;
-    padding: .7rem .85rem;
+    padding: .58rem .75rem;
     border: 1px solid var(--accent-solid);
     border-radius: 13px;
     color: var(--text-on-accent);
@@ -227,12 +352,12 @@
 
   .workspace-sidebar-nav {
     display: grid;
-    gap: .8rem;
+    gap: .48rem;
   }
 
   .member-nav-group {
     display: grid;
-    gap: .22rem;
+    gap: .14rem;
     margin: 0;
   }
 
@@ -348,6 +473,73 @@
     left: calc(var(--desktop-rail-width) + .75rem);
   }
 
+  body:has(.workspace-sidebar.is-collapsed) > .notification-panel {
+    left: calc(80px + .75rem);
+  }
+
+  .workspace-sidebar.is-collapsed {
+    align-items: center;
+    padding-inline: .55rem;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-header {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: .18rem;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-brand-copy,
+  .workspace-sidebar.is-collapsed .workspace-identity-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-chevron,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications > span,
+  .workspace-sidebar.is-collapsed .workspace-instant-room span,
+  .workspace-sidebar.is-collapsed .member-nav-group-label {
+    display: none;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-identity {
+    display: none;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-brand,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications,
+  .workspace-sidebar.is-collapsed .workspace-account-menu,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav,
+  .workspace-sidebar.is-collapsed .member-nav-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-instant-room,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a,
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    margin-inline: auto;
+    padding: 0;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
   .instant-draft-body {
     grid-template-columns: minmax(0, 1fr) clamp(410px, 33vw, 480px);
   }
@@ -447,6 +639,16 @@
     align-items: center;
     gap: .65rem;
     padding: .8rem .65rem;
+  }
+
+  .workspace-sidebar-header {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .workspace-sidebar-toggle {
+    display: none;
   }
 
   .workspace-brand-copy,
@@ -716,5 +918,60 @@
   .workspace-account-trigger,
   .workspace-sidebar .notification-trigger {
     border: 1px solid ButtonText;
+  }
+}
+
+/*
+ * Installed desktop Chromium PWAs may opt into the Window Controls Overlay.
+ * Reserve the operating system control area on either side, keep the product
+ * controls interactive, and let unsupported browsers fall back to standalone.
+ */
+@media (display-mode: window-controls-overlay) {
+  .app-shell > .topbar {
+    min-height: max(
+      var(--mobile-topbar-total, 64px),
+      env(titlebar-area-height, 0px)
+    );
+    padding-left: max(
+      calc(.75rem + var(--safe-left)),
+      calc(env(titlebar-area-x, 0px) + .75rem)
+    );
+    padding-right: max(
+      calc(.65rem + var(--safe-right)),
+      calc(
+        100vw
+        - env(titlebar-area-x, 0px)
+        - env(titlebar-area-width, 100vw)
+        + .65rem
+      )
+    );
+    -webkit-app-region: drag;
+  }
+
+  .app-shell > .topbar :where(a, button, input, select, textarea, [tabindex]) {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@media (display-mode: window-controls-overlay) and (min-width: 761px) and (min-height: 561px) {
+  .app-shell {
+    padding-top: env(titlebar-area-height, 0px);
+  }
+
+  .window-titlebar-drag-region {
+    position: fixed;
+    z-index: 45;
+    top: env(titlebar-area-y, 0px);
+    left: env(titlebar-area-x, 0px);
+    width: env(titlebar-area-width, 100vw);
+    height: env(titlebar-area-height, 0px);
+    display: block;
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-overlay);
+    -webkit-app-region: drag;
+  }
+
+  .workspace-sidebar {
+    top: env(titlebar-area-height, 0px);
   }
 }

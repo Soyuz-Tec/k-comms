@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import {
   loadStoredGuestSession,
@@ -8,6 +9,7 @@ import { useSession } from "../../app/session";
 import { browserName } from "../../lib/format";
 import type { GuestSession } from "../../types";
 import { GuestShell } from "../guest/GuestAccessPage";
+import { AuthenticationCanvasPage } from "../auth/AuthenticationCanvasPage";
 import {
   type GuestRoomApi,
   MemberRoomApi
@@ -44,7 +46,11 @@ import { clearInstantWorkspaceDraft } from "./instantWorkspaceDraftStore";
 import "./InstantRoomPage.css";
 import "./PublicLandingPage.css";
 
-export function InstantRoomPage() {
+export function InstantRoomPage({
+  authenticationGateway
+}: {
+  authenticationGateway?: ReactNode;
+} = {}) {
   const navigate = useNavigate();
   const {
     api: memberApi,
@@ -62,11 +68,11 @@ export function InstantRoomPage() {
     member: MemberInstantRoomContinuity | null;
   } | null>(null);
   if (!initialStateRef.current) {
-    const guest = loadStoredGuestSession();
+    const guest = authenticationGateway ? null : loadStoredGuestSession();
     initialStateRef.current = {
       guest,
       member:
-        !guest?.instant_room && accountSession
+        !authenticationGateway && !guest?.instant_room && accountSession
           ? loadMemberInstantRoomContinuity(accountSession)
           : null
     };
@@ -111,10 +117,11 @@ export function InstantRoomPage() {
   });
 
   useEffect(() => {
+    if (authenticationGateway) return;
     document.title = activeRoom
       ? "Instant room | K-Comms"
       : "K-Comms | Message, meet, and create";
-  }, [activeRoom]);
+  }, [activeRoom, authenticationGateway]);
 
   useEffect(() => {
     if (!transportPolicyReady || !accountSession) return;
@@ -382,47 +389,56 @@ export function InstantRoomPage() {
   }
 
   if (!activeRoom || !roomApi) {
+    const draftWorkspace = (
+      <>
+        {!transportPolicyReady && (
+          <div className="transport-warning" role="status">
+            <strong>Checking the secure connection…</strong>
+            <span>Drawing stays local while K-Comms verifies this deployment.</span>
+          </div>
+        )}
+        {secureActionsUnavailable && (
+          <div className="transport-warning" role="alert">
+            <strong>Text-only mode is active.</strong>
+            <span>
+              K-Comms could not verify a trusted HTTPS path to this
+              deployment. Use non-sensitive content only. Account actions,
+              microphone, camera, and screen sharing remain disabled.
+            </span>
+          </div>
+        )}
+        {memberContinuity && error && (
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              setRetryVersion((version) => version + 1);
+            }}
+          >
+            Retry existing room
+          </button>
+        )}
+        <InstantWorkspaceDraft
+          activating={loading}
+          error={error}
+          identityManaged={Boolean(accountSession)}
+          initialDisplayName={accountSession?.user.display_name}
+          retrySeconds={retrySeconds}
+          onActivate={activateDraftWorkspace}
+        />
+      </>
+    );
+
     return (
       <PublicLandingPage
         workspace={
-          <>
-            {!transportPolicyReady && (
-              <div className="transport-warning" role="status">
-                <strong>Checking the secure connection…</strong>
-                <span>Drawing stays local while K-Comms verifies this deployment.</span>
-              </div>
-            )}
-            {secureActionsUnavailable && (
-              <div className="transport-warning" role="alert">
-                <strong>Text-only mode is active.</strong>
-                <span>
-                  K-Comms could not verify a trusted HTTPS path to this
-                  deployment. Use non-sensitive content only. Account actions,
-                  microphone, camera, and screen sharing remain disabled.
-                </span>
-              </div>
-            )}
-            {memberContinuity && error && (
-              <button
-                className="button ghost"
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  setRetryVersion((version) => version + 1);
-                }}
-              >
-                Retry existing room
-              </button>
-            )}
-            <InstantWorkspaceDraft
-              activating={loading}
-              error={error}
-              identityManaged={Boolean(accountSession)}
-              initialDisplayName={accountSession?.user.display_name}
-              retrySeconds={retrySeconds}
-              onActivate={activateDraftWorkspace}
+          authenticationGateway ? (
+            <AuthenticationCanvasPage
+              workspace={draftWorkspace}
+              gateway={authenticationGateway}
             />
-          </>
+          ) : draftWorkspace
         }
       />
     );

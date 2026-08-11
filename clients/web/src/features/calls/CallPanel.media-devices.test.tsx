@@ -534,6 +534,50 @@ describe("CallPanel calls", () => {
       .toBeEnabled();
   });
 
+  it("offers direct audio only in one-to-one audio prejoin with explicit privacy consent", async () => {
+    const directConversation: Conversation = {
+      ...conversation,
+      id: "direct-conversation-1",
+      kind: "direct",
+      title: "Grace Hopper",
+      counterpart_user_id: "user-2",
+      counterpart_display_name: "Grace Hopper"
+    };
+    const user = userEvent.setup();
+    const view = render(
+      <CallPanel
+        api={apiWith(null)}
+        conversation={directConversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        currentUserId="user-1"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Start audio call" }));
+    const directCheckbox = within(screen.getByRole("dialog", { name: "Start an audio call" }))
+      .getByRole("checkbox", { name: /Prefer a direct connection/ });
+    expect(directCheckbox).not.toBeChecked();
+    expect(screen.getByText(/reveals each device's network address/i)).toBeVisible();
+    await user.click(directCheckbox);
+    expect(directCheckbox).toBeChecked();
+
+    view.rerender(
+      <CallPanel
+        api={apiWith(null)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+        currentUserId="user-1"
+      />
+    );
+    await user.click(await screen.findByRole("button", { name: "Start audio call" }));
+    expect(screen.queryByRole("checkbox", { name: /Prefer a direct connection/ }))
+      .not.toBeInTheDocument();
+  });
+
   it("ignores old-room device and media failures after switching conversations", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,

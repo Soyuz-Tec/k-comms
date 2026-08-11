@@ -739,13 +739,14 @@ technical_interfaces:
   - id: web-distributed-public-rate-limit
     owner: platform_runtime
     interface: CommsCore.PlatformRateLimits
-    callers: [CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
+    callers: [CommsWeb.DirectAudioRateLimit, CommsWeb.InstantRoomMessageRateLimit, CommsWeb.InstantRoomWhiteboardRateLimit, CommsWeb.Plugs.DistributedRateLimit]
     operations:
       - {name: "allow?", arity: 4}
+      - {name: "allow?", arity: 5}
     dispatch: direct
     contracts: [CommsCore.PlatformRateLimits.Decision]
     transaction: independent
-    condition: The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.
+    condition: The Web adapters supply only a supported scope, an HMAC-SHA-256 network or identity digest, and positive limit/window/cost values; PlatformRateLimits owns the PostgreSQL-clock fixed-window decision, weighted byte accounting, and bounded expired-bucket cleanup without retaining raw network addresses or bearer material.
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError

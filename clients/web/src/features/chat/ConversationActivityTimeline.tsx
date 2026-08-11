@@ -30,7 +30,7 @@ export function ConversationActivityTimeline({
   }, [api, conversationId]);
 
   return <div className="drawer-backdrop">
-    <aside ref={dialogRef} className="search-panel activity-timeline" role="dialog" aria-modal="true" aria-labelledby="activity-timeline-title">
+    <aside id="conversation-activity-panel" ref={dialogRef} className="search-panel activity-timeline" role="dialog" aria-modal="true" aria-labelledby="activity-timeline-title">
       <header><div><span className="eyebrow">Durable workspace history</span><h2 id="activity-timeline-title">Activity</h2></div><AppSurfaceControlButton accessibleLabel="Close activity" kind="close" onClick={onClose} /></header>
       {loading && <p role="status">Loading activity…</p>}
       {error && <div className="form-error" role="alert">{error}</div>}

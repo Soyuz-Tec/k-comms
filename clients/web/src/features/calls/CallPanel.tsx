@@ -1,3 +1,4 @@
+import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AppIcon } from "../../components/AppIcon";
 import {
@@ -23,6 +24,44 @@ export type {
   CallPhase
 } from "./callContracts";
 export { callPublishDefaults, callRtcConfig } from "./callMedia";
+
+export const CALL_TERMINAL_NOTICE_TIMEOUT_MS = 8_000;
+
+export function CallTerminalNotice({
+  title,
+  message,
+  error = false,
+  autoDismiss = false,
+  action,
+  onDismiss
+}: {
+  title: string;
+  message: string;
+  error?: boolean;
+  autoDismiss?: boolean;
+  action?: ReactNode;
+  onDismiss: () => void;
+}) {
+  useEffect(() => {
+    if (!autoDismiss) return;
+    const timeout = window.setTimeout(
+      onDismiss,
+      CALL_TERMINAL_NOTICE_TIMEOUT_MS
+    );
+    return () => window.clearTimeout(timeout);
+  }, [autoDismiss, message, onDismiss]);
+
+  return (
+    <div className={`audio-call-terminal-notice ${error ? "error" : ""}`} role={error ? "alert" : "status"}>
+      <strong>{title}</strong>
+      <span>{message}</span>
+      {action}
+      <button className="audio-call-terminal-notice-close" type="button" aria-label="Dismiss call notice" onClick={onDismiss}>
+        <AppIcon name="x" />
+      </button>
+    </div>
+  );
+}
 
 function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2)
@@ -63,6 +102,7 @@ export function CallPanel({
     cameras,
     closeMobileCallMenu,
     currentMediaKind,
+    dismissTerminalNotice,
     elapsedSeconds,
     enablePlayback,
     endConfirmationOpen,
@@ -91,6 +131,7 @@ export function CallPanel({
     prejoinCamera,
     prejoinKind,
     prejoinMicrophone,
+    preferDirectAudio,
     previewBusy,
     previewVideoRef,
     remoteAudioRef,
@@ -107,6 +148,7 @@ export function CallPanel({
     setMinimized,
     setMobileWorkspaceOpen,
     setPrejoinMicrophone,
+    setPreferDirectAudio,
     setReadinessEnabled,
     setSelectedMicrophone,
     toggleCallControlLabels,
@@ -119,6 +161,7 @@ export function CallPanel({
     muteParticipant,
     removeParticipant,
     speakers,
+    transportMode,
     videoBlocked
   } = useCallSession({
     api,
@@ -183,11 +226,14 @@ export function CallPanel({
           readinessChecks={callReadiness.checks}
           readinessFailure={callReadiness.failure}
           readinessReportAvailable={Boolean(callReadiness.report)}
+          directAudioAvailable={conversation.kind === "direct" && prejoinKind === "audio"}
+          preferDirectAudio={preferDirectAudio}
           onMicrophone={setSelectedMicrophone}
           onCamera={(deviceId) => void selectPrejoinCamera(deviceId)}
           onMicrophoneEnabled={setPrejoinMicrophone}
           onCameraEnabled={(enabled) => void togglePrejoinCamera(enabled)}
           onReadinessEnabled={setReadinessEnabled}
+          onPreferDirectAudio={setPreferDirectAudio}
           onDownloadReadinessReport={() => {
             if (callReadiness.report) downloadCallReadinessReport(callReadiness.report);
           }}
@@ -241,6 +287,17 @@ export function CallPanel({
                 >
                   {callStatusLabel}
                 </span>
+                {joinedKind === "audio" && (
+                  <span className={`status-pill ${transportMode === "direct" ? "success" : "neutral"}`} aria-live="polite">
+                    {transportMode === "direct"
+                      ? "Direct"
+                      : transportMode === "connecting_direct"
+                        ? "Switching to direct"
+                        : transportMode === "livekit_fallback"
+                          ? "LiveKit fallback"
+                          : "LiveKit"}
+                  </span>
+                )}
               </div>
             </div>
             <div
@@ -639,20 +696,25 @@ export function CallPanel({
       )}
 
       {!joined && phase === "ended" && error && createPortal(
-        <div className={`audio-call-terminal-notice ${accessRevoked ? "error" : ""}`} role={accessRevoked ? "alert" : "status"}>
-          <strong>{accessRevoked ? `${mediaLabel(currentMediaKind)} access revoked` : `${mediaLabel(currentMediaKind)} call ended`}</strong>
-          <span>{error}</span>
-          {call?.can_end && <button className="button danger compact" type="button" onClick={() => void endForEveryone()}>End for everyone</button>}
-        </div>,
+        <CallTerminalNotice
+          title={accessRevoked ? `${mediaLabel(currentMediaKind)} access revoked` : `${mediaLabel(currentMediaKind)} call ended`}
+          message={error}
+          error={accessRevoked}
+          autoDismiss={!accessRevoked}
+          action={call?.can_end && <button className="button danger compact" type="button" onClick={() => void endForEveryone()}>End for everyone</button>}
+          onDismiss={dismissTerminalNotice}
+        />,
         document.body
       )}
 
       {!joined && phase === "error" && error && createPortal(
-        <div className="audio-call-terminal-notice error" role="alert">
-          <strong>{mediaLabel(currentMediaKind)} call unavailable</strong>
-          <span>{error}</span>
-          {call?.can_end && <button className="button danger compact" type="button" onClick={() => void endForEveryone()}>End for everyone</button>}
-        </div>,
+        <CallTerminalNotice
+          title={`${mediaLabel(currentMediaKind)} call unavailable`}
+          message={error}
+          error
+          action={call?.can_end && <button className="button danger compact" type="button" onClick={() => void endForEveryone()}>End for everyone</button>}
+          onDismiss={dismissTerminalNotice}
+        />,
         document.body
       )}
     </div>

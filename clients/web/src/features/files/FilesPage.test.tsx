@@ -225,7 +225,7 @@ describe("FilesPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("File index unavailable");
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByText("No shared files yet")).toBeVisible();
+    expect(await screen.findByText("No shared files")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Shared by me" }));
     await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith({

@@ -52,7 +52,8 @@ describe("CallReadinessLauncher", () => {
       </MemoryRouter>
     );
 
-    await user.click(screen.getByRole("button", { name: "Create office test link" }));
+    await user.click(screen.getByText("Office connection test"));
+    await user.click(screen.getByRole("button", { name: "Create test link" }));
 
     await waitFor(() => expect(createConversation).toHaveBeenCalledWith({
       title: "UAE office call test",
@@ -71,7 +72,8 @@ describe("CallReadinessLauncher", () => {
     expect(screen.queryByText("not-rendered")).not.toBeInTheDocument();
   });
 
-  it("does not allow a test to start while audio calling is unavailable", () => {
+  it("does not allow a test to start while audio calling is unavailable", async () => {
+    const user = userEvent.setup();
     render(
       <MemoryRouter>
         <CallReadinessLauncher
@@ -82,7 +84,8 @@ describe("CallReadinessLauncher", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("button", { name: "Create office test link" })).toBeDisabled();
-    expect(screen.getByText(/Audio calling must be enabled and healthy/)).toBeVisible();
+    await user.click(screen.getByText("Office connection test"));
+    expect(screen.getByRole("button", { name: "Create test link" })).toBeDisabled();
+    expect(screen.getByText("Audio calling is unavailable.")).toBeVisible();
   });
 });

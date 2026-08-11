@@ -39,6 +39,8 @@ const harness = vi.hoisted(() => ({
   refreshConversations: vi.fn().mockResolvedValue(undefined),
   launchCall: vi.fn(),
   publishRealtimeEvent: vi.fn(),
+  callSessionState: null as { joined: boolean } | null,
+  callTargetConversation: null as Conversation | null,
   audioCallsAvailable: true,
   videoCallsAvailable: true,
   userRole: "member" as "member" | "owner",
@@ -83,7 +85,9 @@ const harness = vi.hoisted(() => ({
 vi.mock("../calls/CallSessionProvider", () => ({
   useCallSession: () => ({
     launchCall: harness.launchCall,
-    publishRealtimeEvent: harness.publishRealtimeEvent
+    publishRealtimeEvent: harness.publishRealtimeEvent,
+    sessionState: harness.callSessionState,
+    targetConversation: harness.callTargetConversation
   }),
   CallLaunchActions: ({
     conversation,
@@ -286,6 +290,8 @@ export function resetChatPageHarness() {
   harness.userRole = "member";
   harness.launchCall.mockReset().mockReturnValue(true);
   harness.publishRealtimeEvent.mockReset();
+  harness.callSessionState = null;
+  harness.callTargetConversation = null;
   harness.conversations = [
     {
       id: "conversation-1",

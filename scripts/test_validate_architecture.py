@@ -707,12 +707,8 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
         # Reviewed transitions are single-use: each authorizes exactly one
-        # widening against one immutable base hash, and is removed once it
-        # lands. The ADR-0067 widening landed on the protected base in PR #97.
-        # The ADR-0068 inversion and its ADR-0069 derived table landed on the
-        # protected base in PR #111, so its reviewed transition is consumed.
-        # Keeping it here would let the next PR inherit an authorization it
-        # did not review.
+        # widening against one immutable base hash and is removed once it lands.
+        # The ADR-0073 widening is already present on the protected branch.
         transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
         self.assertEqual(transitions, [])
 

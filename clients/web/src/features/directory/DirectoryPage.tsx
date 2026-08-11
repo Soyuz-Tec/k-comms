@@ -220,9 +220,7 @@ export function DirectoryPage() {
     <main className="directory-page member-page" id="main-content">
       <header className="member-page-heading">
         <div>
-          <span className="eyebrow">Workspace directory</span>
-          <h1>Find people and rooms</h1>
-          <p>Start a message or open a call lobby without hunting through menus.</p>
+          <h1>Directory</h1>
         </div>
       </header>
 
@@ -347,10 +345,8 @@ function DirectoryPeople({
   if (people.length === 0) {
     return (
       <DirectoryEmpty
-        title={showInvite ? "Your workspace is ready for teammates" : "No people found"}
-        detail={showInvite
-          ? "Invite the first teammate now, then return here to message or call them."
-          : "Try a different name or clear the search."}
+        title={showInvite ? "No teammates yet" : "No people found"}
+        detail={showInvite ? undefined : "Try another search."}
         action={showInvite
           ? <Link className="button primary directory-empty-action" to="/admin?section=people#admin-invitations">Invite your first teammate</Link>
           : undefined}
@@ -365,7 +361,6 @@ function DirectoryPeople({
           <AvatarBadge name={person.display_name} />
           <div className="directory-row-copy">
             <strong>{identifier}</strong>
-            <small>Workspace member</small>
           </div>
           <QuickActions
             name={identifier}
@@ -407,8 +402,8 @@ function DirectoryRooms({
       <DirectoryEmpty
         title="No rooms found"
         detail={publicDiscoveryEnabled
-          ? "Try a different room name or clear the search."
-          : "No joined rooms match this search. Public room discovery is disabled by workspace policy."}
+          ? "Try another search."
+          : "Public room discovery is disabled."}
       />
     );
   }
@@ -524,14 +519,13 @@ function DirectoryEmpty({
   action
 }: {
   title: string;
-  detail: string;
+  detail?: string;
   action?: React.ReactNode;
 }) {
   return (
     <div className="member-status-view">
-      <span className="empty-mark" aria-hidden="true"><AppIcon name="contact" /></span>
       <h2>{title}</h2>
-      <p>{detail}</p>
+      {detail && <p>{detail}</p>}
       {action}
     </div>
   );

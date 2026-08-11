@@ -2,7 +2,7 @@ import type { MutableRefObject } from "react";
 import { Link } from "react-router";
 import type { CreateConversationInput } from "../../api";
 import { AppIcon } from "../../components/AppIcon";
-import { formatTime } from "../../lib/format";
+import { formatDateTime, formatTime } from "../../lib/format";
 import {
   participantIdentifier
 } from "../../lib/participantIdentity";
@@ -103,7 +103,7 @@ export function ConversationSidebar({
             aria-expanded={showBrowseChannels}
             onClick={onToggleBrowseChannels}
           >
-            <AppIcon name="filter" />
+            <AppIcon name="compass" />
           </button>
           <button
             className="icon-button inbox-search-trigger"
@@ -313,8 +313,8 @@ export function ConversationSidebar({
           </p>
         ) : (
           filteredConversations.map((conversation) => {
-            const unread = conversation.unread_count || 0;
-            const callIsLive = activeCallConversationIds.has(conversation.id);
+            const unreadCount = conversation.unread_count || 0;
+            const hasActiveCall = activeCallConversationIds.has(conversation.id);
             return (
               <button
                 ref={(element) => {
@@ -329,11 +329,9 @@ export function ConversationSidebar({
                 }}
                 type="button"
                 key={conversation.id}
-                className={[
-                  "conversation-row",
-                  conversation.id === activeConversationId ? "active" : "",
-                  unread > 0 ? "unread" : ""
-                ].filter(Boolean).join(" ")}
+                className={`conversation-row ${unreadCount > 0 ? "unread" : ""} ${hasActiveCall ? "has-active-call" : ""} ${
+                  conversation.id === activeConversationId ? "active" : ""
+                }`}
                 aria-current={
                   conversation.id === activeConversationId
                     ? "page"
@@ -358,32 +356,43 @@ export function ConversationSidebar({
                 <span className="conversation-copy">
                   <span className="conversation-title-line">
                     <strong>{conversationIdentifier(conversation)}</strong>
-                    <time dateTime={conversation.updated_at}>
+                    <time
+                      dateTime={conversation.updated_at}
+                      title={formatDateTime(conversation.updated_at)}
+                    >
                       {formatTime(conversation.updated_at)}
                     </time>
                   </span>
-                  <span className="conversation-meta-line">
-                    <small>
+                  <small className="conversation-summary-line">
+                    <span>
                       {conversation.kind === "direct"
                         ? "Direct message"
                         : conversation.kind === "channel"
                           ? "Room conversation"
                           : "Group conversation"}
-                    </small>
-                    {callIsLive && (
-                      <small className="conversation-live-call">
+                    </span>
+                    {hasActiveCall && (
+                      <span className="conversation-live-call">
                         <AppIcon name="phone" />
                         Active call
-                      </small>
+                      </span>
                     )}
-                  </span>
+                    {unreadCount > 0 && (
+                      <span
+                        className="conversation-unread-copy"
+                        aria-hidden="true"
+                      >
+                        {unreadCount} unread
+                      </span>
+                    )}
+                  </small>
                 </span>
-                {unread > 0 && (
+                {unreadCount > 0 && (
                   <span
                     className="unread-badge"
-                    aria-label={`${unread} unread messages`}
+                    aria-label={`${unreadCount} unread messages`}
                   >
-                    {unread}
+                    {unreadCount}
                   </span>
                 )}
               </button>

@@ -18,13 +18,14 @@ defmodule CommsWeb.Plugs.DistributedRateLimit do
   alias CommsCore.PlatformRateLimits
   alias CommsWeb.Plugs.TrustedProxy
 
-  @scopes [
+  @http_scopes [
     :instant_room_create,
     :instant_room_join,
     :instant_room_conversion,
     :instant_room_message,
     :instant_room_whiteboard
   ]
+  @digest_scopes @http_scopes ++ [:direct_audio_join, :direct_audio_signal]
   @key_sources [:client_network, :authenticated_subject]
   @key_derivation_context "k-comms:public-rate-limit:privacy-key:v1"
   @authenticated_subject_context "authenticated-subject:v1"
@@ -36,7 +37,7 @@ defmodule CommsWeb.Plugs.DistributedRateLimit do
     configured_key = Keyword.get(opts, :privacy_key)
     key_source = Keyword.get(opts, :key_source, :client_network)
 
-    unless scope in @scopes do
+    unless scope in @http_scopes do
       raise ArgumentError, "unsupported distributed public rate limit scope"
     end
 
@@ -97,7 +98,7 @@ defmodule CommsWeb.Plugs.DistributedRateLimit do
   """
   @spec key_digest(atom(), iodata(), keyword()) :: binary()
   def key_digest(scope, material, opts \\ []) do
-    unless scope in @scopes do
+    unless scope in @digest_scopes do
       raise ArgumentError, "unsupported distributed public rate limit scope"
     end
 

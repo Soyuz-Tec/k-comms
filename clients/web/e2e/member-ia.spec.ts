@@ -27,9 +27,9 @@ test.describe("low-click member information architecture", () => {
       for (const route of [
         { path: "/app/", heading: "Inbox" },
         { path: "/app/calls", heading: "Calls" },
-        { path: "/app/directory", heading: "Find people and rooms" },
+        { path: "/app/directory", heading: "Directory" },
         { path: "/app/files", heading: "Files" },
-        { path: "/app/you", heading: "Profile and settings" }
+        { path: "/app/you", heading: "You" }
       ]) {
         await page.goto(route.path);
         await expect(page.getByRole("heading", { name: route.heading, exact: true })).toBeVisible();
@@ -55,14 +55,15 @@ test.describe("low-click member information architecture", () => {
         if (
           process.env.K_COMMS_VISUAL_CAPTURE === "1"
           && width === 390
-          && ["/app/calls", "/app/files"].includes(route.path)
+          && ["/app/calls", "/app/directory", "/app/files", "/app/you"].includes(route.path)
         ) {
+          const routeName = route.path.split("/").filter(Boolean).at(-1) || "inbox";
           if (route.path === "/app/calls") {
             await page.evaluate(() => window.scrollTo(0, 0));
             await page.locator("#main-content").evaluate((element) => element.scrollTo(0, 0));
           }
           await page.screenshot({
-            path: testInfo.outputPath(`${route.path.endsWith("calls") ? "calls" : "files"}-390.png`),
+            path: testInfo.outputPath(`${routeName}-390.png`),
             fullPage: route.path !== "/app/calls"
           });
         }
@@ -127,7 +128,7 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Directory" }),
       () => actions += 1
     );
-    await expect(page.getByRole("heading", { name: "Find people and rooms" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Directory" })).toBeVisible();
     await countedClick(
       page.getByRole("button", { name: "Message Grace Hopper" }),
       () => actions += 1
@@ -234,7 +235,7 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }),
       () => actions += 1
     );
-    await expect(page.getByRole("heading", { name: "Profile and settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
     expect(actions).toBe(1);
     expect(actions).toBeLessThanOrEqual(1);
 

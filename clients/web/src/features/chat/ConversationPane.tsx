@@ -219,15 +219,8 @@ export function ConversationPane({
                 Loading messages…
               </div>
             ) : messages.length === 0 ? (
-              <div className="empty-state">
-                <span className="empty-mark" aria-hidden="true">
-                  <AppIcon name="sparkles" />
-                </span>
-                <h3>Start the conversation</h3>
-                <p>
-                  Messages are durable, ordered, and replayed when you
-                  reconnect.
-                </p>
+              <div className="empty-state conversation-empty-state">
+                <h3>No messages yet</h3>
               </div>
             ) : (
               <ol className="message-list">
@@ -372,16 +365,18 @@ export function ConversationPane({
                 onRetry={onAttachmentRetry}
               />
             )}
-            <div className="composer-heading">
-              <span>
-                <AppIcon name="message" />
-                <strong>Message {title}</strong>
-              </span>
-              <span className="composer-draft-state">
-                <AppIcon name="check" />
-                Draft saved on this device
-              </span>
-            </div>
+            {composer.trim() && (
+              <div className="composer-heading" role="status">
+                <span className="composer-recipient">
+                  <AppIcon name="message" />
+                  <strong>Draft to {title}</strong>
+                </span>
+                <span className="composer-draft-state">
+                  <AppIcon name="check" />
+                  Saved on this device
+                </span>
+              </div>
+            )}
             <div className="composer-shell">
               <label className="sr-only" htmlFor="message-composer">
                 Message
@@ -402,6 +397,13 @@ export function ConversationPane({
                 disabled={sending}
               />
               <div className="composer-inline-actions">
+                <MentionPicker
+                  members={members}
+                  currentUserId={currentUserId}
+                  selectedUserIds={mentionedUserIds}
+                  disabled={sending}
+                  onChange={onMentionedUserIdsChange}
+                />
                 <label
                   className={`attachment-button composer-icon-button ${
                     sending ? "disabled" : ""
@@ -434,18 +436,6 @@ export function ConversationPane({
                   />
                 </button>
               </div>
-            </div>
-            <div className="composer-toolbar">
-              <MentionPicker
-                members={members}
-                currentUserId={currentUserId}
-                selectedUserIds={mentionedUserIds}
-                disabled={sending}
-                onChange={onMentionedUserIdsChange}
-              />
-              <p className="composer-footnote">
-                <span>Enter to send · Shift+Enter for a new line</span>
-              </p>
             </div>
           </form>
         </>

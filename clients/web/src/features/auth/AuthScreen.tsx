@@ -13,7 +13,7 @@ import { useSession } from "../../app/session";
 type AuthMode = "login" | "invite" | "bootstrap";
 type BootstrapAvailability = "checking" | "enabled" | "disabled" | "unavailable";
 
-export function AuthScreen() {
+export function AuthScreen({ embedded = false }: { embedded?: boolean }) {
   const {
     api,
     setSession,
@@ -262,27 +262,11 @@ export function AuthScreen() {
           : "Create your profile and go straight to K-Comms."
         : "Set up your team and sign in as the workspace owner.";
 
-  return (
-    <main className="auth-page">
+  const gateway = (
+    <>
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {authModeTitle(mode)} view
       </span>
-      <section className="auth-story" aria-labelledby="welcome-title">
-        <div className="auth-story-copy">
-          <span className="eyebrow light">One place for your team</span>
-          <h1 id="welcome-title">
-            Chat, call, and share files
-            <br />in one workspace.
-          </h1>
-          <p>Pick up where you left off on any device—even after the signal drops.</p>
-        </div>
-        <ul className="feature-list" aria-label="Platform capabilities">
-          <li><span aria-hidden="true">01</span> Direct and room messaging</li>
-          <li><span aria-hidden="true">02</span> Voice and video calls</li>
-          <li><span aria-hidden="true">03</span> Managed file sharing</li>
-        </ul>
-      </section>
-
       <section className="auth-panel" aria-labelledby="auth-heading">
         <div className="auth-card">
           <span className="eyebrow">{eyebrow}</span>
@@ -554,8 +538,10 @@ export function AuthScreen() {
           )}
         </div>
       </section>
-    </main>
+    </>
   );
+
+  return embedded ? gateway : <main className="auth-page">{gateway}</main>;
 }
 
 function PasswordField({

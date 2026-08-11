@@ -338,7 +338,33 @@ export interface RealtimeCallCallbacks {
   onReaction: (event: { userId: string; emoji: string; occurredAt: string }) => void;
   onParticipantMuted: (userId: string) => void;
   onParticipantRemoved: (userId: string) => void;
+  onDirectReady?: (configuration: DirectAudioConfiguration | null) => void;
+  onDirectPeers?: (peers: DirectAudioPeer[]) => void;
+  onDirectSignal?: (event: DirectAudioSignalEvent) => void;
+  onDisconnected?: () => void;
   onError: (message: string) => void;
+}
+
+export interface DirectAudioConfiguration {
+  peerId: string;
+  iceServers: RTCIceServer[];
+}
+
+export interface DirectAudioPeer {
+  peerId: string;
+  userId: string;
+}
+
+export type RealtimeDirectAudioSignal =
+  | { kind: "offer" | "answer"; sdp: string }
+  | { kind: "ice"; candidate: string; sdp_mid: string | null; sdp_mline_index: number | null }
+  | { kind: "media"; enabled: boolean }
+  | { kind: "fallback" };
+
+export interface DirectAudioSignalEvent {
+  fromPeerId: string;
+  fromUserId: string;
+  signal: RealtimeDirectAudioSignal;
 }
 
 export class RealtimeCall {
@@ -351,14 +377,16 @@ export class RealtimeCall {
     socketTicket: string,
     callId: string,
     conversationId: string,
-    private readonly callbacks: RealtimeCallCallbacks
+    private readonly callbacks: RealtimeCallCallbacks,
+    directAudio = false
   ) {
     this.socket = new Socket(endpoint, {
       params: { socket_ticket: socketTicket },
       reconnectAfterMs: (tries) => [1_000, 2_000, 5_000, 10_000][tries - 1] ?? 15_000
     });
     this.channel = (this.socket as DynamicSocket).channel(`call:${callId}`, {
-      conversation_id: conversationId
+      conversation_id: conversationId,
+      direct_audio: directAudio
     });
     this.channel.on("call.hand.v1", (payload?: unknown) => {
       const userId = readString(payload, "user_id");
@@ -379,6 +407,21 @@ export class RealtimeCall {
       const userId = readString(payload, "user_id");
       if (!this.stopped && userId) callbacks.onParticipantRemoved(userId);
     });
+    this.channel.on("call.direct.peers.v1", (payload?: unknown) => {
+      if (!this.stopped) callbacks.onDirectPeers?.(readDirectPeers(payload));
+    });
+    this.channel.on("call.direct.disabled.v1", () => {
+      if (this.stopped) return;
+      callbacks.onDirectReady?.(null);
+      callbacks.onDirectPeers?.([]);
+    });
+    this.channel.on("call.direct.signal.v1", (payload?: unknown) => {
+      const event = readDirectSignalEvent(payload);
+      if (!this.stopped && event) callbacks.onDirectSignal?.(event);
+    });
+    this.channel.onClose(() => {
+      if (!this.stopped) callbacks.onDisconnected?.();
+    });
   }
 
   connect(): void {
@@ -390,6 +433,7 @@ export class RealtimeCall {
           ? (response as { raised_user_ids?: unknown }).raised_user_ids
           : [];
         this.callbacks.onReady(Array.isArray(values) ? values.filter((value): value is string => typeof value === "string") : []);
+        this.callbacks.onDirectReady?.(readDirectConfiguration(response));
       })
       .receive("error", (response?: unknown) => {
         if (!this.stopped) this.callbacks.onError(readReason(response, "Call collaboration is unavailable"));
@@ -413,6 +457,14 @@ export class RealtimeCall {
     return this.push("call.reaction.v1", { emoji });
   }
 
+  sendDirectSignal(targetPeerId: string, signal: RealtimeDirectAudioSignal): Promise<void> {
+    return this.push("call.direct.signal.v1", { target_peer_id: targetPeerId, signal });
+  }
+
+  disableDirectAudio(): Promise<void> {
+    return this.push("call.direct.disable.v1", {});
+  }
+
   private push(event: string, payload: Record<string, unknown>): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.stopped) {
@@ -426,6 +478,58 @@ export class RealtimeCall {
         .receive("timeout", () => reject(new Error(`${event} timed out`)));
     });
   }
+}
+
+function readDirectConfiguration(value: unknown): DirectAudioConfiguration | null {
+  if (!value || typeof value !== "object") return null;
+  const direct = (value as { direct_audio?: unknown }).direct_audio;
+  if (!direct || typeof direct !== "object") return null;
+  const record = direct as { enabled?: unknown; peer_id?: unknown; ice_servers?: unknown };
+  if (record.enabled !== true || typeof record.peer_id !== "string") return null;
+  return {
+    peerId: record.peer_id,
+    iceServers: Array.isArray(record.ice_servers)
+      ? record.ice_servers.filter(isRtcIceServer)
+      : []
+  };
+}
+
+function readDirectPeers(value: unknown): DirectAudioPeer[] {
+  if (!value || typeof value !== "object") return [];
+  const peers = (value as { peers?: unknown }).peers;
+  if (!Array.isArray(peers)) return [];
+  return peers.flatMap((peer) => {
+    if (!peer || typeof peer !== "object") return [];
+    const peerId = readString(peer, "peer_id");
+    const userId = readString(peer, "user_id");
+    return peerId && userId ? [{ peerId, userId }] : [];
+  });
+}
+
+function readDirectSignalEvent(value: unknown): DirectAudioSignalEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const fromPeerId = readString(value, "from_peer_id");
+  const fromUserId = readString(value, "from_user_id");
+  const signal = (value as { signal?: unknown }).signal;
+  if (!fromPeerId || !fromUserId || !isDirectAudioSignal(signal)) return null;
+  return { fromPeerId, fromUserId, signal };
+}
+
+function isRtcIceServer(value: unknown): value is RTCIceServer {
+  if (!value || typeof value !== "object") return false;
+  const urls = (value as { urls?: unknown }).urls;
+  return typeof urls === "string" || (
+    Array.isArray(urls) && urls.length > 0 && urls.every((url) => typeof url === "string")
+  );
+}
+
+function isDirectAudioSignal(value: unknown): value is RealtimeDirectAudioSignal {
+  if (!value || typeof value !== "object") return false;
+  const signal = value as Record<string, unknown>;
+  if ((signal.kind === "offer" || signal.kind === "answer") && typeof signal.sdp === "string") return true;
+  if (signal.kind === "fallback") return true;
+  if (signal.kind === "media" && typeof signal.enabled === "boolean") return true;
+  return signal.kind === "ice" && typeof signal.candidate === "string";
 }
 
 export function socketEndpoint(apiBase: string): string {

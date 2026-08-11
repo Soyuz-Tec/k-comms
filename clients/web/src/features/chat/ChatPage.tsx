@@ -3,7 +3,8 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type CSSProperties
 } from "react";
 import { useSearchParams } from "react-router";
 import type { CreateConversationInput } from "../../api";
@@ -41,6 +42,11 @@ import {
   safeUuid
 } from "./chatSupport";
 import { ConversationPane } from "./ConversationPane";
+import {
+  ConversationColumnResizer,
+  persistConversationSidebarWidth,
+  readConversationSidebarWidth
+} from "./ConversationColumnResizer";
 import { ConversationActivityTimeline } from "./ConversationActivityTimeline";
 import { useChatAttachments } from "./useChatAttachments";
 import { useChatComposer } from "./useChatComposer";
@@ -62,8 +68,19 @@ interface FocusTarget {
 
 export function ChatPage() {
   const { api, session } = useSession();
+  const [conversationSidebarWidth, setConversationSidebarWidth] = useState(
+    readConversationSidebarWidth
+  );
+  useEffect(() => {
+    persistConversationSidebarWidth(conversationSidebarWidth);
+  }, [conversationSidebarWidth]);
   const { runWithStepUp } = useStepUp();
-  const { launchCall, publishRealtimeEvent } = useCallSession();
+  const {
+    launchCall,
+    publishRealtimeEvent,
+    sessionState: callSessionState,
+    targetConversation: callTargetConversation
+  } = useCallSession();
   const {
     conversations,
     users,
@@ -534,11 +551,21 @@ export function ChatPage() {
   }
 
   return (
-    <main className={`workspace-grid mobile-${mobilePane}`} id="main-content">
+    <main
+      className={`workspace-grid mobile-${mobilePane}`}
+      id="main-content"
+      style={{
+        "--conversation-sidebar-width": `${conversationSidebarWidth}px`
+      } as CSSProperties}
+    >
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       <ConversationSidebar
         activeConversationId={activeConversationId}
-        activeCallConversationIds={activeCallConversationIds}
+        activeCallConversationIds={
+          callSessionState?.joined && callTargetConversation?.id
+            ? new Set([...activeCallConversationIds, callTargetConversation.id])
+            : activeCallConversationIds
+        }
         capabilities={capabilities}
         canInviteTeammates={canInviteTeammates}
         conversations={conversations}
@@ -586,6 +613,11 @@ export function ChatPage() {
           setShowCreateConversation(false);
           setShowSearch(false);
         }}
+      />
+
+      <ConversationColumnResizer
+        width={conversationSidebarWidth}
+        onWidthChange={setConversationSidebarWidth}
       />
 
       <ConversationPane

@@ -4,6 +4,7 @@ import {
   expectMinimumTarget,
   expectMinimumTargets,
   expectNoDocumentOverflow,
+  expectNoDocumentVerticalOverflow,
   expectNoHorizontalOverflow,
   exposeInstallPrompt,
   installDeterministicMediaDevices,
@@ -39,8 +40,10 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await exposeInstallPrompt(page);
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("inbox-390.png"), fullPage: true });
+      await expectNoDocumentVerticalOverflow(page);
+      await expect(page.locator(".inbox-filter-trigger .lucide-compass")).toBeVisible();
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`inbox-${viewport.width}.png`), fullPage: true });
       }
 
       const conversation = page.getByRole("button", { name: /General/ });
@@ -90,8 +93,8 @@ test.describe("authenticated mobile web acceptance", () => {
       expect(closeMainMenuBox!.width).toBeGreaterThanOrEqual(52);
       expect(closeMainMenuBox!.height).toBeGreaterThanOrEqual(52);
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("menu-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`menu-${viewport.width}.png`), fullPage: true });
       }
       await closeMainMenu.click();
       await expect(productMenu).toHaveCount(0);
@@ -124,8 +127,8 @@ test.describe("authenticated mobile web acceptance", () => {
       expect(["auto", "scroll"]).toContain(notificationScroll.overflowY);
       expect(notificationScroll.scrollable).toBe(true);
       expect(notificationScroll.scrollTop).toBeGreaterThan(0);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("notifications-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`notifications-${viewport.width}.png`), fullPage: true });
       }
       await expectMinimumTarget(
         notificationDialog.getByRole("button", { name: "Close notifications" }),
@@ -145,7 +148,7 @@ test.describe("authenticated mobile web acceptance", () => {
       const conversationWorkspace = page.getByRole("navigation", {
         name: "Conversation workspace"
       });
-      await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+      await expect(conversationWorkspace.getByRole("link", { name: "Chat" }))
         .toHaveAttribute("aria-current", "page");
       await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
         .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
@@ -153,8 +156,9 @@ test.describe("authenticated mobile web acceptance", () => {
         .toBeVisible();
       await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
         .toBeVisible();
-      await expect(page.locator(".composer-heading")).toContainText("Message General");
-      await expect(page.locator(".composer-toolbar")).toBeVisible();
+      await expect(page.locator(".composer-heading")).toHaveCount(0);
+      await expect(page.locator(".composer-toolbar")).toHaveCount(0);
+      await expect(page.getByText(/Enter to send/)).toHaveCount(0);
       const moreMessageActions = page.getByRole("button", { name: "More message actions" });
       await expectMinimumTarget(moreMessageActions, "more-message-actions control");
       await moreMessageActions.click();
@@ -167,6 +171,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTargets(messageActions.locator("button"), "own-message actions");
       await expectNoHorizontalOverflow(page.locator(".message-scroll"), "message scroller");
       await expectNoHorizontalOverflow(page.locator(".conversation-header"), "conversation header");
+      await expectNoDocumentVerticalOverflow(page);
 
       const back = page.getByRole("button", { name: "Back to conversations" });
       const startAudio = page.getByRole("button", { name: "Start audio call" });
@@ -197,8 +202,8 @@ test.describe("authenticated mobile web acceptance", () => {
         .toBeLessThanOrEqual(composerShellBox!.x + composerShellBox!.width + 1);
       await moreMessageActions.click();
       await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && viewport.width === 390) {
-        await page.screenshot({ path: testInfo.outputPath("conversation-390.png"), fullPage: true });
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`conversation-${viewport.width}.png`), fullPage: true });
       }
       await expect.poll(() => fixture.readCursorRequests).toBeGreaterThan(0);
 
@@ -209,7 +214,18 @@ test.describe("authenticated mobile web acceptance", () => {
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
       await expect(page.locator(".mobile-workspace-heading")).toContainText("Profile and settings");
+      await page.getByRole("tab", { name: "Security" }).click();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
+      await expect(page.locator("#device-settings")).not.toHaveAttribute("open", "");
+      await expect(page.locator("#session-settings")).not.toHaveAttribute("open", "");
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`you-security-${viewport.width}.png`), fullPage: true });
+      }
+      await page.getByRole("tab", { name: "Notifications" }).click();
+      await expect(page.getByRole("heading", { name: "Notification preferences" })).toBeVisible();
+      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
+        await page.screenshot({ path: testInfo.outputPath(`you-notifications-${viewport.width}.png`), fullPage: true });
+      }
       await page.addStyleTag({ content: "html { overflow-y: scroll; scrollbar-gutter: stable; }" });
       await expectNoDocumentOverflow(page);
 
@@ -236,7 +252,7 @@ test.describe("authenticated mobile web acceptance", () => {
     const conversationWorkspace = page.getByRole("navigation", {
       name: "Conversation workspace"
     });
-    await expect(conversationWorkspace.getByText("Chat", { exact: true }))
+    await expect(conversationWorkspace.getByRole("link", { name: "Chat" }))
       .toHaveAttribute("aria-current", "page");
     await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
       .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
@@ -244,8 +260,9 @@ test.describe("authenticated mobile web acceptance", () => {
       .toBeVisible();
     await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
       .toBeVisible();
-    await expect(page.locator(".composer-heading")).toContainText("Message General");
-    await expect(page.locator(".composer-toolbar")).toBeVisible();
+    await expect(page.locator(".composer-heading")).toHaveCount(0);
+    await expect(page.locator(".composer-toolbar")).toHaveCount(0);
+    await expect(page.getByText(/Enter to send/)).toHaveCount(0);
     const conversationPane = page.getByRole("region", { name: "General" });
     await expect(conversationPane.getByRole("button", { name: "Search messages" })).toBeVisible();
     await expect(conversationPane.getByRole("button", { name: "Start audio call" })).toBeVisible();
@@ -306,6 +323,64 @@ test.describe("authenticated mobile web acceptance", () => {
 
     await expect(page.getByRole("button", { name: /General/ })).toBeVisible();
     await expect(page.getByText("Active call")).toHaveCount(0);
+  });
+
+  test("desktop rail minimization and conversation width persist across reload", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installWorkspace(page);
+    await page.goto("/app/");
+
+    const rail = page.getByRole("complementary", { name: "Workspace navigation" });
+    const expandedRailBox = await rail.boundingBox();
+    expect(expandedRailBox).not.toBeNull();
+    expect(expandedRailBox!.width).toBeGreaterThan(200);
+
+    await page.getByRole("button", { name: "Collapse navigation sidebar" }).click();
+    const collapsedRailBox = await rail.boundingBox();
+    expect(collapsedRailBox).not.toBeNull();
+    expect(collapsedRailBox!.width).toBeLessThanOrEqual(82);
+    await expect(page.getByRole("button", { name: "Expand navigation sidebar" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    const separator = page.getByRole("separator", { name: "Resize conversation list" });
+    await expect(separator).toBeVisible();
+    const startingWidth = Number(await separator.getAttribute("aria-valuenow"));
+    await separator.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(separator).toHaveAttribute("aria-valuenow", String(startingWidth + 16));
+    const separatorBox = await separator.boundingBox();
+    expect(separatorBox).not.toBeNull();
+    await page.mouse.move(
+      separatorBox!.x + separatorBox!.width / 2,
+      separatorBox!.y + separatorBox!.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      separatorBox!.x + separatorBox!.width / 2 + 40,
+      separatorBox!.y + separatorBox!.height / 2
+    );
+    await page.mouse.up();
+    await expect(separator).toHaveAttribute("aria-valuenow", String(startingWidth + 56));
+
+    const sidebarHeadingBox = await page.locator(".sidebar-heading").boundingBox();
+    const conversationHeaderBox = await page.locator(".conversation-header").boundingBox();
+    expect(sidebarHeadingBox).not.toBeNull();
+    expect(conversationHeaderBox).not.toBeNull();
+    expect(sidebarHeadingBox!.height).toBeLessThanOrEqual(72);
+    expect(conversationHeaderBox!.height).toBeLessThanOrEqual(112);
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Expand navigation sidebar" })).toBeVisible();
+    await expect(page.getByRole("separator", { name: "Resize conversation list" }))
+      .toHaveAttribute("aria-valuenow", String(startingWidth + 56));
+    await expectNoDocumentOverflow(page);
+
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath("adjustable-workspace-1440.png"),
+        fullPage: true
+      });
+    }
   });
 
   test("short landscape phones keep the hamburger and contain long workspace names", async ({ page }) => {
