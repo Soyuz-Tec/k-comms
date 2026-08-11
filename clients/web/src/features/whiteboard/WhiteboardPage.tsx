@@ -31,8 +31,7 @@ export function WhiteboardPage() {
   return (
     <main className="whiteboard-page" id="main-content">
       <header className="whiteboard-heading">
-        <div>
-          <span className="eyebrow">Unified collaboration</span>
+        <div className="whiteboard-heading-copy">
           <h1>Whiteboard</h1>
           <p>Sketch, diagram, and plan together in the selected conversation.</p>
         </div>
