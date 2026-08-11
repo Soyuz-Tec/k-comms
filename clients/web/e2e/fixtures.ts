@@ -41,6 +41,16 @@ export const test = base.extend({
     await page.route("**/api/v1/status", (route) =>
       route.fulfill({ json: mockServiceStatus() })
     );
+    /*
+     * The inbox polls for rooms with a call running so it can flag them.
+     * Default to none; specs that care register their own route afterwards,
+     * which Playwright matches first.
+     */
+    await page.route("**/api/v1/calls?**", (route) =>
+      route.fulfill({
+        json: { data: [], page: { limit: 100, has_more: false, next_cursor: null } }
+      })
+    );
     await use(page);
   }
 });

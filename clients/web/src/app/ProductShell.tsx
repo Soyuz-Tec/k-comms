@@ -7,7 +7,7 @@ import {
   AppMenuTrigger,
   AppSurfaceControlButton
 } from "../components/AppMenuControls";
-import { MemberAreaLinks } from "../components/MemberAreaLinks";
+import { MemberAreaLinks, memberAreaTitle } from "../components/MemberAreaLinks";
 import { useModalDialog } from "../components/useModalDialog";
 import { initials } from "../lib/format";
 import { canAccessAdmin, canOperate } from "../lib/roles";
@@ -218,9 +218,8 @@ function ProductShellContent() {
         </aside>}
         {!desktopShell && <header className="topbar">
           <div className="mobile-workspace-brand">
-            <span className="workspace-mark" aria-hidden="true">K</span>
             <span className="mobile-workspace-heading">
-              <strong>K-Comms</strong>
+              <strong>{memberAreaTitle(location.pathname)}</strong>
               <small>{session.tenant.name}</small>
             </span>
           </div>

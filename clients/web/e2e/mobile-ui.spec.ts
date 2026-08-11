@@ -25,8 +25,12 @@ test.describe("authenticated mobile web acceptance", () => {
       const fixture = await installWorkspace(page);
 
       await page.goto("/app/");
-      await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+      // Mobile names the surface once, in the top bar, and keeps the page
+      // heading for assistive technology only.
+      await expect(page.locator(".mobile-workspace-heading")).toHaveText(/^InboxAcme Workspace$/);
+      await expect(page.getByRole("heading", { name: "Inbox" })).toBeAttached();
       await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
+      await expect(page.getByRole("button", { name: "Search messages" })).toBeVisible();
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
       await expect(page.getByRole("button", { name: "Open more menu" })).toBeVisible();
       const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
@@ -209,7 +213,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeFocused();
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
-      await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
+      await expect(page.locator(".mobile-workspace-heading")).toContainText("Profile and settings");
       await page.getByRole("tab", { name: "Security" }).click();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
       await expect(page.locator("#device-settings")).not.toHaveAttribute("open", "");
@@ -297,6 +301,28 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(1281);
     expect(Math.abs((dialogBox!.y + dialogBox!.height) - (800 - 16))).toBeLessThanOrEqual(2);
     await expectNoDocumentOverflow(page);
+  });
+
+  test("the inbox says which rooms have a call running before you open them", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installWorkspace(page, { callRunning: true });
+    await page.goto("/app/");
+
+    const conversation = page.getByRole("button", { name: /General/ });
+    await expect(conversation).toContainText("Active call");
+    // The summary stays content-free: conversation kind and call state only.
+    await expect(conversation).toContainText("Room conversation");
+    await expectNoDocumentOverflow(page);
+    expect(fixture.unexpectedRequests).toEqual([]);
+  });
+
+  test("the inbox stays quiet when no call is running", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installWorkspace(page);
+    await page.goto("/app/");
+
+    await expect(page.getByRole("button", { name: /General/ })).toBeVisible();
+    await expect(page.getByText("Active call")).toHaveCount(0);
   });
 
   test("desktop rail minimization and conversation width persist across reload", async ({ page }, testInfo) => {

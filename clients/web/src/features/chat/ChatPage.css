@@ -38,6 +38,56 @@
   outline-offset: 2px;
 }
 
+/*
+ * Row summaries stay content-free: the kind of conversation, and whether a
+ * call is running in it. Never a message preview.
+ */
+.conversation-meta-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.conversation-meta-line > small:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-live-call {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--success-border);
+  border-radius: 8px;
+  color: var(--success-text);
+  background: var(--success-quiet);
+  font-size: 0.66rem;
+  font-weight: 750;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.conversation-live-call .app-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Unread conversations lead; read ones step back rather than disappear. */
+.conversation-row .conversation-title-line strong {
+  color: var(--text-secondary);
+  font-weight: 620;
+}
+
+.conversation-row.unread .conversation-title-line strong {
+  color: var(--text-primary);
+  font-weight: 780;
+}
+
 .attachment-queue {
   display: grid;
   gap: 0.45rem;
@@ -141,10 +191,6 @@
 }
 
 @media (max-width: 760px), (max-height: 560px) {
-  .sidebar-tools .inbox-search-trigger {
-    display: none;
-  }
-
   .sidebar-tools .inbox-new-button {
     width: auto;
     min-width: 70px;
@@ -166,20 +212,31 @@
     display: inline;
   }
 
+  /*
+   * One segmented track rather than four loose pills, so the four inbox views
+   * read as a single control at thumb size.
+   */
   .inbox-segments {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: .35rem;
-    padding: 0;
-    background: transparent;
+    gap: .18rem;
+    padding: .18rem;
+    border-radius: 13px;
+    /* The mobile inbox sits on --surface-raised, so the track needs contrast. */
+    background: var(--surface-canvas);
   }
 
   .inbox-segment {
-    min-height: 44px;
+    min-height: 38px;
     padding-inline: .2rem;
-    border: 1px solid var(--border-default);
-    border-radius: 999px;
-    background: var(--surface-raised);
-    font-size: .7rem;
+    border: 0;
+    border-radius: 10px;
+    color: var(--text-muted);
+    background: transparent;
+    font-size: .72rem;
+  }
+
+  .conversation-live-call {
+    font-size: .64rem;
   }
 
   .attachment-queue-remove {

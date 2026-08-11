@@ -40,15 +40,31 @@ test.describe("low-click member information architecture", () => {
         );
         await expect(page.getByRole("navigation", { name: "Primary navigation" }).locator("a"))
           .toHaveCount(5);
+        if (route.path === "/app/calls" && width === 390) {
+          const hideLauncher = page.getByRole("button", { name: "Hide call launcher" });
+          await expect(hideLauncher).toBeVisible();
+          await hideLauncher.click();
+          const showLauncher = page.getByRole("button", { name: "Start a new call" });
+          await expect(showLauncher).toHaveAttribute("aria-expanded", "false");
+          await showLauncher.click();
+          await expect(page.getByRole("button", { name: "Hide call launcher" })).toHaveAttribute(
+            "aria-expanded",
+            "true"
+          );
+        }
         if (
           process.env.K_COMMS_VISUAL_CAPTURE === "1"
           && width === 390
           && ["/app/calls", "/app/directory", "/app/files", "/app/you"].includes(route.path)
         ) {
           const routeName = route.path.split("/").filter(Boolean).at(-1) || "inbox";
+          if (route.path === "/app/calls") {
+            await page.evaluate(() => window.scrollTo(0, 0));
+            await page.locator("#main-content").evaluate((element) => element.scrollTo(0, 0));
+          }
           await page.screenshot({
             path: testInfo.outputPath(`${routeName}-390.png`),
-            fullPage: true
+            fullPage: route.path !== "/app/calls"
           });
         }
       }
@@ -56,6 +72,51 @@ test.describe("low-click member information architecture", () => {
       expect(fixture.unexpectedRequests).toEqual([]);
     });
   }
+
+  test("Calls presents an adaptive desktop workspace without overflow", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const fixture = await installWorkspace(page);
+    await page.goto("/app/calls");
+
+    const launcher = page.getByRole("region", { name: "Start a call" });
+    const history = page.getByRole("region", { name: "Call history" });
+    const quickContacts = page.getByRole("complementary", { name: "Quick contacts" });
+    await expect(launcher).toBeVisible();
+    await expect(history).toBeVisible();
+    await expect(quickContacts).toBeVisible();
+    await expect(quickContacts.getByText("General", { exact: true })).toBeVisible();
+    await expect(quickContacts.getByRole("link", { name: "Browse directory" })).toBeVisible();
+    await expectNoDocumentOverflow(page);
+
+    const [launcherBox, historyBox, quickContactsBox] = await Promise.all([
+      launcher.boundingBox(),
+      history.boundingBox(),
+      quickContacts.boundingBox()
+    ]);
+    expect(launcherBox).not.toBeNull();
+    expect(historyBox).not.toBeNull();
+    expect(quickContactsBox).not.toBeNull();
+    expect((launcherBox?.x ?? 0) + (launcherBox?.width ?? 0)).toBeLessThanOrEqual(historyBox?.x ?? 0);
+    expect((historyBox?.x ?? 0) + (historyBox?.width ?? 0)).toBeLessThanOrEqual(quickContactsBox?.x ?? 0);
+
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({ path: testInfo.outputPath("calls-1600.png"), fullPage: true });
+    }
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const [compactHistoryBox, compactQuickContactsBox] = await Promise.all([
+      history.boundingBox(),
+      quickContacts.boundingBox()
+    ]);
+    expect(compactHistoryBox).not.toBeNull();
+    expect(compactQuickContactsBox).not.toBeNull();
+    expect(compactQuickContactsBox?.y ?? 0).toBeGreaterThan(compactHistoryBox?.y ?? 0);
+    await expectNoDocumentOverflow(page);
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({ path: testInfo.outputPath("calls-1280.png"), fullPage: true });
+    }
+    expect(fixture.unexpectedRequests).toEqual([]);
+  });
 
   test("a direct message starts from Inbox in no more than two actions", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -145,8 +206,9 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Calls" }),
       () => actions += 1
     );
-    await expect(page.getByRole("heading", { name: "Start from a conversation" })).toBeVisible();
-    await countedClick(page.getByRole("button", { name: "Video" }), () => actions += 1);
+    const launcher = page.getByRole("region", { name: "Start a call" });
+    await expect(launcher).toBeVisible();
+    await countedClick(launcher.getByRole("button", { name: "Video call General" }), () => actions += 1);
 
     const dialog = page.getByRole("dialog", { name: "Start a video call" });
     await expect(dialog).toBeVisible();

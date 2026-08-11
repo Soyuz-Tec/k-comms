@@ -47,7 +47,7 @@ export function CallsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
-  const [launcherExpanded, setLauncherExpanded] = useState(false);
+  const [launcherPreference, setLauncherPreference] = useState<boolean | null>(null);
   const requestGeneration = useRef(0);
 
   const loadCalls = useCallback(async (mode: "replace" | "append", cursor?: string | null) => {
@@ -123,6 +123,14 @@ export function CallsPage() {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, 8);
   }, [conversationQuery, conversations]);
+  const quickConversations = useMemo(() => conversations
+    .filter((conversation) => !conversation.archived_at)
+    .sort((left, right) => {
+      const directPriority = Number(right.kind === "direct") - Number(left.kind === "direct");
+      return directPriority || right.updated_at.localeCompare(left.updated_at);
+    })
+    .slice(0, 5), [conversations]);
+  const launcherExpanded = launcherPreference ?? (!loading && calls.length === 0);
 
   if (!session) return null;
 
@@ -144,46 +152,61 @@ export function CallsPage() {
   return (
     <main className="page-shell calls-page" id="main-content">
       <header className="page-heading calls-page-heading">
-        <div>
-          <h1>Calls</h1>
+        <div className="calls-page-title-lockup">
+          <span className="calls-page-mark" aria-hidden="true"><AppIcon name="phone" /></span>
+          <div>
+            <span className="eyebrow">Workspace communication</span>
+            <h1>Calls</h1>
+            <p>Start, join, and review secure workspace calls in one place.</p>
+          </div>
         </div>
-        <button
-          className="button ghost"
-          type="button"
-          disabled={loading}
-          onClick={() => {
-            void Promise.allSettled([
-              loadCalls("replace"),
-              refreshCallAvailability()
-            ]);
-          }}
-        >
-          <AppIcon name="refresh" />
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="calls-page-actions">
+          <Link className="button ghost" to="/app/directory">
+            <AppIcon name="contact" />
+            View contacts
+          </Link>
+          <button
+            className="button ghost calls-refresh-action"
+            type="button"
+            disabled={loading}
+            aria-label={loading ? "Refreshing calls" : "Refresh calls"}
+            onClick={() => {
+              void Promise.allSettled([
+                loadCalls("replace"),
+                refreshCallAvailability()
+              ]);
+            }}
+          >
+            <AppIcon name="refresh" />
+            <span>{loading ? "Refreshing…" : "Refresh"}</span>
+          </button>
+        </div>
       </header>
 
-      {!loading && calls.length > 0 && (
+      <div className="calls-workspace">
         <button
           className="calls-new-call-toggle"
           type="button"
           aria-expanded={launcherExpanded}
           aria-controls="calls-launcher"
-          onClick={() => setLauncherExpanded((expanded) => !expanded)}
+          onClick={() => setLauncherPreference(!launcherExpanded)}
         >
           <AppIcon name="plus" />
-          New call
+          {launcherExpanded ? "Hide call launcher" : "Start a new call"}
         </button>
-      )}
 
-      <section
-        className={`calls-launcher ${launcherExpanded || (!loading && calls.length === 0) ? "is-mobile-open" : ""}`}
-        id="calls-launcher"
-        aria-labelledby="new-call-heading"
-      >
-        <div className="calls-section-heading">
-          <div>
-            <h2 id="new-call-heading">Start from a conversation</h2>
+        <section
+          className={`calls-launcher ${launcherExpanded ? "is-mobile-open" : ""}`}
+          id="calls-launcher"
+          aria-labelledby="new-call-heading"
+        >
+          <div className="calls-panel-heading">
+            <span className="calls-panel-icon" aria-hidden="true"><AppIcon name="phone" /></span>
+            <div>
+              <span className="eyebrow">New call</span>
+              <h2 id="new-call-heading">Start a call</h2>
+              <p>Choose a room or person, then select audio or video.</p>
+            </div>
           </div>
           <label className="calls-search">
             <span className="sr-only">Find a conversation to call</span>
@@ -195,144 +218,195 @@ export function CallsPage() {
               onChange={(event) => setConversationQuery(event.currentTarget.value)}
             />
           </label>
-        </div>
-        {workspaceLoading ? (
-          <p className="calls-availability-note call-availability-guidance" role="status">
-            <span>Checking call availability…</span>
-          </p>
-        ) : callGuidance ? (
-          <p className="calls-availability-note call-availability-guidance" role="status">
-            <span>{callGuidance}</span>
-          </p>
-        ) : null}
-        {!canUseAudio && !canUseVideo ? null : callableConversations.length === 0 ? (
-          <p className="empty-copy">No matching conversations.</p>
-        ) : (
-          <ul className="calls-launch-list">
-            {callableConversations.map((conversation) => {
-              const title = conversationParticipantIdentifier(
-                conversation,
-                duplicateDirectNames
-              );
-              return (
-                <li key={conversation.id}>
-                  <ConversationIdentity conversation={conversation} title={title} />
-                  <div className="calls-quick-actions">
-                    <Link
-                      to={conversationPath(conversation.id)}
-                      aria-label={`Message ${title}`}
-                    >
-                      <AppIcon name="message" />
-                      Message
-                    </Link>
-                    {canUseAudio && (
-                      <CallLaunchButton
-                        conversation={conversation}
-                        kind="audio"
-                        ariaLabel={`Audio call ${title}`}
+          {workspaceLoading ? (
+            <p className="calls-availability-note call-availability-guidance" role="status">
+              <span>Checking call availability…</span>
+            </p>
+          ) : callGuidance ? (
+            <p className="calls-availability-note call-availability-guidance" role="status">
+              <span>{callGuidance}</span>
+            </p>
+          ) : null}
+          {!canUseAudio && !canUseVideo ? null : callableConversations.length === 0 ? (
+            <p className="empty-copy">No matching conversations.</p>
+          ) : (
+            <ul className="calls-launch-list">
+              {callableConversations.map((conversation) => {
+                const title = conversationParticipantIdentifier(
+                  conversation,
+                  duplicateDirectNames
+                );
+                return (
+                  <li key={conversation.id}>
+                    <ConversationIdentity conversation={conversation} title={title} />
+                    <div className="calls-quick-actions">
+                      <Link
+                        to={conversationPath(conversation.id)}
+                        aria-label={`Message ${title}`}
                       >
-                        <AppIcon name="phone" />
-                        Audio
-                      </CallLaunchButton>
-                    )}
-                    {canUseVideo && (
-                      <CallLaunchButton
-                        conversation={conversation}
-                        kind="video"
-                        ariaLabel={`Video call ${title}`}
-                      >
-                        <AppIcon name="video" />
-                        Video
-                      </CallLaunchButton>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                        <AppIcon name="message" />
+                        Message
+                      </Link>
+                      {canUseAudio && (
+                        <CallLaunchButton
+                          conversation={conversation}
+                          kind="audio"
+                          ariaLabel={`Audio call ${title}`}
+                        >
+                          <AppIcon name="phone" />
+                          Audio
+                        </CallLaunchButton>
+                      )}
+                      {canUseVideo && (
+                        <CallLaunchButton
+                          conversation={conversation}
+                          kind="video"
+                          ariaLabel={`Video call ${title}`}
+                        >
+                          <AppIcon name="video" />
+                          Video
+                        </CallLaunchButton>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
 
-      <section className="calls-history" aria-labelledby="call-sessions-heading">
-        <div className="calls-section-heading">
-          <div>
-            <h2 id="call-sessions-heading">Call sessions</h2>
-          </div>
-          <div className="calls-filter-stack">
-            <fieldset className="calls-segments">
-              <legend className="sr-only">Call session state</legend>
-              <button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>
-                Active
-              </button>
-              <button type="button" aria-pressed={scope === "recent"} onClick={() => setScope("recent")}>
-                Recent
-              </button>
-            </fieldset>
-            <label className="calls-media-filter">
-              <span>Media</span>
-              <select value={mediaFilter} onChange={(event) => setMediaFilter(event.currentTarget.value as MediaFilter)}>
-                <option value="all">All</option>
-                <option value="audio">Audio</option>
-                <option value="video">Video</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        {error && (
-          <div className="calls-state error" role="alert">
+        <section className="calls-history" aria-labelledby="call-sessions-heading">
+          <div className="calls-section-heading">
             <div>
-              <strong>Call sessions could not be loaded.</strong>
-              <span>{error}</span>
+              <span className="eyebrow">Room lifecycle</span>
+              <h2 id="call-sessions-heading">Call history</h2>
+              <p>Join live rooms or revisit completed call sessions.</p>
             </div>
-            <button type="button" onClick={() => void loadCalls("replace")}>Try again</button>
+            <div className="calls-filter-stack">
+              <fieldset className="calls-segments">
+                <legend className="sr-only">Call session state</legend>
+                <button type="button" aria-pressed={scope === "active"} onClick={() => setScope("active")}>
+                  Active
+                </button>
+                <button type="button" aria-pressed={scope === "recent"} onClick={() => setScope("recent")}>
+                  Recent
+                </button>
+              </fieldset>
+              <label className="calls-media-filter">
+                <span className="sr-only">Media</span>
+                <AppIcon name="filter" aria-hidden="true" />
+                <select aria-label="Media" value={mediaFilter} onChange={(event) => setMediaFilter(event.currentTarget.value as MediaFilter)}>
+                  <option value="all">All media</option>
+                  <option value="audio">Audio</option>
+                  <option value="video">Video</option>
+                </select>
+              </label>
+            </div>
           </div>
-        )}
 
-        {loading && calls.length === 0 ? (
-          <div className="calls-state" role="status" aria-live="polite">
-            <span className="spinner" aria-hidden="true" />
-            Loading call sessions…
+          {error && (
+            <div className="calls-state error" role="alert">
+              <div>
+                <strong>Call sessions could not be loaded.</strong>
+                <span>{error}</span>
+              </div>
+              <button type="button" onClick={() => void loadCalls("replace")}>Try again</button>
+            </div>
+          )}
+
+          {loading && calls.length === 0 ? (
+            <div className="calls-state" role="status" aria-live="polite">
+              <span className="spinner" aria-hidden="true" />
+              Loading call sessions…
+            </div>
+          ) : !error && calls.length === 0 ? (
+            <div className="calls-state empty">
+              <span className="calls-empty-illustration" aria-hidden="true">
+                <AppIcon name={scope === "active" ? "phone" : "clock"} />
+              </span>
+              <strong>{scope === "active" ? "No active call rooms" : "No recent call rooms"}</strong>
+              <span>{scope === "active" ? "Choose a conversation to start one." : "Completed room sessions will appear here."}</span>
+            </div>
+          ) : (
+            <ol className="call-session-list" aria-busy={loadingMore}>
+              {calls.map((call) => (
+                <CallSessionRow
+                  key={call.id}
+                  call={call}
+                  conversation={conversationById.get(call.conversation_id)}
+                  startedBy={userById.get(call.started_by_user_id)}
+                  duplicateDirectNames={duplicateDirectNames}
+                  duplicateUserNames={duplicateUserNames}
+                  audioEnabled={canUseAudio}
+                  videoEnabled={canUseVideo}
+                  availabilityChecking={workspaceLoading}
+                />
+              ))}
+            </ol>
+          )}
+
+          {hasMore && !error && (
+            <button
+              className="calls-load-more"
+              type="button"
+              disabled={loadingMore || !nextCursor}
+              onClick={() => void loadCalls("append", nextCursor)}
+            >
+              {loadingMore ? "Loading…" : "Load more sessions"}
+            </button>
+          )}
+        </section>
+
+        <aside className="calls-quick-panel" aria-labelledby="quick-contacts-heading">
+          <div className="calls-panel-heading calls-quick-heading">
+            <span className="calls-panel-icon" aria-hidden="true"><AppIcon name="users" /></span>
+            <div>
+              <span className="eyebrow">Recent conversations</span>
+              <h2 id="quick-contacts-heading">Quick contacts</h2>
+              <p>Jump back into the people and rooms you use most recently.</p>
+            </div>
           </div>
-        ) : !error && calls.length === 0 ? (
-          <div className="calls-state empty">
-            <strong>{scope === "active" ? "No active call rooms" : "No recent call rooms"}</strong>
-          </div>
-        ) : (
-          <ol className="call-session-list" aria-busy={loadingMore}>
-            {calls.map((call) => (
-              <CallSessionRow
-                key={call.id}
-                call={call}
-                conversation={conversationById.get(call.conversation_id)}
-                startedBy={userById.get(call.started_by_user_id)}
-                duplicateDirectNames={duplicateDirectNames}
-                duplicateUserNames={duplicateUserNames}
-                audioEnabled={canUseAudio}
-                videoEnabled={canUseVideo}
-                availabilityChecking={workspaceLoading}
-              />
-            ))}
-          </ol>
-        )}
+          {quickConversations.length === 0 ? (
+            <div className="calls-quick-empty">
+              <span aria-hidden="true"><AppIcon name="userPlus" /></span>
+              <strong>No quick contacts yet</strong>
+              <p>Find a teammate or room in the directory to get started.</p>
+            </div>
+          ) : (
+            <ul className="calls-quick-list">
+              {quickConversations.map((conversation) => {
+                const title = conversationParticipantIdentifier(conversation, duplicateDirectNames);
+                return (
+                  <li key={conversation.id}>
+                    <ConversationIdentity conversation={conversation} title={title} />
+                    <div className="calls-quick-contact-actions">
+                      <Link to={conversationPath(conversation.id)} aria-label={`Message ${title}`} title={`Message ${title}`}>
+                        <AppIcon name="message" />
+                      </Link>
+                      {canUseAudio && (
+                        <CallLaunchButton conversation={conversation} kind="audio" ariaLabel={`Audio call ${title}`}>
+                          <AppIcon name="phone" />
+                        </CallLaunchButton>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Link className="calls-directory-link" to="/app/directory">
+            <AppIcon name="contact" />
+            Browse directory
+            <AppIcon name="arrowUpRight" />
+          </Link>
+        </aside>
 
-        {hasMore && !error && (
-          <button
-            className="calls-load-more"
-            type="button"
-            disabled={loadingMore || !nextCursor}
-            onClick={() => void loadCalls("append", nextCursor)}
-          >
-            {loadingMore ? "Loading…" : "Load more sessions"}
-          </button>
-        )}
-      </section>
-
-      <CallReadinessLauncher
-        api={api}
-        audioAvailable={canUseAudio}
-        createConversation={createConversation}
-      />
+        <CallReadinessLauncher
+          api={api}
+          audioAvailable={canUseAudio}
+          createConversation={createConversation}
+        />
+      </div>
     </main>
   );
 }
@@ -381,7 +455,7 @@ function CallSessionRow({
         <div className="call-session-title">
           <strong>{title}</strong>
           <span className={`calls-status ${active ? "active" : ending ? "ending" : "ended"}`}>
-            {active ? "Active" : ending ? "Ending" : "Ended"}
+            {active ? "Active room" : ending ? "Ending room" : "Ended room"}
           </span>
         </div>
         <p>
@@ -392,7 +466,7 @@ function CallSessionRow({
         <p>
           <time dateTime={time}>{formatDateTime(time)}</time>
           <span aria-hidden="true"> · </span>
-          <span>{formatDuration(call.duration_seconds)}</span>
+          <span>{formatDuration(call.duration_seconds)} room duration</span>
         </p>
       </div>
       <div className="call-session-actions">

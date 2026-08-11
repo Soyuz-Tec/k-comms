@@ -74,7 +74,8 @@ vi.mock("../features/notifications/NotificationCenter", () => ({
   NotificationCenter: () => <button type="button">Notifications</button>
 }));
 
-vi.mock("../components/MemberAreaLinks", () => ({
+vi.mock("../components/MemberAreaLinks", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   MemberAreaLinks: () => <a href="/app/">Inbox</a>
 }));
 
@@ -127,6 +128,15 @@ describe("ProductShell PWA controls", () => {
         dispatchEvent: vi.fn()
       }))
     });
+  });
+
+  it("names the current destination in the mobile top bar", () => {
+    renderProductShell();
+
+    const topbar = document.querySelector(".mobile-workspace-heading");
+    expect(topbar).toHaveTextContent("Inbox");
+    expect(topbar).toHaveTextContent("Example workspace");
+    expect(document.querySelector(".mobile-workspace-brand .workspace-mark")).toBeNull();
   });
 
   it("offers a familiar mobile install action and shows iOS instructions", async () => {

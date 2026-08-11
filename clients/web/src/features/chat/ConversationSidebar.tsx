@@ -18,7 +18,7 @@ export type InboxFilter = "all" | "unread" | "direct" | "rooms";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
-  activeCallConversationId: string | null;
+  activeCallConversationIds: ReadonlySet<string>;
   capabilities: UserCapabilities | null;
   canInviteTeammates: boolean;
   conversations: Conversation[];
@@ -57,7 +57,7 @@ const peoplePath = "/admin?section=people#people-title";
 
 export function ConversationSidebar({
   activeConversationId,
-  activeCallConversationId,
+  activeCallConversationIds,
   capabilities,
   canInviteTeammates,
   conversations,
@@ -314,7 +314,7 @@ export function ConversationSidebar({
         ) : (
           filteredConversations.map((conversation) => {
             const unreadCount = conversation.unread_count || 0;
-            const hasActiveCall = conversation.id === activeCallConversationId;
+            const hasActiveCall = activeCallConversationIds.has(conversation.id);
             return (
               <button
                 ref={(element) => {
@@ -372,7 +372,7 @@ export function ConversationSidebar({
                           : "Group conversation"}
                     </span>
                     {hasActiveCall && (
-                      <span className="conversation-call-state">
+                      <span className="conversation-live-call">
                         <AppIcon name="phone" />
                         Active call
                       </span>

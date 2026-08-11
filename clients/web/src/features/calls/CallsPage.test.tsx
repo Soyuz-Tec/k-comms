@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
@@ -136,7 +136,7 @@ describe("CallsPage", () => {
     })).closest("li");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("Video")).toBeVisible();
-    expect(within(row as HTMLElement).getByText("4m 32s")).toBeVisible();
+    expect(within(row as HTMLElement).getByText("4m 32s room duration")).toBeVisible();
     expect(within(row as HTMLElement).getByRole("link", { name: "Open chat for Execution room" })).toHaveAttribute(
       "href",
       `/app/?conversation=${conversationId}`
@@ -144,9 +144,48 @@ describe("CallsPage", () => {
     const user = userEvent.setup();
     await user.click(within(row as HTMLElement).getByRole("button", { name: "Join video call for Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "video");
-    await user.click(screen.getByRole("button", { name: "Audio call Execution room" }));
+    const launcher = screen.getByRole("region", { name: "Start a call" });
+    await user.click(within(launcher).getByRole("button", { name: "Audio call Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
     expect(screen.queryByText(/missed|declined|scheduled/i)).not.toBeInTheDocument();
+  });
+
+  it("offers truthful quick-contact shortcuts from recent conversations", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/app/calls"]}><CallsPage /></MemoryRouter>);
+
+    await screen.findByText("Active room");
+    const quickContacts = screen.getByRole("complementary", { name: "Quick contacts" });
+    expect(within(quickContacts).getByText("Execution room")).toBeVisible();
+    expect(within(quickContacts).getByRole("link", { name: "Message Execution room" })).toHaveAttribute(
+      "href",
+      `/app/?conversation=${conversationId}`
+    );
+    expect(within(quickContacts).getByRole("link", { name: "Browse directory" })).toHaveAttribute(
+      "href",
+      "/app/directory"
+    );
+
+    await user.click(within(quickContacts).getByRole("button", { name: "Audio call Execution room" }));
+    expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
+  });
+
+  it("keeps the empty-history launcher toggle synchronized with the visible panel", async () => {
+    harness.calls.mockResolvedValue({
+      data: [],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    });
+    render(<MemoryRouter><CallsPage /></MemoryRouter>);
+
+    await screen.findByText("No active call rooms");
+    const hideLauncher = screen.getByText("Hide call launcher").closest("button");
+    expect(hideLauncher).not.toBeNull();
+    expect(hideLauncher).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(hideLauncher as HTMLButtonElement);
+    expect(screen.getByText("Start a new call").closest("button")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
   });
 
   it("sends accessible state, modality, and cursor filters to the stable query", async () => {
@@ -189,7 +228,7 @@ describe("CallsPage", () => {
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
     await screen.findByRole("button", { name: "Join video call for Execution room" });
 
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await user.click(screen.getByRole("button", { name: "Refresh calls" }));
 
     await waitFor(() => {
       expect(harness.calls).toHaveBeenCalledTimes(2);

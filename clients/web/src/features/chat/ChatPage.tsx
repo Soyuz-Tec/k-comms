@@ -55,6 +55,7 @@ import {
   clearCallReadinessSearch,
   safeCallReadinessMode
 } from "../calls/callReadinessNavigation";
+import { useActiveConversationCalls } from "./useActiveConversationCalls";
 import { useConversationFeed } from "./useConversationFeed";
 import { useConversationMembers } from "./useConversationMembers";
 import "./ChatPage.css";
@@ -131,6 +132,7 @@ export function ChatPage() {
   const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
   const [showOnboarding, setShowOnboarding] = useState(() => session ? readOnboardingPreference(onboardingStorageKey) : false);
   const [directStartingUserId, setDirectStartingUserId] = useState<string | null>(null);
+  const activeCallConversationIds = useActiveConversationCalls(api);
   const forceScrollToLatestRef = useRef(true);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -559,8 +561,10 @@ export function ChatPage() {
       {notice && <div className="workspace-notice" role="status">{notice}<button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button></div>}
       <ConversationSidebar
         activeConversationId={activeConversationId}
-        activeCallConversationId={
-          callSessionState?.joined ? callTargetConversation?.id || null : null
+        activeCallConversationIds={
+          callSessionState?.joined && callTargetConversation?.id
+            ? new Set([...activeCallConversationIds, callTargetConversation.id])
+            : activeCallConversationIds
         }
         capabilities={capabilities}
         canInviteTeammates={canInviteTeammates}

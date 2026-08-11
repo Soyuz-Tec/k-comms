@@ -120,7 +120,9 @@ Controls live with the object they affect:
 
 ### Calls
 
-- Call history and start-call actions follow the common page heading and content measure.
+- Desktop presents one Calls command workspace: conversation-based call launch, active/recent room history, and recent-conversation quick contacts share a three-panel layout with filters kept beside the history they affect.
+- Quick contacts are derived from existing recent conversations and provide message and authorized audio-call shortcuts; they do not imply a separate pinned-contact store or unsupported missed-call, direction, or voicemail records.
+- Phone layouts prioritize call history, keep quick contacts horizontally scannable, and expose the conversation launcher through a named `Start a new call` control without adding steps to the established call journey.
 - Active-call overlays reserve or intentionally cover shell controls without leaving ambiguous duplicated actions.
 
 ### Whiteboard and canvas

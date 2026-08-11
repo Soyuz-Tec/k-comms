@@ -282,6 +282,12 @@ async function installAuthApi(
     if (method === "GET" && /^\/api\/v1\/conversations\/[^/]+\/call$/.test(path)) {
       return json(route, { data: null });
     }
+    if (method === "GET" && path === "/api/v1/calls") {
+      return json(route, {
+        data: [],
+        page: { limit: 100, has_more: false, next_cursor: null }
+      });
+    }
     if (method === "PUT" && /^\/api\/v1\/conversations\/[^/]+\/read-cursor$/.test(path)) {
       return route.fulfill({ status: 204 });
     }
