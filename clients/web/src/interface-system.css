@@ -526,6 +526,10 @@
       calc(.75rem + var(--safe-left));
   }
 
+  /*
+   * The top bar carries the surface title on mobile, so each destination can
+   * open straight into its own controls instead of repeating a page heading.
+   */
   .mobile-workspace-brand {
     min-width: 0;
     display: flex;
@@ -533,17 +537,10 @@
     gap: .6rem;
   }
 
-  .mobile-workspace-brand .workspace-mark {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
-    border-radius: 11px;
-  }
-
   .mobile-workspace-heading {
     min-width: 0;
     display: grid;
-    gap: 0;
+    gap: .06rem;
   }
 
   .mobile-workspace-heading strong,
@@ -554,14 +551,43 @@
   }
 
   .mobile-workspace-heading strong {
-    font-size: .88rem;
-    line-height: 1.2;
+    font-size: 1.19rem;
+    font-weight: 640;
+    letter-spacing: -.03em;
+    line-height: 1.15;
   }
 
   .mobile-workspace-heading small {
     color: var(--text-muted);
-    font-size: .68rem;
+    font-size: .69rem;
     line-height: 1.3;
+  }
+
+  /*
+   * Titles the top bar already states. They stay in the accessibility tree so
+   * heading navigation and the document outline keep working; only the
+   * duplicated pixels go.
+   */
+  .conversation-sidebar .sidebar-heading > div:not(.sidebar-tools),
+  .calls-page-heading h1,
+  .files-page-heading h1,
+  .directory-page .member-page-heading,
+  .you-page > .page-shell > .page-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  /* With the title gone the inbox opens on its tools, right aligned. */
+  .conversation-sidebar .sidebar-heading {
+    justify-content: flex-end;
+    padding-block: .7rem .55rem;
   }
 
   .mobile-primary-nav {

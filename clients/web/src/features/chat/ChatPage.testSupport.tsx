@@ -404,6 +404,27 @@ export function resetChatPageHarness() {
         next_before_sequence: null
       }
     }),
-    abandonAttachment: vi.fn().mockResolvedValue(undefined)
+    abandonAttachment: vi.fn().mockResolvedValue(undefined),
+    calls: vi.fn().mockResolvedValue({
+      data: [],
+      page: { limit: 100, has_more: false, next_cursor: null }
+    })
   });
+}
+
+export function activeCallSummary(conversationId: string) {
+  return {
+    id: `call-${conversationId}`,
+    conversation_id: conversationId,
+    started_by_user_id: "user-2",
+    ended_by_user_id: null,
+    media_kind: "video" as const,
+    status: "active" as const,
+    started_at: "2026-07-12T10:05:00Z",
+    expires_at: "2026-07-12T14:05:00Z",
+    ended_at: null,
+    end_reason: null,
+    duration_seconds: 120,
+    can_end: false
+  };
 }

@@ -18,6 +18,7 @@ export type InboxFilter = "all" | "unread" | "direct" | "rooms";
 
 interface ConversationSidebarProps {
   activeConversationId: string | null;
+  activeCallConversationIds: ReadonlySet<string>;
   capabilities: UserCapabilities | null;
   canInviteTeammates: boolean;
   conversations: Conversation[];
@@ -56,6 +57,7 @@ const peoplePath = "/admin?section=people#people-title";
 
 export function ConversationSidebar({
   activeConversationId,
+  activeCallConversationIds,
   capabilities,
   canInviteTeammates,
   conversations,
@@ -310,69 +312,83 @@ export function ConversationSidebar({
             No conversations match these filters.
           </p>
         ) : (
-          filteredConversations.map((conversation) => (
-            <button
-              ref={(element) => {
-                if (element) {
-                  conversationButtonRefs.current.set(
-                    conversation.id,
-                    element
-                  );
-                } else {
-                  conversationButtonRefs.current.delete(conversation.id);
+          filteredConversations.map((conversation) => {
+            const unread = conversation.unread_count || 0;
+            const callIsLive = activeCallConversationIds.has(conversation.id);
+            return (
+              <button
+                ref={(element) => {
+                  if (element) {
+                    conversationButtonRefs.current.set(
+                      conversation.id,
+                      element
+                    );
+                  } else {
+                    conversationButtonRefs.current.delete(conversation.id);
+                  }
+                }}
+                type="button"
+                key={conversation.id}
+                className={[
+                  "conversation-row",
+                  conversation.id === activeConversationId ? "active" : "",
+                  unread > 0 ? "unread" : ""
+                ].filter(Boolean).join(" ")}
+                aria-current={
+                  conversation.id === activeConversationId
+                    ? "page"
+                    : undefined
                 }
-              }}
-              type="button"
-              key={conversation.id}
-              className={`conversation-row ${
-                conversation.id === activeConversationId ? "active" : ""
-              }`}
-              aria-current={
-                conversation.id === activeConversationId
-                  ? "page"
-                  : undefined
-              }
-              onClick={() => onSelectConversation(conversation.id)}
-            >
-              <span
-                className={`conversation-icon ${conversation.kind}`}
-                aria-hidden="true"
+                onClick={() => onSelectConversation(conversation.id)}
               >
-                {conversation.kind === "channel" ? (
-                  <AppIcon name="hash" />
-                ) : conversation.kind === "direct" ? (
-                  conversationInitials(
-                    conversationIdentifier(conversation)
-                  )
-                ) : (
-                  <AppIcon name="users" />
-                )}
-              </span>
-              <span className="conversation-copy">
-                <span className="conversation-title-line">
-                  <strong>{conversationIdentifier(conversation)}</strong>
-                  <time dateTime={conversation.updated_at}>
-                    {formatTime(conversation.updated_at)}
-                  </time>
-                </span>
-                <small>
-                  {conversation.kind === "direct"
-                    ? "Direct message"
-                    : conversation.kind === "channel"
-                      ? "Room conversation"
-                      : "Group conversation"}
-                </small>
-              </span>
-              {(conversation.unread_count || 0) > 0 && (
                 <span
-                  className="unread-badge"
-                  aria-label={`${conversation.unread_count} unread messages`}
+                  className={`conversation-icon ${conversation.kind}`}
+                  aria-hidden="true"
                 >
-                  {conversation.unread_count}
+                  {conversation.kind === "channel" ? (
+                    <AppIcon name="hash" />
+                  ) : conversation.kind === "direct" ? (
+                    conversationInitials(
+                      conversationIdentifier(conversation)
+                    )
+                  ) : (
+                    <AppIcon name="users" />
+                  )}
                 </span>
-              )}
-            </button>
-          ))
+                <span className="conversation-copy">
+                  <span className="conversation-title-line">
+                    <strong>{conversationIdentifier(conversation)}</strong>
+                    <time dateTime={conversation.updated_at}>
+                      {formatTime(conversation.updated_at)}
+                    </time>
+                  </span>
+                  <span className="conversation-meta-line">
+                    <small>
+                      {conversation.kind === "direct"
+                        ? "Direct message"
+                        : conversation.kind === "channel"
+                          ? "Room conversation"
+                          : "Group conversation"}
+                    </small>
+                    {callIsLive && (
+                      <small className="conversation-live-call">
+                        <AppIcon name="phone" />
+                        Active call
+                      </small>
+                    )}
+                  </span>
+                </span>
+                {unread > 0 && (
+                  <span
+                    className="unread-badge"
+                    aria-label={`${unread} unread messages`}
+                  >
+                    {unread}
+                  </span>
+                )}
+              </button>
+            );
+          })
         )}
       </nav>
     </aside>

@@ -62,6 +62,7 @@ const representativeStateIds = [
   "recovery-invalid-link",
   "empty-workspace",
   "populated-workspace",
+  "live-call-inbox",
   "workspace-error",
   "offline-reconnect",
   "search",
@@ -78,7 +79,7 @@ const representativeStateIds = [
 ] as const;
 
 test("accessibility matrix names every representative release state", () => {
-  expect(new Set(representativeStateIds).size).toBe(20);
+  expect(new Set(representativeStateIds).size).toBe(21);
 });
 
 test("sign-in satisfies automated WCAG A and AA checks", async ({ page }) => {
@@ -129,6 +130,13 @@ test("populated and offline messaging states satisfy automated WCAG A and AA che
   await page.goto("/app/?conversation=conversation-1");
   await expect(page.getByText(message.body)).toBeVisible();
   await expect(page.getByText("Offline", { exact: true })).toBeVisible();
+  await expectNoWcagFailures(page);
+});
+
+test("an inbox with a call running satisfies automated WCAG A and AA checks", async ({ page }) => {
+  await installAuthenticatedMocks(page, { populated: true, callRunning: true });
+  await page.goto("/app/");
+  await expect(page.getByRole("button", { name: /General/ })).toContainText("Active call");
   await expectNoWcagFailures(page);
 });
 
@@ -306,7 +314,11 @@ async function openClientRoute(page: Page, path: string) {
 
 async function installAuthenticatedMocks(
   page: Page,
-  options: { populated?: boolean; workspaceError?: boolean } = {}
+  options: {
+    populated?: boolean;
+    workspaceError?: boolean;
+    callRunning?: boolean;
+  } = {}
 ) {
   await page.addInitScript((value) => sessionStorage.setItem("k-comms.session.v1", JSON.stringify(value)), session);
   await page.route("**/api/v1/me", (route) => route.fulfill({
@@ -344,7 +356,10 @@ async function installAuthenticatedMocks(
     return route.fulfill({ json: { data: options.populated ? [conversation] : [] } });
   });
   await page.route("**/api/v1/calls**", (route) => route.fulfill({
-    json: { data: [], page: { limit: 25, has_more: false, next_cursor: null } }
+    json: {
+      data: options.callRunning ? [activeCall()] : [],
+      page: { limit: 25, has_more: false, next_cursor: null }
+    }
   }));
   await page.route("**/api/v1/files**", (route) => route.fulfill({
     json: {
@@ -413,6 +428,23 @@ async function installAuthenticatedMocks(
       }
     }
   }));
+}
+
+function activeCall() {
+  return {
+    id: "call-1",
+    conversation_id: conversation.id,
+    started_by_user_id: session.user.id,
+    ended_by_user_id: null,
+    media_kind: "video",
+    status: "active",
+    started_at: "2026-07-14T10:05:00Z",
+    expires_at: "2026-07-14T14:05:00Z",
+    ended_at: null,
+    end_reason: null,
+    duration_seconds: 120,
+    can_end: true
+  };
 }
 
 function deliveryCursor(recipientUserId: string) {

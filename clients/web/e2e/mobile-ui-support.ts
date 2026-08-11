@@ -97,7 +97,7 @@ export function callFixtureIcon(name: string) {
 
 export async function installWorkspace(
   page: Page,
-  options: { tenantName?: string } = {}
+  options: { tenantName?: string; callRunning?: boolean } = {}
 ) {
   const state = { readCursorRequests: 0, unexpectedRequests: [] as string[] };
   const session = {
@@ -223,6 +223,12 @@ export async function installWorkspace(
       return route.fulfill({ status: 204 });
     }
     if (method === "GET" && path === `/api/v1/conversations/${conversationId}/call`) return json(route, { data: null });
+    if (method === "GET" && path === "/api/v1/calls") {
+      return json(route, {
+        data: options.callRunning ? [activeCall()] : [],
+        page: { limit: 100, has_more: false, next_cursor: null }
+      });
+    }
     if (method === "GET" && path === "/api/v1/in-app-notifications") {
       return json(route, {
         data: notifications,
@@ -255,6 +261,23 @@ export async function installWorkspace(
 
 function deliveryCursor(recipientUserId: string) {
   return { recipient_user_id: recipientUserId, device_ref: "test-device", delivered_sequence: 1, read_sequence: 0, delivered_at: "2026-07-15T12:00:00Z", read_at: null };
+}
+
+function activeCall() {
+  return {
+    id: "99999999-9999-4999-8999-999999999999",
+    conversation_id: conversationId,
+    started_by_user_id: userId,
+    ended_by_user_id: null,
+    media_kind: "video",
+    status: "active",
+    started_at: "2026-07-15T12:00:00Z",
+    expires_at: "2026-07-15T16:00:00Z",
+    ended_at: null,
+    end_reason: null,
+    duration_seconds: 90,
+    can_end: true
+  };
 }
 
 export async function installDeterministicMediaDevices(page: Page) {
