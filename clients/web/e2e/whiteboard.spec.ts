@@ -203,9 +203,30 @@ test("conversation whiteboard renders a usable white-labeled drawing workspace",
 
   const canvas = page.locator("canvas.excalidraw__canvas.interactive");
   await expect(canvas).toHaveCount(1);
+  const pageBounds = await page.locator(".whiteboard-page").boundingBox();
+  const room = page.getByRole("region", {
+    name: "Whiteboard for Product planning"
+  });
+  const roomBounds = await room.boundingBox();
   const bounds = await canvas.boundingBox();
+  expect(pageBounds).not.toBeNull();
+  expect(roomBounds).not.toBeNull();
+  expect(Math.abs((roomBounds?.x ?? 0) - (pageBounds?.x ?? 0))).toBeLessThanOrEqual(1);
+  expect(Math.abs((roomBounds?.width ?? 0) - (pageBounds?.width ?? 0))).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(
+      ((roomBounds?.y ?? 0) + (roomBounds?.height ?? 0)) -
+        ((pageBounds?.y ?? 0) + (pageBounds?.height ?? 0))
+    )
+  ).toBeLessThanOrEqual(1);
+  await expect(room).toHaveCSS("border-top-width", "0px");
+  await expect(room).toHaveCSS("border-radius", "0px");
+  await expect(room).toHaveCSS("box-shadow", "none");
   expect(bounds?.width).toBeGreaterThan(250);
-  expect(bounds?.height).toBeGreaterThan(280);
+  expect(bounds?.height).toBeGreaterThan(500);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth)
+  ).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
 });
 
 test("draw, durable replay, and clear-for-everyone complete in order", async ({

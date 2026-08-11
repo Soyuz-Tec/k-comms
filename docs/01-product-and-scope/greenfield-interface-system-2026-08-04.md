@@ -126,6 +126,8 @@ Controls live with the object they affect:
 ### Whiteboard and canvas
 
 - Whiteboard is grouped under collaboration on desktop and available from `More` on mobile.
+- The standalone whiteboard uses a compact title and conversation strip, then gives every remaining pixel in the application shell to the canvas.
+- The canvas is edge-to-edge within that workspace, without decorative outer margin, border, corner radius, or shadow; global navigation remains available.
 - The searchable template gallery presents original K-Comms brainstorm, planning, strategy, and reflection layouts at desktop and phone widths.
 - Applying a template adds supported drawing objects beside existing work; it never replaces or clears the current scene.
 - Canvas-destructive actions require confirmation and remain in canvas controls.
