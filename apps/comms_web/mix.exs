@@ -32,7 +32,7 @@ defmodule CommsWeb.MixProject do
       {:phoenix_ecto, "~> 4.7"},
       {:bandit, "~> 1.12.1"},
       {:jason, "~> 1.4"},
-      {:sobelow, "0.14.1", only: [:dev, :test], runtime: false}
+      {:sobelow, "0.15.0", only: [:dev, :test], runtime: false}
     ]
   end
 end
