@@ -760,7 +760,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   place-items: center;
   padding: 0 .3rem;
   border-radius: 999px;
-  color: var(--accent-contrast);
+  color: var(--text-on-accent);
   background: var(--accent-solid);
   font-size: .7rem;
   font-weight: 800;

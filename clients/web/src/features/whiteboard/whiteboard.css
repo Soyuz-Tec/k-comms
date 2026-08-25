@@ -139,8 +139,8 @@
 
 .whiteboard-statusbar strong { color: var(--text-primary); }
 .whiteboard-statusbar button { margin-left: auto; }
-.connection-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warning); }
-.connection-dot.live { background: var(--success); }
+.connection-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warning-solid); }
+.connection-dot.live { background: var(--success-solid); }
 .connection-dot.offline { background: var(--danger-solid); }
 
 .whiteboard-error {

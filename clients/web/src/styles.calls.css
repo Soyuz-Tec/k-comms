@@ -11,12 +11,12 @@
      * Phones previously re-declared the entire palette here to match a separate
      * teal mobile mockup, so the product had two identities depending on
      * viewport. The palette is now theme-wide (theme.css) and this block keeps
-     * only what is genuinely viewport-dependent: touch ergonomics and the
-     * taller mobile topbar. 44px is the WCAG 2.5.5 enhanced target size.
+     * only touch ergonomics: 44px is the WCAG 2.5.5 enhanced target size.
+     *
+     * The chrome heights that used to sit here were dead — interface-system.css
+     * imports later and overrode both. They now live once, in theme.css.
      */
     --target-size: 44px;
-    --mobile-topbar-height: 62px;
-    --mobile-nav-height: 0px;
   }
 
   body,

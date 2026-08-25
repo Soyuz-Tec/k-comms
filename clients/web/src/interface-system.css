@@ -709,11 +709,6 @@
 }
 
 @media (max-width: 760px), (max-height: 560px) {
-  :root {
-    --mobile-topbar-height: 64px;
-    --mobile-nav-height: 68px;
-  }
-
   .app-shell {
     padding-bottom: var(--mobile-nav-total);
   }
