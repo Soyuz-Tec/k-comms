@@ -47,7 +47,7 @@ describe("password recovery pages", () => {
     const user = userEvent.setup();
     render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>);
     expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/sign-in");
-    await user.type(screen.getByLabelText("Workspace slug"), "acme");
+    await user.type(screen.getByLabelText("Workspace address"), "acme");
     await user.type(screen.getByLabelText("Email address"), "missing@example.test");
     await user.click(screen.getByRole("button", { name: "Send reset instructions" }));
 

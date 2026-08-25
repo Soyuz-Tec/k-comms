@@ -622,10 +622,16 @@
     background: var(--surface-raised);
   }
 
+  /*
+   * Tinted, not filled. Five people on screen meant five full-width solid
+   * accent buttons stacked down the page: nothing led, and the accent stopped
+   * meaning "this one". The row action still reads as the row"+"'"+"s primary move --
+   * it is the widest and the only one with a label -- without shouting.
+   */
   .directory-action.primary {
-    border-color: var(--accent-solid);
-    color: var(--text-on-accent);
-    background: var(--accent-solid);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+    background: var(--accent-quiet);
   }
 
   .member-status-view {
@@ -733,5 +739,32 @@
   .you-page .you-account-actions {
     width: 100%;
     margin-inline: 0;
+  }
+}
+
+/*
+ * Account-recovery pages on a phone.
+ *
+ * .recovery-page centres its card with place-items: center, which on an 844px
+ * screen left roughly 190px of empty gradient above and below a 460px card.
+ * Vertical centring reads as composed on a desktop window and as drift on a
+ * phone, where the card should meet the thumb near the top of the scroll.
+ */
+@media (max-width: 760px), (max-height: 560px) {
+  .recovery-page {
+    align-content: start;
+    padding:
+      calc(var(--space-6) + var(--safe-top)) max(var(--space-4), var(--safe-right))
+      calc(var(--space-6) + var(--safe-bottom)) max(var(--space-4), var(--safe-left));
+  }
+
+  .recovery-shell {
+    padding: var(--space-5) var(--space-4);
+    border-radius: var(--radius-lg);
+  }
+
+  .recovery-shell h1 {
+    font-size: var(--text-xl);
+    line-height: 1.15;
   }
 }

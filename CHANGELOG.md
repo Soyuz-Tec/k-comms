@@ -4,6 +4,39 @@
 
 ### Changed
 
+- Reduced the emphasis of row actions in the directory and the file list. Each
+  row carried a solid accent button, so five people or five files meant five
+  maximum-emphasis controls stacked down the screen and the accent stopped
+  meaning "this one". The row action stays tinted and labelled; the accent is
+  spent once per screen again.
+- Made the file safety pill mark the exception rather than the rule. "Available"
+  on every row was five badges saying nothing, and the states that matter --
+  blocked, scan failed, safety check -- were indistinguishable from the noise.
+  Available files still announce their state to assistive technology.
+- Rewrote the account-recovery copy from the reader"'s side. The pages explained
+  the security model rather than the task: "The response is intentionally
+  private", "Your reset token is held only in memory and removed from the
+  address bar immediately", and a password hint ending "the server applies the
+  final password policy". One field also had two names -- "Workspace slug" in
+  recovery against "Workspace address" on sign-in -- and now has one, with the
+  same hint.
+- Anchored the recovery card to the top of the screen on phones. Centring it
+  left roughly 190px of empty gradient above and below on an 844px display.
+- Styled the whiteboard board picker, which was a bare native select sitting
+  beside tokenised controls. The popup stays native.
+
+### Fixed
+
+- Stopped the whiteboard restore failure from showing a raw exception as its
+  message. A user could be greeted with "Spread syntax requires
+  ...iterable[Symbol.iterator] to be a function"; the page now says what
+  happened and keeps the technical detail beneath it for support.
+- Marked the recovery heading as the route announcement target so it stops
+  drawing a focus ring around the title on load, using the data-route-focus
+  opt-out the shell already provides rather than a competing style rule.
+
+### Changed
+
 - Carried the mobile design system into the screens the shell work had not
   reached: Calls, Directory, Files, Whiteboard, Workspace administration and
   Service operations. Raised 124 font-size declarations across 18 files to the

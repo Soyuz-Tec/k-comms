@@ -61,9 +61,34 @@
   font-size: .78rem;
   font-weight: 700;
 }
+/*
+ * The board picker was a bare native select: OS chrome sitting beside tokenised
+ * controls, and the one element on the screen that did not look like the
+ * product. Only the box is restyled -- the popup stays native, which is what
+ * phones do best.
+ */
 .whiteboard-heading select {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  font-size: var(--text-sm);
+  font-weight: 560;
+}
+
+.whiteboard-heading select:hover {
+  border-color: var(--accent-border);
+}
+
+/* The restore failure keeps its technical reason, but quietly. */
+.whiteboard-load-error-detail {
+  margin-top: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
 }
 
 .whiteboard-room {

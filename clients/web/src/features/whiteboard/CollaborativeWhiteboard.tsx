@@ -41,7 +41,15 @@ export function CollaborativeWhiteboard({
         <section className="whiteboard-loading whiteboard-load-error" role="alert">
           <AppIcon name="triangleAlert" />
           <h2>We couldn’t restore this whiteboard</h2>
-          <p>{collaboration.historyError}</p>
+          {/*
+            * The raw reason was the whole message, so a failure could greet a
+            * user with "Spread syntax requires ...iterable[Symbol.iterator] to
+            * be a function". Say what happened and what to do, and keep the
+            * technical string beneath it for a support conversation -- the same
+            * shape the Files error already uses.
+            */}
+          <p>Its history could not be loaded, so nothing has been changed. Try again, and if it keeps failing the detail below will help support.</p>
+          <p className="whiteboard-load-error-detail">{collaboration.historyError}</p>
           <button
             className="button primary"
             type="button"
