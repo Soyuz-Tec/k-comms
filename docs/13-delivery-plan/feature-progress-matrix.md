@@ -4,11 +4,11 @@
 status: in-review
 owner: product-and-engineering
 reviewers: [product, architecture, security, sre, accessibility]
-last_reviewed: 2026-08-01
-next_review: 2026-08-15
+last_reviewed: 2026-08-25
+next_review: 2026-09-08
 related_requirements: [product-completion, internal-production-readiness]
 related_adrs: [ADR-0025, ADR-0057, ADR-0063]
-related_tests: [release-30716612321, external-media-qualification-2026-07-27]
+related_tests: [release-32824311645, external-media-qualification-2026-07-27]
 ```
 
 ## Purpose
@@ -28,12 +28,12 @@ Every update must also refresh the snapshot identity, evidence register,
 
 | Field | Verified value |
 |---|---|
-| Git revision | `90c1f89fff3df0d3871762b137775e170a7553b1` |
-| Immutable image | `ghcr.io/soyuz-tec/k-comms@sha256:dd4c87079cd78643b0984f1e31d4b3bd41088d238db041e2708d84fbe95327e8` |
-| Release workflow | [Run 30716612321](https://github.com/Soyuz-Tec/k-comms/actions/runs/30716612321) |
+| Git revision | `d486b5a2ef2467756f7558b28d84de3d38278c3d` |
+| Immutable image | `ghcr.io/soyuz-tec/k-comms@sha256:1e6e1dd0d2d15dd1347aa5e11415bbf03e8d986d05b803fc883eac27adc051f2` |
+| Release workflow | [Run 32824311645](https://github.com/Soyuz-Tec/k-comms/actions/runs/32824311645) |
 | Staging | VM 101 deployed and qualified |
 | Production | VM 100 deployed and public verification passed |
-| Snapshot date | 2026-08-01 |
+| Snapshot date | 2026-08-25 |
 
 ## Status model
 
@@ -102,7 +102,7 @@ planning assignments until a named owner accepts them.
 
 | ID | Evidence source | What it supports |
 |---|---|---|
-| E1 | [Release workflow 30716612321](https://github.com/Soyuz-Tec/k-comms/actions/runs/30716612321) | Immutable publication, VM 101 qualification, rollback/restore rehearsal, VM 100 deployment, and public verification for the current snapshot. |
+| E1 | [Release workflow 32824311645](https://github.com/Soyuz-Tec/k-comms/actions/runs/32824311645) | Immutable publication, VM 101 qualification, rollback/restore rehearsal, VM 100 same-digest deployment, complete backups, and public verification for the current snapshot. |
 | E2 | [Product completion plan](product-completion-plan.md) | Implemented web-first product baseline and explicitly excluded capabilities. |
 | E3 | [Internal production readiness](internal-production-readiness.md) | Open application, environment, provider, capacity, security, accessibility, and people gates. |
 | E4 | [ADR-0025](../02-architecture/adr/0025-unified-audio-video-calls.md) | Browser audio, video, conferencing, and screen-sharing architecture. |
@@ -131,4 +131,5 @@ planning assignments until a named owner accepts them.
 
 | Date | Snapshot | Change |
 |---|---|---|
+| 2026-08-25 | `d486b5a2ef2467756f7558b28d84de3d38278c3d` | Refreshed the current production snapshot after the consolidated dependency release. The same immutable digest passed provenance and SBOM verification, VM 101 rollback and isolated-restore rehearsal, VM 100 deployment, and public endpoint verification; no feature status changed. |
 | 2026-08-01 | `90c1f89fff3df0d3871762b137775e170a7553b1` | Established the 36-feature matrix. F-12 moved from Not started to Complete after the Excalidraw collaboration release; F-14 recorded material workspace improvement while remaining Partial. |
