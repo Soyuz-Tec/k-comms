@@ -424,7 +424,7 @@
 
   .video-call-dock:not(.minimized) .audio-call-dock-heading .eyebrow {
     color: var(--text-primary);
-    font-size: .63rem;
+    font-size: var(--text-xs);
     letter-spacing: .08em;
   }
 
@@ -702,7 +702,7 @@
     gap: .32rem;
     margin: 0;
     color: var(--text-primary);
-    font-size: .72rem;
+    font-size: var(--text-xs);
     line-height: 1.25;
     white-space: nowrap;
   }
@@ -910,7 +910,7 @@
 
   .audio-call-dock.active-call-screen:not(.minimized) .audio-participant-card small {
     color: var(--text-primary);
-    font-size: .72rem;
+    font-size: var(--text-xs);
     line-height: 1.25;
   }
 
@@ -921,7 +921,7 @@
     justify-content: center;
     gap: .3rem;
     color: var(--text-primary);
-    font-size: .72rem;
+    font-size: var(--text-xs);
     line-height: 1.25;
   }
 
@@ -1191,7 +1191,7 @@
     width: 64px;
     max-width: calc(20vw - .25rem);
     color: var(--text-primary);
-    font-size: .68rem;
+    font-size: var(--text-xs);
     font-weight: 700;
     line-height: 1.15;
     overflow-wrap: anywhere;

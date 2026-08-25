@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Conversation } from "../types";
-import { conversationTitle, dayKey, formatDayLabel } from "./format";
+import { conversationTitle, dayKey, formatDayLabel, formatDuration } from "./format";
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
@@ -66,5 +66,31 @@ describe("message day formatting", () => {
     expect(formatDayLabel(yesterday.toISOString(), now)).toBe("Yesterday");
     expect(formatDayLabel("not-a-timestamp", now)).toBe("");
     expect(dayKey("not-a-timestamp")).toBe("");
+  });
+});
+
+describe("formatDuration", () => {
+  it("keeps seconds only where seconds are still legible", () => {
+    expect(formatDuration(0)).toBe("0 seconds");
+    expect(formatDuration(1)).toBe("1 second");
+    expect(formatDuration(59)).toBe("59 seconds");
+  });
+
+  it("steps up through minutes, hours and days", () => {
+    expect(formatDuration(60)).toBe("1 minute");
+    expect(formatDuration(3599)).toBe("59 minutes");
+    expect(formatDuration(3600)).toBe("1 hour");
+    expect(formatDuration(47 * 3600)).toBe("47 hours");
+    expect(formatDuration(48 * 3600)).toBe("2 days");
+  });
+
+  it("reports the operations case that motivated it as days, not seconds", () => {
+    expect(formatDuration(3553751)).toBe("41 days");
+  });
+
+  it("does not invent precision for impossible input", () => {
+    expect(formatDuration(-1)).toBe("an unknown time");
+    expect(formatDuration(Number.NaN)).toBe("an unknown time");
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe("an unknown time");
   });
 });

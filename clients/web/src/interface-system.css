@@ -317,7 +317,7 @@
   .workspace-account-copy small {
     overflow: hidden;
     color: var(--text-muted);
-    font-size: .68rem;
+    font-size: var(--text-xs);
     line-height: 1.25;
     text-overflow: ellipsis;
     text-transform: capitalize;
@@ -387,7 +387,7 @@
     padding: 0 .65rem .2rem;
     color: var(--text-muted);
     font-family: var(--font-body);
-    font-size: .62rem;
+    font-size: var(--text-xs);
     font-weight: 820;
     letter-spacing: .1em;
     text-transform: uppercase;
@@ -846,6 +846,18 @@
   .page-heading,
   .member-page-heading {
     margin-bottom: var(--space-4);
+  }
+
+  /*
+   * The heading stacks into a column on a phone, which stretched its action to
+   * the full width and turned a ghost button into something that reads as an
+   * empty card. Sized to its label, it reads as a control again.
+   */
+  .page-heading > .button {
+    width: auto;
+    align-self: flex-start;
+    min-height: var(--target-touch);
+    padding-inline: var(--space-5);
   }
 
   .page-heading h1,

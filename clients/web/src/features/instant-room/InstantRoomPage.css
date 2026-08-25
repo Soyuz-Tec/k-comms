@@ -77,7 +77,7 @@
   border-radius: 999px;
   color: var(--accent-text);
   background: var(--accent-quiet);
-  font-size: .7rem;
+  font-size: var(--text-xs);
   font-weight: 750;
   letter-spacing: .035em;
 }
@@ -134,7 +134,7 @@
 .instant-room-field-label .optional,
 .instant-room-field-label .required {
   color: var(--text-secondary);
-  font-size: .72rem;
+  font-size: var(--text-xs);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -468,7 +468,7 @@
   gap: .2rem;
   margin: 0;
   padding: .55rem .65rem;
-  font-size: .72rem;
+  font-size: var(--text-xs);
   line-height: 1.35;
 }
 
@@ -584,7 +584,7 @@
   }
 
   .instant-room-share .instant-room-kicker {
-    font-size: .62rem;
+    font-size: var(--text-xs);
   }
 
   .instant-room-share h2 {
@@ -661,7 +661,7 @@
   .instant-room-continuity,
   .instant-room-copy-notice {
     overflow: hidden;
-    font-size: .66rem;
+    font-size: var(--text-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
   }

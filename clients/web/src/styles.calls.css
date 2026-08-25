@@ -202,7 +202,7 @@
 
   .conversation-header > div:nth-child(2) .eyebrow {
     color: var(--text-muted);
-    font-size: .66rem;
+    font-size: var(--text-xs);
     letter-spacing: .04em;
     text-transform: capitalize;
   }
@@ -310,7 +310,7 @@
   .message-content > header time,
   .message-content > header span {
     color: var(--text-muted);
-    font-size: .65rem;
+    font-size: var(--text-xs);
   }
 
   .message-bubble {

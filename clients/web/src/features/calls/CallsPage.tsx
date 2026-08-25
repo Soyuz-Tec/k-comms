@@ -191,7 +191,8 @@ export function CallsPage() {
           aria-controls="calls-launcher"
           onClick={() => setLauncherPreference(!launcherExpanded)}
         >
-          <AppIcon name="plus" />
+          {/* The glyph followed the control, not the action: a plus sat beside "Hide". */}
+          <AppIcon name={launcherExpanded ? "chevronDown" : "plus"} />
           {launcherExpanded ? "Hide call launcher" : "Start a new call"}
         </button>
 

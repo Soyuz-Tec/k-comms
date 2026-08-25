@@ -353,14 +353,19 @@
   text-decoration: none;
 }
 
+/*
+ * Message, audio and video sit one beside the other on every conversation row,
+ * so they are the densest cluster of thumb targets on the screen and were the
+ * three still under the floor after the shell work.
+ */
 .calls-quick-actions a,
 .calls-quick-actions button,
 .calls-quick-contact-actions a,
 .calls-quick-contact-actions button {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  min-height: 40px;
+  width: var(--target-min);
+  min-width: var(--target-min);
+  height: var(--target-min);
+  min-height: var(--target-min);
   overflow: hidden;
   padding: 0;
   border-color: transparent;
@@ -1053,22 +1058,47 @@
     font-size: .78rem;
   }
 
+  /*
+   * Primary while it opens the launcher, quiet while it closes it. The control
+   * carried a solid accent fill and the deepest shadow on the screen in both
+   * states, which made "Hide call launcher" the loudest thing on the page --
+   * a dismissal shouting over the list it dismisses.
+   */
   .calls-new-call-toggle {
     width: 100%;
-    min-height: 48px;
+    min-height: var(--target-touch);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: .45rem;
-    margin-top: .25rem;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
     border: 0;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     color: var(--text-on-accent);
     background: var(--accent-solid);
     box-shadow: 0 7px 18px rgb(var(--shadow-color) / 18%);
     font: inherit;
-    font-size: .88rem;
-    font-weight: 750;
+    font-size: var(--text-sm);
+    font-weight: 620;
+  }
+
+  .calls-new-call-toggle[aria-expanded="true"] {
+    min-height: var(--target-min);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    background: transparent;
+    box-shadow: none;
+    font-weight: 560;
+  }
+
+  /*
+   * With the launcher open the quick-contacts panel repeats the same rooms
+   * directly above a searchable superset of itself, so the phone shows one
+   * list, not two.
+   */
+  .calls-workspace:has(.calls-launcher.is-mobile-open) .calls-quick-panel {
+    display: none;
   }
 
   .calls-launcher:not(.is-mobile-open) {
@@ -1148,11 +1178,11 @@
 
   .calls-status {
     min-height: 20px;
-    font-size: .65rem;
+    font-size: var(--text-xs);
   }
 
   .call-session-copy p {
-    font-size: .74rem;
+    font-size: var(--text-xs);
   }
 }
 

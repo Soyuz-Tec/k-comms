@@ -1,3 +1,4 @@
+import { formatDuration } from "../../lib/format";
 import type { OperationsSnapshot } from "../../types";
 
 export type OperationsTriageSeverity = "healthy" | "warning" | "critical";
@@ -65,11 +66,11 @@ export function deriveOperationsTriage(
       severity: snapshotStale ? "warning" : "healthy",
       condition: snapshotTimeInvalid
         ? Number.isFinite(futureSkewSeconds)
-          ? `The content-blind snapshot timestamp is ${futureSkewSeconds} seconds ahead of the operator clock.`
+          ? `The content-blind snapshot timestamp is ${formatDuration(futureSkewSeconds)} ahead of the operator clock.`
           : "The content-blind snapshot timestamp is invalid."
         : snapshotStale
-          ? `The content-blind snapshot is ${ageSeconds} seconds old.`
-          : `The content-blind snapshot is current (${ageSeconds} seconds old).`,
+          ? `The content-blind snapshot is ${formatDuration(ageSeconds)} old.`
+          : `The content-blind snapshot is current (${formatDuration(ageSeconds)} old).`,
       userImpact: "Stale evidence can hide a new service or provider condition from operators.",
       owner: "Platform on-call",
       firstAction: "Refresh once and confirm the readiness and metrics paths are updating.",
