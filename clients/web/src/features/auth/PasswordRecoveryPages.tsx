@@ -46,7 +46,7 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <RecoveryLayout title="Reset your password" description="Enter your workspace and email address. The response is intentionally private.">
+    <RecoveryLayout title="Reset your password" description="We will email you a reset link. For your security we show the same message whether or not the address is registered.">
       {submitted ? (
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Check your email</h2>
@@ -57,7 +57,7 @@ export function ForgotPasswordPage() {
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
           {accountActionsUnavailable && <TransportWarning />}
           {error && <div className="form-error" role="alert">{error}</div>}
-          <Field label="Workspace slug" name="tenant_slug" autoComplete="organization" autoFocus required />
+          <Field label="Workspace address" name="tenant_slug" autoComplete="organization" hint="The short address from your invitation, such as acme." autoFocus required />
           <Field label="Email address" name="email" type="email" autoComplete="email" disabled={accountActionsUnavailable} required />
           <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Requesting…" : "Send reset instructions"}</button>
           <Link className="recovery-back-link" to="/sign-in">Back to sign in</Link>
@@ -131,7 +131,7 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <RecoveryLayout title="Choose a new password" description="Your reset token is held only in memory and removed from the address bar immediately.">
+    <RecoveryLayout title="Choose a new password" description="Choose a password you have not used here before. Your reset link is single use and expires shortly.">
       {completed ? (
         <div className="recovery-result" role="status" tabIndex={-1} autoFocus>
           <h2>Password updated</h2>
@@ -148,7 +148,7 @@ export function ResetPasswordPage() {
         <form className="auth-form" onSubmit={(event) => void submit(event)}>
           {accountActionsUnavailable && <TransportWarning />}
           {error && <div className="form-error" role="alert">{error}</div>}
-          <Field label="New password" name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters; the server applies the final password policy" autoFocus disabled={accountActionsUnavailable} required />
+          <Field label="New password" name="new_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" hint="At least 12 characters." autoFocus disabled={accountActionsUnavailable} required />
           <Field label="Confirm new password" name="confirm_password" type="password" minLength={12} maxLength={256} autoComplete="new-password" disabled={accountActionsUnavailable} required />
           <button className="button primary full" type="submit" disabled={busy || accountActionsUnavailable}>{busy ? "Updating…" : "Update password"}</button>
           <Link className="recovery-back-link" to="/forgot-password">Request a different reset link</Link>
@@ -172,7 +172,14 @@ function RecoveryLayout({ title, description, children }: { title: string; descr
     <main className="recovery-page">
       <section className="recovery-shell" aria-labelledby="recovery-title">
         <span className="eyebrow">Account recovery</span>
-        <h1 id="recovery-title">{title}</h1>
+        {/*
+          * data-route-focus marks this as the route announcement target. Without
+          * it RouteOrientation still focuses the h1, but as a plain heading it
+          * keeps the focus ring foundation.css gives route targets -- which drew
+          * a box around the title on load. The attribute is the opt-out the
+          * shell already provides.
+          */}
+        <h1 id="recovery-title" data-route-focus tabIndex={-1}>{title}</h1>
         <p className="muted">{description}</p>
         {children}
       </section>

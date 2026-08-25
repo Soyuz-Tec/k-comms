@@ -299,7 +299,15 @@ function FileRow({
       <div className="file-row-copy">
         <div className="file-row-title">
           <strong>{file.file_name}</strong>
-          <span className={`file-safety ${file.safety_state}`}>{safetyLabel(file.safety_state)}</span>
+          {/*
+            * A status pill should mark the exception, not the rule. "Available"
+            * on every row was five badges saying nothing; the ones that matter --
+            * blocked, scanning, failed -- were indistinguishable from the noise.
+            * Available files still announce their state to assistive technology.
+            */}
+          {file.safety_state === "available"
+            ? <span className="visually-hidden">{safetyLabel(file.safety_state)}</span>
+            : <span className={`file-safety ${file.safety_state}`}>{safetyLabel(file.safety_state)}</span>}
         </div>
         <p>
           <span>{formatBytes(file.byte_size)}</span>

@@ -20,8 +20,8 @@ test("forgot-password request remains non-enumerating and keyboard usable", asyn
   });
   await openPublicRoute(page, "/forgot-password");
 
-  await expect(page.getByLabel("Workspace slug")).toBeFocused();
-  await page.getByLabel("Workspace slug").fill("acme");
+  await expect(page.getByLabel("Workspace address")).toBeFocused();
+  await page.getByLabel("Workspace address").fill("acme");
   await page.getByLabel("Email address").fill("unknown@example.test");
   await page.getByLabel("Email address").press("Enter");
 
