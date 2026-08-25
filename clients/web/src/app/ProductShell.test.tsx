@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -107,7 +107,7 @@ function renderProductShell() {
   return render(productShellTree());
 }
 
-describe("ProductShell PWA controls", () => {
+describe("ProductShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
@@ -130,74 +130,32 @@ describe("ProductShell PWA controls", () => {
     });
   });
 
-  it("names the current destination in the mobile top bar", () => {
+  /*
+   * The phone shell used to carry a top bar that named the surface from the
+   * pathname. A conversation is addressed by query string, so on the busiest
+   * screen in the product that bar read "Inbox" while you were reading a room —
+   * and the bottom bar was already saying which destination you were in. There
+   * is now nothing above the content at all.
+   */
+  it("renders no shell chrome above the content on a phone", () => {
     renderProductShell();
 
-    const topbar = document.querySelector(".mobile-workspace-heading");
-    expect(topbar).toHaveTextContent("Inbox");
-    expect(topbar).toHaveTextContent("Example workspace");
-    expect(document.querySelector(".mobile-workspace-brand .workspace-mark")).toBeNull();
+    expect(document.querySelector(".topbar")).toBeNull();
+    expect(document.querySelector(".mobile-workspace-heading")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open more menu" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "More" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
   });
 
-  it("offers a familiar mobile install action and shows iOS instructions", async () => {
+  /*
+   * Installation moved to the You screen, which already carried the install
+   * card; the drawer copy was a duplicate. SettingsPage.test.tsx owns that
+   * behaviour now, so the shell only has to prove it stopped offering it.
+   */
+  it("leaves installation to the You screen", () => {
     harness.pwa.installMode = "manual-ios";
-    const user = userEvent.setup();
     renderProductShell();
 
-    await user.click(screen.getByRole("button", { name: "Open more menu" }));
-    const install = screen.getByRole("button", { name: "Install K-Comms" });
-    expect(install.querySelector(".lucide-download")).toBeInTheDocument();
-    await user.click(install);
-
-    const dialog = screen.getByRole("dialog", { name: "Install K-Comms" });
-    expect(dialog).toHaveTextContent("Share → Add to Home Screen");
-    expect(dialog).toHaveTextContent("Open as Web App");
-    const close = screen.getByRole("button", { name: "Close install instructions" });
-    await waitFor(() => expect(close).toHaveFocus());
-
-    await user.tab({ shift: true });
-    expect(screen.getByRole("button", { name: "Done" })).toHaveFocus();
-    await user.tab();
-    expect(close).toHaveFocus();
-
-    await user.click(close);
-    await waitFor(() => expect(dialog).not.toBeInTheDocument());
-    await waitFor(() => expect(install).toHaveFocus());
-    expect(harness.pwa.requestInstall).not.toHaveBeenCalled();
-  });
-
-  it("calls the native prompt directly, then offers manual steps after dismissal", async () => {
-    harness.pwa.installMode = "native-prompt";
-    harness.pwa.requestInstall.mockResolvedValue("dismissed");
-    const user = userEvent.setup();
-    const view = renderProductShell();
-
-    await user.click(screen.getByRole("button", { name: "Open more menu" }));
-    await user.click(screen.getByRole("button", { name: "Install K-Comms" }));
-
-    await waitFor(() => expect(harness.pwa.requestInstall).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("dialog", { name: "Install K-Comms" })).not.toBeInTheDocument();
-
-    harness.pwa.installMode = "manual-browser";
-    view.rerender(productShellTree());
-    await user.click(screen.getByRole("button", { name: "Install K-Comms" }));
-    expect(await screen.findByRole("dialog", { name: "Install K-Comms" })).toHaveTextContent(
-      "Install app or Add to Home screen"
-    );
-  });
-
-  it("hides the mobile install action after installation or when unavailable", async () => {
-    harness.pwa.installMode = "installed";
-    const user = userEvent.setup();
-    const view = renderProductShell();
-
-    await user.click(screen.getByRole("button", { name: "Open more menu" }));
-    expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
-
-    view.unmount();
-    harness.pwa.installMode = "unavailable";
-    renderProductShell();
-    await user.click(screen.getByRole("button", { name: "Open more menu" }));
     expect(screen.queryByRole("button", { name: "Install K-Comms" })).not.toBeInTheDocument();
   });
 

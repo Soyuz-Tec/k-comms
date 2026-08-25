@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
-import {
-  AppMenuCloseButton,
-  AppMenuTrigger,
-  AppSurfaceControlButton
-} from "../components/AppMenuControls";
-import { MemberAreaLinks, memberAreaTitle } from "../components/MemberAreaLinks";
-import { useModalDialog } from "../components/useModalDialog";
+import { MemberAreaLinks } from "../components/MemberAreaLinks";
 import { initials } from "../lib/format";
 import { canAccessAdmin, canOperate } from "../lib/roles";
 import {
@@ -20,9 +13,7 @@ import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
 import { beginNewInstantRoomVisit } from "../features/instant-room/idempotency";
 import { clearMemberInstantRoomContinuity } from "../features/instant-room/memberContinuity";
-import { usePwa, type PwaInstallMode } from "../pwa/PwaProvider";
-
-type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
+import { usePwa } from "../pwa/PwaProvider";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -49,29 +40,16 @@ export function ProductShell() {
 
 function ProductShellContent() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { error, setError, refreshAll } = useWorkspaceData();
-  const {
-    installMode,
-    updateAvailable,
-    requestInstall,
-    applyUpdate,
-    dismissUpdate
-  } = usePwa();
+  const { updateAvailable, applyUpdate, dismissUpdate } = usePwa();
   const [retrying, setRetrying] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(
     readWorkspaceSidebarCollapsed
   );
-  const [installHelpMode, setInstallHelpMode] = useState<ManualInstallMode | null>(null);
   const desktopShell = useDesktopShell();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
-
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [desktopShell, location.pathname, location.search]);
 
   useEffect(() => {
     try {
@@ -118,19 +96,16 @@ function ProductShellContent() {
       navigate("/sign-in", { replace: true });
     });
   };
-  const installKComms = async () => {
-    if (installMode === "manual-ios" || installMode === "manual-browser") {
-      setInstallHelpMode(installMode);
-      return;
-    }
-    if (installMode !== "native-prompt") return;
-    const result = await requestInstall();
-    if (result === "manual-ios" || result === "manual-browser") {
-      setInstallHelpMode(result);
-    }
-  };
-  const showInstallAction = installMode !== "installed" && installMode !== "unavailable";
 
+  /*
+   * Phones render no shell chrome above the content at all. The previous
+   * design carried a global top bar that named the surface, but it resolved
+   * that name from the pathname alone — and a conversation is addressed by
+   * query string, so the bar read "Inbox" while you were reading a room. The
+   * bottom bar already says which destination you are in, and a leaf view says
+   * its own name in its own header, so the third statement was both redundant
+   * and the only one that could be wrong.
+   */
   return (
     <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
         {desktopShell && (
@@ -216,46 +191,6 @@ function ProductShellContent() {
             </section>
           </details>
         </aside>}
-        {!desktopShell && <header className="topbar">
-          <div className="mobile-workspace-brand">
-            <span className="mobile-workspace-heading">
-              <strong>{memberAreaTitle(location.pathname)}</strong>
-              <small>{session.tenant.name}</small>
-            </span>
-          </div>
-          <div className="topbar-control-cluster">
-            <NotificationCenter />
-            <AppMenuTrigger
-              className="mobile-menu-trigger"
-              accessibleLabel="Open more menu"
-              expanded={mobileMenuOpen}
-              controls="mobile-product-menu"
-              onClick={() => setMobileMenuOpen(true)}
-            />
-          </div>
-        </header>}
-        {!desktopShell && mobileMenuOpen && createPortal(
-          <MobileProductMenu
-            showAdmin={showAdmin}
-            showOperations={showOperations}
-            tenantName={session.tenant.name}
-            userName={session.user.display_name}
-            userRole={session.user.role}
-            onClose={() => setMobileMenuOpen(false)}
-            onInstantRoom={() => {
-              setMobileMenuOpen(false);
-              beginNewInstantRoomVisit();
-              navigate("/");
-            }}
-            showInstall={showInstallAction}
-            onInstall={() => void installKComms()}
-            onSignOut={() => {
-              setMobileMenuOpen(false);
-              signOut();
-            }}
-          />,
-          document.body
-        )}
 
         {updateAvailable && (
           <section
@@ -298,171 +233,11 @@ function ProductShellContent() {
             <MemberAreaLinks variant="mobile-primary" />
           </nav>
         )}
-        {installHelpMode && (
-          <PwaInstallHelpDialog
-            mode={installHelpMode}
-            onClose={() => setInstallHelpMode(null)}
-          />
-        )}
     </div>
   );
 }
 
-function MobileProductMenu({
-  showAdmin,
-  showOperations,
-  tenantName,
-  userName,
-  userRole,
-  onClose,
-  onInstantRoom,
-  showInstall,
-  onInstall,
-  onSignOut
-}: {
-  showAdmin: boolean;
-  showOperations: boolean;
-  tenantName: string;
-  userName: string;
-  userRole: string;
-  onClose: () => void;
-  onInstantRoom: () => void;
-  showInstall: boolean;
-  onInstall: () => void;
-  onSignOut: () => void;
-}) {
-  const dialogRef = useModalDialog(onClose);
-
-  return (
-    <div
-      className="mobile-menu-backdrop"
-      onPointerDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <aside
-        ref={dialogRef}
-        className="mobile-product-menu"
-        id="mobile-product-menu"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mobile-product-menu-title"
-      >
-        <header>
-          <div>
-            <span className="eyebrow">{tenantName}</span>
-            <h2 id="mobile-product-menu-title">More</h2>
-          </div>
-          <AppMenuCloseButton
-            data-initial-focus
-            accessibleLabel="Close more menu"
-            onClick={onClose}
-          />
-        </header>
-        <span className="mobile-menu-section-label">Collaboration</span>
-        <nav
-          className="mobile-menu-member-links"
-          aria-label="More product areas"
-          onClick={(event) => {
-            if (event.target instanceof Element && event.target.closest("a")) onClose();
-          }}
-        >
-          <MemberAreaLinks variant="mobile-more" />
-        </nav>
-        <button className="mobile-menu-action" type="button" onClick={onInstantRoom}>
-          <AppIcon name="plus" />
-          Start instant room
-        </button>
-        {showInstall && (
-          <button className="mobile-menu-action" type="button" onClick={onInstall}>
-            <AppIcon name="download" />
-            Install K-Comms
-          </button>
-        )}
-        {(showAdmin || showOperations) && (
-          <nav className="mobile-menu-role-links" aria-label="Role tools">
-            {showAdmin && <NavLink to="/admin" onClick={onClose}>
-              <AppIcon name="settings" />
-              Workspace administration
-            </NavLink>}
-            {showOperations && <NavLink to="/ops" onClick={onClose}>
-              <AppIcon name="activity" />
-              Service operations
-            </NavLink>}
-          </nav>
-        )}
-        <section className="mobile-menu-account" aria-label="Signed-in account">
-          <dl>
-            <div><dt>User</dt><dd>{userName}</dd></div>
-            <div><dt>Role</dt><dd>{userRole}</dd></div>
-          </dl>
-          <button className="button ghost mobile-signout" type="button" onClick={onSignOut}>
-            <AppIcon name="logOut" />
-            Sign out
-          </button>
-        </section>
-      </aside>
-    </div>
-  );
-}
-
-export function PwaInstallHelpDialog({
-  mode,
-  onClose
-}: {
-  mode: ManualInstallMode;
-  onClose: () => void;
-}) {
-  const dialogRef = useModalDialog(onClose);
-
-  return createPortal(
-    <div
-      className="modal-backdrop pwa-install-backdrop"
-      onPointerDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        className="modal-dialog pwa-install-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="pwa-install-help-title"
-        aria-describedby="pwa-install-help-copy"
-      >
-        <div className="pwa-install-dialog-heading">
-          <div>
-            <span className="eyebrow">No App Store needed</span>
-            <h2 id="pwa-install-help-title">Install K-Comms</h2>
-          </div>
-          <AppSurfaceControlButton
-            data-initial-focus
-            accessibleLabel="Close install instructions"
-            kind="close"
-            onClick={onClose}
-          />
-        </div>
-        {mode === "manual-ios" ? (
-          <p id="pwa-install-help-copy">
-            On iPhone or iPad, tap <strong>Share → Add to Home Screen</strong>.
-            Keep <strong>Open as Web App</strong> enabled, then tap Add.
-          </p>
-        ) : (
-          <p id="pwa-install-help-copy">
-            Open your browser menu, then choose <strong>Install app</strong> or{" "}
-            <strong>Add to Home screen</strong>.
-          </p>
-        )}
-        <button className="button primary pwa-install-done" type="button" onClick={onClose}>
-          Done
-        </button>
-      </section>
-    </div>,
-    document.body
-  );
-}
-
-function useDesktopShell() {
+export function useDesktopShell() {
   const [desktop, setDesktop] = useState(() =>
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&

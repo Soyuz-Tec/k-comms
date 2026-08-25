@@ -10,7 +10,7 @@
 .mention-chips > span { display: inline-flex; align-items: center; gap: .25rem; padding: .25rem .42rem; border-radius: 999px; color: var(--accent-text); background: var(--accent-quiet); font-size: .62rem; font-weight: 740; }
 .mention-chips button { padding: 0; border: 0; color: inherit; background: transparent; }
 
-.thread-drawer { position: absolute; z-index: 8; top: 1rem; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; width: min(430px, calc(100% - 2rem)); overflow: hidden; padding: 1rem; border: 1px solid var(--border-default); border-radius: 15px; background: var(--surface-overlay); box-shadow: -12px 18px 45px rgb(18 48 45 / 20%); }
+.thread-drawer { position: absolute; z-index: 8; top: 1rem; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; width: min(430px, calc(100% - 2rem)); overflow: hidden; padding: 1rem; border: 1px solid var(--border-default); border-radius: 15px; background: var(--surface-overlay); box-shadow: -12px 18px 45px rgb(var(--shadow-color) / 20%); }
 .thread-drawer > header, .notification-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .thread-drawer h2, .notification-panel h2 { margin: .15rem 0 0; font-family: var(--font-display); font-size: 1.2rem; }
 .thread-message { padding: .7rem; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); }
@@ -29,8 +29,8 @@
 
 .notification-center { position: relative; }
 .notification-trigger { position: relative; display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid var(--border-default); border-radius: 50%; color: var(--accent-text); background: var(--surface-canvas); font-size: 1.1rem; }
-.notification-badge { position: absolute; top: -5px; right: -6px; min-width: 20px; padding: .16rem .3rem; border: 2px solid var(--surface-raised); border-radius: 999px; color: var(--text-on-accent); background: var(--danger-solid); font-size: .54rem; font-weight: 850; }
-.notification-panel { position: fixed; z-index: 35; top: 74px; right: 1rem; width: min(390px, calc(100vw - 2rem)); max-height: min(620px, calc(100vh - 90px)); overflow-y: auto; padding: 1rem; border: 1px solid var(--border-default); border-radius: 15px; background: var(--surface-overlay); box-shadow: 0 22px 60px rgb(18 48 45 / 24%); }
+.notification-badge { position: absolute; top: -5px; right: -6px; min-width: 20px; padding: .16rem .3rem; border: 2px solid var(--surface-raised); border-radius: 999px; color: var(--text-on-accent); background: var(--danger-solid); font-size: var(--text-xs); font-weight: 850; }
+.notification-panel { position: fixed; z-index: 35; top: 74px; right: 1rem; width: min(390px, calc(100vw - 2rem)); max-height: min(620px, calc(100vh - 90px)); overflow-y: auto; padding: 1rem; border: 1px solid var(--border-default); border-radius: 15px; background: var(--surface-overlay); box-shadow: 0 22px 60px rgb(var(--shadow-color) / 24%); }
 .notification-panel-actions { display: flex; align-items: center; justify-content: space-between; margin: .8rem 0 .4rem; color: var(--text-secondary); font-size: .62rem; }
 .notification-list { display: grid; gap: .45rem; margin: .5rem 0 0; padding: 0; list-style: none; }
 .notification-list li { position: relative; display: grid; grid-template-columns: 1fr auto; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); }
@@ -38,7 +38,7 @@
 .notification-open { display: block; min-width: 0; padding: .65rem; border: 0; text-align: left; background: transparent; }
 .notification-open > span { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
 .notification-open strong { font-size: .7rem; }
-.notification-open time { color: var(--text-secondary); font-size: .55rem; }
+.notification-open time { color: var(--text-secondary); font-size: var(--text-xs); }
 .notification-open p { margin: .3rem 0 0; color: var(--text-secondary); font-size: .65rem; line-height: 1.4; }
 .notification-dismiss { align-self: start; margin: .35rem; padding: .2rem .35rem; border: 0; color: var(--text-secondary); background: transparent; }
 
@@ -60,7 +60,7 @@
 .empty-state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .45rem; padding: 0 .7rem .8rem; }
 .empty-state-actions .button { flex: 1 1 9rem; }
 .new-message-jump { position: relative; z-index: 6; height: 0; display: flex; justify-content: center; pointer-events: none; }
-.new-message-jump > .button { position: absolute; bottom: .75rem; max-width: calc(100% - 2rem); box-shadow: 0 8px 24px rgb(16 42 42 / 24%); pointer-events: auto; white-space: normal; }
+.new-message-jump > .button { position: absolute; bottom: .75rem; max-width: calc(100% - 2rem); box-shadow: 0 8px 24px rgb(var(--shadow-color) / 24%); pointer-events: auto; white-space: normal; }
 
 .message-search-form .message-search-filters, .message-search-form .search-filter-note { grid-column: 1 / -1; }
 .message-search-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; min-width: 0; margin: .2rem 0 0; padding: .65rem; border: 1px solid var(--border-default); border-radius: 10px; }
@@ -169,10 +169,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   }
 
   .conversation-row.active,
-  .product-nav a.active,
-  .mobile-menu-member-links a[aria-current="page"],
-  .mobile-menu-role-links a[aria-current="page"],
-  .admin-section-nav button[aria-current="page"] {
+.admin-section-nav button[aria-current="page"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
@@ -229,7 +226,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 .button.audio-call-active { color: var(--accent-text); border-color: var(--border-strong); background: var(--accent-quiet); }
 .audio-prejoin-dialog { width: min(520px, 100%); }
 .audio-prejoin-actions { flex-wrap: wrap; }
-.audio-call-dock { position: fixed; z-index: 32; right: 1rem; bottom: 1rem; width: min(430px, calc(100vw - 2rem)); max-height: min(680px, calc(100vh - 2rem)); overflow-y: auto; padding: 1rem; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-overlay); box-shadow: 0 20px 55px rgb(18 48 45 / 24%); }
+.audio-call-dock { position: fixed; z-index: 32; right: 1rem; bottom: 1rem; width: min(430px, calc(100vw - 2rem)); max-height: min(680px, calc(100vh - 2rem)); overflow-y: auto; padding: 1rem; border: 1px solid var(--border-strong); border-radius: 15px; background: var(--surface-overlay); box-shadow: 0 20px 55px rgb(var(--shadow-color) / 24%); }
 .video-call-dock { width: min(1080px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); }
 .audio-call-dock-heading { display: flex; align-items: start; justify-content: space-between; gap: .8rem; }
 .audio-call-dock-heading h2 { margin: .15rem 0 .8rem; font-family: var(--font-display); font-size: 1.15rem; }
@@ -459,20 +456,12 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 
 /* Phone-first web shell: safe areas, dynamic viewport height and touch ergonomics. */
 @media (max-width: 760px), (max-height: 560px) {
-  .topbar {
-    min-height: var(--mobile-topbar-total);
-    gap: .55rem;
-    padding:
-      calc(.45rem + var(--safe-top))
-      calc(.75rem + var(--safe-right))
-      .45rem
-      calc(.75rem + var(--safe-left));
-  }
+  
 
-  .topbar .notification-trigger { width: 44px; height: 44px; }
+  
   .account-menu { display: none; }
 
-  .mobile-signout { width: 100%; min-height: 52px; }
+  
 
   .workspace-grid {
     width: 100%;
@@ -620,7 +609,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
     padding: .75rem 1rem calc(.75rem + var(--safe-bottom));
     border-top: 1px solid var(--border-default);
     background: var(--surface-overlay);
-    box-shadow: 0 -8px 20px rgb(18 48 45 / 8%);
+    box-shadow: 0 -8px 20px rgb(var(--shadow-color) / 8%);
   }
   .audio-call-actions .button { flex: 1 1 8.5rem; min-height: 44px; }
 
@@ -647,7 +636,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   .admin-section-nav {
     position: sticky;
     z-index: 9;
-    top: calc(var(--mobile-topbar-total) - 1px);
+    top: var(--mobile-topbar-total);
     margin-inline: -1rem;
     padding-inline: 1rem;
     border-inline: 0;

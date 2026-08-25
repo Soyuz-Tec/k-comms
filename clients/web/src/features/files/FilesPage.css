@@ -22,7 +22,7 @@
   border: 1px solid var(--border-default);
   border-radius: 18px;
   background: var(--surface-raised);
-  box-shadow: 0 10px 32px rgb(16 42 42 / 6%);
+  box-shadow: 0 10px 32px rgb(var(--shadow-color) / 6%);
 }
 
 .files-toolbar {
@@ -59,7 +59,7 @@
   border-color: var(--border-default);
   color: var(--text-primary);
   background: var(--surface-raised);
-  box-shadow: 0 2px 8px rgb(16 42 42 / 8%);
+  box-shadow: 0 2px 8px rgb(var(--shadow-color) / 8%);
 }
 
 .files-advanced-filter {
@@ -152,7 +152,7 @@
   border-color: var(--border-default);
   color: var(--text-primary);
   background: var(--surface-raised);
-  box-shadow: 0 2px 8px rgb(16 42 42 / 8%);
+  box-shadow: 0 2px 8px rgb(var(--shadow-color) / 8%);
 }
 
 .files-list {
@@ -502,7 +502,7 @@
     border-color: var(--accent-solid);
     color: var(--text-on-accent);
     background: var(--accent-solid);
-    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+    box-shadow: 0 2px 8px rgb(var(--shadow-color) / 20%);
   }
 
   .files-advanced-filter {
@@ -548,7 +548,7 @@
     border-color: var(--accent-solid);
     color: var(--text-on-accent);
     background: var(--accent-solid);
-    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+    box-shadow: 0 2px 8px rgb(var(--shadow-color) / 20%);
   }
 
   .files-filters select {

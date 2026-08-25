@@ -1,6 +1,9 @@
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
+import { AppMenuCloseButton } from "../../components/AppMenuControls";
+import { useModalDialog } from "../../components/useModalDialog";
 import type {
   ConnectionStatus,
   Conversation,
@@ -51,6 +54,7 @@ export function ConversationWorkspaceHeader({
   onToggleActivity: () => void;
   onToggleDetails: () => void;
 }) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const canInvite =
     conversation.kind === "direct" || canCreateGuestLink(conversation);
   const canvasHref = `/app/whiteboard?conversation=${encodeURIComponent(
@@ -129,6 +133,17 @@ export function ConversationWorkspaceHeader({
               <AppIcon name="userPlus" />
             </button>
           )}
+          <button
+            className="conversation-header-icon conversation-more-trigger"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            aria-controls="conversation-more-sheet"
+            aria-label="More conversation actions"
+            onClick={() => setMoreOpen(true)}
+          >
+            <AppIcon name="more" />
+          </button>
         </div>
       </div>
 
@@ -163,7 +178,99 @@ export function ConversationWorkspaceHeader({
           Details
         </button>
       </nav>
+      {moreOpen && (
+        <ConversationMoreSheet
+          canvasHref={canvasHref}
+          canInvite={canInvite}
+          onClose={() => setMoreOpen(false)}
+          onInviteGuest={onInviteGuest}
+          onToggleActivity={onToggleActivity}
+          onToggleDetails={onToggleDetails}
+          onToggleSearch={onToggleSearch}
+        />
+      )}
     </header>
+  );
+}
+
+/*
+ * The phone header used to be two rows — identity above a four-item section
+ * strip — which cost 106px before a single message. Chat is where you already
+ * are, so it needs no tab; the other three surfaces plus search and guest
+ * invites live here instead, one tap deeper, and the header collapses to one
+ * row.
+ */
+function ConversationMoreSheet({
+  canvasHref,
+  canInvite,
+  onClose,
+  onInviteGuest,
+  onToggleActivity,
+  onToggleDetails,
+  onToggleSearch
+}: {
+  canvasHref: string;
+  canInvite: boolean;
+  onClose: () => void;
+  onInviteGuest: () => void;
+  onToggleActivity: () => void;
+  onToggleDetails: () => void;
+  onToggleSearch: () => void;
+}) {
+  const dialogRef = useModalDialog(onClose);
+  const run = (action: () => void) => () => {
+    onClose();
+    action();
+  };
+
+  return createPortal(
+    <div
+      className="modal-backdrop conversation-more-backdrop"
+      onPointerDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="conversation-more-sheet"
+        id="conversation-more-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="conversation-more-title"
+      >
+        <header>
+          <h2 id="conversation-more-title">Conversation</h2>
+          <AppMenuCloseButton
+            data-initial-focus
+            accessibleLabel="Close conversation actions"
+            onClick={onClose}
+          />
+        </header>
+        <Link to={canvasHref} onClick={onClose}>
+          <AppIcon name="whiteboard" />
+          Canvas
+        </Link>
+        <button type="button" onClick={run(onToggleActivity)}>
+          <AppIcon name="activity" />
+          Activity
+        </button>
+        <button type="button" onClick={run(onToggleDetails)}>
+          <AppIcon name="users" />
+          Details
+        </button>
+        <button type="button" onClick={run(onToggleSearch)}>
+          <AppIcon name="search" />
+          Search messages
+        </button>
+        {canInvite && (
+          <button type="button" onClick={run(onInviteGuest)}>
+            <AppIcon name="userPlus" />
+            Invite guest
+          </button>
+        )}
+      </section>
+    </div>,
+    document.body
   );
 }
 

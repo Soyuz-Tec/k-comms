@@ -13,6 +13,8 @@ import type {
 } from "../../types";
 import { CreateConversationForm } from "./CreateConversationForm";
 import { conversationInitials } from "./chatSupport";
+import { useDesktopShell } from "../../app/ProductShell";
+import { NotificationCenter } from "../notifications/NotificationCenter";
 
 export type InboxFilter = "all" | "unread" | "direct" | "rooms";
 
@@ -88,6 +90,7 @@ export function ConversationSidebar({
   onShowCreateConversation,
   onShowBrowseChannels
 }: ConversationSidebarProps) {
+  const desktopShell = useDesktopShell();
   return (
     <aside className="conversation-sidebar" aria-label="Conversations">
       <div className="sidebar-heading">
@@ -96,6 +99,13 @@ export function ConversationSidebar({
           <h1>Inbox</h1>
         </div>
         <div className="sidebar-tools">
+          {/*
+            * Notifications sat in the global phone top bar until that bar was
+            * removed. They belong here rather than in a bar of their own: in a
+            * communication product every notification is about a message or a
+            * mention, so the inbox is the surface they are already about.
+            */}
+          {!desktopShell && <NotificationCenter />}
           <button
             className="icon-button inbox-filter-trigger"
             type="button"

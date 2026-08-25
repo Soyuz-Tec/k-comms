@@ -177,8 +177,18 @@
   --text-on-hero-muted: #c3b5e8;
   --border-on-hero: #6d5a9e;
 
-  --shadow: 0 18px 50px rgb(2 1 8 / 62%);
-  --shadow-raised: 0 2px 8px rgb(2 1 8 / 45%);
+  /*
+   * The RGB triple every bespoke shadow and scrim composes with. Elevation
+   * geometry stays local to the component that needs it; the colour does not,
+   * because it has to follow the theme. Before this token, 43 shadows carried
+   * a hardcoded teal — rgb(0 92 97), rgb(13 53 51), rgb(16 42 42) — left over
+   * from an abandoned teal mobile mock-up, so every violet button on the
+   * product cast a green shadow.
+   */
+  --shadow-color: 2 1 8;
+
+  --shadow: 0 18px 50px rgb(var(--shadow-color) / 62%);
+  --shadow-raised: 0 2px 8px rgb(var(--shadow-color) / 45%);
 }
 
 /* ─── Tier 2: semantic roles — light ──────────────────────────────────────── */
@@ -241,8 +251,10 @@
     --info-quiet: #e4e8f6;
     --info-border: #a9b3d5;
 
-    --shadow: 0 18px 50px rgb(25 16 51 / 12%);
-    --shadow-raised: 0 2px 8px rgb(25 16 51 / 8%);
+    --shadow-color: 25 16 51;
+
+    --shadow: 0 18px 50px rgb(var(--shadow-color) / 12%);
+    --shadow-raised: 0 2px 8px rgb(var(--shadow-color) / 8%);
   }
 }
 
@@ -298,8 +310,10 @@
   --info-quiet: #e4e8f6;
   --info-border: #a9b3d5;
 
-  --shadow: 0 18px 50px rgb(25 16 51 / 12%);
-  --shadow-raised: 0 2px 8px rgb(25 16 51 / 8%);
+  --shadow-color: 25 16 51;
+
+  --shadow: 0 18px 50px rgb(var(--shadow-color) / 12%);
+  --shadow-raised: 0 2px 8px rgb(var(--shadow-color) / 8%);
 }
 
 /* ─── Typography, metrics and layout tokens ───────────────────────────────── */
@@ -315,8 +329,52 @@
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
     Consolas, monospace;
 
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
+  /*
+   * Type scale. Six steps, and 0.75rem (12px) is the floor — below it, phone
+   * metadata stops being readable at arm's length, which is where the previous
+   * set had drifted: fourteen distinct sizes inside the 0.61-0.80rem band, the
+   * smallest of them 0.54rem on a notification count. --text-xs and --text-sm
+   * keep their existing values so no current call site shifts; the three steps
+   * above them are new, and --text-base closes a reference that resolved to
+   * nothing in interface-system.css.
+   */
+  --text-xs: 0.75rem;    /* 12px — floor: timestamps, badges, nav labels */
+  --text-sm: 0.875rem;   /* 14px — list previews, dense body */
+  --text-base: 1rem;     /* 16px — message text, list titles */
+  --text-lg: 1.1875rem;  /* 19px — screen and sheet titles */
+  --text-xl: 1.5rem;     /* 24px — large titles */
+  --text-2xl: 2rem;      /* 32px — authentication and marketing only */
+
+  /*
+   * Spacing. A 4px base in seven steps, replacing 81 distinct rem values that
+   * included .08, .12, .15, .16 and .18rem — differences no one can see and no
+   * one can maintain. Steps are named by position, not by size, so a component
+   * cannot quietly invent an eighth.
+   */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radius. Four steps, replacing 21 — every integer from 5px to 16px was in
+     use, plus 18, 20, 22, 26 and 28. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /*
+   * Touch targets. --target-size below stays as it is (24px, the WCAG 2.2 AA
+   * 2.5.8 minimum, raised to 44px on phones by styles.calls.css) because two
+   * call sites depend on that behaviour. These two are what mobile components
+   * consume: --target-min is the WCAG 2.5.5 AAA floor that nothing may go
+   * under, --target-touch is what anything a thumb aims for should actually be.
+   */
+  --target-min: 44px;
+  --target-touch: 48px;
 
   /* Retained from the previous token set — these encode real device and
      accessibility constraints and are independent of the visual identity. */
@@ -325,8 +383,21 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  --mobile-topbar-height: 58px;
-  --mobile-nav-height: 0px;
+  /*
+   * Mobile chrome, declared here and nowhere else. These were previously set in
+   * three files at once — 58px here, 62px in styles.calls.css and 64px in
+   * interface-system.css — all at equal specificity inside the same media query,
+   * so import order silently decided which reasoning survived.
+   *
+   * The top bar is now zero because phones no longer have one: it named the
+   * surface from the pathname, which is wrong inside a conversation, and the
+   * bottom bar was already saying the same thing. The token stays so that the
+   * drawers and scroll regions computing against --mobile-topbar-total keep
+   * resolving — they now resolve to the safe-area inset alone, which is what
+   * they should have been offset by all along.
+   */
+  --mobile-topbar-height: 0px;
+  --mobile-nav-height: 60px;
   --mobile-topbar-total: calc(var(--mobile-topbar-height) + var(--safe-top));
   --mobile-nav-total: calc(var(--mobile-nav-height) + var(--safe-bottom));
   --app-viewport-height: 100vh;

@@ -150,8 +150,14 @@ test("workspace refresh error satisfies automated WCAG A and AA checks", async (
 test("message search satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
   await page.goto("/app/?conversation=conversation-1");
+  await expect(page.getByRole("region", { name: "General" })).toBeVisible();
+  /*
+   * The phone header collapsed to one row, so search moved into the overflow
+   * sheet. Desktop keeps it in the header, and this spec covers both.
+   */
+  const conversationMore = page.getByRole("button", { name: "More conversation actions" });
+  if (await conversationMore.isVisible()) await conversationMore.click();
   await page
-    .getByRole("region", { name: "General" })
     .getByRole("button", { name: "Search messages" })
     .click();
   await expect(page.getByRole("heading", { name: "Search messages" })).toBeVisible();
@@ -173,7 +179,12 @@ test("thread drawer satisfies automated WCAG A and AA checks", async ({ page }) 
 
 test("notification drawer satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true });
-  await page.goto("/app/?conversation=conversation-1");
+  /*
+   * Notifications sit with the inbox now that the phone shell has no bar of its
+   * own. Every notification is about a message or a mention, so the inbox is the
+   * surface they are already about.
+   */
+  await page.goto("/app/");
   await page.getByRole("button", { name: /Notifications/ }).click();
   await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
   await expectNoWcagFailures(page);

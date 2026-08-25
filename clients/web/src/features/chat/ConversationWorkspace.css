@@ -102,6 +102,10 @@
   grid-row: auto;
 }
 
+.conversation-more-trigger {
+  display: none;
+}
+
 .conversation-header-actions {
   display: flex;
   align-items: center;
@@ -260,7 +264,7 @@
 
 .conversation-pane .message-bubble {
   border-color: var(--border-subtle);
-  box-shadow: 0 4px 16px rgb(13 53 51 / 5%);
+  box-shadow: 0 4px 16px rgb(var(--shadow-color) / 5%);
 }
 
 .conversation-pane .message.mine .message-bubble {
@@ -278,7 +282,7 @@
   padding: .62rem clamp(1rem, 4vw, 4rem) .8rem;
   border-top: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--surface-raised) 96%, var(--surface-canvas));
-  box-shadow: 0 -10px 28px rgb(13 53 51 / 4%);
+  box-shadow: 0 -10px 28px rgb(var(--shadow-color) / 4%);
 }
 
 .conversation-pane .composer > * {
@@ -332,7 +336,7 @@
   border-color: var(--border-default);
   border-radius: 16px;
   background: var(--surface-raised);
-  box-shadow: 0 3px 14px rgb(13 53 51 / 4%);
+  box-shadow: 0 3px 14px rgb(var(--shadow-color) / 4%);
 }
 
 .conversation-pane .composer-shell textarea {
@@ -389,6 +393,13 @@
 }
 
 @media (max-width: 760px), (max-height: 560px) {
+  /*
+   * One row, not two. The header used to stack identity above a four-item
+   * section strip and cost 106px before a single message appeared; Chat is
+   * where you already are, so it needs no tab, and Canvas, Activity, Details,
+   * search and guest invites moved into the overflow sheet. What stays is what
+   * you act on: leave, call by voice, call by video.
+   */
   .workspace-grid.mobile-messages .conversation-pane .conversation-header {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
@@ -398,11 +409,13 @@
   }
 
   .conversation-header-main {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: .5rem;
+    min-height: calc(56px + var(--safe-top));
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
     padding:
-      .55rem max(.65rem, var(--safe-right)) .42rem
-      max(.65rem, var(--safe-left));
+      var(--safe-top) max(var(--space-2), var(--safe-right)) 0
+      max(var(--space-1), var(--safe-left));
   }
 
   .conversation-header-main > .mobile-back {
@@ -413,18 +426,23 @@
     grid-column: 2;
   }
 
+  /* The name needs every pixel at 320px, and the sheet header repeats it. */
   .conversation-avatar {
     display: none;
   }
 
   .conversation-pane .conversation-header h2 {
-    font-size: .98rem;
+    font-size: var(--text-base);
   }
 
+  /*
+   * Was .61rem — 9.76px — for the presence line. Nothing on a phone should be
+   * set below the 12px floor, least of all the answer to "is this connected".
+   */
   .conversation-title-meta {
-    gap: .28rem;
-    margin-top: .14rem;
-    font-size: .61rem;
+    gap: var(--space-1);
+    margin-top: 1px;
+    font-size: var(--text-xs);
   }
 
   .conversation-title-meta > span {
@@ -432,9 +450,10 @@
   }
 
   .conversation-title-meta .connection-summary {
-    margin-left: .08rem;
-    padding-left: .42rem;
-    font-size: .61rem;
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+    font-size: var(--text-xs);
   }
 
   .conversation-title-meta .connection-summary small {
@@ -442,43 +461,45 @@
   }
 
   .conversation-header-actions {
-    grid-column: 1 / -1;
-    width: 100%;
+    width: auto;
+    grid-column: 3;
+    grid-row: 1;
     flex-wrap: nowrap;
     justify-content: flex-end;
-    gap: .32rem;
+    gap: var(--space-1);
   }
 
   .conversation-header-icon,
   .conversation-header-actions .audio-call-icon-only .button {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: var(--target-min);
+    min-width: var(--target-min);
+    height: var(--target-min);
+    min-height: var(--target-min);
+  }
+
+  /* Search and guest invites are in the sheet; only the overflow stays here. */
+  .conversation-header-actions
+    > .conversation-header-icon:not(.conversation-more-trigger) {
+    display: none;
+  }
+
+  .conversation-more-trigger {
+    display: inline-grid;
   }
 
   .conversation-header-actions .audio-call-icon-only {
     width: auto;
     display: inline-flex;
     grid-template-columns: none;
-    gap: .32rem;
+    gap: var(--space-1);
   }
 
   .conversation-section-nav {
-    padding-inline:
-      max(.55rem, var(--safe-left))
-      max(.55rem, var(--safe-right));
-  }
-
-  .conversation-section-nav a,
-  .conversation-section-nav button,
-  .conversation-section-nav > span {
-    min-height: 44px;
-    padding-inline: .65rem;
+    display: none;
   }
 
   .conversation-pane .message-scroll {
-    padding: .85rem .75rem 1.1rem;
+    padding: var(--space-3) var(--space-3) var(--space-4);
   }
 
   .conversation-pane .message-content {
@@ -487,13 +508,13 @@
 
   .conversation-pane .composer {
     padding:
-      .45rem max(.55rem, var(--safe-right))
-      max(.5rem, var(--safe-bottom))
-      max(.55rem, var(--safe-left));
+      var(--space-2) max(var(--space-2), var(--safe-right))
+      max(var(--space-2), var(--safe-bottom))
+      max(var(--space-2), var(--safe-left));
   }
 
   .composer-heading {
-    padding-inline: .25rem;
+    padding-inline: var(--space-1);
   }
 
   .composer-heading .composer-recipient {
@@ -506,21 +527,21 @@
   }
 
   .conversation-pane .composer-shell {
-    padding: .25rem .3rem .25rem .72rem;
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
   }
 
   .conversation-pane .composer-shell textarea {
-    min-height: 48px;
+    min-height: var(--target-touch);
     max-height: 104px;
-    padding: .72rem .1rem .65rem;
+    padding: var(--space-3) 2px var(--space-2);
     font-size: 16px;
   }
 
   .composer-inline-actions .mention-trigger {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: var(--target-min);
+    min-width: var(--target-min);
+    height: var(--target-min);
+    min-height: var(--target-min);
     overflow: hidden;
     padding: 0;
     border-radius: 50%;
@@ -533,46 +554,100 @@
   }
 }
 
-@media (min-width: 380px) and (max-width: 760px) {
-  .workspace-grid.mobile-messages .conversation-header-main {
-    grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: .45rem;
-  }
-
-  .workspace-grid.mobile-messages .conversation-header-main > .mobile-back {
-    grid-column: 1;
-  }
-
-  .workspace-grid.mobile-messages .conversation-identity {
-    grid-column: 2;
-  }
-
-  .workspace-grid.mobile-messages .conversation-header-actions {
-    width: auto;
-    grid-column: 3;
-    grid-row: 1;
-  }
-}
-
-@media (max-width: 360px) {
-  .conversation-title-meta .connection-summary {
-    margin-left: 0;
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .conversation-section-nav a,
-  .conversation-section-nav button,
-  .conversation-section-nav > span {
-    padding-inline: .55rem;
-  }
-
-}
-
 @media (prefers-reduced-motion: reduce) {
   .conversation-header-icon,
   .conversation-section-nav a,
   .conversation-section-nav button {
     transition: none;
+  }
+}
+
+/*
+ * Overflow sheet for the phone conversation header. Canvas, Activity, Details,
+ * search and guest invites live here so the header can be one row instead of
+ * two. It rises from the bottom because that is where the thumb already is.
+ */
+.conversation-more-backdrop {
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+
+.conversation-more-sheet {
+  width: 100%;
+  max-width: 34rem;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding:
+    var(--space-2) max(var(--space-3), var(--safe-right))
+    calc(var(--space-3) + var(--safe-bottom))
+    max(var(--space-3), var(--safe-left));
+  border: 1px solid var(--border-default);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow);
+}
+
+.conversation-more-sheet > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-1) var(--space-2);
+}
+
+.conversation-more-sheet > header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  font-weight: 640;
+  letter-spacing: -.02em;
+}
+
+.conversation-more-sheet a,
+.conversation-more-sheet > button {
+  min-height: var(--target-touch);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+}
+
+.conversation-more-sheet a:hover,
+.conversation-more-sheet > button:hover {
+  background: var(--surface-hover);
+}
+
+.conversation-more-sheet a:focus-visible,
+.conversation-more-sheet > button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.conversation-more-sheet .app-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+@media (forced-colors: active) {
+  .conversation-more-sheet a,
+  .conversation-more-sheet > button {
+    border: 1px solid ButtonText;
   }
 }
