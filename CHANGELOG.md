@@ -2,7 +2,49 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the phone top bar and the More drawer from the member app. The top bar
+  resolved its title from the pathname, so inside a conversation — addressed by
+  query string — it named the Inbox while a room was open, above a bottom bar
+  that said the same thing and a back arrow that disagreed. The highlighted tab
+  now names the destination and a leaf view names itself. The drawer held five
+  items, three of which the You screen already carried; Whiteboard, the instant
+  room and signing out moved there, and Whiteboard gave up its place in the tab
+  bar because it was two taps from the inbox either way.
+- Collapsed the conversation header from two rows to one and let the bottom bar
+  step aside inside a conversation. Canvas, Activity, Details, message search and
+  guest invites moved into an overflow sheet. Measured at 390x844, chrome fell
+  from 312px to 132px in a conversation, from 311px to 249px on the inbox, and
+  from 135px to 74px on the You screen.
+- Moved in-app notifications to the inbox, the surface every notification in a
+  communication product is already about.
+- Raised every phone surface to a 12px type floor and a 44px target floor,
+  replacing seven sub-12px sizes — including an 8.64px notification count and a
+  9.6px message timestamp — and inbox filter chips that shrank to 38px at the
+  touch breakpoint.
+
+### Fixed
+
+- Defined four custom properties that were referenced in CSS and declared
+  nowhere, so each declaration was invalid at computed-value time and fell back
+  silently. The whiteboard connection indicator was the visible consequence: it
+  resolved to no background in both its connecting and its live state, so a
+  board that was connecting looked identical to one that was live.
+- Replaced 65 hardcoded teal shadow literals, left over from an abandoned teal
+  mobile mock-up, with a themed --shadow-color token. Violet buttons were
+  casting green shadows.
+- Gave the mobile chrome heights a single owner. They were declared in three
+  files at once at equal specificity inside the same media query, so import
+  order decided which reasoning survived and an eight-line comment justifying
+  62px documented an intent the cascade discarded.
+
 ### Added
+
+- Added spacing, radius, type and touch-target scales to the design tokens.
+  Measured across the 26 stylesheets, the client was carrying 81 distinct
+  spacing values, 21 radii and roughly 50 font sizes against two type tokens and
+  no spacing or radius tokens at all.
 
 - Added a local-first instant workspace that opens directly into Excalidraw,
   restores a private device-local draft, supplies an editable guest identity,
