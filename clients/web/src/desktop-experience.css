@@ -201,7 +201,7 @@
 
   .desktop-account-heading small {
     color: var(--text-muted);
-    font-size: .68rem;
+    font-size: var(--text-xs);
     text-transform: capitalize;
   }
 
@@ -350,7 +350,7 @@
   .conversation-filters .inbox-segment {
     min-height: 34px;
     border-radius: 8px;
-    font-size: .7rem;
+    font-size: var(--text-xs);
   }
 
   .conversation-filters .inbox-segment[aria-pressed="true"] {
@@ -390,7 +390,7 @@
     border-radius: 50%;
     color: var(--text-secondary);
     background: var(--surface-selected);
-    font-size: .72rem;
+    font-size: var(--text-xs);
   }
 
   .conversation-copy {
@@ -442,7 +442,7 @@
 
   .conversation-header .eyebrow {
     color: var(--text-muted);
-    font-size: .65rem;
+    font-size: var(--text-xs);
     letter-spacing: .06em;
   }
 
@@ -494,7 +494,7 @@
 
   .message-content > header time,
   .message-content > header span {
-    font-size: .64rem;
+    font-size: var(--text-xs);
   }
 
   .message-bubble {
@@ -604,6 +604,6 @@
   .conversation-header-actions > .button,
   .conversation-header-actions .audio-call-control .button {
     padding-inline: .55rem;
-    font-size: .7rem;
+    font-size: var(--text-xs);
   }
 }

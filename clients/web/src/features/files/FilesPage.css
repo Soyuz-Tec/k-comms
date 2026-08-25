@@ -182,7 +182,7 @@
   border-radius: 13px;
   color: var(--text-secondary);
   background: var(--surface-canvas);
-  font-size: .65rem;
+  font-size: var(--text-xs);
   font-weight: 900;
 }
 
@@ -491,7 +491,7 @@
     border: 1px solid var(--border-default);
     border-radius: 999px;
     background: var(--surface-raised);
-    font-size: .7rem;
+    font-size: var(--text-xs);
   }
 
   .files-category-tabs button + button {
@@ -613,7 +613,7 @@
 
   .file-row-copy p {
     margin-top: .18rem;
-    font-size: .72rem;
+    font-size: var(--text-xs);
   }
 
   .file-row-copy p + p {
@@ -623,7 +623,7 @@
   .file-safety {
     min-height: 20px;
     padding: .12rem .42rem;
-    font-size: .64rem;
+    font-size: var(--text-xs);
   }
 
   .files-state {

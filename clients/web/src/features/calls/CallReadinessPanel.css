@@ -182,7 +182,7 @@
 
 .call-readiness-metrics dt {
   color: var(--text-muted);
-  font-size: .68rem;
+  font-size: var(--text-xs);
 }
 
 .call-readiness-metrics dd {

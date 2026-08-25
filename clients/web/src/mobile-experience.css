@@ -519,7 +519,9 @@
 
 @media (max-width: 760px), (max-height: 560px) {
   .member-page,
-  .you-page {
+  .you-page,
+  .files-page,
+  .calls-page {
     min-height: calc(var(--app-viewport-height) - var(--mobile-nav-total));
     background: var(--surface-raised);
   }
@@ -605,7 +607,7 @@
 
   .directory-row-copy small {
     color: var(--text-muted);
-    font-size: .72rem;
+    font-size: var(--text-xs);
   }
 
   .directory-actions {

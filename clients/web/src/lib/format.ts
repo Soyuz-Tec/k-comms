@@ -66,6 +66,23 @@ export function formatDayLabel(value: string, now: Date = new Date()): string {
     : { day: "numeric", month: "long", year: "numeric" }).format(date);
 }
 
+/**
+ * Elapsed time for operators to read at a glance. Raw seconds are exact and
+ * useless above about a minute: an operations screen reporting "3553751
+ * seconds old" is asking the reader to do arithmetic during an incident.
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "an unknown time";
+  const rounded = Math.floor(seconds);
+  if (rounded < 60) return `${rounded} second${rounded === 1 ? "" : "s"}`;
+  const minutes = Math.floor(rounded / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 export function formatBytes(value: number): string {
   if (value < 1_000) return `${value} B`;
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`;
