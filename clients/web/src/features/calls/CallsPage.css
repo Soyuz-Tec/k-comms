@@ -1157,10 +1157,10 @@
 
   .call-session-actions a,
   .call-session-actions button {
-    width: 42px;
-    min-width: 42px;
-    height: 42px;
-    min-height: 42px;
+    width: var(--target-min);
+    min-width: var(--target-min);
+    height: var(--target-min);
+    min-height: var(--target-min);
     overflow: hidden;
     padding: 0;
     border-color: transparent;

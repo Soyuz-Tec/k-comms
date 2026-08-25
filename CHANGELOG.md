@@ -45,6 +45,9 @@
 
 ### Fixed
 
+- Kept active-call chat and join actions at the 44px mobile touch-target floor;
+  a later Calls breakpoint had reduced both controls to 42px despite the shared
+  minimum and allowed the earlier mobile conformance claim to pass untested.
 - Defined four custom properties that were referenced in CSS and declared
   nowhere, so each declaration was invalid at computed-value time and fell back
   silently. The whiteboard connection indicator was the visible consequence: it
