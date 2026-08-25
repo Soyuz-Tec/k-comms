@@ -109,7 +109,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 }
 
 .button:not(:disabled):hover { transform: translateY(-1px); }
-.button.primary { color: var(--text-on-accent); background: var(--accent-solid); box-shadow: 0 8px 20px rgb(16 42 42 / 16%); }
+.button.primary { color: var(--text-on-accent); background: var(--accent-solid); box-shadow: 0 8px 20px rgb(var(--shadow-color) / 16%); }
 .button.primary:not(:disabled):hover { background: var(--accent-solid-hover); }
 .button.ghost { color: var(--text-primary); background: transparent; border-color: var(--border-default); }
 .button.ghost:hover { background: var(--surface-canvas); }
@@ -280,7 +280,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .app-shell { min-height: var(--app-viewport-height); display: flex; flex-direction: column; background: var(--surface-canvas); }
-.topbar { position: relative; z-index: 30; min-height: 68px; display: grid; grid-template-columns: minmax(190px, .72fr) 1fr auto; align-items: center; gap: 1.5rem; padding: .7rem 1.4rem; border-bottom: 1px solid var(--border-default); background: var(--surface-overlay); backdrop-filter: blur(12px); }
+
 .workspace-name { display: flex; flex-direction: column; gap: .12rem; padding-left: 1.2rem; border-left: 1px solid var(--border-default); }
 .workspace-name strong { font-family: var(--font-display); font-size: 1.06rem; font-weight: 600; }
 .account-menu { display: flex; align-items: center; gap: .65rem; }
@@ -297,7 +297,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 
 .workspace-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 320px) 1fr; padding: 1rem; gap: 1rem; }
 .conversation-sidebar,
-.conversation-pane { min-height: 0; border: 1px solid var(--border-default); border-radius: 16px; background: var(--surface-raised); box-shadow: 0 8px 30px rgb(19 51 47 / 5%); overflow: hidden; }
+.conversation-pane { min-height: 0; border: 1px solid var(--border-default); border-radius: 16px; background: var(--surface-raised); box-shadow: 0 8px 30px rgb(var(--shadow-color) / 5%); overflow: hidden; }
 .conversation-sidebar { display: flex; flex-direction: column; }
 .sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.3rem 1.2rem .8rem; }
 .sidebar-heading h1 { margin: .2rem 0 0; font-family: var(--font-display); font-size: 1.35rem; font-weight: 600; }
@@ -318,7 +318,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .conversation-copy { min-width: 0; display: flex; flex-direction: column; gap: .16rem; }
 .conversation-copy strong, .conversation-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-copy strong { font-size: .84rem; }
-.conversation-copy small { color: var(--text-secondary); font-size: .65rem; text-transform: capitalize; }
+.conversation-copy small { color: var(--text-secondary); font-size: var(--text-xs); text-transform: capitalize; }
 .conversation-summary-line { display: flex; align-items: center; gap: .35rem; }
 .conversation-summary-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-call-state,
@@ -328,8 +328,8 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .conversation-summary-line > span + span::before { margin-right: .35rem; color: var(--text-muted); content: "·"; }
 .conversation-title-line { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
 .conversation-title-line strong { min-width: 0; flex: 1 1 auto; }
-.conversation-title-line time { flex: 0 0 auto; color: var(--text-secondary); font-size: .62rem; font-weight: 500; }
-.unread-badge { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--text-on-accent); background: var(--accent-solid); font-size: .62rem; font-weight: 800; }
+.conversation-title-line time { flex: 0 0 auto; color: var(--text-secondary); font-size: var(--text-xs); font-weight: 500; }
+.unread-badge { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--text-on-accent); background: var(--accent-solid); font-size: var(--text-xs); font-weight: 800; }
 .empty-copy { padding: 1.2rem; color: var(--text-secondary); font-size: .8rem; line-height: 1.6; text-align: center; }
 
 .create-conversation { margin: 0 .75rem .7rem; padding: 1rem; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-canvas); box-shadow: 0 10px 20px rgb(24 54 49 / 7%); }
@@ -366,9 +366,9 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 .message > .avatar { margin-top: 1.35rem; }
 .message-content > header { display: flex; align-items: baseline; gap: .5rem; min-height: 1.2rem; padding: 0 .35rem .24rem; }
 .message.mine .message-content > header { justify-content: flex-end; }
-.message-content > header strong { color: var(--text-muted); font-size: .68rem; font-weight: 600; }
+.message-content > header strong { color: var(--text-muted); font-size: var(--text-xs); font-weight: 600; }
 /* Timestamp, edit marker and read receipt trail the bubble, per the design. */
-.message-meta { display: flex; align-items: center; gap: .32rem; padding: .26rem .38rem 0; color: var(--text-muted); font-size: .6rem; }
+.message-meta { display: flex; align-items: center; gap: .32rem; padding: .26rem .38rem 0; color: var(--text-muted); font-size: var(--text-xs); }
 .message.mine .message-meta { justify-content: flex-end; }
 .message-seen-mark { width: .8rem; height: .8rem; color: var(--accent-text); }
 .message-bubble { padding: .72rem .95rem; border: 1px solid var(--border-subtle); border-radius: 16px 16px 16px 6px; color: var(--text-primary); background: var(--surface-raised); box-shadow: var(--shadow-raised); font-size: .87rem; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -417,7 +417,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
  */
 .day-divider { display: flex; align-items: center; gap: .75rem; margin: .9rem 0 .55rem; }
 .day-divider::before, .day-divider::after { flex: 1 1 auto; height: 1px; background: var(--border-default); content: ""; }
-.day-divider span { flex: 0 0 auto; padding: .2rem .7rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-muted); background: var(--surface-raised); font-size: .62rem; font-weight: 650; letter-spacing: .02em; }
+.day-divider span { flex: 0 0 auto; padding: .2rem .7rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-muted); background: var(--surface-raised); font-size: var(--text-xs); font-weight: 650; letter-spacing: .02em; }
 
 /*
  * Composer pill.
@@ -473,7 +473,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
     padding: 1.2rem;
     background: color-mix(in srgb, var(--surface-canvas) 72%, transparent);
   }
-  .topbar { grid-template-columns: auto 1fr; }
+  
   .workspace-name { display: none; }
   .account-menu { justify-content: flex-end; }
   .account-copy { display: none; }
@@ -482,7 +482,7 @@ button:disabled, input:disabled, textarea:disabled { cursor: not-allowed; opacit
 }
 
 @media (max-width: 680px) {
-  .topbar { position: sticky; top: 0; z-index: 5; min-height: 58px; padding: .55rem .75rem; }
+  
   .brand.compact > span:last-child { display: none; }
   .account-menu .avatar { display: none; }
   .workspace-grid { display: flex; flex-direction: column; padding: 0; gap: 0; }

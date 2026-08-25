@@ -6,7 +6,7 @@
   place-items: center;
   padding: max(1rem, var(--safe-top)) max(1rem, var(--safe-right))
     max(1rem, var(--safe-bottom)) max(1rem, var(--safe-left));
-  background: rgb(12 32 30 / 52%);
+  background: rgb(var(--shadow-color) / 52%);
 }
 
 .modal-backdrop[data-action-dialog-backdrop] {
@@ -25,7 +25,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   border: 1px solid var(--border-default);
   border-radius: 18px;
   background: var(--surface-raised);
-  box-shadow: 0 28px 80px rgb(10 30 28 / 28%);
+  box-shadow: 0 28px 80px rgb(var(--shadow-color) / 28%);
 }
 
 .guest-share-dialog > header {
@@ -361,7 +361,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   inset: 0;
   display: flex;
   justify-content: flex-end;
-  background: rgb(12 32 30 / 52%);
+  background: rgb(var(--shadow-color) / 52%);
 }
 
 .guest-room-menu-backdrop[hidden] {
@@ -379,7 +379,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     max(1rem, var(--safe-bottom)) 1rem;
   border-left: 1px solid var(--border-default);
   background: var(--surface-raised);
-  box-shadow: -20px 0 56px rgb(10 30 28 / 24%);
+  box-shadow: -20px 0 56px rgb(var(--shadow-color) / 24%);
   overscroll-behavior: contain;
 }
 
@@ -972,7 +972,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 
 .guest-new-message-jump .button {
   min-height: 44px;
-  box-shadow: 0 8px 22px rgb(10 30 28 / 18%);
+  box-shadow: 0 8px 22px rgb(var(--shadow-color) / 18%);
 }
 
 .guest-message-meta {
@@ -1160,7 +1160,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     padding-bottom: calc(1rem + var(--safe-bottom));
     border-top: 1px solid var(--border-strong);
     border-radius: 18px 18px 0 0;
-    box-shadow: 0 -18px 50px rgb(10 30 28 / 22%);
+    box-shadow: 0 -18px 50px rgb(var(--shadow-color) / 22%);
   }
 
   .guest-account-card .button {
@@ -1269,7 +1269,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
     border-block: 0;
     border-right: 0;
     border-radius: 0;
-    box-shadow: -20px 0 56px rgb(10 30 28 / 24%);
+    box-shadow: -20px 0 56px rgb(var(--shadow-color) / 24%);
   }
 
   .guest-shell-actions {
@@ -1574,7 +1574,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   align-items: stretch;
   justify-content: flex-end;
   padding: 0;
-  background: rgb(12 32 30 / 52%);
+  background: rgb(var(--shadow-color) / 52%);
 }
 
 .canvas-room-layout .guest-room-menu {
@@ -1586,7 +1586,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   border-left: 1px solid var(--border-default);
   border-radius: 0;
   background: var(--surface-raised);
-  box-shadow: -20px 0 56px rgb(10 30 28 / 24%);
+  box-shadow: -20px 0 56px rgb(var(--shadow-color) / 24%);
 }
 
 .canvas-room-layout .guest-room-menu > header {

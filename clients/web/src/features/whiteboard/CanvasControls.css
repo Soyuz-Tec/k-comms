@@ -257,7 +257,7 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(12 32 30 / 58%);
+  background: rgb(var(--shadow-color) / 58%);
 }
 
 .canvas-clear-dialog {

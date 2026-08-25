@@ -10,15 +10,6 @@
   flex: 0 0 auto;
 }
 
-.product-nav.member-product-nav a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.product-nav.member-product-nav a span {
-  white-space: nowrap;
-}
 
 .route-loading {
   width: 100%;
@@ -95,7 +86,7 @@
 .member-segmented-control button[aria-pressed="true"] {
   color: var(--text-on-accent);
   background: var(--accent-solid);
-  box-shadow: 0 2px 8px rgb(13 74 77 / 20%);
+  box-shadow: 0 2px 8px rgb(var(--shadow-color) / 20%);
 }
 
 .member-search {
@@ -150,7 +141,7 @@
   border: 1px solid var(--border-default);
   border-radius: 14px;
   background: var(--surface-raised);
-  box-shadow: 0 5px 18px rgb(19 51 47 / 4%);
+  box-shadow: 0 5px 18px rgb(var(--shadow-color) / 4%);
 }
 
 .member-avatar,
@@ -383,27 +374,6 @@
   line-height: 1.4;
 }
 
-@media (min-width: 1101px) {
-  .app-shell > .topbar {
-    grid-template-columns: auto minmax(8rem, .5fr) minmax(30rem, auto) auto auto;
-    gap: clamp(.7rem, 1.4vw, 1.3rem);
-  }
-}
-
-@media (min-width: 761px) and (max-width: 1100px) and (min-height: 561px) {
-  .app-shell > .topbar {
-    grid-template-columns: auto minmax(25rem, 1fr) auto auto;
-    gap: .6rem;
-  }
-
-  .product-nav.member-product-nav {
-    justify-self: center;
-  }
-
-  .product-nav.member-product-nav a {
-    padding-inline: .48rem;
-  }
-}
 
 @media (max-width: 760px), (max-height: 560px) {
   .directory-page {
@@ -595,7 +565,7 @@
   .member-segmented-control button[aria-pressed="true"] {
     color: var(--text-on-accent);
     background: var(--accent-solid);
-    box-shadow: 0 2px 8px rgb(0 92 97 / 20%);
+    box-shadow: 0 2px 8px rgb(var(--shadow-color) / 20%);
   }
 
   .member-search {
@@ -682,4 +652,83 @@
 }
 .conversation-column-resizer {
   display: none;
+}
+
+/*
+ * Account block on the You screen. It carries what the phone overflow drawer
+ * used to: who you are signed in as, and the way out.
+ */
+.you-account-actions {
+  width: min(calc(100% - 2rem), 78rem);
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) auto 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+.you-account-actions dl {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.you-account-actions dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.you-account-actions dt {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 620;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.you-account-actions dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.you-signout {
+  min-height: var(--target-touch);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+/* Matches the shortcut links beside it, which are anchors rather than buttons. */
+.you-role-card-grid .you-shortcut-button {
+  min-height: var(--target-min);
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .you-page .you-account-actions {
+    width: 100%;
+    margin-inline: 0;
+  }
 }

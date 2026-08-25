@@ -8,9 +8,10 @@ import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { PushNotifications } from "./PushNotifications";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
-import { PwaInstallHelpDialog } from "../../app/ProductShell";
-
-type ManualInstallMode = Extract<PwaInstallMode, "manual-ios" | "manual-browser">;
+import {
+  PwaInstallHelpDialog,
+  type ManualInstallMode
+} from "../../pwa/PwaInstallHelpDialog";
 type SettingsSection = "profile" | "security" | "notifications";
 
 const settingsSections: SettingsSection[] = ["profile", "security", "notifications"];

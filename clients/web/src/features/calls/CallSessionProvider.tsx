@@ -209,6 +209,15 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * For surfaces that are inside the shell in the product but are rendered on
+ * their own in tests and in isolation — the You screen tears down an active
+ * call when you sign out, but it must not require a call provider to render.
+ */
+export function useOptionalCallSession(): CallSessionContextValue | null {
+  return useContext(CallSessionContext);
+}
+
 export function useCallSession(): CallSessionContextValue {
   const value = useContext(CallSessionContext);
   if (!value) throw new Error("useCallSession must be used within CallSessionProvider");

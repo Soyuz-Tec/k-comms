@@ -34,12 +34,14 @@ test.describe("low-click member information architecture", () => {
         await page.goto(route.path);
         await expect(page.getByRole("heading", { name: route.heading, exact: true })).toBeVisible();
         await expectNoDocumentOverflow(page);
+        await expect(page.locator(".app-shell > .topbar")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Open more menu" })).toHaveCount(0);
+        const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
+        await expect(primaryNavigation.locator("a")).toHaveCount(5);
         await expectMinimumTargets(
-          page.getByRole("button", { name: "Open more menu" }),
-          `${route.heading} more menu control`
+          primaryNavigation.locator("a"),
+          `${route.heading} primary navigation`
         );
-        await expect(page.getByRole("navigation", { name: "Primary navigation" }).locator("a"))
-          .toHaveCount(5);
         if (route.path === "/app/calls" && width === 390) {
           const hideLauncher = page.getByRole("button", { name: "Hide call launcher" });
           await expect(hideLauncher).toBeVisible();
@@ -241,16 +243,16 @@ test.describe("low-click member information architecture", () => {
 
     await page.goto("/app/");
     actions = 0;
-    let menu = await openMoreMenu(page, () => actions += 1);
-    await countedClick(menu.getByRole("link", { name: "Workspace administration" }), () => actions += 1);
+    let workspaceTools = await openYouScreen(page, () => actions += 1);
+    await countedClick(workspaceTools.getByRole("link", { name: "Workspace administration" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
     expect(actions).toBe(2);
     expect(actions).toBeLessThanOrEqual(2);
 
     await page.goto("/app/");
     actions = 0;
-    menu = await openMoreMenu(page, () => actions += 1);
-    await countedClick(menu.getByRole("link", { name: "Service operations" }), () => actions += 1);
+    workspaceTools = await openYouScreen(page, () => actions += 1);
+    await countedClick(workspaceTools.getByRole("link", { name: "Service operations" }), () => actions += 1);
     await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
     expect(actions).toBe(2);
     expect(actions).toBeLessThanOrEqual(2);
@@ -615,11 +617,19 @@ async function countedClick(locator: Locator, count: () => void) {
   count();
 }
 
-async function openMoreMenu(page: Page, count: () => void) {
-  await countedClick(page.getByRole("button", { name: "Open more menu" }), count);
-  const menu = page.getByRole("dialog", { name: "More" });
-  await expect(menu).toBeVisible();
-  return menu;
+/*
+ * Role tools used to sit in a phone overflow drawer that cost a control in the
+ * top bar of every screen. They now sit on the You screen, which already listed
+ * them, so the drawer was duplicating rather than providing. One tap either way.
+ */
+async function openYouScreen(page: Page, count: () => void) {
+  await countedClick(
+    page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }),
+    count
+  );
+  const workspaceTools = page.getByRole("navigation", { name: "Workspace" });
+  await expect(workspaceTools).toBeVisible();
+  return workspaceTools;
 }
 
 async function expectNoDocumentOverflow(page: Page) {

@@ -25,17 +25,24 @@ test.describe("authenticated mobile web acceptance", () => {
       const fixture = await installWorkspace(page);
 
       await page.goto("/app/");
-      // Mobile names the surface once, in the top bar, and keeps the page
-      // heading for assistive technology only.
-      await expect(page.locator(".mobile-workspace-heading")).toHaveText(/^InboxAcme Workspace$/);
+      /*
+       * Nothing sits above the content on a phone. The bar that used to name
+       * the surface resolved its title from the pathname, so inside a
+       * conversation — addressed by query string — it said "Inbox" while you
+       * read a room. The highlighted tab names the destination instead, and the
+       * page heading stays in the accessibility tree.
+       */
+      await expect(page.locator(".app-shell > .topbar")).toHaveCount(0);
+      await expect(page.locator(".mobile-workspace-heading")).toHaveCount(0);
       await expect(page.getByRole("heading", { name: "Inbox" })).toBeAttached();
       await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
       await expect(page.getByRole("button", { name: "Search messages" })).toBeVisible();
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
-      await expect(page.getByRole("button", { name: "Open more menu" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Open more menu" })).toHaveCount(0);
       const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
       await expect(primaryNavigation.locator("a")).toHaveCount(5);
       await expect(primaryNavigation.getByRole("link", { name: "Whiteboard" })).toHaveCount(0);
+      await expectMinimumTargets(primaryNavigation.locator("a"), "primary navigation");
       await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
       await expect(page.locator("nav.product-nav")).toBeHidden();
       await exposeInstallPrompt(page);
@@ -48,61 +55,20 @@ test.describe("authenticated mobile web acceptance", () => {
 
       const conversation = page.getByRole("button", { name: /General/ });
       await expectMinimumTarget(conversation, "conversation row");
-      const menuTrigger = page.getByRole("button", { name: "Open more menu" });
+      /*
+       * Notifications moved out of the deleted top bar and into the inbox,
+       * which is the surface every notification is already about. They keep a
+       * 52px target and stay inside the viewport.
+       */
       const notificationTrigger = page.getByRole("button", { name: "Notifications" });
-      await expectMinimumTarget(menuTrigger, "main menu control");
       await expectMinimumTarget(notificationTrigger, "notification control");
-      const menuTriggerBox = await menuTrigger.boundingBox();
       const notificationTriggerBox = await notificationTrigger.boundingBox();
-      expect(menuTriggerBox).not.toBeNull();
       expect(notificationTriggerBox).not.toBeNull();
-      expect(menuTriggerBox!.width).toBeGreaterThanOrEqual(52);
-      expect(menuTriggerBox!.height).toBeGreaterThanOrEqual(52);
-      expect(menuTriggerBox!.x).toBeGreaterThan(notificationTriggerBox!.x);
-      expect(menuTriggerBox!.x + menuTriggerBox!.width)
+      expect(notificationTriggerBox!.width).toBeGreaterThanOrEqual(48);
+      expect(notificationTriggerBox!.height).toBeGreaterThanOrEqual(48);
+      expect(notificationTriggerBox!.x).toBeGreaterThanOrEqual(0);
+      expect(notificationTriggerBox!.x + notificationTriggerBox!.width)
         .toBeLessThanOrEqual(viewport.width + 1);
-
-      await menuTrigger.click();
-      const productMenu = page.getByRole("dialog", { name: "More" });
-      await expect(productMenu).toBeVisible();
-      const productMenuBox = await productMenu.boundingBox();
-      expect(productMenuBox).not.toBeNull();
-      expect(Math.abs(
-        productMenuBox!.x + productMenuBox!.width - viewport.width
-      )).toBeLessThanOrEqual(1);
-      await expectMinimumTargets(
-        productMenu.getByRole("navigation", { name: "More product areas" }).locator("a"),
-        "more product menu"
-      );
-      await expect(productMenu.getByRole("link", { name: "Whiteboard" })).toBeVisible();
-      await expect(productMenu.getByRole("button", { name: "Start instant room" })).toBeVisible();
-      await expect(productMenu.getByRole("link", { name: "Workspace administration" })).toBeVisible();
-      await expect(productMenu.getByRole("link", { name: "Service operations" })).toBeVisible();
-      await expect(productMenu.getByRole("button", { name: "Install K-Comms" })).toBeVisible();
-      await expect(productMenu.getByRole("button", { name: "Sign out" })).toBeVisible();
-      await expectMinimumTargets(
-        productMenu.locator("a, button"),
-        "complete mobile menu",
-        52
-      );
-      const closeMainMenu = productMenu.getByRole("button", {
-        name: "Close more menu"
-      });
-      const closeMainMenuBox = await closeMainMenu.boundingBox();
-      expect(closeMainMenuBox).not.toBeNull();
-      expect(closeMainMenuBox!.width).toBeGreaterThanOrEqual(52);
-      expect(closeMainMenuBox!.height).toBeGreaterThanOrEqual(52);
-      await expectNoDocumentOverflow(page);
-      if (process.env.K_COMMS_VISUAL_CAPTURE === "1" && [390, 513].includes(viewport.width)) {
-        await page.screenshot({ path: testInfo.outputPath(`menu-${viewport.width}.png`), fullPage: true });
-      }
-      await closeMainMenu.click();
-      await expect(productMenu).toHaveCount(0);
-      await expect(menuTrigger).toBeFocused();
-      await menuTrigger.click();
-      await page.keyboard.press("Escape");
-      await expect(productMenu).toHaveCount(0);
-      await expect(menuTrigger).toBeFocused();
 
       await notificationTrigger.click();
       const notificationDialog = page.getByRole("dialog", { name: "Notifications" });
@@ -145,17 +111,28 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-messages/);
       await expect(page.getByText("Mobile-ready message body", { exact: true })).toBeVisible();
       await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
-      const conversationWorkspace = page.getByRole("navigation", {
-        name: "Conversation workspace"
-      });
-      await expect(conversationWorkspace.getByRole("link", { name: "Chat" }))
-        .toHaveAttribute("aria-current", "page");
-      await expect(conversationWorkspace.getByRole("link", { name: "Canvas" }))
+      /*
+       * A conversation is a leaf, not a destination, so the bottom bar steps
+       * aside and back is the way out. Together with the header collapsing from
+       * two rows to one, that returns 180px to the message list.
+       */
+      await expect(primaryNavigation).toBeHidden();
+      await expect(page.locator(".conversation-section-nav")).toBeHidden();
+      const conversationMore = page.getByRole("button", { name: "More conversation actions" });
+      await expectMinimumTarget(conversationMore, "conversation overflow control");
+      await conversationMore.click();
+      const conversationSheet = page.getByRole("dialog", { name: "Conversation" });
+      await expect(conversationSheet).toBeVisible();
+      await expect(conversationSheet.getByRole("link", { name: "Canvas" }))
         .toHaveAttribute("href", `/app/whiteboard?conversation=${conversationId}`);
-      await expect(conversationWorkspace.getByRole("button", { name: "Activity" }))
-        .toBeVisible();
-      await expect(conversationWorkspace.getByRole("button", { name: "Details" }))
-        .toBeVisible();
+      await expect(conversationSheet.getByRole("button", { name: "Activity" })).toBeVisible();
+      await expect(conversationSheet.getByRole("button", { name: "Details" })).toBeVisible();
+      await expect(conversationSheet.getByRole("button", { name: "Search messages" })).toBeVisible();
+      await expectMinimumTargets(conversationSheet.locator("a, button"), "conversation sheet");
+      await expectNoDocumentOverflow(page);
+      await conversationSheet.getByRole("button", { name: "Close conversation actions" }).click();
+      await expect(conversationSheet).toHaveCount(0);
+      await expect(conversationMore).toBeFocused();
       await expect(page.locator(".composer-heading")).toHaveCount(0);
       await expect(page.locator(".composer-toolbar")).toHaveCount(0);
       await expect(page.getByText(/Enter to send/)).toHaveCount(0);
@@ -174,9 +151,9 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectNoDocumentVerticalOverflow(page);
 
       const back = page.getByRole("button", { name: "Back to conversations" });
+      await expect(page.locator(".conversation-header-main")).toHaveCount(1);
       const startAudio = page.getByRole("button", { name: "Start audio call" });
       const startVideo = page.getByRole("button", { name: "Start video call" });
-      const details = page.getByRole("button", { name: "Details" });
       const attachment = page.locator(".composer .attachment-button");
       const mention = page.locator(".composer .mention-trigger");
       const send = page.locator(".composer .send-button");
@@ -186,7 +163,6 @@ test.describe("authenticated mobile web acceptance", () => {
       await expectMinimumTarget(back, "conversation back control");
       await expectMinimumTarget(startAudio, "audio-call control");
       await expectMinimumTarget(startVideo, "video-call control");
-      await expectMinimumTarget(details, "conversation details control");
       await expectMinimumTarget(attachment, "attachment control");
       await expectMinimumTarget(mention, "mention control");
       await expectMinimumTarget(send, "send control");
@@ -213,7 +189,20 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(conversation).toBeFocused();
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
-      await expect(page.locator(".mobile-workspace-heading")).toContainText("Profile and settings");
+      await expect(page.getByRole("heading", { name: "You", exact: true })).toBeAttached();
+      /*
+       * The You screen absorbed the deleted overflow drawer: the workspace
+       * destinations that gave up a tab, the instant room, and signing out.
+       */
+      const workspaceTools = page.getByRole("navigation", { name: "Workspace" });
+      await expect(workspaceTools.getByRole("link", { name: "Whiteboard" })).toBeVisible();
+      await expect(workspaceTools.getByRole("button", { name: "Start instant room" })).toBeVisible();
+      await expect(workspaceTools.getByRole("link", { name: "Workspace administration" })).toBeVisible();
+      await expect(workspaceTools.getByRole("link", { name: "Service operations" })).toBeVisible();
+      await expectMinimumTargets(workspaceTools.locator("a, button"), "workspace tools");
+      const signOut = page.getByRole("button", { name: "Sign out" });
+      await expect(signOut).toBeVisible();
+      await expectMinimumTarget(signOut, "sign-out control");
       await page.getByRole("tab", { name: "Security" }).click();
       await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
       await expect(page.locator("#device-settings")).not.toHaveAttribute("open", "");
@@ -229,14 +218,14 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.addStyleTag({ content: "html { overflow-y: scroll; scrollbar-gutter: stable; }" });
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("button", { name: "Open more menu" }).click();
-      await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: "Workspace administration" }).click();
+      await page.getByRole("tab", { name: "Profile" }).click();
+      await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
-      await page.getByRole("button", { name: "Open more menu" }).click();
-      await page.getByRole("dialog", { name: "More" }).getByRole("link", { name: "Service operations" }).click();
+      await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
+      await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Service operations" }).click();
       await expect(page.getByRole("heading", { name: "Service operations" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Operations triage" })).toBeVisible();
       await expectNoDocumentOverflow(page);
@@ -383,40 +372,47 @@ test.describe("authenticated mobile web acceptance", () => {
     }
   });
 
-  test("short landscape phones keep the hamburger and contain long workspace names", async ({ page }) => {
+  test("short landscape phones keep the phone shell and contain long workspace names", async ({ page }) => {
     const longWorkspaceName = "Workspace".repeat(15);
     await page.setViewportSize({ width: 844, height: 390 });
     await installWorkspace(page, { tenantName: longWorkspaceName });
     await page.goto("/app/");
 
-    const trigger = page.getByRole("button", { name: "Open more menu" });
-    await expect(trigger).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Workspace navigation" })).toHaveCount(0);
-    await trigger.click();
-
-    const menu = page.getByRole("dialog", { name: "More" });
-    await expect(menu).toBeVisible();
-    await expectMinimumTargets(menu.locator("a, button"), "landscape mobile menu");
+    await expect(page.locator(".app-shell > .topbar")).toHaveCount(0);
+    const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
+    await expect(primaryNavigation.locator("a")).toHaveCount(5);
+    await expectMinimumTargets(primaryNavigation.locator("a"), "landscape primary navigation");
     await expectNoDocumentOverflow(page);
 
+    /* A short window is a phone; a tall wide one is a desk. */
     await page.setViewportSize({ width: 1280, height: 800 });
-    await expect(menu).toHaveCount(0);
+    await expect(primaryNavigation).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Workspace navigation" })).toBeVisible();
     await page.setViewportSize({ width: 844, height: 390 });
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(primaryNavigation.locator("a")).toHaveCount(5);
+    await expectNoDocumentOverflow(page);
   });
 
-  test("browser history closes an open mobile menu", async ({ page }) => {
+  /*
+   * The overflow drawer this used to cover is gone, but the contract it
+   * protected is not: a back navigation must not strand a modal surface over
+   * the route it lands on. The conversation sheet is the surface that inherits
+   * that risk.
+   */
+  test("browser history closes an open conversation sheet", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installWorkspace(page);
     await page.goto("/app/");
-    await page.goto("/app/you");
-    await page.getByRole("button", { name: "Open more menu" }).click();
-    await expect(page.getByRole("dialog", { name: "More" })).toBeVisible();
+    await page.goto(`/app/?conversation=${conversationId}`);
+    await page.getByRole("button", { name: "More conversation actions" }).click();
+    await expect(page.getByRole("dialog", { name: "Conversation" })).toBeVisible();
 
     await page.goBack();
 
     await expect(page).toHaveURL(/\/app\/$/);
-    await expect(page.getByRole("dialog", { name: "More" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Conversation" })).toHaveCount(0);
+    await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
   });
 
   for (const viewport of [

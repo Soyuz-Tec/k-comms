@@ -70,6 +70,10 @@ test("joined user leaves a public channel with the membership version", async ({
   });
   await page.goto("/app/");
   await page.getByRole("button", { name: /Projects/ }).click();
+  await expect(page.getByRole("region", { name: "Projects" })).toBeVisible();
+  // Details is a header control on desktop and an overflow-sheet entry on phones.
+  const conversationMore = page.getByRole("button", { name: "More conversation actions" });
+  if (await conversationMore.isVisible()) await conversationMore.click();
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByRole("button", { name: "Leave channel" })).toBeVisible();
   await page.getByRole("button", { name: "Leave channel" }).click();

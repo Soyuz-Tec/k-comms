@@ -6,16 +6,9 @@
  * high-contrast overlay controls. Drawers remain readable right-side sheets.
  */
 @media (max-width: 760px), (max-height: 560px) {
-  .mobile-menu-member-links a {
-    gap: .7rem;
-    font-size: 1rem;
-  }
+  
 
-  .mobile-menu-member-links .member-nav-icon {
-    width: 24px;
-    height: 24px;
-    flex: 0 0 24px;
-  }
+  
 
   .audio-call-dock.active-call-screen:not(.minimized) .call-dock-heading-actions > .button {
     width: 52px;

@@ -58,10 +58,16 @@ test("user and tenant-admin routes are independently navigable", async ({ page }
   if (await primaryYou.isVisible()) await primaryYou.click();
   else await page.getByRole("link", { name: "You", exact: true }).click();
   await expect(page.getByRole("heading", { name: "You" })).toBeVisible();
-  const openMenu = page.getByRole("button", { name: "Open more menu" });
-  if (await openMenu.isVisible()) {
-    await openMenu.click();
-    await page.getByRole("dialog", { name: "More" })
+  /*
+   * Role tools reach the phone from the You screen this test already opened —
+   * the overflow drawer that used to carry them was duplicating it. Desktop
+   * still reaches them from the account menu in the rail.
+   */
+  const onPhone = await page.getByRole("navigation", { name: "Primary navigation" }).isVisible();
+  if (onPhone) {
+    const workspaceTools = page.getByRole("navigation", { name: "Workspace", exact: true });
+    await expect(workspaceTools).toBeVisible();
+    await workspaceTools
       .getByRole("link", { name: "Workspace administration", exact: true })
       .click();
   } else {
