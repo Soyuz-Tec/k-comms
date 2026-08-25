@@ -4,6 +4,25 @@
 
 ### Changed
 
+- Carried the mobile design system into the screens the shell work had not
+  reached: Calls, Directory, Files, Whiteboard, Workspace administration and
+  Service operations. Raised 124 font-size declarations across 18 files to the
+  12px floor -- they ranged from 8.8px to 11.84px in nineteen distinct values,
+  and Workspace administration alone rendered fourteen sizes with twenty-one
+  elements under the floor. No text below 12px and no control below 44px now
+  remains on any screen at 390x844 or 320x640.
+- Replaced the stat-card carousel on Workspace administration and Service
+  operations with a two-column grid. Cards were 260px wide in a 390px viewport,
+  so the second was always sliced mid-label and the layout read as broken.
+- Reworked the Calls screen. With the call launcher open the phone showed the
+  same rooms twice, once in quick contacts and again in a searchable superset
+  below it; it now shows one list. The launcher toggle is prominent while it
+  opens and quiet while it closes, rather than making a dismissal the loudest
+  control on the page, and its icon follows the action. Message, audio and video
+  row actions moved from 40px to the 44px target floor.
+- Operations triage reports elapsed time in human units. It previously read
+  "The content-blind snapshot is 3553751 seconds old."
+
 - Removed the phone top bar and the More drawer from the member app. The top bar
   resolved its title from the pathname, so inside a conversation — addressed by
   query string — it named the Inbox while a room was open, above a bottom bar

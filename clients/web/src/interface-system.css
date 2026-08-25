@@ -860,6 +860,18 @@
     padding-inline: var(--space-5);
   }
 
+  /*
+   * Inline links that end a card are still thumb targets. The operations
+   * runbook link was 21px tall -- the height of its own text -- which is a
+   * text-sized target on a screen someone reaches for during an incident.
+   */
+  .ops-triage-list a,
+  .security-list > li > div > a {
+    min-height: var(--target-min);
+    display: inline-flex;
+    align-items: center;
+  }
+
   .page-heading h1,
   .member-page-heading h1,
   .admin-heading h1 {
