@@ -305,6 +305,28 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
+  test("active-call actions preserve the mobile touch-target floor", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installWorkspace(page, { callRunning: true });
+    await page.goto("/app/calls");
+
+    const actions = page.locator(".call-session-actions a, .call-session-actions button");
+    await expect(actions.first()).toBeVisible();
+    await expect(actions).toHaveCount(2);
+    await expectMinimumTargets(
+      actions,
+      "active-call actions"
+    );
+    await expectNoDocumentOverflow(page);
+    if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+      await page.screenshot({
+        path: test.info().outputPath("calls-active-targets-390.png"),
+        fullPage: true
+      });
+    }
+    expect(fixture.unexpectedRequests).toEqual([]);
+  });
+
   test("the inbox stays quiet when no call is running", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await installWorkspace(page);
