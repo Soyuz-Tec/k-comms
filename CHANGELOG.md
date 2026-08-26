@@ -4,6 +4,22 @@
 
 ### Changed
 
+- Merged the inbox search field into the heading row, taking the phone inbox
+  from three stacked control rows to two. Chrome falls from 249px to 193px at
+  390x844, and the conversation list gains 56px. At 320px the field wraps to its
+  own line rather than truncating its placeholder, so the narrowest phones keep
+  three rows and a legible field instead of two rows and a clipped one.
+- Resolved the duplicate search affordance the audit flagged. Filtering this
+  list and searching every message are different jobs that presented as two
+  identical magnifiers in two different rows; the second now sits inside the
+  search region, labelled, where it reads as "go deeper" rather than as a
+  repeat of the field beside it.
+- Moved browsing channels beside the scope chips. "What am I looking at" and
+  "find more to look at" are the same question, and the heading cannot hold five
+  controls at 390px without clipping the field and wrapping the New button.
+
+### Changed
+
 - Reduced the emphasis of row actions in the directory and the file list. Each
   row carried a solid accent button, so five people or five files meant five
   maximum-emphasis controls stacked down the screen and the accent stopped

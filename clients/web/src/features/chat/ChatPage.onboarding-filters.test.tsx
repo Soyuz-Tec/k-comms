@@ -36,6 +36,23 @@ describe("ChatPage durable sequence recovery", () => {
     expect(await screen.findByRole("dialog", { name: "Browse channels" })).toBeVisible();
   });
 
+  /*
+   * Browsing channels used to sit in the inbox heading. Moving it beside the
+   * scope chips briefly tied it to the chips" + String.fromCharCode(39) + " own render condition, so it vanished
+   * on an empty inbox -- the moment it is most useful. The scope row renders
+   * whether or not there is anything to scope.
+   */
+  it("keeps the channel browser reachable from the filter row with no conversations", () => {
+    harness.conversations = [];
+    window.localStorage.setItem("k-comms:onboarding:tenant-1:user-1", "dismissed");
+    const { container } = render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+
+    const filterRow = container.querySelector(".conversation-filters");
+    expect(filterRow).not.toBeNull();
+    expect(filterRow!.querySelector(".inbox-filter-trigger")).not.toBeNull();
+    expect(filterRow!.querySelector(".inbox-segments")).toBeNull();
+  });
+
   it("starts or resumes a direct conversation from onboarding in one action without exposing email", async () => {
     const user = userEvent.setup();
     const direct: Conversation = {
