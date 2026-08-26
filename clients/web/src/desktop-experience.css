@@ -25,10 +25,17 @@
  */
 
 @media (min-width: 761px) and (min-height: 561px) {
-  :root {
-    --desktop-sidebar-width: clamp(300px, 26vw, 344px);
-  }
-
+  /*
+   * --desktop-sidebar-width and --desktop-rail-width are declared once, in
+   * interface-system.css, which owns the shell's layout tokens. This file
+   * consumes them.
+   *
+   * They used to be declared here as well, at :root, in this same media query.
+   * interface-system.css is bundled later, so its clamp(320px, 27vw, 360px)
+   * won and the clamp(300px, 26vw, 344px) here was dead -- import order
+   * deciding the conversation list's width, which is the arrangement the rail
+   * block removed in #163 was deleted for.
+   */
   .workspace-grid {
     grid-template-columns: var(--desktop-sidebar-width) minmax(0, 1fr);
     padding: 0;
@@ -434,10 +441,6 @@
 }
 
 @media (min-width: 761px) and (max-width: 1040px) and (min-height: 561px) {
-  :root {
-    --desktop-sidebar-width: 300px;
-  }
-
   .conversation-header-actions .connection-summary {
     display: none;
   }
