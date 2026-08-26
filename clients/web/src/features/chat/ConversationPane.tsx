@@ -36,6 +36,7 @@ export function ConversationPane({
   attachmentsReady,
   audioCallsAvailable,
   callGuidance,
+  callInProgress,
   capabilities,
   composer,
   connectionStatus,
@@ -98,6 +99,7 @@ export function ConversationPane({
   attachmentsReady: boolean;
   audioCallsAvailable: boolean;
   callGuidance: string | null;
+  callInProgress: boolean;
   capabilities: UserCapabilities | null;
   composer: string;
   connectionStatus: ConnectionStatus;
@@ -175,6 +177,7 @@ export function ConversationPane({
             audioCallsAvailable={audioCallsAvailable}
             videoCallsAvailable={videoCallsAvailable}
             callGuidance={callGuidance}
+            callInProgress={callInProgress}
             mobileBackRef={mobileBackRef}
             showSearch={showSearch}
             showActivity={showActivity}

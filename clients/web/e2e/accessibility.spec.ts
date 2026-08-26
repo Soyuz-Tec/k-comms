@@ -136,7 +136,9 @@ test("populated and offline messaging states satisfy automated WCAG A and AA che
 test("an inbox with a call running satisfies automated WCAG A and AA checks", async ({ page }) => {
   await installAuthenticatedMocks(page, { populated: true, callRunning: true });
   await page.goto("/app/");
-  await expect(page.getByRole("button", { name: /General/ })).toContainText("Active call");
+  // Anchored: the call strip's "Join the call in General" button also carries
+  // the room name, and only the conversation row starts with it.
+  await expect(page.getByRole("button", { name: /^General/ })).toContainText("Active call");
   await expectNoWcagFailures(page);
 });
 

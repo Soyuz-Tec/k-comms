@@ -626,6 +626,11 @@ export function ChatPage() {
         attachmentsReady={attachmentsReady}
         audioCallsAvailable={audioCallsAvailable}
         callGuidance={callGuidance}
+        callInProgress={
+          Boolean(activeConversation) &&
+          activeCallConversationIds.has(activeConversation!.id) &&
+          callTargetConversation?.id !== activeConversation!.id
+        }
         capabilities={capabilities}
         composer={composer}
         connectionStatus={connectionStatus}

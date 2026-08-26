@@ -12,6 +12,9 @@ vi.mock("../calls/CallSessionProvider", () => ({
       <button type="button">Start audio call</button>
       <button type="button">Start video call</button>
     </div>
+  ),
+  CallLaunchButton: ({ children }: { children: React.ReactNode }) => (
+    <button type="button">{children}</button>
   )
 }));
 
