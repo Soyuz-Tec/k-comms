@@ -123,13 +123,6 @@ export function CallsPage() {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, 8);
   }, [conversationQuery, conversations]);
-  const quickConversations = useMemo(() => conversations
-    .filter((conversation) => !conversation.archived_at)
-    .sort((left, right) => {
-      const directPriority = Number(right.kind === "direct") - Number(left.kind === "direct");
-      return directPriority || right.updated_at.localeCompare(left.updated_at);
-    })
-    .slice(0, 5), [conversations]);
   const launcherExpanded = launcherPreference ?? (!loading && calls.length === 0);
 
   if (!session) return null;
@@ -274,6 +267,11 @@ export function CallsPage() {
               })}
             </ul>
           )}
+          <Link className="calls-directory-link" to="/app/directory">
+            <AppIcon name="contact" />
+            Browse directory
+            <AppIcon name="arrowUpRight" />
+          </Link>
         </section>
 
         <section className="calls-history" aria-labelledby="call-sessions-heading">
@@ -358,49 +356,6 @@ export function CallsPage() {
           )}
         </section>
 
-        <aside className="calls-quick-panel" aria-labelledby="quick-contacts-heading">
-          <div className="calls-panel-heading calls-quick-heading">
-            <span className="calls-panel-icon" aria-hidden="true"><AppIcon name="users" /></span>
-            <div>
-              <span className="eyebrow">Recent conversations</span>
-              <h2 id="quick-contacts-heading">Quick contacts</h2>
-              <p>Jump back into the people and rooms you use most recently.</p>
-            </div>
-          </div>
-          {quickConversations.length === 0 ? (
-            <div className="calls-quick-empty">
-              <span aria-hidden="true"><AppIcon name="userPlus" /></span>
-              <strong>No quick contacts yet</strong>
-              <p>Find a teammate or room in the directory to get started.</p>
-            </div>
-          ) : (
-            <ul className="calls-quick-list">
-              {quickConversations.map((conversation) => {
-                const title = conversationParticipantIdentifier(conversation, duplicateDirectNames);
-                return (
-                  <li key={conversation.id}>
-                    <ConversationIdentity conversation={conversation} title={title} />
-                    <div className="calls-quick-contact-actions">
-                      <Link to={conversationPath(conversation.id)} aria-label={`Message ${title}`} title={`Message ${title}`}>
-                        <AppIcon name="message" />
-                      </Link>
-                      {canUseAudio && (
-                        <CallLaunchButton conversation={conversation} kind="audio" ariaLabel={`Audio call ${title}`}>
-                          <AppIcon name="phone" />
-                        </CallLaunchButton>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-          <Link className="calls-directory-link" to="/app/directory">
-            <AppIcon name="contact" />
-            Browse directory
-            <AppIcon name="arrowUpRight" />
-          </Link>
-        </aside>
 
         <CallReadinessLauncher
           api={api}

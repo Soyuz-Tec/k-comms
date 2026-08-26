@@ -238,6 +238,16 @@ export function FilesPage() {
             <strong>No {category} found</strong>
           </div>
         ) : (
+          <>
+          {visibleFiles.length > 0 && <div className="files-column-heads" aria-hidden="true">
+            <span />
+            <span>Name</span>
+            <span>Shared by</span>
+            <span>Conversation</span>
+            <span>Size</span>
+            <span>Added</span>
+            <span />
+          </div>}
           <ol className="files-list" aria-busy={loadingMore}>
             {visibleFiles.map((file) => (
               <FileRow
@@ -252,6 +262,7 @@ export function FilesPage() {
               />
             ))}
           </ol>
+          </>
         )}
 
         {hasMore && !error && (
@@ -309,15 +320,21 @@ function FileRow({
             ? <span className="visually-hidden">{safetyLabel(file.safety_state)}</span>
             : <span className={`file-safety ${file.safety_state}`}>{safetyLabel(file.safety_state)}</span>}
         </div>
+        {/*
+          * The meta keeps its two-line reading order and its separators, which
+          * is what phones render. The classes exist so the desktop layer can
+          * lift these into columns with display: contents and place each one by
+          * name — reordering there without moving anything here.
+          */}
         <p>
-          <span>{formatBytes(file.byte_size)}</span>
+          <span className="file-row-size">{formatBytes(file.byte_size)}</span>
           <span aria-hidden="true"> · </span>
-          <span>{sourceTitle}</span>
+          <span className="file-row-source">{sourceTitle}</span>
         </p>
         <p>
-          <span>Shared by {ownerIdentifier}</span>
+          <span className="file-row-owner">Shared by {ownerIdentifier}</span>
           <span aria-hidden="true"> · </span>
-          <time dateTime={sharedAt}>{formatDateTime(sharedAt)}</time>
+          <time className="file-row-time" dateTime={sharedAt}>{formatDateTime(sharedAt)}</time>
         </p>
       </div>
       <div className="file-row-actions">
@@ -326,7 +343,7 @@ function FileRow({
           aria-label={`View source message for ${file.file_name}`}
         >
           <AppIcon name="externalLink" />
-          View message
+          <span className="file-row-action-label">View message</span>
         </Link>
         <button
           type="button"
@@ -336,7 +353,7 @@ function FileRow({
           onClick={onDownload}
         >
           <AppIcon name="download" />
-          {downloading ? "Opening…" : "Download"}
+          <span className="file-row-action-label">{downloading ? "Opening…" : "Download"}</span>
         </button>
       </div>
     </li>

@@ -15,8 +15,7 @@
 
 .calls-page-title-lockup,
 .calls-page-actions,
-.calls-panel-heading,
-.calls-quick-contact-actions {
+.calls-panel-heading{
   display: flex;
   align-items: center;
 }
@@ -52,8 +51,11 @@
 }
 
 .calls-page-heading h1 {
-  margin: .15rem 0 .25rem;
-  font-size: clamp(1.75rem, 3vw, 2.45rem);
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -.02em;
 }
 
 .calls-page-heading p {
@@ -68,7 +70,7 @@
 }
 
 .calls-page-actions .button {
-  min-height: 44px;
+  min-height: 36px;
   text-decoration: none;
 }
 
@@ -80,21 +82,27 @@
 .calls-workspace {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(16rem, .8fr) minmax(24rem, 1.4fr) minmax(15rem, .72fr);
+  grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr);
   grid-template-rows: minmax(28rem, auto) auto;
   overflow: hidden;
-  border: 1px solid var(--border-default);
-  border-radius: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
-  box-shadow: 0 16px 44px rgb(var(--shadow-color) / 7%);
+  box-shadow: none;
 }
 
+/*
+ * A panel title labels the thing underneath it; it is not a second page title.
+ * At clamp(1.2rem, 2vw, 1.55rem) in the display face these competed with
+ * "Calls" itself, and each already had a tracked-out eyebrow above it saying
+ * the same thing in fewer words.
+ */
 .calls-page h2 {
-  margin: .15rem 0;
-  font-family: var(--font-display);
-  font-size: clamp(1.2rem, 2vw, 1.55rem);
-  font-weight: 550;
-  letter-spacing: -.025em;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: 600;
+  letter-spacing: -.01em;
 }
 
 .calls-new-call-toggle {
@@ -103,7 +111,6 @@
 
 .calls-launcher,
 .calls-history,
-.calls-quick-panel,
 .call-readiness-launcher {
   min-width: 0;
   padding: clamp(1rem, 2vw, 1.35rem);
@@ -119,14 +126,6 @@
 .calls-history {
   grid-column: 2;
   grid-row: 1 / span 2;
-}
-
-.calls-quick-panel {
-  grid-column: 3;
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--border-default);
 }
 
 .call-readiness-launcher {
@@ -188,7 +187,6 @@
 
 .calls-panel-heading p,
 .calls-section-heading p,
-.calls-quick-empty p,
 .call-readiness-launcher-copy p {
   margin: .35rem 0 0;
   color: var(--text-secondary);
@@ -242,7 +240,6 @@
 }
 
 .calls-launch-list,
-.calls-quick-list,
 .call-session-list {
   display: grid;
   margin: 0;
@@ -257,8 +254,7 @@
   padding-right: .15rem;
 }
 
-.calls-launch-list > li,
-.calls-quick-list > li {
+.calls-launch-list > li{
   min-width: 0;
   display: flex;
   align-items: center;
@@ -272,8 +268,7 @@
   padding: .55rem;
 }
 
-.calls-launch-list > li:hover,
-.calls-quick-list > li:hover {
+.calls-launch-list > li:hover{
   border-color: var(--border-default);
   background: var(--surface-canvas);
 }
@@ -332,8 +327,6 @@
 
 .calls-quick-actions a,
 .calls-quick-actions button,
-.calls-quick-contact-actions a,
-.calls-quick-contact-actions button,
 .call-session-actions a,
 .call-session-actions button,
 .calls-load-more,
@@ -359,9 +352,7 @@
  * three still under the floor after the shell work.
  */
 .calls-quick-actions a,
-.calls-quick-actions button,
-.calls-quick-contact-actions a,
-.calls-quick-contact-actions button {
+.calls-quick-actions button{
   width: var(--target-min);
   min-width: var(--target-min);
   height: var(--target-min);
@@ -377,8 +368,6 @@
 
 .calls-quick-actions a:hover,
 .calls-quick-actions button:not(:disabled):hover,
-.calls-quick-contact-actions a:hover,
-.calls-quick-contact-actions button:not(:disabled):hover,
 .call-session-actions a:hover,
 .call-session-actions button:not(:disabled):hover,
 .calls-load-more:hover,
@@ -422,22 +411,29 @@
   border: 0;
 }
 
+/*
+ * A chosen scope is not a call to action. The accent's solid fill is rationed
+ * to the primary action, the active destination, unread counts and send; a
+ * selected filter is the white plane lifting out of a sunken track.
+ */
 .calls-segments button {
-  min-width: 72px;
-  min-height: 40px;
-  padding: .5rem .8rem;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  background: var(--surface-raised);
-  font-weight: 800;
+  min-width: 0;
+  min-height: 30px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .calls-segments button[aria-pressed="true"] {
-  border-color: var(--accent-solid);
-  color: var(--text-on-accent);
-  background: var(--accent-solid);
-  box-shadow: 0 4px 12px rgb(var(--shadow-color) / 16%);
+  border-color: transparent;
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  box-shadow: 0 1px 2px rgb(var(--shadow-color) / 8%);
+  font-weight: 600;
 }
 
 .calls-media-filter {
@@ -670,23 +666,6 @@
   margin-top: .75rem;
 }
 
-.calls-quick-heading {
-  margin-bottom: .65rem;
-}
-
-.calls-quick-list {
-  gap: .25rem;
-}
-
-.calls-quick-list > li {
-  padding: .6rem .45rem;
-}
-
-.calls-quick-contact-actions {
-  flex: 0 0 auto;
-  gap: .15rem;
-}
-
 .calls-directory-link {
   min-height: 44px;
   display: flex;
@@ -703,28 +682,6 @@
 
 .calls-directory-link .app-icon:last-child {
   margin-left: auto;
-}
-
-.calls-quick-empty {
-  display: grid;
-  place-items: center;
-  padding: 3rem .5rem;
-  text-align: center;
-}
-
-.calls-quick-empty > span {
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  margin-bottom: .8rem;
-  border-radius: 50%;
-  color: var(--accent-text);
-  background: var(--accent-quiet);
-}
-
-.calls-quick-empty p {
-  max-width: 15rem;
 }
 
 .call-readiness-launcher-copy .eyebrow {
@@ -799,17 +756,6 @@
   .calls-history {
     grid-column: 2;
   }
-
-  .calls-quick-panel {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    border-top: 1px solid var(--border-default);
-    border-left: 0;
-  }
-
-  .calls-quick-list {
-    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  }
 }
 
 @media (max-width: 760px), (max-height: 560px) {
@@ -874,7 +820,6 @@
 
   .calls-history,
   .calls-launcher,
-  .calls-quick-panel,
   .call-readiness-launcher,
   .calls-new-call-toggle {
     grid-column: 1;
@@ -883,10 +828,6 @@
 
   .calls-history {
     order: 1;
-  }
-
-  .calls-quick-panel {
-    order: 2;
   }
 
   .call-readiness-launcher {
@@ -902,8 +843,7 @@
   }
 
   .calls-history,
-  .calls-launcher,
-  .calls-quick-panel {
+  .calls-launcher{
     padding: 0;
     border: 0;
   }
@@ -981,47 +921,6 @@
     border-width: 5px;
   }
 
-  .calls-quick-panel {
-    margin-top: .25rem;
-    padding: .8rem;
-    border: 1px solid var(--border-default);
-    border-radius: 14px;
-    background: var(--surface-canvas);
-  }
-
-  .calls-quick-heading {
-    margin-bottom: .45rem;
-  }
-
-  .calls-quick-heading .calls-panel-icon,
-  .calls-quick-heading .eyebrow,
-  .calls-quick-heading p {
-    display: none;
-  }
-
-  .calls-quick-heading h2 {
-    font-family: var(--font-body);
-    font-size: .95rem;
-    font-weight: 750;
-  }
-
-  .calls-quick-list {
-    display: flex;
-    gap: .45rem;
-    overflow-x: auto;
-    padding-bottom: .25rem;
-    scroll-snap-type: x proximity;
-  }
-
-  .calls-quick-list > li {
-    min-width: min(82vw, 18rem);
-    flex: 0 0 auto;
-    padding: .55rem;
-    border-color: var(--border-default);
-    background: var(--surface-raised);
-    scroll-snap-align: start;
-  }
-
   .calls-directory-link {
     margin-top: .45rem;
     padding-top: .55rem;
@@ -1097,9 +996,7 @@
    * directly above a searchable superset of itself, so the phone shows one
    * list, not two.
    */
-  .calls-workspace:has(.calls-launcher.is-mobile-open) .calls-quick-panel {
-    display: none;
-  }
+  
 
   .calls-launcher:not(.is-mobile-open) {
     display: none;
@@ -1189,7 +1086,6 @@
 @media (forced-colors: active) {
   .calls-workspace,
   .calls-launch-list > li,
-  .calls-quick-list > li,
   .call-session-row,
   .calls-segments button[aria-pressed="true"],
   .call-readiness-launcher {
@@ -1201,5 +1097,36 @@
   .call-media-mark,
   .calls-empty-illustration {
     forced-color-adjust: none;
+  }
+}
+
+/* ─── Desktop: scope track and filter height ──────────────────────────────── */
+
+/*
+ * The selected scope is the white plane lifting out of a sunken track, so the
+ * track has to exist — on a white panel a white pill with no groove behind it
+ * reads as nothing at all. The media filter sits in the same row and matches
+ * its height rather than standing 14px taller.
+ */
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .calls-segments {
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--radius-full);
+    background: var(--surface-sunken);
+  }
+
+  .calls-media-filter select {
+    min-height: 30px;
+    padding-block: 0;
+    border-color: var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+  }
+
+  .calls-media-filter .app-icon {
+    width: 14px;
+    height: 14px;
   }
 }

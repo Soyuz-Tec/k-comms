@@ -86,7 +86,13 @@ export function MessageItem({
   return (
     <>
     <li id={`message-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
-      {!mine && <span className="avatar small" aria-hidden="true">{initials(senderName || "Unknown")}</span>}
+      {/*
+        * Every message carries its sender's avatar, your own included. The
+        * desktop transcript is a flat list rather than two facing columns of
+        * bubbles, so the avatar gutter is what aligns the rows — skipping it on
+        * your own messages left them hanging in an empty column.
+        */}
+      <span className="avatar small" aria-hidden="true">{initials(senderName || "Unknown")}</span>
       <article className="message-content">
         {/*
           * The sender label sits above the bubble and the timestamp below it,

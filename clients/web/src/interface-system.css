@@ -223,14 +223,14 @@
 
 @media (min-width: 761px) and (min-height: 561px) {
   :root {
-    --desktop-rail-width: 248px;
+    --desktop-rail-width: 240px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
   }
 
   .app-shell {
     min-width: 0;
     padding-left: var(--desktop-rail-width);
-    background: var(--surface-canvas);
+    background: var(--surface-raised);
   }
 
   .workspace-sidebar {
@@ -245,7 +245,7 @@
     padding: .72rem .78rem;
     border-right: 1px solid var(--border-subtle);
     color: var(--text-primary);
-    background: var(--surface-rail);
+    background: var(--surface-canvas);
   }
 
   .app-shell.workspace-sidebar-collapsed {
@@ -269,7 +269,7 @@
     place-items: center;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     color: var(--text-muted);
     background: transparent;
   }
@@ -285,7 +285,6 @@
     outline-offset: 2px;
   }
 
-  .workspace-sidebar-brand,
   .workspace-sidebar-identity,
   .workspace-account-trigger,
   .workspace-sidebar-notifications {
@@ -295,7 +294,6 @@
     gap: .7rem;
   }
 
-  .workspace-brand-copy,
   .workspace-identity-copy,
   .workspace-account-copy {
     min-width: 0;
@@ -303,16 +301,14 @@
     gap: .1rem;
   }
 
-  .workspace-brand-copy strong,
   .workspace-identity-copy strong,
   .workspace-account-copy strong {
     overflow: hidden;
-    font-size: .86rem;
+    font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .workspace-brand-copy small,
   .workspace-identity-copy small,
   .workspace-account-copy small {
     overflow: hidden;
@@ -325,11 +321,18 @@
   }
 
   .workspace-sidebar-identity {
-    min-height: 48px;
-    padding: .35rem .42rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: 14px;
-    background: var(--surface-raised);
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+
+  .workspace-sidebar-identity .workspace-mark {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+    font-size: var(--text-sm);
   }
 
   .workspace-avatar {
@@ -338,27 +341,27 @@
     display: grid;
     flex: 0 0 36px;
     place-items: center;
-    border-radius: 10px;
+    border-radius: var(--radius-sm);
     color: var(--accent-text);
     background: var(--accent-quiet);
-    font-size: .78rem;
-    font-weight: 850;
+    font-size: var(--text-xs);
+    font-weight: 600;
   }
 
   .workspace-instant-room {
-    min-height: 44px;
+    min-height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: .6rem;
     padding: .58rem .75rem;
     border: 1px solid var(--accent-solid);
-    border-radius: 13px;
+    border-radius: var(--radius-sm);
     color: var(--text-on-accent);
     background: var(--accent-solid);
     font: inherit;
-    font-size: .8rem;
-    font-weight: 780;
+    font-size: var(--text-sm);
+    font-weight: 500;
   }
 
   .workspace-instant-room:hover {
@@ -388,7 +391,7 @@
     color: var(--text-muted);
     font-family: var(--font-body);
     font-size: var(--text-xs);
-    font-weight: 820;
+    font-weight: 600;
     letter-spacing: .1em;
     text-transform: uppercase;
   }
@@ -400,10 +403,10 @@
     gap: .72rem;
     padding: .65rem .72rem;
     border: 1px solid transparent;
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     color: var(--text-muted);
-    font-size: .8rem;
-    font-weight: 730;
+    font-size: var(--text-sm);
+    font-weight: 500;
     text-decoration: none;
   }
 
@@ -432,8 +435,8 @@
     min-height: 44px;
     padding-inline: .25rem;
     color: var(--text-muted);
-    font-size: .76rem;
-    font-weight: 720;
+    font-size: var(--text-sm);
+    font-weight: 500;
   }
 
   .workspace-sidebar .notification-trigger,
@@ -446,7 +449,7 @@
     place-items: center;
     padding: 0;
     border: 1px solid transparent;
-    border-radius: 12px;
+    border-radius: var(--radius-sm);
     color: var(--text-primary);
     background: transparent;
   }
@@ -475,7 +478,7 @@
   .workspace-account-trigger .avatar {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: var(--radius-full);
     color: var(--text-on-accent);
     background: var(--accent-solid);
   }
@@ -490,8 +493,19 @@
     left: calc(var(--desktop-rail-width) + .75rem);
   }
 
+  /*
+   * The notification portal is a sibling of .app-shell, so it is positioned
+   * against the viewport rather than the rail. Its top/right/bottom reset used
+   * to live in the dead .desktop-workspace-rail block in desktop-experience.css
+   * — the one live rule in it — and mobile-ui.spec.ts pins the 16px gap to the
+   * viewport bottom, so it is stated here beside the offset it belongs with.
+   */
   body > .notification-panel {
+    top: auto;
+    right: auto;
+    bottom: var(--space-4);
     left: calc(var(--desktop-rail-width) + .75rem);
+    color: var(--text-primary);
   }
 
   body:has(.workspace-sidebar.is-collapsed) > .notification-panel {
@@ -510,7 +524,6 @@
     gap: .18rem;
   }
 
-  .workspace-sidebar.is-collapsed .workspace-brand-copy,
   .workspace-sidebar.is-collapsed .workspace-identity-copy,
   .workspace-sidebar.is-collapsed .workspace-account-copy,
   .workspace-sidebar.is-collapsed .workspace-account-chevron,
@@ -521,10 +534,12 @@
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-identity {
-    display: none;
+    min-height: 0;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
   }
 
-  .workspace-sidebar.is-collapsed .workspace-sidebar-brand,
   .workspace-sidebar.is-collapsed .workspace-sidebar-notifications,
   .workspace-sidebar.is-collapsed .workspace-account-menu,
   .workspace-sidebar.is-collapsed .workspace-sidebar-nav,
@@ -672,7 +687,6 @@
     display: none;
   }
 
-  .workspace-brand-copy,
   .workspace-identity-copy,
   .workspace-account-copy,
   .workspace-account-chevron,
@@ -682,7 +696,6 @@
     display: none;
   }
 
-  .workspace-sidebar-brand,
   .workspace-sidebar-identity,
   .workspace-sidebar-notifications,
   .workspace-account-menu,
@@ -1013,5 +1026,332 @@
 
   .workspace-sidebar {
     top: env(titlebar-area-height, 0px);
+  }
+}
+
+/* ─── Desktop system: shared page hierarchy ───────────────────────────────── */
+
+/*
+ * The composition rules every desktop screen above the phone breakpoint obeys,
+ * applied once here rather than per feature. Three things this block undoes:
+ *
+ *   Marketing-scale headings. A settings screen titled at clamp(2rem, 3vw,
+ *   2.85rem) — 45px at 1440 — is a landing page, not a workspace. Screen titles
+ *   are --text-lg, the same size the conversation list and the thread use, so
+ *   the eye reads content instead of chrome.
+ *
+ *   Eyebrows over page titles. "Workspace communication" above Calls and
+ *   "Tenant administration" above the admin title restate the destination the
+ *   sidebar already highlights. They stay in the accessibility tree — only the
+ *   pixels go — because the visible title alone is sometimes a bare noun.
+ *
+ *   Floating panels. Cards sat on 18px radii with drop shadows over a tinted
+ *   canvas. With the rail carrying the tint and content on the white plane,
+ *   separation is a hairline and a surface step; shadow is left to things that
+ *   genuinely float — menus, popovers, the call dock, drag-out chips.
+ */
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .page-heading h1,
+  .member-page-heading h1,
+  .admin-heading h1,
+  .whiteboard-heading h1 {
+    margin: 0;
+    font-family: var(--font-body);
+    font-size: var(--text-lg);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.3;
+  }
+
+  .page-heading,
+  .member-page-heading {
+    align-items: center;
+    margin-bottom: var(--space-5);
+  }
+
+  .page-heading p,
+  .member-page-heading p {
+    margin: var(--space-1) 0 0;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+
+  .page-heading .eyebrow,
+  .member-page-heading .eyebrow,
+  .admin-heading .eyebrow,
+  .calls-page-mark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  /* Elevation is a hairline and a surface step. */
+  .settings-card,
+  .data-card,
+  .admin-stats article,
+  .calls-launcher,
+  .calls-history,
+  .files-surface {
+    border-radius: var(--radius-md);
+    box-shadow: none;
+  }
+
+  .settings-section-tabs {
+    border-radius: var(--radius-md);
+    background: var(--surface-sunken);
+  }
+
+  .settings-section-tabs button {
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  /*
+   * Settings is a two-column screen: sections down the left, the chosen
+   * section's cards down the right. A full-width three-across tablist put a
+   * 1100px-wide control above content that is never wider than a form, and it
+   * grew a fourth of the width every time a section was added.
+   *
+   * The panels are flat siblings of the tablist, so the columns are assigned
+   * rather than wrapped: the heading spans both, the tablist takes column one,
+   * and everything else is placed in column two, where auto-placement flows it
+   * down beside the nav.
+   */
+  .settings-page {
+    grid-template-columns: 208px minmax(0, 1fr);
+    align-items: start;
+    column-gap: var(--space-6);
+  }
+
+  .settings-page > * {
+    grid-column: 2;
+  }
+
+  .settings-page-heading {
+    grid-column: 1 / -1;
+  }
+
+  .settings-section-tabs {
+    min-height: 0;
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .settings-section-tabs button {
+    min-height: 36px;
+    justify-content: flex-start;
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+  }
+
+  /*
+   * Vertical, on the white plane: the chosen section is the active destination,
+   * so it takes the same quiet accent the sidebar's current nav item takes. A
+   * white pill with a shadow says nothing against a white page.
+   */
+  .settings-section-tabs button[aria-selected="true"] {
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+    box-shadow: none;
+    font-weight: 600;
+  }
+
+  /*
+   * Outlined cards inside a tinted panel is two containers doing one job. The
+   * shortcuts keep their outlines; the panel behind them goes.
+   */
+  .you-role-shortcuts {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  /* A card title labels the card; it is not a second page title. */
+  .settings-card h2,
+  .data-card h2 {
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  /*
+   * Controls. Four heights and nothing between them: 44 for rail navigation,
+   * 36 for buttons, icon buttons and inputs, 32 for actions inside a row, 30
+   * for scope chips. The hover lift and the shadow under a filled button both
+   * go — a button that moves under the cursor is a toy, and a violet fill needs
+   * no help being seen.
+   */
+  .button {
+    min-height: 36px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .button:not(:disabled):hover {
+    transform: none;
+  }
+
+  .button.primary {
+    box-shadow: none;
+  }
+
+  .button.compact {
+    min-height: 32px;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .icon-button {
+    width: 36px;
+    height: 36px;
+    border-color: transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    background: transparent;
+  }
+
+  .icon-button:hover {
+    color: var(--text-primary);
+    background: var(--surface-canvas);
+  }
+
+  .member-search {
+    min-height: 36px;
+    border-color: var(--border-default);
+    border-radius: var(--radius-sm);
+  }
+
+  .member-search input {
+    min-height: 34px;
+    font-size: var(--text-sm);
+  }
+
+  .member-segmented-control {
+    min-height: 36px;
+    padding: 3px;
+    border-color: transparent;
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+  }
+
+  .member-segmented-control button {
+    min-height: 30px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 500;
+  }
+
+  /*
+   * A selected scope is not a call to action. The accent's solid fill is
+   * rationed to the primary action, the active destination, unread counts and
+   * send; a chosen filter is the white plane lifting out of the sunken track.
+   */
+  .member-segmented-control button[aria-pressed="true"] {
+    color: var(--text-primary);
+    background: var(--surface-raised);
+    box-shadow: 0 1px 2px rgb(var(--shadow-color) / 8%);
+    font-weight: 600;
+  }
+
+  /* Rows: one density, one radius, hover as a surface step. */
+  .directory-row,
+  .file-row {
+    padding: var(--space-3) var(--space-3);
+    border-color: transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .directory-row:hover,
+  .file-row:hover {
+    background: var(--surface-canvas);
+  }
+
+  .directory-list,
+  .files-list {
+    gap: 2px;
+  }
+
+  .directory-action.icon,
+  .file-row-actions .icon-button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .admin-stats article strong {
+    font-size: var(--text-xl);
+    font-weight: 600;
+    letter-spacing: -.02em;
+  }
+
+  .admin-stats article span,
+  .admin-stats article small {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .admin-section-nav button {
+    min-height: 30px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 500;
+  }
+
+  /*
+   * Six destinations do not need three category headings. COMMUNICATE /
+   * COLLABORATE / PERSONAL cost three rows of tracked-out caps to group two,
+   * three and one item; the hairline above "You" carries the only division
+   * that earns its place. The labels stay in the accessibility tree because
+   * each one is the aria-labelledby target of its section.
+   */
+  .member-nav-group-label,
+  .workspace-identity-copy small,
+  .calls-panel-heading .eyebrow,
+  .calls-section-heading .eyebrow,
+  .calls-quick-heading .eyebrow,
+  .files-toolbar .eyebrow {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .workspace-sidebar-nav {
+    gap: 2px;
+  }
+
+  .member-nav-group {
+    gap: 2px;
+  }
+
+  .attachment-button {
+    min-height: 32px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
   }
 }

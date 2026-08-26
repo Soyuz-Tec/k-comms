@@ -150,23 +150,33 @@ describe("CallsPage", () => {
     expect(screen.queryByText(/missed|declined|scheduled/i)).not.toBeInTheDocument();
   });
 
-  it("offers truthful quick-contact shortcuts from recent conversations", async () => {
+  /*
+   * The screen used to carry a second "Quick contacts" column beside the
+   * launcher. Both listed unarchived conversations most-recent-first and both
+   * offered message, audio and video on every row; the only difference was
+   * that the panel floated direct messages up and cut the list at five. The
+   * shortcuts it provided now have to hold in the launcher, which is what this
+   * checks.
+   */
+  it("offers truthful conversation shortcuts from the call launcher", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter initialEntries={["/app/calls"]}><CallsPage /></MemoryRouter>);
 
     await screen.findByText("Active room");
-    const quickContacts = screen.getByRole("complementary", { name: "Quick contacts" });
-    expect(within(quickContacts).getByText("Execution room")).toBeVisible();
-    expect(within(quickContacts).getByRole("link", { name: "Message Execution room" })).toHaveAttribute(
+    expect(screen.queryByRole("complementary", { name: "Quick contacts" })).not.toBeInTheDocument();
+
+    const launcher = screen.getByRole("region", { name: "Start a call" });
+    expect(within(launcher).getByText("Execution room")).toBeVisible();
+    expect(within(launcher).getByRole("link", { name: "Message Execution room" })).toHaveAttribute(
       "href",
       `/app/?conversation=${conversationId}`
     );
-    expect(within(quickContacts).getByRole("link", { name: "Browse directory" })).toHaveAttribute(
+    expect(within(launcher).getByRole("link", { name: "Browse directory" })).toHaveAttribute(
       "href",
       "/app/directory"
     );
 
-    await user.click(within(quickContacts).getByRole("button", { name: "Audio call Execution room" }));
+    await user.click(within(launcher).getByRole("button", { name: "Audio call Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
   });
 

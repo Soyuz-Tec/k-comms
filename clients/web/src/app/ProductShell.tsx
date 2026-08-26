@@ -113,12 +113,21 @@ function ProductShellContent() {
         )}
         <a className="skip-link" href="#main-content">Skip to content</a>
         {desktopShell && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
+          {/*
+            * One row, not two. The brand row said "K-Comms / Communication
+            * workspace" and the identity row underneath said "Workspace /
+            * <tenant>" — 92px of chrome to name the product you are already
+            * inside, and then to label the tenant with a word the reader can
+            * see for themselves. The mark carries the product, the name
+            * carries the tenant, and "Workspace" stays as the accessible label
+            * for the row rather than as a visible caption.
+            */}
           <div className="workspace-sidebar-header">
-            <div className="workspace-sidebar-brand">
+            <div className="workspace-sidebar-identity" title={session.tenant.name}>
               <span className="workspace-mark" aria-hidden="true">K</span>
-              <span className="workspace-brand-copy">
-                <strong>K-Comms</strong>
-                <small>Communication workspace</small>
+              <span className="workspace-identity-copy">
+                <small>Workspace</small>
+                <strong>{session.tenant.name}</strong>
               </span>
             </div>
             <button
@@ -131,13 +140,6 @@ function ProductShellContent() {
             >
               <AppIcon name={workspaceSidebarCollapsed ? "panelLeftOpen" : "panelLeftClose"} />
             </button>
-          </div>
-          <div className="workspace-sidebar-identity" title={session.tenant.name}>
-            <span className="workspace-avatar" aria-hidden="true">{initials(session.tenant.name).slice(0, 1)}</span>
-            <span className="workspace-identity-copy">
-              <small>Workspace</small>
-              <strong>{session.tenant.name}</strong>
-            </span>
           </div>
           <button
             className="workspace-instant-room"

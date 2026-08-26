@@ -9,7 +9,7 @@ import type {
   Conversation,
   UserCapabilities
 } from "../../types";
-import { CallLaunchActions } from "../calls/CallSessionProvider";
+import { CallLaunchActions, CallLaunchButton } from "../calls/CallSessionProvider";
 import { canCreateGuestLink } from "../guest/ConversationShareDialog";
 import {
   connectionLabel,
@@ -26,6 +26,7 @@ export function ConversationWorkspaceHeader({
   audioCallsAvailable,
   videoCallsAvailable,
   callGuidance,
+  callInProgress = false,
   mobileBackRef,
   showSearch,
   showActivity,
@@ -44,6 +45,7 @@ export function ConversationWorkspaceHeader({
   audioCallsAvailable: boolean;
   videoCallsAvailable: boolean;
   callGuidance: string | null;
+  callInProgress?: boolean;
   mobileBackRef: RefObject<HTMLButtonElement | null>;
   showSearch: boolean;
   showActivity: boolean;
@@ -178,6 +180,31 @@ export function ConversationWorkspaceHeader({
           Details
         </button>
       </nav>
+      {/*
+        * The conversation list marks rooms with a call running; the open room
+        * did not say so anywhere. This strip is that missing state, and only
+        * that state: ChatPage withholds it once you are in the call, because
+        * the call dock is already on screen saying the same thing with a
+        * control to return to it.
+        */}
+      {callInProgress && (
+        <div className="conversation-call-strip" role="status">
+          <span className="conversation-call-strip-state">
+            <AppIcon name="phone" />
+            A call is running in this conversation
+          </span>
+          {audioCallsAvailable && (
+            <CallLaunchButton
+              conversation={conversation}
+              kind="audio"
+              className="button primary compact conversation-call-strip-join"
+              ariaLabel={`Join the call in ${title}`}
+            >
+              Join
+            </CallLaunchButton>
+          )}
+        </div>
+      )}
       {moreOpen && (
         <ConversationMoreSheet
           canvasHref={canvasHref}
