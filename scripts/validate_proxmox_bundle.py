@@ -517,6 +517,11 @@ def validate(root: Path) -> list[str]:
         "k-comms-staging-qualification-receipt-v1",
         "staging-qualification.json",
         "a distinct previous release is required for rollback rehearsal",
+        # A deploy that succeeds behind a qualification that does not leaves
+        # the candidate receipt naming itself as its own previous release.
+        # Without this fallback every retry re-creates that state and the
+        # rollback rehearsal can never run again for the release.
+        "candidate receipt names itself as previous",
     ):
         if required not in staging_qualification:
             errors.append(
@@ -533,7 +538,7 @@ def validate(root: Path) -> list[str]:
             "reactivated, and post-restore candidates"
         )
     if (
-        '"${SCRIPT_DIR}/rollback.sh" --receipt "$candidate_receipt"\n'
+        '"${SCRIPT_DIR}/rollback.sh" --receipt "$rollback_source"\n'
         '"${SCRIPT_DIR}/verify.sh" --environment staging\n'
         not in staging_qualification
     ):
