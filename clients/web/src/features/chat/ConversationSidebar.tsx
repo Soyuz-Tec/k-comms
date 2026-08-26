@@ -94,10 +94,41 @@ export function ConversationSidebar({
   return (
     <aside className="conversation-sidebar" aria-label="Conversations">
       <div className="sidebar-heading">
-        <div>
+        <div className="sidebar-heading-title">
           <span className="eyebrow">Messages and rooms</span>
           <h1>Inbox</h1>
         </div>
+        {conversations.length > 0 && (
+          <div className="sidebar-search" role="search" aria-label="Search conversations">
+            <label className="sr-only" htmlFor="conversation-filter-query">
+              Filter conversations by title
+            </label>
+            <AppIcon name="search" className="sidebar-search-glyph" />
+            <input
+              id="conversation-filter-query"
+              type="search"
+              value={conversationQuery}
+              onChange={(event) => onConversationQueryChange(event.target.value)}
+              placeholder="Search inbox"
+            />
+            {/*
+              * Filtering this list and searching every message are different
+              * jobs, and they used to be two identical magnifiers in two
+              * different rows. Keeping the second one here, inside the search
+              * region and labelled, makes it read as "go deeper" rather than as
+              * a duplicate of the field beside it.
+              */}
+            <button
+              className="icon-button inbox-search-trigger"
+              type="button"
+              aria-label="Search messages"
+              aria-expanded={showSearch}
+              onClick={onToggleSearch}
+            >
+              <AppIcon name="messages" />
+            </button>
+          </div>
+        )}
         <div className="sidebar-tools">
           {/*
             * Notifications sat in the global phone top bar until that bar was
@@ -106,24 +137,6 @@ export function ConversationSidebar({
             * mention, so the inbox is the surface they are already about.
             */}
           {!desktopShell && <NotificationCenter />}
-          <button
-            className="icon-button inbox-filter-trigger"
-            type="button"
-            aria-label="Browse channels"
-            aria-expanded={showBrowseChannels}
-            onClick={onToggleBrowseChannels}
-          >
-            <AppIcon name="compass" />
-          </button>
-          <button
-            className="icon-button inbox-search-trigger"
-            type="button"
-            aria-label="Search messages"
-            aria-expanded={showSearch}
-            onClick={onToggleSearch}
-          >
-            <AppIcon name="search" />
-          </button>
           <button
             className="icon-button inbox-new-button"
             type="button"
@@ -236,27 +249,14 @@ export function ConversationSidebar({
         />
       )}
 
-      {conversations.length > 0 && (
-        <div
-          className="conversation-filters"
-          role="search"
-          aria-label="Filter conversations"
-        >
-          <label
-            className="sr-only"
-            htmlFor="conversation-filter-query"
-          >
-            Filter conversations by title
-          </label>
-          <input
-            id="conversation-filter-query"
-            type="search"
-            value={conversationQuery}
-            onChange={(event) =>
-              onConversationQueryChange(event.target.value)
-            }
-            placeholder="Search inbox"
-          />
+      {/*
+        * The row itself is unconditional: browsing channels is the one action
+        * that helps most on an empty inbox, so it must not disappear with the
+        * scope chips. Filtering a list of nothing is what is meaningless, not
+        * finding something to join.
+        */}
+      <div className="conversation-filters">
+        {conversations.length > 0 && (
           <div
             className="inbox-segments"
             role="group"
@@ -279,8 +279,17 @@ export function ConversationSidebar({
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+        <button
+          className="icon-button inbox-filter-trigger"
+          type="button"
+          aria-label="Browse channels"
+          aria-expanded={showBrowseChannels}
+          onClick={onToggleBrowseChannels}
+        >
+          <AppIcon name="compass" />
+        </button>
+      </div>
 
       <nav className="conversation-list" aria-label="Conversation list">
         {conversations.length === 0 ? (
