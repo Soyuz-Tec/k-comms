@@ -47,8 +47,45 @@ require_file "$candidate_receipt"
   die "current staging receipt does not match the candidate image"
 [[ "$(jq -r '.revision' "$candidate_receipt")" == "$revision" ]] ||
   die "current staging receipt does not match the candidate revision"
+# A retried deployment of the same digest records itself as its own previous
+# release, which leaves nothing to roll back to. That happens whenever a deploy
+# succeeds and the qualification behind it does not — a dropped SSH session
+# mid-rehearsal is enough — and until now it wedged the environment: every retry
+# re-deployed the same digest and re-created the condition, so the rehearsal
+# could never run again for that release.
+#
+# Prefer the candidate receipt. When it names itself, fall back to the most
+# recent receipt for this same release that still carries a distinct
+# predecessor: a real rollback target this VM genuinely ran, written by the
+# first attempt. The rehearsal stays a rehearsal — it rolls back to a different
+# release and verifies — so the gate is not weakened, only made survivable.
+rollback_source="$candidate_receipt"
 previous_image="$(jq -r '.previous.image' "$candidate_receipt")"
 previous_revision="$(jq -r '.previous.revision' "$candidate_receipt")"
+if [[ "$previous_image" == "$image" ]]; then
+  rollback_source=
+  while read -r receipt; do
+    [[ "$(jq -r '.schema // empty' "$receipt")" == k-comms-deployment-receipt-v1 ]] || continue
+    [[ "$(jq -r '.environment // empty' "$receipt")" == staging ]] || continue
+    [[ "$(jq -r '.image // empty' "$receipt")" == "$image" ]] || continue
+    [[ "$(jq -r '.previous.image // empty' "$receipt")" != "$image" ]] || continue
+    [[ -n "$(jq -r '.backup_path // empty' "$receipt")" ]] || continue
+    rollback_source="$receipt"
+    break
+  done < <(
+    find "$K_COMMS_RECEIPT_DIR" \
+      -maxdepth 1 \
+      -type f \
+      -name '*.json' \
+      -print |
+      sort -r
+  )
+  [[ -n "$rollback_source" ]] ||
+    die "a distinct previous release is required for rollback rehearsal"
+  previous_image="$(jq -r '.previous.image' "$rollback_source")"
+  previous_revision="$(jq -r '.previous.revision' "$rollback_source")"
+  log "candidate receipt names itself as previous; rehearsing rollback against $(basename "$rollback_source")"
+fi
 [[ "$previous_image" != "$image" ]] ||
   die "a distinct previous release is required for rollback rehearsal"
 initial_backup="$(jq -r '.backup_path' "$candidate_receipt")"
@@ -64,7 +101,7 @@ rollback_before="$(
     sort |
     tail -n 1
 )"
-"${SCRIPT_DIR}/rollback.sh" --receipt "$candidate_receipt"
+"${SCRIPT_DIR}/rollback.sh" --receipt "$rollback_source"
 "${SCRIPT_DIR}/verify.sh" --environment staging
 rollback_receipt="$(
   find "$K_COMMS_RECEIPT_DIR" \

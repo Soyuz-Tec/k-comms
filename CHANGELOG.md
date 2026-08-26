@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Let staging qualification rehearse a rollback after a retried deployment. A
+  deploy that succeeds behind a qualification that does not -- a dropped SSH
+  session mid-rehearsal is enough -- leaves the candidate receipt naming itself
+  as its own previous release, and every retry re-deployed the same digest and
+  re-created the condition. The rehearsal now falls back to the most recent
+  receipt for the same release that still carries a distinct predecessor, so it
+  rolls back to a genuinely different release and verifies as before.
+
 ### Changed
 
 - Merged the inbox search field into the heading row, taking the phone inbox
