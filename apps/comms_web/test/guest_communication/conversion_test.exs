@@ -64,8 +64,12 @@ defmodule CommsWeb.GuestCommunication.ConversionTest do
     assert identity["user"]["id"] == guest["user"]["id"]
     assert identity["user"]["account_type"] == "human"
 
+    # Exact match on purpose: a converted guest must receive the full member
+    # capability set and nothing extra, so a new capability has to be added
+    # here deliberately rather than pass unnoticed.
     assert identity["capabilities"] == %{
              "allow_audio_calls" => true,
+             "allow_immersive_mode" => true,
              "allow_public_channels" => true,
              "allow_video_calls" => true,
              "max_attachment_bytes" => 26_214_400,
