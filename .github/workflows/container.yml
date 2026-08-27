@@ -22,6 +22,27 @@ on:
       - "scripts/test_validate_compose_exposure.py"
       - ".github/workflows/container.yml"
       - ".github/workflows/deploy-proxmox.yml"
+      # Test sources cannot reach the runtime artifact, so a test-only commit
+      # must not publish a digest, occupy the serialized release chain, or ask
+      # an authorized reviewer to approve a production deployment that changes
+      # nothing. Every app sets elixirc_paths to ["lib"] outside :test, so the
+      # prod release never compiles test/, and the built web bundle carries no
+      # vitest, testing-library, or Playwright code.
+      #
+      # These exclusions must remain last: the final matching pattern decides a
+      # path, so a positive pattern added below them would silently re-include
+      # what they exclude. The scripts/test_validate_*.py entries above are
+      # deliberately not excluded -- those run inside this workflow.
+      #
+      # No gate is weakened. ci.yml carries no path filter, so the Elixir
+      # suite, Vitest, and the Playwright matrix still run on every change, and
+      # the unfiltered pull_request trigger still builds and smoke-tests the
+      # image for a test-only pull request.
+      - "!apps/*/test/**"
+      - "!clients/web/e2e/**"
+      - "!clients/web/src/test/**"
+      - "!clients/web/src/**/*.test.ts"
+      - "!clients/web/src/**/*.test.tsx"
   workflow_dispatch:
 
 permissions:
