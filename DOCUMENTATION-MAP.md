@@ -29,6 +29,20 @@ This map connects the twelve deployable-engineering-plan outputs to their primar
 - Reference skeletons for future repositories: `skeletons/`
 - Reusable document templates: `templates/`
 
+## Immersive full-canvas UI handoff (v6)
+
+A three-part handoff. The contract is the document to read first; the other two
+are consulted during implementation and operation.
+
+| Part | Location | Purpose |
+|---|---|---|
+| Contract | `docs/01-product-and-scope/K-Comms_Immersive_Full-Canvas_UI_Engineering_Prompt_v6.md` | Product intent, experience-mode contract, committed first increment, acceptance criteria |
+| Implementation reference | `docs/12-development-guides/K-Comms_Immersive_UI_Implementation_Reference_v6.md` | Component boundary, overlay system, state machines, fixtures |
+| Operations runbook | `docs/14-operations/K-Comms_Immersive_UI_Operations_Runbook_v6.md` | Rollout, kill switch, rollback, incident triage |
+
+Status: draft. Approval is blocked until the contract names an accountable
+owner, required reviewers, and a decision date.
+
 ## Definition of plan-ready
 
 The engineering plan is ready for implementation when:
