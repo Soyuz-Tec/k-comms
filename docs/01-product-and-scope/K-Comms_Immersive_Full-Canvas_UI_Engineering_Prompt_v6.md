@@ -2,15 +2,23 @@
 
 ## Engineering prompt and product contract
 
-**Document status:** Draft implementation contract — approval is blocked until the accountable owner, required reviewers, and decision date are named  
+**Document status:** Approved for the first production increment (§3). Discipline reviewers are not yet named; see the approval note below.  
 **Revision:** v6 — canonical three-document edition  
 **Research and repository verification:** 27 August 2026 against `Soyuz-Tec/k-comms` `main`  
 **Product:** K-Comms browser application  
 **Target stack:** React, React Router, Vite, TypeScript, Phoenix APIs/Channels/Presence, PostgreSQL, self-hosted LiveKit, `livekit-client`  
 **Canonical path:** `docs/01-product-and-scope/K-Comms_Immersive_Full-Canvas_UI_Engineering_Prompt_v6.md`  
-**Accountable owner:** `TBD — name one product/engineering owner`  
-**Required reviewers:** `TBD — name one reviewer each from Product, Web, Media/Realtime, Accessibility, Backend/Domain, QA, and Release Engineering`  
-**Decision date:** `TBD — record approval or rejection before production rollout`
+**Accountable owner:** Soyuz-Tec (repository owner)  
+**Required reviewers:** Not yet named. The accountable owner authorised the first increment without them; they must be named before the increment is reviewed for production rollout.  
+**Decision date:** 27 August 2026 — approved by the accountable owner.
+
+> **Approval note (27 August 2026).** The accountable owner approved the first
+> production increment defined in §3. The seven discipline reviewers this
+> document asks for were not named at approval, so the gate was cleared by the
+> owner alone rather than satisfied as written. That is a deliberate,
+> owner-authorised departure and it is recorded here rather than left implicit:
+> anyone reviewing this increment should know which signatures exist and which
+> do not. Naming them remains outstanding.
 
 This document is the authoritative product and acceptance contract. Technical detail belongs in the linked [Implementation Reference](../12-development-guides/K-Comms_Immersive_UI_Implementation_Reference_v6.md); release, rollback, telemetry, and incident procedure belong in the linked [Operations Runbook](../14-operations/K-Comms_Immersive_UI_Operations_Runbook_v6.md).
 
