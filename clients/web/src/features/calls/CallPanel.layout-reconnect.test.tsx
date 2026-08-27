@@ -427,6 +427,56 @@ describe("CallPanel calls", () => {
     expect(screen.getByRole("button", { name: "Open call menu" })).toBeVisible();
   });
 
+  it("keeps critical call state and controls reachable while minimized", async () => {
+    // Minimizing hides #active-call-details, which held the capture indicator
+    // and every control. The companion capsule is what has to remain: a
+    // minimized call that cannot report a live microphone, or be muted or
+    // hung up, is the defect this covers.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+
+    const dock = await screen.findByRole("region", { name: "Design group" });
+    expect(dock).toHaveClass("minimized");
+
+    // State, in words rather than by icon or hover alone.
+    expect(within(dock).getByRole("status", { name: "Call status" }))
+      .toHaveTextContent("Microphone off");
+
+    // Actions, without first restoring the panel.
+    const controls = within(dock).getByRole("group", { name: "Call controls" });
+    expect(within(controls).getByRole("button", { name: "Unmute microphone" })).toBeEnabled();
+    expect(within(controls).getByRole("button", { name: "Leave call" })).toBeEnabled();
+
+    // The restore target stays visible: minimize must never be a one-way door.
+    expect(within(dock).getByRole("button", { name: "Show call" })).toBeVisible();
+  });
+
   it("announces reconnecting and restores mobile audio controls after reconnection", async () => {
     useMobileCallLayout();
     const user = userEvent.setup();

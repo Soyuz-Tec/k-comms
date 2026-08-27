@@ -232,10 +232,14 @@ describe("AudioCallPanel", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "mic-2");
     await user.click(screen.getByRole("button", { name: "Join with microphone" }));
 
+    // A joined audio call opens minimized, so the mute control reachable here
+    // is the companion capsule's -- the device selector lives in the panel
+    // body and needs the panel expanded, exactly as a user would find it.
     expect(await screen.findByRole("button", { name: "Mute microphone" })).toBeVisible();
     expect(api.joinAudioCall).toHaveBeenCalledWith("conversation-1", "call-1");
     expect(livekit.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true, expect.objectContaining({ deviceId: "mic-2" }));
 
+    await user.click(screen.getByRole("button", { name: "Show call" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "mic-1");
     expect(livekit.switchActiveDevice).toHaveBeenCalledWith("audioinput", "mic-1", true);
     await user.click(screen.getByRole("button", { name: "Mute microphone" }));
