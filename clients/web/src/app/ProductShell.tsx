@@ -8,6 +8,10 @@ import {
   CallSessionProvider,
   useCallSession
 } from "../features/calls/CallSessionProvider";
+import {
+  ExperienceModeProvider,
+  useExperienceMode
+} from "../features/experience/ExperienceModeProvider";
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
@@ -31,9 +35,18 @@ function readWorkspaceSidebarCollapsed(): boolean {
 export function ProductShell() {
   const { session } = useSession();
   if (!session) return null;
+  /*
+   * ExperienceModeProvider sits inside CallSessionProvider because it observes
+   * the live call, and inside WorkspaceDataProvider (mounted above this route)
+   * because it reads both capability channels. The call session itself stays
+   * above the outlet so navigating between routes never remounts the media
+   * tree.
+   */
   return (
     <CallSessionProvider>
-      <ProductShellContent />
+      <ExperienceModeProvider>
+        <ProductShellContent />
+      </ExperienceModeProvider>
     </CallSessionProvider>
   );
 }
@@ -42,6 +55,7 @@ function ProductShellContent() {
   const navigate = useNavigate();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
+  const { mode } = useExperienceMode();
   const { error, setError, refreshAll } = useWorkspaceData();
   const { updateAvailable, applyUpdate, dismissUpdate } = usePwa();
   const [retrying, setRetrying] = useState(false);
@@ -106,13 +120,23 @@ function ProductShellContent() {
    * its own name in its own header, so the third statement was both redundant
    * and the only one that could be wrong.
    */
+  /*
+   * The mode is published as an attribute rather than a class so the styling
+   * reads as one state with three values, and so a surface can never be in two
+   * modes at once by accumulating class names. Every rule that responds to it
+   * lives in experience-mode.css.
+   */
+  const immersive = mode === "immersive";
   return (
-    <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
-        {desktopShell && (
+    <div
+      className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}
+      data-experience-mode={mode}
+    >
+        {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
         <a className="skip-link" href="#main-content">Skip to content</a>
-        {desktopShell && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
+        {desktopShell && !immersive && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
           {/*
             * One row, not two. The brand row said "K-Comms / Communication
             * workspace" and the identity row underneath said "Workspace /
@@ -230,7 +254,7 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
-        {!desktopShell && (
+        {!desktopShell && !immersive && (
           <nav className="mobile-primary-nav" aria-label="Primary navigation">
             <MemberAreaLinks variant="mobile-primary" />
           </nav>
