@@ -157,6 +157,15 @@ if config_env() == :prod do
       "INSTANT_ROOMS_ENABLED"
     )
 
+  # Deployment-side half of immersive eligibility. Off unless a deployment says
+  # otherwise, so a rollback of the switch alone retires the surface for every
+  # tenant without a client release.
+  immersive_mode_enabled? =
+    parse_boolean.(
+      System.get_env("IMMERSIVE_MODE_ENABLED", "false"),
+      "IMMERSIVE_MODE_ENABLED"
+    )
+
   direct_audio_p2p_enabled? =
     parse_boolean.(
       System.get_env("DIRECT_AUDIO_P2P_ENABLED", "true"),
@@ -661,6 +670,7 @@ if config_env() == :prod do
   config :comms_web,
     allow_bootstrap: allow_bootstrap?,
     direct_audio_p2p_enabled: direct_audio_p2p_enabled?,
+    immersive_mode_enabled: immersive_mode_enabled?,
     direct_audio_stun_urls: direct_audio_stun_urls,
     public_share_origin: public_share_origin,
     insecure_lan_release:
