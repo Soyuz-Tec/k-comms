@@ -231,6 +231,18 @@ defmodule CommsWeb.DistributedRateLimitTest do
   end
 
   test "development router bypasses creation buckets and keeps other public buckets" do
+    # This body writes join buckets, then issues conversion requests, then
+    # asserts the join bucket still records all three preview requests. Both
+    # halves of that are window-sensitive, because the consume statement stamps
+    # expires_at at the end of a wall-clock-aligned window rather than one
+    # window after the first request: a bucket created at :58 lives two
+    # seconds, not sixty. Cross a boundary mid-body and either the three
+    # previews land in two windows and the count is 2, or the conversion
+    # request's cleanup pass -- which deletes every expired bucket, in every
+    # scope -- removes the join bucket outright and the assertion sees
+    # [[0, nil]]. Take the next window rather than the tail of this one.
+    await_window_headroom(60, 10)
+
     account = Fixtures.account_fixture()
 
     restore_env(
@@ -414,6 +426,26 @@ defmodule CommsWeb.DistributedRateLimitTest do
     assert rejected.halted
     [retry_after] = get_resp_header(rejected, "retry-after")
     assert String.to_integer(retry_after) in 1..60
+  end
+
+  # Postgres, not the BEAM: the consume statement measures the window with
+  # clock_timestamp(), so the headroom has to be read from the same clock.
+  defp await_window_headroom(window_seconds, required_seconds) do
+    [[remaining]] =
+      SQL.query!(
+        Repo,
+        """
+        SELECT $1::bigint -
+          (floor(extract(epoch FROM clock_timestamp()))::bigint % $1::bigint)
+        """,
+        [window_seconds]
+      ).rows
+
+    if remaining < required_seconds do
+      Process.sleep(remaining * 1000 + 250)
+    end
+
+    :ok
   end
 
   defp opts(scope, limit, window) do
