@@ -6,6 +6,47 @@ defmodule CommsCore.PlatformRateLimits do
   addresses, room tokens, and bearer credentials are rejected rather than
   persisted. PostgreSQL's clock and atomic upsert make the result consistent
   across all web nodes.
+
+  ## A limit of N admits 2N across a window boundary
+
+  The window is fixed and aligned to the wall clock, not started by a key's
+  first request. A bucket's `expires_at` is the end of the calendar window:
+
+      ((epoch_second / window) + 1) * window
+
+  so with a 60-second window a bucket created at `:58` lives two seconds, and
+  every key in the cluster resets together at `:00`.
+
+  A caller can therefore spend its whole allowance immediately before a
+  boundary and its whole next allowance immediately after. Measured against
+  this statement with `limit: 2`: four admissions in six seconds, and nothing
+  stops those two pairs being 200 ms apart.
+
+      24:57  count=1  allowed      25:03  count=1  allowed
+      24:58  count=2  allowed      25:03  count=2  allowed
+      24:58  count=3  denied       25:04  count=3  denied
+
+  Read `limit: N` as "N sustained per window, up to 2N instantaneous". The
+  bound is hard -- the doubling cannot compound, and sustained throughput is
+  still N per window -- but choose N for a caller whose burst matters, and do
+  not rely on this alone where a concentrated burst is the abuse. Room
+  creation, for example, is additionally bounded by
+  `AdmissionQuotas.check_conversation_creation/3` and the tenant participant
+  policy.
+
+  Removing the burst means abandoning the fixed window: GCRA or a
+  sliding-window counter both keep one row per key and pace smoothly. Neither
+  is implemented here; that is a deliberate change to deployed admission
+  control, not a refactor.
+
+  ## Cleanup is opportunistic and crosses scopes
+
+  Each call deletes up to `@cleanup_limit` buckets whose `expires_at` has
+  passed, in **any** scope, before applying its own increment. There is no
+  separate sweeper. A caller in one scope therefore garbage-collects expired
+  buckets belonging to every other scope, which is efficient in production and
+  a trap in tests: a bucket observed after an unrelated later request may
+  already have been collected.
   """
 
   alias CommsCore.PlatformRateLimits.Decision
