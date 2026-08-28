@@ -4,12 +4,23 @@ import {
   Suspense,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState
 } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { ConfirmDialog } from "../../components/ActionDialog";
+import { conversationTitle } from "../../lib/format";
+import {
+  callSwitchReducer,
+  CALL_SWITCH_LEAVE_TIMEOUT_MS,
+  initialCallSwitchState,
+  previousCallReleased,
+  switchFailureMessage
+} from "./call-switch";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
@@ -61,10 +72,44 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const [launchRequest, setLaunchRequest] = useState<LaunchRequest | null>(null);
   const [realtimeEvent, setRealtimeEvent] = useState<CallRealtimeEvent | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [switchState, switchDispatch] = useReducer(
+    callSwitchReducer,
+    initialCallSwitchState
+  );
+  /*
+   * The conversation a confirmed switch will join. Kept beside the reducer
+   * rather than inside it so the state machine stays about phases and can be
+   * tested without a conversation fixture.
+   */
+  const pendingSwitchRef = useRef<{
+    conversation: Conversation;
+    kind: CallMediaKind;
+    readinessMode: CallReadinessMode | null;
+  } | null>(null);
   const requestSequenceRef = useRef(0);
   const targetConversationRef = useRef<Conversation | null>(null);
   const sessionStateRef = useRef<CallPanelSessionState | null>(null);
   const launchRequestRef = useRef<LaunchRequest | null>(null);
+
+  const startLaunch = useCallback((
+    conversation: Conversation,
+    kind: CallMediaKind,
+    readinessMode: CallReadinessMode | null
+  ) => {
+    const request = {
+      id: ++requestSequenceRef.current,
+      kind,
+      readinessMode: kind === "audio" ? readinessMode : null
+    };
+    targetConversationRef.current = conversation;
+    launchRequestRef.current = request;
+    sessionStateRef.current = null;
+    setTargetConversation(conversation);
+    setSessionState(null);
+    setRealtimeEvent(null);
+    setNotice(null);
+    setLaunchRequest(request);
+  }, []);
 
   const launchCall = useCallback((
     conversation: Conversation,
@@ -99,9 +144,28 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     const pendingRequest = launchRequestRef.current;
     const busy = Boolean(pendingRequest) || callSessionIsBusy(currentState);
     if (busy && currentTarget?.id !== conversation.id) {
-      setNotice(
-        `Leave or cancel the current ${currentState?.mediaKind || pendingRequest?.kind || "active"} call before opening another conversation.`
-      );
+      /*
+       * A second call is never connected alongside the first, so this cannot
+       * simply proceed. It used to be a dead end -- "leave the current call
+       * first" -- which left the user to do the sequencing by hand. It now
+       * offers the switch and performs it in order: confirm, leave, observe
+       * the release, then join.
+       */
+      pendingSwitchRef.current = {
+        conversation,
+        kind,
+        readinessMode: kind === "audio" ? readinessMode : null
+      };
+      switchDispatch({
+        type: "REQUEST",
+        pending: {
+          conversationId: conversation.id,
+          conversationTitle: conversationTitle(conversation),
+          kind,
+          readinessMode: kind === "audio" ? readinessMode : null,
+          leavingTitle: currentTarget ? conversationTitle(currentTarget) : "your current call"
+        }
+      });
       return false;
     }
     if (busy) {
@@ -113,26 +177,42 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       return false;
     }
 
-    const request = {
-      id: ++requestSequenceRef.current,
-      kind,
-      readinessMode: kind === "audio" ? readinessMode : null
-    };
-    targetConversationRef.current = conversation;
-    launchRequestRef.current = request;
-    sessionStateRef.current = null;
-    setTargetConversation(conversation);
-    setSessionState(null);
-    setRealtimeEvent(null);
-    setNotice(null);
-    setLaunchRequest(request);
+    startLaunch(conversation, kind, readinessMode);
     return true;
   }, [
     audioCallsAvailable,
     capabilities,
+    startLaunch,
     videoCallsAvailable,
     workspaceLoading
   ]);
+
+  /*
+   * Drives the switch once the user has confirmed it.
+   *
+   * Two things have to be true before the next call is joined: the previous
+   * one has actually released its room, and it did so within a bounded time.
+   * Waiting forever is indistinguishable from a switch that silently did
+   * nothing, so the deadline turns "still leaving" into a stated failure --
+   * with the original call kept, because it is still there.
+   */
+  useEffect(() => {
+    if (switchState.phase !== "leaving") return;
+
+    if (previousCallReleased(sessionStateRef.current)) {
+      const queued = pendingSwitchRef.current;
+      pendingSwitchRef.current = null;
+      switchDispatch({ type: "RELEASED" });
+      if (queued) startLaunch(queued.conversation, queued.kind, queued.readinessMode);
+      return;
+    }
+
+    requestCallSessionTeardown();
+    const deadline = window.setTimeout(() => {
+      switchDispatch({ type: "FAILED", reason: switchFailureMessage(switchState.pending) });
+    }, CALL_SWITCH_LEAVE_TIMEOUT_MS);
+    return () => window.clearTimeout(deadline);
+  }, [switchState.phase, switchState.pending, sessionState, startLaunch]);
 
   const publishRealtimeEvent = useCallback((event: CallRealtimeEvent) => {
     if (targetConversationRef.current?.id === event.conversation_id) {
@@ -203,6 +283,51 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
         <div className="call-session-launch-notice" role="status">
           <span>{notice}</span>
           <button type="button" aria-label="Dismiss call notice" onClick={() => setNotice(null)}><AppIcon name="x" /></button>
+        </div>
+      )}
+      {/*
+        * The switch is a question, not an action taken on the user's behalf.
+        * Nothing about the current call changes until this is confirmed.
+        */}
+      {switchState.phase === "confirming" && switchState.pending && (
+        <ConfirmDialog
+          title={`Switch to the call in ${switchState.pending.conversationTitle}?`}
+          description={`You are in a call in ${switchState.pending.leavingTitle}. K-Comms joins one call at a time.`}
+          impact={`Leaving ${switchState.pending.leavingTitle} happens first. If it does not complete, you stay in it and the other call is not joined.`}
+          confirmLabel="Leave and switch"
+          onCancel={() => {
+            pendingSwitchRef.current = null;
+            switchDispatch({ type: "CANCEL" });
+          }}
+          onConfirm={() => switchDispatch({ type: "CONFIRM" })}
+        />
+      )}
+      {/*
+        * While leaving, the interface says exactly that. It does not say the
+        * new call is connecting, because it is not -- and will not be unless
+        * the leave completes.
+        */}
+      {switchState.phase === "leaving" && switchState.pending && (
+        <div className="call-session-launch-notice" role="status">
+          <span>
+            Leaving {switchState.pending.leavingTitle} before joining{" "}
+            {switchState.pending.conversationTitle}…
+          </span>
+        </div>
+      )}
+      {switchState.phase === "failed" && (
+        <div className="call-session-launch-notice error" role="alert">
+          <span>{switchState.failure}</span>
+          <button
+            type="button"
+            aria-label="Dismiss switch failure"
+            onClick={() => {
+              pendingSwitchRef.current = null;
+              switchDispatch({ type: "DISMISS" });
+            }}
+          >
+            <AppIcon name="x" />
+          </button>
         </div>
       )}
     </CallSessionContext.Provider>
