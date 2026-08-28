@@ -15,6 +15,12 @@ import "./styles.css";
 import "./mobile-experience.css";
 import "./desktop-experience.css";
 import "./interface-system.css";
+/*
+ * Last, deliberately. Immersive overrides shell layout that the sheets above
+ * declare at the same specificity, and bundle order decides ties -- the same
+ * ordering that silently picked the sidebar width in #163.
+ */
+import "./experience-mode.css";
 
 const AdminPage = lazy(() =>
   import("./features/admin/AdminPage").then(({ AdminPage: page }) => ({ default: page }))

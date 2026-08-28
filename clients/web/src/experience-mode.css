@@ -1,0 +1,63 @@
+/*
+ * Experience-mode layout.
+ *
+ * One state with three values, published by ProductShell as
+ * data-experience-mode on .app-shell. Nothing in here matches on what the call
+ * surface happens to be doing -- the mode is decided once per call in
+ * experience-mode.ts and this file only responds to it.
+ *
+ * Immersive is dark in production until IMMERSIVE_MODE_ENABLED and the
+ * tenant's own switch both say yes; until then the shell stays in workspace
+ * and none of these rules apply.
+ */
+
+/*
+ * Workspace is the established layout and is deliberately left alone here:
+ * stating it again would create a second owner for rules that already work.
+ */
+
+.app-shell[data-experience-mode="immersive"] {
+  /*
+   * The stage owns the viewport. dvh tracks the mobile URL bar; the vh line
+   * before it is the fallback for engines without dynamic viewport units, and
+   * is deliberately first so the cascade picks dvh where it is understood.
+   */
+  height: 100vh;
+  height: 100dvh;
+  /* Grid areas for the sidebar and the nav are gone, not merely hidden. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  /*
+   * The stage is media, so it sits on the media ramp rather than the light
+   * workspace canvas -- letterboxing and inactive tiles never sit on white.
+   */
+  background: var(--surface-media);
+}
+
+/*
+ * No permanent chrome consumes stage layout space. The sidebar and the bottom
+ * navigation are unmounted rather than hidden, so this covers what remains:
+ * banners that would otherwise push the stage down.
+ */
+.app-shell[data-experience-mode="immersive"] > .pwa-update-banner,
+.app-shell[data-experience-mode="immersive"] > .banner {
+  position: fixed;
+  z-index: 70;
+  right: max(var(--space-3), var(--safe-right));
+  bottom: max(var(--space-3), var(--safe-bottom));
+  left: max(var(--space-3), var(--safe-left));
+  width: auto;
+  border-radius: var(--radius-md);
+}
+
+.app-shell[data-experience-mode="immersive"] > .window-titlebar-drag-region {
+  /*
+   * The drag region stays reachable on the desktop shell but stops reserving
+   * a strip of the stage for itself.
+   */
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+}

@@ -766,6 +766,81 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
   display: none;
 }
 
+/*
+ * The critical-status capsule -- what a minimized call is allowed to reduce
+ * to. It renders only in that state (CallPanel gates it), so it needs no
+ * .minimized qualifier of its own; guarding it here as well would put the
+ * condition in two places that can disagree.
+ *
+ * The rule above is why it exists: collapsing the panel hid every control and
+ * the capture indicator with them.
+ */
+.call-critical-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-top: .55rem;
+}
+
+.call-critical-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem;
+  min-width: 0;
+  font-size: var(--text-xs);
+}
+
+.call-critical-state span {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .25rem .5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
+  font-weight: 600;
+}
+
+.call-critical-state span svg {
+  width: 14px;
+  height: 14px;
+}
+
+/*
+ * Live capture is the state worth interrupting for, so it carries the warning
+ * ramp -- the same signal the expanded capture indicator uses, so the two
+ * never disagree about what "on" looks like.
+ */
+.call-critical-state span.active {
+  border-color: var(--warning-solid);
+  color: var(--warning-text);
+  background: var(--warning-quiet);
+}
+
+.call-critical-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: .3rem;
+}
+
+/*
+ * Icon-only, but never hover-only: each button carries its own aria-label and
+ * the state it acts on is already spelled out in words beside it.
+ */
+.call-critical-actions .button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .audio-call-dock.minimized .audio-call-dock-heading {
   align-items: center;
 }

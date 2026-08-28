@@ -23,6 +23,7 @@ defmodule CommsWeb.StatusController do
         attachment_scanning: available?(Scanner.status()),
         bootstrap: Application.get_env(:comms_web, :allow_bootstrap, false),
         guest_links: true,
+        immersive_mode: immersive_mode_available?(),
         instant_rooms: instant_rooms_available?(),
         notifications: available?(Notifications.status()),
         push_notifications: available?(NotificationDelivery.push_status()),
@@ -32,6 +33,14 @@ defmodule CommsWeb.StatusController do
         webhooks: available?(Webhooks.status())
       }
     })
+  end
+
+  # The deployment-side half of immersive eligibility: a kill switch that can
+  # retire the surface for every tenant at once without a client release. The
+  # tenant-side half lives in member_capabilities/1; a client is eligible only
+  # when both say yes.
+  defp immersive_mode_available? do
+    Application.get_env(:comms_web, :immersive_mode_enabled, false) == true
   end
 
   defp available?(%{status: status}) when status in [:available, "available"], do: true

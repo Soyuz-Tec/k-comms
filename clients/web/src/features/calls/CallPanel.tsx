@@ -331,9 +331,107 @@ export function CallPanel({
               )}
             </div>
           </div>
+          {/*
+            * The companion's critical-status capsule.
+            *
+            * Minimizing hides #active-call-details, and that subtree held the
+            * entire capture indicator and every control -- so a minimized call
+            * reported its title, its duration and its participant count while
+            * saying nothing about whether the microphone was live, and offered
+            * no way to mute or hang up. This capsule lives outside that
+            * subtree, so it is exactly what remains when the panel collapses.
+            *
+            * It renders only while minimized: expanded, the full capture
+            * indicator and action row below already say all of this, and two
+            * live regions reporting the same state is worse than one.
+            */}
+          {minimized && (
+            <div className="call-critical-status">
+              {/*
+                * Named distinctly from the expanded panel's "Local capture
+                * status". The two report the same facts and only one is ever
+                * on screen, but the expanded one is hidden by a stylesheet
+                * rule -- so before that stylesheet applies both sit in the
+                * accessibility tree, and two live regions with one name is an
+                * ambiguity no reader can resolve.
+                */}
+              <div className="call-critical-state" role="status" aria-label="Call status">
+                <span className={microphoneEnabled ? "active" : "muted"}>
+                  <AppIcon name={microphoneEnabled ? "mic" : "micOff"} />
+                  Microphone {microphoneEnabled ? "on" : "off"}
+                </span>
+                {joinedKind === "video" && (
+                  <span className={cameraEnabled ? "active" : "muted"}>
+                    <AppIcon name={cameraEnabled ? "video" : "videoOff"} />
+                    Camera {cameraEnabled ? "on" : "off"}
+                  </span>
+                )}
+                {joinedKind === "video" && screenShareEnabled && (
+                  <span className="active">
+                    <AppIcon name="screenShare" />
+                    Screen shared
+                  </span>
+                )}
+              </div>
+              <div
+                className="call-critical-actions"
+                role="group"
+                aria-label="Call controls"
+              >
+                <button
+                  className={`button compact ${microphoneEnabled ? "ghost" : "primary"}`}
+                  type="button"
+                  aria-label={microphoneEnabled ? "Mute microphone" : "Unmute microphone"}
+                  aria-pressed={microphoneEnabled}
+                  disabled={phase !== "connected"}
+                  onClick={() => void toggleMicrophone()}
+                >
+                  <AppIcon name={microphoneEnabled ? "mic" : "micOff"} />
+                </button>
+                {/* Stop sharing is direct: never a step inside a reopened panel. */}
+                {joinedKind === "video" && screenShareEnabled && (
+                  <button
+                    className="button ghost compact"
+                    type="button"
+                    aria-label="Stop sharing screen"
+                    disabled={phase !== "connected"}
+                    onClick={() => void toggleScreenShare()}
+                  >
+                    <AppIcon name="screenShareOff" />
+                  </button>
+                )}
+                <button
+                  className="button danger compact"
+                  type="button"
+                  aria-label="Leave call"
+                  disabled={phase === "leaving"}
+                  onClick={() => void leave()}
+                >
+                  <AppIcon name="phoneOff" />
+                </button>
+              </div>
+            </div>
+          )}
+          {/*
+            * Collapsed means collapsed. The minimize button has always
+            * declared aria-expanded={!minimized} over this region, but the
+            * region itself was hidden by a stylesheet rule alone -- so the
+            * controls inside it stayed in the accessibility tree and the tab
+            * order until that rule applied, and the capsule above duplicates
+            * their labels by design.
+            *
+            * `inert` and aria-hidden state the collapse in the DOM instead.
+            * Both, because they answer different questions: inert removes the
+            * controls from the tab order, aria-hidden removes them from the
+            * accessibility tree. It cannot be an unmount -- the media stage
+            * lives in here, and tearing it down to minimize a call would
+            * detach every track.
+            */}
           <div
             id="active-call-details"
             className="active-call-details"
+            inert={minimized || undefined}
+            aria-hidden={minimized || undefined}
             onPointerDown={(event) => {
               if (
                 mobileCallLayout
