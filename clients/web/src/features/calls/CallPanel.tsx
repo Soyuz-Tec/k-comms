@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AppIcon } from "../../components/AppIcon";
+import { OVERLAY_PRESET_LABELS, type OverlayPresetName } from "../experience/overlay-placement";
+import { useOverlayPlacement } from "../experience/useOverlayPlacement";
 import {
   AppMenuCloseButton,
   AppMenuTrigger,
@@ -179,6 +181,16 @@ export function CallPanel({
     onOpenChat,
     onSessionStateChange
   });
+  /*
+   * Placement applies only to the minimized companion. Expanded -- and on the
+   * Immersive stage -- the dock's position is owned by CSS, and handing it an
+   * inline top/left there would fight the stage rules.
+   */
+  const companionPlacement = useOverlayPlacement({
+    storageKey: "k-comms.call-companion-placement.v1",
+    defaultPreset: "bottom-right"
+  });
+
   const callStatusLabel = phase === "reconnecting"
     ? "Reconnecting"
     : phase === "leaving"
@@ -245,8 +257,16 @@ export function CallPanel({
 
       {joined && createPortal(
         <section
-          ref={callDockRef}
+          ref={(node) => {
+            // Two owners, one element: useModalDialog traps focus in the
+            // expanded dialog, useOverlayPlacement measures and moves the
+            // minimized companion. Neither needs its own node.
+            callDockRef.current = node;
+            companionPlacement.surfaceRef.current = node;
+          }}
           className={`call-dock audio-call-dock active-call-screen ${joinedKind === "video" ? "video-call-dock video-call-screen" : "audio-call-screen"} ${minimized ? "minimized" : ""}`}
+          style={minimized ? companionPlacement.style : undefined}
+          data-placing={minimized && companionPlacement.dragging ? "true" : undefined}
           data-call-control-labels={callControlLabelsVisible ? "visible" : "hidden"}
           role={expandedCallModal ? "dialog" : "region"}
           aria-modal={expandedCallModal || undefined}
@@ -305,6 +325,45 @@ export function CallPanel({
               role="group"
               aria-label="Call window controls"
             >
+              {/*
+                * Placement controls, present only on the minimized companion
+                * -- the one state where this panel floats over someone's
+                * work and may need to be moved off a composer, a caption or
+                * a whiteboard control.
+                *
+                * Three mechanisms, because dragging is required to be an
+                * enhancement rather than the only one: the grip drags, the
+                * grip takes arrow keys while focused, and each corner is one
+                * click away. The corner buttons share a single arrow glyph
+                * rotated per corner; the accessible name carries the meaning,
+                * not the rotation.
+                */}
+              {minimized && (
+                <div className="call-placement-controls" role="group" aria-label="Call panel position">
+                  <button
+                    className="button ghost compact call-placement-handle"
+                    type="button"
+                    aria-label="Move call panel"
+                    title="Drag to move. Arrow keys move it precisely; hold Shift for larger steps."
+                    {...companionPlacement.handleProps}
+                  >
+                    <AppIcon name="grip" />
+                  </button>
+                  {(Object.keys(OVERLAY_PRESET_LABELS) as OverlayPresetName[]).map((preset) => (
+                    <button
+                      key={preset}
+                      className="button ghost compact call-placement-preset"
+                      type="button"
+                      data-corner={preset}
+                      aria-label={`Move call panel to ${OVERLAY_PRESET_LABELS[preset].toLowerCase()}`}
+                      aria-pressed={companionPlacement.activePreset === preset}
+                      onClick={() => companionPlacement.applyPreset(preset)}
+                    >
+                      <AppIcon name="arrowUpRight" />
+                    </button>
+                  ))}
+                </div>
+              )}
               <AppSurfaceControlButton
                 className="button ghost compact"
                 data-call-focus

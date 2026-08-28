@@ -772,6 +772,72 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 }
 
 /*
+ * Placement controls on the minimized companion.
+ *
+ * The grip takes a real cursor because it is the drag affordance; the corner
+ * presets do not, because they are ordinary buttons. touch-action: none on the
+ * grip is what stops a touch drag from scrolling the page out from under the
+ * pointer capture.
+ */
+.call-placement-controls {
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+}
+
+.call-placement-controls .button {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.call-placement-controls .button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.call-placement-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.audio-call-dock[data-placing="true"] .call-placement-handle {
+  cursor: grabbing;
+}
+
+/*
+ * One glyph, four orientations. The arrow points the way the panel will go;
+ * the accessible name on each button is what actually carries the meaning, so
+ * a reader never has to interpret a rotation.
+ */
+.call-placement-preset[data-corner="top-right"] svg { transform: rotate(0deg); }
+.call-placement-preset[data-corner="top-left"] svg { transform: rotate(-90deg); }
+.call-placement-preset[data-corner="bottom-right"] svg { transform: rotate(90deg); }
+.call-placement-preset[data-corner="bottom-left"] svg { transform: rotate(180deg); }
+
+.call-placement-preset[aria-pressed="true"] {
+  border-color: var(--border-strong);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+}
+
+/*
+ * A drag must not animate: the transform is the pointer position, and easing
+ * it would put the panel behind the finger.
+ */
+.audio-call-dock[data-placing="true"] {
+  transition: none;
+  user-select: none;
+}
+
+/*
  * The critical-status capsule -- what a minimized call is allowed to reduce
  * to. It renders only in that state (CallPanel gates it), so it needs no
  * .minimized qualifier of its own; guarding it here as well would put the
