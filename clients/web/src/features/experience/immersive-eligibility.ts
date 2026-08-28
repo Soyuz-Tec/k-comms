@@ -1,4 +1,16 @@
-import type { ServiceStatus, UserCapabilities } from "../../types";
+import type { ServiceStatus } from "../../types";
+
+/**
+ * The tenant-, user- or surface-scoped half of eligibility.
+ *
+ * Members carry it on UserCapabilities and guests on GuestCapabilities, which
+ * are different responses issued by different endpoints -- but the question
+ * and the field are the same, so one selector answers for both rather than
+ * two selectors drifting apart.
+ */
+export interface ImmersiveSubjectCapabilities {
+  allow_immersive_mode?: boolean;
+}
 
 /**
  * The single selector §7.2 requires: one place that answers "may this client
@@ -8,7 +20,10 @@ import type { ServiceStatus, UserCapabilities } from "../../types";
  *
  *   status.capabilities.immersive_mode  -- the deployment kill switch, which
  *     retires the surface for every tenant at once without a client release.
- *   capabilities.allow_immersive_mode   -- the tenant's own policy.
+ *   capabilities.allow_immersive_mode   -- the policy for whoever is asking:
+ *     the tenant for a member, the link for a guest, the room for an
+ *     instant-room participant. Different responses, same question, so one
+ *     selector rather than three that can drift.
  *
  * Every ambiguous input resolves to false. A server that predates this
  * increment omits both fields, an unreachable status endpoint leaves the
@@ -17,7 +32,7 @@ import type { ServiceStatus, UserCapabilities } from "../../types";
  */
 export function selectImmersiveEligibility(
   status: ServiceStatus | null | undefined,
-  capabilities: UserCapabilities | null | undefined
+  capabilities: ImmersiveSubjectCapabilities | null | undefined
 ): boolean {
   return (
     status?.capabilities?.immersive_mode === true &&

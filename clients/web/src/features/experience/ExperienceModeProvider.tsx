@@ -22,8 +22,10 @@ import {
 import { setExperienceModeSnapshot } from "./experience-mode-store";
 import {
   resolveImmersiveWithinDeadline,
-  selectImmersiveEligibility
+  selectImmersiveEligibility,
+  type ImmersiveSubjectCapabilities
 } from "./immersive-eligibility";
+import type { ServiceStatus } from "../../types";
 
 interface ExperienceModeValue {
   mode: ExperienceMode;
@@ -47,14 +49,35 @@ const ExperienceModeContext = createContext<ExperienceModeValue | null>(null);
  * still null while joining, so keying on it would decide twice for one call
  * and defeat the stickiness guard.
  */
-export function ExperienceModeProvider({ children }: { children: ReactNode }) {
-  const { sessionState } = useCallSession();
-  const { capabilities, serviceStatus, loading } = useWorkspaceData();
+export interface ExperienceModeInputs {
+  /** The live call, or null. Only `conversationId` and `phase` are read. */
+  sessionState: { conversationId: string; phase: string } | null;
+  status: ServiceStatus | null | undefined;
+  capabilities: ImmersiveSubjectCapabilities | null | undefined;
+  /** True while capability retrieval is still in flight. */
+  loading: boolean;
+}
+
+/**
+ * The decision engine, with its inputs handed to it.
+ *
+ * Members read them from the workspace, guests from their session, and
+ * instant-room participants from the room -- three different responses
+ * answering the same question. Passing them in is what lets all three share
+ * one reducer, one deadline and one stickiness guard, rather than the public
+ * routes growing a parallel copy that drifts.
+ */
+export function useExperienceModeController({
+  sessionState,
+  status,
+  capabilities,
+  loading
+}: ExperienceModeInputs) {
   const [state, dispatch] = useReducer(experienceReducer, initialExperienceState);
 
   const immersiveEligible = useMemo(
-    () => selectImmersiveEligibility(serviceStatus, capabilities),
-    [serviceStatus, capabilities]
+    () => selectImmersiveEligibility(status, capabilities),
+    [status, capabilities]
   );
 
   /*
@@ -165,10 +188,29 @@ export function ExperienceModeProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "EXIT_TO_WORKSPACE" });
   }, []);
 
-  const value = useMemo(
+  return useMemo(
     () => ({ mode: state.mode, immersiveEligible, exitToWorkspace }),
     [state.mode, immersiveEligible, exitToWorkspace]
   );
+}
+
+/**
+ * The authenticated shell's provider.
+ *
+ * It exists on top of the controller only to publish the mode as context,
+ * which ProductShellContent uses to unmount the sidebar and bottom navigation.
+ * Guest and instant-room routes have no authenticated chrome to unmount, so
+ * they call the controller directly and never mount this.
+ */
+export function ExperienceModeProvider({ children }: { children: ReactNode }) {
+  const { sessionState } = useCallSession();
+  const { capabilities, serviceStatus, loading } = useWorkspaceData();
+  const value = useExperienceModeController({
+    sessionState,
+    status: serviceStatus,
+    capabilities,
+    loading
+  });
 
   return (
     <ExperienceModeContext.Provider value={value}>{children}</ExperienceModeContext.Provider>

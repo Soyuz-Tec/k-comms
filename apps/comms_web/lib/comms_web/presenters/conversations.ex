@@ -169,6 +169,7 @@ defmodule CommsWeb.Presenters.Conversations do
           :conversion_enabled,
           Map.get(capabilities, "conversion_enabled", false)
         ),
+      allow_immersive_mode: guest_immersive_allowed?(capabilities),
       email_hint: Map.get(capabilities, :email_hint, Map.get(capabilities, "email_hint"))
     }
 
@@ -189,9 +190,13 @@ defmodule CommsWeb.Presenters.Conversations do
   end
 
   def guest_capabilities(capabilities) when is_list(capabilities) do
+    audio? = :audio_calls in capabilities or "audio_calls" in capabilities
+    video? = :video_calls in capabilities or "video_calls" in capabilities
+
     %{
-      allow_audio_calls: :audio_calls in capabilities or "audio_calls" in capabilities,
-      allow_video_calls: :video_calls in capabilities or "video_calls" in capabilities,
+      allow_audio_calls: audio?,
+      allow_video_calls: video?,
+      allow_immersive_mode: audio? or video?,
       conversion_enabled: false,
       email_hint: nil
     }
@@ -201,9 +206,24 @@ defmodule CommsWeb.Presenters.Conversations do
     %{
       allow_audio_calls: false,
       allow_video_calls: false,
+      allow_immersive_mode: false,
       conversion_enabled: false,
       email_hint: nil
     }
+  end
+
+  # The guest half of immersive eligibility, on the same footing as the member
+  # one: Immersive Mode is only entered after joining a call, so a guest link
+  # that permits no call kind can never reach it. Derived rather than stored
+  # for the same reason -- nothing yet decides a value a column would hold.
+  defp guest_immersive_allowed?(capabilities) do
+    audio? =
+      Map.get(capabilities, :allow_audio_calls, Map.get(capabilities, "allow_audio_calls", false))
+
+    video? =
+      Map.get(capabilities, :allow_video_calls, Map.get(capabilities, "allow_video_calls", false))
+
+    audio? == true or video? == true
   end
 
   defp maybe_put_user(map, %UserView{} = user), do: Map.put(map, :user, Identity.user(user))
