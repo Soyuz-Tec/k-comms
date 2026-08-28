@@ -15,6 +15,10 @@ import {
   initialExperienceState,
   type ExperienceMode
 } from "./experience-mode";
+import {
+  applyCallControlPreferencesToDocument,
+  useCallControlPreferences
+} from "./call-control-preferences";
 import { setExperienceModeSnapshot } from "./experience-mode-store";
 import {
   resolveImmersiveWithinDeadline,
@@ -143,6 +147,19 @@ export function ExperienceModeProvider({ children }: { children: ReactNode }) {
       setExperienceModeSnapshot("workspace");
     };
   }, [state.mode]);
+
+  /*
+   * The appearance preferences are published here because this provider is
+   * mounted for the whole authenticated shell, while the control that changes
+   * them lives in Settings and the surface that obeys them is the call panel.
+   * Neither of those is an ancestor of the other, so the document root is
+   * again the shared ground -- the same arrangement the experience mode uses.
+   */
+  const callControlPreferences = useCallControlPreferences();
+  useEffect(
+    () => applyCallControlPreferencesToDocument(callControlPreferences),
+    [callControlPreferences]
+  );
 
   const exitToWorkspace = useCallback(() => {
     dispatch({ type: "EXIT_TO_WORKSPACE" });

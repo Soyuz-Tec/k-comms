@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useOverlayVisibility, ALWAYS_SHOW_CONTROLS_STORAGE_KEY } from "./useOverlayVisibility";
+import { useOverlayVisibility } from "./useOverlayVisibility";
+import {
+  CALL_CONTROL_PREFERENCE_KEYS,
+  resetCallControlPreferencesForTest
+} from "./call-control-preferences";
 import { OVERLAY_IDLE_MS, type KeepVisibleConditions } from "./overlay-visibility";
 
 function Surface({
@@ -35,6 +39,9 @@ function idleOut(by = OVERLAY_IDLE_MS) {
 describe("useOverlayVisibility", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // The preference snapshot is memoized for identity stability, so a test
+    // seeding storage directly has to drop it first.
+    resetCallControlPreferencesForTest();
     vi.useFakeTimers();
   });
 
@@ -182,7 +189,7 @@ describe("useOverlayVisibility", () => {
   });
 
   it("never collapses when Always show controls is on", () => {
-    window.localStorage.setItem(ALWAYS_SHOW_CONTROLS_STORAGE_KEY, "true");
+    window.localStorage.setItem(CALL_CONTROL_PREFERENCE_KEYS.alwaysShow, "true");
     render(<Surface />);
     idleOut(OVERLAY_IDLE_MS * 5);
     expect(isVisible()).toBe(true);
@@ -192,7 +199,7 @@ describe("useOverlayVisibility", () => {
   it("persists the Always show controls preference", () => {
     render(<Surface />);
     fireEvent.click(screen.getByTestId("always"));
-    expect(window.localStorage.getItem(ALWAYS_SHOW_CONTROLS_STORAGE_KEY)).toBe("true");
+    expect(window.localStorage.getItem(CALL_CONTROL_PREFERENCE_KEYS.alwaysShow)).toBe("true");
     idleOut(OVERLAY_IDLE_MS * 3);
     expect(isVisible()).toBe(true);
   });

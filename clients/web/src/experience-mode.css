@@ -138,7 +138,7 @@
    * A gradient, not a bar: the stage reads through it, and text stays legible
    * over bright media without painting a permanent band across the top.
    */
-  background: linear-gradient(to bottom, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+  background: var(--media-chrome-top);
 }
 
 :root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .active-call-details {
@@ -174,7 +174,7 @@
   padding: var(--space-3) max(var(--space-4), var(--safe-right))
     max(var(--space-3), var(--safe-bottom)) max(var(--space-4), var(--safe-left));
   border-top: 0;
-  background: linear-gradient(to top, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+  background: var(--media-chrome-bottom);
 }
 
 /*
@@ -238,6 +238,72 @@
  */
 :root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .video-track-frame.screen-share {
   background: var(--surface-media);
+}
+
+/*
+ * ------------------------------------------------------------------
+ * Control appearance preferences
+ * ------------------------------------------------------------------
+ *
+ * Both are redefinitions of tokens the stage already consumes, not a second
+ * set of rules for the same elements. Anything that reads --media-chrome-top
+ * or --border-media-control obeys them without knowing they exist, so a
+ * control added later cannot forget to.
+ *
+ * They are independent: opaque changes what is *behind* the controls, high
+ * contrast changes the controls themselves. Someone may want either alone.
+ */
+
+/*
+ * Opaque: the gradients become solid. The picture loses the strip behind the
+ * chrome, which is the trade being asked for -- a predictable background
+ * instead of one that changes with the video.
+ */
+:root[data-call-controls="opaque"] {
+  --media-chrome-top: rgb(6 4 12 / 96%);
+  --media-chrome-bottom: rgb(6 4 12 / 96%);
+}
+
+/*
+ * High contrast: a white boundary and a near-black fill.
+ *
+ * The default border is 4.20:1 against the stage, which clears 1.4.11 -- this
+ * takes it to 20.38:1, and white-on-fill from 15.89:1 to 19.77:1. The fill goes
+ * darker rather than lighter so the border does the separating; a lighter fill
+ * would compete with the video for attention while adding nothing to the edge.
+ */
+:root[data-call-contrast="high"] {
+  --surface-media-control: #0b0818;
+  --surface-media-control-hover: #1a1430;
+  --border-media-control: #ffffff;
+  --text-on-media-muted: #ffffff;
+}
+
+/*
+ * High contrast also deepens the scrims, whether or not opaque is on: a
+ * gradient that fades to nothing leaves the far end of the chrome sitting on
+ * raw video.
+ */
+:root[data-call-contrast="high"] {
+  --media-chrome-top: linear-gradient(to bottom, rgb(0 0 0 / 88%), rgb(0 0 0 / 30%));
+  --media-chrome-bottom: linear-gradient(to top, rgb(0 0 0 / 88%), rgb(0 0 0 / 30%));
+}
+
+:root[data-call-contrast="high"][data-call-controls="opaque"] {
+  --media-chrome-top: #000;
+  --media-chrome-bottom: #000;
+}
+
+/*
+ * A visible edge where the chrome meets the picture, so the boundary does not
+ * depend on the gradient being perceptible against that particular frame.
+ */
+:root[data-call-contrast="high"][data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-dock-heading {
+  border-bottom: 1px solid var(--border-media-control);
+}
+
+:root[data-call-contrast="high"][data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-actions {
+  border-top: 1px solid var(--border-media-control);
 }
 
 /*

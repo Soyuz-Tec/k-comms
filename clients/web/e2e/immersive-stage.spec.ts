@@ -16,7 +16,11 @@ import { activeVideoFixtureMarkup } from "./mobile-ui-support";
 
 const viewport = { width: 1440, height: 900 };
 
-async function mountCall(page: Page, experienceMode?: "workspace" | "immersive") {
+async function mountCall(
+  page: Page,
+  experienceMode?: "workspace" | "immersive",
+  appearance: { callControls?: "opaque"; callContrast?: "high" } = {}
+) {
   await page.goto("/sign-in");
   const applicationCss = await page.evaluate(() =>
     Array.from(document.styleSheets)
@@ -30,7 +34,7 @@ async function mountCall(page: Page, experienceMode?: "workspace" | "immersive")
       .join("\n")
   );
   expect(applicationCss.length).toBeGreaterThan(1_000);
-  await page.setContent(activeVideoFixtureMarkup({ experienceMode }));
+  await page.setContent(activeVideoFixtureMarkup({ experienceMode, ...appearance }));
   await page.addStyleTag({ content: applicationCss });
   /*
    * .button transitions background and border-color over 160ms. Reading a
@@ -159,6 +163,47 @@ test.describe("immersive active content stage", () => {
     for (const label of ["Mic", "Leave"]) {
       await expect(call.getByRole("button", { name: label })).toBeHidden();
     }
+  });
+
+  test("gives the controls a solid backdrop when opaque is preferred", async ({ page }) => {
+    const gradient = await mountCall(page, "immersive");
+    const withGradient = await gradient
+      .locator(".audio-call-dock-heading")
+      .evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(withGradient).toContain("gradient");
+
+    const solid = await mountCall(page, "immersive", { callControls: "opaque" });
+    const heading = solid.locator(".audio-call-dock-heading");
+    expect(await heading.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
+    // A backdrop the picture cannot show through is the whole point.
+    const color = await heading.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(color).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  test("raises control contrast when high contrast is preferred", async ({ page }) => {
+    const standard = await mountCall(page, "immersive");
+    const before = await standard
+      .locator(".audio-call-actions .button")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderColor);
+
+    const raised = await mountCall(page, "immersive", { callContrast: "high" });
+    const button = raised.locator(".audio-call-actions .button").first();
+    const after = await button.evaluate((el) => getComputedStyle(el).borderColor);
+
+    expect(after).not.toBe(before);
+    // White against the near-black stage: 20.38:1, up from 4.20:1.
+    expect(after).toBe("rgb(255, 255, 255)");
+  });
+
+  test("keeps the two appearance preferences independent", async ({ page }) => {
+    // Someone may want a predictable backdrop without raising contrast.
+    const call = await mountCall(page, "immersive", { callControls: "opaque" });
+    const border = await call
+      .locator(".audio-call-actions .button")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderColor);
+    expect(border).not.toBe("rgb(255, 255, 255)");
   });
 
   test("does not pull a minimized call into the stage", async ({ page }) => {

@@ -23,11 +23,18 @@ export const viewportCases = [
  * to stay intact.
  */
 export function activeVideoFixtureMarkup(
-  options: { experienceMode?: "workspace" | "immersive" } = {}
+  options: {
+    experienceMode?: "workspace" | "immersive";
+    /** Mirrors the call control appearance preferences on the root. */
+    callControls?: "opaque";
+    callContrast?: "high";
+  } = {}
 ) {
-  const mode = options.experienceMode
-    ? ` data-experience-mode="${options.experienceMode}"`
-    : "";
+  const mode = [
+    options.experienceMode ? ` data-experience-mode="${options.experienceMode}"` : "",
+    options.callControls ? ` data-call-controls="${options.callControls}"` : "",
+    options.callContrast ? ` data-call-contrast="${options.callContrast}"` : ""
+  ].join("");
   return `<!doctype html>
     <html lang="en"${mode}>
       <head>
