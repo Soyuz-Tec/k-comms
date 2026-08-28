@@ -8,27 +8,16 @@ import {
   POINTER_JITTER_PX,
   type KeepVisibleConditions
 } from "./overlay-visibility";
+import {
+  setCallControlPreference,
+  useCallControlPreferences
+} from "./call-control-preferences";
 
-export const ALWAYS_SHOW_CONTROLS_STORAGE_KEY = "k-comms.always-show-call-controls.v1";
-
-export function readAlwaysShowControls(): boolean {
-  try {
-    return window.localStorage.getItem(ALWAYS_SHOW_CONTROLS_STORAGE_KEY) === "true";
-  } catch {
-    // A constrained storage context must not decide an accessibility
-    // preference; fall back to the safer answer, which is showing them.
-    return true;
-  }
-}
-
-/** Exported so the settings surface and the in-call toggle write one key. */
-export function writeAlwaysShowControls(value: boolean) {
-  try {
-    window.localStorage.setItem(ALWAYS_SHOW_CONTROLS_STORAGE_KEY, String(value));
-  } catch {
-    // Preference lost, behaviour unchanged for this session.
-  }
-}
+/*
+ * alwaysShow now lives with the other two call control preferences rather than
+ * here. It is the same kind of thing and the same storage convention, and one
+ * owner is one fallback rule instead of three.
+ */
 
 interface Options {
   /** Auto-hide only applies where it was designed to; elsewhere, always visible. */
@@ -61,7 +50,7 @@ export function useOverlayVisibility({
   const [hovering, setHovering] = useState(false);
   const [focusWithin, setFocusWithin] = useState(false);
   const [pinned, setPinned] = useState(false);
-  const [alwaysShow, setAlwaysShow] = useState(readAlwaysShowControls);
+  const { alwaysShow } = useCallControlPreferences();
 
   const timerRef = useRef<number | undefined>(undefined);
   /**
@@ -139,12 +128,8 @@ export function useOverlayVisibility({
   );
 
   const toggleAlwaysShow = useCallback(() => {
-    setAlwaysShow((current) => {
-      const next = !current;
-      writeAlwaysShowControls(next);
-      return next;
-    });
-  }, []);
+    setCallControlPreference("alwaysShow", !alwaysShow);
+  }, [alwaysShow]);
 
   return {
     /** False only when routine controls have collapsed. */

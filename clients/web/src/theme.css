@@ -132,6 +132,12 @@
      --kc-ink-500 is 4.20:1 against --surface-media where the fill alone is
      1.28:1. Text pairs clear AA with room: white on the fill is 15.89:1 and
      the muted tone on the stage is 9.97:1. */
+  /* Backdrops behind chrome that floats on the stage. A gradient by default,
+     so the picture reads through; the opaque preference swaps both for solid
+     surfaces, and high contrast deepens them further. */
+  --media-chrome-top: linear-gradient(to bottom, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+  --media-chrome-bottom: linear-gradient(to top, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+
   --surface-media-control: #231d40;
   --surface-media-control-hover: #302849;
   --border-media-control: var(--kc-ink-500);

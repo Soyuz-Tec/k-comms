@@ -7,9 +7,10 @@ import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 import {
-  readAlwaysShowControls,
-  writeAlwaysShowControls
-} from "../experience/useOverlayVisibility";
+  useCallControlPreferences,
+  useSetCallControlPreference,
+  type CallControlPreferenceName
+} from "../experience/call-control-preferences";
 import { PushNotifications } from "./PushNotifications";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import {
@@ -424,32 +425,58 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
  * put should not have to join a call, find a menu and change it while a call
  * is running.
  */
+const callControlChoices: {
+  name: CallControlPreferenceName;
+  label: string;
+  description: string;
+}[] = [
+  {
+    name: "alwaysShow",
+    label: "Always show call controls",
+    description:
+      "Routine controls fade after a few seconds of inactivity so the picture is unobstructed. Keep them on screen the whole time instead."
+  },
+  {
+    name: "opaque",
+    label: "Solid background behind controls",
+    description:
+      "Controls sit on a fading shadow by default, so more of the picture shows through. Give them a solid background instead."
+  },
+  {
+    name: "highContrast",
+    label: "Higher contrast controls",
+    description:
+      "Strengthen the outlines and labels on call controls beyond the standard level."
+  }
+];
+
 function CallControlPreferences() {
-  const [alwaysShow, setAlwaysShow] = useState(readAlwaysShowControls);
+  const preferences = useCallControlPreferences();
+  const setPreference = useSetCallControlPreference();
 
   return (
     <div className="settings-card" id="call-control-settings">
       <div className="card-heading"><h2>Call controls</h2></div>
       <fieldset className="settings-fieldset">
-        <legend>How should call controls behave?</legend>
-        <div className="toggle-grid">
-          <label>
-            <input
-              type="checkbox"
-              checked={alwaysShow}
-              onChange={(event) => {
-                setAlwaysShow(event.target.checked);
-                writeAlwaysShowControls(event.target.checked);
-              }}
-            />
-            Always show call controls
-          </label>
+        <legend>How should call controls look and behave?</legend>
+        <div className="call-control-choices">
+          {callControlChoices.map(({ name, label, description }) => (
+            <label key={name}>
+              <input
+                type="checkbox"
+                checked={preferences[name]}
+                onChange={(event) => setPreference(name, event.target.checked)}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
+            </label>
+          ))}
         </div>
-        <small>
-          During a call, routine controls fade after a few seconds of inactivity
-          so the picture is unobstructed. Turn this on to keep them on screen the
-          whole time. Microphone, camera, screen-sharing and connection state stay
-          visible either way.
+        <small className="support-note">
+          Microphone, camera, screen-sharing and connection state stay visible
+          whatever you choose here. These settings apply to this device only.
         </small>
       </fieldset>
     </div>

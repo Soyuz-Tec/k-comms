@@ -772,6 +772,33 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 }
 
 /*
+ * The call control preference list. Each row is a checkbox with a label and an
+ * explanation, so the trade being made is stated rather than implied by a
+ * three-word switch name.
+ */
+.call-control-choices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.call-control-choices label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.call-control-choices label > span {
+  display: grid;
+  gap: .15rem;
+}
+
+.call-control-choices small {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/*
  * Placement controls on the minimized companion.
  *
  * The grip takes a real cursor because it is the drag affordance; the corner
