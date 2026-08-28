@@ -1,37 +1,45 @@
 /*
- * Experience-mode layout.
+ * Experience-mode layout, including the Immersive ActiveContentStage.
  *
- * One state with three values, published by ProductShell as
- * data-experience-mode on .app-shell. Nothing in here matches on what the call
- * surface happens to be doing -- the mode is decided once per call in
- * experience-mode.ts and this file only responds to it.
+ * One state with three values, published by ExperienceModeProvider as
+ * data-experience-mode on the document root. Nothing here matches on what the
+ * call surface happens to look like -- the mode is decided once per call in
+ * experience-mode.ts and this file only responds to it. That is the difference
+ * from `body:has(.video-call-dock:not(.minimized))`, which asked the DOM to
+ * describe a decision nobody had recorded.
+ *
+ * The root is the scope because CallSessionProvider renders the persistent
+ * call panel as a *sibling* of its children: the call dock is not inside
+ * .app-shell, so a selector rooted there cannot reach it.
  *
  * Immersive is dark in production until IMMERSIVE_MODE_ENABLED and the
- * tenant's own switch both say yes; until then the shell stays in workspace
- * and none of these rules apply.
+ * tenant's own switch both say yes; until then the root reads "workspace" and
+ * none of these rules apply.
+ *
+ * Workspace is deliberately absent: it is the established layout, and stating
+ * it again would create a second owner for rules that already work.
  */
 
-/*
- * Workspace is the established layout and is deliberately left alone here:
- * stating it again would create a second owner for rules that already work.
- */
-
-.app-shell[data-experience-mode="immersive"] {
+:root[data-experience-mode="immersive"] .app-shell {
   /*
-   * The stage owns the viewport. dvh tracks the mobile URL bar; the vh line
-   * before it is the fallback for engines without dynamic viewport units, and
-   * is deliberately first so the cascade picks dvh where it is understood.
+   * The stage owns the viewport. The vh line is the fallback for engines
+   * without dynamic viewport units and is deliberately first, so the cascade
+   * picks dvh wherever it is understood.
    */
   height: 100vh;
   height: 100dvh;
-  /* Grid areas for the sidebar and the nav are gone, not merely hidden. */
+  /* The sidebar and bottom-nav grid areas are gone, not merely hidden. */
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   /*
    * The stage is media, so it sits on the media ramp rather than the light
    * workspace canvas -- letterboxing and inactive tiles never sit on white.
+   * The foreground moves with it: a shell painted near-black while still
+   * carrying --text-primary is dark text on a dark ground the moment anything
+   * renders there.
    */
+  color: var(--text-on-media);
   background: var(--surface-media);
 }
 
@@ -40,8 +48,8 @@
  * navigation are unmounted rather than hidden, so this covers what remains:
  * banners that would otherwise push the stage down.
  */
-.app-shell[data-experience-mode="immersive"] > .pwa-update-banner,
-.app-shell[data-experience-mode="immersive"] > .banner {
+:root[data-experience-mode="immersive"] .app-shell > .pwa-update-banner,
+:root[data-experience-mode="immersive"] .app-shell > .banner {
   position: fixed;
   z-index: 70;
   right: max(var(--space-3), var(--safe-right));
@@ -51,13 +59,192 @@
   border-radius: var(--radius-md);
 }
 
-.app-shell[data-experience-mode="immersive"] > .window-titlebar-drag-region {
+:root[data-experience-mode="immersive"] .window-titlebar-drag-region {
   /*
-   * The drag region stays reachable on the desktop shell but stops reserving
-   * a strip of the stage for itself.
+   * Stays reachable on the desktop shell but stops reserving a strip of the
+   * stage for itself.
    */
   position: fixed;
   top: 0;
   right: 0;
   left: 0;
+}
+
+/*
+ * ------------------------------------------------------------------
+ * ActiveContentStage
+ * ------------------------------------------------------------------
+ *
+ * The stage is the existing call panel, restyled -- not a new tree. §2.1 of
+ * the implementation reference requires the attached <video>/<audio> nodes,
+ * the room identity, the local publications and the useLiveKitRoom instance
+ * to survive every presentation change, so Immersive must not re-parent or
+ * remount the media DOM. Changing where the same element is painted is safe;
+ * moving it in the DOM is not.
+ *
+ * Expanded, the legacy dock is a modal card inset ~1rem from the viewport,
+ * capped at 1440px, with a 20px radius and a scrim. That remains exactly as
+ * it is for the legacy fallback. Immersive removes the inset, the cap, the
+ * radius and the scrim, and nothing else.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) {
+  position: fixed;
+  z-index: 60;
+  /* Longhands, not `inset`: they must beat the legacy dock's own longhands. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 100vw;
+  width: 100dvw;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  overflow: hidden;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-media);
+  /* No scrim: in Immersive there is nothing behind the stage to dim. */
+  box-shadow: none;
+}
+
+/*
+ * §4.1: no permanent top bar, side rail, bottom navigation, or control row
+ * consumes stage layout space.
+ *
+ * Expanded, the heading is a 76px flex row and the action row is another --
+ * together they take a fifth of a laptop viewport away from the content. In
+ * Immersive both float over the stage instead, so the media plane is the full
+ * viewport and revealing or hiding a control cannot change its dimensions.
+ * That is also what makes §8.2's "overlay reveal changes the stage bounding
+ * box by no more than 1px" achievable rather than merely asserted: an
+ * absolutely positioned box cannot resize its containing block.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-dock-heading {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  min-height: 0;
+  padding: max(var(--space-3), var(--safe-top)) max(var(--space-4), var(--safe-right))
+    var(--space-3) max(var(--space-4), var(--safe-left));
+  border-bottom: 0;
+  /*
+   * A gradient, not a bar: the stage reads through it, and text stays legible
+   * over bright media without painting a permanent band across the top.
+   */
+  background: linear-gradient(to bottom, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .active-call-details {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 0;
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .call-stage {
+  /*
+   * min-height: 0 is what actually lets the stage shrink inside the flex
+   * column; without it a flex item floors at its content size and the media
+   * plane pushes the action row off the bottom of the viewport.
+   */
+  min-height: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-media);
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-actions {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  justify-content: center;
+  padding: var(--space-3) max(var(--space-4), var(--safe-right))
+    max(var(--space-3), var(--safe-bottom)) max(var(--space-4), var(--safe-left));
+  border-top: 0;
+  background: linear-gradient(to top, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+}
+
+/*
+ * Everything sitting on the stage uses the media ramp regardless of the
+ * workspace theme -- the same reasoning theme.css applies to --surface-media
+ * itself, which is declared theme-independent for exactly this case. A light
+ * pill on a dark stage loses its edge the moment the video behind it
+ * brightens, which is the failure mode the ramp exists to prevent.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-dock-heading,
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-dock-heading h2 {
+  color: var(--text-on-media);
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .call-progress-meta {
+  color: var(--text-on-media-muted);
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-actions .button,
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .call-dock-heading-actions .button {
+  border-color: var(--border-media-control);
+  color: var(--text-on-media);
+  background: var(--surface-media-control);
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-actions .button:hover,
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .call-dock-heading-actions .button:hover {
+  color: var(--text-on-media);
+  background: var(--surface-media-control-hover);
+}
+
+/*
+ * Leave keeps the danger fill rather than the neutral one. It is the single
+ * irreversible control on the stage and it should not have to be read to be
+ * found.
+ *
+ * It keeps the shared control border rather than a matching red one, because
+ * --danger-solid resolves per theme and its dark value is 2.98:1 against the
+ * stage -- under 1.4.11's 3:1 by a hair. A border that matched the fill would
+ * inherit that miss; the shared one is 4.20:1 in both themes, so the boundary
+ * is perceivable whichever red is in play.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .audio-call-actions .button.danger {
+  border-color: var(--border-media-control);
+  color: var(--text-on-accent);
+  background: var(--danger-solid);
+}
+
+/*
+ * The participant caption sits directly on video with nothing behind it, so
+ * it carries its own legibility rather than relying on the content.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .video-participant-caption {
+  color: var(--text-on-media);
+}
+
+/*
+ * §4.2: a screen presentation must never crop slides, text, spreadsheets or
+ * application UI. The frame already sets object-fit: contain for shares; this
+ * keeps the frame itself from being cropped by a stage that fills differently.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock:not(.minimized) .video-track-frame.screen-share {
+  background: var(--surface-media);
+}
+
+/*
+ * A minimized call is not Immersive. It is the Workspace companion, and it
+ * keeps its established placement -- Immersive must not drag the capsule into
+ * the middle of the viewport.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock.minimized {
+  position: fixed;
 }

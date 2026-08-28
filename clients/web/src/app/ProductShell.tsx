@@ -121,17 +121,15 @@ function ProductShellContent() {
    * and the only one that could be wrong.
    */
   /*
-   * The mode is published as an attribute rather than a class so the styling
-   * reads as one state with three values, and so a surface can never be in two
-   * modes at once by accumulating class names. Every rule that responds to it
-   * lives in experience-mode.css.
+   * The mode drives the shell in two ways, and only two: this component
+   * unmounts the chrome that Immersive must not reserve space for, and
+   * experience-mode.css responds to the data-experience-mode attribute that
+   * ExperienceModeProvider publishes on the document root. The attribute is
+   * not repeated here -- one owner, so the two can never disagree.
    */
   const immersive = mode === "immersive";
   return (
-    <div
-      className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}
-      data-experience-mode={mode}
-    >
+    <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
         {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}

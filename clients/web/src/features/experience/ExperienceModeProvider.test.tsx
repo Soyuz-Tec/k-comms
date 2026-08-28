@@ -40,6 +40,7 @@ describe("ExperienceModeProvider", () => {
     workspace.capabilities = { allow_immersive_mode: true };
     workspace.serviceStatus = { capabilities: { immersive_mode: true } };
     workspace.loading = false;
+    delete document.documentElement.dataset.experienceMode;
   });
 
   it("stays in workspace with no call", async () => {
@@ -97,6 +98,35 @@ describe("ExperienceModeProvider", () => {
       </ExperienceModeProvider>
     );
     await expectMode("workspace:true");
+  });
+
+  it("publishes the mode on the document root, not on the shell", async () => {
+    // The call dock is a sibling of .app-shell -- CallSessionProvider renders
+    // it beside its children -- so a shell-scoped attribute cannot reach it.
+    // The stage rules depend on this being the root.
+    renderProvider();
+    await waitFor(() =>
+      expect(document.documentElement.dataset.experienceMode).toBe("workspace")
+    );
+
+    callSession.sessionState = { conversationId: "conv-1", phase: "joining" };
+    renderProvider();
+    await waitFor(() =>
+      expect(document.documentElement.dataset.experienceMode).toBe("immersive")
+    );
+  });
+
+  it("clears the root attribute when the provider unmounts", async () => {
+    // A stale "immersive" left on the root would style a signed-out shell as a
+    // call stage.
+    callSession.sessionState = { conversationId: "conv-1", phase: "joining" };
+    const view = renderProvider();
+    await waitFor(() =>
+      expect(document.documentElement.dataset.experienceMode).toBe("immersive")
+    );
+
+    view.unmount();
+    expect(document.documentElement.dataset.experienceMode).toBeUndefined();
   });
 
   it("fails closed while capabilities are still loading at the deadline", async () => {
