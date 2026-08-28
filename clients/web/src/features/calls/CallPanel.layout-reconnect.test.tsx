@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
 import type { Call, Conversation } from "../../types";
 import { CallPanel } from "./CallPanel";
+import {
+  resetProtectedSurfacesForTest,
+  setProtectedSurface
+} from "../experience/companion-collision";
 
 const livekit = vi.hoisted(() => ({
   events: {
@@ -190,6 +194,8 @@ function useMobileCallLayout() {
 
 describe("CallPanel calls", () => {
   beforeEach(() => {
+    // Collision signals are module state; one test must not leak into the next.
+    resetProtectedSurfacesForTest();
     window.localStorage.clear();
     livekit.callbacks.clear();
     livekit.remoteParticipants.clear();
@@ -553,6 +559,108 @@ describe("CallPanel calls", () => {
     await user.click(await screen.findByRole("button", { name: "Show call" }));
 
     expect(screen.queryByRole("group", { name: "Call panel position" })).toBeNull();
+  });
+
+  it("yields the companion off a drawable canvas, and reduces it while drawing", async () => {
+    // The companion floats over whatever the user is doing. A whiteboard's
+    // drawable plane and its native controls are protected zones: the panel
+    // moves off them, and gets out of the way entirely while a pen or a text
+    // editor is active.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+
+    const dock = await screen.findByRole("region", { name: "Design group" });
+    expect(dock).toHaveClass("minimized");
+    expect(dock).not.toHaveAttribute("data-yielded");
+
+    // A canvas appears: move off it, but keep the controls.
+    act(() => setProtectedSurface("canvasVisible", true));
+    await waitFor(() => expect(dock).toHaveAttribute("data-yielded", "canvas-visible"));
+    expect(
+      within(dock).getByRole("group", { name: "Call controls" })
+    ).toBeInTheDocument();
+
+    // A stylus goes down: reduce, and stay reduced until it lifts.
+    act(() => setProtectedSurface("canvasEditing", true));
+    await waitFor(() => expect(dock).toHaveAttribute("data-yielded", "canvas-editing"));
+    // Critical state survives every degree of yielding -- that is the floor.
+    expect(within(dock).getByRole("status", { name: "Call status" })).toHaveTextContent(
+      "Microphone off"
+    );
+
+    act(() => setProtectedSurface("canvasEditing", false));
+    await waitFor(() => expect(dock).toHaveAttribute("data-yielded", "canvas-visible"));
+
+    // Canvas gone: the user's own placement comes back.
+    act(() => setProtectedSurface("canvasVisible", false));
+    await waitFor(() => expect(dock).not.toHaveAttribute("data-yielded"));
+  });
+
+  it("yields the companion to the virtual keyboard", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+
+    const dock = await screen.findByRole("region", { name: "Design group" });
+    act(() => setProtectedSurface("keyboardOpen", true));
+
+    await waitFor(() => expect(dock).toHaveAttribute("data-yielded", "keyboard-open"));
+    // Still leaveable with the keyboard up: yielding never removes the
+    // safety-critical controls.
+    expect(
+      within(dock).getByRole("button", { name: "Leave call" })
+    ).toBeEnabled();
   });
 
   it("announces reconnecting and restores mobile audio controls after reconnection", async () => {
