@@ -6,15 +6,19 @@ import type { AccountSession, Device, NotificationAttempt, NotificationIntent, N
 import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
+import {
+  readAlwaysShowControls,
+  writeAlwaysShowControls
+} from "../experience/useOverlayVisibility";
 import { PushNotifications } from "./PushNotifications";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import {
   PwaInstallHelpDialog,
   type ManualInstallMode
 } from "../../pwa/PwaInstallHelpDialog";
-type SettingsSection = "profile" | "security" | "notifications";
+type SettingsSection = "profile" | "security" | "notifications" | "accessibility";
 
-const settingsSections: SettingsSection[] = ["profile", "security", "notifications"];
+const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "accessibility"];
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -273,7 +277,13 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
               }
             }}
           >
-            {value === "profile" ? "Profile" : value === "security" ? "Security" : "Notifications"}
+            {value === "profile"
+              ? "Profile"
+              : value === "security"
+                ? "Security"
+                : value === "notifications"
+                  ? "Notifications"
+                  : "Accessibility"}
           </button>
         ))}
       </nav>
@@ -389,7 +399,60 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>
       </details>
       </section>}
+      {section === "accessibility" && (
+        <section
+          id="settings-accessibility-panel"
+          role="tabpanel"
+          aria-labelledby="settings-accessibility-tab"
+        >
+          <CallControlPreferences />
+        </section>
+      )}
     </main>
+  );
+}
+
+/**
+ * Call control preferences.
+ *
+ * These live on the device rather than the account, because they describe how
+ * this browser should behave -- the same person on a shared machine, a phone
+ * and a desktop can reasonably want different answers. That is also why they
+ * are not part of the notification form above, which saves to the server.
+ *
+ * Reachable outside a call on purpose: someone who needs the controls to stay
+ * put should not have to join a call, find a menu and change it while a call
+ * is running.
+ */
+function CallControlPreferences() {
+  const [alwaysShow, setAlwaysShow] = useState(readAlwaysShowControls);
+
+  return (
+    <div className="settings-card" id="call-control-settings">
+      <div className="card-heading"><h2>Call controls</h2></div>
+      <fieldset className="settings-fieldset">
+        <legend>How should call controls behave?</legend>
+        <div className="toggle-grid">
+          <label>
+            <input
+              type="checkbox"
+              checked={alwaysShow}
+              onChange={(event) => {
+                setAlwaysShow(event.target.checked);
+                writeAlwaysShowControls(event.target.checked);
+              }}
+            />
+            Always show call controls
+          </label>
+        </div>
+        <small>
+          During a call, routine controls fade after a few seconds of inactivity
+          so the picture is unobstructed. Turn this on to keep them on screen the
+          whole time. Microphone, camera, screen-sharing and connection state stay
+          visible either way.
+        </small>
+      </fieldset>
+    </div>
   );
 }
 

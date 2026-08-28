@@ -21,7 +21,8 @@ export function readAlwaysShowControls(): boolean {
   }
 }
 
-function writeAlwaysShowControls(value: boolean) {
+/** Exported so the settings surface and the in-call toggle write one key. */
+export function writeAlwaysShowControls(value: boolean) {
   try {
     window.localStorage.setItem(ALWAYS_SHOW_CONTROLS_STORAGE_KEY, String(value));
   } catch {
