@@ -407,9 +407,14 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 .video-track-frame video { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--surface-media); }
 .video-track-frame:has(video[data-k-comms-call-video="local"][data-source="camera"]) video { transform: scaleX(-1); }
 .video-track-frame.screen-share video { object-fit: contain; background: var(--surface-media); }
-.video-placeholder { display: grid; place-items: center; align-content: center; gap: .35rem; width: 100%; height: 100%; color: var(--text-primary); }
+/* The placeholder fills a video tile, so it is always on --surface-media --
+   in the legacy dock and on the Immersive stage alike. It therefore takes the
+   media ramp rather than the theme's text roles: --text-muted is a workspace
+   colour and it was being painted on near-black, which axe reports as a
+   contrast failure on both surfaces. */
+.video-placeholder { display: grid; place-items: center; align-content: center; gap: .35rem; width: 100%; height: 100%; color: var(--text-on-media); }
 .video-placeholder span { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: var(--accent-text); background: var(--accent-quiet); font-size: 1.3rem; font-weight: 900; }
-.video-placeholder small { color: var(--text-muted); }
+.video-placeholder small { color: var(--text-on-media-muted); }
 .video-participant-caption { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; align-items: center; gap: .5rem; min-width: 0; padding: 1rem .6rem .45rem; color: var(--text-on-accent); background: linear-gradient(transparent, rgb(6 26 24 / 88%)); font-size: var(--text-xs); }
 .video-participant-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-participant-caption span { flex: 0 0 auto; }

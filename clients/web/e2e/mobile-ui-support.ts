@@ -13,10 +13,25 @@ export const viewportCases = [
   { width: 700, height: 900 }
 ] as const;
 
-export function activeVideoFixtureMarkup() {
+/**
+ * A joined video call in static markup, carrying the real class names so the
+ * application's own stylesheets can be injected over it.
+ *
+ * `experienceMode` stamps the document root the way ExperienceModeProvider
+ * does at runtime, which is what selects the Immersive stage rules. Omitting
+ * it exercises the legacy presentation -- the fallback the contract requires
+ * to stay intact.
+ */
+export function activeVideoFixtureMarkup(
+  options: { experienceMode?: "workspace" | "immersive" } = {}
+) {
+  const mode = options.experienceMode
+    ? ` data-experience-mode="${options.experienceMode}"`
+    : "";
   return `<!doctype html>
-    <html>
+    <html lang="en"${mode}>
       <head>
+        <title>Call fixture</title>
       </head>
       <body>
         <main class="app-shell">Workspace beneath the call</main>

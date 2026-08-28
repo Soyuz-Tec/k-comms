@@ -118,6 +118,27 @@ export function ExperienceModeProvider({ children }: { children: ReactNode }) {
     dispatch({ type: immersiveEligible ? "RESTORE_ENTRY" : "WITHDRAW_ENTRY" });
   }, [immersiveEligible]);
 
+  /*
+   * The mode is published on the document root, not on .app-shell.
+   *
+   * CallSessionProvider renders the persistent call panel as a *sibling* of
+   * its children, so the call dock is not a descendant of the shell -- a
+   * selector rooted at .app-shell cannot reach it, and the panel sits outside
+   * this provider so it cannot read the context either. The document root is
+   * the one ancestor both share.
+   *
+   * This also replaces what `body:has(.video-call-dock:not(.minimized))` was
+   * doing: asking what the call surface currently looks like, rather than
+   * being told what mode we are in.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.experienceMode = state.mode;
+    return () => {
+      delete root.dataset.experienceMode;
+    };
+  }, [state.mode]);
+
   const exitToWorkspace = useCallback(() => {
     dispatch({ type: "EXIT_TO_WORKSPACE" });
   }, []);
