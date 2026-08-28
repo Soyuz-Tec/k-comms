@@ -2,7 +2,9 @@ import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AppIcon } from "../../components/AppIcon";
 import { OVERLAY_PRESET_LABELS, type OverlayPresetName } from "../experience/overlay-placement";
+import { useExperienceModeSnapshot } from "../experience/experience-mode-store";
 import { useOverlayPlacement } from "../experience/useOverlayPlacement";
+import { useOverlayVisibility } from "../experience/useOverlayVisibility";
 import {
   AppMenuCloseButton,
   AppMenuTrigger,
@@ -191,6 +193,33 @@ export function CallPanel({
     defaultPreset: "bottom-right"
   });
 
+  /*
+   * Routine controls auto-hide only on the Immersive stage. The minimized
+   * companion is already the compact critical form -- there is nothing there
+   * worth tidying away -- and the expanded dock is a modal card whose chrome
+   * is part of its layout.
+   */
+  const experienceMode = useExperienceModeSnapshot();
+  const immersiveStage = experienceMode === "immersive" && !minimized;
+  const overlayVisibility = useOverlayVisibility({
+    enabled: immersiveStage,
+    conditions: {
+      dragging: companionPlacement.dragging,
+      // A call that is not connected is reporting something; do not tidy the
+      // report away while it is still true.
+      pendingAction: phase !== "connected",
+      menuOpen: mobileWorkspaceOpen,
+      blockingAlert: accessRevoked || audioBlocked
+    }
+  });
+
+  /*
+   * When routine controls collapse, the critical capsule is what remains --
+   * the same compact form the minimized companion uses. Microphone, camera
+   * and screen-share state never depend on the controls being up.
+   */
+  const showCriticalCapsule = minimized || (immersiveStage && !overlayVisibility.visible);
+
   const callStatusLabel = phase === "reconnecting"
     ? "Reconnecting"
     : phase === "leaving"
@@ -267,6 +296,13 @@ export function CallPanel({
           className={`call-dock audio-call-dock active-call-screen ${joinedKind === "video" ? "video-call-dock video-call-screen" : "audio-call-screen"} ${minimized ? "minimized" : ""}`}
           style={minimized ? companionPlacement.style : undefined}
           data-placing={minimized && companionPlacement.dragging ? "true" : undefined}
+          data-controls={immersiveStage && !overlayVisibility.visible ? "collapsed" : "visible"}
+          data-keep-visible={
+            immersiveStage && overlayVisibility.keepVisibleReasons.length > 0
+              ? overlayVisibility.keepVisibleReasons.join(" ")
+              : undefined
+          }
+          {...(immersiveStage ? overlayVisibility.surfaceProps : {})}
           data-call-control-labels={callControlLabelsVisible ? "visible" : "hidden"}
           role={expandedCallModal ? "dialog" : "region"}
           aria-modal={expandedCallModal || undefined}
@@ -400,11 +436,14 @@ export function CallPanel({
             * no way to mute or hang up. This capsule lives outside that
             * subtree, so it is exactly what remains when the panel collapses.
             *
-            * It renders only while minimized: expanded, the full capture
-            * indicator and action row below already say all of this, and two
-            * live regions reporting the same state is worse than one.
+            * It renders whenever the fuller controls are not on screen --
+            * while minimized, and on the Immersive stage once the routine
+            * controls have collapsed. It is never shown alongside them:
+            * expanded, the capture indicator and action row already say all
+            * of this, and two live regions reporting one fact is worse than
+            * one.
             */}
-          {minimized && (
+          {showCriticalCapsule && (
             <div className="call-critical-status">
               {/*
                 * Named distinctly from the expanded panel's "Local capture

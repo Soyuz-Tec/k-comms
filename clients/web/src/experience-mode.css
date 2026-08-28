@@ -241,6 +241,68 @@
 }
 
 /*
+ * ------------------------------------------------------------------
+ * Routine control auto-hide
+ * ------------------------------------------------------------------
+ *
+ * Opacity and a small transform, never display or layout. The heading and
+ * action row are already absolutely positioned, so they cannot resize the
+ * stage -- but animating height or display would still cause work on a
+ * surface that is compositing video. This way the collapse is one
+ * compositor property.
+ *
+ * visibility follows opacity so collapsed controls leave the tab order too.
+ * A control faded to nothing but still focusable is a trap: Tab lands on
+ * something invisible with no way to know where you are.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls] .audio-call-dock-heading,
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls] .audio-call-actions {
+  transition: opacity 160ms ease, transform 160ms ease, visibility 0s linear 0s;
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-dock-heading,
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-actions {
+  visibility: hidden;
+  opacity: 0;
+  /* Delay only the visibility flip, so it lands after the fade rather than
+     snapping the controls out of the tab order mid-animation. */
+  transition: opacity 160ms ease, transform 160ms ease, visibility 0s linear 160ms;
+  pointer-events: none;
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-dock-heading {
+  transform: translateY(-8px);
+}
+
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-actions {
+  transform: translateY(8px);
+}
+
+/*
+ * The critical capsule is what remains, so it is pinned to the top safe area
+ * where nothing else competes and it cannot drift over the media's centre.
+ */
+:root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .call-critical-status {
+  position: absolute;
+  z-index: 3;
+  top: max(var(--space-3), var(--safe-top));
+  left: max(var(--space-4), var(--safe-left));
+  margin-top: 0;
+  width: auto;
+}
+
+/*
+ * Reduced motion keeps the fade -- which conveys the state change -- and drops
+ * the positional movement, per the motion rules.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-dock-heading,
+  :root[data-experience-mode="immersive"] .audio-call-dock[data-controls="collapsed"] .audio-call-actions {
+    transform: none;
+  }
+}
+
+/*
  * A minimized call is not Immersive. It is the Workspace companion, and it
  * keeps its established placement -- Immersive must not drag the capsule into
  * the middle of the viewport.

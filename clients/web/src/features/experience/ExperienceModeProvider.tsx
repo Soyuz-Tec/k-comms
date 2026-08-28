@@ -15,6 +15,7 @@ import {
   initialExperienceState,
   type ExperienceMode
 } from "./experience-mode";
+import { setExperienceModeSnapshot } from "./experience-mode-store";
 import {
   resolveImmersiveWithinDeadline,
   selectImmersiveEligibility
@@ -134,8 +135,12 @@ export function ExperienceModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.experienceMode = state.mode;
+    // The same value, published twice from one place: the attribute for CSS,
+    // the store for the call panel, which renders outside this provider.
+    setExperienceModeSnapshot(state.mode);
     return () => {
       delete root.dataset.experienceMode;
+      setExperienceModeSnapshot("workspace");
     };
   }, [state.mode]);
 
