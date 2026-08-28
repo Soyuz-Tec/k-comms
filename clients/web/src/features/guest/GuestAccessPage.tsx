@@ -53,7 +53,8 @@ export function GuestAccessPage() {
     setSession: setAccountSession,
     transportPolicyReady,
     accountActionsAllowed,
-    mediaActionsAllowed
+    mediaActionsAllowed,
+    serviceStatus
   } = useSession();
   const secureAccountActionsAllowed =
     transportPolicyReady && accountActionsAllowed;
@@ -261,6 +262,7 @@ export function GuestAccessPage() {
         initialSession={activeRoomSession}
         accountActionsAllowed={secureAccountActionsAllowed}
         mediaActionsAllowed={secureMediaActionsAllowed}
+        serviceStatus={serviceStatus}
         identityLabel={
           activeRoomSession.user.account_type === "guest" ? "Guest" : "Member"
         }

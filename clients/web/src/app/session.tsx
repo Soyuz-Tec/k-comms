@@ -12,7 +12,7 @@ import { ApiClient, loadStoredSession, storeSession } from "../api";
 import { clearDrafts } from "../lib/drafts";
 import { isInsecureNonLoopbackOrigin } from "../lib/transportSecurity";
 import { rememberWorkspaceSlug } from "../lib/workspacePreference";
-import type { Session } from "../types";
+import type { ServiceStatus, Session } from "../types";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "";
 const transportPolicyRetryDelaysMs = [1_000, 3_000, 10_000] as const;
@@ -29,6 +29,16 @@ interface SessionContextValue {
   transportPolicyReady: boolean;
   accountActionsAllowed: boolean;
   mediaActionsAllowed: boolean;
+  /**
+   * The last /api/v1/status payload this provider fetched, kept whole.
+   *
+   * It was already being fetched here for the transport policy and then
+   * discarded down to two booleans. Guest and instant-room surfaces need the
+   * service-level immersive switch from the same response, and the contract is
+   * explicit that no second capability endpoint or polling loop may be added
+   * for that -- so the one fetch that already happens now keeps its answer.
+   */
+  serviceStatus: ServiceStatus | null;
   setSession: (update: SessionUpdate) => void;
   logout: () => Promise<void>;
 }
@@ -46,6 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     accountActionsAllowed: false,
     mediaActionsAllowed: false
   }));
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const transportPolicyRef = useRef(transportPolicy);
   const session =
     transportPolicy.ready && transportPolicy.accountActionsAllowed
@@ -101,6 +112,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       void api.status().then((status) => {
         inFlight = false;
         if (!current) return;
+        setServiceStatus(status);
         const capabilities = status.capabilities;
         if (capabilities?.secure_account_actions === false) {
           resolved = true;
@@ -195,12 +207,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     transportPolicyReady: transportPolicy.ready,
     accountActionsAllowed: transportPolicy.accountActionsAllowed,
     mediaActionsAllowed: transportPolicy.mediaActionsAllowed,
+    serviceStatus,
     setSession,
     logout
   }), [
     api,
     logout,
     session,
+    serviceStatus,
     setSession,
     transportPolicy.accountActionsAllowed,
     transportPolicy.mediaActionsAllowed,

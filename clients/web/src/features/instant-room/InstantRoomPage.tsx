@@ -58,7 +58,8 @@ export function InstantRoomPage({
     setSession: setAccountSession,
     transportPolicyReady,
     accountActionsAllowed,
-    mediaActionsAllowed
+    mediaActionsAllowed,
+    serviceStatus
   } = useSession();
   const secureActionsUnavailable =
     transportPolicyReady &&
@@ -479,6 +480,7 @@ export function InstantRoomPage({
       mediaActionsAllowed={
         transportPolicyReady && mediaActionsAllowed
       }
+      serviceStatus={serviceStatus}
       identityLabel={activeRoom.mode === "guest" ? "Host" : "Member"}
       initialPresenceCount={1}
       roomBanner={shareBanner}
