@@ -34,8 +34,8 @@ No role may be left as a generic team name at production approval; record one ac
 
 Immersive rollout must use the application’s existing capability responses:
 
-- `/api/v1/status.capabilities.immersive_call_ui` is the service-level availability and emergency-disable output.
-- authenticated tenant/user targeting is returned through the existing `UserCapabilities.immersive_call_ui` field;
+- `/api/v1/status.capabilities.immersive_mode` is the service-level availability and emergency-disable output. It is driven by the `IMMERSIVE_MODE_ENABLED` environment variable and defaults to `false`.
+- authenticated tenant/user targeting is returned through the existing `UserCapabilities.allow_immersive_mode` field;
 - guest eligibility is returned through the existing `GuestCapabilities` family;
 - instant-room eligibility, if independently targeted, is returned through its existing preview/session response.
 
@@ -71,8 +71,8 @@ The fallback is the complete current production call presentation: existing `Cal
 
 1. Confirm the symptom is presentation-specific and not a general service, origin, DNS, Phoenix, or LiveKit outage.
 2. Record incident timestamp in UTC, affected cohorts, browsers, routes, and current capability value.
-3. Change the existing service capability output so `immersive_call_ui=false` for all new joins.
-4. Invalidate or wait out only the documented capability cache; do not purge unrelated application/media caches.
+3. Set `IMMERSIVE_MODE_ENABLED=false` and apply the configuration, so `/api/v1/status.capabilities.immersive_mode` reports `false` for all new joins. The value is read from application configuration at boot, so applying it restarts the application -- it does **not** require a client or browser release, which is what keeps step 5 a config change rather than a deployment.
+4. Wait out the client's status poll rather than purging anything. There is no capability cache to invalidate: the workspace re-fetches `/api/v1/status` every 15 seconds while its tab is visible, and immediately on window focus or a visibility change. A visible tab therefore picks the disable up within ~15 seconds; a backgrounded tab picks it up when the user returns to it, before they can start a new call. Do not purge application or media caches -- they are not part of this path.
 5. Start a fresh eligible prejoin and verify the next call uses legacy presentation without a browser redeploy.
 6. Verify one existing Immersive call remains connected and does not remount/reconnect because of the change.
 7. Verify guest and instant-room behavior separately.
