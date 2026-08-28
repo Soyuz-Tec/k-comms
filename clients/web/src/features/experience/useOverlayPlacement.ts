@@ -136,6 +136,25 @@ export function useOverlayPlacement({
     };
   }, [measure]);
 
+  /*
+   * The overlay's own size matters as much as the viewport's, because
+   * placement is a fraction of the travel *between* them.
+   *
+   * Without this, a panel that expands and then collapses is positioned from
+   * its expanded size: at 1000x600 a bottom-right companion measured while it
+   * filled the viewport has zero travel on both axes, so it resolves to the
+   * top-left corner instead. A ResizeObserver catches that, and every other
+   * size change -- a reconnecting banner appearing, a longer room title --
+   * without the panel having to tell us it changed.
+   */
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(surface);
+    return () => observer.disconnect();
+  }, [measure]);
+
   const commit = useCallback(
     (next: NormalizedPlacement) => {
       const clamped = clampPlacement(next);

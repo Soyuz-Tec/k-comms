@@ -477,6 +477,84 @@ describe("CallPanel calls", () => {
     expect(within(dock).getByRole("button", { name: "Show call" })).toBeVisible();
   });
 
+  it("offers keyboard and preset placement on the minimized companion", async () => {
+    // The companion floats over the user's work, so it has to be movable --
+    // and movable without a pointer. Dragging is an enhancement, not the only
+    // placement mechanism.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      })
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+
+    const dock = await screen.findByRole("region", { name: "Design group" });
+    expect(dock).toHaveClass("minimized");
+
+    const placement = within(dock).getByRole("group", { name: "Call panel position" });
+    expect(within(placement).getByRole("button", { name: "Move call panel" })).toBeVisible();
+
+    // It starts bottom-right, and every corner is one click away.
+    const bottomRight = within(placement)
+      .getByRole("button", { name: "Move call panel to bottom right" });
+    expect(bottomRight).toHaveAttribute("aria-pressed", "true");
+
+    const topLeft = within(placement).getByRole("button", { name: "Move call panel to top left" });
+    await user.click(topLeft);
+    expect(topLeft).toHaveAttribute("aria-pressed", "true");
+    expect(bottomRight).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("does not offer placement controls on an expanded call", async () => {
+    // Expanded, the dock's position belongs to CSS -- and on the Immersive
+    // stage it fills the viewport. There is nothing to place.
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const user = userEvent.setup();
+    render(
+      <CallPanel
+        api={apiWith(activeAudioCall)}
+        conversation={conversation}
+        audioEnabled
+        videoEnabled
+        currentUserDisplayName="Ada"
+      />
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Join the audio call" }))
+        .getByRole("button", { name: "Join muted" })
+    );
+    await user.click(await screen.findByRole("button", { name: "Show call" }));
+
+    expect(screen.queryByRole("group", { name: "Call panel position" })).toBeNull();
+  });
+
   it("announces reconnecting and restores mobile audio controls after reconnection", async () => {
     useMobileCallLayout();
     const user = userEvent.setup();

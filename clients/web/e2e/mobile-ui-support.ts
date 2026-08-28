@@ -46,6 +46,12 @@ export function activeVideoFixtureMarkup(
               </div>
             </div>
             <div class="call-dock-heading-actions app-surface-control-cluster">
+              <div class="call-placement-controls" role="group" aria-label="Call panel position">
+                <button class="button ghost compact call-placement-handle" type="button" aria-label="Move call panel">${callFixtureIcon("grip")}</button>
+                ${["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => `
+                  <button class="button ghost compact call-placement-preset" type="button" data-corner="${corner}" aria-label="Move call panel to ${corner.replace("-", " ")}" aria-pressed="${corner === "bottom-right"}">${callFixtureIcon("arrowUpRight")}</button>
+                `).join("")}
+              </div>
               <button class="button ghost compact app-surface-control" type="button" aria-label="Minimize">${callFixtureIcon("minimize")}</button>
               <button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>
             </div>
@@ -87,6 +93,12 @@ export function callFixtureIcon(name: string) {
       <polyline points="20 10 14 10 14 4"></polyline>
       <line x1="14" x2="21" y1="10" y2="3"></line>
       <line x1="3" x2="10" y1="21" y2="14"></line>`,
+    grip: `
+      <circle cx="9" cy="6" r="1"></circle><circle cx="15" cy="6" r="1"></circle>
+      <circle cx="9" cy="12" r="1"></circle><circle cx="15" cy="12" r="1"></circle>
+      <circle cx="9" cy="18" r="1"></circle><circle cx="15" cy="18" r="1"></circle>`,
+    arrowUpRight: `
+      <path d="M7 17 17 7"></path><path d="M7 7h10v10"></path>`,
     menu: `
       <line x1="4" x2="20" y1="6" y2="6"></line>
       <line x1="4" x2="20" y1="12" y2="12"></line>

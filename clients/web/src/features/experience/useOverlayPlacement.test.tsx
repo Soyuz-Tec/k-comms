@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOverlayPlacement } from "./useOverlayPlacement";
 import { OVERLAY_EDGE_GAP } from "./overlay-placement";
 
-const SURFACE = { width: 200, height: 100 };
+let SURFACE = { width: 200, height: 100 };
 const STORAGE_KEY = "test.overlay.placement";
 
 /**
@@ -181,6 +181,36 @@ describe("useOverlayPlacement", () => {
 
     expect(Number.parseFloat(surface().style.left) + SURFACE.width).toBeLessThanOrEqual(320);
     expect(Number.parseFloat(surface().style.top) + SURFACE.height).toBeLessThanOrEqual(480);
+  });
+
+  it("re-measures when the overlay's own size changes", async () => {
+    // Placement is a fraction of the travel *between* the overlay and the
+    // viewport, so the overlay's size is half the sum. A companion measured
+    // while it was expanded has zero travel and resolves to the top-left
+    // corner -- which is where an expand-then-collapse used to send it.
+    const observers: (() => void)[] = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { observers.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      // Wide enough that no travel remains on either axis (1000 - 990 - 2*8
+      // is negative), which is the degenerate case an expanded panel hits.
+      SURFACE = { width: 990, height: 590 };
+      render(<Overlay />);
+      expect(surface().style.left).toBe(`${OVERLAY_EDGE_GAP}px`);
+      expect(surface().style.top).toBe(`${OVERLAY_EDGE_GAP}px`);
+
+      SURFACE = { width: 200, height: 100 };
+      act(() => observers.forEach((notify) => notify()));
+
+      expect(surface().style.left).toBe(`${1000 - 200 - OVERLAY_EDGE_GAP}px`);
+      expect(surface().style.top).toBe(`${600 - 100 - OVERLAY_EDGE_GAP}px`);
+    } finally {
+      SURFACE = { width: 200, height: 100 };
+      vi.unstubAllGlobals();
+    }
   });
 
   it("ignores a corrupt stored placement rather than rendering at NaN", () => {
