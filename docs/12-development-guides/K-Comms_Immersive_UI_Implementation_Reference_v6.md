@@ -57,6 +57,22 @@ CallSessionProvider              Existing lifetime and teardown authority
     CallCompanion               Existing persistent panel on Workspace routes
 ```
 
+### 2.0 Where these names actually live
+
+The boundaries above are roles, not a required file layout -- §2 says to adapt
+where an equivalent already exists, and for most of them one did. Mapping them
+to the code as shipped, so that reading the contract and grepping the
+repository agree:
+
+| Boundary | As shipped |
+| --- | --- |
+| `CallPresentationCoordinator` | `features/experience/ExperienceModeProvider.tsx`, with the reducer in `experience-mode.ts` and the selector in `immersive-eligibility.ts` |
+| `ActiveContentStage` | Not a component. The existing `.audio-call-dock` restyled by `experience-mode.css` under `:root[data-experience-mode="immersive"]` -- see §2.1, which forbids re-parenting the media DOM |
+| `CallMediaStage` / `ScreenShareStage` | The existing `.call-stage` and `.video-track-frame.screen-share`; the share already fits with `contain` |
+| `CriticalStatusStrip` / `CallCompanion` | The capsule in `CallPanel.tsx` -- `.call-critical-status`, `.call-critical-state`, `.call-critical-actions`. It renders only while the panel is minimized, which is the Workspace-route case the companion exists for |
+| `CallControlDock` | The existing `.audio-call-dock-heading` and `.audio-call-actions`, absolutely positioned in Immersive so neither consumes stage layout space |
+| `OverlayLayer`, `ParticipantOverlay`, `InCallChatOverlay`, `CaptionRegion` | Not yet built |
+
 ### 2.1 DOM stability
 
 - Keep the media element tree stable across overlay show/hide, minimization, drag, Workspace navigation, and re-entry into Immersive Mode.
@@ -135,21 +151,33 @@ The current client already has two adjacent capability layers:
 
 Guest sessions already carry `GuestCapabilities`; instant-room preview/session responses already carry surface data. Extend these existing response/type families as needed.
 
-Recommended semantic fields:
+Semantic fields, as shipped:
 
 ```ts
 interface ServiceStatusCapabilities {
-  immersive_call_ui?: boolean; // global service switch / emergency disable input
+  immersive_mode?: boolean; // global service switch / emergency disable input
 }
 
 interface UserCapabilities {
-  immersive_call_ui?: boolean; // authenticated tenant/user cohort entitlement
+  allow_immersive_mode?: boolean; // authenticated tenant/user cohort entitlement
 }
 
 interface GuestCapabilities {
-  immersive_call_ui?: boolean; // guest-surface entitlement, if separately controlled
+  allow_immersive_mode?: boolean; // guest-surface entitlement, if separately controlled
 }
 ```
+
+These names were recommended here as `immersive_call_ui` and deliberately
+changed to follow the conventions of the responses they join, per §2's
+instruction to use names consistent with the repository. `status.capabilities`
+carries bare nouns -- `audio_calls`, `video_calls`, `whiteboards`,
+`instant_rooms` -- and `immersive_call_ui` would have been its only `_ui`
+suffix. `UserCapabilities` and `GuestCapabilities` prefix entitlements with
+`allow_` -- `allow_audio_calls`, `allow_video_calls`, `allow_public_channels` --
+and an unprefixed field would have read as state rather than permission.
+
+The guest field is listed for completeness; guest and instant-room entry are
+not wired in the first increment.
 
 An instant-room eligibility field should be added to its existing preview/session payload only if public sessions require independent rollout targeting. Do not invent a general-purpose second status endpoint.
 
