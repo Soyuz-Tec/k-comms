@@ -132,6 +132,35 @@ test.describe("immersive active content stage", () => {
     await expect(call.getByRole("heading", { name: "Instant room" })).toBeVisible();
   });
 
+  test("collapsing the routine controls does not resize the stage", async ({ page }) => {
+    // The budget: an overlay reveal or hide changes the stage bounding box by
+    // no more than 1px of rounding variance. Absolute positioning makes that
+    // true by construction; this is the check that it stays true.
+    const call = await mountCall(page, "immersive");
+    const before = await call.locator(".call-stage").boundingBox();
+
+    await call.evaluate((element) => element.setAttribute("data-controls", "collapsed"));
+    await page.waitForTimeout(300);
+
+    const after = await call.locator(".call-stage").boundingBox();
+    expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+  });
+
+  test("collapsed controls leave the tab order, not just the screen", async ({ page }) => {
+    // A control faded to nothing but still focusable is a trap: Tab lands on
+    // something invisible with no way to tell where you are.
+    const call = await mountCall(page, "immersive");
+    await call.evaluate((element) => element.setAttribute("data-controls", "collapsed"));
+    await page.waitForTimeout(300);
+
+    for (const label of ["Mic", "Leave"]) {
+      await expect(call.getByRole("button", { name: label })).toBeHidden();
+    }
+  });
+
   test("does not pull a minimized call into the stage", async ({ page }) => {
     // A minimized call is the Workspace companion, wherever the mode says we
     // are. Immersive must not drag the capsule into the middle of the screen.
