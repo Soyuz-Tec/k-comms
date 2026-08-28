@@ -352,6 +352,35 @@ describe("profile settings", () => {
     await waitFor(() => expect(harness.api.revokeDevice).toHaveBeenCalledWith("device-2"));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
+
+  it("offers Always show call controls, reachable without joining a call", async () => {
+    // The preference has to be settable outside a call: someone who needs the
+    // controls to stay put should not have to join one, find a menu, and
+    // change it while a call is running.
+    window.localStorage.removeItem("k-comms.always-show-call-controls.v1");
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+    const toggle = screen.getByRole("checkbox", { name: "Always show call controls" });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(window.localStorage.getItem("k-comms.always-show-call-controls.v1")).toBe("true");
+
+    await user.click(toggle);
+    expect(window.localStorage.getItem("k-comms.always-show-call-controls.v1")).toBe("false");
+  });
+
+  it("restores the saved control preference when the page is reopened", async () => {
+    window.localStorage.setItem("k-comms.always-show-call-controls.v1", "true");
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+    expect(screen.getByRole("checkbox", { name: "Always show call controls" })).toBeChecked();
+  });
 });
 
 function deferred<T>() {
