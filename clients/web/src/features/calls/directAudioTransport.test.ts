@@ -43,6 +43,8 @@ class FakePeerConnection {
     this.remoteDescription = description as RTCSessionDescription;
   });
   addIceCandidate = vi.fn(async () => undefined);
+  stats = new Map<string, unknown>();
+  getStats = vi.fn(async () => this.stats as unknown as RTCStatsReport);
   getSenders = vi.fn(() => [this.sender]);
   close = vi.fn(() => {
     this.connectionState = "closed";
@@ -289,5 +291,83 @@ describe("DirectAudioTransport", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("reports only the selected candidate class, never a candidate address", async () => {
+    const peer = new FakePeerConnection();
+    peer.stats = new Map<string, unknown>([
+      ["T1", { id: "T1", type: "transport", selectedCandidatePairId: "P1" }],
+      ["P1", { id: "P1", type: "candidate-pair", localCandidateId: "L1", nominated: true, state: "succeeded" }],
+      ["L1", { id: "L1", type: "local-candidate", candidateType: "relay", address: "203.0.113.9", port: 51234 }]
+    ]);
+    const transport = new DirectAudioTransport({
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => peer as unknown as RTCPeerConnection
+    });
+
+    await transport.start("a-local-peer", "z-remote-peer", false, "");
+    expect(transport.connectDurationMs()).toBeNull();
+
+    peer.connectionState = "connected";
+    (peer.onconnectionstatechange as ((event: Event) => void) | null)?.(
+      new Event("connectionstatechange")
+    );
+
+    await expect(transport.selectedCandidateClass()).resolves.toBe("relay");
+    expect(transport.connectDurationMs()).toBeGreaterThanOrEqual(0);
+  });
+
+  it("maps a peer-reflexive candidate to the reflexive class and an unknown pair to null", async () => {
+    const peer = new FakePeerConnection();
+    peer.stats = new Map<string, unknown>([
+      ["P1", { id: "P1", type: "candidate-pair", localCandidateId: "L1", nominated: true, state: "succeeded" }],
+      ["L1", { id: "L1", type: "local-candidate", candidateType: "prflx" }]
+    ]);
+    const transport = new DirectAudioTransport({
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => peer as unknown as RTCPeerConnection
+    });
+
+    await transport.start("a-local-peer", "z-remote-peer", false, "");
+    await expect(transport.selectedCandidateClass()).resolves.toBe("srflx");
+
+    peer.stats = new Map<string, unknown>();
+    await expect(transport.selectedCandidateClass()).resolves.toBeNull();
+  });
+
+  it("classifies a peer fallback as declined and an unconnected transport failure as a timeout", async () => {
+    const declinedPeer = new FakePeerConnection();
+    const declined = new DirectAudioTransport({
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => declinedPeer as unknown as RTCPeerConnection
+    });
+
+    await declined.start("a-local-peer", "z-remote-peer", false, "");
+    await declined.handleSignal({ kind: "fallback" });
+    expect(declined.lastFailureReason()).toBe("declined");
+
+    const failedPeer = new FakePeerConnection();
+    const failed = new DirectAudioTransport({
+      iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
+      audioHost: document.body,
+      onSignal: vi.fn(),
+      onState: vi.fn(),
+      peerConnectionFactory: () => failedPeer as unknown as RTCPeerConnection
+    });
+
+    await failed.start("a-local-peer", "z-remote-peer", false, "");
+    failedPeer.connectionState = "failed";
+    (failedPeer.onconnectionstatechange as ((event: Event) => void) | null)?.(
+      new Event("connectionstatechange")
+    );
+    expect(failed.lastFailureReason()).toBe("ice_timeout");
   });
 });

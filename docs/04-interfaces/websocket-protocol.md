@@ -115,6 +115,18 @@ selected peer. PostgreSQL-backed HMAC-keyed actor/call/target buckets cap both
 240 signals and 262,144 encoded bytes per minute across sessions and edge
 replicas; a node-local session bucket remains defense in depth.
 
+`call.direct.outcome.v1` reports how one admitted peer-link attempt ended, so
+the direct path can be measured without being retained. A connected outcome
+carries only the selected candidate class (`host`, `srflx`, or `relay`) and a
+0-60,000 ms connect time; a fallback outcome carries only a reason class
+(`ice_timeout`, `signaling`, `declined`, `ineligible`, `duplicate_connection`,
+or `moderation`). Any other shape, field, or value is rejected. The server
+accepts one outcome per admitted attempt and ignores repeats, so the report
+cannot inflate counters beyond the direct-join quota. It becomes a
+closed-label-set Prometheus counter and nothing else: no address, session
+description, participant, or tenant identifier is accepted or stored, and the
+attempt denominator is counted server-side at admission rather than reported.
+
 `call.direct.disable.v1` has an empty payload and removes the sender from direct
 Presence. `call.direct.disabled.v1` tells a client that duplicate admission or
 peer fallback has terminally disabled direct negotiation for that attempt. The

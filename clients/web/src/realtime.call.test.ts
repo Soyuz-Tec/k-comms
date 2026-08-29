@@ -58,6 +58,7 @@ function callbacks(): RealtimeCallCallbacks {
     onDirectReady: vi.fn(),
     onDirectPeers: vi.fn(),
     onDirectSignal: vi.fn(),
+    onDirectDisabled: vi.fn(),
     onDisconnected: vi.fn(),
     onError: vi.fn()
   };
@@ -129,6 +130,7 @@ describe("RealtimeCall direct audio", () => {
     });
 
     phoenix.handlers.get("call.direct.disabled.v1")?.({ reason: "peer_limit" });
+    expect(listener.onDirectDisabled).toHaveBeenCalledWith("peer_limit");
     expect(listener.onDirectReady).toHaveBeenLastCalledWith(null);
     expect(listener.onDirectPeers).toHaveBeenLastCalledWith([]);
 
@@ -140,5 +142,34 @@ describe("RealtimeCall direct audio", () => {
 
     phoenix.closeCallback?.();
     expect(listener.onDisconnected).toHaveBeenCalledTimes(1);
+  });
+  it("pushes only the enumerated transport outcome", async () => {
+    const listener = callbacks();
+    const realtime = new RealtimeCall(
+      "/socket",
+      "ticket",
+      "call-1",
+      "conversation-1",
+      listener,
+      true
+    );
+
+    realtime.connect();
+
+    await realtime.reportDirectOutcome({
+      result: "connected",
+      candidate_class: "relay",
+      connect_ms: 1_400
+    });
+    expect(phoenix.pushed).toContainEqual({
+      event: "call.direct.outcome.v1",
+      payload: { result: "connected", candidate_class: "relay", connect_ms: 1_400 }
+    });
+
+    await realtime.reportDirectOutcome({ result: "fallback", reason: "ice_timeout" });
+    expect(phoenix.pushed).toContainEqual({
+      event: "call.direct.outcome.v1",
+      payload: { result: "fallback", reason: "ice_timeout" }
+    });
   });
 });

@@ -77,5 +77,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0071 | Add client-side office call readiness qualification | Accepted for implementation |
 | 0072 | Add an opt-in direct transport for one-to-one audio | Accepted for implementation |
 | 0073 | Harden direct-audio signaling and resource boundaries | Accepted |
+| 0074 | Give the peer link a relay ladder, a scope boundary, and outcome telemetry | Proposed |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

@@ -341,6 +341,7 @@ export interface RealtimeCallCallbacks {
   onDirectReady?: (configuration: DirectAudioConfiguration | null) => void;
   onDirectPeers?: (peers: DirectAudioPeer[]) => void;
   onDirectSignal?: (event: DirectAudioSignalEvent) => void;
+  onDirectDisabled?: (reason: string | null) => void;
   onDisconnected?: () => void;
   onError: (message: string) => void;
 }
@@ -354,6 +355,20 @@ export interface DirectAudioPeer {
   peerId: string;
   userId: string;
 }
+
+export type DirectAudioCandidateClass = "host" | "srflx" | "relay";
+
+export type DirectAudioFallbackReason =
+  | "ice_timeout"
+  | "signaling"
+  | "declined"
+  | "ineligible"
+  | "duplicate_connection"
+  | "moderation";
+
+export type RealtimeDirectAudioOutcome =
+  | { result: "connected"; candidate_class: DirectAudioCandidateClass; connect_ms: number }
+  | { result: "fallback"; reason: DirectAudioFallbackReason };
 
 export type RealtimeDirectAudioSignal =
   | { kind: "offer" | "answer"; sdp: string }
@@ -410,8 +425,9 @@ export class RealtimeCall {
     this.channel.on("call.direct.peers.v1", (payload?: unknown) => {
       if (!this.stopped) callbacks.onDirectPeers?.(readDirectPeers(payload));
     });
-    this.channel.on("call.direct.disabled.v1", () => {
+    this.channel.on("call.direct.disabled.v1", (payload?: unknown) => {
       if (this.stopped) return;
+      callbacks.onDirectDisabled?.(readString(payload, "reason"));
       callbacks.onDirectReady?.(null);
       callbacks.onDirectPeers?.([]);
     });
@@ -463,6 +479,10 @@ export class RealtimeCall {
 
   disableDirectAudio(): Promise<void> {
     return this.push("call.direct.disable.v1", {});
+  }
+
+  reportDirectOutcome(outcome: RealtimeDirectAudioOutcome): Promise<void> {
+    return this.push("call.direct.outcome.v1", { ...outcome });
   }
 
   private push(event: string, payload: Record<string, unknown>): Promise<void> {

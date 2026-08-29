@@ -4,10 +4,52 @@ defmodule CommsObservability.Metrics do
   @table __MODULE__
   @buckets [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 
+  # The peer-link label sets are closed here as well as at the channel that
+  # validates the reported outcome. Cardinality is therefore fixed at compile
+  # time and no participant, tenant, call, or address identifier can reach a
+  # label even if a future caller passes one.
+  @peer_link_candidate_classes ["host", "srflx", "relay"]
+  @peer_link_fallback_reasons [
+    "ice_timeout",
+    "signaling",
+    "declined",
+    "ineligible",
+    "duplicate_connection",
+    "moderation"
+  ]
+  @peer_link_buckets [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0]
+
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+
+  def peer_link_candidate_classes, do: @peer_link_candidate_classes
+  def peer_link_fallback_reasons, do: @peer_link_fallback_reasons
 
   def record([:auth, :success], _measurements), do: increment(:auth_success_total)
   def record([:auth, :failure], _measurements), do: increment(:auth_failure_total)
+
+  def record([:peer_link, :attempt], _measurements), do: increment(:peer_link_attempt_total)
+
+  def record([:peer_link, :connected], measurements) do
+    case Map.get(measurements, :candidate_class) do
+      class when class in @peer_link_candidate_classes ->
+        increment({:peer_link_connection, class})
+
+      _ ->
+        :ok
+    end
+
+    observe_peer_link_connect(Map.get(measurements, :duration_seconds))
+  end
+
+  def record([:peer_link, :fallback], measurements) do
+    case Map.get(measurements, :reason) do
+      reason when reason in @peer_link_fallback_reasons ->
+        increment({:peer_link_fallback, reason})
+
+      _ ->
+        :ok
+    end
+  end
 
   def record([:message, :commit], measurements) do
     duration = Map.get(measurements, :duration_seconds, 0.0)
@@ -85,8 +127,51 @@ defmodule CommsObservability.Metrics do
       "k_comms_beam_memory_bytes #{:erlang.memory(:total)}"
     ]
 
-    Enum.join(lines ++ buckets ++ tail, "\n") <> "\n"
+    Enum.join(lines ++ buckets ++ tail ++ peer_link(), "\n") <> "\n"
   end
+
+  defp peer_link do
+    [
+      "# HELP k_comms_peer_link_attempts_total Admitted direct peer-link attempts.",
+      "# TYPE k_comms_peer_link_attempts_total counter",
+      "k_comms_peer_link_attempts_total #{value(:peer_link_attempt_total)}",
+      "# HELP k_comms_peer_link_connections_total Established direct peer links by selected candidate class.",
+      "# TYPE k_comms_peer_link_connections_total counter"
+    ] ++
+      Enum.map(@peer_link_candidate_classes, fn class ->
+        "k_comms_peer_link_connections_total{candidate_class=\"#{class}\"} #{value({:peer_link_connection, class})}"
+      end) ++
+      [
+        "# HELP k_comms_peer_link_fallbacks_total Direct peer links returned to the call service by reason class.",
+        "# TYPE k_comms_peer_link_fallbacks_total counter"
+      ] ++
+      Enum.map(@peer_link_fallback_reasons, fn reason ->
+        "k_comms_peer_link_fallbacks_total{reason=\"#{reason}\"} #{value({:peer_link_fallback, reason})}"
+      end) ++
+      [
+        "# HELP k_comms_peer_link_connect_duration_seconds Admission-to-connected latency for direct peer links.",
+        "# TYPE k_comms_peer_link_connect_duration_seconds histogram"
+      ] ++
+      Enum.map(@peer_link_buckets, fn bucket ->
+        "k_comms_peer_link_connect_duration_seconds_bucket{le=\"#{bucket}\"} #{value({:peer_link_connect_bucket, bucket})}"
+      end) ++
+      [
+        "k_comms_peer_link_connect_duration_seconds_bucket{le=\"+Inf\"} #{value(:peer_link_connect_count)}",
+        "k_comms_peer_link_connect_duration_seconds_sum #{value(:peer_link_connect_sum_microseconds) / 1_000_000}",
+        "k_comms_peer_link_connect_duration_seconds_count #{value(:peer_link_connect_count)}"
+      ]
+  end
+
+  defp observe_peer_link_connect(duration) when is_number(duration) and duration >= 0 do
+    increment(:peer_link_connect_count)
+    add(:peer_link_connect_sum_microseconds, round(duration * 1_000_000))
+
+    Enum.each(@peer_link_buckets, fn bucket ->
+      if duration <= bucket, do: increment({:peer_link_connect_bucket, bucket})
+    end)
+  end
+
+  defp observe_peer_link_connect(_duration), do: :ok
 
   @impl true
   def init(:ok) do

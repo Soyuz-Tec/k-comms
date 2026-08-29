@@ -1,7 +1,7 @@
 # Runbook: Service Degradation
 
 - **Owner:** K-Comms application and platform operations
-- **Alerts/triggers:** `KCommsHighMessageCommitLatency`, `KCommsAuthenticationFailureRatio`, synthetic journey failure, audio/video provider or TURN degradation, or broad elevated error rate
+- **Alerts/triggers:** `KCommsHighMessageCommitLatency`, `KCommsAuthenticationFailureRatio`, `KCommsPeerLinkFallbackRatio`, synthetic journey failure, audio/video provider or TURN degradation, or broad elevated error rate
 - **Default severity:** Sev-2 for bounded degradation; Sev-1 for platform-wide outage, acknowledged-message loss, tenant-isolation risk, or active secret exposure
 - **Dashboard:** `ops/dashboards/service-overview.json` plus ingress, database, and runtime dashboards
 - **Required context:** Environment, region, release revision, image digest, deployment start, affected capability, and tenant scope
@@ -71,6 +71,29 @@ provider's content-blind health, participant/room capacity, join failures,
 reconnects, packet loss, jitter/RTT, bitrate/resolution/frame rate, CPU and
 bandwidth limitation, TURN allocations, and certificate state from approved
 dashboards.
+
+### Direct peer-link diagnosis
+
+`KCommsPeerLinkFallbackRatio` is not by itself a service incident. A peer link
+that fails always returns to the already-connected media plane, so audio
+continues; what is lost is the shorter path and the provider bandwidth it
+saves. Read `sum by (reason) (rate(k_comms_peer_link_fallbacks_total[30m]))`
+before acting.
+
+A majority of `ice_timeout` is a network-reachability result: the endpoints
+could not reach each other with the configured STUN-only candidates. It is the
+ADR-0072 revisit trigger for a credentialed relay, not a regression to
+mitigate. A majority of `signaling`, `duplicate_connection`, `ineligible`, or
+`moderation` is an application signal and should be correlated with the
+release, with Presence convergence, and with moderation volume. A collapse in
+`k_comms_peer_link_attempts_total` while calls continue means admission
+stopped, not negotiation.
+
+The counters carry a closed label set only. They contain no participant,
+tenant, call, address, or session-description information, so they cannot
+identify a caller or reconstruct a session; do not attempt to correlate them
+with user identity. Setting `DIRECT_AUDIO_P2P_ENABLED=false` is the supported
+mitigation and does not interrupt calls in progress.
 
 ## Stabilization actions
 

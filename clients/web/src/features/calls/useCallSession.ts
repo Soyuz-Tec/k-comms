@@ -10,6 +10,7 @@ import {
   RealtimeCall,
   socketEndpoint,
   type DirectAudioConfiguration,
+  type DirectAudioFallbackReason,
   type DirectAudioPeer,
   type DirectAudioSignalEvent
 } from "../../realtime";
@@ -44,6 +45,19 @@ import { DirectSignalQueue } from "./directSignalQueue";
 
 export type CallTransportMode = "livekit" | "connecting_direct" | "direct" | "livekit_fallback";
 type DirectSignalingState = "idle" | "negotiating" | "connected" | "fallback";
+
+function disabledFallbackReason(reason: string | null): DirectAudioFallbackReason | null {
+  switch (reason) {
+    case "peer_limit":
+      return "duplicate_connection";
+    case "peer_fallback":
+      return "declined";
+    case "disabled":
+      return "ineligible";
+    default:
+      return null;
+  }
+}
 
 export interface CallPanelProps {
   api: CallApi;
@@ -100,6 +114,7 @@ export function useCallSession({
   const pendingDirectSignalsRef = useRef(new DirectSignalQueue<DirectAudioSignalEvent>());
   const directSignalingStateRef = useRef<DirectSignalingState>("idle");
   const directStartAttemptRef = useRef(false);
+  const directDisabledReasonRef = useRef<DirectAudioFallbackReason | null>(null);
   const desiredMicrophoneRef = useRef(false);
   const [preferDirectAudio, setPreferDirectAudio] = useState(false);
   const [directMicrophoneEnabled, setDirectMicrophoneEnabled] = useState(false);
@@ -205,6 +220,7 @@ export function useCallSession({
     pendingDirectSignalsRef.current.clear();
     directSignalingStateRef.current = "idle";
     directStartAttemptRef.current = false;
+    directDisabledReasonRef.current = null;
     setDirectMicrophoneEnabled(false);
     setDirectRemoteMicrophoneEnabled(false);
     setTransportMode(nextMode);
@@ -686,7 +702,8 @@ export function useCallSession({
             room,
             operationGenerationRef.current,
             realtime,
-            true
+            true,
+            "ineligible"
           );
         }
       } else if (!directTransportRef.current && room.remoteParticipants.size === 1 && realtime) {
@@ -866,15 +883,39 @@ export function useCallSession({
     }
   }
 
+  async function reportDirectConnection(transport: DirectAudioTransport, realtime: RealtimeCall) {
+    const candidateClass = await transport.selectedCandidateClass();
+    const connectMs = transport.connectDurationMs();
+    if (!candidateClass || connectMs === null) return;
+    await realtime.reportDirectOutcome({
+      result: "connected",
+      candidate_class: candidateClass,
+      connect_ms: Math.min(connectMs, 60_000)
+    }).catch(() => undefined);
+  }
+
   async function fallbackDirectAudio(
     room: Room,
     generation: number,
     realtime: RealtimeCall,
-    notifyRemote: boolean
+    notifyRemote: boolean,
+    reason: DirectAudioFallbackReason
   ) {
     if (directSignalingStateRef.current === "fallback") return;
+    // Only a live attempt is reported: an idle peer link was never admitted,
+    // so the server never counted it either.
+    const attemptWasLive =
+      directSignalingStateRef.current === "negotiating" ||
+      directSignalingStateRef.current === "connected";
     directSignalingStateRef.current = "fallback";
     const transport = directTransportRef.current;
+    if (attemptWasLive) {
+      void realtime.reportDirectOutcome({
+        result: "fallback",
+        reason: directDisabledReasonRef.current || reason
+      }).catch(() => undefined);
+    }
+    directDisabledReasonRef.current = null;
     directTransportRef.current = null;
     if (notifyRemote && directRemotePeerIdRef.current) {
       void realtime.sendDirectSignal(directRemotePeerIdRef.current, { kind: "fallback" }).catch(() => undefined);
@@ -935,7 +976,7 @@ export function useCallSession({
         const remotePeerId = directRemotePeerIdRef.current;
         if (!remotePeerId) return;
         void realtime.sendDirectSignal(remotePeerId, signal).catch(() => {
-          void fallbackDirectAudio(room, generation, realtime, false);
+          void fallbackDirectAudio(room, generation, realtime, false, "signaling");
         });
       },
       onState: (state) => {
@@ -950,8 +991,11 @@ export function useCallSession({
               enabled: desiredMicrophoneRef.current
             }).catch(() => undefined);
           }
+          void reportDirectConnection(transport, realtime);
         }
-        if (state === "failed") void fallbackDirectAudio(room, generation, realtime, true);
+        if (state === "failed") {
+          void fallbackDirectAudio(room, generation, realtime, true, transport.lastFailureReason());
+        }
       },
       onPlaybackBlocked: () => setAudioBlocked(true)
     });
@@ -981,7 +1025,7 @@ export function useCallSession({
         }
       }
     } catch {
-      await fallbackDirectAudio(room, generation, realtime, true);
+      await fallbackDirectAudio(room, generation, realtime, true, "signaling");
     }
   }
 
@@ -1017,12 +1061,15 @@ export function useCallSession({
               desiredMicrophoneRef.current = false;
               setDirectMicrophoneEnabled(false);
             }
-            if (directTransportRef.current) void fallbackDirectAudio(room, generation, realtime, false);
+            if (directTransportRef.current) void fallbackDirectAudio(room, generation, realtime, false, "moderation");
             if (roomRef.current) updateRoomState(roomRef.current);
           },
           onParticipantRemoved: () => {
-            if (directTransportRef.current) void fallbackDirectAudio(room, generation, realtime, false);
+            if (directTransportRef.current) void fallbackDirectAudio(room, generation, realtime, false, "moderation");
             if (roomRef.current) updateRoomState(roomRef.current);
+          },
+          onDirectDisabled: (reason) => {
+            directDisabledReasonRef.current = disabledFallbackReason(reason);
           },
           onDirectReady: (configuration) => {
             directConfigurationRef.current = configuration;
@@ -1035,7 +1082,7 @@ export function useCallSession({
               directSignalingStateRef.current === "negotiating" ||
               directSignalingStateRef.current === "connected"
             ) {
-              void fallbackDirectAudio(room, generation, realtime, false);
+              void fallbackDirectAudio(room, generation, realtime, false, "ineligible");
             }
           },
           onDirectPeers: (peers) => {
@@ -1046,7 +1093,7 @@ export function useCallSession({
                 (peer) => peer.userId === conversation.counterpart_user_id
               ).length;
               if (localPeerCount !== 1 || remotePeerCount !== 1) {
-                void fallbackDirectAudio(room, generation, realtime, true);
+                void fallbackDirectAudio(room, generation, realtime, true, "duplicate_connection");
                 return;
               }
             }
@@ -1067,18 +1114,18 @@ export function useCallSession({
                 directSignalingStateRef.current === "negotiating" &&
                 !pendingDirectSignalsRef.current.enqueue(event)
               ) {
-                void fallbackDirectAudio(room, generation, realtime, true);
+                void fallbackDirectAudio(room, generation, realtime, true, "signaling");
               }
               return;
             }
             if (event.fromPeerId !== directRemotePeerIdRef.current) return;
             void transport.handleSignal(event.signal as DirectAudioSignal).catch(() => {
-              void fallbackDirectAudio(room, generation, realtime, true);
+              void fallbackDirectAudio(room, generation, realtime, true, "signaling");
             });
           },
           onDisconnected: () => {
             if (directTransportRef.current) {
-              void fallbackDirectAudio(room, generation, realtime, false);
+              void fallbackDirectAudio(room, generation, realtime, false, "signaling");
             }
           },
           onError: (message) => setError(message)

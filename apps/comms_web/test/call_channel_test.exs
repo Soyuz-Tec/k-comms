@@ -301,6 +301,96 @@ defmodule CommsWeb.CallChannelTest do
       })
 
     assert_reply(ref, :error, %{reason: "invalid_signal"})
+
+    outcome_ref =
+      push(socket, "call.direct.outcome.v1", %{"result" => "fallback", "reason" => "ice_timeout"})
+
+    assert_reply(outcome_ref, :error, %{reason: "direct_audio_unavailable"})
+  end
+
+  test "an admitted direct participant reports one bounded transport outcome" do
+    account = Fixtures.account_fixture()
+    owner_subject = Fixtures.subject(account)
+    {member, _member_subject} = member_subject_fixture(account)
+
+    assert {:ok, %{conversation: conversation}} =
+             Conversations.get_or_create_direct_view(member.id, owner_subject)
+
+    assert {:ok, call, :created} = AudioCalls.start(conversation.id, owner_subject)
+
+    assert {:ok, _admitted_call, _identity} =
+             AudioCalls.with_join_authorized(
+               conversation.id,
+               call.id,
+               owner_subject,
+               fn request -> {:ok, request.provider_identity} end
+             )
+
+    reset_peer_link_metrics()
+
+    assert {:ok, %{direct_audio: %{enabled: true}}, socket} =
+             subscribe_and_join(
+               socket(CommsWeb.UserSocket, "outcome-owner", owner_subject),
+               CallChannel,
+               "call:#{call.id}",
+               %{"conversation_id" => conversation.id, "direct_audio" => true}
+             )
+
+    assert peer_link_metric("k_comms_peer_link_attempts_total") == 1
+
+    invalid_ref =
+      push(socket, "call.direct.outcome.v1", %{
+        "result" => "connected",
+        "candidate_class" => "tcp",
+        "connect_ms" => 10
+      })
+
+    assert_reply(invalid_ref, :error, %{reason: "invalid_outcome"})
+
+    identifier_ref =
+      push(socket, "call.direct.outcome.v1", %{
+        "result" => "fallback",
+        "reason" => "signaling",
+        "peer_address" => "203.0.113.9"
+      })
+
+    assert_reply(identifier_ref, :error, %{reason: "invalid_outcome"})
+
+    outcome_ref =
+      push(socket, "call.direct.outcome.v1", %{
+        "result" => "connected",
+        "candidate_class" => "relay",
+        "connect_ms" => 1_400
+      })
+
+    assert_reply(outcome_ref, :ok)
+
+    repeat_ref =
+      push(socket, "call.direct.outcome.v1", %{"result" => "fallback", "reason" => "ice_timeout"})
+
+    assert_reply(repeat_ref, :ok)
+
+    assert peer_link_metric("k_comms_peer_link_connections_total{candidate_class=\"relay\"}") == 1
+    assert peer_link_metric("k_comms_peer_link_fallbacks_total{reason=\"ice_timeout\"}") == 0
+  end
+
+  defp reset_peer_link_metrics do
+    if :ets.whereis(CommsObservability.Metrics) != :undefined do
+      :ets.delete_all_objects(CommsObservability.Metrics)
+    end
+
+    :ok
+  end
+
+  defp peer_link_metric(series) do
+    CommsObservability.Metrics.render()
+    |> String.split("\n")
+    |> Enum.find_value(0, fn line ->
+      case String.split(line, " ", parts: 2) do
+        [^series, value] -> String.to_integer(value)
+        _ -> nil
+      end
+    end)
   end
 
   defp member_subject_fixture(account) do
