@@ -407,9 +407,14 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 .video-track-frame video { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--surface-media); }
 .video-track-frame:has(video[data-k-comms-call-video="local"][data-source="camera"]) video { transform: scaleX(-1); }
 .video-track-frame.screen-share video { object-fit: contain; background: var(--surface-media); }
-.video-placeholder { display: grid; place-items: center; align-content: center; gap: .35rem; width: 100%; height: 100%; color: var(--text-primary); }
+/* The placeholder fills a video tile, so it is always on --surface-media --
+   in the legacy dock and on the Immersive stage alike. It therefore takes the
+   media ramp rather than the theme's text roles: --text-muted is a workspace
+   colour and it was being painted on near-black, which axe reports as a
+   contrast failure on both surfaces. */
+.video-placeholder { display: grid; place-items: center; align-content: center; gap: .35rem; width: 100%; height: 100%; color: var(--text-on-media); }
 .video-placeholder span { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: var(--accent-text); background: var(--accent-quiet); font-size: 1.3rem; font-weight: 900; }
-.video-placeholder small { color: var(--text-muted); }
+.video-placeholder small { color: var(--text-on-media-muted); }
 .video-participant-caption { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; align-items: center; gap: .5rem; min-width: 0; padding: 1rem .6rem .45rem; color: var(--text-on-accent); background: linear-gradient(transparent, rgb(6 26 24 / 88%)); font-size: var(--text-xs); }
 .video-participant-caption strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-participant-caption span { flex: 0 0 auto; }
@@ -764,6 +769,214 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 
 .audio-call-dock.minimized .active-call-details {
   display: none;
+}
+
+/*
+ * The call control preference list. Each row is a checkbox with a label and an
+ * explanation, so the trade being made is stated rather than implied by a
+ * three-word switch name.
+ */
+.call-control-choices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.call-control-choices label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.call-control-choices label > span {
+  display: grid;
+  gap: .15rem;
+}
+
+.call-control-choices small {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/*
+ * Yielding to a protected surface.
+ *
+ * data-yielded carries the reason, so the two degrees are distinguishable:
+ * a canvas merely being on screen moves the companion off the drawable plane,
+ * while pen input, a text editor or the virtual keyboard also reduce it to the
+ * critical capsule. Both keep microphone, camera, screen-share and connection
+ * state on screen -- that is the floor no collision rule lowers.
+ */
+.audio-call-dock[data-yielded] {
+  /* Placement is overridden while yielding, so the drag handle would lie. */
+  transition: top 160ms ease, right 160ms ease, left 160ms ease, bottom 160ms ease;
+}
+
+.audio-call-dock[data-yielded] .call-placement-controls {
+  display: none;
+}
+
+.audio-call-dock[data-yielded="canvas-editing"],
+.audio-call-dock[data-yielded="keyboard-open"] {
+  width: auto;
+  max-width: min(320px, calc(100vw - 2rem));
+}
+
+/*
+ * Reduced to the capsule: the room name and the window controls stay, because
+ * the restore target must never be invisible, but the progress meta and the
+ * participant count are routine detail and go.
+ */
+.audio-call-dock[data-yielded="canvas-editing"] .call-progress-meta,
+.audio-call-dock[data-yielded="keyboard-open"] .call-progress-meta {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-call-dock[data-yielded] {
+    transition: none;
+  }
+}
+
+/*
+ * Placement controls on the minimized companion.
+ *
+ * The grip takes a real cursor because it is the drag affordance; the corner
+ * presets do not, because they are ordinary buttons. touch-action: none on the
+ * grip is what stops a touch drag from scrolling the page out from under the
+ * pointer capture.
+ */
+.call-placement-controls {
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+}
+
+.call-placement-controls .button {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+.call-placement-controls .button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.call-placement-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.audio-call-dock[data-placing="true"] .call-placement-handle {
+  cursor: grabbing;
+}
+
+/*
+ * One glyph, four orientations. The arrow points the way the panel will go;
+ * the accessible name on each button is what actually carries the meaning, so
+ * a reader never has to interpret a rotation.
+ */
+.call-placement-preset[data-corner="top-right"] svg { transform: rotate(0deg); }
+.call-placement-preset[data-corner="top-left"] svg { transform: rotate(-90deg); }
+.call-placement-preset[data-corner="bottom-right"] svg { transform: rotate(90deg); }
+.call-placement-preset[data-corner="bottom-left"] svg { transform: rotate(180deg); }
+
+.call-placement-preset[aria-pressed="true"] {
+  border-color: var(--border-strong);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+}
+
+/*
+ * A drag must not animate: the transform is the pointer position, and easing
+ * it would put the panel behind the finger.
+ */
+.audio-call-dock[data-placing="true"] {
+  transition: none;
+  user-select: none;
+}
+
+/*
+ * The critical-status capsule -- what a minimized call is allowed to reduce
+ * to. It renders only in that state (CallPanel gates it), so it needs no
+ * .minimized qualifier of its own; guarding it here as well would put the
+ * condition in two places that can disagree.
+ *
+ * The rule above is why it exists: collapsing the panel hid every control and
+ * the capture indicator with them.
+ */
+.call-critical-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  margin-top: .55rem;
+}
+
+.call-critical-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem;
+  min-width: 0;
+  font-size: var(--text-xs);
+}
+
+.call-critical-state span {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .25rem .5rem;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
+  font-weight: 600;
+}
+
+.call-critical-state span svg {
+  width: 14px;
+  height: 14px;
+}
+
+/*
+ * Live capture is the state worth interrupting for, so it carries the warning
+ * ramp -- the same signal the expanded capture indicator uses, so the two
+ * never disagree about what "on" looks like.
+ */
+.call-critical-state span.active {
+  border-color: var(--warning-solid);
+  color: var(--warning-text);
+  background: var(--warning-quiet);
+}
+
+.call-critical-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: .3rem;
+}
+
+/*
+ * Icon-only, but never hover-only: each button carries its own aria-label and
+ * the state it acts on is already spelled out in words beside it.
+ */
+.call-critical-actions .button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .audio-call-dock.minimized .audio-call-dock-heading {

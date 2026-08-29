@@ -201,8 +201,14 @@ describe("CallSessionProvider", () => {
     expect(harness.unmounts).toBe(0);
 
     await user.click(screen.getByRole("button", { name: "Call finance" }));
+    // Still blocked from replacing the foreground call -- but the second
+    // target now opens the switch flow rather than a dead-end notice, so the
+    // assertion is that the owner has not moved, and that a confirmation is
+    // being asked for rather than anything being done.
     expect(screen.getByLabelText("target")).toHaveTextContent(firstConversation.id);
-    expect(screen.getByText(/Leave or cancel the current audio call/)).toBeVisible();
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(/Switch to the call in/);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("target")).toHaveTextContent(firstConversation.id);
   });
 
   it("does not let a rapid second launch overwrite a pending media kind", async () => {

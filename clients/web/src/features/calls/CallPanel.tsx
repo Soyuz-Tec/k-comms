@@ -1,6 +1,15 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import type { CSSProperties } from "react";
 import { AppIcon } from "../../components/AppIcon";
+import { OVERLAY_PRESET_LABELS, type OverlayPresetName } from "../experience/overlay-placement";
+import {
+  companionDisposition,
+  useProtectedSurfaces
+} from "../experience/companion-collision";
+import { useExperienceModeSnapshot } from "../experience/experience-mode-store";
+import { useOverlayPlacement } from "../experience/useOverlayPlacement";
+import { useOverlayVisibility } from "../experience/useOverlayVisibility";
 import {
   AppMenuCloseButton,
   AppMenuTrigger,
@@ -179,6 +188,67 @@ export function CallPanel({
     onOpenChat,
     onSessionStateChange
   });
+  /*
+   * Placement applies only to the minimized companion. Expanded -- and on the
+   * Immersive stage -- the dock's position is owned by CSS, and handing it an
+   * inline top/left there would fight the stage rules.
+   */
+  const companionPlacement = useOverlayPlacement({
+    storageKey: "k-comms.call-companion-placement.v1",
+    defaultPreset: "bottom-right"
+  });
+
+  /*
+   * Routine controls auto-hide only on the Immersive stage. The minimized
+   * companion is already the compact critical form -- there is nothing there
+   * worth tidying away -- and the expanded dock is a modal card whose chrome
+   * is part of its layout.
+   */
+  /*
+   * Protected surfaces -- a drawable canvas, pen input, an open text editor,
+   * the virtual keyboard -- decide where the minimized companion may sit and
+   * whether it reduces to the capsule. Collision priority is resolved in one
+   * place rather than by each surface pushing the panel around.
+   */
+  const protectedSurfaces = useProtectedSurfaces();
+  const collision = companionDisposition(protectedSurfaces);
+
+  const experienceMode = useExperienceModeSnapshot();
+  const immersiveStage = experienceMode === "immersive" && !minimized;
+  const overlayVisibility = useOverlayVisibility({
+    enabled: immersiveStage,
+    conditions: {
+      dragging: companionPlacement.dragging,
+      // A call that is not connected is reporting something; do not tidy the
+      // report away while it is still true.
+      pendingAction: phase !== "connected",
+      menuOpen: mobileWorkspaceOpen,
+      blockingAlert: accessRevoked || audioBlocked
+    }
+  });
+
+  /*
+   * When routine controls collapse, the critical capsule is what remains --
+   * the same compact form the minimized companion uses. Microphone, camera
+   * and screen-share state never depend on the controls being up.
+   */
+  const showCriticalCapsule =
+    minimized || (immersiveStage && !overlayVisibility.visible);
+
+  /*
+   * The one strip the contract names as available when a canvas or a keyboard
+   * has claimed the rest: page chrome in the top safe area, clear of the
+   * composer, the keyboard and the bottom navigation. Placement is overridden
+   * rather than the saved value being rewritten -- the user gets their corner
+   * back the moment the canvas is no longer in the way.
+   */
+  const topSafeAreaPlacement: CSSProperties = {
+    top: "max(var(--space-3), var(--safe-top))",
+    right: "max(var(--space-3), var(--safe-right))",
+    bottom: "auto",
+    left: "auto"
+  };
+
   const callStatusLabel = phase === "reconnecting"
     ? "Reconnecting"
     : phase === "leaving"
@@ -245,8 +315,30 @@ export function CallPanel({
 
       {joined && createPortal(
         <section
-          ref={callDockRef}
+          ref={(node) => {
+            // Two owners, one element: useModalDialog traps focus in the
+            // expanded dialog, useOverlayPlacement measures and moves the
+            // minimized companion. Neither needs its own node.
+            callDockRef.current = node;
+            companionPlacement.surfaceRef.current = node;
+          }}
           className={`call-dock audio-call-dock active-call-screen ${joinedKind === "video" ? "video-call-dock video-call-screen" : "audio-call-screen"} ${minimized ? "minimized" : ""}`}
+          style={
+            minimized
+              ? collision.placement === "top"
+                ? topSafeAreaPlacement
+                : companionPlacement.style
+              : undefined
+          }
+          data-yielded={minimized && collision.reason !== "none" ? collision.reason : undefined}
+          data-placing={minimized && companionPlacement.dragging ? "true" : undefined}
+          data-controls={immersiveStage && !overlayVisibility.visible ? "collapsed" : "visible"}
+          data-keep-visible={
+            immersiveStage && overlayVisibility.keepVisibleReasons.length > 0
+              ? overlayVisibility.keepVisibleReasons.join(" ")
+              : undefined
+          }
+          {...(immersiveStage ? overlayVisibility.surfaceProps : {})}
           data-call-control-labels={callControlLabelsVisible ? "visible" : "hidden"}
           role={expandedCallModal ? "dialog" : "region"}
           aria-modal={expandedCallModal || undefined}
@@ -305,6 +397,45 @@ export function CallPanel({
               role="group"
               aria-label="Call window controls"
             >
+              {/*
+                * Placement controls, present only on the minimized companion
+                * -- the one state where this panel floats over someone's
+                * work and may need to be moved off a composer, a caption or
+                * a whiteboard control.
+                *
+                * Three mechanisms, because dragging is required to be an
+                * enhancement rather than the only one: the grip drags, the
+                * grip takes arrow keys while focused, and each corner is one
+                * click away. The corner buttons share a single arrow glyph
+                * rotated per corner; the accessible name carries the meaning,
+                * not the rotation.
+                */}
+              {minimized && (
+                <div className="call-placement-controls" role="group" aria-label="Call panel position">
+                  <button
+                    className="button ghost compact call-placement-handle"
+                    type="button"
+                    aria-label="Move call panel"
+                    title="Drag to move. Arrow keys move it precisely; hold Shift for larger steps."
+                    {...companionPlacement.handleProps}
+                  >
+                    <AppIcon name="grip" />
+                  </button>
+                  {(Object.keys(OVERLAY_PRESET_LABELS) as OverlayPresetName[]).map((preset) => (
+                    <button
+                      key={preset}
+                      className="button ghost compact call-placement-preset"
+                      type="button"
+                      data-corner={preset}
+                      aria-label={`Move call panel to ${OVERLAY_PRESET_LABELS[preset].toLowerCase()}`}
+                      aria-pressed={companionPlacement.activePreset === preset}
+                      onClick={() => companionPlacement.applyPreset(preset)}
+                    >
+                      <AppIcon name="arrowUpRight" />
+                    </button>
+                  ))}
+                </div>
+              )}
               <AppSurfaceControlButton
                 className="button ghost compact"
                 data-call-focus
@@ -331,9 +462,110 @@ export function CallPanel({
               )}
             </div>
           </div>
+          {/*
+            * The companion's critical-status capsule.
+            *
+            * Minimizing hides #active-call-details, and that subtree held the
+            * entire capture indicator and every control -- so a minimized call
+            * reported its title, its duration and its participant count while
+            * saying nothing about whether the microphone was live, and offered
+            * no way to mute or hang up. This capsule lives outside that
+            * subtree, so it is exactly what remains when the panel collapses.
+            *
+            * It renders whenever the fuller controls are not on screen --
+            * while minimized, and on the Immersive stage once the routine
+            * controls have collapsed. It is never shown alongside them:
+            * expanded, the capture indicator and action row already say all
+            * of this, and two live regions reporting one fact is worse than
+            * one.
+            */}
+          {showCriticalCapsule && (
+            <div className="call-critical-status">
+              {/*
+                * Named distinctly from the expanded panel's "Local capture
+                * status". The two report the same facts and only one is ever
+                * on screen, but the expanded one is hidden by a stylesheet
+                * rule -- so before that stylesheet applies both sit in the
+                * accessibility tree, and two live regions with one name is an
+                * ambiguity no reader can resolve.
+                */}
+              <div className="call-critical-state" role="status" aria-label="Call status">
+                <span className={microphoneEnabled ? "active" : "muted"}>
+                  <AppIcon name={microphoneEnabled ? "mic" : "micOff"} />
+                  Microphone {microphoneEnabled ? "on" : "off"}
+                </span>
+                {joinedKind === "video" && (
+                  <span className={cameraEnabled ? "active" : "muted"}>
+                    <AppIcon name={cameraEnabled ? "video" : "videoOff"} />
+                    Camera {cameraEnabled ? "on" : "off"}
+                  </span>
+                )}
+                {joinedKind === "video" && screenShareEnabled && (
+                  <span className="active">
+                    <AppIcon name="screenShare" />
+                    Screen shared
+                  </span>
+                )}
+              </div>
+              <div
+                className="call-critical-actions"
+                role="group"
+                aria-label="Call controls"
+              >
+                <button
+                  className={`button compact ${microphoneEnabled ? "ghost" : "primary"}`}
+                  type="button"
+                  aria-label={microphoneEnabled ? "Mute microphone" : "Unmute microphone"}
+                  aria-pressed={microphoneEnabled}
+                  disabled={phase !== "connected"}
+                  onClick={() => void toggleMicrophone()}
+                >
+                  <AppIcon name={microphoneEnabled ? "mic" : "micOff"} />
+                </button>
+                {/* Stop sharing is direct: never a step inside a reopened panel. */}
+                {joinedKind === "video" && screenShareEnabled && (
+                  <button
+                    className="button ghost compact"
+                    type="button"
+                    aria-label="Stop sharing screen"
+                    disabled={phase !== "connected"}
+                    onClick={() => void toggleScreenShare()}
+                  >
+                    <AppIcon name="screenShareOff" />
+                  </button>
+                )}
+                <button
+                  className="button danger compact"
+                  type="button"
+                  aria-label="Leave call"
+                  disabled={phase === "leaving"}
+                  onClick={() => void leave()}
+                >
+                  <AppIcon name="phoneOff" />
+                </button>
+              </div>
+            </div>
+          )}
+          {/*
+            * Collapsed means collapsed. The minimize button has always
+            * declared aria-expanded={!minimized} over this region, but the
+            * region itself was hidden by a stylesheet rule alone -- so the
+            * controls inside it stayed in the accessibility tree and the tab
+            * order until that rule applied, and the capsule above duplicates
+            * their labels by design.
+            *
+            * `inert` and aria-hidden state the collapse in the DOM instead.
+            * Both, because they answer different questions: inert removes the
+            * controls from the tab order, aria-hidden removes them from the
+            * accessibility tree. It cannot be an unmount -- the media stage
+            * lives in here, and tearing it down to minimize a call would
+            * detach every track.
+            */}
           <div
             id="active-call-details"
             className="active-call-details"
+            inert={minimized || undefined}
+            aria-hidden={minimized || undefined}
             onPointerDown={(event) => {
               if (
                 mobileCallLayout

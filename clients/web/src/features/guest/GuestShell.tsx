@@ -27,6 +27,7 @@ import type {
   GuestSession,
   Message,
   RetainedSenderLabel,
+  ServiceStatus,
   Session,
   SocketHandoff
 } from "../../types";
@@ -52,6 +53,8 @@ import { useGuestParticipants } from "./useGuestParticipants";
 import { useGuestRealtime } from "./useGuestRealtime";
 import { useMobileRoomLayout } from "./useMobileRoomLayout";
 
+import { useExperienceModeController } from "../experience/ExperienceModeProvider";
+
 const GuestCallPanel = lazy(() =>
   import("../calls/CallPanel").then(({ CallPanel }) => ({ default: CallPanel }))
 );
@@ -67,6 +70,9 @@ export function GuestShell({
   initialSession,
   accountActionsAllowed,
   mediaActionsAllowed,
+  // Absent means the status is not known here, which resolves to ineligible --
+  // the same fail-closed answer as an explicit denial.
+  serviceStatus = null,
   onLeave,
   onAccessEnded,
   onConverted,
@@ -85,6 +91,12 @@ export function GuestShell({
   initialSession: GuestSession;
   accountActionsAllowed: boolean;
   mediaActionsAllowed: boolean;
+  /**
+   * The service status the page already holds, passed down rather than read
+   * from the member session context. A guest surface has no business reaching
+   * into the authenticated provider tree, and its tests do not mount one.
+   */
+  serviceStatus?: ServiceStatus | null;
   onLeave: () => void;
   onAccessEnded?: () => void;
   onConverted: (
@@ -485,6 +497,25 @@ export function GuestShell({
       compact={whiteboardEnabled || mobileRoomLayout}
     />
   );
+  /*
+   * Immersive for guests runs the same decision engine as the authenticated
+   * shell -- same reducer, same 300ms deadline, same stickiness -- with its
+   * inputs drawn from the guest's own session instead of the workspace. What
+   * it must not do is mount any authenticated chrome: there is no
+   * ExperienceModeProvider here, no sidebar and no companion, because a guest
+   * has no workspace to return to. The controller publishes the mode to the
+   * store and the document root, which is all the call surface reads.
+   */
+  const [callSessionState, setCallSessionState] = useState<
+    { conversationId: string; phase: string } | null
+  >(null);
+  useExperienceModeController({
+    sessionState: callSessionState,
+    status: serviceStatus,
+    capabilities: initialSession.capabilities,
+    loading: serviceStatus === null
+  });
+
   const callPanel = (
     <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
       <GuestCallPanel
@@ -503,6 +534,7 @@ export function GuestShell({
         launchRequest={initialCallOnEntry}
         launchReadinessMode={initialCallReadinessMode}
         onLaunchRequestConsumed={onInitialCallConsumed}
+        onSessionStateChange={setCallSessionState}
         onOpenChat={openRoomChat}
       />
     </Suspense>

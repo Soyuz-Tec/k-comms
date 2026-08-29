@@ -8,6 +8,7 @@ config :comms_core, CommsCore.Repo,
 config :comms_core, Oban, testing: :manual, queues: false, plugins: false
 
 config :comms_core,
+  immersive_mode_enabled: false,
   instant_rooms_enabled: false,
   instant_room_tenant_slug: nil,
   instant_room_guest_idle_ttl_seconds: 60,

@@ -19,6 +19,7 @@ export interface ServiceStatus {
     attachment_scanning: boolean;
     bootstrap: boolean;
     guest_links: boolean;
+    immersive_mode?: boolean;
     instant_rooms: boolean;
     notifications: boolean;
     push_notifications?: boolean;

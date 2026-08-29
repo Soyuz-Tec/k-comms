@@ -97,6 +97,12 @@ export interface GuestCapabilities {
    * pre-authorized conversion used by ordinary guest invitations.
    */
   self_service_conversion?: boolean;
+  /**
+   * Optional for the same reason as the member field: a server that predates
+   * the immersive increment omits it, and an absent switch must read as "not
+   * eligible" rather than as "true".
+   */
+  allow_immersive_mode?: boolean;
   /** Masked display hint only; the guest must enter the full authorized email. */
   email_hint?: string | null;
 }
@@ -174,6 +180,11 @@ export interface MeResponse {
 export interface UserCapabilities {
   allow_audio_calls: boolean;
   allow_video_calls: boolean;
+  /**
+   * Optional because a server that predates the immersive increment omits it,
+   * and an absent switch must read as "not eligible" rather than as "true".
+   */
+  allow_immersive_mode?: boolean;
   allow_public_channels: boolean;
   message_edit_window_seconds: number;
   max_attachment_bytes: number;

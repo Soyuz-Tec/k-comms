@@ -95,10 +95,24 @@ defmodule CommsCore.Administration.PolicyQueries do
          allow_public_channels: settings.allow_public_channels,
          allow_audio_calls: settings.allow_audio_calls,
          allow_video_calls: settings.allow_video_calls,
+         allow_immersive_mode: immersive_mode_allowed?(settings),
          message_edit_window_seconds: settings.message_edit_window_seconds,
          max_attachment_bytes: settings.max_attachment_bytes
        }}
     end
+  end
+
+  # The tenant-side half of immersive eligibility. Immersive Mode is only ever
+  # entered after joining a call, so a tenant with no call kind enabled can
+  # never reach it -- this is a real precondition, not a placeholder for one.
+  #
+  # It is deliberately derived rather than stored. A dedicated tenant_settings
+  # column is the right shape once immersive needs to be withheld from a tenant
+  # that *does* have calls, which staged rollout will eventually want; adding
+  # the column before that need is real would ship a migration and an admin
+  # control that nothing yet decides the value of.
+  defp immersive_mode_allowed?(settings) do
+    settings.allow_audio_calls == true or settings.allow_video_calls == true
   end
 
   defp project_call_policy(tenant_id) do

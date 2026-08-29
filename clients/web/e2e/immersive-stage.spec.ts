@@ -1,0 +1,219 @@
+import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { activeVideoFixtureMarkup } from "./mobile-ui-support";
+
+/*
+ * Geometry of the Immersive ActiveContentStage, and of the legacy call
+ * presentation it falls back to.
+ *
+ * The stage is pure layout, so it is tested the way the mobile call surface
+ * already is: harvest the application's real stylesheets, set static markup
+ * carrying the real class names, inject the CSS, and measure. That exercises
+ * the shipped rules rather than a reimplementation of them, and needs no
+ * LiveKit session to reach a joined call.
+ */
+
+const viewport = { width: 1440, height: 900 };
+
+async function mountCall(
+  page: Page,
+  experienceMode?: "workspace" | "immersive",
+  appearance: { callControls?: "opaque"; callContrast?: "high" } = {}
+) {
+  await page.goto("/sign-in");
+  const applicationCss = await page.evaluate(() =>
+    Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules, (rule) => rule.cssText);
+        } catch {
+          return [];
+        }
+      })
+      .join("\n")
+  );
+  expect(applicationCss.length).toBeGreaterThan(1_000);
+  await page.setContent(activeVideoFixtureMarkup({ experienceMode, ...appearance }));
+  await page.addStyleTag({ content: applicationCss });
+  /*
+   * .button transitions background and border-color over 160ms. Reading a
+   * computed colour before that settles returns the value at t=0 -- the UA
+   * default -- which looks exactly like a rule that failed to apply.
+   */
+  await page.waitForTimeout(400);
+  return page.locator(".video-call-screen");
+}
+
+test.describe("immersive active content stage", () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "stage geometry is measured once");
+    await page.setViewportSize(viewport);
+  });
+
+  test("fills the visual viewport exactly, without browser fullscreen", async ({ page }) => {
+    const call = await mountCall(page, "immersive");
+
+    const box = await call.boundingBox();
+    expect(box).not.toBeNull();
+    // Exactly the viewport: no inset, no max-width cap, no rounding slack.
+    expect(box!.x).toBe(0);
+    expect(box!.y).toBe(0);
+    expect(box!.width).toBe(viewport.width);
+    expect(box!.height).toBe(viewport.height);
+
+    // Immersive is in-tab. Nothing here may depend on the Fullscreen API.
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+  });
+
+  test("keeps chrome off the stage's layout, not merely out of sight", async ({ page }) => {
+    const call = await mountCall(page, "immersive");
+
+    // §4.1: no permanent top bar or control row consumes stage layout space.
+    // Absolutely positioned boxes cannot resize their containing block, which
+    // is what makes §8.2's "reveal changes the stage box by <= 1px" hold by
+    // construction rather than by assertion.
+    for (const selector of [".audio-call-dock-heading", ".audio-call-actions"]) {
+      expect(
+        await call.locator(selector).evaluate((el) => getComputedStyle(el).position)
+      ).toBe("absolute");
+    }
+
+    // The media plane therefore gets the whole stage, and the overlays sit on
+    // top of it rather than above and below it.
+    const stage = await call.locator(".call-stage").boundingBox();
+    const heading = await call.locator(".audio-call-dock-heading").boundingBox();
+    expect(stage!.height).toBe(viewport.height);
+    expect(heading!.y).toBeLessThan(stage!.y + heading!.height);
+  });
+
+  test("leaves the legacy presentation inset and capped when not immersive", async ({ page }) => {
+    // The contract's fallback is "the current production call presentation",
+    // so the absence of the mode must change nothing about it.
+    const call = await mountCall(page);
+
+    const box = await call.boundingBox();
+    expect(box!.x).toBeGreaterThan(0);
+    expect(box!.y).toBeGreaterThan(0);
+    expect(box!.width).toBeLessThan(viewport.width);
+    expect(box!.height).toBeLessThan(viewport.height);
+
+    // And the heading still occupies its own row rather than floating.
+    expect(
+      await call
+        .locator(".audio-call-dock-heading")
+        .evaluate((el) => getComputedStyle(el).position)
+    ).not.toBe("absolute");
+  });
+
+  test("meets WCAG A and AA on the stage, including contrast on media", async ({ page }) => {
+    // The stage puts text and controls on the media ramp rather than the
+    // workspace one, so its contrast is a separate question from every other
+    // surface the suite already checks.
+    await mountCall(page, "immersive");
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.map(({ id, impact, nodes }) => ({
+        id,
+        impact,
+        targets: nodes.map((node) => node.target)
+      }))
+    ).toEqual([]);
+  });
+
+  test("keeps the stage usable in forced colors", async ({ page }) => {
+    // Forced colors replaces every author colour, so the stage must not
+    // depend on its own fills to stay readable or operable.
+    await page.emulateMedia({ forcedColors: "active" });
+    const call = await mountCall(page, "immersive");
+
+    await expect(call.getByRole("button", { name: "Minimize" })).toBeVisible();
+    for (const label of ["Mic", "Camera", "Screen", "People", "Leave"]) {
+      await expect(call.getByRole("button", { name: label })).toBeVisible();
+    }
+    await expect(call.getByRole("heading", { name: "Instant room" })).toBeVisible();
+  });
+
+  test("collapsing the routine controls does not resize the stage", async ({ page }) => {
+    // The budget: an overlay reveal or hide changes the stage bounding box by
+    // no more than 1px of rounding variance. Absolute positioning makes that
+    // true by construction; this is the check that it stays true.
+    const call = await mountCall(page, "immersive");
+    const before = await call.locator(".call-stage").boundingBox();
+
+    await call.evaluate((element) => element.setAttribute("data-controls", "collapsed"));
+    await page.waitForTimeout(300);
+
+    const after = await call.locator(".call-stage").boundingBox();
+    expect(Math.abs(after!.width - before!.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+  });
+
+  test("collapsed controls leave the tab order, not just the screen", async ({ page }) => {
+    // A control faded to nothing but still focusable is a trap: Tab lands on
+    // something invisible with no way to tell where you are.
+    const call = await mountCall(page, "immersive");
+    await call.evaluate((element) => element.setAttribute("data-controls", "collapsed"));
+    await page.waitForTimeout(300);
+
+    for (const label of ["Mic", "Leave"]) {
+      await expect(call.getByRole("button", { name: label })).toBeHidden();
+    }
+  });
+
+  test("gives the controls a solid backdrop when opaque is preferred", async ({ page }) => {
+    const gradient = await mountCall(page, "immersive");
+    const withGradient = await gradient
+      .locator(".audio-call-dock-heading")
+      .evaluate((el) => getComputedStyle(el).backgroundImage);
+    expect(withGradient).toContain("gradient");
+
+    const solid = await mountCall(page, "immersive", { callControls: "opaque" });
+    const heading = solid.locator(".audio-call-dock-heading");
+    expect(await heading.evaluate((el) => getComputedStyle(el).backgroundImage)).toBe("none");
+    // A backdrop the picture cannot show through is the whole point.
+    const color = await heading.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(color).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  test("raises control contrast when high contrast is preferred", async ({ page }) => {
+    const standard = await mountCall(page, "immersive");
+    const before = await standard
+      .locator(".audio-call-actions .button")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderColor);
+
+    const raised = await mountCall(page, "immersive", { callContrast: "high" });
+    const button = raised.locator(".audio-call-actions .button").first();
+    const after = await button.evaluate((el) => getComputedStyle(el).borderColor);
+
+    expect(after).not.toBe(before);
+    // White against the near-black stage: 20.38:1, up from 4.20:1.
+    expect(after).toBe("rgb(255, 255, 255)");
+  });
+
+  test("keeps the two appearance preferences independent", async ({ page }) => {
+    // Someone may want a predictable backdrop without raising contrast.
+    const call = await mountCall(page, "immersive", { callControls: "opaque" });
+    const border = await call
+      .locator(".audio-call-actions .button")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderColor);
+    expect(border).not.toBe("rgb(255, 255, 255)");
+  });
+
+  test("does not pull a minimized call into the stage", async ({ page }) => {
+    // A minimized call is the Workspace companion, wherever the mode says we
+    // are. Immersive must not drag the capsule into the middle of the screen.
+    const call = await mountCall(page, "immersive");
+    await call.evaluate((element) => element.classList.add("minimized"));
+
+    const box = await call.boundingBox();
+    expect(box!.width).toBeLessThan(viewport.width);
+    expect(box!.height).toBeLessThan(viewport.height);
+  });
+});

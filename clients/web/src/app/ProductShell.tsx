@@ -8,6 +8,10 @@ import {
   CallSessionProvider,
   useCallSession
 } from "../features/calls/CallSessionProvider";
+import {
+  ExperienceModeProvider,
+  useExperienceMode
+} from "../features/experience/ExperienceModeProvider";
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
@@ -31,9 +35,18 @@ function readWorkspaceSidebarCollapsed(): boolean {
 export function ProductShell() {
   const { session } = useSession();
   if (!session) return null;
+  /*
+   * ExperienceModeProvider sits inside CallSessionProvider because it observes
+   * the live call, and inside WorkspaceDataProvider (mounted above this route)
+   * because it reads both capability channels. The call session itself stays
+   * above the outlet so navigating between routes never remounts the media
+   * tree.
+   */
   return (
     <CallSessionProvider>
-      <ProductShellContent />
+      <ExperienceModeProvider>
+        <ProductShellContent />
+      </ExperienceModeProvider>
     </CallSessionProvider>
   );
 }
@@ -42,6 +55,7 @@ function ProductShellContent() {
   const navigate = useNavigate();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
+  const { mode } = useExperienceMode();
   const { error, setError, refreshAll } = useWorkspaceData();
   const { updateAvailable, applyUpdate, dismissUpdate } = usePwa();
   const [retrying, setRetrying] = useState(false);
@@ -106,13 +120,21 @@ function ProductShellContent() {
    * its own name in its own header, so the third statement was both redundant
    * and the only one that could be wrong.
    */
+  /*
+   * The mode drives the shell in two ways, and only two: this component
+   * unmounts the chrome that Immersive must not reserve space for, and
+   * experience-mode.css responds to the data-experience-mode attribute that
+   * ExperienceModeProvider publishes on the document root. The attribute is
+   * not repeated here -- one owner, so the two can never disagree.
+   */
+  const immersive = mode === "immersive";
   return (
     <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
-        {desktopShell && (
+        {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
         <a className="skip-link" href="#main-content">Skip to content</a>
-        {desktopShell && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
+        {desktopShell && !immersive && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
           {/*
             * One row, not two. The brand row said "K-Comms / Communication
             * workspace" and the identity row underneath said "Workspace /
@@ -230,7 +252,7 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
-        {!desktopShell && (
+        {!desktopShell && !immersive && (
           <nav className="mobile-primary-nav" aria-label="Primary navigation">
             <MemberAreaLinks variant="mobile-primary" />
           </nav>

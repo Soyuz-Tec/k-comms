@@ -13,10 +13,32 @@ export const viewportCases = [
   { width: 700, height: 900 }
 ] as const;
 
-export function activeVideoFixtureMarkup() {
+/**
+ * A joined video call in static markup, carrying the real class names so the
+ * application's own stylesheets can be injected over it.
+ *
+ * `experienceMode` stamps the document root the way ExperienceModeProvider
+ * does at runtime, which is what selects the Immersive stage rules. Omitting
+ * it exercises the legacy presentation -- the fallback the contract requires
+ * to stay intact.
+ */
+export function activeVideoFixtureMarkup(
+  options: {
+    experienceMode?: "workspace" | "immersive";
+    /** Mirrors the call control appearance preferences on the root. */
+    callControls?: "opaque";
+    callContrast?: "high";
+  } = {}
+) {
+  const mode = [
+    options.experienceMode ? ` data-experience-mode="${options.experienceMode}"` : "",
+    options.callControls ? ` data-call-controls="${options.callControls}"` : "",
+    options.callContrast ? ` data-call-contrast="${options.callContrast}"` : ""
+  ].join("");
   return `<!doctype html>
-    <html>
+    <html lang="en"${mode}>
       <head>
+        <title>Call fixture</title>
       </head>
       <body>
         <main class="app-shell">Workspace beneath the call</main>
@@ -31,6 +53,12 @@ export function activeVideoFixtureMarkup() {
               </div>
             </div>
             <div class="call-dock-heading-actions app-surface-control-cluster">
+              <div class="call-placement-controls" role="group" aria-label="Call panel position">
+                <button class="button ghost compact call-placement-handle" type="button" aria-label="Move call panel">${callFixtureIcon("grip")}</button>
+                ${["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => `
+                  <button class="button ghost compact call-placement-preset" type="button" data-corner="${corner}" aria-label="Move call panel to ${corner.replace("-", " ")}" aria-pressed="${corner === "bottom-right"}">${callFixtureIcon("arrowUpRight")}</button>
+                `).join("")}
+              </div>
               <button class="button ghost compact app-surface-control" type="button" aria-label="Minimize">${callFixtureIcon("minimize")}</button>
               <button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>
             </div>
@@ -65,6 +93,49 @@ export function activeVideoFixtureMarkup() {
     </html>`;
 }
 
+/**
+ * A joined video call with an arbitrary number of participant tiles.
+ *
+ * The contract asks for exactly 1, 4, 16 and 49 tiles as layout and
+ * performance fixtures, with 49 labelled a stress target rather than a
+ * supported room maximum -- authenticated capacity comes from the server's
+ * admission policy, not from what the grid can draw.
+ */
+export function participantGridFixtureMarkup(
+  tiles: number,
+  options: { experienceMode?: "workspace" | "immersive" } = {}
+) {
+  const mode = options.experienceMode
+    ? ` data-experience-mode="${options.experienceMode}"`
+    : "";
+  const cells = Array.from({ length: tiles }, (_, index) => `
+    <article class="video-participant-tile" data-participant-id="participant-${index + 1}">
+      <div class="video-track-stack">
+        <div class="video-placeholder"><span>P${index + 1}</span><small>Camera off</small></div>
+      </div>
+      <div class="video-participant-caption"><strong>Participant ${index + 1}</strong></div>
+    </article>`).join("");
+
+  return `<!doctype html>
+    <html lang="en"${mode}>
+      <head><title>Participant grid fixture</title></head>
+      <body>
+        <main class="app-shell"></main>
+        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen">
+          <div class="audio-call-dock-heading">
+            <div class="call-heading-summary"><h2 class="call-room-title">Grid fixture</h2></div>
+          </div>
+          <div class="active-call-details">
+            <section class="call-stage">
+              <div class="video-participant-grid participant-count-${tiles}">${cells}</div>
+            </section>
+            <div class="audio-call-actions"></div>
+          </div>
+        </section>
+      </body>
+    </html>`;
+}
+
 export function callFixtureIcon(name: string) {
   const paths: Record<string, string> = {
     minimize: `
@@ -72,6 +143,12 @@ export function callFixtureIcon(name: string) {
       <polyline points="20 10 14 10 14 4"></polyline>
       <line x1="14" x2="21" y1="10" y2="3"></line>
       <line x1="3" x2="10" y1="21" y2="14"></line>`,
+    grip: `
+      <circle cx="9" cy="6" r="1"></circle><circle cx="15" cy="6" r="1"></circle>
+      <circle cx="9" cy="12" r="1"></circle><circle cx="15" cy="12" r="1"></circle>
+      <circle cx="9" cy="18" r="1"></circle><circle cx="15" cy="18" r="1"></circle>`,
+    arrowUpRight: `
+      <path d="M7 17 17 7"></path><path d="M7 7h10v10"></path>`,
     menu: `
       <line x1="4" x2="20" y1="6" y2="6"></line>
       <line x1="4" x2="20" y1="12" y2="12"></line>

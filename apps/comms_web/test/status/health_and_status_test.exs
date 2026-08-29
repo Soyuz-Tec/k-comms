@@ -63,6 +63,24 @@ defmodule CommsWeb.Status.HealthAndStatusTest do
            ]
   end
 
+  test "GET /api/v1/status reports immersive mode off unless the deployment enables it", %{
+    conn: conn
+  } do
+    assert %{"capabilities" => %{"immersive_mode" => false}} =
+             conn |> get("/api/v1/status") |> json_response(200)
+  end
+
+  test "GET /api/v1/status reports immersive mode on when the deployment enables it", %{
+    conn: conn
+  } do
+    previous = Application.get_env(:comms_web, :immersive_mode_enabled)
+    Application.put_env(:comms_web, :immersive_mode_enabled, true)
+    on_exit(fn -> restore_env(:comms_web, :immersive_mode_enabled, previous) end)
+
+    assert %{"capabilities" => %{"immersive_mode" => true}} =
+             conn |> get("/api/v1/status") |> json_response(200)
+  end
+
   test "GET /metrics", %{conn: conn} do
     conn = get(conn, "/metrics")
     assert response(conn, 200) =~ "k_comms_auth_success_total"

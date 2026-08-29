@@ -122,6 +122,28 @@
      against a tinted or light surface, so this role does not follow the theme. */
   --surface-media: #06040c;
 
+  /* Controls that sit *on* media, for the same reason and with the same
+     independence: a control over video is over video in both themes, and a
+     light pill on a dark stage loses its edge the moment the content behind
+     it brightens.
+     
+     The fill is deliberately recessed -- a control over someone's face should
+     not compete with it -- so 1.4.11 is carried by the border, not the fill:
+     --kc-ink-500 is 4.20:1 against --surface-media where the fill alone is
+     1.28:1. Text pairs clear AA with room: white on the fill is 15.89:1 and
+     the muted tone on the stage is 9.97:1. */
+  /* Backdrops behind chrome that floats on the stage. A gradient by default,
+     so the picture reads through; the opaque preference swaps both for solid
+     surfaces, and high contrast deepens them further. */
+  --media-chrome-top: linear-gradient(to bottom, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+  --media-chrome-bottom: linear-gradient(to top, rgb(0 0 0 / 55%), rgb(0 0 0 / 0%));
+
+  --surface-media-control: #231d40;
+  --surface-media-control-hover: #302849;
+  --border-media-control: var(--kc-ink-500);
+  --text-on-media: var(--kc-white);
+  --text-on-media-muted: #b8b2cc;
+
   /* Text. All three verified on every surface above. */
   --text-primary: #ede9ff;
   --text-secondary: var(--kc-violet-300);

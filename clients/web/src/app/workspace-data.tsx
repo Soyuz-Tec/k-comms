@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type { CreateConversationInput } from "../api";
-import type { Conversation, User, UserCapabilities } from "../types";
+import type { Conversation, ServiceStatus, User, UserCapabilities } from "../types";
 import { errorText } from "../lib/format";
 import { RealtimeInbox, socketEndpoint } from "../realtime";
 import { useSession } from "./session";
@@ -17,6 +17,14 @@ interface WorkspaceDataValue {
   conversations: Conversation[];
   users: User[];
   capabilities: UserCapabilities | null;
+  /**
+   * The last successful /api/v1/status payload, kept whole rather than
+   * reduced to the two call booleans. Feature switches that have both a
+   * deployment half and a tenant half -- immersive mode is the first -- need
+   * to read the service capabilities directly, and re-fetching status per
+   * consumer would multiply a request the workspace already polls.
+   */
+  serviceStatus: ServiceStatus | null;
   audioCallsAvailable: boolean;
   videoCallsAvailable: boolean;
   loading: boolean;
@@ -39,6 +47,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [capabilities, setCapabilities] = useState<UserCapabilities | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const [audioCallsAvailable, setAudioCallsAvailable] = useState(false);
   const [videoCallsAvailable, setVideoCallsAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -51,9 +60,10 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
 
   const refreshCallAvailability = useCallback(async () => {
     try {
-      const serviceStatus = await api.status();
-      setAudioCallsAvailable(serviceStatus.capabilities?.audio_calls === true);
-      setVideoCallsAvailable(serviceStatus.capabilities?.video_calls === true);
+      const nextStatus = await api.status();
+      setServiceStatus(nextStatus);
+      setAudioCallsAvailable(nextStatus.capabilities?.audio_calls === true);
+      setVideoCallsAvailable(nextStatus.capabilities?.video_calls === true);
     } catch {
       // Preserve the last known readiness when the status request fails transiently.
     }
@@ -205,6 +215,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
       conversations,
       users,
       capabilities,
+      serviceStatus,
       audioCallsAvailable,
       videoCallsAvailable,
       loading,
@@ -222,6 +233,7 @@ export function WorkspaceDataProvider({ children }: { children: ReactNode }) {
     [
       conversations,
       capabilities,
+      serviceStatus,
       audioCallsAvailable,
       videoCallsAvailable,
       createConversation,

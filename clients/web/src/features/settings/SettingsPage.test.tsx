@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../types";
 import type { SessionUpdate } from "../../app/session";
 import { SettingsPage } from "./SettingsPage";
+import { resetCallControlPreferencesForTest } from "../experience/call-control-preferences";
 
 const harness = vi.hoisted(() => {
   const session: Session = {
@@ -68,6 +69,10 @@ vi.mock("../../pwa/PwaProvider", () => ({
 describe("profile settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    // The preference snapshot is memoized for identity stability, so tests
+    // that seed or clear storage directly must drop it first.
+    resetCallControlPreferencesForTest();
     harness.currentSession = structuredClone(harness.initialSession);
     harness.setSession.mockImplementation((update: SessionUpdate) => {
       harness.currentSession =
@@ -351,6 +356,69 @@ describe("profile settings", () => {
 
     await waitFor(() => expect(harness.api.revokeDevice).toHaveBeenCalledWith("device-2"));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("offers all three call control preferences, independently", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+
+    const solid = screen.getByRole("checkbox", { name: /Solid background behind controls/ });
+    const contrast = screen.getByRole("checkbox", { name: /Higher contrast controls/ });
+    const always = screen.getByRole("checkbox", { name: /Always show call controls/ });
+
+    await user.click(solid);
+    expect(solid).toBeChecked();
+    // Independent: someone may want a solid backdrop without raising contrast.
+    expect(contrast).not.toBeChecked();
+    expect(always).not.toBeChecked();
+
+    await user.click(contrast);
+    expect(solid).toBeChecked();
+    expect(contrast).toBeChecked();
+
+    expect(window.localStorage.getItem("k-comms.call-controls-opaque.v1")).toBe("true");
+    expect(window.localStorage.getItem("k-comms.call-controls-high-contrast.v1")).toBe("true");
+  });
+
+  it("says what stays visible whatever is chosen", async () => {
+    // "Controls fade" is alarming on its own, and the thing people would
+    // reasonably fear losing is the thing that never fades.
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+    expect(
+      screen.getByText(/Microphone, camera, screen-sharing and connection state stay visible/)
+    ).toBeVisible();
+  });
+
+  it("offers Always show call controls, reachable without joining a call", async () => {
+    // The preference has to be settable outside a call: someone who needs the
+    // controls to stay put should not have to join one, find a menu, and
+    // change it while a call is running.
+    window.localStorage.removeItem("k-comms.always-show-call-controls.v1");
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+    const toggle = screen.getByRole("checkbox", { name: /Always show call controls/ });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(window.localStorage.getItem("k-comms.always-show-call-controls.v1")).toBe("true");
+
+    await user.click(toggle);
+    expect(window.localStorage.getItem("k-comms.always-show-call-controls.v1")).toBe("false");
+  });
+
+  it("restores the saved control preference when the page is reopened", async () => {
+    window.localStorage.setItem("k-comms.always-show-call-controls.v1", "true");
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole("tab", { name: "Accessibility" }));
+    expect(screen.getByRole("checkbox", { name: /Always show call controls/ })).toBeChecked();
   });
 });
 

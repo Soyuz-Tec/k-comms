@@ -6,15 +6,20 @@ import type { AccountSession, Device, NotificationAttempt, NotificationIntent, N
 import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
+import {
+  useCallControlPreferences,
+  useSetCallControlPreference,
+  type CallControlPreferenceName
+} from "../experience/call-control-preferences";
 import { PushNotifications } from "./PushNotifications";
 import { usePwa, type PwaInstallMode } from "../../pwa/PwaProvider";
 import {
   PwaInstallHelpDialog,
   type ManualInstallMode
 } from "../../pwa/PwaInstallHelpDialog";
-type SettingsSection = "profile" | "security" | "notifications";
+type SettingsSection = "profile" | "security" | "notifications" | "accessibility";
 
-const settingsSections: SettingsSection[] = ["profile", "security", "notifications"];
+const settingsSections: SettingsSection[] = ["profile", "security", "notifications", "accessibility"];
 
 const notificationChoices = [
   { eventType: "message.created.v1", field: "notify_messages", label: "New messages" },
@@ -273,7 +278,13 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
               }
             }}
           >
-            {value === "profile" ? "Profile" : value === "security" ? "Security" : "Notifications"}
+            {value === "profile"
+              ? "Profile"
+              : value === "security"
+                ? "Security"
+                : value === "notifications"
+                  ? "Notifications"
+                  : "Accessibility"}
           </button>
         ))}
       </nav>
@@ -389,7 +400,86 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         <details className="advanced-settings"><summary>Technical delivery details</summary><p className="support-note">{attempts.length} delivery {attempts.length === 1 ? "attempt is" : "attempts are"} available to your account. Destinations are redacted by the server.</p></details>
       </details>
       </section>}
+      {section === "accessibility" && (
+        <section
+          id="settings-accessibility-panel"
+          role="tabpanel"
+          aria-labelledby="settings-accessibility-tab"
+        >
+          <CallControlPreferences />
+        </section>
+      )}
     </main>
+  );
+}
+
+/**
+ * Call control preferences.
+ *
+ * These live on the device rather than the account, because they describe how
+ * this browser should behave -- the same person on a shared machine, a phone
+ * and a desktop can reasonably want different answers. That is also why they
+ * are not part of the notification form above, which saves to the server.
+ *
+ * Reachable outside a call on purpose: someone who needs the controls to stay
+ * put should not have to join a call, find a menu and change it while a call
+ * is running.
+ */
+const callControlChoices: {
+  name: CallControlPreferenceName;
+  label: string;
+  description: string;
+}[] = [
+  {
+    name: "alwaysShow",
+    label: "Always show call controls",
+    description:
+      "Routine controls fade after a few seconds of inactivity so the picture is unobstructed. Keep them on screen the whole time instead."
+  },
+  {
+    name: "opaque",
+    label: "Solid background behind controls",
+    description:
+      "Controls sit on a fading shadow by default, so more of the picture shows through. Give them a solid background instead."
+  },
+  {
+    name: "highContrast",
+    label: "Higher contrast controls",
+    description:
+      "Strengthen the outlines and labels on call controls beyond the standard level."
+  }
+];
+
+function CallControlPreferences() {
+  const preferences = useCallControlPreferences();
+  const setPreference = useSetCallControlPreference();
+
+  return (
+    <div className="settings-card" id="call-control-settings">
+      <div className="card-heading"><h2>Call controls</h2></div>
+      <fieldset className="settings-fieldset">
+        <legend>How should call controls look and behave?</legend>
+        <div className="call-control-choices">
+          {callControlChoices.map(({ name, label, description }) => (
+            <label key={name}>
+              <input
+                type="checkbox"
+                checked={preferences[name]}
+                onChange={(event) => setPreference(name, event.target.checked)}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        <small className="support-note">
+          Microphone, camera, screen-sharing and connection state stay visible
+          whatever you choose here. These settings apply to this device only.
+        </small>
+      </fieldset>
+    </div>
   );
 }
 
