@@ -1,8 +1,9 @@
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
 import { DraggableSurface } from "../../components/DraggableSurface";
+import { setProtectedSurface } from "../experience/companion-collision";
 import {
   useWhiteboardCollaboration,
   type WhiteboardCollaborationOptions
@@ -34,6 +35,27 @@ export function CollaborativeWhiteboard({
     collaborationOptions,
     focusElementIds
   );
+
+  /*
+   * The canvas tells the call companion it is here, and when it is being drawn
+   * on, so the companion can get off the drawable plane.
+   *
+   * Published rather than detected: the companion renders outside this tree
+   * entirely, and a querySelector for ".whiteboard-room" would invent a second
+   * source of truth for something this component already knows.
+   *
+   * Above the early returns for loading and load errors on purpose: an
+   * effect below them runs on some renders and not others, which React
+   * rejects outright as "rendered more hooks than during the previous
+   * render".
+   */
+  useEffect(() => {
+    setProtectedSurface("canvasVisible", true);
+    return () => {
+      setProtectedSurface("canvasVisible", false);
+      setProtectedSurface("canvasEditing", false);
+    };
+  }, []);
 
   if (collaboration.initialElements === null) {
     if (collaboration.historyError) {
@@ -98,6 +120,30 @@ export function CollaborativeWhiteboard({
   return (
     <section
       className={`whiteboard-room${compact ? " whiteboard-room-compact" : ""}`}
+      /*
+       * Pen and stylus only. A mouse or finger drawing still moves the
+       * pointer, but the contract names pen input specifically, and treating
+       * every pointer press as editing would keep the companion pinned for
+       * anyone who clicks the canvas once.
+       */
+      onPointerDown={(event) => {
+        if (event.pointerType === "pen") setProtectedSurface("canvasEditing", true);
+      }}
+      onPointerUp={(event) => {
+        if (event.pointerType === "pen") setProtectedSurface("canvasEditing", false);
+      }}
+      onPointerCancel={() => setProtectedSurface("canvasEditing", false)}
+      /*
+       * Excalidraw's text editor is a real textarea inside this subtree, so
+       * focus landing on any editable element is the signal. onFocus/onBlur
+       * bubble in React, which is what makes this reachable from here at all.
+       */
+      onFocus={(event) => {
+        if (isTextEntry(event.target)) setProtectedSurface("canvasEditing", true);
+      }}
+      onBlur={(event) => {
+        if (isTextEntry(event.target)) setProtectedSurface("canvasEditing", false);
+      }}
       aria-label={`Whiteboard for ${conversationTitle}`}
     >
       {/*
@@ -174,4 +220,17 @@ export function CollaborativeWhiteboard({
       </div>
     </section>
   );
+}
+
+/**
+ * Whether focus landed somewhere text is entered.
+ *
+ * Excalidraw's text editor is a textarea it creates and destroys on demand, so
+ * there is no stable element to watch -- only the shape of whatever currently
+ * has focus.
+ */
+function isTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target.tagName === "TEXTAREA" || target.tagName === "INPUT";
 }

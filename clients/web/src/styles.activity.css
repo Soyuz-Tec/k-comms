@@ -799,6 +799,46 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 }
 
 /*
+ * Yielding to a protected surface.
+ *
+ * data-yielded carries the reason, so the two degrees are distinguishable:
+ * a canvas merely being on screen moves the companion off the drawable plane,
+ * while pen input, a text editor or the virtual keyboard also reduce it to the
+ * critical capsule. Both keep microphone, camera, screen-share and connection
+ * state on screen -- that is the floor no collision rule lowers.
+ */
+.audio-call-dock[data-yielded] {
+  /* Placement is overridden while yielding, so the drag handle would lie. */
+  transition: top 160ms ease, right 160ms ease, left 160ms ease, bottom 160ms ease;
+}
+
+.audio-call-dock[data-yielded] .call-placement-controls {
+  display: none;
+}
+
+.audio-call-dock[data-yielded="canvas-editing"],
+.audio-call-dock[data-yielded="keyboard-open"] {
+  width: auto;
+  max-width: min(320px, calc(100vw - 2rem));
+}
+
+/*
+ * Reduced to the capsule: the room name and the window controls stay, because
+ * the restore target must never be invisible, but the progress meta and the
+ * participant count are routine detail and go.
+ */
+.audio-call-dock[data-yielded="canvas-editing"] .call-progress-meta,
+.audio-call-dock[data-yielded="keyboard-open"] .call-progress-meta {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audio-call-dock[data-yielded] {
+    transition: none;
+  }
+}
+
+/*
  * Placement controls on the minimized companion.
  *
  * The grip takes a real cursor because it is the drag affordance; the corner

@@ -93,6 +93,49 @@ export function activeVideoFixtureMarkup(
     </html>`;
 }
 
+/**
+ * A joined video call with an arbitrary number of participant tiles.
+ *
+ * The contract asks for exactly 1, 4, 16 and 49 tiles as layout and
+ * performance fixtures, with 49 labelled a stress target rather than a
+ * supported room maximum -- authenticated capacity comes from the server's
+ * admission policy, not from what the grid can draw.
+ */
+export function participantGridFixtureMarkup(
+  tiles: number,
+  options: { experienceMode?: "workspace" | "immersive" } = {}
+) {
+  const mode = options.experienceMode
+    ? ` data-experience-mode="${options.experienceMode}"`
+    : "";
+  const cells = Array.from({ length: tiles }, (_, index) => `
+    <article class="video-participant-tile" data-participant-id="participant-${index + 1}">
+      <div class="video-track-stack">
+        <div class="video-placeholder"><span>P${index + 1}</span><small>Camera off</small></div>
+      </div>
+      <div class="video-participant-caption"><strong>Participant ${index + 1}</strong></div>
+    </article>`).join("");
+
+  return `<!doctype html>
+    <html lang="en"${mode}>
+      <head><title>Participant grid fixture</title></head>
+      <body>
+        <main class="app-shell"></main>
+        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen">
+          <div class="audio-call-dock-heading">
+            <div class="call-heading-summary"><h2 class="call-room-title">Grid fixture</h2></div>
+          </div>
+          <div class="active-call-details">
+            <section class="call-stage">
+              <div class="video-participant-grid participant-count-${tiles}">${cells}</div>
+            </section>
+            <div class="audio-call-actions"></div>
+          </div>
+        </section>
+      </body>
+    </html>`;
+}
+
 export function callFixtureIcon(name: string) {
   const paths: Record<string, string> = {
     minimize: `

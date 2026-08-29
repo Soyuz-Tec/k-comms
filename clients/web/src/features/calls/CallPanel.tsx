@@ -1,7 +1,12 @@
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import type { CSSProperties } from "react";
 import { AppIcon } from "../../components/AppIcon";
 import { OVERLAY_PRESET_LABELS, type OverlayPresetName } from "../experience/overlay-placement";
+import {
+  companionDisposition,
+  useProtectedSurfaces
+} from "../experience/companion-collision";
 import { useExperienceModeSnapshot } from "../experience/experience-mode-store";
 import { useOverlayPlacement } from "../experience/useOverlayPlacement";
 import { useOverlayVisibility } from "../experience/useOverlayVisibility";
@@ -199,6 +204,15 @@ export function CallPanel({
    * worth tidying away -- and the expanded dock is a modal card whose chrome
    * is part of its layout.
    */
+  /*
+   * Protected surfaces -- a drawable canvas, pen input, an open text editor,
+   * the virtual keyboard -- decide where the minimized companion may sit and
+   * whether it reduces to the capsule. Collision priority is resolved in one
+   * place rather than by each surface pushing the panel around.
+   */
+  const protectedSurfaces = useProtectedSurfaces();
+  const collision = companionDisposition(protectedSurfaces);
+
   const experienceMode = useExperienceModeSnapshot();
   const immersiveStage = experienceMode === "immersive" && !minimized;
   const overlayVisibility = useOverlayVisibility({
@@ -218,7 +232,22 @@ export function CallPanel({
    * the same compact form the minimized companion uses. Microphone, camera
    * and screen-share state never depend on the controls being up.
    */
-  const showCriticalCapsule = minimized || (immersiveStage && !overlayVisibility.visible);
+  const showCriticalCapsule =
+    minimized || (immersiveStage && !overlayVisibility.visible);
+
+  /*
+   * The one strip the contract names as available when a canvas or a keyboard
+   * has claimed the rest: page chrome in the top safe area, clear of the
+   * composer, the keyboard and the bottom navigation. Placement is overridden
+   * rather than the saved value being rewritten -- the user gets their corner
+   * back the moment the canvas is no longer in the way.
+   */
+  const topSafeAreaPlacement: CSSProperties = {
+    top: "max(var(--space-3), var(--safe-top))",
+    right: "max(var(--space-3), var(--safe-right))",
+    bottom: "auto",
+    left: "auto"
+  };
 
   const callStatusLabel = phase === "reconnecting"
     ? "Reconnecting"
@@ -294,7 +323,14 @@ export function CallPanel({
             companionPlacement.surfaceRef.current = node;
           }}
           className={`call-dock audio-call-dock active-call-screen ${joinedKind === "video" ? "video-call-dock video-call-screen" : "audio-call-screen"} ${minimized ? "minimized" : ""}`}
-          style={minimized ? companionPlacement.style : undefined}
+          style={
+            minimized
+              ? collision.placement === "top"
+                ? topSafeAreaPlacement
+                : companionPlacement.style
+              : undefined
+          }
+          data-yielded={minimized && collision.reason !== "none" ? collision.reason : undefined}
           data-placing={minimized && companionPlacement.dragging ? "true" : undefined}
           data-controls={immersiveStage && !overlayVisibility.visible ? "collapsed" : "visible"}
           data-keep-visible={

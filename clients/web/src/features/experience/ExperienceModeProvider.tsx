@@ -20,6 +20,7 @@ import {
   useCallControlPreferences
 } from "./call-control-preferences";
 import { setExperienceModeSnapshot } from "./experience-mode-store";
+import { watchVirtualKeyboard } from "./companion-collision";
 import {
   resolveImmersiveWithinDeadline,
   selectImmersiveEligibility,
@@ -183,6 +184,9 @@ export function useExperienceModeController({
     () => applyCallControlPreferencesToDocument(callControlPreferences),
     [callControlPreferences]
   );
+
+  // One watcher for the whole shell, mounted wherever the controller is.
+  useEffect(watchVirtualKeyboard, []);
 
   const exitToWorkspace = useCallback(() => {
     dispatch({ type: "EXIT_TO_WORKSPACE" });
