@@ -73,6 +73,39 @@ repository agree:
 | `CallControlDock` | The existing `.audio-call-dock-heading` and `.audio-call-actions`, absolutely positioned in Immersive so neither consumes stage layout space |
 | `OverlayLayer`, `ParticipantOverlay`, `InCallChatOverlay`, `CaptionRegion` | Not yet built |
 
+### 2.0.1 Where the required fixtures live
+
+The contract makes every acceptance criterion depend on a fixture, and says
+plainly that a missing fixture is a failed gate rather than a waived criterion.
+This is the inventory, so that a reviewer can check a row rather than search for
+it.
+
+| Contract fixture row | Implemented as |
+| --- | --- |
+| Experience reducer and overlay component | `features/experience/experience-mode.test.ts`, `useOverlayVisibility.test.tsx`, `useOverlayPlacement.test.tsx`, `overlay-placement.test.ts` |
+| Existing provider/panel continuity | `features/calls/CallSessionProvider.continuity.test.tsx` |
+| Guest and instant-room joined call | `features/experience/guest-immersive.test.tsx`, plus `guest_communication/immersive_capability_test.exs` server-side |
+| Instant-room effective limit | Pre-existing `comms_core` admission tests; the UI consumes the server limit and does not recalculate it |
+| 1/4/16/49 synthetic tiles | `e2e/participant-grid.spec.ts` |
+| Whiteboard + active-call collision | `features/experience/companion-collision.test.ts`, and the yield assertions in `features/calls/CallPanel.layout-reconnect.test.tsx` |
+| Concurrent call | `features/calls/call-switch.test.ts`, `CallSessionProvider.switch.test.tsx` |
+| Capability deadline and fail-closed | `features/experience/ExperienceModeProvider.test.tsx`, `immersive-eligibility` cases in `experience-mode.test.ts` |
+| Four-project browser matrix and axe/forced-colors | `e2e/immersive-stage.spec.ts` (axe and forced colors), run across `chromium`, `chromium-dark`, `mobile-chromium`, `webkit` |
+| Rollback rehearsal | `features/experience/emergency-disable.test.tsx` for the client half; the deployment half remains with Release Engineering |
+
+Measured budgets are in `e2e/immersive-performance.spec.ts`, which records the
+browser, platform, viewport, core count and throttle setting alongside each
+result so a run on another machine is comparable.
+
+Two budgets in §8.2 are **not** covered there, and the omission is deliberate:
+drag frame rate under throttling, and "no API/Channel message or analytics
+event per pointer frame". Both were written against the static stage fixture
+and both passed while measuring nothing -- that fixture's placement handle is
+markup with no hook behind it, so a synthesized drag moves the panel zero
+pixels. They need a real joined call on the reference device, which is the
+Media/Realtime owner's half of the row. A test that reports a budget as met
+without exercising it is worse than an absent one.
+
 ### 2.1 DOM stability
 
 - Keep the media element tree stable across overlay show/hide, minimization, drag, Workspace navigation, and re-entry into Immersive Mode.
