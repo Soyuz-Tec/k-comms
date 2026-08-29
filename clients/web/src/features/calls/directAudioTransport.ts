@@ -6,7 +6,21 @@ export type DirectAudioSignal =
 
 export type DirectAudioTransportState = "idle" | "connecting" | "connected" | "failed";
 
+export type DirectAudioCandidateClass = "host" | "srflx" | "relay";
+
+export type DirectAudioFailureReason = "ice_timeout" | "signaling" | "declined";
+
 const MAX_PENDING_ICE_CANDIDATES = 64;
+
+interface DirectAudioStatsReport {
+  id: string;
+  type: string;
+  candidateType?: string;
+  localCandidateId?: string;
+  selectedCandidatePairId?: string;
+  nominated?: boolean;
+  state?: string;
+}
 
 interface DirectAudioTransportOptions {
   iceServers: RTCIceServer[];
@@ -29,6 +43,9 @@ export class DirectAudioTransport {
   private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
   private lifecycleGeneration = 0;
   private microphoneReplacementGeneration = 0;
+  private startedAt = 0;
+  private connectedAfterMs: number | null = null;
+  private failure: DirectAudioFailureReason = "signaling";
 
   constructor(private readonly options: DirectAudioTransportOptions) {}
 
@@ -42,13 +59,19 @@ export class DirectAudioTransport {
     this.stopped = false;
     this.lifecycleGeneration += 1;
     this.microphoneDeviceId = microphoneDeviceId;
+    this.startedAt = Date.now();
+    this.connectedAfterMs = null;
+    this.failure = "signaling";
     this.options.onState("connecting");
 
     const peerConnection = (this.options.peerConnectionFactory || ((configuration) => (
       new RTCPeerConnection(configuration)
     )))({ iceServers: this.options.iceServers });
     this.peerConnection = peerConnection;
-    this.connectionTimeout = setTimeout(() => this.fail(), 12_000);
+    this.connectionTimeout = setTimeout(() => {
+      this.failure = "ice_timeout";
+      this.fail();
+    }, 12_000);
     peerConnection.addTransceiver("audio", { direction: "sendrecv" });
     peerConnection.onicecandidate = (event) => {
       if (!event.candidate || this.stopped) return;
@@ -75,10 +98,13 @@ export class DirectAudioTransport {
       if (this.stopped || this.peerConnection !== peerConnection) return;
       if (peerConnection.connectionState === "connected") {
         this.clearConnectionTimeout();
+        this.connectedAfterMs = Math.max(0, Date.now() - this.startedAt);
         this.options.onState("connected");
       }
-      if (["failed", "closed"].includes(peerConnection.connectionState)) this.fail();
-      if (peerConnection.connectionState === "disconnected") this.fail();
+      if (["failed", "closed", "disconnected"].includes(peerConnection.connectionState)) {
+        this.failure = this.connectedAfterMs === null ? "ice_timeout" : this.failure;
+        this.fail();
+      }
     };
 
     if (microphoneEnabled) await this.setMicrophoneEnabled(true);
@@ -96,6 +122,7 @@ export class DirectAudioTransport {
     if (!peerConnection || this.stopped) return;
 
     if (signal.kind === "fallback") {
+      this.failure = "declined";
       this.fail();
       return;
     }
@@ -154,6 +181,53 @@ export class DirectAudioTransport {
 
   async enablePlayback(): Promise<void> {
     if (this.remoteAudio) await this.remoteAudio.play();
+  }
+
+  connectDurationMs(): number | null {
+    return this.connectedAfterMs;
+  }
+
+  lastFailureReason(): DirectAudioFailureReason {
+    return this.failure;
+  }
+
+  /**
+   * Reports which class of local candidate carried the connection. Only the
+   * class is read: candidate addresses stay inside the browser.
+   */
+  async selectedCandidateClass(): Promise<DirectAudioCandidateClass | null> {
+    const peerConnection = this.peerConnection;
+    if (!peerConnection) return null;
+
+    try {
+      const reports = Array.from((await peerConnection.getStats()).values()) as DirectAudioStatsReport[];
+      const transport = reports.find(
+        (report) => report.type === "transport" && typeof report.selectedCandidatePairId === "string"
+      );
+      const pair = reports.find((report) => (
+        report.type === "candidate-pair" &&
+        (transport
+          ? report.id === transport.selectedCandidatePairId
+          : report.nominated === true && report.state === "succeeded")
+      ));
+      const local = pair?.localCandidateId
+        ? reports.find((report) => report.id === pair.localCandidateId)
+        : undefined;
+
+      switch (local?.candidateType) {
+        case "host":
+          return "host";
+        case "srflx":
+        case "prflx":
+          return "srflx";
+        case "relay":
+          return "relay";
+        default:
+          return null;
+      }
+    } catch {
+      return null;
+    }
   }
 
   stop(): void {

@@ -3,7 +3,14 @@ defmodule CommsWeb.CallChannel do
 
   alias CommsCore.AudioCalls
   alias CommsWeb.ConversationChannel.AccessPolicy
-  alias CommsWeb.{DirectAudio, DirectAudioRateLimit, DirectAudioSignal, Presence}
+
+  alias CommsWeb.{
+    DirectAudio,
+    DirectAudioOutcome,
+    DirectAudioRateLimit,
+    DirectAudioSignal,
+    Presence
+  }
 
   @reaction_allowlist ["👍", "👏", "❤️", "😂", "🎉"]
   @collaboration_events [
@@ -38,6 +45,8 @@ defmodule CommsWeb.CallChannel do
         |> assign(:direct_audio, false)
         |> assign(:direct_signal_state, :disabled)
         |> assign(:direct_expected_peer_id, nil)
+        |> assign(:direct_attempted, false)
+        |> assign(:direct_outcome_reported, false)
 
       {response, socket} = enable_direct_audio(response, socket, payload)
 
@@ -119,6 +128,32 @@ defmodule CommsWeb.CallChannel do
 
   def handle_in("call.direct.disable.v1", _payload, socket),
     do: {:reply, {:error, %{reason: "invalid_signal"}}, socket}
+
+  def handle_in("call.direct.outcome.v1", %{} = payload, socket) do
+    with :ok <- authorize(socket),
+         :ok <- outcome_reportable(socket),
+         {:ok, outcome} <- DirectAudioOutcome.validate(payload) do
+      record_peer_link_outcome(outcome)
+      {:reply, :ok, assign(socket, :direct_outcome_reported, true)}
+    else
+      # One outcome per admitted attempt. A repeat is accepted so a retrying
+      # client is not driven into an error path, and is not counted again.
+      {:error, :already_reported} ->
+        {:reply, :ok, socket}
+
+      {:error, :direct_audio_unavailable} ->
+        {:reply, {:error, %{reason: "direct_audio_unavailable"}}, socket}
+
+      {:error, :invalid_outcome} ->
+        {:reply, {:error, %{reason: "invalid_outcome"}}, socket}
+
+      _ ->
+        {:stop, :unauthorized, socket}
+    end
+  end
+
+  def handle_in("call.direct.outcome.v1", _payload, socket),
+    do: {:reply, {:error, %{reason: "invalid_outcome"}}, socket}
 
   def handle_in(
         "call.direct.signal.v1",
@@ -240,6 +275,11 @@ defmodule CommsWeb.CallChannel do
         |> assign(:direct_peer_id, peer_id)
         |> assign(:direct_signal_state, :ready)
         |> assign(:direct_expected_peer_id, nil)
+        |> assign(:direct_attempted, true)
+
+      # The denominator is server-observed admission, so it cannot be inflated
+      # beyond the join quota by a client that never negotiates.
+      CommsObservability.execute([:peer_link, :attempt], %{count: 1}, %{})
 
       send(self(), :track_direct_audio)
 
@@ -258,6 +298,33 @@ defmodule CommsWeb.CallChannel do
 
   defp enable_direct_audio(response, socket, _payload),
     do: {Map.put(response, :direct_audio, %{enabled: false}), socket}
+
+  defp outcome_reportable(socket) do
+    cond do
+      socket.assigns[:direct_outcome_reported] == true -> {:error, :already_reported}
+      socket.assigns[:direct_attempted] != true -> {:error, :direct_audio_unavailable}
+      true -> :ok
+    end
+  end
+
+  # The candidate class and reason travel as measurements because they are the
+  # closed enumerations the counter seam reads. Metadata stays empty so no
+  # identifier reaches a telemetry handler.
+  defp record_peer_link_outcome(%{result: :connected} = outcome) do
+    CommsObservability.execute(
+      [:peer_link, :connected],
+      %{
+        count: 1,
+        candidate_class: outcome.candidate_class,
+        duration_seconds: outcome.connect_ms / 1_000
+      },
+      %{}
+    )
+  end
+
+  defp record_peer_link_outcome(%{result: :fallback} = outcome) do
+    CommsObservability.execute([:peer_link, :fallback], %{count: 1, reason: outcome.reason}, %{})
+  end
 
   defp authorize_direct(socket) do
     if socket.assigns[:direct_audio] do

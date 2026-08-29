@@ -180,3 +180,29 @@ groups:
           stop_condition: Do not weaken authentication, rate limits, session binding, recent-step-up, or audit controls to restore access.
           validation: Require the ratio below 25 percent for 15 minutes and pass sign-in, refresh, recovery, step-up, and revoked-session synthetic checks.
           escalation: Escalate to identity and platform on-call; involve security immediately for suspected abuse, credential exposure, or authorization drift.
+
+      - alert: KCommsPeerLinkFallbackRatio
+        expr: |
+          sum(rate(k_comms_peer_link_fallbacks_total[30m]))
+          /
+          clamp_min(sum(rate(k_comms_peer_link_attempts_total[30m])), 0.001)
+          > 0.6
+        for: 30m
+        labels:
+          severity: warning
+          owner: k-comms-media
+          service: k-comms
+          component: calls
+        annotations:
+          summary: More than 60 percent of direct peer-link attempts return to the call service
+          user_impact: Calls still connect through the media provider, so audio continues; the shorter direct path is unavailable and provider bandwidth is consumed instead.
+          current_value: '{{ $value }}'
+          environment: '{{ $externalLabels.environment }}'
+          release_revision: '{{ $externalLabels.release_revision }}'
+          dashboard_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/ops/dashboards/service-overview.json'
+          runbook_url: 'https://github.com/Soyuz-Tec/k-comms/blob/{{ $externalLabels.release_revision }}/docs/08-reliability/runbooks/service-degradation.md'
+          diagnostic_query: 'sum by (reason) (rate(k_comms_peer_link_fallbacks_total[30m]))'
+          safe_mitigation: Read the reason breakdown before acting. A rise in ice_timeout is a network-reachability result and is expected without a relay rung; a rise in signaling, duplicate_connection, or moderation indicates an application regression. Disabling the direct path with DIRECT_AUDIO_P2P_ENABLED=false is the only supported mitigation and does not interrupt calls.
+          stop_condition: Do not disable moderation, eviction, admission, or quota controls, and do not widen the signaling grammar to raise the success rate.
+          validation: Require the ratio below 60 percent for one hour, with a two-endpoint direct call proving both the Direct state and the LiveKit fallback state.
+          escalation: Escalate to media and web on-call. A sustained ice_timeout majority is the ADR-0072 revisit trigger for a credentialed relay rather than an incident.
