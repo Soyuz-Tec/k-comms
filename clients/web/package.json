@@ -19,7 +19,7 @@
     "@excalidraw/excalidraw": "0.18.1",
     "livekit-client": "2.22.0",
     "lucide-react": "1.31.0",
-    "phoenix": "1.8.9",
+    "phoenix": "1.8.13",
     "qrcode": "1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
