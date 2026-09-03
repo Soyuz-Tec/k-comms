@@ -1510,7 +1510,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
 .canvas-room-layout {
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-board);
   isolation: isolate;
 }
 
@@ -1523,7 +1523,7 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   display: block;
   padding: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface-board);
 }
 
 .canvas-room-layout .guest-whiteboard-panel {
