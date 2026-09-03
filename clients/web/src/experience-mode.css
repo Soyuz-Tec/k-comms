@@ -310,10 +310,10 @@
  * would compete with the video for attention while adding nothing to the edge.
  */
 :root[data-call-contrast="high"] {
-  --surface-media-control: #0b0818;
-  --surface-media-control-hover: #1a1430;
-  --border-media-control: #ffffff;
-  --text-on-media-muted: #ffffff;
+  --surface-media-control: var(--kc-ink-990);
+  --surface-media-control-hover: var(--kc-ink-720);
+  --border-media-control: var(--kc-white);
+  --text-on-media-muted: var(--kc-white);
 }
 
 /*
@@ -327,8 +327,8 @@
 }
 
 :root[data-call-contrast="high"][data-call-controls="opaque"] {
-  --media-chrome-top: #000;
-  --media-chrome-bottom: #000;
+  --media-chrome-top: var(--kc-black);
+  --media-chrome-bottom: var(--kc-black);
 }
 
 /*
