@@ -99,6 +99,25 @@
   --kc-peri-deep: #1c49df;
 
   --kc-white: #ffffff;
+  --kc-black: #000000;
+
+  /* High-contrast media control fills. Kept as exact entries rather than
+     folded into the ink ramp: the ratios quoted where they are used
+     (20.38:1 border, 19.77:1 text) were measured against these values. */
+  --kc-ink-990: #0b0818;
+  --kc-ink-720: #1a1430;
+
+  /* Whiteboard substrate and sticky-note tints.
+     These depict physical notes on a white board, so they are theme
+     independent by design -- a template preview that inverted in dark mode
+     would be illustrating something the whiteboard never does. */
+  --kc-board-tint: #f5faf9;
+  --kc-note-teal: #ccfbf1;
+  --kc-note-mint: #99f6e4;
+  --kc-note-blue: #dbeafe;
+  --kc-note-violet: #ede9fe;
+  --kc-note-amber: #fef3c7;
+  --kc-note-rose: #ffe4e6;
 }
 
 /* ─── Tier 2: semantic roles — dark (base) ────────────────────────────────── */
@@ -143,6 +162,22 @@
   --border-media-control: var(--kc-ink-500);
   --text-on-media: var(--kc-white);
   --text-on-media-muted: #b8b2cc;
+
+  /* Drawing substrate. Independent of the app palette for the same reason as
+     --surface-media: the canvas is the medium, not chrome. Note that the
+     whiteboard carries its OWN light/dark control (CanvasControls.tsx), so
+     this is the ground the editor is mounted on, not the editor's own theme. */
+  --surface-board: var(--kc-white);
+  --surface-board-tint: var(--kc-board-tint);
+
+  /* Sticky-note fills for template previews. Lettered rather than named for
+     status, because the variety is decorative -- none of these carry meaning. */
+  --surface-note-a: var(--kc-note-teal);
+  --surface-note-b: var(--kc-note-mint);
+  --surface-note-c: var(--kc-note-blue);
+  --surface-note-d: var(--kc-note-violet);
+  --surface-note-e: var(--kc-note-amber);
+  --surface-note-f: var(--kc-note-rose);
 
   /* Text. All three verified on every surface above. */
   --text-primary: #ede9ff;

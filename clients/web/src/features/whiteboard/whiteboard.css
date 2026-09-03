@@ -176,7 +176,7 @@
   font-size: .88rem;
 }
 
-.whiteboard-canvas { min-height: 0; position: relative; flex: 1 1 0; background: #fff; }
+.whiteboard-canvas { min-height: 0; position: relative; flex: 1 1 0; background: var(--surface-board); }
 .whiteboard-loading { min-height: 420px; display: grid; place-content: center; justify-items: center; gap: 12px; }
 
 .whiteboard-load-error {
