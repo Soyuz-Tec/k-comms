@@ -384,6 +384,11 @@
   text-align: center;
 }
 
+/* Column labels belong to the desktop table treatment only. */
+.files-column-heads {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .files-toolbar,
   .files-filters {

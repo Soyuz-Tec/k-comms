@@ -89,6 +89,33 @@ describe("NotificationCenter", () => {
     expect(screen.getByLabelText("location")).toHaveTextContent("/app/");
   });
 
+  it("filters a long notification list without hiding bulk read controls", async () => {
+    harness.api.inAppNotifications.mockResolvedValue({
+      data: [
+        notification(),
+        notification({
+          id: "notification-2",
+          title: "Earlier update",
+          read_at: "2026-07-12T11:00:00Z"
+        })
+      ],
+      meta: { unread_count: 1 }
+    });
+    const user = userEvent.setup();
+    render(<MemoryRouter><NotificationCenter /></MemoryRouter>);
+
+    await user.click(await screen.findByRole("button", { name: /Notifications, 1 unread/i }));
+    expect(screen.getByRole("button", { name: /^Earlier update/i })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Unread" }));
+    expect(screen.getByRole("button", { name: /^New mention/i })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Earlier update/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark all read" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+    expect(await screen.findByText("No unread notifications.")).toBeVisible();
+  });
+
   it("portals the modal outside the topbar and restores focus after close or Escape", async () => {
     const user = userEvent.setup();
     const { container } = render(

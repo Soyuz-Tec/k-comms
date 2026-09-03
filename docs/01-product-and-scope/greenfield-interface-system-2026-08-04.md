@@ -54,9 +54,9 @@ The persistent bottom navigation contains exactly five daily destinations:
 - Files
 - You
 
-Whiteboard, instant-room creation, installation, privileged tools, and account actions live in the `More` drawer. This follows the mobile product model: daily movement is one tap, while less frequent or contextual actions remain available without crowding the primary bar.
+Whiteboard, instant-room creation, installation, privileged tools, and account actions live in the `You` destination. This follows the mobile product model: daily movement is one tap, while less frequent or contextual actions remain available without crowding the primary bar or requiring a global overflow drawer.
 
-The top bar contains only product/workspace identity, notifications, and `More`.
+There is no global phone top bar. Inbox owns notifications and conversation creation, leaf conversations own their identity and contextual actions, and each member page owns its local actions. The highlighted bottom destination names the current top-level surface.
 
 ### Control ownership
 
@@ -120,9 +120,8 @@ Controls live with the object they affect:
 
 ### Calls
 
-- Desktop presents one Calls command workspace: conversation-based call launch, active/recent room history, and recent-conversation quick contacts share a three-panel layout with filters kept beside the history they affect.
-- Quick contacts are derived from existing recent conversations and provide message and authorized audio-call shortcuts; they do not imply a separate pinned-contact store or unsupported missed-call, direction, or voicemail records.
-- Phone layouts prioritize call history, keep quick contacts horizontally scannable, and expose the conversation launcher through a named `Start a new call` control without adding steps to the established call journey.
+- Desktop presents one Calls command workspace: conversation-based call launch and active/recent room history share a two-panel layout, with filters kept beside the history they affect. The launcher already contains the recent-conversation shortcuts, so a duplicate quick-contacts panel is not rendered.
+- Phone layouts prioritize actionable call history when sessions exist and move the expanded conversation launcher ahead of an empty history state. The named `Start a new call` control preserves the established call journey.
 - Active-call overlays reserve or intentionally cover shell controls without leaving ambiguous duplicated actions.
 
 ### Whiteboard and canvas
@@ -142,7 +141,7 @@ Controls live with the object they affect:
 
 ### You, administration, and operations
 
-- `Profile and settings` is the first page heading before jump links or role tools.
+- `You` is the first page heading before settings navigation or role tools. Personal profile content precedes workspace and role tools in the profile section.
 - Role tools are permission-gated and visually secondary to personal settings.
 - Administration and operations use the common restrained heading hierarchy and content measure.
 

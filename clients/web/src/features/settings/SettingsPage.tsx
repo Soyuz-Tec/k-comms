@@ -323,8 +323,6 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
         />
       )}
 
-      {section === "profile" && roleTools}
-
       {section === "profile" && <section id="settings-profile-panel" role="tabpanel" aria-labelledby="settings-profile-tab">
         <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
           <div className="card-heading"><h2>Profile</h2></div>
@@ -333,6 +331,8 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>
         </form>
       </section>}
+
+      {section === "profile" && roleTools}
 
       {section === "security" && <section id="settings-security-panel" role="tabpanel" aria-labelledby="settings-security-tab">
         <form className="settings-card" id="password-settings" onSubmit={(event) => void changePassword(event)}>

@@ -122,6 +122,17 @@ describe("profile settings", () => {
     expect(harness.currentSession?.user.display_name).toBe("Updated Name");
   });
 
+  it("keeps personal profile content before workspace and role tools", async () => {
+    render(<SettingsPage roleTools={<aside aria-label="Workspace tools">Workspace tools</aside>} />);
+
+    await waitFor(() => expect(harness.api.devices).toHaveBeenCalled());
+    const profileCard = document.getElementById("profile-settings");
+    const roleTools = screen.getByRole("complementary", { name: "Workspace tools" });
+    expect(profileCard).not.toBeNull();
+    expect(profileCard!.compareDocumentPosition(roleTools) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
   it("merges a delayed profile response into the latest refreshed credentials", async () => {
     const pending = deferred<Session["user"]>();
     harness.api.updateProfile.mockReturnValue(pending.promise);
