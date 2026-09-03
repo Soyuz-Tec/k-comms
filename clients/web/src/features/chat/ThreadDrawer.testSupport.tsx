@@ -47,6 +47,7 @@ export function apiDouble(overrides: Record<string, unknown> = {}): ApiClient {
     completeAttachment: vi.fn(),
     attachmentStatus: vi.fn(),
     attachmentDownload: vi.fn(),
+    abandonAttachment: vi.fn().mockResolvedValue(undefined),
     ...overrides
   } as unknown as ApiClient;
 }
