@@ -37,6 +37,45 @@ defmodule CommsCore.Operations do
   FROM oban_jobs
   """
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract :: CommsCore.Operations.TenantQuotaUsage.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec database_readiness() :: {:ok, non_neg_integer() | float()} | {:error, :unavailable}
+  @spec platform_snapshot(public_map()) :: public_response()
+  @spec runtime_gauges() :: public_map()
+  @spec snapshot(public_map()) :: public_response()
+
   def snapshot(subject) do
     with :ok <- authorize_tenant_operations(subject) do
       tenant_id = value(subject, :tenant_id)
@@ -77,7 +116,7 @@ defmodule CommsCore.Operations do
   inside their owner transactions by the shared tenant advisory lock.
   """
   @spec tenant_admission_usage(map()) ::
-          {:ok, TenantQuotaUsage.t()} | {:error, term()}
+          {:ok, TenantQuotaUsage.t()} | {:error, :forbidden}
   def tenant_admission_usage(subject) when is_map(subject) do
     with :ok <- authorize_tenant_operations(subject) do
       tenant_id = value(subject, :tenant_id)

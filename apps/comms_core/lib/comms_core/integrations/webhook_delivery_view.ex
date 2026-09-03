@@ -14,4 +14,6 @@ defmodule CommsCore.Integrations.WebhookDeliveryView do
     :inserted_at,
     :updated_at
   ]
+
+  @type t :: %__MODULE__{}
 end

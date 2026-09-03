@@ -17,6 +17,70 @@ defmodule CommsCore.Notifications do
   }
 
   @impl true
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Notifications.AttemptView.t()
+          | CommsCore.Notifications.Availability.t()
+          | CommsCore.Notifications.Delivery.t()
+          | CommsCore.Notifications.IntentView.t()
+          | CommsCore.Notifications.PreferenceView.t()
+          | CommsCore.Notifications.PushSubscriptionView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec claim_intent(binary()) :: public_response()
+  @spec dismiss_in_app(binary(), public_map()) :: public_response()
+  @spec enqueue_for_event(public_map()) :: public_response()
+  @spec get_preferences(public_map()) :: public_response()
+  @spec list_attempts(public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_intents(public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_push_subscriptions(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec mark_all_in_app_read(public_map()) :: public_response()
+  @spec mark_in_app_read(binary(), public_map()) :: public_response()
+  @spec materialize_push_destination(binary(), non_neg_integer(), binary()) :: public_response()
+  @spec push_config(public_map()) :: public_response()
+  @spec push_status() :: public_response()
+  @spec record_delivery(public_input(), public_map()) :: public_response()
+  @spec record_push_provider_result(binary(), non_neg_integer(), public_map()) ::
+          public_response()
+  @spec register_push_subscription(public_map(), public_map()) :: public_response()
+  @spec retry_intent(binary(), public_map()) :: public_response()
+  @spec revoke_push_subscription(binary(), public_map()) :: public_response()
+  @spec unread_count(public_map()) :: non_neg_integer()
+  @spec update_preferences(public_map(), public_map()) :: public_response()
+
   def execute(%NotificationCommand{} = command) do
     case IdentityLifecycle.execute(command) do
       {:ok, %NotificationReceipt{} = receipt} -> {:ok, receipt}
@@ -30,7 +94,7 @@ defmodule CommsCore.Notifications do
   @spec list_in_app(map(), map()) ::
           {:ok,
            %{notifications: [CommsCore.Notifications.IntentView.t()], unread_count: integer()}}
-          | {:error, term()}
+          | {:error, :forbidden}
   def list_in_app(subject, opts \\ %{}) do
     with {:ok, result} <- InApp.list(subject, opts) do
       {:ok, %{result | notifications: Enum.map(result.notifications, &Projector.intent/1)}}

@@ -179,3 +179,19 @@ Calls-only deferrals.
 The reviewed baseline transition is 46 to 32 findings: nineteen removals and
 five exact mechanical replacements, with no database migration or unrelated
 deferral.
+
+## 10. Public facade operation freeze — completed 2026-09-03
+
+Every exported operation on the 21 declared facades is now classified in the
+bounded-context API snapshot as adapter-public, cross-context collaboration, or
+owner-internal. The manifest binds the snapshot hash, adapter-public operations
+have explicit persistence-neutral specs, and previously anonymous DTO structs
+now publish named `t()` contracts. The lifecycle-change error contract is an
+exact stable union rather than a trailing `atom()` escape hatch.
+
+The validator rejects unclassified exports, generic public specs, any Ecto type
+on an adapter-public operation, and calls from released adapters or foreign
+contexts to owner-internal operations. Its raw-SQL scan now covers direct
+Postgrex query APIs and dynamic evasions, while keyword-call arity matches
+Elixir's single trailing-list semantics. The strict baseline remains empty and
+the compiled, runtime, and combined context graphs are unchanged. See ADR-0075.

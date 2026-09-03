@@ -9,4 +9,6 @@ defmodule CommsCore.Integrations.WebhookDeliveryClaim do
   @derive {Inspect, except: [:claim_token]}
   @enforce_keys [:id, :claim_generation, :claim_token]
   defstruct [:id, :claim_generation, :claim_token]
+
+  @type t :: %__MODULE__{}
 end

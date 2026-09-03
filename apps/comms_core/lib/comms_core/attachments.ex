@@ -20,10 +20,81 @@ defmodule CommsCore.Attachments do
     Uploads
   }
 
+  @type restore_verification_error ::
+          atom()
+          | {:missing_s3_config, atom()}
+          | {:object_storage_status, non_neg_integer()}
+
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Attachments.AttachmentDeletionObject.t()
+          | CommsCore.Attachments.AttachmentView.t()
+          | CommsCore.Attachments.FileView.t()
+          | CommsCore.Attachments.RestoreCandidate.t()
+          | CommsCore.Attachments.RestoreContext.t()
+          | CommsCore.Attachments.RestoreReport.t()
+          | CommsCore.Attachments.RestoredObjectIdentity.t()
+          | CommsCore.Attachments.ScanAttemptView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec abandon_intent(binary(), public_map()) :: public_response()
+  @spec claim_abandon_cleanup(binary(), binary(), module()) :: public_response()
+  @spec claim_scan(binary()) :: public_response()
+  @spec complete_abandon_cleanup(binary(), binary(), module()) :: public_response()
+  @spec create_intent(public_map(), public_map()) :: public_response()
+  @spec downloadable?(public_map()) :: boolean()
+  @spec get_authorized(binary(), public_map()) :: public_response()
+  @spec list_files(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_safety(public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec mark_uploaded(binary(), binary(), public_map(), public_map()) :: public_response()
+  @spec reconcile_abandon_cleanups(module()) :: public_response()
+  @spec record_abandon_cleanup_failure(binary(), binary(), atom() | binary(), boolean(), module()) ::
+          public_response()
+  @spec record_scan(public_map(), public_map()) :: public_response()
+  @spec record_upload_authorization(binary(), DateTime.t() | NaiveDateTime.t(), public_map()) ::
+          public_response()
+  @spec record_variant(binary(), atom() | binary(), public_map(), public_map()) ::
+          public_response()
+  @spec retry_scan(binary(), public_map()) :: public_response()
+  @spec servable_variant(public_map(), atom() | binary()) :: public_response()
+
   @spec remap_restored_attachment_versions(
-          (RestoreCandidate.t() -> {:ok, RestoredObjectIdentity.t()} | {:error, term()}),
+          (RestoreCandidate.t() ->
+             {:ok, RestoredObjectIdentity.t()} | {:error, restore_verification_error()}),
           RestoreContext.t()
-        ) :: {:ok, RestoreReport.t()} | {:error, term()}
+        ) :: {:ok, RestoreReport.t()} | {:error, public_error()}
   def remap_restored_attachment_versions(verifier, %RestoreContext{} = context)
       when is_function(verifier, 1),
       do: RestoreRemap.run(verifier, context)

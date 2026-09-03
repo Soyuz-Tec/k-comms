@@ -1,0 +1,582 @@
+version: 1
+contexts:
+  audit:
+    CommsCore.Audit:
+      public_operations: []
+      collaboration_operations:
+      - append/2
+      - authorization_denied/3
+      - list/1
+      - record/1
+      - release_tenant_fingerprint_fragment/2
+      owner_internal_operations:
+      - count/1
+      - get_by/1
+      - get_by!/1
+  calls:
+    CommsCore.AudioCalls:
+      public_operations:
+      - activity/3
+      - authorize_participant/3
+      - claim_participant_eviction/2
+      - end_call/6
+      - expire_call/3
+      - get_active/2
+      - get_active/3
+      - list_participants/3
+      - list_sessions/2
+      - moderation_target/4
+      - record_participant_eviction/4
+      - record_participant_mute/3
+      - remove_participant/4
+      - set_hand/4
+      - start_with_join_authorized/5
+      - with_join_authorized/5
+      collaboration_operations:
+      - release_tenant_fingerprint_fragment/2
+      - revoke_for_conversation/3
+      - revoke_for_user/3
+      owner_internal_operations:
+      - activity/2
+      - authorize_end/4
+      - authorize_join/3
+      - can_end?/2
+      - end_call/4
+      - end_call/5
+      - list_sessions/1
+      - revoke_conversation_access/1
+      - revoke_for_call/3
+      - revoke_for_device/3
+      - revoke_for_membership/4
+      - revoke_for_sessions/3
+      - revoke_for_tenant/2
+      - revoke_for_tenant_kind/3
+      - revoke_identity_access/1
+      - revoke_tenant_media/1
+      - start/2
+      - start/3
+      - start/4
+      - start_with_kind/3
+      - start_with_kind/4
+      - with_join_authorized/4
+  collaboration:
+    CommsCore.Whiteboards:
+      public_operations:
+      - activity/3
+      - append_operation/3
+      - list_operations/3
+      - search/3
+      collaboration_operations:
+      - erase_for_governance/4
+      owner_internal_operations:
+      - activity/2
+      - discard_for_expired_room/3
+      - list_operations/2
+      - search/2
+  conversation_content:
+    CommsCore.Attachments:
+      public_operations:
+      - abandon_intent/2
+      - claim_abandon_cleanup/3
+      - claim_scan/1
+      - complete_abandon_cleanup/3
+      - create_intent/2
+      - downloadable?/1
+      - get_authorized/2
+      - list_files/2
+      - list_safety/2
+      - mark_uploaded/4
+      - reconcile_abandon_cleanups/1
+      - record_abandon_cleanup_failure/5
+      - record_scan/2
+      - record_upload_authorization/3
+      - record_variant/4
+      - retry_scan/2
+      - servable_variant/2
+      collaboration_operations:
+      - erasure_objects/3
+      - mark_deleted_for_erasure/3
+      - remap_restored_attachment_versions/2
+      owner_internal_operations:
+      - attach_ready/4
+      - list_files/1
+      - list_for_message/1
+      - list_safety/1
+    CommsCore.Messaging:
+      public_operations:
+      - accept_message_with_status/2
+      - accept_service_message_with_status/3
+      - activity/3
+      - add_reaction/3
+      - edit_message/3
+      - get_thread/4
+      - list_delivery_cursors/2
+      - list_history/3
+      - list_history_page/3
+      - list_service_history/3
+      - mark_delivered/3
+      - mark_read/3
+      - message_event_visible?/3
+      - refresh_sender_labels/3
+      - remove_reaction/3
+      - search_for_service/3
+      - search_page/3
+      collaboration_operations:
+      - delete_message/3
+      - governance_impact/3
+      - release_tenant_fingerprint_fragment/2
+      - retention_candidates/4
+      - tombstone_for_erasure/3
+      owner_internal_operations:
+      - accept_message/2
+      - accept_message/3
+      - accept_message_with_status/3
+      - activity/2
+      - get_thread/3
+      - list_after/2
+      - list_after/3
+      - list_after/4
+      - list_history/2
+      - list_history_page/2
+      - list_service_history/2
+      - search/2
+      - search/3
+      - search_for_service/2
+      - search_page/2
+  conversations:
+    CommsCore.Conversations:
+      public_operations:
+      - active_member_ids/2
+      - add_member_view/4
+      - archive_view/3
+      - authorize_mark_read/2
+      - authorize_read/2
+      - authorize_send_message/2
+      - authorize_use_whiteboard/2
+      - change_member_role_view/4
+      - close_ephemeral_presence/1
+      - convert_guest_account/2
+      - create_ephemeral_room/2
+      - create_guest_link_view/3
+      - create_view/2
+      - discover_public_channel_views/2
+      - ephemeral_room_for_conversation/2
+      - expire_ephemeral_room/3
+      - expire_guest_admission/2
+      - get_for_user_view/2
+      - get_or_create_direct_view/2
+      - guest_scope_for_session/1
+      - heartbeat_ephemeral_presence/1
+      - join_ephemeral_room/3
+      - join_public_channel_view/2
+      - leave_public_channel_view/3
+      - list_for_service/1
+      - list_for_user_views/1
+      - list_guest_link_views/2
+      - list_member_views/2
+      - logout_guest_session/1
+      - mark_read/3
+      - open_ephemeral_presence/1
+      - preview_ephemeral_room/1
+      - preview_guest_link/1
+      - reconcile_ephemeral_room/3
+      - reconcile_ephemeral_rooms/1
+      - redeem_guest_link/2
+      - remove_member_view/4
+      - resolve_guest_access/2
+      - revoke_guest_link_view/3
+      - update_view/3
+      collaboration_operations:
+      - active_conversation_ids/1
+      - active_conversation_member?/2
+      - active_membership_authorization_query/1
+      - active_service_membership_authorization_query/2
+      - admission_usage/1
+      - archive_for_erasure/3
+      - authorize_manage/2
+      - authorize_react_message/2
+      - authorize_service_access/3
+      - call_membership/3
+      - lock_call_conversation/3
+      - lock_call_membership/3
+      - persisted_ephemeral_join_receipt_count/0
+      - persisted_ephemeral_presence_lease_count/0
+      - persisted_ephemeral_room_count/0
+      - release_tenant_fingerprint_fragment/2
+      - remove_user_memberships_for_erasure/3
+      - reserve_message_slot/2
+      - retention_scope_ids/1
+      - validate_active_members/3
+      - validate_reference/2
+      owner_internal_operations:
+      - add_member/4
+      - archive/3
+      - authorize_create/1
+      - authorize_discovery/1
+      - authorize_join/2
+      - authorize_leave/2
+      - authorize_manage_ownership/2
+      - authorize_upload_attachment/2
+      - change_member_role/4
+      - create/2
+      - create_initial_channel/1
+      - discover_public_channels/2
+      - fetch_initial_channel/2
+      - get_for_user/2
+      - join_public_channel/2
+      - leave_public_channel/3
+      - list_for_user/1
+      - list_members/2
+      - project/1
+      - remove_member/4
+      - revoke_guest_membership_call_access/4
+      - update/3
+  identity_access:
+    CommsCore.Accounts:
+      public_operations:
+      - access_context/2
+      - access_grant/1
+      - admin_revoke_session_command/4
+      - authenticate_view/4
+      - authorize_receive_user_events/2
+      - bootstrap_tenant_view/1
+      - change_password_command/2
+      - consume_socket_ticket/1
+      - guest_access_context/2
+      - issue_guest_socket_ticket/1
+      - issue_socket_ticket/1
+      - list_admin_user_views/1
+      - list_device_views/1
+      - list_directory_views/2
+      - list_session_views/1
+      - list_tenant_user_views/1
+      - list_user_session_views/2
+      - refresh_guest_session_view/1
+      - refresh_session_view/1
+      - revoke_device_command/2
+      - revoke_own_session_command/2
+      - revoke_session/2
+      - step_up_view/2
+      - update_profile_view/2
+      collaboration_operations:
+      - active_user_count/1
+      - apply_user_lifecycle_change/4
+      - audit_authorization_denial/3
+      - authorize_view_platform_operations/1
+      - bootstrap_tenant/1
+      - bootstrap_tenant_once/1
+      - convert_ephemeral_guest_account/2
+      - convert_guest_account/3
+      - delete_release_qualification_tenant/1
+      - ensure_ephemeral_guest_authority/2
+      - ensure_governance_erasure_allowed/3
+      - erase_user_for_governance/1
+      - lock_access_grant/1
+      - lock_active_human_directory_users/2
+      - lock_push_registration_identity/3
+      - notification_eligible_device_ids/3
+      - persisted_conversation_only_human_count/0
+      - persisted_guest_identity_count/0
+      - preflight_user_lifecycle_change/3
+      - provision_guest_identity/1
+      - release_tenant_fingerprint_fragment/2
+      - resolve_active_user_ids/2
+      - resolve_notification_recipients/2
+      - resolve_retained_sender_labels/2
+      - resolve_user_views/2
+      - resume_ephemeral_guest_identity/1
+      - retention_actor_id/1
+      - revoke_guest_session/2
+      - set_platform_role_from_console/3
+      - validate_governance_user/2
+      - validate_moderation_assignee/2
+      owner_internal_operations:
+      - access_context/1
+      - admin_revoke_session/4
+      - authenticate_view/3
+      - authorization_audit_actor/1
+      - authorize_administer_users/1
+      - authorize_invitation/1
+      - authorize_manage_sessions/1
+      - authorize_manage_user_lifecycle/1
+      - authorize_operate_platform/1
+      - change_password/2
+      - change_password_with_effects/2
+      - change_user/3
+      - change_user_with_effects/3
+      - change_user_with_effects_view/3
+      - create_user/2
+      - enroll_invited_user/1
+      - ensure_active_user_capacity/2
+      - ensure_active_user_capacity/3
+      - ensure_invitation_identity_available/2
+      - extend_ephemeral_guest_authority/2
+      - get_active_session/1
+      - get_user_for_subject/1
+      - guest_access_context/1
+      - list_admin_users/1
+      - list_devices/1
+      - list_sessions/1
+      - list_user_sessions/2
+      - refresh_session/1
+      - resolve_access/1
+      - resolve_authorization_actor/1
+      - revoke_device/2
+      - revoke_own_session/2
+      - step_up/2
+      - subject_for_session/1
+      - subject_for_session/2
+      - update_profile/2
+      - validate_invitation_password/1
+    CommsCore.PasswordRecovery:
+      public_operations:
+      - materialize_notification/1
+      - request/1
+      - reset_command/1
+      collaboration_operations: []
+      owner_internal_operations:
+      - event_type/0
+      - reset/1
+    CommsCore.ServiceAccounts:
+      public_operations:
+      - authenticate/2
+      - create_view/2
+      - list_views/1
+      - revoke_view/3
+      - rotate_view/3
+      collaboration_operations:
+      - authorize_service/2
+      owner_internal_operations:
+      - authenticate/1
+      - create/2
+      - list/1
+      - revoke/3
+      - rotate/3
+  notification_delivery:
+    CommsCore.Notifications:
+      public_operations:
+      - claim_intent/1
+      - dismiss_in_app/2
+      - enqueue_for_event/1
+      - get_preferences/1
+      - list_attempts/2
+      - list_in_app/2
+      - list_intents/2
+      - list_push_subscriptions/1
+      - mark_all_in_app_read/1
+      - mark_in_app_read/2
+      - materialize_push_destination/3
+      - push_config/1
+      - push_status/0
+      - record_delivery/2
+      - record_push_provider_result/3
+      - register_push_subscription/2
+      - retry_intent/2
+      - revoke_push_subscription/2
+      - unread_count/1
+      - update_preferences/2
+      collaboration_operations: []
+      owner_internal_operations:
+      - authorize_delivery_management/1
+      - authorize_tenant_scope/1
+      - create_intent/1
+      - execute/1
+      - list_attempts/1
+      - list_in_app/1
+      - list_intents/1
+  operations_read_model:
+    CommsCore.Operations:
+      public_operations:
+      - database_readiness/0
+      - platform_snapshot/1
+      - runtime_gauges/0
+      - snapshot/1
+      - tenant_admission_usage/1
+      collaboration_operations: []
+      owner_internal_operations:
+      - authorize_tenant_operations/1
+      - release_revision/0
+  platform_eventing:
+    CommsCore.Outbox:
+      public_operations:
+      - fetch_for_publication/2
+      - mark_published/2
+      - record_attempt/2
+      collaboration_operations:
+      - insert_and_enqueue!/1
+      - release_tenant_fingerprint_fragment/2
+      owner_internal_operations: []
+  platform_runtime:
+    CommsCore.PlatformRateLimits:
+      public_operations:
+      - allow?/4
+      - allow?/5
+      collaboration_operations: []
+      owner_internal_operations:
+      - scopes/0
+    CommsCore.Release:
+      public_operations:
+      - assert_communication_rollback_compatible!/0
+      - assert_guest_rollback_compatible!/0
+      - bootstrap/0
+      - instant_room_tenant_fingerprint/0
+      - migrate/0
+      - qualification_tenant/0
+      - remap_restored_attachment_versions/1
+      - rollback/2
+      - set_platform_role/2
+      - set_platform_role/5
+      - set_platform_role/6
+      collaboration_operations: []
+      owner_internal_operations:
+      - assert_communication_rollback_compatible/0
+      - assert_communication_rollback_hazards!/2
+      - assert_database_quiesced!/0
+      - assert_database_quiesced!/1
+      - assert_database_quiescence_result!/1
+      - assert_guest_rollback_compatible/0
+      - assert_guest_rollback_hazards!/2
+      - assert_migration_preflight!/2
+      - assert_migration_preflight_result!/2
+      - format_instant_room_tenant_fingerprint/1
+      - instant_room_tenant_fingerprint/2
+      - instant_room_tenant_fingerprint_categories/0
+      - validate_communication_rollback_environment/1
+      - validate_guest_rollback_environment/1
+      - validate_instant_room_fingerprint_environment/1
+      - validate_migration_environment/1
+      - validate_qualification_environment/1
+      - validate_restore_remap_environment/1
+    CommsCore.RuntimePorts:
+      public_operations: []
+      collaboration_operations:
+      - authorized_job_worker?/2
+      - job_worker_name!/1
+      owner_internal_operations:
+      - job_worker!/1
+  tenant_administration:
+    CommsCore.Administration:
+      public_operations:
+      - accept_invitation/1
+      - active_tenant_by_slug/1
+      - create_invitation/2
+      - get_tenant_settings_view/1
+      - list_audit_events/2
+      - list_invitations/2
+      - member_capabilities/1
+      - revoke_invitation/3
+      - update_tenant_settings_view/2
+      collaboration_operations:
+      - active_tenant/1
+      - any_tenant?/0
+      - append_bootstrap_tenant/3
+      - authorize_administer_tenant/1
+      - call_policy/1
+      - conversation_content_policy/1
+      - create_bootstrap_tenant/1
+      - delete_release_qualification_tenant/1
+      - get_bootstrap_tenant_by_slug/1
+      - lock_call_policy/1
+      - release_tenant_fingerprint_id/2
+      - retention_defaults/1
+      owner_internal_operations:
+      - authorize_audit_tenant/1
+      - authorize_manage_invitations/1
+      - authorize_manage_settings/1
+      - authorize_read_capabilities/1
+      - get_tenant_settings/1
+      - list_invitations/1
+      - update_tenant_settings/2
+    CommsCore.AdmissionQuotas:
+      public_operations: []
+      collaboration_operations:
+      - admission_policy/1
+      - check_active_user_capacity/3
+      - check_conversation_creation/3
+      - check_conversation_member_capacity/2
+      - locked_policy/1
+      owner_internal_operations:
+      - check_active_user_capacity/2
+      - check_conversation_member_capacity/3
+      - lock_tenant/1
+    CommsCore.AuditExport:
+      public_operations:
+      - export/2
+      collaboration_operations: []
+      owner_internal_operations: []
+  trust_governance:
+    CommsCore.Governance:
+      public_operations:
+      - change_user_lifecycle_view/3
+      - claim_deletion_request/2
+      - complete_deletion_request/4
+      - create_deletion_request_view/2
+      - create_legal_hold_view/2
+      - create_retention_policy_view/2
+      - delete_message/2
+      - enqueue_due_retention/2
+      - list_deletion_request_views/2
+      - list_legal_hold_views/2
+      - list_retention_policy_views/2
+      - record_deletion_failure/3
+      - release_legal_hold_view/3
+      - transition_deletion_request_view/3
+      - update_retention_policy_view/3
+      collaboration_operations: []
+      owner_internal_operations:
+      - authorize_governance/1
+      - create_deletion_request/2
+      - create_legal_hold/2
+      - create_retention_policy/2
+      - list_deletion_requests/2
+      - list_legal_holds/2
+      - list_retention_policies/2
+      - release_legal_hold/3
+      - transition_deletion_request/3
+      - update_retention_policy/3
+    CommsCore.Moderation:
+      public_operations:
+      - add_action_view/3
+      - create_case_view/2
+      - get_case_view/2
+      - list_case_views/2
+      collaboration_operations: []
+      owner_internal_operations:
+      - add_action/3
+      - authorize_manage/1
+      - authorize_read/1
+      - authorize_report/1
+      - create_case/2
+      - get_case/2
+      - list_cases/2
+  webhook_management:
+    CommsCore.Integrations:
+      public_operations:
+      - claim_delivery/1
+      - create_endpoint_view/2
+      - delivery_request/1
+      - disable_endpoint_view/2
+      - enqueue_for_event/1
+      - get_endpoint_view/2
+      - list_delivery_views/2
+      - list_endpoint_views/1
+      - record_delivery/2
+      - replay_delivery_view/2
+      - rotate_secret_view/2
+      - update_endpoint_view/3
+      collaboration_operations: []
+      owner_internal_operations:
+      - authorize_manage/1
+      - authorize_read/1
+      - create_delivery/1
+      - create_endpoint/2
+      - disable_endpoint/2
+      - get_endpoint/2
+      - list_deliveries/1
+      - list_deliveries/2
+      - list_delivery_views/1
+      - list_endpoints/1
+      - replay_delivery/2
+      - rotate_secret/2
+      - status/0
+      - update_endpoint/3

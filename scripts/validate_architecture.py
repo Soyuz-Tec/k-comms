@@ -18,6 +18,7 @@ from yaml.constructor import ConstructorError
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = Path("docs/02-architecture/context-boundaries.yaml")
+FACADE_API_PATH = Path("docs/02-architecture/public-facade-api.yaml")
 BASELINE_PATH = Path("docs/02-architecture/context-boundary-baseline.yaml")
 REPORT_PATH = Path("docs/02-architecture/context-boundary-violations.md")
 BASELINE_POLICY = (
@@ -85,6 +86,7 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "invalid_context_declaration",
         "invalid_dependency_graph_declaration",
         "invalid_migration_exception",
+        "invalid_public_facade_api",
         "invalid_read_model_exception",
         "invalid_runtime_collaboration",
         "invalid_table_declaration",
@@ -97,6 +99,7 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "public_facade_is_schema",
         "public_facade_missing",
         "public_operation_missing_spec",
+        "owner_internal_operation_access",
         "read_model_scope_violation",
         "read_model_write",
         "read_model_reverse_dependency",
@@ -110,6 +113,9 @@ NON_BASELINABLE_BOUNDARY_RULES = frozenset(
         "undeclared_runtime_binding",
     }
 )
+
+RAW_SQL_QUERY_MODULES = frozenset({"Ecto.Adapters.SQL", "Postgrex"})
+RAW_SQL_QUERY_FUNCTIONS = frozenset({"query", "query!"})
 NO_NEW_DEFERRAL_RULES = frozenset(
     {
         "adapter_internal_module_import",
@@ -948,8 +954,7 @@ def qualified_function_calls(text: str) -> set[tuple[str, str, int]]:
         if not parsed:
             continue
         arguments_text, _ = parsed
-        arguments = split_top_level_args(arguments_text)
-        arity = len(arguments)
+        arity = elixir_call_arity(arguments_text)
         if pipeline_input_before(text, call.start()) is not None:
             arity += 1
         calls.add((module, function, arity))
@@ -1011,7 +1016,7 @@ def statically_bound_function_calls(text: str) -> set[tuple[str, str, int]]:
         if not parsed:
             continue
         arguments_text, _ = parsed
-        arity = len(split_top_level_args(arguments_text))
+        arity = elixir_call_arity(arguments_text)
         if pipeline_input_before(code, call.start()) is not None:
             arity += 1
         calls.add((module, call.group("function"), arity))
@@ -1373,6 +1378,32 @@ def module_defines_function(path: Path, function: str, arity: int) -> bool:
         if len(arguments) - defaults <= arity <= len(arguments):
             return True
     return False
+
+
+def public_definition_operations(text: str) -> set[tuple[str, int]]:
+    """Return every exported function arity, including default-generated arities."""
+
+    code = elixir_code_only(text)
+    operations: set[tuple[str, int]] = set()
+    definition_re = re.compile(
+        r"(?m)^\s*(?:def|defdelegate)\s+"
+        r"(?P<function>[a-z_][A-Za-z0-9_]*[!?]?)\s*(?P<paren>\()?"
+    )
+    for definition in definition_re.finditer(code):
+        function = definition.group("function")
+        if definition.group("paren") != "(":
+            operations.add((function, 0))
+            continue
+        parsed = balanced_call_arguments(code, definition.end() - 1)
+        if not parsed:
+            continue
+        arguments = split_top_level_args(parsed[0])
+        defaults = sum("\\\\" in argument for argument in arguments)
+        operations.update(
+            (function, arity)
+            for arity in range(len(arguments) - defaults, len(arguments) + 1)
+        )
+    return operations
 
 
 def _masked_elixir_code(text: str) -> str:
@@ -2850,36 +2881,42 @@ def _raw_sql_targets(sql: str) -> tuple[set[str], bool]:
     return targets, not targets
 
 
-def _raw_sql_query_calls(text: str) -> tuple[list[re.Match[str]], set[str]]:
-    """Locate statically callable Ecto SQL queries and dynamic evasions."""
+def _raw_sql_query_calls(
+    text: str,
+) -> tuple[list[tuple[re.Match[str], str]], set[str]]:
+    """Locate supported raw-SQL query APIs and dynamic evasions."""
 
     code = elixir_code_only(text)
     aliases = module_aliases(code)
     bindings = static_module_bindings(code)
-    calls: list[re.Match[str]] = []
+    calls: list[tuple[re.Match[str], str]] = []
     for call in QUALIFIED_CALL_RE.finditer(code):
         receiver, function = call.groups()
         module = resolve_module_reference(receiver, aliases)
-        if module == "Ecto.Adapters.SQL" and function in {"query", "query!"}:
-            calls.append(call)
+        if module in RAW_SQL_QUERY_MODULES and function in RAW_SQL_QUERY_FUNCTIONS:
+            calls.append((call, module))
     bound_call_re = re.compile(
         r"(?<![A-Za-z0-9_])(?P<receiver>@?[a-z_][A-Za-z0-9_]*)\."
         r"(?P<function>query!?)\s*\("
     )
     for call in bound_call_re.finditer(code):
-        if bindings.get(call.group("receiver")) == "Ecto.Adapters.SQL":
-            calls.append(call)
-    if "Ecto.Adapters.SQL" in imported_modules(code):
-        calls.extend(re.finditer(r"(?<![A-Za-z0-9_.])query!?\s*\(", code))
+        module = bindings.get(call.group("receiver"))
+        if module in RAW_SQL_QUERY_MODULES:
+            calls.append((call, module))
+    for module in RAW_SQL_QUERY_MODULES.intersection(imported_modules(code)):
+        calls.extend(
+            (call, module)
+            for call in re.finditer(r"(?<![A-Za-z0-9_.])query!?\s*\(", code)
+        )
     evasions = module_function_evasions(
         text,
-        {"Ecto.Adapters.SQL": {"query", "query!"}},
+        {module: set(RAW_SQL_QUERY_FUNCTIONS) for module in RAW_SQL_QUERY_MODULES},
     )
     if any(
-        module == "Ecto.Adapters.SQL" and function in {"query", "query!"}
+        module in RAW_SQL_QUERY_MODULES and function in RAW_SQL_QUERY_FUNCTIONS
         for module, function, _arity in delegated_function_calls(text)
     ):
-        evasions.add("delegates an Ecto.Adapters.SQL query")
+        evasions.add("delegates a raw SQL query API")
     return calls, evasions
 
 
@@ -2890,18 +2927,18 @@ def raw_sql_mutation_targets(text: str) -> tuple[set[str], set[str]]:
     unresolved: set[str] = set()
     query_calls, evasions = _raw_sql_query_calls(text)
     unresolved.update(evasions)
-    for call in query_calls:
+    for call, module in query_calls:
         parsed = balanced_call_arguments(text, call.end() - 1)
         if not parsed:
-            unresolved.add("cannot parse Ecto.Adapters.SQL query arguments")
+            unresolved.add(f"cannot parse {module} query arguments")
             continue
         arguments = split_top_level_args(parsed[0])
         if len(arguments) < 2:
-            unresolved.add("Ecto.Adapters.SQL query has no SQL argument")
+            unresolved.add(f"{module} query has no SQL argument")
             continue
         sql = _static_sql_expression(text, arguments[1])
         if sql is None:
-            unresolved.add("Ecto.Adapters.SQL query uses dynamic SQL")
+            unresolved.add(f"{module} query uses dynamic SQL")
             continue
         targets, target_unresolved = _raw_sql_targets(sql)
         tables.update(targets)
@@ -2971,6 +3008,19 @@ def split_top_level_args(arguments: str) -> list[str]:
     if tail:
         parts.append(tail)
     return parts
+
+
+def elixir_call_arity(arguments: str) -> int:
+    """Return call arity while treating trailing keyword pairs as one list."""
+
+    parts = split_top_level_args(arguments)
+    for index, part in enumerate(parts):
+        if re.match(r"^[a-z_][A-Za-z0-9_]*[!?]?\s*:", part) and all(
+            re.match(r"^[a-z_][A-Za-z0-9_]*[!?]?\s*:", item)
+            for item in parts[index:]
+        ):
+            return index + 1
+    return len(parts)
 
 
 def pipeline_input_before(text: str, call_start: int) -> str | None:
@@ -3792,13 +3842,379 @@ def public_spec_operations(text: str) -> set[tuple[str, int]]:
             "def",
             "defdelegate",
         }:
-            operations.add(
-                (
-                    spec.group("function"),
-                    len(split_top_level_args(parsed[0])),
+            function = spec.group("function")
+            arity = len(split_top_level_args(parsed[0]))
+            operations.add((function, arity))
+            definition_start = parsed[1] + following_definition.start()
+            opening = code.find("(", definition_start)
+            if opening >= 0:
+                definition_arguments = balanced_call_arguments(code, opening)
+                if definition_arguments:
+                    arguments = split_top_level_args(definition_arguments[0])
+                    defaults = sum("\\\\" in argument for argument in arguments)
+                    if len(arguments) == arity:
+                        operations.update(
+                            (function, default_arity)
+                            for default_arity in range(arity - defaults, arity)
+                        )
+    return operations
+
+
+def public_spec_contracts(text: str) -> dict[tuple[str, int], str]:
+    """Map public operation arities to the explicit spec that covers them."""
+
+    code = elixir_code_only(text)
+    contracts: dict[tuple[str, int], str] = {}
+    for spec in re.finditer(
+        r"(?m)^[ \t]*@spec\s+(?P<function>[a-z_][A-Za-z0-9_!?]*)\s*\(",
+        code,
+    ):
+        parsed = balanced_call_arguments(code, spec.end() - 1)
+        if not parsed:
+            continue
+        boundary = re.search(
+            r"(?m)^[ \t]*(?:@[a-z_][A-Za-z0-9_]*|def(?:p|delegate)?)\b",
+            code[parsed[1] :],
+        )
+        block_end = parsed[1] + boundary.start() if boundary else len(code)
+        block = code[spec.start() : block_end]
+        function = spec.group("function")
+        arity = len(split_top_level_args(parsed[0]))
+        contracts[(function, arity)] = block
+        following_definition = re.search(
+            rf"(?m)^[ \t]*(?P<kind>defp|defdelegate|def)\s+"
+            rf"{re.escape(function)}(?![A-Za-z0-9_!?])",
+            code[parsed[1] :],
+        )
+        if following_definition and following_definition.group("kind") in {
+            "def",
+            "defdelegate",
+        }:
+            definition_start = parsed[1] + following_definition.start()
+            opening = code.find("(", definition_start)
+            if opening >= 0:
+                definition_arguments = balanced_call_arguments(code, opening)
+                if definition_arguments:
+                    arguments = split_top_level_args(definition_arguments[0])
+                    defaults = sum("\\\\" in argument for argument in arguments)
+                    if len(arguments) == arity:
+                        for default_arity in range(arity - defaults, arity):
+                            contracts[(function, default_arity)] = block
+    return contracts
+
+
+def _operation_token(value: object) -> tuple[str, int] | None:
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"([a-z_][A-Za-z0-9_]*[!?]?)/(\d+)", value)
+    return (match.group(1), int(match.group(2))) if match else None
+
+
+def _public_facade_api_violations(
+    root: Path,
+    manifest: dict,
+    contexts: dict,
+    module_sources: dict[str, Path],
+    all_module_sources: dict[str, Path],
+) -> tuple[set[Violation], dict[str, set[tuple[str, int]]]]:
+    """Validate the complete classified facade API and its external use."""
+
+    violations: set[Violation] = set()
+    public_by_module: dict[str, set[tuple[str, int]]] = {}
+    if manifest.get("version", 1) < 2:
+        return violations, public_by_module
+
+    snapshot_path = root / FACADE_API_PATH
+    api_declaration = manifest.get("public_facade_api")
+    if not isinstance(api_declaration, dict) or set(api_declaration) != {
+        "decision",
+        "path",
+        "sha256",
+    }:
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                MANIFEST_PATH.as_posix(),
+                "version 2 must bind the facade snapshot path and sha256",
+            )
+        )
+    elif api_declaration.get("path") != FACADE_API_PATH.as_posix():
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                MANIFEST_PATH.as_posix(),
+                f"public_facade_api.path must be {FACADE_API_PATH.as_posix()}",
+            )
+        )
+    elif not accepted_architecture_adr(root, api_declaration.get("decision")):
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                MANIFEST_PATH.as_posix(),
+                "public_facade_api.decision must reference an accepted ADR",
+            )
+        )
+    if not snapshot_path.is_file():
+        return {
+            Violation(
+                "invalid_public_facade_api",
+                FACADE_API_PATH.as_posix(),
+                "version 2 boundary manifests require the public facade API snapshot",
+            )
+        }, public_by_module
+    if isinstance(api_declaration, dict) and api_declaration.get(
+        "sha256"
+    ) != canonical_text_sha256(snapshot_path):
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                FACADE_API_PATH.as_posix(),
+                "snapshot content does not match the manifest-bound sha256",
+            )
+        )
+    try:
+        snapshot = read_yaml(snapshot_path)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        return {
+            Violation(
+                "invalid_public_facade_api",
+                FACADE_API_PATH.as_posix(),
+                f"cannot load public facade API snapshot: {error}",
+            )
+        }, public_by_module
+
+    snapshot_contexts = snapshot.get("contexts")
+    expected_contexts = {
+        context_name
+        for context_name, context in contexts.items()
+        if isinstance(context, dict) and context.get("public_facades")
+    }
+    if snapshot.get("version") != 1 or not isinstance(snapshot_contexts, dict):
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                FACADE_API_PATH.as_posix(),
+                "snapshot must have version 1 and a contexts mapping",
+            )
+        )
+        return violations, public_by_module
+    if set(snapshot_contexts) != expected_contexts:
+        violations.add(
+            Violation(
+                "invalid_public_facade_api",
+                FACADE_API_PATH.as_posix(),
+                "snapshot contexts must exactly match contexts that publish facades",
+            )
+        )
+
+    for context_name in sorted(expected_contexts):
+        context = contexts[context_name]
+        declarations = snapshot_contexts.get(context_name)
+        expected_facades = set(context.get("public_facades", []))
+        if not isinstance(declarations, dict) or set(declarations) != expected_facades:
+            violations.add(
+                Violation(
+                    "invalid_public_facade_api",
+                    FACADE_API_PATH.as_posix(),
+                    f"{context_name} snapshot modules must exactly match public_facades",
                 )
             )
-    return operations
+            continue
+        for facade in sorted(expected_facades):
+            declaration = declarations.get(facade)
+            if not isinstance(declaration, dict) or set(declaration) != {
+                "public_operations",
+                "collaboration_operations",
+                "owner_internal_operations",
+            }:
+                violations.add(
+                    Violation(
+                        "invalid_public_facade_api",
+                        FACADE_API_PATH.as_posix(),
+                        f"{facade} must declare exactly public_operations, "
+                        "collaboration_operations, and owner_internal_operations",
+                    )
+                )
+                continue
+            parsed: dict[str, set[tuple[str, int]]] = {}
+            valid = True
+            for field in (
+                "public_operations",
+                "collaboration_operations",
+                "owner_internal_operations",
+            ):
+                raw_operations = declaration.get(field)
+                operations = (
+                    [_operation_token(item) for item in raw_operations]
+                    if isinstance(raw_operations, list)
+                    else []
+                )
+                if (
+                    not isinstance(raw_operations, list)
+                    or any(operation is None for operation in operations)
+                    or len(operations) != len(set(operations))
+                ):
+                    violations.add(
+                        Violation(
+                            "invalid_public_facade_api",
+                            FACADE_API_PATH.as_posix(),
+                            f"{facade} {field} must contain unique name/arity tokens",
+                        )
+                    )
+                    valid = False
+                parsed[field] = {operation for operation in operations if operation}
+            if not valid:
+                continue
+            public_operations = parsed["public_operations"]
+            collaboration_operations = parsed["collaboration_operations"]
+            internal_operations = parsed["owner_internal_operations"]
+            if (
+                public_operations.intersection(collaboration_operations)
+                or public_operations.intersection(internal_operations)
+                or collaboration_operations.intersection(internal_operations)
+            ):
+                violations.add(
+                    Violation(
+                        "invalid_public_facade_api",
+                        FACADE_API_PATH.as_posix(),
+                        f"{facade} operations must have exactly one classification",
+                    )
+                )
+            source = module_sources.get(facade)
+            if source is None:
+                continue
+            text = source.read_text(encoding="utf-8")
+            actual_operations = public_definition_operations(text)
+            classified = (
+                public_operations | collaboration_operations | internal_operations
+            )
+            if actual_operations != classified:
+                missing = sorted(actual_operations - classified)
+                stale = sorted(classified - actual_operations)
+                detail = []
+                if missing:
+                    detail.append(
+                        "unclassified "
+                        + ", ".join(f"{name}/{arity}" for name, arity in missing)
+                    )
+                if stale:
+                    detail.append(
+                        "not exported "
+                        + ", ".join(f"{name}/{arity}" for name, arity in stale)
+                    )
+                violations.add(
+                    Violation(
+                        "invalid_public_facade_api",
+                        relative(source, root),
+                        f"{facade} snapshot does not match exports ({'; '.join(detail)})",
+                    )
+                )
+            contracts = public_spec_contracts(text)
+            for operation in sorted(public_operations):
+                contract = contracts.get(operation)
+                if contract is None:
+                    violations.add(
+                        Violation(
+                            "public_operation_missing_spec",
+                            relative(source, root),
+                            f"declared public operation {facade}.{operation[0]}/"
+                            f"{operation[1]} must have an explicit public Ecto-free @spec",
+                        )
+                    )
+                elif re.search(r"\b(?:term|any)\s*\(\s*\)", contract):
+                    violations.add(
+                        Violation(
+                            "public_operation_missing_spec",
+                            relative(source, root),
+                            f"declared public operation {facade}.{operation[0]}/"
+                            f"{operation[1]} uses a generic term()/any() contract",
+                        )
+                    )
+                elif re.search(r"\bEcto\.", contract):
+                    violations.add(
+                        Violation(
+                            "public_ecto_contract",
+                            relative(source, root),
+                            f"declared public operation {facade}.{operation[0]}/"
+                            f"{operation[1]} exposes an Ecto type",
+                        )
+                    )
+            public_by_module[facade] = public_operations
+
+    collaboration_by_module = {
+        facade: {
+            operation
+            for item in snapshot_contexts.get(owner, {}).get(facade, {}).get(
+                "collaboration_operations", []
+            )
+            if (operation := _operation_token(item)) is not None
+        }
+        for facade, owner in {
+            facade: context_name
+            for context_name, context in contexts.items()
+            for facade in context.get("public_facades", [])
+        }.items()
+    }
+
+    protected = {module: None for module in public_by_module}
+    for source_module, source in sorted(all_module_sources.items()):
+        source_owner = module_owner(source_module, contexts)
+        text = source.read_text(encoding="utf-8")
+        calls = runtime_function_calls(text)
+        for facade, function, arity in sorted(calls):
+            if facade not in public_by_module:
+                continue
+            facade_owner = module_owner(facade, contexts)
+            if source_owner == facade_owner:
+                continue
+            allowed = public_by_module[facade]
+            if source_owner is not None:
+                allowed = allowed | collaboration_by_module.get(facade, set())
+            if (function, arity) not in allowed:
+                violations.add(
+                    Violation(
+                        "owner_internal_operation_access",
+                        relative(source, root),
+                        f"{source_module} calls an operation outside its facade "
+                        f"operation {facade}.{function}/{arity}",
+                    )
+                )
+        if source_owner is None or any(
+            source_owner != module_owner(facade, contexts) for facade in protected
+        ):
+            evasions = module_function_evasions(text, protected)
+            evasions = {
+                evidence
+                for evidence in evasions
+                if not (
+                    (capture := re.fullmatch(
+                        r"captures (CommsCore(?:\.[A-Z][A-Za-z0-9_]*)+)\."
+                        r"([a-z_][A-Za-z0-9_]*[!?]?)",
+                        evidence,
+                    ))
+                    and any(
+                        function == capture.group(2)
+                        for function, _arity in (
+                            public_by_module.get(capture.group(1), set())
+                            | (
+                                collaboration_by_module.get(capture.group(1), set())
+                                if source_owner is not None
+                                else set()
+                            )
+                        )
+                    )
+                )
+            }
+            if evasions:
+                violations.add(
+                    Violation(
+                        "owner_internal_operation_access",
+                        relative(source, root),
+                        f"{source_module} uses a facade invocation that cannot be "
+                        f"matched to the API snapshot ({', '.join(sorted(evasions))})",
+                    )
+                )
+    return violations, public_by_module
 
 
 def strongly_connected_components(graph: dict[str, set[str]]) -> list[list[str]]:
@@ -4283,6 +4699,16 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
     )
     violations.update(runtime_violations)
     all_module_sources = released_module_sources(root)
+    facade_api_violations, declared_public_operations = (
+        _public_facade_api_violations(
+            root,
+            manifest,
+            contexts,
+            module_sources,
+            all_module_sources,
+        )
+    )
+    violations.update(facade_api_violations)
     technical_violations, approved_technical_interfaces = (
         _technical_interface_violations(
             root,
@@ -4630,6 +5056,8 @@ def analyze_context_boundaries(root: Path, manifest: dict) -> list[Violation]:
             }
 
     required_public_specs: dict[str, set[tuple[str, int]]] = {}
+    for module, operations in declared_public_operations.items():
+        required_public_specs.setdefault(module, set()).update(operations)
     for declaration in manifest.get("technical_interfaces", []):
         if not isinstance(declaration, dict):
             continue
@@ -6513,6 +6941,17 @@ def _manifest_semantic_widenings(base: dict, current: dict) -> set[str]:
         base_contexts = {}
     if not isinstance(current_contexts, dict):
         current_contexts = {}
+    base_api = base.get("public_facade_api")
+    current_api = current.get("public_facade_api")
+    if (
+        isinstance(base_api, dict)
+        and isinstance(current_api, dict)
+        and base_api.get("sha256") != current_api.get("sha256")
+    ):
+        tokens.add(
+            "public_facade_api:sha256:"
+            f"{base_api.get('sha256')}->{current_api.get('sha256')}"
+        )
     for name, context in current_contexts.items():
         if not isinstance(context, dict):
             continue

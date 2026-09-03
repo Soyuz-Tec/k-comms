@@ -7,7 +7,9 @@ defmodule CommsCore.Release.AttachmentRestore do
   @app :comms_core
 
   @spec remap_restored_attachment_versions((RestoreCandidate.t() ->
-                                              {:ok, RestoredObjectIdentity.t()} | {:error, term()})) ::
+                                              {:ok, RestoredObjectIdentity.t()}
+                                              | {:error,
+                                                 CommsCore.Attachments.restore_verification_error()})) ::
           :ok
   def remap_restored_attachment_versions(verifier) when is_function(verifier, 1) do
     with {:ok, context} <- Environment.validate_restore_remap(&System.get_env/1) do

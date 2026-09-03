@@ -12,4 +12,6 @@ defmodule CommsCore.Governance.RetentionPolicyView do
     :inserted_at,
     :updated_at
   ]
+
+  @type t :: %__MODULE__{}
 end

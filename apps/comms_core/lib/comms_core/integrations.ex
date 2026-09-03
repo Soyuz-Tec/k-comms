@@ -7,6 +7,59 @@ defmodule CommsCore.Integrations do
     WebhookSecrets
   }
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Integrations.WebhookDeliveryClaim.t()
+          | CommsCore.Integrations.WebhookDeliveryView.t()
+          | CommsCore.Integrations.WebhookDispatchRequest.t()
+          | CommsCore.Integrations.WebhookEndpointView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec claim_delivery(binary()) :: public_response()
+  @spec create_endpoint_view(public_map(), public_map()) :: public_response()
+  @spec delivery_request(public_map()) :: public_response()
+  @spec disable_endpoint_view(binary(), public_map()) :: public_response()
+  @spec enqueue_for_event(public_map()) :: public_response()
+  @spec get_endpoint_view(binary(), public_map()) :: public_response()
+  @spec list_delivery_views(public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_endpoint_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec record_delivery(public_map(), public_map()) :: public_response()
+  @spec replay_delivery_view(binary(), public_map()) :: public_response()
+  @spec rotate_secret_view(binary(), public_map()) :: public_response()
+  @spec update_endpoint_view(binary(), public_map(), public_map()) :: public_response()
+
   def list_endpoint_views(subject) do
     with {:ok, endpoints} <- list_endpoints(subject) do
       {:ok, Enum.map(endpoints, &Projector.endpoint/1)}

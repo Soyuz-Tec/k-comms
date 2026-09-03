@@ -10,7 +10,49 @@ defmodule CommsCore.Whiteboards do
   alias CommsCore.Conversations.WhiteboardReclamationReceipt
   alias CommsCore.Whiteboards.{Commands, Erasure, History, OperationView, Queries}
 
-  @spec append_operation(Ecto.UUID.t(), map(), map()) ::
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Whiteboards.ActivityView.t()
+          | CommsCore.Whiteboards.OperationView.t()
+          | CommsCore.Whiteboards.SearchResult.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec activity(binary(), public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec search(public_input(), public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+
+  @spec append_operation(binary(), map(), map()) ::
           {:ok, OperationView.t(), :created | :duplicate}
           | {:error,
              :forbidden
@@ -21,7 +63,7 @@ defmodule CommsCore.Whiteboards do
   def append_operation(conversation_id, attrs, subject),
     do: Commands.append(conversation_id, attrs, subject)
 
-  @spec list_operations(Ecto.UUID.t(), map(), keyword()) ::
+  @spec list_operations(binary(), map(), keyword()) ::
           {:ok,
            %{
              operations: [OperationView.t()],

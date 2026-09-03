@@ -4,4 +4,6 @@ defmodule CommsCore.Governance.DeletionExecution do
   @derive {Inspect, only: [:request_id, :expected_version]}
   @enforce_keys [:request_id, :expected_version, :objects]
   defstruct [:request_id, :expected_version, :objects]
+
+  @type t :: %__MODULE__{}
 end

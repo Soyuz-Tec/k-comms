@@ -12,6 +12,47 @@ defmodule CommsCore.ServiceAccounts do
   @minimum_expiry_seconds 5 * 60
   @expiration_batch 100
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract :: CommsCore.ServiceAccounts.ServiceAccountView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec authenticate(binary(), binary()) :: public_response()
+  @spec create_view(public_map(), public_map()) :: public_response()
+  @spec list_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec revoke_view(binary(), public_map(), public_map()) :: public_response()
+  @spec rotate_view(binary(), public_map(), public_map()) :: public_response()
+
   def create_view(attrs, subject) do
     with {:ok, result} <- create(attrs, subject) do
       {:ok,

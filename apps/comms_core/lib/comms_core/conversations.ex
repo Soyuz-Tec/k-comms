@@ -31,6 +31,102 @@ defmodule CommsCore.Conversations do
 
   @behaviour ConversationBootstrapPort
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Conversations.AdmissionUsage.t()
+          | CommsCore.Conversations.CallConversation.t()
+          | CommsCore.Conversations.CallLifecycleCommand.t()
+          | CommsCore.Conversations.CallLifecycleReceipt.t()
+          | CommsCore.Conversations.CallMembership.t()
+          | CommsCore.Conversations.ConversationView.t()
+          | CommsCore.Conversations.EphemeralRoomView.t()
+          | CommsCore.Conversations.GuestAdmissionView.t()
+          | CommsCore.Conversations.GuestLinkPreviewView.t()
+          | CommsCore.Conversations.GuestLinkView.t()
+          | CommsCore.Conversations.MessageWriteSlot.t()
+          | CommsCore.Conversations.MembershipView.t()
+          | CommsCore.Conversations.WhiteboardReclamationReceipt.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec active_member_ids(binary(), binary()) :: public_response()
+  @spec add_member_view(binary(), binary(), atom() | binary(), public_map()) :: public_response()
+  @spec archive_view(binary(), public_map(), public_map()) :: public_response()
+  @spec authorize_mark_read(binary(), public_map()) ::
+          :ok | {:ok, public_value()} | {:error, public_error()}
+  @spec authorize_read(binary(), public_map()) ::
+          :ok | {:ok, public_value()} | {:error, public_error()}
+  @spec authorize_send_message(binary(), public_map()) ::
+          :ok | {:ok, public_value()} | {:error, public_error()}
+  @spec authorize_use_whiteboard(binary(), public_map()) ::
+          :ok | {:ok, public_value()} | {:error, public_error()}
+  @spec change_member_role_view(binary(), binary(), public_map(), public_map()) ::
+          public_response()
+  @spec close_ephemeral_presence(public_map()) :: public_response()
+  @spec convert_guest_account(public_map(), public_input()) :: non_neg_integer()
+  @spec create_ephemeral_room(public_map(), public_input()) :: public_response()
+  @spec create_guest_link_view(binary(), public_map(), public_map()) :: public_response()
+  @spec create_view(public_map(), public_map()) :: public_response()
+  @spec discover_public_channel_views(public_map(), public_map()) :: public_response()
+  @spec ephemeral_room_for_conversation(binary(), public_map()) :: public_response()
+  @spec expire_ephemeral_room(binary(), public_input(), module()) :: public_response()
+  @spec expire_guest_admission(binary(), module()) :: public_response()
+  @spec get_for_user_view(binary(), public_map()) :: public_response()
+  @spec guest_scope_for_session(binary()) :: public_response()
+  @spec heartbeat_ephemeral_presence(public_map()) :: public_response()
+  @spec join_ephemeral_room(binary(), public_map(), public_input()) :: public_response()
+  @spec join_public_channel_view(binary(), public_map()) :: public_response()
+  @spec leave_public_channel_view(binary(), public_map(), public_map()) :: public_response()
+  @spec list_for_service(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_for_user_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_guest_link_views(binary(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_member_views(binary(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec logout_guest_session(public_input()) :: public_response()
+  @spec mark_read(binary(), non_neg_integer(), public_map()) :: public_response()
+  @spec open_ephemeral_presence(public_map()) :: public_response()
+  @spec preview_ephemeral_room(binary()) :: public_response()
+  @spec preview_guest_link(binary()) :: public_response()
+  @spec reconcile_ephemeral_room(binary(), public_input(), module()) :: public_response()
+  @spec reconcile_ephemeral_rooms(module()) :: public_response()
+  @spec redeem_guest_link(binary(), public_map()) :: public_response()
+  @spec remove_member_view(binary(), binary(), public_map(), public_map()) :: public_response()
+  @spec resolve_guest_access(public_map(), binary()) :: public_response()
+  @spec revoke_guest_link_view(binary(), binary(), public_map()) :: public_response()
+  @spec update_view(binary(), public_map(), public_map()) :: public_response()
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id),
     do: ReleaseFingerprint.fragment(repo, tenant_id)
@@ -312,7 +408,7 @@ defmodule CommsCore.Conversations do
   def change_member_role_view(conversation_id, user_id, attrs, subject),
     do: Memberships.change_role_view(conversation_id, user_id, attrs, subject)
 
-  @spec get_or_create_direct_view(Ecto.UUID.t(), map()) ::
+  @spec get_or_create_direct_view(binary(), map()) ::
           {:ok, %{conversation: ConversationView.t(), created: boolean()}}
           | {:error,
              :active_conversation_quota_exceeded

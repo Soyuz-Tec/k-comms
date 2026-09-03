@@ -19,6 +19,60 @@ defmodule CommsCore.Release do
     TenantOperations
   }
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract :: CommsCore.ValidationError.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec bootstrap() :: public_response()
+  @spec migrate() :: public_response()
+  @spec qualification_tenant() :: public_response()
+  @spec set_platform_role(binary(), atom() | binary()) :: public_response()
+  @spec set_platform_role(
+          binary(),
+          atom() | binary(),
+          public_input(),
+          public_input(),
+          atom() | binary()
+        ) :: public_response()
+  @spec set_platform_role(
+          binary(),
+          atom() | binary(),
+          public_input(),
+          public_input(),
+          atom() | binary(),
+          non_neg_integer()
+        ) :: public_response()
+
   defdelegate migrate(), to: Migration
 
   @doc """
@@ -66,7 +120,9 @@ defmodule CommsCore.Release do
   Verifies restored attachment objects and atomically remaps their version IDs.
   """
   @spec remap_restored_attachment_versions((RestoreCandidate.t() ->
-                                              {:ok, RestoredObjectIdentity.t()} | {:error, term()})) ::
+                                              {:ok, RestoredObjectIdentity.t()}
+                                              | {:error,
+                                                 CommsCore.Attachments.restore_verification_error()})) ::
           :ok
   def remap_restored_attachment_versions(verifier),
     do: AttachmentRestore.remap_restored_attachment_versions(verifier)
