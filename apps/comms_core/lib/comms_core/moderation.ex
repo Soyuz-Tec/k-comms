@@ -10,6 +10,48 @@ defmodule CommsCore.Moderation do
 
   @max_limit 100
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Moderation.ActionView.t()
+          | CommsCore.Moderation.CaseView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec add_action_view(binary(), public_map(), public_map()) :: public_response()
+  @spec create_case_view(public_map(), public_map()) :: public_response()
+  @spec get_case_view(binary(), public_map()) :: public_response()
+  @spec list_case_views(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+
   @doc false
   def authorize_report(subject) when is_map(subject) do
     case Accounts.access_grant(subject) do

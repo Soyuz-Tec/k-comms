@@ -1,6 +1,10 @@
-version: 1
+version: 2
 status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
+public_facade_api:
+  path: docs/02-architecture/public-facade-api.yaml
+  sha256: 27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6
+  decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict

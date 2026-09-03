@@ -12,6 +12,65 @@ defmodule CommsCore.Governance do
 
   alias CommsCore.{Accounts, Messaging, Repo}
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Governance.DeletionExecution.t()
+          | CommsCore.Governance.DeletionRequestView.t()
+          | CommsCore.Governance.LegalHoldView.t()
+          | CommsCore.Governance.RetentionPolicyView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec change_user_lifecycle_view(binary(), public_map(), public_map()) :: public_response()
+  @spec claim_deletion_request(binary(), module()) :: public_response()
+  @spec complete_deletion_request(binary(), public_input(), public_input(), module()) ::
+          public_response()
+  @spec create_deletion_request_view(public_map(), public_map()) :: public_response()
+  @spec create_legal_hold_view(public_map(), public_map()) :: public_response()
+  @spec create_retention_policy_view(public_map(), public_map()) :: public_response()
+  @spec delete_message(binary(), public_map()) :: public_response()
+  @spec enqueue_due_retention(binary(), module()) :: public_response()
+  @spec list_deletion_request_views(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_legal_hold_views(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_retention_policy_views(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec record_deletion_failure(binary(), atom() | binary(), module()) :: public_response()
+  @spec release_legal_hold_view(binary(), public_map(), public_map()) :: public_response()
+  @spec transition_deletion_request_view(binary(), public_map(), public_map()) ::
+          public_response()
+  @spec update_retention_policy_view(binary(), public_map(), public_map()) :: public_response()
+
   @doc false
   defdelegate authorize_governance(subject), to: Authorization, as: :authorize
 

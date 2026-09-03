@@ -34,7 +34,7 @@ defmodule CommsCore.RuntimePorts do
   @spec job_worker_name!(atom()) :: String.t()
   def job_worker_name!(kind), do: kind |> job_worker!() |> Module.split() |> Enum.join(".")
 
-  @spec authorized_job_worker?(atom(), term()) :: boolean()
+  @spec authorized_job_worker?(atom(), module()) :: boolean()
   def authorized_job_worker?(kind, caller), do: caller == job_worker!(kind)
 
   defp validate_module!(module, group, kind) when is_atom(module) do

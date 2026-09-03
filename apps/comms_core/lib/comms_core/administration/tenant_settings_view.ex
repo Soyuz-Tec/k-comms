@@ -13,4 +13,6 @@ defmodule CommsCore.Administration.TenantSettingsView do
     :max_conversation_members,
     :version
   ]
+
+  @type t :: %__MODULE__{}
 end

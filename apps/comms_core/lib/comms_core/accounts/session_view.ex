@@ -13,4 +13,6 @@ defmodule CommsCore.Accounts.SessionView do
     :platform_role,
     :platform_role_expires_at
   ]
+
+  @type t :: %__MODULE__{}
 end

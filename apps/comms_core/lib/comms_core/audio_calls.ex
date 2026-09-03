@@ -13,6 +13,81 @@ defmodule CommsCore.AudioCalls do
 
   alias CommsCore.AudioCalls.{Activity, Collaboration, Lifecycle}
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.AudioCalls.ActivityView.t()
+          | CommsCore.AudioCalls.CallParticipantView.t()
+          | CommsCore.AudioCalls.CallSessionView.t()
+          | CommsCore.AudioCalls.CallView.t()
+          | CommsCore.AudioCalls.CredentialRequest.t()
+          | CommsCore.AudioCalls.EvictionClaim.t()
+          | CommsCore.AudioCalls.EvictionProgress.t()
+          | CommsCore.AudioCalls.ModerationTarget.t()
+          | CommsCore.AudioCalls.ProviderCall.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec activity(binary(), public_map(), keyword() | public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec authorize_participant(binary(), binary(), public_map()) ::
+          :ok | {:ok, public_value()} | {:error, public_error()}
+  @spec claim_participant_eviction(binary(), module()) :: public_response()
+  @spec end_call(binary(), binary(), public_map(), public_map(), function(), public_input()) ::
+          public_response()
+  @spec expire_call(binary(), module(), function()) :: public_response()
+  @spec get_active(binary(), public_map()) :: public_response()
+  @spec get_active(binary(), public_map(), public_input()) :: public_response()
+  @spec list_participants(binary(), binary(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec moderation_target(binary(), binary(), binary(), public_map()) :: public_response()
+  @spec record_participant_eviction(
+          binary(),
+          public_map(),
+          DateTime.t() | NaiveDateTime.t(),
+          module()
+        ) :: public_response()
+  @spec record_participant_mute(public_map(), binary(), public_map()) :: public_response()
+  @spec remove_participant(binary(), binary(), binary(), public_map()) :: public_response()
+  @spec set_hand(binary(), binary(), boolean(), public_map()) :: public_response()
+  @spec start_with_join_authorized(
+          binary(),
+          public_map(),
+          atom() | binary(),
+          function(),
+          function()
+        ) :: public_response()
+  @spec with_join_authorized(binary(), binary(), public_map(), public_input(), function()) ::
+          public_response()
+
   @doc false
   defdelegate release_tenant_fingerprint_fragment(repo, tenant_id), to: Lifecycle
 

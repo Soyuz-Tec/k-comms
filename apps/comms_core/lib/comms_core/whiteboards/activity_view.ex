@@ -3,4 +3,6 @@ defmodule CommsCore.Whiteboards.ActivityView do
 
   @enforce_keys [:id, :conversation_id, :actor_user_id, :kind, :sequence, :occurred_at]
   defstruct @enforce_keys
+
+  @type t :: %__MODULE__{}
 end

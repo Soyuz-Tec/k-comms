@@ -10,4 +10,6 @@ defmodule CommsCore.Messaging.ActivityView do
     :occurred_at
   ]
   defstruct @enforce_keys
+
+  @type t :: %__MODULE__{}
 end

@@ -21,6 +21,65 @@ defmodule CommsCore.Administration do
     TenantView
   }
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Administration.AdmissionPolicy.t()
+          | CommsCore.Administration.AuthorizationActor.t()
+          | CommsCore.Administration.CallLifecycleCommand.t()
+          | CommsCore.Administration.CallLifecycleReceipt.t()
+          | CommsCore.Administration.CallPolicy.t()
+          | CommsCore.Administration.ConversationContentPolicy.t()
+          | CommsCore.Administration.IdentityGrant.t()
+          | CommsCore.Administration.InvitationView.t()
+          | CommsCore.Administration.InvitationIdentityAuthorization.t()
+          | CommsCore.Administration.InvitedIdentityReceipt.t()
+          | CommsCore.Administration.InvitedUserCommand.t()
+          | CommsCore.Administration.RetentionDefaults.t()
+          | CommsCore.Administration.TenantSettingsView.t()
+          | CommsCore.Administration.TenantView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec accept_invitation(public_map()) :: public_response()
+  @spec create_invitation(public_map(), public_map()) :: public_response()
+  @spec get_tenant_settings_view(public_map()) :: public_response()
+  @spec list_audit_events(public_map(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_invitations(public_map(), atom() | binary()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec member_capabilities(public_map()) :: public_response()
+  @spec revoke_invitation(binary(), public_map(), public_map()) :: public_response()
+  @spec update_tenant_settings_view(public_map(), public_map()) :: public_response()
+
   def create_invitation(attrs, subject), do: Invitations.create(attrs, subject)
   def list_invitations(subject, status \\ nil), do: Invitations.list(subject, status)
   def revoke_invitation(id, attrs, subject), do: Invitations.revoke(id, attrs, subject)

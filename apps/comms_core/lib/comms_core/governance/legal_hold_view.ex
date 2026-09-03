@@ -14,4 +14,6 @@ defmodule CommsCore.Governance.LegalHoldView do
     :version,
     :inserted_at
   ]
+
+  @type t :: %__MODULE__{}
 end

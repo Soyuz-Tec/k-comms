@@ -21,9 +21,11 @@ from validate_architecture import (
     core_module_declarations,
     core_module_references,
     discover_schemas,
+    elixir_call_arity,
     generated_report_errors,
     main,
     module_defines_function,
+    public_definition_operations,
     public_spec_operations,
     qualified_function_calls,
     read_yaml,
@@ -47,6 +49,10 @@ def module_family_source(root: Path, relative_facade_path: str) -> str:
 
 
 class ValidateArchitectureTest(unittest.TestCase):
+    def test_call_arity_treats_trailing_keyword_pairs_as_one_argument(self) -> None:
+        self.assertEqual(elixir_call_arity("subject, limit: 20, offset: 0"), 2)
+        self.assertEqual(elixir_call_arity("subject, %{limit: 20}, []"), 3)
+
     def test_public_query_definition_recognizes_facade_delegates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             source = Path(temporary_directory) / "facade.ex"
@@ -88,6 +94,81 @@ class ValidateArchitectureTest(unittest.TestCase):
         """
 
         self.assertEqual(public_spec_operations(source), {("lookup", 1)})
+
+    def test_public_definition_inventory_expands_default_arities(self) -> None:
+        source = """
+        defmodule CommsCore.Example do
+          def lookup(id, options \\\\ []), do: {id, options}
+          def available?, do: true
+          defp hidden, do: :ok
+        end
+        """
+
+        self.assertEqual(
+            public_definition_operations(source),
+            {("lookup", 1), ("lookup", 2), ("available?", 0)},
+        )
+
+    def test_facade_snapshot_rejects_unclassified_exports_and_generic_specs(
+        self,
+    ) -> None:
+        with self.public_facade_api_fixture() as root:
+            self.assertEqual(validate(root), [])
+            facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
+            original = facade.read_text(encoding="utf-8")
+
+            facade.write_text(
+                original.replace("\nend\n", "\n  def accidental, do: :ok\nend\n"),
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "invalid_public_facade_api")
+
+            facade.write_text(
+                original.replace("binary()) ::", "term()) ::"),
+                encoding="utf-8",
+            )
+            self.assert_rule(root, "public_operation_missing_spec")
+
+    def test_adapter_cannot_call_owner_internal_facade_operation(self) -> None:
+        with self.public_facade_api_fixture() as root:
+            adapter = root / "apps/comms_web/lib/comms_web/alpha_adapter.ex"
+            adapter.write_text(
+                "defmodule CommsWeb.AlphaAdapter do\n"
+                "  def run(value), do: CommsCore.Alpha.internal(value)\n"
+                "end\n",
+                encoding="utf-8",
+            )
+
+            self.assert_rule(root, "owner_internal_operation_access")
+
+    def test_snapshot_public_operation_cannot_expose_persistence_contracts(
+        self,
+    ) -> None:
+        forbidden_returns = (
+            "Ecto.Changeset.t()",
+            "CommsCore.Alpha.Record.t()",
+        )
+        for forbidden_return in forbidden_returns:
+            with (
+                self.subTest(forbidden_return=forbidden_return),
+                self.public_facade_api_fixture() as root,
+            ):
+                self.write_schema(
+                    root,
+                    "CommsCore.Alpha.Record",
+                    "alpha_records",
+                    "alpha/record.ex",
+                )
+                facade = root / "apps/comms_core/lib/comms_core/alpha.ex"
+                facade.write_text(
+                    facade.read_text(encoding="utf-8").replace(
+                        "{:ok, binary()} | {:error, :not_found}",
+                        forbidden_return,
+                    ),
+                    encoding="utf-8",
+                )
+
+                self.assert_rule(root, "public_ecto_contract")
 
     def test_accepts_the_documented_dependency_and_repo_policy(self) -> None:
         with self.repository_fixture() as root:
@@ -3831,6 +3912,47 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ),
                 violations,
             )
+
+    def test_covers_direct_postgrex_mutations_and_dispatch_evasions(self) -> None:
+        unsafe_modules = (
+            "defmodule CommsCore.Alpha.Sql do\n"
+            "  def write(conn), do: Postgrex.query!(conn, "
+            '"UPDATE beta_records SET id = id", [])\n'
+            "end\n",
+            "defmodule CommsCore.Alpha.Sql do\n"
+            "  alias Postgrex, as: Driver\n"
+            "  def write(conn, statement), do: Driver.query(conn, statement, [])\n"
+            "end\n",
+            "defmodule CommsCore.Alpha.Sql do\n"
+            "  @driver Postgrex\n"
+            "  def write(conn), do: @driver.query!(conn, "
+            '"DELETE FROM beta_records", [])\n'
+            "end\n",
+            "defmodule CommsCore.Alpha.Sql do\n"
+            "  def writer, do: &Postgrex.query!/3\n"
+            "end\n",
+        )
+        for source_text in unsafe_modules:
+            with (
+                self.subTest(source_text=source_text),
+                self.boundary_fixture() as root,
+            ):
+                source = root / "apps/comms_core/lib/comms_core/alpha/sql.ex"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(source_text, encoding="utf-8")
+
+                errors = validate(root)
+                self.assertTrue(
+                    any(
+                        rule in error
+                        for error in errors
+                        for rule in (
+                            "[direct_foreign_write]",
+                            "[unresolved_persistence_write]",
+                        )
+                    ),
+                    errors,
+                )
 
     def test_migration_parser_covers_ecto_sql_and_references(self) -> None:
         with self.boundary_fixture() as root:
@@ -8423,6 +8545,83 @@ class ValidateArchitectureTest(unittest.TestCase):
             encoding="utf-8",
         )
         write_current_baseline(root)
+        self.declare_current_baseline_deferrals(root)
+
+        class FixtureContext:
+            def __enter__(self):
+                return root
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                parent.__exit__(exc_type, exc_value, traceback)
+
+        return FixtureContext()
+
+    def public_facade_api_fixture(self):
+        parent = self.boundary_fixture()
+        root = parent.__enter__()
+        alpha = root / "apps/comms_core/lib/comms_core/alpha.ex"
+        alpha.write_text(
+            "defmodule CommsCore.Alpha do\n"
+            "  @spec public(binary()) :: {:ok, binary()} | {:error, :not_found}\n"
+            "  def public(value), do: {:ok, value}\n"
+            "  def internal(value), do: value\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        adapter = root / "apps/comms_web/lib/comms_web/alpha_adapter.ex"
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        adapter.write_text(
+            "defmodule CommsWeb.AlphaAdapter do\n"
+            "  def run(value), do: CommsCore.Alpha.public(value)\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        snapshot_path = root / "docs/02-architecture/public-facade-api.yaml"
+        snapshot_path.write_text(
+            yaml.safe_dump(
+                {
+                    "version": 1,
+                    "contexts": {
+                        "alpha": {
+                            "CommsCore.Alpha": {
+                                "public_operations": ["public/1"],
+                                "collaboration_operations": [],
+                                "owner_internal_operations": ["internal/1"],
+                            }
+                        },
+                        "beta": {
+                            "CommsCore.Beta": {
+                                "public_operations": [],
+                                "collaboration_operations": [],
+                                "owner_internal_operations": [],
+                            }
+                        },
+                    },
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        manifest_path = root / "docs/02-architecture/context-boundaries.yaml"
+        decision = root / "docs/02-architecture/adr/9999-public-facade-api.md"
+        decision.parent.mkdir(parents=True, exist_ok=True)
+        decision.write_text(
+            "# Public facade API\n\n- **Status:** Accepted\n",
+            encoding="utf-8",
+        )
+        manifest = read_yaml(manifest_path)
+        manifest["version"] = 2
+        manifest["public_facade_api"] = {
+            "decision": "docs/02-architecture/adr/9999-public-facade-api.md",
+            "path": "docs/02-architecture/public-facade-api.yaml",
+            "sha256": canonical_text_sha256(snapshot_path),
+        }
+        manifest_path.write_text(
+            yaml.safe_dump(manifest, sort_keys=False),
+            encoding="utf-8",
+        )
+        write_current_baseline(root)
+        self.declare_current_baseline_deferrals(root)
 
         class FixtureContext:
             def __enter__(self):

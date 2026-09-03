@@ -13,4 +13,6 @@ defmodule CommsCore.Administration.InvitationView do
     :version,
     :inserted_at
   ]
+
+  @type t :: %__MODULE__{}
 end

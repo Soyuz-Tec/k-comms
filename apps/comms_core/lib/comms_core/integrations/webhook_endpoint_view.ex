@@ -11,4 +11,6 @@ defmodule CommsCore.Integrations.WebhookEndpointView do
     :inserted_at,
     :updated_at
   ]
+
+  @type t :: %__MODULE__{}
 end

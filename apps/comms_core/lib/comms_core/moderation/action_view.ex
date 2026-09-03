@@ -9,4 +9,6 @@ defmodule CommsCore.Moderation.ActionView do
     :metadata,
     :inserted_at
   ]
+
+  @type t :: %__MODULE__{}
 end

@@ -175,9 +175,9 @@ defmodule CommsCore.Accounts.UserLifecycle do
 
   def preflight(_user_id, _attrs, _subject), do: {:error, :not_found}
 
-  @spec apply_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()], map()) ::
-          {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [Ecto.UUID.t()]}}
-          | {:error, term()}
+  @spec apply_change(binary(), map(), map(), [binary()], map()) ::
+          {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [binary()]}}
+          | {:error, CommsCore.Accounts.user_lifecycle_error()}
   def apply_change(user_id, attrs, subject, excluded_owner_ids, effects)
       when is_map(attrs) and is_map(subject) and is_map(effects) do
     cond do

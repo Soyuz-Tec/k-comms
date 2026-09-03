@@ -39,6 +39,101 @@ defmodule CommsCore.Accounts do
     ValidationError
   }
 
+  @type user_lifecycle_error ::
+          ValidationError.t()
+          | :active_user_quota_exceeded
+          | :email_change_requires_verification
+          | :forbidden
+          | :governance_policy_required
+          | :invalid_owner_exclusions
+          | :invalid_role
+          | :invalid_status
+          | :last_owner_required
+          | :not_found
+          | :reason_required
+          | :stale_version
+          | :transaction_required
+          | :version_required
+          | :weak_password
+
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract ::
+          CommsCore.Accounts.AccessContext.t()
+          | CommsCore.Accounts.AccessGrant.t()
+          | CommsCore.Accounts.AuthenticationResult.t()
+          | CommsCore.Accounts.CallLifecycleCommand.t()
+          | CommsCore.Accounts.CallLifecycleReceipt.t()
+          | CommsCore.Accounts.DeviceView.t()
+          | CommsCore.Accounts.DirectoryPersonView.t()
+          | CommsCore.Accounts.InitialConversationCommand.t()
+          | CommsCore.Accounts.InitialConversationReceipt.t()
+          | CommsCore.Accounts.NotificationCommand.t()
+          | CommsCore.Accounts.NotificationRecipient.t()
+          | CommsCore.Accounts.NotificationReceipt.t()
+          | CommsCore.Accounts.PasswordRecoveryResult.t()
+          | CommsCore.Accounts.RetainedSenderLabelView.t()
+          | CommsCore.Accounts.SessionView.t()
+          | CommsCore.Accounts.UserView.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec access_context(binary(), binary()) :: public_response()
+  @spec admin_revoke_session_command(binary(), binary(), public_map(), public_map()) ::
+          public_response()
+  @spec authenticate_view(binary(), binary(), binary(), public_input()) :: public_response()
+  @spec bootstrap_tenant_view(public_map()) :: public_response()
+  @spec change_password_command(public_map(), public_map()) :: public_response()
+  @spec consume_socket_ticket(binary()) :: public_response()
+  @spec guest_access_context(binary(), binary()) :: public_response()
+  @spec issue_guest_socket_ticket(public_map()) :: public_response()
+  @spec issue_socket_ticket(public_map()) :: public_response()
+  @spec list_admin_user_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_device_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_session_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_tenant_user_views(public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec list_user_session_views(binary(), public_map()) ::
+          [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
+  @spec refresh_guest_session_view(binary()) :: public_response()
+  @spec refresh_session_view(binary()) :: public_response()
+  @spec revoke_device_command(binary(), public_map()) :: public_response()
+  @spec revoke_own_session_command(binary(), public_map()) :: public_response()
+  @spec revoke_session(binary(), binary()) :: public_response()
+  @spec step_up_view(public_map(), public_map()) :: public_response()
+  @spec update_profile_view(public_map(), public_map()) :: public_response()
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id) do
@@ -762,14 +857,9 @@ defmodule CommsCore.Accounts do
   calculation. IdentityAccess owns authorization, locking, mutation, access
   revocation, audit, and the returned projection.
   """
-  @spec apply_user_lifecycle_change(Ecto.UUID.t(), map(), map(), [Ecto.UUID.t()]) ::
-          {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [Ecto.UUID.t()]}}
-          | {:error,
-             ValidationError.t()
-             | :invalid_owner_exclusions
-             | :not_found
-             | :transaction_required
-             | atom()}
+  @spec apply_user_lifecycle_change(binary(), map(), map(), [binary()]) ::
+          {:ok, %{user: CommsCore.Accounts.UserView.t(), revoked_session_ids: [binary()]}}
+          | {:error, user_lifecycle_error()}
   def apply_user_lifecycle_change(user_id, attrs, subject, excluded_owner_ids)
       when is_map(attrs) and is_map(subject) do
     UserLifecycle.apply_change(

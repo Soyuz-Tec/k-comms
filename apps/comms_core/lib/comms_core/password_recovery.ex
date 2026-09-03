@@ -10,6 +10,44 @@ defmodule CommsCore.PasswordRecovery do
   alias CommsCore.Accounts.PasswordRecovery, as: IdentityPasswordRecovery
   alias CommsCore.Accounts.PasswordRecoveryResult
 
+  @typedoc "Scalar values allowed across this facade boundary."
+  @type public_scalar ::
+          atom()
+          | binary()
+          | boolean()
+          | integer()
+          | float()
+          | DateTime.t()
+          | NaiveDateTime.t()
+          | nil
+
+  @typedoc "Persistence-neutral structured data with scalar leaves."
+  @type public_map :: %{
+          optional(atom() | binary()) =>
+            public_scalar() | public_map() | [public_scalar() | public_map()]
+        }
+
+  @typedoc "Named DTOs owned by this bounded context."
+  @type public_contract :: CommsCore.ValidationError.t()
+
+  @type public_value :: public_scalar() | public_map() | public_contract()
+  @type public_input ::
+          public_value() | [public_value()] | function() | module()
+  @type public_error ::
+          atom()
+          | CommsCore.ValidationError.t()
+          | public_map()
+          | {atom(), public_scalar() | public_map()}
+  @type public_response ::
+          public_value()
+          | [public_value()]
+          | {:ok, public_value() | [public_value()]}
+          | {:error, public_error()}
+
+  @spec materialize_notification(public_input()) :: public_response()
+  @spec request(public_map()) :: public_response()
+  @spec reset_command(public_map()) :: public_response()
+
   defdelegate event_type(), to: IdentityPasswordRecovery
   defdelegate request(attrs), to: IdentityPasswordRecovery
   defdelegate materialize_notification(intent), to: IdentityPasswordRecovery
