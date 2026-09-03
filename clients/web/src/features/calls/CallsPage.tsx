@@ -124,6 +124,7 @@ export function CallsPage() {
       .slice(0, 8);
   }, [conversationQuery, conversations]);
   const launcherExpanded = launcherPreference ?? (!loading && calls.length === 0);
+  const prioritizeLauncher = calls.length === 0 && !error;
 
   if (!session) return null;
 
@@ -176,7 +177,7 @@ export function CallsPage() {
         </div>
       </header>
 
-      <div className="calls-workspace">
+      <div className={`calls-workspace ${prioritizeLauncher ? "prioritize-launcher" : ""}`}>
         <button
           className="calls-new-call-toggle"
           type="button"

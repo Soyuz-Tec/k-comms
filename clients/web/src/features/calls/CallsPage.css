@@ -842,6 +842,26 @@
     order: 5;
   }
 
+  /*
+   * An empty history is guidance, not the primary task. Put the call launcher
+   * first until a live or recent room gives the history something actionable.
+   */
+  .calls-workspace.prioritize-launcher .calls-new-call-toggle {
+    order: 1;
+  }
+
+  .calls-workspace.prioritize-launcher .calls-launcher {
+    order: 2;
+  }
+
+  .calls-workspace.prioritize-launcher .call-readiness-launcher {
+    order: 3;
+  }
+
+  .calls-workspace.prioritize-launcher .calls-history {
+    order: 4;
+  }
+
   .calls-history,
   .calls-launcher{
     padding: 0;

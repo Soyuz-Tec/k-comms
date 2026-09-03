@@ -53,6 +53,31 @@ test.describe("low-click member information architecture", () => {
             "aria-expanded",
             "true"
           );
+          const launcher = page.getByRole("region", { name: "Start a call" });
+          const history = page.getByRole("region", { name: "Call history" });
+          const [launcherBox, historyBox] = await Promise.all([
+            launcher.boundingBox(),
+            history.boundingBox()
+          ]);
+          expect(launcherBox).not.toBeNull();
+          expect(historyBox).not.toBeNull();
+          expect(launcherBox!.y).toBeLessThan(historyBox!.y);
+        }
+        if (route.path === "/app/files") {
+          await expect(page.locator(".files-column-heads")).toBeHidden();
+        }
+        if (route.path === "/app/you") {
+          const tabColumnCount = await page.locator(".settings-section-tabs").evaluate(
+            (element) => window.getComputedStyle(element).gridTemplateColumns.split(" ").length
+          );
+          expect(tabColumnCount).toBe(2);
+          const [profileBox, toolsBox] = await Promise.all([
+            page.locator("#profile-settings").boundingBox(),
+            page.locator(".you-role-shortcuts").boundingBox()
+          ]);
+          expect(profileBox).not.toBeNull();
+          expect(toolsBox).not.toBeNull();
+          expect(profileBox!.y).toBeLessThan(toolsBox!.y);
         }
         if (
           process.env.K_COMMS_VISUAL_CAPTURE === "1"

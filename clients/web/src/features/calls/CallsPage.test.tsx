@@ -188,6 +188,7 @@ describe("CallsPage", () => {
     render(<MemoryRouter><CallsPage /></MemoryRouter>);
 
     await screen.findByText("No active call rooms");
+    expect(document.querySelector(".calls-workspace")).toHaveClass("prioritize-launcher");
     const hideLauncher = screen.getByText("Hide call launcher").closest("button");
     expect(hideLauncher).not.toBeNull();
     expect(hideLauncher).toHaveAttribute("aria-expanded", "true");

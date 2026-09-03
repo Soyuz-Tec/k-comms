@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { useSession } from "../../app/session";
@@ -115,6 +115,13 @@ function NotificationPanel({
   const dialogRef = useModalDialog(onClose);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const visibleNotifications = useMemo(
+    () => filter === "unread"
+      ? notifications.filter((notification) => !notification.read_at)
+      : notifications,
+    [filter, notifications]
+  );
 
   async function action(id: string, operation: () => Promise<void>) {
     setBusyId(id);
@@ -130,23 +137,33 @@ function NotificationPanel({
 
   return (
     <aside ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title">
-      <header>
-        <div><span className="eyebrow">Inbox</span><h2 id="notification-title">Notifications</h2></div>
-        <AppSurfaceControlButton
-          accessibleLabel="Close notifications"
-          kind="close"
-          onClick={onClose}
-        />
-      </header>
-      <div className="notification-panel-actions">
-        <span>{unreadCount} unread</span>
-        <button className="text-button" type="button" disabled={unreadCount === 0 || busyId !== null} onClick={() => void action("all", onReadAll)}>Mark all read</button>
+      <div className="notification-panel-header">
+        <header>
+          <div><span className="eyebrow">Inbox</span><h2 id="notification-title">Notifications</h2></div>
+          <AppSurfaceControlButton
+            accessibleLabel="Close notifications"
+            kind="close"
+            onClick={onClose}
+          />
+        </header>
+        <div className="notification-panel-actions">
+          <div className="notification-filter-tabs" role="group" aria-label="Notification view">
+            <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All</button>
+            <button type="button" aria-pressed={filter === "unread"} onClick={() => setFilter("unread")}>Unread</button>
+          </div>
+          <div className="notification-bulk-actions">
+            <span>{unreadCount} unread</span>
+            <button className="text-button" type="button" disabled={unreadCount === 0 || busyId !== null} onClick={() => void action("all", onReadAll)}>Mark all read</button>
+          </div>
+        </div>
       </div>
       {error && <div className="form-error" role="alert">{error}</div>}
       {actionError && <div className="form-error" role="alert">{actionError}</div>}
       {loading && notifications.length === 0 ? <div className="inline-loading" aria-busy="true"><span className="spinner" aria-hidden="true" />Loading notifications…</div> : notifications.length === 0 ? <p className="empty-copy">No notifications yet.</p> : (
-        <ol className="notification-list">
-          {notifications.map((notification) => (
+        visibleNotifications.length === 0
+          ? <p className="empty-copy">No unread notifications.</p>
+          : <ol className="notification-list">
+          {visibleNotifications.map((notification) => (
             <li key={notification.id} className={notification.read_at ? "" : "unread"}>
               <button className="notification-open" type="button" disabled={busyId === notification.id} onClick={() => void action(notification.id, () => onRead(notification))}>
                 <span><strong>{notification.title}</strong><time dateTime={notification.inserted_at}>{formatTime(notification.inserted_at)}</time></span>
