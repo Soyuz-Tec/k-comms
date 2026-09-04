@@ -277,6 +277,11 @@ export function DirectoryPage() {
             maxLength={section === "people" ? 120 : 160}
           />
         </label>
+        {canInviteTeammates && (
+          <Link className="button ghost directory-invite" to="/admin?section=people#admin-invitations">
+            <AppIcon name="userPlus" />Invite people
+          </Link>
+        )}
       </div>
 
       {loading ? (
@@ -524,6 +529,7 @@ function DirectoryEmpty({
 }) {
   return (
     <div className="member-status-view">
+      <AppIcon name="users" />
       <h2>{title}</h2>
       {detail && <p>{detail}</p>}
       {action}

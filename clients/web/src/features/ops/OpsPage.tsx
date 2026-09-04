@@ -4,7 +4,9 @@ import { useSession } from "../../app/session";
 import type { OperationsSnapshot } from "../../types";
 import { errorText, formatDateTime } from "../../lib/format";
 import { canOperate } from "../../lib/roles";
-import { deriveOperationsTriage } from "./triage";
+import { AppIcon } from "../../components/AppIcon";
+import { deriveOperationsTriage, type OperationsTriageItem } from "./triage";
+import "./OpsPage.css";
 
 export function OpsPage() {
   const { api, session } = useSession();
@@ -39,16 +41,39 @@ export function OpsPage() {
   const triage = snapshot ? deriveOperationsTriage(snapshot) : [];
   const actionableTriage = triage.filter(({ severity }) => severity !== "healthy").length;
   const releaseBound = /^[0-9a-f]{40}$/.test(snapshot?.release_revision || "");
-  return <main className="page-shell" id="main-content">
+  return <main className="page-shell ops-page" id="main-content">
     <header className="page-heading"><div><span className="eyebrow">Platform operations</span><h1>Service operations</h1><p>Monitor content-blind global queue, delivery, scanning, database and provider health without tenant message access.</p></div><button className="button ghost" type="button" disabled={loading} onClick={() => void refresh()}>{loading ? "Refreshing…" : "Refresh"}</button></header>
     {error && <div className="inline-notice error" role="alert">{error}</div>}
     <section className="admin-stats" aria-label="Platform operations summary" tabIndex={0}><article><span>Scope</span><strong className="word-stat">Platform-wide</strong><small>Content-blind global health</small></article><article><span>Outbox pending</span><strong>{snapshot?.outbox.pending ?? "—"}</strong><small>{snapshot?.outbox.published ?? 0} published</small></article><article><span>Delivery failures</span><strong>{snapshot ? failures : "—"}</strong><small>Notifications, webhooks and scans</small></article></section>
     {snapshot && <>
-      <section className="data-card" aria-labelledby="ops-triage-heading"><div className="card-heading"><div><span className="eyebrow">Guided response</span><h2 id="ops-triage-heading">Operations triage</h2></div><span className={`status-pill ${actionableTriage === 0 ? "success" : "neutral"}`}>{actionableTriage === 0 ? "No action required" : `${actionableTriage} conditions need review`}</span></div><p className="muted-copy">Use current content-blind evidence to identify impact, ownership, a safe first action and the point where action must stop. Provider and backup authority still comes from the approved environment receipt. {releaseBound ? `Runbooks are bound to release ${snapshot.release_revision.slice(0, 12)}.` : "Versioned runbooks are unavailable for this unbound development build."}</p><ul className="security-list ops-triage-list">{triage.map((item) => <li key={item.id}><div><div className="card-heading"><strong>{item.title}</strong><span className={`status-pill ${item.severity === "healthy" ? "success" : item.severity === "critical" ? "danger" : "neutral"}`}>{item.severity}</span></div><p>{item.condition}</p><dl className="definition-list compact-list"><div><dt>User impact</dt><dd>{item.userImpact}</dd></div><div><dt>Owner</dt><dd>{item.owner}</dd></div><div><dt>Safe first action</dt><dd>{item.firstAction}</dd></div><div><dt>Stop condition</dt><dd>{item.stopCondition}</dd></div><div><dt>Escalation</dt><dd>{item.escalation}</dd></div></dl>{item.runbookUrl ? <a href={item.runbookUrl} target="_blank" rel="noreferrer">Open versioned runbook</a> : <span className="muted-copy">Versioned runbook unavailable</span>}</div></li>)}</ul></section>
-      <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Worker execution</span><h2>Queues</h2></div><span className="status-pill success">Generated {formatDateTime(snapshot.generated_at)}</span></div>{snapshot.queues.length === 0 ? <p className="empty-copy">No platform queue jobs.</p> : <div className="responsive-table"><table><thead><tr><th>Queue</th><th>State</th><th>Count</th><th>Oldest scheduled</th></tr></thead><tbody>{snapshot.queues.map((queue) => <tr key={`${queue.queue}-${queue.state}`}><td>{queue.queue}</td><td><span className={`status-pill ${queue.state === "completed" ? "success" : "neutral"}`}>{queue.state}</span></td><td>{queue.count}</td><td>{formatDateTime(queue.oldest_scheduled_at)}</td></tr>)}</tbody></table></div>}</section>
-      <div className="settings-grid ops-grid"><StatusCounts title="Notifications" values={snapshot.notifications} /><StatusCounts title="Webhooks" values={snapshot.webhooks} /><StatusCounts title="Attachment scans" values={snapshot.attachments} /><article className="settings-card"><div className="card-heading"><h2>Providers</h2><span className="status-pill success">Configured state</span></div><dl className="definition-list compact-list">{Object.entries(snapshot.providers).map(([name, value]) => <div key={name}><dt>{name.replace("_", " ")}</dt><dd>{typeof value === "string" ? value : value.status || value.reason || "configured"}</dd></div>)}</dl></article></div>
+      <nav className="ops-section-nav" aria-label="Operations sections">
+        <a href="#ops-triage"><AppIcon name="activity" />Triage</a>
+        <a href="#ops-queues"><AppIcon name="clock" />Queues</a>
+        <a href="#ops-pipelines"><AppIcon name="sliders" />Pipelines &amp; providers</a>
+      </nav>
+      <section className="data-card" id="ops-triage" aria-labelledby="ops-triage-heading">
+        <div className="card-heading"><div><span className="eyebrow">Guided response</span><h2 id="ops-triage-heading">Operations triage</h2></div><span className={`status-pill ${actionableTriage === 0 ? "success" : "neutral"}`}>{actionableTriage === 0 ? "No action required" : `${actionableTriage} conditions need review`}</span></div>
+        <p className="muted-copy">Review conditions before taking action. Healthy services are collapsed; conditions needing attention show their response guidance. Provider and backup authority still comes from the approved environment receipt. {releaseBound ? `Runbooks are bound to release ${snapshot.release_revision.slice(0, 12)}.` : "Versioned runbooks are unavailable for this unbound development build."}</p>
+        <ul className="security-list ops-triage-list">{triage.map((item) => <TriageCard key={`${item.id}:${item.severity}`} item={item} />)}</ul>
+      </section>
+      <section className="data-card" id="ops-queues"><div className="card-heading"><div><span className="eyebrow">Worker execution</span><h2>Queues</h2></div><span className="status-pill neutral">Generated {formatDateTime(snapshot.generated_at)}</span></div>{snapshot.queues.length === 0 ? <p className="empty-copy">No platform queue jobs.</p> : <div className="responsive-table" role="region" aria-label="Worker queues" tabIndex={0}><table><thead><tr><th>Queue</th><th>State</th><th>Count</th><th>Oldest scheduled</th></tr></thead><tbody>{snapshot.queues.map((queue) => <tr key={`${queue.queue}-${queue.state}`}><td>{queue.queue}</td><td><span className={`status-pill ${queue.state === "completed" ? "success" : "neutral"}`}>{queue.state}</span></td><td>{queue.count}</td><td>{formatDateTime(queue.oldest_scheduled_at)}</td></tr>)}</tbody></table></div>}</section>
+      <div className="settings-grid ops-grid" id="ops-pipelines"><StatusCounts title="Notifications" values={snapshot.notifications} /><StatusCounts title="Webhooks" values={snapshot.webhooks} /><StatusCounts title="Attachment scans" values={snapshot.attachments} /><article className="settings-card"><div className="card-heading"><h2>Providers</h2><span className="status-pill neutral">Configured state</span></div><dl className="definition-list compact-list">{Object.entries(snapshot.providers).map(([name, value]) => <div key={name}><dt>{name.replace("_", " ")}</dt><dd>{typeof value === "string" ? value : value.status || value.reason || "configured"}</dd></div>)}</dl></article></div>
     </>}
   </main>;
+}
+
+function TriageCard({ item }: { item: OperationsTriageItem }) {
+  return <li className={`ops-triage-item ${item.severity}`}>
+    <details open={item.severity !== "healthy"}>
+      <summary>
+        <div className="card-heading"><strong>{item.title}</strong><span className={`status-pill ${item.severity === "healthy" ? "success" : item.severity === "critical" ? "danger" : "neutral"}`}>{item.severity}</span></div>
+        <span className="ops-condition">{item.condition}</span>
+        <span className="ops-disclosure-label">Response guidance <AppIcon name="chevronDown" /></span>
+      </summary>
+      <dl className="definition-list compact-list"><div><dt>User impact</dt><dd>{item.userImpact}</dd></div><div><dt>Owner</dt><dd>{item.owner}</dd></div><div><dt>Safe first action</dt><dd>{item.firstAction}</dd></div><div><dt>Stop condition</dt><dd>{item.stopCondition}</dd></div><div><dt>Escalation</dt><dd>{item.escalation}</dd></div></dl>
+    </details>
+    {item.runbookUrl ? <a href={item.runbookUrl} target="_blank" rel="noreferrer">Open versioned runbook <AppIcon name="externalLink" /></a> : <span className="muted-copy">Versioned runbook unavailable</span>}
+  </li>;
 }
 
 function StatusCounts({ title, values }: { title: string; values: Record<string, number> }) {

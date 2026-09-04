@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
 import { CollaborativeWhiteboard } from "./CollaborativeWhiteboard";
@@ -35,6 +35,7 @@ export function WhiteboardPage() {
           <h1>Whiteboard</h1>
           <p>Sketch, diagram, and plan together in the selected conversation.</p>
         </div>
+        <div className="whiteboard-context-actions">
         <label>
           <span>Conversation</span>
           <select
@@ -53,6 +54,10 @@ export function WhiteboardPage() {
             ))}
           </select>
         </label>
+        {activeConversation && <Link className="button ghost" aria-label="Open conversation" title="Open conversation" to={`/app/?conversation=${encodeURIComponent(activeConversation.id)}`}>
+          <AppIcon name="message" /><span>Open conversation</span>
+        </Link>}
+        </div>
       </header>
 
       {activeConversation ? (
@@ -76,6 +81,7 @@ export function WhiteboardPage() {
           <AppIcon name="messages" />
           <h2>Create or join a conversation first</h2>
           <p>Every whiteboard is private to one conversation and its current members.</p>
+          <Link className="button primary" to="/app/">Open Inbox</Link>
         </section>
       )}
     </main>

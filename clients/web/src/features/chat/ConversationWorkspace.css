@@ -264,11 +264,14 @@
 
 .conversation-pane .message-bubble {
   border-color: var(--border-subtle);
-  box-shadow: 0 4px 16px rgb(var(--shadow-color) / 5%);
+  box-shadow: none;
 }
 
 .conversation-pane .message.mine .message-bubble {
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent-solid) 22%, transparent);
+  color: var(--text-primary);
+  background: var(--accent-quiet);
+  border-color: var(--accent-border);
+  box-shadow: none;
 }
 
 .conversation-pane .typing-line {

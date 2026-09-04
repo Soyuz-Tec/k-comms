@@ -101,6 +101,11 @@ export function FilesPage() {
     () => files.filter((file) => category === "all" || fileCategory(file) === category),
     [category, files]
   );
+  const activeFilterCount = Number(scope !== "recent") + Number(Boolean(conversationId));
+  const selectedConversation = conversationById.get(conversationId);
+  const selectedConversationTitle = selectedConversation
+    ? conversationParticipantIdentifier(selectedConversation, duplicateDirectNames)
+    : "Selected conversation";
   if (!session) return null;
 
   async function openDownload(file: FileSummary) {
@@ -167,7 +172,7 @@ export function FilesPage() {
             ))}
           </fieldset>
           <details className="files-advanced-filter">
-            <summary aria-label="Advanced file filters"><AppIcon name="sliders" />Filters</summary>
+            <summary aria-label="Advanced file filters"><AppIcon name="sliders" />Filters{activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}</summary>
             <div className="files-filters">
               <fieldset className="files-segments">
                 <legend className="sr-only">File ownership scope</legend>
@@ -207,6 +212,21 @@ export function FilesPage() {
           </details>
         </div>
 
+        {(activeFilterCount > 0 || category !== "all") && (
+          <div className="files-filter-summary" role="status">
+            <span>
+              {scope === "shared_by_me" ? "Shared by me" : "Recent files"}
+              {conversationId && ` · ${selectedConversationTitle}`}
+              {category !== "all" && ` · ${category === "images" ? "Images" : "Documents"}`}
+            </span>
+            <button className="button ghost compact" type="button" onClick={() => {
+              setScope("recent");
+              setConversationId("");
+              setCategory("all");
+            }}>Clear filters</button>
+          </div>
+        )}
+
         {downloadError && (
           <div className="files-download-error" role="alert">
             <span>{downloadError}</span>
@@ -231,11 +251,16 @@ export function FilesPage() {
           </div>
         ) : !error && files.length === 0 ? (
           <div className="files-state empty">
+            <AppIcon name="file" />
             <strong>No shared files</strong>
+            <span>Files shared in your conversations appear here.</span>
+            <Link className="button ghost" to="/app/">Open Inbox</Link>
           </div>
         ) : !error && visibleFiles.length === 0 ? (
           <div className="files-state empty">
+            <AppIcon name="filter" />
             <strong>No {category} found</strong>
+            <span>No matching files in the loaded results.</span>
           </div>
         ) : (
           <>

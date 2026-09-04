@@ -190,7 +190,7 @@ export function GuestJoin({
           </div>
         ) : preview ? (
           <>
-            <span className="guest-badge">Guest access</span>
+            <span className="guest-badge">Guest access · One room</span>
             <h1 id="guest-entry-title">{preview.room_title}</h1>
             <p>
               {legacyConversionOffered

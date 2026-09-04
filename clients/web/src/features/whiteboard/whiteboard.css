@@ -285,3 +285,24 @@
     backdrop-filter: none;
   }
 }
+.whiteboard-context-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.whiteboard-context-actions > label { flex: 1; min-width: 0; }
+.whiteboard-context-actions select { max-width: 100%; }
+
+@media (max-width: 760px) {
+  .whiteboard-context-actions { width: 100%; gap: var(--space-2); }
+  .whiteboard-context-actions > label { grid-template-columns: minmax(0, 1fr); }
+  .whiteboard-context-actions > .button { width: 48px; min-height: var(--target-touch); padding: 0; flex: 0 0 48px; }
+  .whiteboard-context-actions > .button > span { display: none; }
+  /* Keep canvas controls out of the drawing toolbar and above undo/redo. */
+  .whiteboard-page .canvas-controls { top: auto; bottom: calc(76px + var(--safe-bottom)); }
+  .whiteboard-page .canvas-controls-panel { top: auto; bottom: 56px; max-height: calc(var(--app-viewport-height) - 260px); }
+}

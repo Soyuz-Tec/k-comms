@@ -50,7 +50,7 @@ export function YouPage() {
             <nav className="you-role-shortcuts" aria-label="Workspace">
               <span>Workspace</span>
               <div className="you-role-card-grid">
-                <Link to="/app/whiteboard">Whiteboard</Link>
+                <Link to="/app/whiteboard"><AppIcon name="whiteboard" /><span>Whiteboard</span><AppIcon name="arrowUpRight" /></Link>
                 <button
                   className="you-shortcut-button"
                   type="button"
@@ -59,12 +59,12 @@ export function YouPage() {
                     navigate("/");
                   }}
                 >
-                  Start instant room
+                  <AppIcon name="plus" /><span>Start instant room</span><AppIcon name="arrowUpRight" />
                 </button>
-                {showPeople && <Link to="/admin?section=people">People &amp; invitations</Link>}
-                {showSafety && <Link to="/admin?section=safety">Safety review</Link>}
-                {showAdmin && <Link to="/admin">Workspace administration</Link>}
-                {showOperations && <Link to="/ops">Service operations</Link>}
+                {showPeople && <Link to="/admin?section=people"><AppIcon name="userPlus" /><span>People &amp; invitations</span><AppIcon name="arrowUpRight" /></Link>}
+                {showSafety && <Link to="/admin?section=safety"><AppIcon name="flag" /><span>Safety review</span><AppIcon name="arrowUpRight" /></Link>}
+                {showAdmin && <Link to="/admin"><AppIcon name="settings" /><span>Workspace administration</span><AppIcon name="arrowUpRight" /></Link>}
+                {showOperations && <Link to="/ops"><AppIcon name="activity" /><span>Service operations</span><AppIcon name="arrowUpRight" /></Link>}
               </div>
             </nav>
             <section className="you-account-actions" aria-label="Signed-in account">

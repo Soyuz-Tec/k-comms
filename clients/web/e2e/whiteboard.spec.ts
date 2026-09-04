@@ -188,7 +188,11 @@ test("conversation whiteboard renders a usable white-labeled drawing workspace",
   await page.goto(`/app/whiteboard?conversation=${conversationId}`);
 
   await expect(page.getByRole("heading", { name: "Whiteboard" })).toBeVisible();
-  await expect(page.getByLabel("Conversation")).toHaveValue(conversationId);
+  await expect(page.getByRole("combobox", { name: "Conversation" })).toHaveValue(conversationId);
+  await expect(page.getByRole("link", { name: "Open conversation" })).toHaveAttribute(
+    "href",
+    `/app/?conversation=${conversationId}`
+  );
   await expect(page.getByText("Offline editing", { exact: true })).toBeVisible();
   await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();

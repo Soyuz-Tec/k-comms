@@ -116,8 +116,10 @@ test("platform operators can identify impact, ownership, safe action and stop co
   await expect(page.getByText("Authoritative database", { exact: true })).toBeVisible();
   await expect(page.getByText("Queue and outbox delay", { exact: true })).toBeVisible();
   await expect(page.getByText("Notification and webhook delivery", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stop condition").first()).toBeVisible();
-  await expect(page.getByText("Escalation").first()).toBeVisible();
+  const criticalGuidance = page.locator(".ops-triage-item.critical").first();
+  await expect(criticalGuidance.locator("details")).toHaveAttribute("open", "");
+  await expect(criticalGuidance.getByText("Stop condition")).toBeVisible();
+  await expect(criticalGuidance.getByText("Escalation")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open versioned runbook" }).first()).toHaveAttribute("href", new RegExp(`/${"a".repeat(40)}/docs/08-reliability/runbooks/`));
 });
 
