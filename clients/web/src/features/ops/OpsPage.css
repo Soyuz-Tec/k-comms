@@ -1,0 +1,24 @@
+.ops-section-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-4); }
+.ops-section-nav a { display: inline-flex; align-items: center; min-height: 44px; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--text-primary); background: var(--surface-raised); text-decoration: none; font-size: var(--text-sm); }
+.ops-section-nav a:hover { background: var(--surface-hover); }
+.ops-page [id^="ops-"] { scroll-margin-top: var(--space-4); }
+.ops-page .ops-triage-list { display: grid; gap: var(--space-3); }
+.ops-triage-list .ops-triage-item { display: block; min-width: 0; padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); }
+.ops-triage-list .ops-triage-item.critical { border-inline-start: 3px solid var(--danger-solid); }
+.ops-triage-list .ops-triage-item.warning { border-inline-start: 3px solid var(--warning-solid); }
+.ops-triage-item summary { display: block; min-height: 44px; cursor: pointer; list-style: none; }
+.ops-triage-item summary::-webkit-details-marker { display: none; }
+.ops-triage-item summary:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
+.ops-triage-item .card-heading { margin-bottom: var(--space-2); }
+.ops-condition { display: block; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.ops-disclosure-label { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; color: var(--accent-text); font-size: var(--text-sm); }
+.ops-disclosure-label .app-icon { width: 16px; height: 16px; }
+.ops-triage-item details[open] .ops-disclosure-label .app-icon { transform: rotate(180deg); }
+.ops-triage-item .definition-list { margin-block: 0 var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
+.ops-triage-item > a { display: inline-flex; align-items: center; min-height: 44px; gap: var(--space-2); font-size: var(--text-sm); }
+.ops-triage-item > a .app-icon { width: 16px; height: 16px; }
+.ops-grid { margin-top: var(--space-4); }
+
+@media (forced-colors: active) {
+  .ops-triage-list .ops-triage-item { border-color: CanvasText; }
+}

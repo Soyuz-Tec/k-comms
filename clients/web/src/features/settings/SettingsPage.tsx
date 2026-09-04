@@ -6,6 +6,7 @@ import type { AccountSession, Device, NotificationAttempt, NotificationIntent, N
 import { canAdministerTenant } from "../../lib/roles";
 import { ConfirmDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
+import { AvatarBadge } from "../../components/AvatarBadge";
 import {
   useCallControlPreferences,
   useSetCallControlPreference,
@@ -245,9 +246,9 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
       ? 0
       : key === "End"
         ? settingsSections.length - 1
-        : key === "ArrowLeft"
+        : key === "ArrowLeft" || key === "ArrowUp"
           ? (currentIndex - 1 + settingsSections.length) % settingsSections.length
-          : key === "ArrowRight"
+          : key === "ArrowRight" || key === "ArrowDown"
             ? (currentIndex + 1) % settingsSections.length
             : currentIndex;
     if (nextIndex === currentIndex && key !== "Home" && key !== "End") return;
@@ -272,12 +273,13 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
             tabIndex={section === value ? 0 : -1}
             onClick={() => setSection(value)}
             onKeyDown={(event) => {
-              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+              if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
                 event.preventDefault();
                 moveSettingsTab(event.key);
               }
             }}
           >
+            <AppIcon name={value === "profile" ? "user" : value === "security" ? "lock" : value === "notifications" ? "bell" : "sliders"} />
             {value === "profile"
               ? "Profile"
               : value === "security"
@@ -325,7 +327,10 @@ export function SettingsPage({ roleTools }: { roleTools?: ReactNode } = {}) {
 
       {section === "profile" && <section id="settings-profile-panel" role="tabpanel" aria-labelledby="settings-profile-tab">
         <form className="settings-card" id="profile-settings" onSubmit={(event) => void updateProfile(event)}>
-          <div className="card-heading"><h2>Profile</h2></div>
+          <div className="profile-identity">
+            <AvatarBadge name={session.user.display_name} />
+            <div><h2>Profile</h2><strong>{session.user.display_name}</strong><small>{session.tenant.name}</small></div>
+          </div>
           <label className="field">Display name<input name="display_name" defaultValue={session.user.display_name} maxLength={120} required /></label>
           <label className="field">Email address<input type="email" value={session.user.email || ""} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">Verified account email</small></label>
           <div className="form-actions"><button className="button primary compact" type="submit" disabled={busy === "profile"}>{busy === "profile" ? "Saving…" : "Save profile"}</button></div>

@@ -566,9 +566,9 @@
   }
 
   .member-segmented-control button[aria-pressed="true"] {
-    color: var(--text-on-accent);
-    background: var(--accent-solid);
-    box-shadow: 0 2px 8px rgb(var(--shadow-color) / 20%);
+    color: var(--accent-text);
+    background: var(--accent-quiet);
+    box-shadow: inset 0 -2px var(--accent-solid);
   }
 
   .member-search {
@@ -767,4 +767,10 @@
     font-size: var(--text-xl);
     line-height: 1.15;
   }
+}
+.directory-invite { flex-shrink: 0; }
+.directory-page .member-status-view > .app-icon { width: 36px; height: 36px; color: var(--text-muted); }
+
+@media (min-width: 1180px) and (min-height: 561px) {
+  .directory-toolbar { grid-template-columns: minmax(160px, .4fr) minmax(0, 1fr) auto; }
 }

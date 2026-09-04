@@ -157,6 +157,32 @@ test.describe("guest communication by secure link or QR", () => {
     })).toBe("human");
   });
 
+  for (const width of [390, 1440]) {
+    for (const colorScheme of ["light", "dark"] as const) {
+      test(`guest reference surfaces at ${width}px in ${colorScheme}`, async ({ page }, testInfo) => {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+        await page.emulateMedia({ colorScheme });
+        const fixture = await installGuestCommunicationFixture(page, false);
+        fixture.guestPhase = true;
+        await page.goto(`/join#${new URLSearchParams({ guest: guestToken }).toString()}`);
+        await expect(page.getByRole("heading", { name: "Partner room" })).toBeVisible();
+        await expectNoWcagFailures(page);
+        if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+          await page.screenshot({ path: testInfo.outputPath("guest-invitation.png"), fullPage: true });
+        }
+        await page.getByRole("textbox", { name: "Your display name" }).fill("Jordan Guest");
+        await page.getByRole("button", { name: "Join conversation" }).click();
+        await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+        await expectNoDocumentOverflow(page);
+        await expectNoWcagFailures(page);
+        if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+          await page.screenshot({ path: testInfo.outputPath("guest-room.png"), fullPage: true });
+        }
+        expect(fixture.guestPhaseNormalMessageRequests).toEqual([]);
+      });
+    }
+  }
+
   test("the one-step guest entry and room remain usable at 320px", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     const fixture = await installGuestCommunicationFixture(page, false);
@@ -578,10 +604,9 @@ function json(route: Route, body: unknown, status = 200) {
 }
 
 async function expectNoDocumentOverflow(page: Page) {
-  await expect.poll(() => page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth
-  }))).toEqual({ client: 320, scroll: 320 });
+  await expect.poll(() => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth
+  )).toBeLessThanOrEqual(1);
 }
 
 async function expectNoWcagFailures(page: Page) {

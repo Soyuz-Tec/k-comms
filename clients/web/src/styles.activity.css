@@ -377,7 +377,7 @@ main h1[tabindex="-1"]:focus { outline: 3px solid var(--focus-ring); outline-off
 .prejoin-consent-grid { display: flex; flex-wrap: wrap; gap: .55rem 1rem; margin: .75rem 0; }
 .camera-preview { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; margin: .8rem 0; border: 1px solid var(--border-default); border-radius: 12px; color: var(--text-primary); background: var(--surface-media); }
 .camera-preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-.camera-preview-placeholder { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-primary); font-weight: 800; }
+.camera-preview-placeholder { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-on-media); font-weight: 800; }
 .camera-preview-status { position: absolute; right: .6rem; bottom: .6rem; padding: .3rem .5rem; border-radius: 7px; color: var(--text-on-accent); background: rgb(13 40 37 / 82%); font-size: var(--text-xs); }
 .video-participant-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin: .75rem 0; }
 .video-participant-grid.participant-count-1 { grid-template-columns: minmax(0, 720px); justify-content: center; }

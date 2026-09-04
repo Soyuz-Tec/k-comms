@@ -75,7 +75,7 @@ Controls live with the object they affect:
 
 1. Use semantic tokens from `theme.css`; component styles do not introduce an independent palette.
 2. Wide member pages share a readable content measure, page padding, heading scale, card boundary, and section rhythm.
-3. The workspace shell uses one responsive breakpoint contract: labeled sidebar at wide widths, compact rail at intermediate widths, top bar plus bottom navigation on phone or short viewports.
+3. The workspace shell uses one responsive breakpoint contract: labeled sidebar at wide widths, compact rail at intermediate widths, page-owned controls plus bottom navigation on phone or short viewports. There is no global phone top bar.
 4. Interactive targets are at least 44 CSS pixels; primary mobile navigation targets are 52 pixels or taller.
 5. Mobile fixed controls respect safe-area insets. Scrollable content reserves both top-bar and bottom-navigation space.
 6. Every icon-only control has an accessible name. Labels are visible whenever space allows.
@@ -126,7 +126,7 @@ Controls live with the object they affect:
 
 ### Whiteboard and canvas
 
-- Whiteboard is grouped under collaboration on desktop and available from `More` on mobile.
+- Whiteboard is grouped under collaboration on desktop and available from `You` on mobile.
 - The standalone whiteboard uses a compact title and conversation strip, then gives every remaining pixel in the application shell to the canvas.
 - The canvas is edge-to-edge within that workspace, without decorative outer margin, border, corner radius, or shadow; global navigation remains available.
 - The searchable template gallery presents original K-Comms brainstorm, planning, strategy, and reflection layouts at desktop and phone widths.
@@ -146,6 +146,10 @@ Controls live with the object they affect:
 - Administration and operations use the common restrained heading hierarchy and content measure.
 
 ## Verification contract
+
+The [reference-informed interface contract](reference-interface-design-2026-09-04.md)
+records the screen-by-screen design sources, shared neutral palette, retained
+interaction boundaries, and expanded rendered acceptance matrix.
 
 The change is complete only after:
 

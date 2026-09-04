@@ -1,0 +1,28 @@
+.admin-workspace { min-width: 0; }
+
+.admin-workspace .admin-section-nav button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.admin-section-nav .app-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+.admin-workspace .admin-section-nav button[aria-current="page"] {
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+  box-shadow: inset 3px 0 var(--accent-solid);
+}
+
+@media (min-width: 1000px) and (min-height: 561px) {
+  .admin-workspace { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+  .admin-workspace .admin-section-nav { display: grid; gap: var(--space-1); padding: 0; border: 0; background: transparent; }
+  .admin-workspace .admin-section-nav button { min-height: 44px; font-size: var(--text-sm); }
+  .admin-workspace .admin-section { min-width: 0; }
+}
+
+@media (max-width: 999px), (max-height: 560px) {
+  .admin-workspace .admin-section-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+  .admin-workspace .admin-section-nav button { min-width: 0; min-height: 48px; justify-content: center; padding: var(--space-2) var(--space-1); flex-wrap: wrap; }
+}

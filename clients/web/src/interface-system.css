@@ -117,7 +117,7 @@
 .settings-section-tabs {
   min-height: 48px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: .35rem;
   padding: .25rem;
   border: 1px solid var(--border-default);
@@ -128,6 +128,10 @@
 .settings-section-tabs button {
   min-width: 0;
   min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: .55rem .7rem;
   border: 0;
   border-radius: 10px;
@@ -135,13 +139,73 @@
   background: transparent;
   font: inherit;
   font-size: var(--text-sm);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .settings-section-tabs button[aria-selected="true"] {
-  color: var(--text-on-accent);
-  background: var(--accent-solid);
+  color: var(--accent-text);
+  background: var(--accent-quiet);
+  box-shadow: inset 0 -2px var(--accent-solid);
 }
+
+.settings-section-tabs .app-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.profile-identity .member-avatar {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  border-radius: var(--radius-lg);
+  background: var(--accent-quiet);
+  color: var(--accent-text);
+}
+
+.profile-identity > div { min-width: 0; }
+.profile-identity h2 { margin: 0 0 var(--space-1); }
+.profile-identity strong,
+.profile-identity small { display: block; overflow-wrap: anywhere; }
+.profile-identity strong { font-size: var(--text-sm); font-weight: 600; }
+.profile-identity small { margin-top: 2px; color: var(--text-muted); }
+
+.settings-page .you-role-card-grid a,
+.settings-page .you-role-card-grid .you-shortcut-button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 52px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  background: var(--surface-raised);
+}
+
+.you-role-card-grid .app-icon { width: 20px; height: 20px; color: var(--text-muted); }
+.you-role-card-grid .app-icon:last-child { width: 16px; height: 16px; }
+.settings-page .you-role-card-grid a:hover,
+.settings-page .you-role-card-grid .you-shortcut-button:hover { background: var(--surface-hover); }
+
+/* Forms and entry controls use the same quiet surface treatment on phones. */
+.button.primary { box-shadow: none; }
+.button:not(:disabled):hover { transform: none; }
+.instant-draft-room-details { background: var(--surface-canvas); }
+.instant-draft-workflow li { border-color: transparent; background: transparent; }
+.instant-draft-workflow li.current { border-color: var(--accent-border); }
+.auth-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-raised); }
 
 .settings-page [role="tabpanel"],
 .settings-security-inventories {
@@ -419,6 +483,7 @@
     border-color: var(--accent-border);
     color: var(--accent-text);
     background: var(--accent-quiet);
+    box-shadow: inset 3px 0 var(--accent-solid);
   }
 
   .workspace-sidebar-nav .member-nav-icon {
@@ -879,6 +944,14 @@
     font-weight: 620;
   }
 
+  .mobile-primary-nav a.active .member-nav-icon {
+    box-sizing: content-box;
+    padding: 3px 13px;
+    margin-block: -3px;
+    border-radius: var(--radius-full);
+    background: var(--accent-quiet);
+  }
+
   .page-shell,
   .member-page {
     width: 100%;
@@ -936,6 +1009,17 @@
 
   .settings-section-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-page .you-role-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-page .you-role-shortcuts {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .you-page .you-section-chooser {

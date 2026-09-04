@@ -12,11 +12,11 @@
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid rgb(94 96 122 / 24%);
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
   color: var(--text-primary);
-  background: rgb(255 255 255 / 94%);
-  box-shadow: 0 10px 28px rgb(38 40 64 / 16%);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
   backdrop-filter: blur(14px);
 }
 
@@ -56,8 +56,8 @@
   border: 1px solid var(--border-default);
   border-radius: 16px;
   color: var(--text-primary);
-  background: rgb(255 255 255 / 98%);
-  box-shadow: 0 22px 62px rgb(38 40 64 / 24%);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
   overscroll-behavior: contain;
 }
@@ -130,7 +130,7 @@
 }
 
 .canvas-template-launch:hover {
-  box-shadow: 0 8px 20px rgb(15 118 110 / 12%);
+  box-shadow: var(--shadow-raised);
 }
 
 .canvas-template-launch-icon {

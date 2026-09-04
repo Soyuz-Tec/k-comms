@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { AppIcon, type AppIconName } from "../../components/AppIcon";
 import {
   canAccessAdmin,
   canAdministerTenant,
@@ -18,8 +19,13 @@ import { IntegrationsPanel } from "./IntegrationsPanel";
 import { PeoplePanel } from "./PeoplePanel";
 import { SafetyPanel } from "./SafetyPanel";
 import { TenantSettingsPanel } from "./TenantSettingsPanel";
+import "./AdminPage.css";
 
 type AdminSection = "workspace" | "people" | "safety" | "governance" | "integrations" | "audit";
+const sectionIcons: Record<AdminSection, AppIconName> = {
+  workspace: "settings", people: "users", safety: "flag",
+  governance: "lock", integrations: "sliders", audit: "activity"
+};
 
 export function AdminPage() {
   const { api, session, setSession } = useSession();
@@ -56,10 +62,11 @@ export function AdminPage() {
   if (!authorized) return <Navigate to="/app/" replace />;
 
   return (
-    <main className="page-shell" id="main-content">
+    <main className="page-shell admin-page" id="main-content">
       <header className="page-heading admin-heading"><div><span className="eyebrow">Tenant administration</span><h1>Workspace control center</h1><p>Manage access, policies, safety, integrations and audit evidence through tenant-scoped APIs.</p></div></header>
       <section className="admin-stats" aria-label="Workspace summary" tabIndex={0}><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
-      <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}>{label}</button>)}</nav>
+      <div className="admin-workspace">
+      <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}><AppIcon name={sectionIcons[id]} /><span>{label}</span></button>)}</nav>
       <div id={`admin-section-${section}`} className="admin-section" data-admin-section={section}>
         {section === "workspace" && <TenantSettingsPanel api={api} onUpdated={(updated) => {
           setSession({ ...session, tenant: updated.tenant });
@@ -70,6 +77,7 @@ export function AdminPage() {
         {section === "governance" && <GovernancePanel api={api} users={users} conversations={conversations} />}
         {section === "integrations" && <IntegrationsPanel api={api} onServiceAccountLifecycleChanged={refreshAll} />}
         {section === "audit" && <AuditPanel api={api} users={users} />}
+      </div>
       </div>
     </main>
   );
