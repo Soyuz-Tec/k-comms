@@ -176,22 +176,17 @@ export function CallPrejoinDialog({
           onClick={onCancel}
         />
       </header>
-      <p className="prejoin-intro">{kind === "video" ? "Choose exactly which devices to publish before entering. Camera preview stays on this device until you join." : "Choose whether to publish your microphone. Camera and screen sharing stay off."}</p>
+      <p className="prejoin-intro">{kind === "video" ? "Choose your microphone and camera settings. Camera preview stays on this device until you join." : "Choose whether to use your microphone. Camera and screen sharing stay off."}</p>
       {error && <div className="form-error" role="alert">{error}</div>}
       {kind === "video" && <div className={`camera-preview ${cameraEnabled ? "enabled" : ""}`}>
         {cameraEnabled ? <video ref={previewVideoRef} data-k-comms-camera-preview autoPlay muted playsInline aria-label="Camera preview" /> : <div className="camera-preview-placeholder" aria-hidden="true">Camera off</div>}
         {previewBusy && <span className="camera-preview-status" role="status">Starting camera preview…</span>}
       </div>}
       <div className="prejoin-mode-cards" aria-label="Call mode">
-        <div className={kind === "audio" ? "selected" : ""}>
-          <span aria-hidden="true"><AppIcon name="phone" /></span>
-          <strong>Audio</strong>
-          <small>Voice only</small>
-        </div>
-        <div className={kind === "video" ? "selected" : ""}>
-          <span aria-hidden="true"><AppIcon name="video" /></span>
-          <strong>Video</strong>
-          <small>With camera</small>
+        <div className="selected">
+          <span aria-hidden="true"><AppIcon name={kind === "audio" ? "phone" : "video"} /></span>
+          <strong>{kind === "audio" ? "Audio call" : "Video call"}</strong>
+          <small>{kind === "audio" ? "Voice only" : "Camera optional"}</small>
         </div>
       </div>
       <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">

@@ -17,12 +17,12 @@
 
 .whiteboard-heading {
   min-width: 0;
-  min-height: 56px;
+  min-height: 52px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, min(38vw, 440px));
+  grid-template-columns: auto minmax(0, 1fr) minmax(280px, min(38vw, 440px));
   align-items: center;
-  gap: 16px;
-  padding: 6px clamp(12px, 1.5vw, 20px);
+  gap: 12px;
+  padding: 4px 12px;
   background: var(--surface-raised);
 }
 
@@ -35,9 +35,9 @@
 
 .whiteboard-heading h1,
 .whiteboard-heading p { margin: 0; }
-.whiteboard-heading h1 {
+.whiteboard-page .whiteboard-heading h1 {
   flex: 0 0 auto;
-  font-size: clamp(1.12rem, 1.5vw, 1.35rem);
+  font-size: 1rem;
   line-height: 1.1;
 }
 .whiteboard-heading p {
@@ -57,9 +57,29 @@
   gap: 8px;
 }
 .whiteboard-heading label span {
-  color: var(--text-muted);
-  font-size: .78rem;
-  font-weight: 700;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.whiteboard-heading label { grid-template-columns: minmax(0, 1fr); }
+.whiteboard-heading-status { min-width: 0; }
+.whiteboard-heading-status .whiteboard-statusbar {
+  min-height: 20px;
+  gap: 8px;
+  padding: 0;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+}
+.whiteboard-heading-status .whiteboard-statusbar > span:nth-of-type(3) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 /*
  * The board picker was a bare native select: OS chrome sitting beside tokenised
@@ -210,13 +230,17 @@
 .whiteboard-confirm h2 { margin-top: 0; }
 .whiteboard-confirm div { display: flex; justify-content: flex-end; gap: 10px; }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .whiteboard-heading {
-    min-height: 56px;
-    grid-template-columns: auto minmax(168px, 1fr);
-    gap: 8px;
-    padding: 6px 8px;
+    min-height: 0;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 8px;
+    padding: 4px 8px;
   }
+
+  .whiteboard-heading-copy { grid-column: 1; grid-row: 1; }
+  .whiteboard-context-actions { grid-column: 2; grid-row: 1; }
+  .whiteboard-heading-status { grid-column: 1 / -1; grid-row: 2; }
 
   .whiteboard-heading h1 { font-size: 1rem; }
   .whiteboard-heading p { display: none; }

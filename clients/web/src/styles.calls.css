@@ -422,11 +422,17 @@
     background: var(--surface-sunken);
   }
 
+  .audio-prejoin-dialog .camera-preview:not(.enabled) {
+    min-height: 110px;
+    max-height: 18vh;
+  }
+
   .audio-prejoin-dialog .camera-preview-placeholder {
     color: var(--text-muted);
   }
 
   .prejoin-mode-cards {
+    grid-template-columns: 1fr;
     margin-top: .65rem;
   }
 

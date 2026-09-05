@@ -286,6 +286,7 @@ defmodule CommsWeb.FallbackController do
               :invalid_status,
               :invalid_datetime,
               :invalid_cursor,
+              :invalid_notification_filter,
               :invalid_moderation_target,
               :invalid_moderation_action,
               :invalid_assignee,

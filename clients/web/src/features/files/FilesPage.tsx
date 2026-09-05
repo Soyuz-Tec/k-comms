@@ -334,7 +334,7 @@ function FileRow({
       <div className={`file-kind-mark ${fileKindTone(file)}`} aria-hidden="true">{fileExtension(file.file_name)}</div>
       <div className="file-row-copy">
         <div className="file-row-title">
-          <strong>{file.file_name}</strong>
+          <strong title={file.file_name}>{file.file_name}</strong>
           {/*
             * A status pill should mark the exception, not the rule. "Available"
             * on every row was five badges saying nothing; the ones that matter --
@@ -354,10 +354,10 @@ function FileRow({
         <p>
           <span className="file-row-size">{formatBytes(file.byte_size)}</span>
           <span aria-hidden="true"> · </span>
-          <span className="file-row-source">{sourceTitle}</span>
+          <span className="file-row-source" title={sourceTitle}>{sourceTitle}</span>
         </p>
         <p>
-          <span className="file-row-owner">Shared by {ownerIdentifier}</span>
+          <span className="file-row-owner" title={ownerIdentifier}>Shared by {ownerIdentifier}</span>
           <span aria-hidden="true"> · </span>
           <time className="file-row-time" dateTime={sharedAt}>{formatDateTime(sharedAt)}</time>
         </p>

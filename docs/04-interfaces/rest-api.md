@@ -141,7 +141,12 @@ membership.
 ## In-app notification center
 
 `GET /api/v1/in-app-notifications` returns the current user's bounded,
-non-dismissed in-app notices and `meta.unread_count`. `GET
+non-dismissed in-app notices and `meta.unread_count`. The optional
+`filter=unread` query returns only unread notices; `filter=all` is the default.
+Pass the opaque `cursor` from `page.next_cursor` to continue a page, with
+`page.has_more` indicating whether another page exists. Cursors are scoped to
+the selected filter and current user and must not be decoded or constructed by
+clients. `GET
 /api/v1/in-app-notifications/unread-count` is the lightweight count endpoint.
 `PATCH /api/v1/in-app-notifications/{id}/read` and `DELETE
 /api/v1/in-app-notifications/{id}` are idempotent user-scoped read and dismiss

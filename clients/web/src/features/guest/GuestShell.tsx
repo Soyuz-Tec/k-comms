@@ -516,7 +516,7 @@ export function GuestShell({
     loading: serviceStatus === null
   });
 
-  const callPanel = (
+  const callControls = (
     <Suspense fallback={<span className="visually-hidden" role="status">Preparing call controls…</span>}>
       <GuestCallPanel
         api={api}
@@ -539,6 +539,15 @@ export function GuestShell({
       />
     </Suspense>
   );
+  const callsDisabledByRoom = !initialSession.capabilities.allow_audio_calls
+    && !initialSession.capabilities.allow_video_calls;
+  const callPanel = callsDisabledByRoom ? (
+    <details className="guest-call-availability">
+      <summary>Calls are unavailable in this room</summary>
+      <p>You can continue messaging. The room's permissions do not allow audio or video calls.</p>
+      {callControls}
+    </details>
+  ) : callControls;
   const messageViewport = (
     <GuestMessageViewport
       autoFocus={!roomBanner && !whiteboardEnabled}

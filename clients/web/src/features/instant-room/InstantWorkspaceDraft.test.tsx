@@ -78,7 +78,7 @@ describe("InstantWorkspaceDraft", () => {
         name: "Your display name"
       }) as HTMLInputElement).value
     ).toMatch(/^Guest \d{4}$/);
-    expect(screen.getAllByText("Local draft", { exact: true })).toHaveLength(1);
+    expect(screen.getByText("Your name", { exact: false }).closest("li")).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: "Create room" })).toBeVisible();
     const firstMessage = screen.getByRole("textbox", {
       name: "Optional first message"

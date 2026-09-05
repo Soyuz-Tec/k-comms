@@ -347,6 +347,22 @@ body:has(.guest-share-dialog) > .modal-backdrop {
   gap: .5rem;
 }
 
+.guest-call-availability {
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.guest-call-availability > summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.guest-call-availability p { margin: 0 0 8px; }
+
 .guest-shell-actions .button {
   min-height: 44px;
   padding: .6rem .85rem;
