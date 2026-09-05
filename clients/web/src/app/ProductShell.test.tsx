@@ -233,7 +233,7 @@ describe("ProductShell", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await user.hover(sidebar);
-    expect(sidebar).toHaveClass("is-expanded");
+    expect(sidebar).toHaveClass("is-collapsed");
     await user.unhover(sidebar);
     expect(sidebar).toHaveClass("is-collapsed");
 
@@ -253,7 +253,7 @@ describe("ProductShell", () => {
     })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("opens for keyboard focus and returns to compact mode on Escape", async () => {
+  it("opens for keyboard focus and hides accessibly on Escape", async () => {
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query === "(min-width: 761px) and (min-height: 561px)",
       media: query,
@@ -278,6 +278,9 @@ describe("ProductShell", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(sidebar).toHaveClass("is-collapsed"));
+    expect(sidebar).toHaveAttribute("inert");
+    expect(sidebar).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("button", { name: "Show workspace navigation" })).toBeVisible();
     expect(toggle).not.toHaveFocus();
   });
 });
