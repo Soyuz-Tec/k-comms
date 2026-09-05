@@ -202,6 +202,7 @@ export interface InAppNotification {
 export interface InAppNotificationPage {
   data: InAppNotification[];
   meta: { unread_count: number };
+  page?: { limit: number; has_more: boolean; next_cursor: string | null };
 }
 
 export interface NotificationAttempt {

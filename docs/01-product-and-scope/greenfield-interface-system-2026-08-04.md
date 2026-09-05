@@ -56,7 +56,7 @@ The persistent bottom navigation contains exactly five daily destinations:
 
 Whiteboard, instant-room creation, installation, privileged tools, and account actions live in the `You` destination. This follows the mobile product model: daily movement is one tap, while less frequent or contextual actions remain available without crowding the primary bar or requiring a global overflow drawer.
 
-There is no global phone top bar. Inbox owns notifications and conversation creation, leaf conversations own their identity and contextual actions, and each member page owns its local actions. The highlighted bottom destination names the current top-level surface.
+There is no global phone top bar. Inbox owns notifications and conversation creation, leaf conversations own their identity and contextual actions, and each member page owns its local actions. The highlighted bottom destination names the current top-level surface; compact local page headings identify the controls above the content.
 
 ### Control ownership
 

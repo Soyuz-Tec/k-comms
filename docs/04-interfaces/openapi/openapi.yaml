@@ -1411,6 +1411,14 @@ paths:
         - name: limit
           in: query
           schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+        - name: filter
+          in: query
+          description: Return all visible notices or only unread notices.
+          schema: {type: string, enum: [all, unread], default: all}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned in page.next_cursor.
+          schema: {type: string, maxLength: 512}
       responses:
         '200':
           description: Bounded owner-composed message, file, whiteboard, and call activity
@@ -4517,7 +4525,7 @@ components:
     InAppNotificationListResponse:
       type: object
       additionalProperties: false
-      required: [data, meta]
+      required: [data, meta, page]
       properties:
         data:
           type: array
@@ -4528,6 +4536,14 @@ components:
           required: [unread_count]
           properties:
             unread_count: {type: integer, minimum: 0}
+        page:
+          type: object
+          additionalProperties: false
+          required: [limit, has_more, next_cursor]
+          properties:
+            limit: {type: integer, minimum: 1, maximum: 100}
+            has_more: {type: boolean}
+            next_cursor: {type: [string, 'null'], maxLength: 512}
     InAppNotificationUnreadResponse:
       type: object
       additionalProperties: false

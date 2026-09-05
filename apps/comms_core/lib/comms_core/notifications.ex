@@ -93,8 +93,14 @@ defmodule CommsCore.Notifications do
 
   @spec list_in_app(map(), map()) ::
           {:ok,
-           %{notifications: [CommsCore.Notifications.IntentView.t()], unread_count: integer()}}
-          | {:error, :forbidden}
+           %{
+             notifications: [CommsCore.Notifications.IntentView.t()],
+             unread_count: non_neg_integer(),
+             limit: pos_integer(),
+             has_more: boolean(),
+             next_cursor: String.t() | nil
+           }}
+          | {:error, :forbidden | :invalid_cursor | :invalid_notification_filter}
   def list_in_app(subject, opts \\ %{}) do
     with {:ok, result} <- InApp.list(subject, opts) do
       {:ok, %{result | notifications: Enum.map(result.notifications, &Projector.intent/1)}}

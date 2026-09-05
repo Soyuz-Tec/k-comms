@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { ApiClient } from "../../api";
 import type { Conversation, DeletionRequest, LegalHold, Message, RetentionPolicy, User } from "../../types";
@@ -14,6 +14,7 @@ import { ActionDialog } from "../../components/ActionDialog";
 import { AppIcon } from "../../components/AppIcon";
 
 type PendingGovernanceAction =
+  | { kind: "create-policy"; input: Parameters<ApiClient["createRetentionPolicy"]>[0] }
   | { kind: "policy"; policy: RetentionPolicy; nextStatus: "active" | "disabled" }
   | { kind: "hold"; hold: LegalHold }
   | { kind: "deletion"; request: DeletionRequest; status: string };
@@ -31,6 +32,7 @@ export function GovernancePanel({ api, users, conversations }: { api: ApiClient;
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingGovernanceAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const policyFormRef = useRef<HTMLFormElement>(null);
   const { runWithStepUp } = useStepUp();
   const selectableUsers = users.filter(({ status }) => status !== "deleted");
   const selectableConversations = conversations.filter(({ archived_at: archivedAt }) => !archivedAt);
@@ -60,9 +62,15 @@ export function GovernancePanel({ api, users, conversations }: { api: ApiClient;
     return () => { current = false; };
   }, [api, deletionTargetType, messageConversationId]);
 
-  async function createPolicy(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); setBusy("policy"); setError(null);
-    try { const policy = await runWithStepUp(() => api.createRetentionPolicy({ name: stringValue(values, "name"), retention_days: Number(values.get("retention_days")), delete_attachments: values.get("delete_attachments") === "on" })); setPolicies((current) => [...current, policy]); form.reset(); } catch (reason: unknown) { if (!stepUpWasCancelled(reason)) setError(errorText(reason)); } finally { setBusy(null); }
+  function reviewPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    setActionError(null);
+    setPendingAction({ kind: "create-policy", input: {
+      name: stringValue(values, "name"),
+      retention_days: Number(values.get("retention_days")),
+      delete_attachments: values.get("delete_attachments") === "on"
+    } });
   }
 
   async function createHold(event: FormEvent<HTMLFormElement>) {
@@ -76,13 +84,17 @@ export function GovernancePanel({ api, users, conversations }: { api: ApiClient;
   }
 
   async function confirmAction(reason: string) {
-    if (!pendingAction) return;
+    if (!pendingAction || busy) return;
     const action = pendingAction;
-    const busyKey = action.kind === "policy" ? `policy-${action.policy.id}` : action.kind === "hold" ? `hold-${action.hold.id}` : `deletion-${action.request.id}`;
+    const busyKey = action.kind === "create-policy" ? "policy" : action.kind === "policy" ? `policy-${action.policy.id}` : action.kind === "hold" ? `hold-${action.hold.id}` : `deletion-${action.request.id}`;
     setBusy(busyKey);
     setActionError(null);
     try {
-      if (action.kind === "policy") {
+      if (action.kind === "create-policy") {
+        const policy = await runWithStepUp(() => api.createRetentionPolicy(action.input));
+        setPolicies((current) => [...current, policy]);
+        policyFormRef.current?.reset();
+      } else if (action.kind === "policy") {
         const updated = await runWithStepUp(() => api.updateRetentionPolicy(action.policy.id, { status: action.nextStatus, version: action.policy.version, reason }));
         setPolicies((current) => current.map((value) => value.id === updated.id ? updated : value));
       } else if (action.kind === "hold") {
@@ -100,25 +112,61 @@ export function GovernancePanel({ api, users, conversations }: { api: ApiClient;
     }
   }
 
-  const dialog = pendingAction ? governanceDialog(pendingAction) : null;
+  const dialog = pendingAction ? governanceDialog(pendingAction, users, conversations) : null;
 
   return <>
     {error && <div className="inline-notice error" role="alert">{error}<button type="button" aria-label="Dismiss governance error" onClick={() => setError(null)}><AppIcon name="x" /></button></div>}
-    {dialog && <ActionDialog {...dialog} auditReason={{ helpText: "This reason is retained in the audit record.", minimumLength: 3 }} busy={busy !== null} error={actionError} onCancel={() => { if (!busy) { setPendingAction(null); setActionError(null); } }} onConfirm={(reason) => void confirmAction(reason)} />}
-    <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Lifecycle policy</span><h2>Retention policies</h2></div><span className="status-pill success">Live API</span></div><form className="inline-admin-form" onSubmit={(event) => void createPolicy(event)}><label className="field">Policy name<input name="name" required maxLength={120} /></label><label className="field">Retention days<input name="retention_days" type="number" min={1} max={36500} required /></label><label className="checkbox-field inline-checkbox"><input name="delete_attachments" type="checkbox" defaultChecked />Delete attachments</label><button className="button primary" type="submit" disabled={busy === "policy"}>Create policy</button></form><ul className="security-list">{policies.map((policy) => <li key={policy.id}><div><strong>{policy.name}</strong><small>{policy.scope_type} · {policy.retention_days} days · {policy.delete_attachments ? "attachments included" : "attachments retained"}</small></div><span className={`status-pill ${policy.status === "active" ? "success" : "neutral"}`}>{policy.status}</span><button className="button ghost compact" type="button" disabled={busy === `policy-${policy.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "policy", policy, nextStatus: policy.status === "active" ? "disabled" : "active" }); }}>{policy.status === "active" ? "Disable" : "Enable"}</button></li>)}</ul></section>
+    {dialog && <ActionDialog {...dialog} auditReason={pendingAction?.kind === "create-policy" ? undefined : { helpText: "This reason is retained in the audit record.", minimumLength: 3 }} busy={busy !== null} error={actionError} onCancel={() => { if (!busy) { setPendingAction(null); setActionError(null); } }} onConfirm={(reason) => void confirmAction(reason)} />}
+    <section className="data-card">
+      <div className="card-heading"><div><span className="eyebrow">Lifecycle policy</span><h2>Retention policies</h2></div><span className="status-pill success">Live API</span></div>
+      <p>New policies apply to the entire workspace and become active after confirmation.</p>
+      <form ref={policyFormRef} className="inline-admin-form" onSubmit={reviewPolicy}>
+        <label className="field">Policy name<input name="name" required maxLength={120} /></label>
+        <label className="field">Retention days<input name="retention_days" type="number" min={1} max={36500} required /></label>
+        <label className="checkbox-field inline-checkbox"><input name="delete_attachments" type="checkbox" />Delete attachments</label>
+        <button className="button primary" type="submit" disabled={busy === "policy"}>Review policy</button>
+      </form>
+      <ul className="security-list">{policies.map((policy) => <li key={policy.id}><div><strong>{policy.name}</strong><small>{retentionScopeLabel(policy, conversations)} · {policy.retention_days} days · {policy.delete_attachments ? "attachments included" : "attachments retained"}</small></div><span className={`status-pill ${policy.status === "active" ? "success" : "neutral"}`}>{policy.status}</span><button className="button ghost compact" type="button" disabled={busy === `policy-${policy.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "policy", policy, nextStatus: policy.status === "active" ? "disabled" : "active" }); }}>{policy.status === "active" ? "Disable" : "Enable"}</button></li>)}</ul>
+    </section>
     <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Preservation</span><h2>Legal holds</h2></div><span className="status-pill success">Live API</span></div><form className="inline-admin-form" onSubmit={(event) => void createHold(event)}><label className="field">Hold name<input name="name" required /></label><label className="field">Hold scope<select name="scope_type" value={holdScope} onChange={(event) => setHoldScope(event.target.value as typeof holdScope)}><option value="tenant">Entire workspace</option><option value="user">Person</option><option value="conversation">Conversation</option></select></label>{holdScope === "user" && <UserTargetSelect name="hold_target_id" label="Hold user" users={selectableUsers} />}{holdScope === "conversation" && <ConversationTargetSelect name="hold_target_id" label="Hold conversation" conversations={selectableConversations} />}<label className="field grow-field">Reason<input name="reason" required /></label><button className="button primary" type="submit" disabled={busy === "hold"}>Create legal hold</button></form><ul className="security-list">{holds.map((hold) => <li key={hold.id}><div><strong>{hold.name}</strong><small>{holdTargetLabel(hold, users, conversations)} · {hold.reason} · Started {formatDateTime(hold.starts_at)}</small></div><span className={`status-pill ${hold.status === "active" ? "success" : "neutral"}`}>{hold.status}</span>{hold.status === "active" && <button className="button danger compact" type="button" disabled={busy === `hold-${hold.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "hold", hold }); }}>Release</button>}</li>)}</ul></section>
-    <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Auditable erasure</span><h2>Deletion requests</h2></div><span className="status-pill success">Live API</span></div><form className="inline-admin-form deletion-form" onSubmit={(event) => void createDeletion(event)}><label className="field">Target type<select name="target_type" value={deletionTargetType} onChange={(event) => { setDeletionTargetType(event.target.value as typeof deletionTargetType); setMessageConversationId(""); }}><option value="user">Person</option><option value="conversation">Conversation</option><option value="message">Message</option></select></label>{deletionTargetType === "user" && <UserTargetSelect name="target_id" label="Deletion user" users={selectableUsers} />}{deletionTargetType === "conversation" && <ConversationTargetSelect name="target_id" label="Deletion conversation" conversations={selectableConversations} />}{deletionTargetType === "message" && <><label className="field">Message conversation<select aria-label="Message conversation" value={messageConversationId} onChange={(event) => setMessageConversationId(event.target.value)} required><option value="">Select conversation</option>{selectableConversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateSelectableConversationNames)}</option>)}</select></label><label className="field grow-field">Deletion message<select name="target_id" required disabled={!messageConversationId || loadingMessages}><option value="">{loadingMessages ? "Loading messages…" : "Select message"}</option>{availableMessages.map((message) => <option key={message.id} value={message.id}>{messageLabel(message, users)}</option>)}</select></label></>}<label className="field grow-field">Reason<input name="reason" required /></label><button className="button primary" type="submit" disabled={busy === "deletion"}>Request deletion</button></form><ul className="security-list">{requests.map((request) => <li key={request.id}><div><strong>{request.target_type} · {deletionTargetLabel(request, users, conversations)}</strong><small>{request.reason} · {formatDateTime(request.inserted_at)}</small></div><span className={`status-pill ${["pending", "approved", "in_progress"].includes(request.status) ? "success" : "neutral"}`}>{request.status}</span>{nextStatuses(request.status).map((status) => <button className="button ghost compact" type="button" key={status} disabled={busy === `deletion-${request.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "deletion", request, status }); }}>{status.replace("_", " ")}</button>)}</li>)}</ul></section>
+    <section className="data-card"><div className="card-heading"><div><span className="eyebrow">Auditable erasure</span><h2>Deletion requests</h2></div><span className="status-pill success">Live API</span></div><form className="inline-admin-form deletion-form" onSubmit={(event) => void createDeletion(event)}><label className="field">Target type<select name="target_type" value={deletionTargetType} onChange={(event) => { setDeletionTargetType(event.target.value as typeof deletionTargetType); setMessageConversationId(""); }}><option value="user">Person</option><option value="conversation">Conversation</option><option value="message">Message</option></select></label>{deletionTargetType === "user" && <UserTargetSelect name="target_id" label="Deletion user" users={selectableUsers} />}{deletionTargetType === "conversation" && <ConversationTargetSelect name="target_id" label="Deletion conversation" conversations={selectableConversations} />}{deletionTargetType === "message" && <><label className="field">Message conversation<select aria-label="Message conversation" value={messageConversationId} onChange={(event) => setMessageConversationId(event.target.value)} required><option value="">Select conversation</option>{selectableConversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateSelectableConversationNames)}</option>)}</select></label><label className="field grow-field">Deletion message<select name="target_id" required disabled={!messageConversationId || loadingMessages}><option value="">{loadingMessages ? "Loading messages…" : "Select message"}</option>{availableMessages.map((message) => <option key={message.id} value={message.id}>{messageLabel(message, users)}</option>)}</select></label></>}<label className="field grow-field">Reason<input name="reason" required /></label><button className="button primary" type="submit" disabled={busy === "deletion"}>Request deletion</button></form><ul className="security-list">{requests.map((request) => <li key={request.id}><div><strong>{request.target_type} · {deletionTargetLabel(request, users, conversations)}</strong><small>{request.reason} · {formatDateTime(request.inserted_at)}</small></div><span className={`status-pill ${["pending", "approved", "in_progress"].includes(request.status) ? "success" : "neutral"}`}>{request.status}</span>{nextStatuses(request.status).map((status) => <button className={`button ${status === "approved" ? "danger" : "ghost"} compact`} type="button" key={status} disabled={busy === `deletion-${request.id}`} onClick={() => { setActionError(null); setPendingAction({ kind: "deletion", request, status }); }}>{deletionTransitionLabel(status)}</button>)}</li>)}</ul></section>
   </>;
 }
 
-function governanceDialog(action: PendingGovernanceAction) {
+function governanceDialog(action: PendingGovernanceAction, users: User[], conversations: Conversation[]) {
+  if (action.kind === "create-policy") {
+    return {
+      title: "Create and activate retention policy?",
+      description: `${action.input.name} · Entire workspace · Retain messages for ${action.input.retention_days} days.`,
+      impact: retentionActivationImpact(action.input),
+      confirmLabel: "Create and activate policy",
+      tone: "danger" as const
+    };
+  }
   if (action.kind === "policy") {
     const verb = action.nextStatus === "active" ? "Enable" : "Disable";
-    return { title: `${verb} retention policy?`, description: action.policy.name, impact: action.nextStatus === "active" ? "The policy will begin governing eligible retained data." : "The policy will stop governing new lifecycle processing until re-enabled.", confirmLabel: `${verb} policy`, tone: "default" as const };
+    return { title: `${verb} retention policy?`, description: `${action.policy.name} · ${retentionScopeLabel(action.policy, conversations)} · Retain messages for ${action.policy.retention_days} days.`, impact: action.nextStatus === "active" ? retentionActivationImpact(action.policy) : "The policy will stop governing new lifecycle processing until re-enabled. Completed deletions will not be restored.", confirmLabel: `${verb} policy`, tone: action.nextStatus === "active" ? "danger" as const : "default" as const };
   }
-  if (action.kind === "hold") return { title: "Release legal hold?", description: action.hold.name, impact: "The preserved scope will no longer be protected by this hold. Existing retention and deletion policies may apply.", confirmLabel: "Release hold", tone: "danger" as const };
-  const label = action.status.replaceAll("_", " ");
-  return { title: `${label[0]?.toUpperCase()}${label.slice(1)} deletion request?`, description: `${action.request.target_type} deletion request`, impact: `The request will move from ${action.request.status.replaceAll("_", " ")} to ${label}.`, confirmLabel: `Confirm ${label}`, tone: ["rejected", "cancelled"].includes(action.status) ? "danger" as const : "default" as const };
+  if (action.kind === "hold") return { title: "Release legal hold?", description: `${action.hold.name} · ${holdTargetLabel(action.hold, users, conversations)}`, impact: "The preserved scope will no longer be protected by this hold. Existing retention and deletion policies may apply.", confirmLabel: "Release hold", tone: "danger" as const };
+  const targetType = { user: "Person", conversation: "Conversation", message: "Message" }[action.request.target_type];
+  const description = `${targetType}: ${deletionTargetLabel(action.request, users, conversations)}. Requested reason: ${action.request.reason}`;
+  if (action.status === "approved") return { title: "Approve deletion?", description, impact: "Approval queues deletion for this target. Processing can begin immediately, and deleted data cannot be restored here. Active legal holds and deletion eligibility checks still apply.", confirmLabel: "Approve deletion", tone: "danger" as const };
+  const verb = action.status === "rejected" ? "Reject" : "Cancel";
+  return { title: `${verb} deletion request?`, description, impact: `The request will move from ${action.request.status.replaceAll("_", " ")} to ${action.status}. This action does not approve deletion.`, confirmLabel: `${verb} request`, tone: "default" as const };
+}
+
+function retentionActivationImpact(policy: Pick<RetentionPolicy, "retention_days" | "delete_attachments">): string {
+  return `The policy becomes active immediately and queues a retention scan. Eligible messages older than ${policy.retention_days} days can be queued for deletion without another approval. ${policy.delete_attachments ? "Attachments belonging to eligible messages are included in deletion." : "Attachments are retained by this policy."} Active legal holds still apply.`;
+}
+
+function retentionScopeLabel(policy: RetentionPolicy, conversations: Conversation[]): string {
+  if (policy.scope_type === "tenant") return "Entire workspace";
+  const conversation = conversations.find(({ id }) => id === policy.conversation_id);
+  return `Conversation: ${conversation ? conversationParticipantIdentifier(conversation, duplicateDirectConversationNames(conversations)) : policy.conversation_id || "Unknown conversation"}`;
+}
+
+function deletionTransitionLabel(status: string): string {
+  return status === "approved" ? "Approve deletion" : status === "rejected" ? "Reject request" : "Cancel request";
 }
 
 function UserTargetSelect({ name, label, users }: { name: string; label: string; users: User[] }) { const duplicates = duplicateParticipantNames(users); return <label className="field grow-field">{label}<select name={name} required><option value="">Select person</option>{users.map((user) => <option key={user.id} value={user.id}>{participantIdentifier(user, duplicates)}{user.account_type === "service" ? " (Bot)" : ""}</option>)}</select></label>; }

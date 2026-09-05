@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
 import { CollaborativeWhiteboard } from "./CollaborativeWhiteboard";
 
 export function WhiteboardPage() {
+  const [statusContainer, setStatusContainer] = useState<HTMLDivElement | null>(null);
   const { conversations, loading } = useWorkspaceData();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -33,8 +35,9 @@ export function WhiteboardPage() {
       <header className="whiteboard-heading">
         <div className="whiteboard-heading-copy">
           <h1>Whiteboard</h1>
-          <p>Sketch, diagram, and plan together in the selected conversation.</p>
+          <p className="visually-hidden">Sketch, diagram, and plan together in the selected conversation.</p>
         </div>
+        <div ref={setStatusContainer} className="whiteboard-heading-status" />
         <div className="whiteboard-context-actions">
         <label>
           <span>Conversation</span>
@@ -65,6 +68,7 @@ export function WhiteboardPage() {
           key={activeConversation.id}
           conversationId={activeConversation.id}
           conversationTitle={activeConversation.title || "Untitled conversation"}
+          statusContainer={statusContainer}
           focusElementIds={focusElementIds}
           onMessageReference={(reference) => {
             const params = new URLSearchParams({
