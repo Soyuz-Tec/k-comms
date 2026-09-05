@@ -1,5 +1,6 @@
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { WhiteboardMessageReference } from "../../types";
 import { AppIcon } from "../../components/AppIcon";
 import { DraggableSurface } from "../../components/DraggableSurface";
@@ -19,7 +20,8 @@ export function CollaborativeWhiteboard({
   clearRequestId = 0,
   focusElementIds = [],
   onMessageReference,
-  compact = false
+  compact = false,
+  statusContainer
 }: {
   conversationId: string;
   conversationTitle: string;
@@ -28,6 +30,7 @@ export function CollaborativeWhiteboard({
   focusElementIds?: readonly string[];
   onMessageReference?: (reference: WhiteboardMessageReference) => void;
   compact?: boolean;
+  statusContainer?: HTMLElement | null;
 }) {
   const [editor, setEditor] = useState<ExcalidrawImperativeAPI | null>(null);
   const collaboration = useWhiteboardCollaboration(
@@ -176,7 +179,7 @@ export function CollaborativeWhiteboard({
         >
           {statusbar}
         </DraggableSurface>
-      ) : statusbar}
+      ) : statusContainer ? createPortal(statusbar, statusContainer) : statusbar}
 
       {collaboration.error && (
         <div className="whiteboard-error" role="alert">

@@ -73,6 +73,131 @@ defmodule CommsCore.Notifications.InAppTest do
     assert metadata[:constraint_name] == "notification_intents_user_state_in_app_only"
   end
 
+  test "unread filtering reaches an older unread item behind fifty newer read notifications" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    older = insert_intent(account)
+    timestamp = DateTime.add(now(), 10, :second)
+
+    for _ <- 1..50 do
+      account
+      |> insert_intent(%{read_at: timestamp})
+      |> Ecto.Changeset.change(inserted_at: timestamp)
+      |> Repo.update!()
+    end
+
+    assert {:ok, recent} = Notifications.list_in_app(subject)
+    assert length(recent.notifications) == 50
+    assert recent.unread_count == 1
+    assert recent.has_more
+    refute older.id in Enum.map(recent.notifications, & &1.id)
+
+    assert {:ok, unread} = Notifications.list_in_app(subject, %{"filter" => "unread"})
+    assert Enum.map(unread.notifications, & &1.id) == [older.id]
+    assert unread.unread_count == 1
+    refute unread.has_more
+    assert unread.next_cursor == nil
+  end
+
+  test "keyset pages retain tied timestamps and remain stable across inserts and dismissal" do
+    account = Fixtures.account_fixture()
+    subject = Fixtures.subject(account)
+    timestamp = now()
+
+    intents =
+      for _ <- 1..105 do
+        account
+        |> insert_intent()
+        |> Ecto.Changeset.change(inserted_at: timestamp)
+        |> Repo.update!()
+      end
+
+    assert {:ok, first} = Notifications.list_in_app(subject, %{"filter" => "unread"})
+    assert length(first.notifications) == 50
+    assert first.has_more
+    assert first.limit == 50
+
+    boundary = List.last(first.notifications)
+    assert {:ok, _} = Notifications.dismiss_in_app(boundary.id, subject)
+
+    newer =
+      account
+      |> insert_intent()
+      |> Ecto.Changeset.change(inserted_at: DateTime.add(timestamp, 10, :second))
+      |> Repo.update!()
+
+    assert {:ok, second} =
+             Notifications.list_in_app(subject, %{
+               "filter" => "unread",
+               "cursor" => first.next_cursor
+             })
+
+    assert length(second.notifications) == 50
+    assert second.has_more
+
+    assert {:ok, third} =
+             Notifications.list_in_app(subject, %{
+               "filter" => "unread",
+               "cursor" => second.next_cursor
+             })
+
+    assert length(third.notifications) == 5
+    refute third.has_more
+    assert third.next_cursor == nil
+
+    all_ids =
+      Enum.map(first.notifications ++ second.notifications ++ third.notifications, & &1.id)
+
+    assert length(Enum.uniq(all_ids)) == 105
+    assert MapSet.new(all_ids) == MapSet.new(Enum.map(intents, & &1.id))
+    refute newer.id in all_ids
+  end
+
+  test "cursor and filters reject malformed input and do not cross user or tenant boundaries" do
+    account = Fixtures.account_fixture()
+    other = Fixtures.account_fixture()
+    insert_intent(account)
+    insert_intent(account)
+    insert_intent(other)
+    subject = Fixtures.subject(account)
+
+    assert {:ok, page} = Notifications.list_in_app(subject, %{"limit" => 1, "filter" => "unread"})
+    assert page.has_more
+
+    assert {:ok, other_page} =
+             Notifications.list_in_app(Fixtures.subject(other), %{
+               "filter" => "unread",
+               "cursor" => page.next_cursor
+             })
+
+    assert Enum.all?(
+             other_page.notifications,
+             &(&1.tenant_id == other.tenant.id and &1.user_id == other.user.id)
+           )
+
+    assert {:error, :invalid_cursor} =
+             Notifications.list_in_app(subject, %{"cursor" => "invalid"})
+
+    assert {:error, :invalid_cursor} =
+             Notifications.list_in_app(subject, %{"cursor" => String.duplicate("a", 513)})
+
+    assert {:error, :invalid_cursor} =
+             Notifications.list_in_app(subject, %{"cursor" => page.next_cursor})
+
+    assert {:error, :invalid_notification_filter} =
+             Notifications.list_in_app(subject, %{"filter" => "dismissed"})
+
+    malformed =
+      Jason.encode!(%{v: 1, inserted_at: 123, notification_id: false, filter: "all"})
+      |> Base.url_encode64(padding: false)
+
+    assert {:error, :invalid_cursor} =
+             Notifications.list_in_app(subject, %{"cursor" => malformed})
+
+    assert {:ok, bounded} = Notifications.list_in_app(subject, %{"limit" => 100_000})
+    assert bounded.limit == 100
+  end
+
   defp insert_intent(account, overrides \\ %{}) do
     account
     |> intent_attrs(overrides)

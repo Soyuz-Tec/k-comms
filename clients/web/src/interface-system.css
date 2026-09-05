@@ -567,14 +567,14 @@
    */
   body > .notification-panel {
     top: auto;
-    right: auto;
+    right: var(--space-4);
     bottom: var(--space-4);
-    left: calc(var(--desktop-rail-width) + .75rem);
+    left: auto;
     color: var(--text-primary);
   }
 
   body:has(.workspace-sidebar.is-collapsed) > .notification-panel {
-    left: calc(80px + .75rem);
+    left: auto;
   }
 
   .workspace-sidebar.is-collapsed {
@@ -813,15 +813,9 @@
   }
 
   /*
-   * Names the phone already states. The destination is named by the highlighted
-   * tab in the bottom bar and a leaf view names itself in its own header, so
-   * these headings stay in the accessibility tree — heading navigation and the
-   * document outline keep working — and only the duplicated pixels go.
+   * Personal settings retain their own section heading. Other destinations
+   * keep a compact local title so their controls have context above the fold.
    */
-  .conversation-sidebar .sidebar-heading-title,
-  .calls-page-heading h1,
-  .files-page-heading h1,
-  .directory-page .member-page-heading,
   .you-page > .page-shell > .page-heading {
     position: absolute;
     width: 1px;
@@ -834,17 +828,12 @@
     clip-path: inset(50%);
   }
 
-  /*
-   * With the title gone the inbox opens on its tools. This row is the first
-   * thing on the screen now that no shell bar sits above it, so it carries the
-   * safe-area inset and holds notifications at its leading edge.
-   */
-  /*
-   * One control row, not two. The title is clipped on phones and therefore out
-   * of flow, so what remains in the row is the search field and the tools --
-   * the field flexes, the tools sit at the trailing edge. This is the change
-   * that recovers the last stacked row: 249px of chrome becomes 189px.
-   */
+  .conversation-sidebar .sidebar-heading-title {
+    margin-right: auto;
+    font-size: 1.1rem;
+  }
+
+  /* The page title and actions share a row; search has its own readable line. */
   .conversation-sidebar .sidebar-heading {
     flex-wrap: wrap;
     gap: var(--space-2);
@@ -859,7 +848,8 @@
    * three where there genuinely is not.
    */
   .conversation-sidebar .sidebar-search {
-    flex: 1 1 180px;
+    order: 3;
+    flex: 1 1 100%;
     min-width: 0;
     min-height: var(--target-touch);
   }

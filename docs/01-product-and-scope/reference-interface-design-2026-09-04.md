@@ -8,6 +8,10 @@ Architecture: [Architecture overview](../02-architecture/architecture-overview.m
 
 Interface authority: [Adaptive interface system](greenfield-interface-system-2026-08-04.md)
 
+Follow-up acceptance: [Verified UI enhancements](ui-enhancement-completion-2026-09-05.md).
+That contract supersedes the initial presentation-only scope for the additive
+notification pagination API and the specific layout refinements it records.
+
 ## Decision
 
 Use one K-Comms visual language rather than separate imitations of other

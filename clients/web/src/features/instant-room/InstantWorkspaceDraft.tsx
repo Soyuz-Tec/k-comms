@@ -284,9 +284,9 @@ export function InstantWorkspaceDraft({
             </div>
 
             <ol className="instant-draft-workflow" aria-label="Collaboration workflow">
-              <li className="current"><span>1</span> Local draft</li>
+              <li className="current" aria-current="step"><span>1</span> Your name</li>
               <li><span>2</span> Create room</li>
-              <li><span>3</span> Invite and call</li>
+              <li><span>3</span> Invite &amp; call</li>
             </ol>
 
             <div className="instant-draft-room-details">

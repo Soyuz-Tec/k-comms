@@ -449,3 +449,15 @@
     font-size: var(--text-xs);
   }
 }
+
+.instant-draft-room-details label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.instant-draft-room-details label > span {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-weight: 400;
+}

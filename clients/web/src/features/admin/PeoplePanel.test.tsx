@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
@@ -175,5 +175,36 @@ describe("PeoplePanel", () => {
     await userEvent.type(screen.getByLabelText("Search invitations"), "revoked");
     expect(screen.getByText("No invitations match this search.")).toBeVisible();
     expect(screen.getByText("Morgan Moderator")).toBeVisible();
+  });
+
+  it("keeps identity and protected controls in the same semantic person group", async () => {
+    const adminUserSessions = vi.fn().mockResolvedValue([accountSession]);
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockResolvedValue([]), adminUserSessions });
+
+    const table = screen.getByRole("region", { name: "Workspace people" });
+    const personGroup = within(table).getByText("Taylor Member").closest("tbody")!;
+    expect(within(personGroup).getByRole("combobox", { name: "Role for Taylor Member" })).toHaveValue("member");
+    expect(within(personGroup).getByRole("combobox", { name: "Status for Taylor Member" })).toHaveValue("active");
+    const manage = within(personGroup).getByRole("button", { name: "Manage sessions for Taylor Member" });
+    expect(manage).toHaveAttribute("aria-expanded", "false");
+    await user.click(manage);
+    const sessions = await within(personGroup).findByRole("list", { name: "Sessions for Taylor Member" });
+    expect(manage).toHaveAttribute("aria-controls", sessions.id);
+    expect(manage).toHaveAttribute("aria-expanded", "true");
+    await user.click(manage);
+    expect(within(personGroup).queryByRole("list", { name: "Sessions for Taylor Member" })).not.toBeInTheDocument();
+    expect(manage).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("does not expose access edits or login sessions for service identities", async () => {
+    const serviceUser = { ...managedUser, account_type: "service" as const };
+    renderPanel({ invitations: vi.fn().mockResolvedValue([]) }, [serviceUser]);
+
+    expect(screen.getByText("Non-login service identity")).toBeVisible();
+    expect(screen.getByText("Service credential")).toBeVisible();
+    expect(screen.queryByRole("combobox", { name: "Role for Taylor Member" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Status for Taylor Member" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage sessions for Taylor Member" })).not.toBeInTheDocument();
   });
 });

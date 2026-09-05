@@ -44,6 +44,46 @@ async function verifyScreen(page: Page, info: TestInfo, name: string, axe = true
   await expect(page.getByRole("main").or(page.getByRole("dialog")).first()).toBeVisible();
   await expect(page.locator(".spinner").filter({ visible: true })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  const width = page.viewportSize()?.width ?? 1440;
+  if (name.endsWith("files")) {
+    for (const row of await page.locator(".file-row").all()) {
+      const title = await row.locator(".file-row-title strong").boundingBox();
+      const actions = await row.locator(".file-row-actions").boundingBox();
+      expect(title).not.toBeNull();
+      expect(actions).not.toBeNull();
+      const overlapWidth = Math.min(title!.x + title!.width, actions!.x + actions!.width) - Math.max(title!.x, actions!.x);
+      const overlapHeight = Math.min(title!.y + title!.height, actions!.y + actions!.height) - Math.max(title!.y, actions!.y);
+      expect(overlapWidth <= 1 || overlapHeight <= 1, "Filename must not overlap its actions").toBeTruthy();
+      if (width <= 760) {
+        expect(await row.locator(".file-row-title strong").evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+      }
+    }
+  }
+  if (name.endsWith("calls") && width <= 760) {
+    const mediaFits = await page.getByRole("combobox", { name: "Media", exact: true }).evaluate((node) => {
+      const select = node as HTMLSelectElement;
+      const style = getComputedStyle(select);
+      const context = document.createElement("canvas").getContext("2d")!;
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const textWidth = context.measureText(select.selectedOptions[0].text).width;
+      return textWidth <= select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    });
+    expect(mediaFits, "Selected media label must fit without clipping").toBeTruthy();
+  }
+  if (name.includes("people") && width <= 760) {
+    const table = page.locator(".people-table");
+    expect(await table.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+    for (const cell of await table.locator(".people-user-row > td").all()) {
+      const box = await cell.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+  }
+  if (name.endsWith("whiteboard")) {
+    const heading = await page.locator(".whiteboard-heading").boundingBox();
+    expect(heading!.height, "Whiteboard header must leave room for drawing").toBeLessThanOrEqual(width <= 760 ? 80 : 60);
+  }
   if (name === "reset-unavailable") {
     await expect(page.getByRole("alert")).toContainText("This reset link is invalid or expired");
   } else {
@@ -176,10 +216,12 @@ test("vertical settings tabs support up/down keys and keep focus on the selected
 });
 
 for (const width of [320, 1024]) {
-  test(`reference system reflows at ${width}px`, async ({ page }, info) => {
+  for (const colorScheme of ["light", "dark"] as const) {
+  test(`reference system reflows at ${width}px in ${colorScheme}`, async ({ page }, info) => {
     test.skip(info.project.name !== "chromium", "Explicit responsive matrix runs once");
     test.setTimeout(120_000);
     await page.setViewportSize({ width, height: 800 });
+    await page.emulateMedia({ colorScheme });
     const state = await installReferenceWorkspace(page);
     for (const path of ["/app/calls", "/app/directory", "/app/files", "/app/you", "/app/whiteboard", "/admin?section=people", "/ops"]) {
       await page.goto(path);
@@ -188,4 +230,19 @@ for (const width of [320, 1024]) {
     }
     expect(state.unexpectedRequests).toEqual([]);
   });
+  }
 }
+
+test("mobile administration keeps the last session action above fixed navigation", async ({ page }, info) => {
+  test.skip(info.project.name !== "chromium", "One deterministic phone focus check");
+  await page.setViewportSize({ width: 320, height: 640 });
+  await installReferenceWorkspace(page);
+  await page.goto("/admin?section=people");
+  const sessions = page.getByRole("button", { name: /Manage sessions for/ }).last();
+  await sessions.focus();
+  await sessions.scrollIntoViewIfNeeded();
+  const action = await sessions.boundingBox();
+  const navigation = await page.getByRole("navigation", { name: "Primary navigation" }).boundingBox();
+  expect(action!.y + action!.height).toBeLessThanOrEqual(navigation!.y);
+  await expect(sessions).toBeFocused();
+});

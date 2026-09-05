@@ -125,6 +125,62 @@ defmodule CommsWeb.InAppNotificationControllerTest do
     refute Map.has_key?(payload, :body)
   end
 
+  test "notification list exposes bounded continuation and validates its filter and cursor" do
+    account = Fixtures.account_fixture()
+
+    token =
+      account
+      |> Fixtures.authentication_result()
+      |> CommsWeb.Token.issue()
+      |> Map.fetch!(:access_token)
+
+    read = insert_intent(account, "message.created.v1", nil)
+    unread = insert_intent(account, "mention.created.v1", nil)
+    assert {:ok, _} = Notifications.mark_in_app_read(read.id, Fixtures.subject(account))
+
+    first =
+      authenticated_conn(token)
+      |> get("/api/v1/in-app-notifications", %{"limit" => 1})
+      |> json_response(200)
+
+    assert first["page"]["limit"] == 1
+    assert first["page"]["has_more"]
+    assert is_binary(first["page"]["next_cursor"])
+
+    second =
+      authenticated_conn(token)
+      |> get("/api/v1/in-app-notifications", %{
+        "limit" => 1,
+        "cursor" => first["page"]["next_cursor"]
+      })
+      |> json_response(200)
+
+    assert length(second["data"]) == 1
+    refute second["page"]["has_more"]
+    assert second["page"]["next_cursor"] == nil
+    refute hd(first["data"])["id"] == hd(second["data"])["id"]
+
+    filtered =
+      authenticated_conn(token)
+      |> get("/api/v1/in-app-notifications", %{"filter" => "unread"})
+      |> json_response(200)
+
+    assert Enum.map(filtered["data"], & &1["id"]) == [unread.id]
+    assert filtered["meta"]["unread_count"] == 1
+
+    for {params, code} <- [
+          {%{"cursor" => "invalid"}, "invalid_cursor"},
+          {%{"filter" => "invalid"}, "invalid_notification_filter"}
+        ] do
+      response =
+        authenticated_conn(token)
+        |> get("/api/v1/in-app-notifications", params)
+        |> json_response(422)
+
+      assert response["error"]["code"] == code
+    end
+  end
+
   defp insert_intent(account, event_type, action_url) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 

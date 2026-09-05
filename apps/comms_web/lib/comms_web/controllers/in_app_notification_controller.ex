@@ -8,7 +8,8 @@ defmodule CommsWeb.InAppNotificationController do
     with {:ok, result} <- Notifications.list_in_app(conn.assigns.current_subject, params) do
       json(conn, %{
         data: Enum.map(result.notifications, &InAppNotificationPresenter.notification/1),
-        meta: %{unread_count: result.unread_count}
+        meta: %{unread_count: result.unread_count},
+        page: %{limit: result.limit, has_more: result.has_more, next_cursor: result.next_cursor}
       })
     end
   end

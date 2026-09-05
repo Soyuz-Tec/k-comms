@@ -2,8 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
-import { StepUpProvider } from "../../app/step-up";
-import type { Conversation, LegalHold, Message, RetentionPolicy, User } from "../../types";
+import { StepUpCancelledError, StepUpProvider } from "../../app/step-up";
+import type { Conversation, DeletionRequest, LegalHold, Message, RetentionPolicy, User } from "../../types";
 import { GovernancePanel } from "./GovernancePanel";
 
 vi.mock("../../app/session", () => ({ useSession: () => ({ api: { stepUp: vi.fn() } }) }));
@@ -73,6 +73,165 @@ function apiFixture(overrides: Partial<ApiClient> = {}): ApiClient {
     ...overrides
   } as unknown as ApiClient;
 }
+
+function policyFixture(overrides: Partial<RetentionPolicy> = {}): RetentionPolicy {
+  return {
+    id: "policy-1",
+    name: "Standard retention",
+    scope_type: "tenant",
+    retention_days: 365,
+    delete_attachments: false,
+    status: "active",
+    version: 1,
+    inserted_at: "2026-07-12T10:00:00Z",
+    updated_at: "2026-07-12T10:00:00Z",
+    ...overrides
+  };
+}
+
+function deletionFixture(overrides: Partial<DeletionRequest> = {}): DeletionRequest {
+  return {
+    id: "deletion-1",
+    requested_by_user_id: "owner-1",
+    subject_user_id: activeUser.id,
+    target_type: "user",
+    reason: "Requested erasure",
+    status: "pending",
+    evidence: {},
+    version: 1,
+    inserted_at: "2026-07-12T10:00:00Z",
+    updated_at: "2026-07-12T10:00:00Z",
+    ...overrides
+  };
+}
+
+describe("GovernancePanel consequence review", () => {
+  it("requires review with attachment deletion off and preserves the policy draft on cancel", async () => {
+    const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture());
+    const api = apiFixture({ createRetentionPolicy });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+
+    expect(screen.getByRole("checkbox", { name: "Delete attachments" })).not.toBeChecked();
+    await user.type(screen.getByLabelText("Policy name"), "Release archive");
+    await user.type(screen.getByLabelText("Retention days"), "90");
+    await user.click(screen.getByRole("button", { name: "Review policy" }));
+
+    const dialog = screen.getByRole("alertdialog", { name: "Create and activate retention policy?" });
+    expect(dialog).toHaveTextContent("Release archive · Entire workspace · Retain messages for 90 days.");
+    expect(dialog).toHaveTextContent("becomes active immediately and queues a retention scan");
+    expect(dialog).toHaveTextContent("Eligible messages older than 90 days can be queued for deletion without another approval");
+    expect(dialog).toHaveTextContent("Attachments are retained by this policy");
+    expect(dialog).toHaveTextContent("Active legal holds still apply");
+    expect(within(dialog).queryByRole("textbox", { name: "Reason for this change" })).not.toBeInTheDocument();
+    expect(createRetentionPolicy).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Policy name")).toHaveValue("Release archive");
+    expect(screen.getByLabelText("Retention days")).toHaveValue(90);
+    expect(createRetentionPolicy).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("creates only the explicitly confirmed policy with delete_attachments=%s", async (deleteAttachments) => {
+    const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ name: "Release archive", retention_days: 90, delete_attachments: deleteAttachments }));
+    const api = apiFixture({ createRetentionPolicy });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+
+    await user.type(screen.getByLabelText("Policy name"), "Release archive");
+    await user.type(screen.getByLabelText("Retention days"), "90");
+    if (deleteAttachments) await user.click(screen.getByRole("checkbox", { name: "Delete attachments" }));
+    await user.click(screen.getByRole("button", { name: "Review policy" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Create and activate retention policy?" });
+    expect(dialog).toHaveTextContent(deleteAttachments ? "Attachments belonging to eligible messages are included in deletion" : "Attachments are retained by this policy");
+    expect(createRetentionPolicy).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Create and activate policy" }));
+    await waitFor(() => expect(createRetentionPolicy).toHaveBeenCalledExactlyOnceWith({ name: "Release archive", retention_days: 90, delete_attachments: deleteAttachments }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Policy name")).toHaveValue("");
+    expect(screen.getByRole("checkbox", { name: "Delete attachments" })).not.toBeChecked();
+  });
+
+  it("retains policy review and draft if identity verification is cancelled", async () => {
+    const createRetentionPolicy = vi.fn().mockRejectedValue(new StepUpCancelledError());
+    const api = apiFixture({ createRetentionPolicy });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[]} /></StepUpProvider>);
+
+    await user.type(screen.getByLabelText("Policy name"), "Release archive");
+    await user.type(screen.getByLabelText("Retention days"), "90");
+    await user.click(screen.getByRole("button", { name: "Review policy" }));
+    await user.click(screen.getByRole("button", { name: "Create and activate policy" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create and activate policy" })).toBeEnabled());
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByLabelText("Policy name")).toHaveValue("Release archive");
+    expect(createRetentionPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it("identifies the conversation and destructive consequences when enabling retention", async () => {
+    const policy = policyFixture({ status: "disabled", scope_type: "conversation", conversation_id: activeConversation.id, delete_attachments: true });
+    const updateRetentionPolicy = vi.fn().mockResolvedValue({ ...policy, status: "active", version: 2 });
+    const api = apiFixture({ retentionPolicies: vi.fn().mockResolvedValue([policy]), updateRetentionPolicy });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[]} conversations={[activeConversation]} /></StepUpProvider>);
+
+    await user.click(await screen.findByRole("button", { name: "Enable" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Enable retention policy?" });
+    expect(dialog).toHaveTextContent("Standard retention · Conversation: Release planning · Retain messages for 365 days.");
+    expect(dialog).toHaveTextContent("without another approval");
+    expect(dialog).toHaveTextContent("Attachments belonging to eligible messages are included in deletion");
+    expect(within(dialog).getByRole("button", { name: "Enable policy" })).toHaveClass("danger");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason for this change" }), "Approved retention schedule");
+    await user.click(within(dialog).getByRole("button", { name: "Enable policy" }));
+    await waitFor(() => expect(updateRetentionPolicy).toHaveBeenCalledExactlyOnceWith(policy.id, { status: "active", version: 1, reason: "Approved retention schedule" }));
+  });
+
+  it.each([
+    ["user", "Alex Active", { subject_user_id: activeUser.id }],
+    ["conversation", "Release planning", { conversation_id: activeConversation.id }],
+    ["message", "message-to-erase", { message_id: "message-to-erase" }]
+  ] as const)("names the %s target and requires an audited destructive deletion approval", async (targetType, targetLabel, targetFields) => {
+    const request = deletionFixture({ target_type: targetType, ...targetFields });
+    const updateDeletionRequest = vi.fn().mockResolvedValue({ ...request, status: "approved", version: 2 });
+    const api = apiFixture({ deletionRequests: vi.fn().mockResolvedValue([request]), updateDeletionRequest });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+
+    await user.click(await screen.findByRole("button", { name: "Approve deletion" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Approve deletion?" });
+    expect(dialog).toHaveTextContent(targetLabel);
+    expect(dialog).toHaveTextContent("Requested erasure");
+    expect(dialog).toHaveTextContent("Approval queues deletion for this target");
+    expect(dialog).toHaveTextContent("Processing can begin immediately");
+    const approve = within(dialog).getByRole("button", { name: "Approve deletion" });
+    expect(approve).toHaveClass("danger");
+    await user.click(approve);
+    expect(updateDeletionRequest).not.toHaveBeenCalled();
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason for this change" }), "Verified erasure request");
+    await user.click(approve);
+    await waitFor(() => expect(updateDeletionRequest).toHaveBeenCalledExactlyOnceWith(request.id, { status: "approved", version: 1, transition_reason: "Verified erasure request" }));
+  });
+
+  it("does not present rejecting deletion as a destructive approval", async () => {
+    const request = deletionFixture();
+    const updateDeletionRequest = vi.fn();
+    const api = apiFixture({ deletionRequests: vi.fn().mockResolvedValue([request]), updateDeletionRequest });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={api} users={[activeUser]} conversations={[]} /></StepUpProvider>);
+
+    await user.click(await screen.findByRole("button", { name: "Reject request" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Reject deletion request?" });
+    expect(dialog).toHaveTextContent("Alex Active");
+    expect(dialog).toHaveTextContent("This action does not approve deletion");
+    expect(within(dialog).getByRole("button", { name: "Reject request" })).not.toHaveClass("danger");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(updateDeletionRequest).not.toHaveBeenCalled();
+  });
+});
 
 describe("GovernancePanel target selection", () => {
   it("gives governance-load errors a descriptive dismiss control", async () => {

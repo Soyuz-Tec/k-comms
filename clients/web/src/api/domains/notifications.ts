@@ -60,8 +60,11 @@ export function createNotificationsApi(request: ApiRequest) {
         ).then((response) => response.data);
       },
 
-    inAppNotifications(limit = 50): Promise<InAppNotificationPage> {
-        return request(`/api/v1/in-app-notifications?limit=${Math.max(1, Math.min(limit, 100))}`);
+    inAppNotifications(limit = 50, options: { filter?: "all" | "unread"; cursor?: string | null } = {}): Promise<InAppNotificationPage> {
+        const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 100))) });
+        if (options.filter === "unread") params.set("filter", "unread");
+        if (options.cursor) params.set("cursor", options.cursor);
+        return request(`/api/v1/in-app-notifications?${params.toString()}`);
       },
 
     inAppUnreadCount(): Promise<number> {

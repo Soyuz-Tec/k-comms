@@ -422,8 +422,8 @@ export class ApiClient {
     return this.notificationsApi.revokePushSubscription(id);
   }
 
-  inAppNotifications(limit = 50): Promise<InAppNotificationPage>{
-    return this.notificationsApi.inAppNotifications(limit);
+  inAppNotifications(limit = 50, options: { filter?: "all" | "unread"; cursor?: string | null } = {}): Promise<InAppNotificationPage>{
+    return this.notificationsApi.inAppNotifications(limit, options);
   }
 
   inAppUnreadCount(): Promise<number>{

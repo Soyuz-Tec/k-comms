@@ -880,7 +880,7 @@
   .calls-filter-stack {
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(8rem, .72fr);
+    grid-template-columns: minmax(0, 1fr) minmax(9rem, .85fr);
     gap: .4rem;
   }
 
