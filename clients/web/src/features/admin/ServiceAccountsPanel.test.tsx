@@ -67,7 +67,7 @@ describe("ServiceAccountsPanel", () => {
     await user.click(await screen.findByRole("button", { name: "Rotate credential" }));
     expect(screen.getByRole("alertdialog", { name: "Rotate service credential?" })).toHaveTextContent("existing credential will stop working immediately");
     // The dialog places safe initial focus on the next animation frame.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel", exact: true })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
     await user.type(screen.getByRole("textbox", { name: "Reason for this change" }), "Routine credential rotation");
     await user.click(screen.getByRole("button", { name: "Rotate credential" }));
     expect(rotateServiceAccount).toHaveBeenCalledWith(account.id, 1, "Routine credential rotation");
@@ -75,7 +75,7 @@ describe("ServiceAccountsPanel", () => {
     await user.click(screen.getByRole("button", { name: "I stored it" }));
     await user.click(screen.getByRole("button", { name: "Revoke" }));
     expect(screen.getByRole("alertdialog", { name: "Revoke service account?" })).toHaveTextContent("lose API access");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel", exact: true })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
     await user.type(screen.getByRole("textbox", { name: "Reason for this change" }), "Automation retired");
     await user.click(screen.getByRole("button", { name: "Revoke account" }));
 

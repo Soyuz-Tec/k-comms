@@ -28,7 +28,7 @@ export function useAutoHideNavigation(enabled: boolean, pinned: boolean, keyboar
     const hasOpenMenu = () => Boolean(sidebarRef.current?.querySelector(
       "details[open], .notification-trigger[aria-expanded='true']"
     ));
-    const hasModal = () => Boolean(document.querySelector("[role='dialog'][aria-modal='true'], dialog[open]"));
+    const hasModal = () => Boolean(document.querySelector("[aria-modal='true'], dialog[open]"));
     function renewIdle() {
       window.clearTimeout(idleTimer);
       if (pinned || keyboardFocused) return;
