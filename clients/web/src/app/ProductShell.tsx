@@ -22,7 +22,7 @@ import { usePwa } from "../pwa/PwaProvider";
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
 
-function readWorkspaceSidebarCollapsed(): boolean {
+function readWorkspaceSidebarPinned(): boolean {
   try {
     return window.localStorage.getItem(
       WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY
@@ -59,9 +59,12 @@ function ProductShellContent() {
   const { error, setError, refreshAll } = useWorkspaceData();
   const { updateAvailable, applyUpdate, dismissUpdate } = usePwa();
   const [retrying, setRetrying] = useState(false);
-  const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(
-    readWorkspaceSidebarCollapsed
+  const [workspaceSidebarPinned, setWorkspaceSidebarPinned] = useState(
+    readWorkspaceSidebarPinned
   );
+  const [workspaceSidebarHovered, setWorkspaceSidebarHovered] = useState(false);
+  const [workspaceSidebarFocused, setWorkspaceSidebarFocused] = useState(false);
+  const workspaceSidebarPointerRef = useRef(false);
   const desktopShell = useDesktopShell();
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
 
@@ -69,12 +72,12 @@ function ProductShellContent() {
     try {
       window.localStorage.setItem(
         WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY,
-        String(workspaceSidebarCollapsed)
+        String(workspaceSidebarPinned)
       );
     } catch {
       // A constrained storage context must not block workspace navigation.
     }
-  }, [workspaceSidebarCollapsed]);
+  }, [workspaceSidebarPinned]);
 
   useEffect(() => {
     function closeOutside(event: PointerEvent) {
@@ -128,13 +131,55 @@ function ProductShellContent() {
    * not repeated here -- one owner, so the two can never disagree.
    */
   const immersive = mode === "immersive";
+  const workspaceSidebarExpanded = workspaceSidebarPinned || workspaceSidebarHovered || workspaceSidebarFocused;
+  const workspaceSidebarToggleLabel = workspaceSidebarPinned
+    ? "Use compact navigation"
+    : "Keep navigation open";
   return (
-    <div className={`app-shell ${workspaceSidebarCollapsed ? "workspace-sidebar-collapsed" : ""}`}>
+    <div className={`app-shell ${workspaceSidebarExpanded ? "workspace-sidebar-expanded" : "workspace-sidebar-collapsed"}`}>
         {desktopShell && !immersive && (
           <div className="window-titlebar-drag-region" aria-hidden="true" />
         )}
         <a className="skip-link" href="#main-content">Skip to content</a>
-        {desktopShell && !immersive && <aside className={`workspace-sidebar ${workspaceSidebarCollapsed ? "is-collapsed" : ""}`} aria-label="Workspace navigation">
+        {desktopShell && !immersive && <aside
+          className={`workspace-sidebar ${workspaceSidebarExpanded ? "is-expanded" : "is-collapsed"}`}
+          aria-label="Workspace navigation"
+          onPointerMove={(event) => {
+            if ((event.target as HTMLElement).closest(".workspace-sidebar-toggle")) return;
+            setWorkspaceSidebarHovered(true);
+          }}
+          onMouseLeave={() => setWorkspaceSidebarHovered(false)}
+          onClickCapture={(event) => {
+            if (workspaceSidebarPinned) return;
+            const target = event.target as HTMLElement;
+            if (target.closest("a, .workspace-instant-room")) {
+              setWorkspaceSidebarHovered(false);
+              setWorkspaceSidebarFocused(false);
+            }
+          }}
+          onPointerDownCapture={() => {
+            workspaceSidebarPointerRef.current = true;
+          }}
+          onPointerUpCapture={() => {
+            window.setTimeout(() => {
+              workspaceSidebarPointerRef.current = false;
+            }, 0);
+          }}
+          onFocusCapture={() => {
+            if (!workspaceSidebarPointerRef.current) setWorkspaceSidebarFocused(true);
+          }}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setWorkspaceSidebarFocused(false);
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !workspaceSidebarPinned) {
+              setWorkspaceSidebarFocused(false);
+              (event.target as HTMLElement).blur();
+            }
+          }}
+        >
           {/*
             * One row, not two. The brand row said "K-Comms / Communication
             * workspace" and the identity row underneath said "Workspace /
@@ -155,12 +200,21 @@ function ProductShellContent() {
             <button
               className="workspace-sidebar-toggle"
               type="button"
-              aria-label={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
-              aria-pressed={workspaceSidebarCollapsed}
-              title={workspaceSidebarCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
-              onClick={() => setWorkspaceSidebarCollapsed((collapsed) => !collapsed)}
+              aria-label={workspaceSidebarToggleLabel}
+              aria-expanded={workspaceSidebarExpanded}
+              aria-pressed={workspaceSidebarPinned}
+              title={workspaceSidebarToggleLabel}
+              onClick={(event) => {
+                const nextPinned = !workspaceSidebarPinned;
+                setWorkspaceSidebarPinned(nextPinned);
+                if (!nextPinned) {
+                  setWorkspaceSidebarHovered(false);
+                  setWorkspaceSidebarFocused(false);
+                  event.currentTarget.blur();
+                }
+              }}
             >
-              <AppIcon name={workspaceSidebarCollapsed ? "panelLeftOpen" : "panelLeftClose"} />
+              <AppIcon name={workspaceSidebarPinned ? "panelLeftClose" : "panelLeftOpen"} />
             </button>
           </div>
           <button
@@ -177,7 +231,7 @@ function ProductShellContent() {
             <span>New instant room</span>
           </button>
           <nav className="workspace-sidebar-nav" aria-label="Member areas">
-            <MemberAreaLinks variant="grouped" />
+            <MemberAreaLinks variant="grouped" compact={!workspaceSidebarExpanded} />
           </nav>
           <div className="workspace-sidebar-spacer" />
           <div className="workspace-sidebar-notifications">

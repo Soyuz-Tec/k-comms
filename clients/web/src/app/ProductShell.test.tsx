@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
@@ -209,7 +209,7 @@ describe("ProductShell", () => {
     })).not.toBeInTheDocument();
   });
 
-  it("persists an accessible compact workspace rail", async () => {
+  it("uses an accessible compact dock and lets users pin the expanded navigation", async () => {
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query === "(min-width: 761px) and (min-height: 561px)",
       media: query,
@@ -226,21 +226,58 @@ describe("ProductShell", () => {
     const sidebar = screen.getByRole("complementary", {
       name: "Workspace navigation"
     });
-    const collapse = screen.getByRole("button", {
-      name: "Collapse navigation sidebar"
+    const toggle = screen.getByRole("button", {
+      name: "Keep navigation open"
     });
-    expect(collapse).toHaveAttribute("aria-pressed", "false");
-
-    await user.click(collapse);
     expect(sidebar).toHaveClass("is-collapsed");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await user.hover(sidebar);
+    expect(sidebar).toHaveClass("is-expanded");
+    await user.unhover(sidebar);
+    expect(sidebar).toHaveClass("is-collapsed");
+
+    await user.click(toggle);
+    expect(sidebar).toHaveClass("is-expanded");
     expect(window.localStorage.getItem(
       "k-comms.workspace-sidebar-collapsed.v1"
     )).toBe("true");
+    expect(screen.getByRole("button", {
+      name: "Use compact navigation"
+    })).toHaveAttribute("aria-pressed", "true");
 
     view.unmount();
     renderProductShell();
     expect(screen.getByRole("button", {
-      name: "Expand navigation sidebar"
+      name: "Use compact navigation"
     })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens for keyboard focus and returns to compact mode on Escape", async () => {
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query === "(min-width: 761px) and (min-height: 561px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }));
+    const user = userEvent.setup();
+    renderProductShell();
+
+    const sidebar = screen.getByRole("complementary", {
+      name: "Workspace navigation"
+    });
+    const toggle = screen.getByRole("button", {
+      name: "Keep navigation open"
+    });
+    toggle.focus();
+    await waitFor(() => expect(sidebar).toHaveClass("is-expanded"));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(sidebar).toHaveClass("is-collapsed"));
+    expect(toggle).not.toHaveFocus();
   });
 });

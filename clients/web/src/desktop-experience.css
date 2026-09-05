@@ -11,12 +11,11 @@
  *
  * Two things this file used to do, and no longer does:
  *
- *   The 80px icon rail. ProductShell renders .workspace-sidebar, not
+ *   The legacy icon rail. ProductShell renders .workspace-sidebar, not
  *   .desktop-workspace-rail, so that whole block was dead — but not inert: it
- *   set --desktop-rail-width to 80px and .app-shell's background to
- *   --surface-raised at the same specificity, in the same media query, as
- *   interface-system.css sets 248px and --surface-canvas. Import order was
- *   silently deciding which reasoning won. The sidebar now lives in
+ *   set --desktop-rail-width and .app-shell's background at the same
+ *   specificity as interface-system.css. Import order was silently deciding
+ *   which navigation geometry won. The adaptive dock now lives in
  *   interface-system.css alone.
  *
  *   Weights above 600. Geist's axis is 300..600 and fonts.css self-hosts it

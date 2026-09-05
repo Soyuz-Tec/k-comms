@@ -287,7 +287,8 @@
 
 @media (min-width: 761px) and (min-height: 561px) {
   :root {
-    --desktop-rail-width: 240px;
+    --desktop-rail-width: 72px;
+    --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
   }
 
@@ -310,10 +311,16 @@
     border-right: 1px solid var(--border-subtle);
     color: var(--text-primary);
     background: var(--surface-canvas);
+    transition: width 180ms ease, box-shadow 180ms ease;
   }
 
-  .app-shell.workspace-sidebar-collapsed {
-    --desktop-rail-width: 80px;
+  .workspace-sidebar.is-expanded {
+    width: var(--desktop-sidebar-expanded-width);
+    box-shadow: 14px 0 36px rgb(var(--shadow-color) / 12%);
+  }
+
+  .workspace-sidebar.is-expanded .workspace-sidebar-toggle {
+    display: grid;
   }
 
   .workspace-sidebar-header {
@@ -555,7 +562,7 @@
   }
 
   .workspace-account-menu .desktop-account-panel {
-    left: calc(var(--desktop-rail-width) + .75rem);
+    left: calc(100% + .75rem);
   }
 
   /*
@@ -580,6 +587,10 @@
   .workspace-sidebar.is-collapsed {
     align-items: center;
     padding-inline: .55rem;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
+    display: grid;
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-header {
@@ -732,52 +743,53 @@
 
 @media (min-width: 761px) and (max-width: 1179px) and (min-height: 561px) {
   :root {
-    --desktop-rail-width: 80px;
+    --desktop-rail-width: 72px;
+    --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: 300px;
   }
 
-  .workspace-sidebar {
+  .workspace-sidebar.is-collapsed {
     align-items: center;
     gap: .65rem;
     padding: .8rem .65rem;
   }
 
-  .workspace-sidebar-header {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-header {
     width: 100%;
     grid-template-columns: 1fr;
     justify-items: center;
   }
 
-  .workspace-sidebar-toggle {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
+    display: grid;
+  }
+
+  .workspace-sidebar.is-collapsed .workspace-identity-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-copy,
+  .workspace-sidebar.is-collapsed .workspace-account-chevron,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications > span,
+  .workspace-sidebar.is-collapsed .workspace-instant-room span,
+  .workspace-sidebar.is-collapsed .member-nav-group-label {
     display: none;
   }
 
-  .workspace-identity-copy,
-  .workspace-account-copy,
-  .workspace-account-chevron,
-  .workspace-sidebar-notifications > span,
-  .workspace-instant-room span,
-  .member-nav-group-label {
-    display: none;
-  }
-
-  .workspace-sidebar-identity,
-  .workspace-sidebar-notifications,
-  .workspace-account-menu,
-  .workspace-sidebar-nav,
-  .member-nav-group {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-identity,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications,
+  .workspace-sidebar.is-collapsed .workspace-account-menu,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav,
+  .workspace-sidebar.is-collapsed .member-nav-group {
     width: 100%;
     justify-content: center;
   }
 
-  .workspace-sidebar-identity {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-identity {
     min-height: 48px;
     padding: .3rem;
   }
 
-  .workspace-instant-room,
-  .workspace-sidebar-nav a,
-  .workspace-account-trigger {
+  .workspace-sidebar.is-collapsed .workspace-instant-room,
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a,
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
     width: 48px;
     min-width: 48px;
     height: 48px;
@@ -787,7 +799,7 @@
     padding: 0;
   }
 
-  .workspace-sidebar-nav a span {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -797,11 +809,11 @@
     clip-path: inset(50%);
   }
 
-  .workspace-sidebar-nav a {
+  .workspace-sidebar.is-collapsed .workspace-sidebar-nav a {
     margin-inline: auto;
   }
 
-  .workspace-account-trigger {
+  .workspace-sidebar.is-collapsed .workspace-account-trigger {
     grid-template-columns: 1fr;
     justify-items: center;
   }
@@ -1058,6 +1070,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-sidebar,
   .workspace-sidebar *,
   .mobile-primary-nav * {
     transition-duration: .01ms !important;
