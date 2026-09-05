@@ -183,10 +183,15 @@ export function CallPrejoinDialog({
         {previewBusy && <span className="camera-preview-status" role="status">Starting camera preview…</span>}
       </div>}
       <div className="prejoin-mode-cards" aria-label="Call mode">
-        <div className="selected">
-          <span aria-hidden="true"><AppIcon name={kind === "audio" ? "phone" : "video"} /></span>
-          <strong>{kind === "audio" ? "Audio call" : "Video call"}</strong>
-          <small>{kind === "audio" ? "Voice only" : "Camera optional"}</small>
+        <div className={kind === "audio" ? "selected" : ""}>
+          <span aria-hidden="true"><AppIcon name="phone" /></span>
+          <strong>Audio</strong>
+          <small>Voice only</small>
+        </div>
+        <div className={kind === "video" ? "selected" : ""}>
+          <span aria-hidden="true"><AppIcon name="video" /></span>
+          <strong>Video</strong>
+          <small>Camera optional</small>
         </div>
       </div>
       <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">
