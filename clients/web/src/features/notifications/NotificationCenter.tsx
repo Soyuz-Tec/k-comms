@@ -100,6 +100,7 @@ export function NotificationCenter() {
         className="notification-trigger"
         type="button"
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        title="Notifications"
         aria-expanded={open}
         onClick={() => setOpen((visible) => !visible)}
       >
