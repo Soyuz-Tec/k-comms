@@ -287,36 +287,82 @@
 
 @media (min-width: 761px) and (min-height: 561px) {
   :root {
-    --desktop-rail-width: 72px;
+    --desktop-rail-width: 48px;
     --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: clamp(320px, 27vw, 360px);
   }
 
   .app-shell {
     min-width: 0;
-    padding-left: var(--desktop-rail-width);
+    padding-left: 0;
     background: var(--surface-raised);
   }
 
   .workspace-sidebar {
     position: fixed;
     z-index: 40;
-    inset: 0 auto 0 0;
+    inset: max(8px, env(titlebar-area-height, 0px)) auto 8px 0;
     width: var(--desktop-rail-width);
+    max-height: 600px;
+    margin-block: auto;
     display: flex;
     overflow: hidden auto;
     flex-direction: column;
-    gap: .58rem;
+    gap: .3rem;
     padding: .72rem .78rem;
-    border-right: 1px solid var(--border-subtle);
+    border: 0;
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
     color: var(--text-primary);
-    background: var(--surface-canvas);
-    transition: width 180ms ease, box-shadow 180ms ease;
+    background: transparent;
+    transition: opacity 180ms ease, translate 180ms ease;
   }
 
   .workspace-sidebar.is-expanded {
     width: var(--desktop-sidebar-expanded-width);
+    background: color-mix(in srgb, var(--surface-overlay) 96%, transparent);
     box-shadow: 14px 0 36px rgb(var(--shadow-color) / 12%);
+  }
+
+  .workspace-sidebar.is-hidden {
+    opacity: 0;
+    translate: -110% 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  /* A small edge mark with a full-size keyboard/touch target remains discoverable. */
+  .workspace-navigation-reveal {
+    position: fixed;
+    z-index: 40;
+    top: calc(50% - 22px);
+    left: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .workspace-navigation-reveal span {
+    display: block;
+    width: 3px;
+    height: 28px;
+    margin-left: 2px;
+    border-radius: var(--radius-full);
+    background: currentColor;
+  }
+
+  .workspace-navigation-reveal:hover,
+  .workspace-navigation-reveal:focus-visible {
+    color: var(--accent-text);
+    background: var(--surface-hover);
+  }
+
+  .workspace-navigation-reveal:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
   }
 
   .workspace-sidebar.is-expanded .workspace-sidebar-toggle {
@@ -562,7 +608,55 @@
   }
 
   .workspace-account-menu .desktop-account-panel {
-    left: calc(100% + .75rem);
+    position: fixed;
+    left: calc(var(--desktop-rail-width) + 8px);
+    bottom: 16px;
+    width: min(340px, calc(100vw - var(--desktop-sidebar-expanded-width) - 24px));
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    padding: var(--space-3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-overlay);
+    box-shadow: 0 8px 32px rgb(var(--shadow-color) / 16%);
+  }
+
+  .desktop-account-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .desktop-account-heading > span:last-child {
+    min-width: 0;
+    display: grid;
+    overflow-wrap: anywhere;
+  }
+
+  .desktop-account-heading small {
+    color: var(--text-muted);
+  }
+
+  .desktop-role-links {
+    display: grid;
+  }
+
+  .desktop-role-links a {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+  }
+
+  .desktop-role-links a:hover {
+    background: var(--surface-hover);
+  }
+
+  .workspace-sidebar.is-expanded .desktop-account-panel {
+    left: calc(var(--desktop-sidebar-expanded-width) + 8px);
   }
 
   /*
@@ -586,7 +680,7 @@
 
   .workspace-sidebar.is-collapsed {
     align-items: center;
-    padding-inline: .55rem;
+    padding: 6px 2px;
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-toggle {
@@ -624,13 +718,23 @@
     justify-content: center;
   }
 
+  .workspace-sidebar.is-collapsed .workspace-sidebar-notifications {
+    padding-inline: 0;
+  }
+
+  /* The dock is transparent, but controls must remain legible over drawings. */
+  .workspace-sidebar.is-collapsed :is(.workspace-sidebar-nav a:not(.active), .workspace-sidebar-toggle, .notification-trigger):not(:hover) {
+    background: color-mix(in srgb, var(--surface-overlay) 88%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
   .workspace-sidebar.is-collapsed .workspace-instant-room,
   .workspace-sidebar.is-collapsed .workspace-sidebar-nav a,
   .workspace-sidebar.is-collapsed .workspace-account-trigger {
-    width: 48px;
-    min-width: 48px;
-    height: 48px;
-    min-height: 48px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
     display: grid;
     place-items: center;
     margin-inline: auto;
@@ -743,15 +847,15 @@
 
 @media (min-width: 761px) and (max-width: 1179px) and (min-height: 561px) {
   :root {
-    --desktop-rail-width: 72px;
+    --desktop-rail-width: 48px;
     --desktop-sidebar-expanded-width: 240px;
     --desktop-sidebar-width: 300px;
   }
 
   .workspace-sidebar.is-collapsed {
     align-items: center;
-    gap: .65rem;
-    padding: .8rem .65rem;
+    gap: .3rem;
+    padding: 6px 2px;
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-header {
@@ -783,17 +887,17 @@
   }
 
   .workspace-sidebar.is-collapsed .workspace-sidebar-identity {
-    min-height: 48px;
-    padding: .3rem;
+    min-height: 32px;
+    padding: 0;
   }
 
   .workspace-sidebar.is-collapsed .workspace-instant-room,
   .workspace-sidebar.is-collapsed .workspace-sidebar-nav a,
   .workspace-sidebar.is-collapsed .workspace-account-trigger {
-    width: 48px;
-    min-width: 48px;
-    height: 48px;
-    min-height: 48px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
     display: grid;
     place-items: center;
     padding: 0;
@@ -1078,12 +1182,23 @@
 }
 
 @media (forced-colors: active) {
+  .workspace-sidebar,
+  .workspace-navigation-reveal {
+    background: Canvas;
+  }
+
   .workspace-sidebar-nav a.active,
   .mobile-primary-nav a.active,
   .workspace-instant-room,
   .workspace-account-trigger,
   .workspace-sidebar .notification-trigger {
     border: 1px solid ButtonText;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-sidebar {
+    background: var(--surface-overlay);
   }
 }
 
