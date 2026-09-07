@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CanvasControls } from "./CanvasControls";
 
 vi.mock("@excalidraw/excalidraw", () => ({
+  exportToBlob: vi.fn().mockResolvedValue(new Blob(["png"], { type: "image/png" })),
   convertToExcalidrawElements: (elements: Array<Record<string, unknown>>) =>
     elements.map((element, index) => ({
       width: 100,
@@ -27,6 +28,8 @@ function editorHarness() {
       zoom: { value: 1 }
     })),
     getSceneElements: vi.fn(() => []),
+    getFiles: vi.fn(() => ({})),
+    getName: vi.fn(() => "Planning / whiteboard"),
     scrollToContent,
     updateScene
   } as unknown as ExcalidrawImperativeAPI;
@@ -105,7 +108,9 @@ describe("CanvasControls", () => {
         .getByRole("button", { name: /Clear canvas/ })
     );
     const confirmation = screen.getByRole("alertdialog", { name: "Clear this canvas?" });
-    expect(confirmation).toHaveTextContent("for everyone currently viewing this room");
+    expect(confirmation).toHaveTextContent(
+      "for everyone in this conversation"
+    );
     await waitFor(() => expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus());
     await user.click(within(confirmation).getByRole("button", { name: "Clear canvas" }));
     await waitFor(() => expect(onClearCanvas).toHaveBeenCalledOnce());
@@ -134,5 +139,50 @@ describe("CanvasControls", () => {
     await user.keyboard("{Escape}");
     expect(panel).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("exports the current scene through the host-owned PNG action", async () => {
+    const user = userEvent.setup();
+    const { editor } = editorHarness();
+    vi.mocked(editor.getSceneElements).mockReturnValue([
+      {
+        id: "rectangle-one",
+        type: "rectangle",
+        version: 1,
+        versionNonce: 1,
+        isDeleted: false
+      } as never
+    ]);
+    const createObjectUrl = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:whiteboard");
+    let downloadedName = "";
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function click(this: HTMLAnchorElement) {
+        downloadedName = this.download;
+      });
+
+    render(
+      <CanvasControls
+        editor={editor}
+        elementCount={1}
+        onClearCanvas={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open canvas controls" }));
+    await user.click(screen.getByRole("button", { name: "Export PNG" }));
+
+    await waitFor(() => expect(createObjectUrl).toHaveBeenCalledOnce());
+    const { exportToBlob } = await import("@excalidraw/excalidraw");
+    expect(exportToBlob).toHaveBeenCalledWith(expect.objectContaining({
+      appState: expect.objectContaining({ exportEmbedScene: false }),
+      mimeType: "image/png"
+    }));
+    expect(anchorClick).toHaveBeenCalledOnce();
+    expect(downloadedName).toBe("Planning-whiteboard.png");
+    createObjectUrl.mockRestore();
+    anchorClick.mockRestore();
   });
 });

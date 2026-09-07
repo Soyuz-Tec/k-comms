@@ -34,8 +34,15 @@ export function applyWhiteboardOperation(
 ): WhiteboardScene {
   if (operation.kind === "board.clear") return new Map();
 
+  return applyWhiteboardElements(scene, operation.payload.elements ?? []);
+}
+
+export function applyWhiteboardElements(
+  scene: WhiteboardScene,
+  elements: readonly WhiteboardElementData[]
+): WhiteboardScene {
   const next = new Map(scene);
-  for (const incoming of operation.payload.elements ?? []) {
+  for (const incoming of elements) {
     const current = next.get(incoming.id);
     if (!current || incomingWins(current, incoming)) {
       next.set(incoming.id, incoming);

@@ -110,12 +110,21 @@ export function CollaborativeWhiteboard({
       <span>
         {collaboration.elementCount} {collaboration.elementCount === 1 ? "object" : "objects"}
       </span>
-      <span>
-        {collaboration.saveStatus === "saved"
-          ? "Saved"
-          : collaboration.saveStatus === "saving"
-            ? "Saving…"
-            : "Save needs attention"}
+      <span
+        className={`whiteboard-sync-status ${collaboration.saveStatus}`}
+        title={
+          collaboration.pendingCount > 0
+            ? `${collaboration.pendingCount} unsynced operation${collaboration.pendingCount === 1 ? "" : "s"}`
+            : "All changes are synchronized"
+        }
+      >
+        {collaboration.saveStatus === "synced"
+          ? "Synced"
+          : collaboration.saveStatus === "syncing"
+            ? "Syncing…"
+            : collaboration.saveStatus === "unsynced"
+              ? `Unsynced changes${collaboration.pendingCount > 0 ? ` · ${collaboration.pendingCount} pending` : ""}`
+              : "Sync paused"}
       </span>
     </div>
   );
@@ -184,6 +193,17 @@ export function CollaborativeWhiteboard({
       {collaboration.error && (
         <div className="whiteboard-error" role="alert">
           {collaboration.error}
+        </div>
+      )}
+
+      {collaboration.focusStatus === "missing" && (
+        <div className="whiteboard-reference-status" role="status">
+          The referenced whiteboard object is no longer available.
+        </div>
+      )}
+      {collaboration.focusStatus === "partial" && (
+        <div className="whiteboard-reference-status" role="status">
+          Some referenced whiteboard objects are no longer available.
         </div>
       )}
 

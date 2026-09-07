@@ -5,7 +5,9 @@ import {
 } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
 import type { ComponentProps, KeyboardEvent, MouseEvent } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { AppIcon } from "../../components/AppIcon";
+import { useAutoHideWhiteboardToolbar } from "./useAutoHideWhiteboardToolbar";
 import "./KCommsDrawingCanvas.css";
 
 type DrawingEngineProps = ComponentProps<typeof DrawingEngine>;
@@ -94,7 +96,8 @@ export function KCommsDrawingCanvas({
   UIOptions,
   ...drawingProps
 }: KCommsDrawingCanvasProps) {
-  const drawingSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const { surfaceRef: drawingSurfaceRef, hidden: toolbarHidden, reveal } =
+    useAutoHideWhiteboardToolbar();
   const mergedUIOptions = {
     ...UIOptions,
     canvasActions: {
@@ -140,7 +143,7 @@ export function KCommsDrawingCanvas({
   return (
     <div
       ref={drawingSurfaceRef}
-      className="k-comms-drawing-surface"
+      className={`k-comms-drawing-surface${toolbarHidden ? " is-toolbar-hidden" : ""}`}
       data-testid="k-comms-drawing-surface"
       onClickCapture={stopUnsupportedVendorAction}
       onKeyDownCapture={stopVendorHelpAndCommandMenus}
@@ -157,6 +160,17 @@ export function KCommsDrawingCanvas({
           title="K-Comms canvas resources"
         />
       </DrawingEngine>
+      {toolbarHidden && (
+        <button
+          className="whiteboard-toolbar-reveal"
+          type="button"
+          aria-label="Show drawing tools"
+          title="Show drawing tools"
+          onClick={reveal}
+        >
+          <AppIcon name="pencil" />
+        </button>
+      )}
     </div>
   );
 }

@@ -46,6 +46,8 @@ export function CanvasControls({
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [background, setBackground] = useState("#ffffff");
   const [zoom, setZoom] = useState(1);
@@ -147,6 +149,36 @@ export function CanvasControls({
       viewportZoomFactor: 0.82
     });
     closeTemplates();
+  }
+
+  async function exportPng() {
+    if (!editor || exporting) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const { exportToBlob } = await import("@excalidraw/excalidraw");
+      const blob = await exportToBlob({
+        elements: editor.getSceneElements(),
+        appState: { ...editor.getAppState(), exportEmbedScene: false },
+        files: editor.getFiles(),
+        mimeType: "image/png",
+        exportPadding: 32
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFileName(editor.getName() || "k-comms-whiteboard")}.png`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (reason: unknown) {
+      setExportError(
+        reason instanceof Error
+          ? reason.message
+          : "The whiteboard could not be exported. Try again."
+      );
+    } finally {
+      setExporting(false);
+    }
   }
 
   function closeTemplates() {
@@ -293,7 +325,15 @@ export function CanvasControls({
                 >
                   Fit canvas
                 </button>
+                <button
+                  type="button"
+                  disabled={!editor || elementCount === 0 || exporting}
+                  onClick={() => void exportPng()}
+                >
+                  {exporting ? "Exporting…" : "Export PNG"}
+                </button>
               </div>
+              {exportError && <p className="canvas-controls-error" role="alert">{exportError}</p>}
             </section>
 
             {onMessageSelection && selectedCount > 0 && (
@@ -367,7 +407,7 @@ export function CanvasControls({
             <h2 id={`${controlsId}-clear-title`}>Clear this canvas?</h2>
             <p id={`${controlsId}-clear-description`}>
               {shared
-                ? "This removes every canvas object for everyone currently viewing this room."
+                ? "This removes every canvas object for everyone in this conversation."
                 : "This removes every canvas object from the local draft in this browser."}
             </p>
             {clearError && <p className="canvas-clear-error" role="alert">{clearError}</p>}
@@ -396,4 +436,13 @@ export function CanvasControls({
       )}
     </>
   );
+}
+
+function safeFileName(value: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[^a-z0-9\-_ ]/gi, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 80);
+  return normalized || "k-comms-whiteboard";
 }

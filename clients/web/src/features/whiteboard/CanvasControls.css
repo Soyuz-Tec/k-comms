@@ -212,6 +212,17 @@
   grid-template-columns: 44px minmax(70px, 1fr) 44px minmax(92px, 1fr);
 }
 
+.canvas-view-controls button:last-child {
+  grid-column: 1 / -1;
+}
+
+.canvas-controls-error {
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
 .canvas-controls-action {
   min-height: 56px;
   display: grid;
@@ -326,6 +337,7 @@
     grid-template-columns: 44px minmax(64px, 1fr) 44px;
   }
 
+  .canvas-view-controls button:nth-child(4),
   .canvas-view-controls button:last-child {
     grid-column: 1 / -1;
   }
