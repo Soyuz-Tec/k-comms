@@ -145,6 +145,9 @@ describe("CallsPage", () => {
     await user.click(within(row as HTMLElement).getByRole("button", { name: "Join video call for Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "video");
     const launcher = screen.getByRole("region", { name: "Start a call" });
+    expect(screen.getByRole("heading", { name: "Calls", level: 1 })).toBeVisible();
+    expect(screen.queryByText("Room lifecycle")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace communication")).not.toBeInTheDocument();
     await user.click(within(launcher).getByRole("button", { name: "Audio call Execution room" }));
     expect(harness.launchCall).toHaveBeenCalledWith(conversation, "audio");
     expect(screen.queryByText(/missed|declined|scheduled/i)).not.toBeInTheDocument();

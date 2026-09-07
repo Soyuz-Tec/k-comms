@@ -147,11 +147,9 @@ export function CallsPage() {
     <main className="page-shell calls-page" id="main-content">
       <header className="page-heading calls-page-heading">
         <div className="calls-page-title-lockup">
-          <span className="calls-page-mark" aria-hidden="true"><AppIcon name="phone" /></span>
           <div>
-            <span className="eyebrow">Workspace communication</span>
             <h1>Calls</h1>
-            <p>Start, join, and review secure workspace calls in one place.</p>
+            <p>Your conversations, together in real time.</p>
           </div>
         </div>
         <div className="calls-page-actions">
@@ -196,11 +194,9 @@ export function CallsPage() {
           aria-labelledby="new-call-heading"
         >
           <div className="calls-panel-heading">
-            <span className="calls-panel-icon" aria-hidden="true"><AppIcon name="phone" /></span>
             <div>
-              <span className="eyebrow">New call</span>
               <h2 id="new-call-heading">Start a call</h2>
-              <p>Choose a room or person, then select audio or video.</p>
+              <p>Choose a conversation. Join on your terms.</p>
             </div>
           </div>
           <label className="calls-search">
@@ -278,9 +274,8 @@ export function CallsPage() {
         <section className="calls-history" aria-labelledby="call-sessions-heading">
           <div className="calls-section-heading">
             <div>
-              <span className="eyebrow">Room lifecycle</span>
               <h2 id="call-sessions-heading">Call history</h2>
-              <p>Join live rooms or revisit completed call sessions.</p>
+              <p>{scope === "active" ? "Conversations happening now." : "Your recent room sessions."}</p>
             </div>
             <div className="calls-filter-stack">
               <fieldset className="calls-segments">

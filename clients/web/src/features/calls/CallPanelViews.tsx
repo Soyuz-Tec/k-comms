@@ -12,6 +12,7 @@ import type { CallPhase } from "./callContracts";
 import { mediaEnabled, mediaLabel } from "./callMedia";
 import type { CallReadinessCheckResult } from "./callReadiness";
 import type { CallReadinessPhase } from "./useCallReadinessTest";
+import "./CallPresentation.css";
 
 type VideoTrack = LocalVideoTrack | RemoteVideoTrack;
 
@@ -182,17 +183,10 @@ export function CallPrejoinDialog({
         {cameraEnabled ? <video ref={previewVideoRef} data-k-comms-camera-preview autoPlay muted playsInline aria-label="Camera preview" /> : <div className="camera-preview-placeholder" aria-hidden="true">Camera off</div>}
         {previewBusy && <span className="camera-preview-status" role="status">Starting camera preview…</span>}
       </div>}
-      <div className="prejoin-mode-cards" aria-label="Call mode">
-        <div className={kind === "audio" ? "selected" : ""}>
-          <span aria-hidden="true"><AppIcon name="phone" /></span>
-          <strong>Audio</strong>
-          <small>Voice only</small>
-        </div>
-        <div className={kind === "video" ? "selected" : ""}>
-          <span aria-hidden="true"><AppIcon name="video" /></span>
-          <strong>Video</strong>
-          <small>Camera optional</small>
-        </div>
+      <div className="prejoin-call-mode" role="group" aria-label="Call mode">
+        <span aria-hidden="true"><AppIcon name={kind === "video" ? "video" : "phone"} /></span>
+        <strong>{kind === "video" ? "Video" : "Audio"}</strong>
+        <small>{kind === "video" ? "Camera optional" : "Voice only"}</small>
       </div>
       <div className="call-capture-indicator prejoin" role="status" aria-label="Prejoin capture status">
         <strong>Before joining</strong>

@@ -56,6 +56,7 @@ describe("CanvasControls", () => {
 
     const trigger = screen.getByRole("button", { name: "Open canvas controls" });
     expect(trigger.querySelector(".canvas-controls-count")).toHaveTextContent("3");
+    expect(trigger).toHaveAccessibleDescription("3 objects on this canvas");
     await user.click(trigger);
     const panel = screen.getByRole("dialog", { name: "Canvas controls" });
     expect(within(panel).getByRole("heading", { name: "Appearance" })).toBeVisible();
@@ -130,6 +131,8 @@ describe("CanvasControls", () => {
     );
 
     const trigger = screen.getByRole("button", { name: "Open canvas controls" });
+    expect(trigger.querySelector(".canvas-controls-count")).toBeNull();
+    expect(trigger).toHaveAccessibleDescription("0 objects on this canvas");
     await user.click(trigger);
     const panel = screen.getByRole("dialog", { name: "Canvas controls" });
     expect(within(panel).getByRole("button", { name: "Fit canvas" })).toBeDisabled();

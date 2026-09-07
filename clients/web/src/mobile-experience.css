@@ -60,7 +60,9 @@
   display: grid;
   grid-template-columns: minmax(13rem, .42fr) minmax(16rem, 1fr);
   gap: .75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .member-segmented-control {
@@ -125,7 +127,7 @@
 
 .directory-list {
   display: grid;
-  gap: .55rem;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -138,10 +140,11 @@
   align-items: center;
   gap: .8rem;
   padding: .85rem 1rem;
-  border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
   background: var(--surface-raised);
-  box-shadow: 0 5px 18px rgb(var(--shadow-color) / 4%);
+  box-shadow: none;
 }
 
 .member-avatar,

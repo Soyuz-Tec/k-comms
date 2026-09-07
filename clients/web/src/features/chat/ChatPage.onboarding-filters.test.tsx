@@ -196,28 +196,34 @@ describe("ChatPage durable sequence recovery", () => {
     ];
     render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
     const list = screen.getByRole("navigation", { name: "Conversation list" });
+    expect(screen.getByLabelText("3 conversations shown")).toHaveTextContent("3");
 
     await user.type(screen.getByLabelText("Filter conversations by title"), "project");
     expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /General/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.clear(screen.getByLabelText("Filter conversations by title"));
     const inboxView = screen.getByRole("group", { name: "Inbox view" });
     await user.click(within(inboxView).getByRole("button", { name: "Direct" }));
     expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /Project Alpha/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.click(within(inboxView).getByRole("button", { name: "Rooms" }));
     expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
     expect(within(list).getByRole("button", { name: /Project Alpha/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("2 conversations shown")).toHaveTextContent("2");
 
     await user.click(within(inboxView).getByRole("button", { name: "Unread" }));
     expect(within(list).getByRole("button", { name: /General/ })).toBeVisible();
     expect(within(list).queryByRole("button", { name: /Grace/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("1 conversation shown")).toHaveTextContent("1");
 
     await user.click(within(inboxView).getByRole("button", { name: "All" }));
     expect(within(list).getByRole("button", { name: /Grace/ })).toBeVisible();
+    expect(screen.getByLabelText("3 conversations shown")).toHaveTextContent("3");
   });
 
   it("disambiguates duplicate direct-chat usernames in the list, header, and composer", () => {

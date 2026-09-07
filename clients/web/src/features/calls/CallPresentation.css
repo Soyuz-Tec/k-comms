@@ -1,0 +1,118 @@
+/* Presentation only: capture consent and call lifecycle remain in their owners. */
+.call-prejoin-dialog .prejoin-call-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--surface-canvas);
+  font-size: var(--text-sm);
+}
+
+.prejoin-call-mode > span {
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+}
+
+.prejoin-call-mode .app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.prejoin-call-mode strong { font-weight: 600; }
+.prejoin-call-mode small {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.call-prejoin-dialog .prejoin-heading h2 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: -.025em;
+}
+
+.call-prejoin-dialog .prejoin-device-settings,
+.call-prejoin-dialog .prejoin-consent-grid,
+.call-prejoin-dialog .prejoin-readiness-option,
+.call-prejoin-dialog .camera-preview {
+  border-radius: var(--radius-md);
+}
+
+.call-prejoin-dialog .prejoin-consent-grid {
+  display: grid;
+}
+
+.call-prejoin-dialog .prejoin-consent-grid .checkbox-field,
+.call-prejoin-dialog .prejoin-device-settings > summary,
+.call-prejoin-dialog .call-capture-indicator span,
+.call-prejoin-dialog .camera-preview-placeholder {
+  font-weight: 550;
+}
+
+/* The meeting is a dark media surface in both app themes. Keep local controls
+   and their text on the matching media palette, including the options sheet. */
+.audio-call-dock.active-call-screen:not(.minimized) {
+  --surface-canvas: var(--surface-media);
+  --surface-raised: var(--surface-media-control);
+  --surface-sunken: var(--surface-media-control-hover);
+  --surface-overlay: var(--surface-media-control);
+  --text-primary: var(--text-on-media);
+  --text-secondary: var(--text-on-media-muted);
+  --text-muted: var(--text-on-media-muted);
+  --border-default: var(--border-media-control);
+  --border-strong: var(--border-media-control);
+  color: var(--text-on-media);
+  color-scheme: dark;
+}
+
+.audio-call-dock.active-call-screen:not(.minimized) .audio-call-dock-heading h2,
+.audio-call-dock.active-call-screen:not(.minimized) .call-action-label,
+.audio-call-dock.active-call-screen:not(.minimized) .audio-participant-avatar,
+.audio-call-dock.active-call-screen:not(.minimized) .video-placeholder span {
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+
+@media (min-width: 761px) and (min-height: 561px) {
+  .modal-dialog.call-prejoin-dialog {
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .call-prejoin-dialog .prejoin-heading h2 { font-size: 1.35rem; }
+}
+
+@media (max-width: 760px), (max-height: 560px) {
+  .call-prejoin-dialog .prejoin-call-mode {
+    min-height: 40px;
+    margin-block: 8px;
+    padding-block: 8px;
+  }
+}
+
+@media (forced-colors: active) {
+  .call-prejoin-dialog .prejoin-call-mode {
+    color: CanvasText;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .audio-call-dock.active-call-screen:not(.minimized) {
+    --surface-canvas: Canvas;
+    --surface-raised: Canvas;
+    --surface-sunken: Canvas;
+    --surface-overlay: Canvas;
+    --text-primary: CanvasText;
+    --text-secondary: CanvasText;
+    --text-muted: CanvasText;
+    --border-default: CanvasText;
+    --border-strong: CanvasText;
+    color: CanvasText;
+  }
+}

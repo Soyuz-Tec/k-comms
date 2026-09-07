@@ -24,9 +24,9 @@
   gap: .8rem;
   padding: clamp(1.75rem, 5vw, 3rem);
   border: 1px solid var(--border-default);
-  border-radius: 22px;
+  border-radius: var(--radius-lg);
   background: var(--surface-raised);
-  box-shadow: 0 26px 80px rgb(35 53 78 / 10%);
+  box-shadow: var(--shadow-raised);
 }
 
 .instant-room-loading {
@@ -41,10 +41,10 @@
 .instant-room-start h1 {
   margin: 0;
   font-family: var(--font-body);
-  font-size: clamp(2rem, 5vw, 2.55rem);
-  font-weight: 680;
-  letter-spacing: -.045em;
-  line-height: 1.08;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  line-height: 1.3;
 }
 
 .instant-room-share h2 {

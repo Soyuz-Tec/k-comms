@@ -94,9 +94,40 @@ export function ConversationSidebar({
   return (
     <aside className="conversation-sidebar" aria-label="Conversations">
       <div className="sidebar-heading">
-        <div className="sidebar-heading-title">
-          <span className="eyebrow">Messages and rooms</span>
-          <h1>Inbox</h1>
+        <div className="sidebar-title-row">
+          <div className="sidebar-heading-title">
+            <span className="eyebrow">Messages and rooms</span>
+            <span className="sidebar-title-line">
+              <h1>Inbox</h1>
+              {conversations.length > 0 && (
+                <span
+                  className="sidebar-result-count"
+                  aria-label={`${filteredConversations.length} ${filteredConversations.length === 1 ? "conversation" : "conversations"} shown`}
+                >
+                  {filteredConversations.length}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="sidebar-tools">
+            {/*
+              * Notifications sat in the global phone top bar until that bar was
+              * removed. They belong here rather than in a bar of their own: in a
+              * communication product every notification is about a message or a
+              * mention, so the inbox is the surface they are already about.
+              */}
+            {!desktopShell && <NotificationCenter />}
+            <button
+              className="icon-button inbox-new-button"
+              type="button"
+              aria-label="Create conversation"
+              aria-expanded={showCreateConversation}
+              onClick={onToggleCreateConversation}
+            >
+              <AppIcon name="plus" />
+              <span>New</span>
+            </button>
+          </div>
         </div>
         {conversations.length > 0 && (
           <div className="sidebar-search" role="search" aria-label="Search conversations">
@@ -129,25 +160,6 @@ export function ConversationSidebar({
             </button>
           </div>
         )}
-        <div className="sidebar-tools">
-          {/*
-            * Notifications sat in the global phone top bar until that bar was
-            * removed. They belong here rather than in a bar of their own: in a
-            * communication product every notification is about a message or a
-            * mention, so the inbox is the surface they are already about.
-            */}
-          {!desktopShell && <NotificationCenter />}
-          <button
-            className="icon-button inbox-new-button"
-            type="button"
-            aria-label="Create conversation"
-            aria-expanded={showCreateConversation}
-            onClick={onToggleCreateConversation}
-          >
-            <AppIcon name="plus" />
-            <span>New</span>
-          </button>
-        </div>
       </div>
 
       {showOnboardingSpotlight && (

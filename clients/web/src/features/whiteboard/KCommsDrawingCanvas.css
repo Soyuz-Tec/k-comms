@@ -8,6 +8,14 @@
 
 .k-comms-drawing-surface > .excalidraw {
   height: 100%;
+  --ui-font: var(--font-body);
+  --color-primary: var(--accent-solid);
+  --color-primary-darker: var(--accent-solid-hover);
+  --color-primary-darkest: var(--accent-text);
+  --color-surface-primary-container: var(--accent-quiet);
+  --color-on-primary-container: var(--accent-text);
+  --border-radius-lg: var(--radius-md);
+  --border-radius-md: var(--radius-sm);
 }
 
 .k-comms-drawing-surface .App-toolbar__extra-tools-trigger {
@@ -41,8 +49,8 @@
   height: 44px;
   place-items: center;
   translate: -50% 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface-overlay) 88%, transparent);
   box-shadow: var(--shadow-raised);

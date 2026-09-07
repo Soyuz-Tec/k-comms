@@ -279,6 +279,12 @@ describe("CallPanel calls", () => {
     expect(await screen.findByRole("button", { name: "Start audio call" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Start video call" }));
     const dialog = screen.getByRole("dialog", { name: "Start a video call" });
+    const mode = within(dialog).getByRole("group", { name: "Call mode" });
+    expect(mode).toHaveTextContent("VideoCamera optional");
+    expect(within(mode).queryByText("Audio")).not.toBeInTheDocument();
+    expect(within(mode).queryByRole("button")).not.toBeInTheDocument();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("checkbox", { name: "Use camera when I join" })).not.toBeChecked();
     await user.click(within(dialog).getByRole("checkbox", { name: "Use camera when I join" }));
     await waitFor(() => expect(getUserMedia).toHaveBeenCalledTimes(1));
     expect(within(dialog).getByLabelText("Camera preview")).toBeVisible();
