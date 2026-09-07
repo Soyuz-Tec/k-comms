@@ -41,15 +41,15 @@ test.describe("live collaborative whiteboard", () => {
       await Promise.all([firstPage.goto(route), secondPage.goto(route)]);
 
       await Promise.all([
-        expect(firstPage.getByText("Live collaboration", { exact: true })).toBeVisible({
+        expect(firstPage.getByText("Live canvas", { exact: true })).toBeVisible({
           timeout: 30_000
         }),
-        expect(secondPage.getByText("Live collaboration", { exact: true })).toBeVisible({
+        expect(secondPage.getByText("Live canvas", { exact: true })).toBeVisible({
           timeout: 30_000
         })
       ]);
-      await expect(firstPage.getByText("0 objects", { exact: true })).toBeVisible();
-      await expect(secondPage.getByText("0 objects", { exact: true })).toBeVisible();
+      await expect(firstPage.getByRole("heading", { name: "Canvas contents, 0 objects" })).toHaveCount(1);
+      await expect(secondPage.getByRole("heading", { name: "Canvas contents, 0 objects" })).toHaveCount(1);
 
       const firstCanvas = firstPage.locator("canvas.excalidraw__canvas.interactive");
       const bounds = await firstCanvas.boundingBox();
@@ -57,25 +57,27 @@ test.describe("live collaborative whiteboard", () => {
       await firstPage.mouse.move(bounds.x + 700, bounds.y + 180);
       await expect(secondPage.getByText("2 active", { exact: true })).toBeVisible();
 
+      const revealTools = firstPage.getByRole("button", { name: "Show drawing tools" });
+      if (await revealTools.isVisible()) await revealTools.click();
       await firstPage.getByTitle("Rectangle — R or 2").click();
       await firstPage.mouse.move(bounds.x + 420, bounds.y + 210);
       await firstPage.mouse.down();
       await firstPage.mouse.move(bounds.x + 620, bounds.y + 350, { steps: 6 });
       await firstPage.mouse.up();
 
-      await expect(firstPage.getByText("1 object", { exact: true })).toBeVisible();
-      await expect(secondPage.getByText("1 object", { exact: true })).toBeVisible();
-      await expect(firstPage.getByText("Saved", { exact: true })).toBeVisible();
+      await expect(firstPage.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+      await expect(secondPage.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+      await expect(firstPage.getByText("Synced", { exact: true })).toBeVisible();
       await expect.poll(
         () => operationCount(request, conversation.id, secondSession),
         { timeout: 10_000 }
       ).toBe(1);
 
       await secondPage.reload();
-      await expect(secondPage.getByText("Live collaboration", { exact: true })).toBeVisible({
+      await expect(secondPage.getByText("Live canvas", { exact: true })).toBeVisible({
         timeout: 30_000
       });
-      await expect(secondPage.getByText("1 object", { exact: true })).toBeVisible();
+      await expect(secondPage.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
 
       await firstPage.getByRole("button", { name: "Open canvas controls" }).click();
       await firstPage.getByRole("button", { name: "Clear canvas" }).click();
@@ -83,8 +85,8 @@ test.describe("live collaborative whiteboard", () => {
         .getByRole("alertdialog", { name: "Clear this canvas?" })
         .getByRole("button", { name: "Clear canvas" })
         .click();
-      await expect(firstPage.getByText("0 objects", { exact: true })).toBeVisible();
-      await expect(secondPage.getByText("0 objects", { exact: true })).toBeVisible();
+      await expect(firstPage.getByRole("heading", { name: "Canvas contents, 0 objects" })).toHaveCount(1);
+      await expect(secondPage.getByRole("heading", { name: "Canvas contents, 0 objects" })).toHaveCount(1);
       await expect.poll(
         () => operationCount(request, conversation.id, firstSession),
         { timeout: 10_000 }

@@ -49,7 +49,8 @@ async function mockWhiteboardWorkspace(page: Page) {
     updated_at: "2026-08-01T12:00:00Z"
   };
   const operations: unknown[] = [];
-  const writes: Array<{ kind: string; payload: { elements?: unknown[] } }> = [];
+  const writes: Array<{ kind: string; base_sequence?: number; payload: { elements?: unknown[] } }> = [];
+  let writesUnavailable = false;
   const sentMessages: Array<Record<string, unknown>> = [];
 
   await page.addInitScript((value) => {
@@ -155,6 +156,10 @@ async function mockWhiteboardWorkspace(page: Page) {
       }
 
       const request = route.request();
+      if (writesUnavailable) {
+        await route.fulfill({ status: 503, json: { error: { code: "unavailable", message: "Temporarily offline" } } });
+        return;
+      }
       const body = request.postDataJSON() as {
         kind: "scene.update" | "board.clear";
         base_sequence?: number;
@@ -178,7 +183,7 @@ async function mockWhiteboardWorkspace(page: Page) {
     }
   );
 
-  return { operations, sentMessages, writes };
+  return { operations, sentMessages, writes, setWritesUnavailable: (value: boolean) => { writesUnavailable = value; } };
 }
 
 test("conversation whiteboard renders a usable white-labeled drawing workspace", async ({
@@ -194,7 +199,7 @@ test("conversation whiteboard renders a usable white-labeled drawing workspace",
     `/app/?conversation=${conversationId}`
   );
   await expect(page.getByText("Offline editing", { exact: true })).toBeVisible();
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
   await expect(page.getByTestId("toolbar-rectangle")).toBeVisible();
 
   const drawingSurface = page.getByTestId("k-comms-drawing-surface");
@@ -233,6 +238,108 @@ test("conversation whiteboard renders a usable white-labeled drawing workspace",
   ).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
 });
 
+test("whiteboard tools reclaim space while remaining discoverable", async ({ page }, testInfo) => {
+  await mockWhiteboardWorkspace(page);
+  await page.clock.install();
+  await page.goto(`/app/whiteboard?conversation=${conversationId}`);
+
+  const toolbar = page.locator(".k-comms-drawing-surface :is(.shapes-section, .App-top-bar)").first();
+  await expect(toolbar).toBeVisible();
+  await page.clock.fastForward(8_100);
+  await expect(toolbar).toHaveAttribute("aria-hidden", "true");
+  await page.clock.runFor(250);
+  await expect(toolbar).toBeHidden();
+  const reveal = page.getByRole("button", { name: "Show drawing tools" });
+  await expect(reveal).toBeVisible();
+  if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+    await page.screenshot({ path: testInfo.outputPath("whiteboard-tools-hidden.png"), animations: "disabled" });
+  }
+  await reveal.click();
+  await expect(toolbar).toHaveAttribute("aria-hidden", "false");
+  await page.mouse.move(1, 1);
+  await page.clock.fastForward(8_100);
+  await expect(reveal).toBeVisible();
+});
+
+test("reports a missing whiteboard reference instead of silently focusing nothing", async ({
+  page
+}, testInfo) => {
+  await mockWhiteboardWorkspace(page);
+  await page.goto(
+    `/app/whiteboard?conversation=${conversationId}&focus_elements=missing-element-123`
+  );
+
+  await expect(
+    page.getByText("The referenced whiteboard object is no longer available.", {
+      exact: true
+    })
+  ).toBeVisible();
+  if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+    await page.screenshot({ path: testInfo.outputPath("whiteboard-missing-reference.png"), animations: "disabled" });
+  }
+});
+
+test("unsynced drawing survives reload in IndexedDB and syncs when writes recover", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Desktop exercises pointer drawing and browser storage");
+  const fixture = await mockWhiteboardWorkspace(page);
+  fixture.setWritesUnavailable(true);
+  await page.goto(`/app/whiteboard?conversation=${conversationId}`);
+  await page.getByTitle("Rectangle — R or 2").click();
+  const canvas = page.locator("canvas.excalidraw__canvas.interactive");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error("whiteboard canvas has no bounds");
+  await page.mouse.move(bounds.x + 420, bounds.y + 210);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 620, bounds.y + 350, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByText("Sync paused", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+  const stored = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("k-comms-whiteboard-v1", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const count = await new Promise<number>((resolve) => {
+      const request = db.transaction("operations").objectStore("operations").count();
+      request.onsuccess = () => resolve(request.result);
+    });
+    db.close();
+    return count;
+  });
+  expect(stored).toBe(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+  await expect(page.getByText("Sync paused", { exact: true })).toBeVisible();
+  fixture.setWritesUnavailable(false);
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible({ timeout: 10_000 });
+  expect(fixture.writes).toHaveLength(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+});
+
+test("native undo and redo persist their result", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Desktop keyboard history contract");
+  const fixture = await mockWhiteboardWorkspace(page);
+  await page.goto(`/app/whiteboard?conversation=${conversationId}`);
+  await page.getByTitle("Rectangle — R or 2").click();
+  const bounds = await page.locator("canvas.excalidraw__canvas.interactive").boundingBox();
+  if (!bounds) throw new Error("whiteboard canvas has no bounds");
+  await page.mouse.move(bounds.x + 420, bounds.y + 210);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 620, bounds.y + 350, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => fixture.writes.length).toBe(1);
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.getByRole("heading", { name: "Canvas contents, 0 objects" })).toHaveCount(1);
+  await expect.poll(() => fixture.writes.length).toBe(2);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(page.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
+  await expect.poll(() => fixture.writes.length).toBe(3);
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
+});
+
 test("draw, durable replay, and clear-for-everyone complete in order", async ({
   page
 }, testInfo) => {
@@ -258,9 +365,18 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
   expect(fixture.writes[0].payload.elements).toEqual([
     expect.objectContaining({ type: "rectangle", isDeleted: false })
   ]);
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open canvas controls" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export PNG" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("Product-planning-whiteboard.png");
+  expect(await download.failure()).toBeNull();
+  if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+    await page.screenshot({ path: testInfo.outputPath("whiteboard-export-controls.png") });
+    await download.saveAs(testInfo.outputPath("whiteboard-export.png"));
+  }
   const messageSelection = page.getByRole("button", { name: "Message selection" });
   await expect(messageSelection).toBeEnabled();
   await messageSelection.click();
@@ -295,5 +411,5 @@ test("draw, durable replay, and clear-for-everyone complete in order", async ({
 
   await expect.poll(() => fixture.writes.length).toBe(2);
   expect(fixture.writes[1]).toEqual({ kind: "board.clear", payload: {} });
-  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
 });

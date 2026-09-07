@@ -4,6 +4,7 @@ import { ApiError } from "../../api";
 import type { WhiteboardOperation } from "../../types";
 import type { WhiteboardPresenceEvent } from "../../types";
 import { useWhiteboardCollaboration } from "./useWhiteboardCollaboration";
+import { saveWhiteboardOutbox } from "./whiteboardOutboxStore";
 
 const mocks = vi.hoisted(() => {
   const socketTicket = vi.fn();
@@ -81,6 +82,7 @@ vi.mock("./WhiteboardRealtime", () => ({
 describe("useWhiteboardCollaboration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     mocks.callbacks = null;
     mocks.socketTicket.mockResolvedValue({ ticket: "socket-ticket" });
     mocks.whiteboardOperations.mockResolvedValue({
@@ -178,7 +180,7 @@ describe("useWhiteboardCollaboration", () => {
     await act(async () => vi.advanceTimersByTimeAsync(1_000));
     const localElement = element("local-element", 1, 8);
     act(() => result.current.handleEditorChange([localElement] as never));
-    expect(result.current.saveStatus).toBe("saving");
+    expect(result.current.saveStatus).toBe("unsynced");
 
     await act(async () => vi.advanceTimersByTimeAsync(350));
     expect(mocks.appendWhiteboardSceneUpdate).toHaveBeenCalledWith(
@@ -187,7 +189,7 @@ describe("useWhiteboardCollaboration", () => {
       2,
       [localElement]
     );
-    expect(result.current.saveStatus).toBe("saved");
+    expect(result.current.saveStatus).toBe("synced");
 
     await act(async () => result.current.clearBoard());
     expect(mocks.clearWhiteboard).toHaveBeenCalledWith(
@@ -253,6 +255,30 @@ describe("useWhiteboardCollaboration", () => {
       0
     );
     expect(result.current.connectionStatus).toBe("connecting");
+  });
+
+  it("replays browser-persisted edits after a reload before reconnecting", async () => {
+    await saveWhiteboardOutbox(
+      "tenant:guest:user:user-one:device:device-one:conversation:conversation-one",
+      [{
+        id: "pending-operation",
+        baseSequence: 0,
+        createdAt: "2026-09-06T12:00:00.000Z",
+        elements: [element("pending-element", 1, 10)] as never[]
+      }]
+    );
+    mocks.connect.mockReturnValue(new Promise(() => undefined));
+
+    const { result } = renderHook(() =>
+      useWhiteboardCollaboration("conversation-one")
+    );
+
+    await waitFor(() =>
+      expect(result.current.initialElements?.map((item) => item.id)).toEqual([
+        "pending-element"
+      ])
+    );
+    await waitFor(() => expect(mocks.appendWhiteboardSceneUpdate).toHaveBeenCalled());
   });
 
   it("starts from a server snapshot and continues with the operations after it", async () => {

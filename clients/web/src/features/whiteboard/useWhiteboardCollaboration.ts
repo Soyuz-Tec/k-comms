@@ -19,6 +19,7 @@ import type {
   WhiteboardPresenceEvent
 } from "../../types";
 import {
+  applyWhiteboardElements,
   applyWhiteboardOperation,
   noteRevisions,
   replayWhiteboardOperations,
@@ -31,6 +32,7 @@ import {
 } from "./WhiteboardRealtime";
 import { orderWhiteboardOperations } from "./operationStream";
 import { WhiteboardPersistence } from "./WhiteboardPersistence";
+import type { SaveStatus } from "./WhiteboardPersistence";
 
 type PointerUpdate = {
   pointer: { x: number; y: number; tool: "pointer" | "laser" };
@@ -61,6 +63,7 @@ export interface WhiteboardCollaborationOptions {
   userId: string;
   deviceId: string;
   users: ReadonlyArray<{ id: string; display_name: string }>;
+  storageKey?: string;
 }
 
 export function useWhiteboardCollaboration(
@@ -74,6 +77,18 @@ export function useWhiteboardCollaboration(
   const sessionUserId = options?.userId ?? sessionContext.session?.user.id;
   const sessionDeviceId = options?.deviceId ?? sessionContext.session?.device.id;
   const users = options?.users ?? workspaceData?.users ?? [];
+  const outboxKey =
+    options?.storageKey ??
+    [
+      "tenant",
+      sessionContext.session?.tenant?.id ?? "guest",
+      "user",
+      sessionUserId ?? "unknown",
+      "device",
+      sessionDeviceId ?? "unknown",
+      "conversation",
+      conversationId
+    ].join(":");
   const editorRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const editorAttachFrameRef = useRef<number | null>(null);
   const remoteApplyFrameRef = useRef<number | null>(null);
@@ -97,9 +112,8 @@ export function useWhiteboardCollaboration(
   >(null);
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting");
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">(
-    "saved"
-  );
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("synced");
+  const [pendingCount, setPendingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyAttempt, setHistoryAttempt] = useState(0);
@@ -108,6 +122,10 @@ export function useWhiteboardCollaboration(
   const [sceneSummary, setSceneSummary] = useState<WhiteboardObjectSummary[]>([]);
   const sceneSummaryRef = useRef<WhiteboardObjectSummary[]>([]);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [editorReady, setEditorReady] = useState(false);
+  const [focusStatus, setFocusStatus] = useState<
+    "idle" | "focused" | "partial" | "missing"
+  >("idle");
   // Only publishes when the description actually changed. `summarizeScene`
   // builds a fresh array every call, so setting it unconditionally would make
   // every element-count callback a real re-render of the editor tree - including
@@ -136,6 +154,7 @@ export function useWhiteboardCollaboration(
       new WhiteboardPersistence({
         api,
         conversationId,
+        outboxKey,
         editor: editorRef,
         applyingRemote: applyingRemoteRef,
         scene: sceneRef,
@@ -149,11 +168,12 @@ export function useWhiteboardCollaboration(
           describeScene(sceneRef.current);
         },
         onSaveStatus: setSaveStatus,
+        onPendingChange: setPendingCount,
         onError: setError,
         onReplayRequested: () =>
           setHistoryAttempt((attempt) => attempt + 1)
       }),
-    [api, conversationId]
+    [api, conversationId, outboxKey]
   );
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user.display_name])),
@@ -162,6 +182,10 @@ export function useWhiteboardCollaboration(
   usersByIdRef.current = usersById;
 
   const focusElementKey = focusElementIds.join("\0");
+  const stableFocusElementIds = useMemo(
+    () => focusElementIds,
+    [focusElementKey]
+  );
   useEffect(() => {
     if (!sessionUserId || !sessionDeviceId) return;
     let current = true;
@@ -271,17 +295,28 @@ export function useWhiteboardCollaboration(
       latestSequenceRef.current = Math.max(replay.latestSequence, snapshotSequence);
       operationQueueRef.current.clear();
       const elements = Array.from(replay.scene.values());
-      if (replay.includesClear) {
-        persistence.handleAuthoritativeClear(replay.clearedElements, elements);
-      } else {
-        revisionsRef.current.clear();
-        noteRevisions(revisionsRef.current, elements);
-        clearedRevisionsRef.current.clear();
+      revisionsRef.current.clear();
+      noteRevisions(revisionsRef.current, elements);
+      clearedRevisionsRef.current.clear();
+      noteRevisions(clearedRevisionsRef.current, replay.clearedElements);
+      await persistence.restoreOutbox();
+      if (!current) return;
+      const latestClear = Math.max(0, ...all.filter((operation) => operation.kind === "board.clear").map((operation) => operation.sequence));
+      persistence.discardBeforeClear(latestClear);
+      const restoredOutbox = await persistence.restoreOutbox();
+      if (!current) return;
+      for (const entry of restoredOutbox) {
+        sceneRef.current = applyWhiteboardElements(
+          sceneRef.current,
+          entry.elements
+        );
       }
+      const restoredElements = Array.from(sceneRef.current.values());
+      noteRevisions(revisionsRef.current, restoredElements);
       setElementCount(visibleElementCount(sceneRef.current));
       describeScene(sceneRef.current);
       const restored = restoreElements(
-        elements as never,
+        restoredElements as never,
         editorRef.current?.getSceneElementsIncludingDeleted() ?? null
       );
       if (editorRef.current) {
@@ -290,6 +325,7 @@ export function useWhiteboardCollaboration(
         setInitialElements(restored);
       }
       setHistoryError(null);
+      persistence.start();
     }
 
     function catchUpDurableScene(): Promise<void> {
@@ -465,14 +501,18 @@ export function useWhiteboardCollaboration(
   ]);
 
   useEffect(
-    () => () => {
-      persistence.dispose();
-      if (editorAttachFrameRef.current !== null) {
-        window.cancelAnimationFrame(editorAttachFrameRef.current);
-      }
-      if (remoteApplyFrameRef.current !== null) {
-        window.cancelAnimationFrame(remoteApplyFrameRef.current);
-      }
+    () => {
+      window.addEventListener("pagehide", persistence.checkpoint);
+      return () => {
+        window.removeEventListener("pagehide", persistence.checkpoint);
+        persistence.dispose();
+        if (editorAttachFrameRef.current !== null) {
+          window.cancelAnimationFrame(editorAttachFrameRef.current);
+        }
+        if (remoteApplyFrameRef.current !== null) {
+          window.cancelAnimationFrame(remoteApplyFrameRef.current);
+        }
+      };
     },
     [persistence]
   );
@@ -490,6 +530,7 @@ export function useWhiteboardCollaboration(
       editorAttachFrameRef.current = null;
       if (editorRef.current !== editor) return;
       editorReadyRef.current = true;
+      setEditorReady(true);
       editor.updateScene({ collaborators: collaboratorsRef.current as never });
       const buffered = bufferedOperationsRef.current
         .splice(0)
@@ -536,19 +577,33 @@ export function useWhiteboardCollaboration(
   };
 
   useEffect(() => {
-    if (!editorReadyRef.current || !editorRef.current || focusElementIds.length === 0) return;
-    const selection = Object.fromEntries(focusElementIds.map((id) => [id, true as const]));
+    if (stableFocusElementIds.length === 0) {
+      setFocusStatus("idle");
+      return;
+    }
+    if (!editorReady || !editorRef.current) return;
+    const selection = Object.fromEntries(stableFocusElementIds.map((id) => [id, true as const]));
     editorRef.current.updateScene({ appState: { selectedElementIds: selection } });
     const selected = editorRef.current
       .getSceneElements()
       .filter((element) => selection[element.id]);
-    if (selected.length > 0) editorRef.current.scrollToContent(selected, { fitToContent: true });
-  }, [focusElementKey, initialElements]);
+    setFocusStatus(
+      selected.length === stableFocusElementIds.length
+        ? "focused"
+        : selected.length > 0
+          ? "partial"
+          : "missing"
+    );
+    if (selected.length > 0) {
+      editorRef.current.scrollToContent(selected, { fitToContent: true });
+    }
+  }, [editorReady, focusElementKey, stableFocusElementIds]);
 
   return {
     initialElements,
     connectionStatus,
     saveStatus,
+    pendingCount,
     error,
     historyError,
     collaboratorCount,
@@ -564,6 +619,7 @@ export function useWhiteboardCollaboration(
       setHistoryError(null);
       setHistoryAttempt((attempt) => attempt + 1);
     },
+    focusStatus,
     clearBoard: persistence.clearBoard
   };
 }

@@ -131,4 +131,13 @@ describe("KCommsDrawingCanvas", () => {
       })
     ).toBe(false);
   });
+
+  it.each([
+    { key: "z", ctrlKey: true, metaKey: false, shiftKey: false },
+    { key: "Z", ctrlKey: true, metaKey: false, shiftKey: true },
+    { key: "z", ctrlKey: false, metaKey: true, shiftKey: false },
+    { key: "Z", ctrlKey: false, metaKey: true, shiftKey: true }
+  ])("preserves the editor undo/redo shortcut %o", (shortcut) => {
+    expect(isBlockedDrawingShortcut(shortcut)).toBe(false);
+  });
 });
