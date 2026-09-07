@@ -431,16 +431,6 @@
     color: var(--text-muted);
   }
 
-  .prejoin-mode-cards {
-    grid-template-columns: 1fr;
-    margin-top: .65rem;
-  }
-
-  .prejoin-mode-cards > div {
-    min-height: 64px;
-    border-radius: 12px;
-  }
-
   .prejoin-consent-grid {
     gap: 0;
     margin: .65rem 0;

@@ -12,6 +12,11 @@ Follow-up acceptance: [Verified UI enhancements](ui-enhancement-completion-2026-
 That contract supersedes the initial presentation-only scope for the additive
 notification pagination API and the specific layout refinements it records.
 
+Current presentation refinement: [Workspace interface redesign](workspace-ui-redesign-2026-09-07.md).
+It replaces the earlier persistent navigation presentation with the approved
+adaptive dock and switcher, and refines the shared screen hierarchy. Feature
+and security behavior remains governed by the existing contracts.
+
 ## Decision
 
 Use one K-Comms visual language rather than separate imitations of other

@@ -194,6 +194,7 @@ export function CanvasControls({
           className="canvas-controls-trigger"
           type="button"
           aria-label="Open canvas controls"
+          aria-describedby={`${controlsId}-objects`}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={controlsId}
@@ -201,8 +202,12 @@ export function CanvasControls({
           onClick={() => setOpen((current) => !current)}
         >
           <AppIcon name="sliders" />
-          <span className="canvas-controls-count" aria-hidden="true">{elementCount}</span>
+          <span className="canvas-controls-label" aria-hidden="true">Canvas</span>
+          {elementCount > 0 && <span className="canvas-controls-count" aria-hidden="true">{elementCount}</span>}
         </button>
+        <span className="visually-hidden" id={`${controlsId}-objects`}>
+          {elementCount} {elementCount === 1 ? "object" : "objects"} on this canvas
+        </span>
 
         {open && (
           <div
@@ -214,7 +219,7 @@ export function CanvasControls({
           >
             <header>
               <div>
-                <span>Canvas</span>
+                <span>{elementCount} {elementCount === 1 ? "object" : "objects"}</span>
                 <strong>Canvas controls</strong>
               </div>
               <button

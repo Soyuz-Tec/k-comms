@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
 import { MemberAreaLinks } from "../components/MemberAreaLinks";
 import { initials } from "../lib/format";
@@ -19,6 +19,7 @@ import { beginNewInstantRoomVisit } from "../features/instant-room/idempotency";
 import { clearMemberInstantRoomContinuity } from "../features/instant-room/memberContinuity";
 import { usePwa } from "../pwa/PwaProvider";
 import { useAutoHideNavigation } from "./useAutoHideNavigation";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -54,12 +55,15 @@ export function ProductShell() {
 
 function ProductShellContent() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { session, logout } = useSession();
   const { teardownCall } = useCallSession();
   const { mode } = useExperienceMode();
-  const { error, setError, refreshAll } = useWorkspaceData();
+  const { error, setError, refreshAll, conversations } = useWorkspaceData();
   const { updateAvailable, applyUpdate, dismissUpdate } = usePwa();
   const [retrying, setRetrying] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  useEffect(() => setSwitcherOpen(false), [location.key]);
   const [workspaceSidebarPinned, setWorkspaceSidebarPinned] = useState(
     readWorkspaceSidebarPinned
   );
@@ -69,8 +73,22 @@ function ProductShellContent() {
   const desktopAccountRef = useRef<HTMLDetailsElement | null>(null);
   const navigationFocusRequested = useRef(false);
   const navigation = useAutoHideNavigation(
-    desktopShell && mode !== "immersive" && Boolean(session), workspaceSidebarPinned, workspaceSidebarFocused
+    desktopShell && mode !== "immersive" && Boolean(session), workspaceSidebarPinned, workspaceSidebarFocused || switcherOpen
   );
+
+  useEffect(() => {
+    function quickSwitch(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey ||
+          !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "k") return;
+      // Preserve editor link shortcuts and never open over consent/confirmation dialogs.
+      if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
+      if (document.querySelector("[aria-modal='true'], dialog[open]")) return;
+      event.preventDefault();
+      setSwitcherOpen(true);
+    }
+    document.addEventListener("keydown", quickSwitch);
+    return () => document.removeEventListener("keydown", quickSwitch);
+  }, []);
 
   useEffect(() => {
     if (navigation.hidden || !navigationFocusRequested.current) return;
@@ -163,7 +181,7 @@ function ProductShellContent() {
             navigationFocusRequested.current = true;
             navigation.reveal();
           }}
-        ><span aria-hidden="true" /></button>}
+        ><AppIcon name="menu" /></button>}
         {desktopShell && !immersive && <aside
           ref={navigation.sidebarRef}
           id="workspace-navigation"
@@ -239,6 +257,11 @@ function ProductShellContent() {
               <AppIcon name={workspaceSidebarPinned ? "panelLeftClose" : "panelLeftOpen"} />
             </button>
           </div>
+          <button className="workspace-switcher-trigger" type="button" aria-label="Switch conversation or screen"
+            title="Switch conversation or screen (Ctrl / ⌘ K)" aria-keyshortcuts="Control+k Meta+k"
+            onClick={() => setSwitcherOpen(true)}>
+            <AppIcon name="search" /><span>Go to…</span><kbd>⌘ / Ctrl K</kbd>
+          </button>
           <button
             className="workspace-instant-room"
             type="button"
@@ -328,6 +351,7 @@ function ProductShellContent() {
           </div>
         )}
         <Outlet />
+        {switcherOpen && <WorkspaceSwitcher session={session} conversations={conversations ?? []} onClose={() => setSwitcherOpen(false)} />}
         {!desktopShell && !immersive && (
           <nav className="mobile-primary-nav" aria-label="Primary navigation">
             <MemberAreaLinks variant="mobile-primary" />

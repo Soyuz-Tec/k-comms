@@ -34,6 +34,7 @@ export function WhiteboardPage() {
     <main className="whiteboard-page" id="main-content">
       <header className="whiteboard-heading">
         <div className="whiteboard-heading-copy">
+          <AppIcon name="whiteboard" aria-hidden="true" />
           <h1>Whiteboard</h1>
           <p className="visually-hidden">Sketch, diagram, and plan together in the selected conversation.</p>
         </div>
@@ -58,7 +59,7 @@ export function WhiteboardPage() {
           </select>
         </label>
         {activeConversation && <Link className="button ghost" aria-label="Open conversation" title="Open conversation" to={`/app/?conversation=${encodeURIComponent(activeConversation.id)}`}>
-          <AppIcon name="message" /><span>Open conversation</span>
+          <AppIcon name="message" /><span>Chat</span>
         </Link>}
         </div>
       </header>

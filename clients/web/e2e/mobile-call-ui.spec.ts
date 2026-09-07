@@ -1,3 +1,5 @@
+import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import {
   activeVideoFixtureMarkup,
@@ -7,6 +9,25 @@ import {
   installDeterministicMediaDevices,
   installWorkspace
 } from "./mobile-ui-support";
+
+async function loadCallStyles(page: Page) {
+  await installWorkspace(page);
+  await page.goto(`/app/?conversation=${conversationId}`);
+  await page.getByRole("button", { name: "Start video call" }).click();
+  await expect(page.getByRole("dialog", { name: "Start a video call" })).toBeVisible();
+  // Include the lazy-loaded call presentation CSS, not only the sign-in shell.
+  return page.evaluate(() =>
+    Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules, (rule) => rule.cssText);
+        } catch {
+          return [];
+        }
+      })
+      .join("\n")
+  );
+}
 
 test.describe("mobile call acceptance", () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -23,8 +44,10 @@ test.describe("mobile call acceptance", () => {
     const dialog = page.getByRole("dialog", { name: "Start a video call" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("heading", { name: "Ready to join?" })).toBeVisible();
-    await expect(dialog.getByText("Audio", { exact: true })).toBeVisible();
-    await expect(dialog.getByText("Video", { exact: true })).toBeVisible();
+    const mode = dialog.getByRole("group", { name: "Call mode" });
+    await expect(mode.getByText("Video", { exact: true })).toBeVisible();
+    await expect(mode.getByText("Camera optional", { exact: true })).toBeVisible();
+    await expect(mode.getByText("Audio", { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole("checkbox", { name: "Use microphone when I join" })).toBeVisible();
     await expect(dialog.getByRole("checkbox", { name: "Use camera when I join" })).toBeVisible();
     await expect(page.locator("nav.mobile-product-nav")).toHaveCount(0);
@@ -64,18 +87,7 @@ test.describe("mobile call acceptance", () => {
   }, testInfo) => {
     const viewport = { width: 390, height: 844 };
     await page.setViewportSize(viewport);
-    await page.goto("/sign-in");
-    const applicationCss = await page.evaluate(() =>
-      Array.from(document.styleSheets)
-        .flatMap((sheet) => {
-          try {
-            return Array.from(sheet.cssRules, (rule) => rule.cssText);
-          } catch {
-            return [];
-          }
-        })
-        .join("\n")
-    );
+    const applicationCss = await loadCallStyles(page);
     expect(applicationCss.length).toBeGreaterThan(1_000);
     await page.setContent(activeVideoFixtureMarkup());
     await page.addStyleTag({ content: applicationCss });
@@ -150,7 +162,45 @@ test.describe("mobile call acceptance", () => {
 
     const headingControls = call.locator(".call-dock-heading-actions > button");
     await expectMinimumTargets(headingControls, "active call window controls", 52);
+    await expect(call.getByRole("group", { name: "Call panel position" })).toHaveCount(0);
     await expectNoDocumentOverflow(page);
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.waitForTimeout(200);
+      const contrasts = await call.evaluate((element) => {
+        const luminance = (value: string) => {
+          const channels = (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+          const linear = channels.map((channel) => {
+            const normalized = channel / 255;
+            return normalized <= .04045 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4;
+          });
+          return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2];
+        };
+        const ratio = (foreground: string, background: string) => {
+          const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+          return (values[0] + .05) / (values[1] + .05);
+        };
+        const glyph = element.querySelector(".call-action-glyph")!;
+        const glyphStyle = getComputedStyle(glyph);
+        const icon = getComputedStyle(glyph.querySelector("svg")!);
+        const label = getComputedStyle(element.querySelector(".call-action-label")!);
+        const stage = getComputedStyle(element.querySelector(".video-participant-tile")!);
+        return {
+          icon: ratio(icon.color, glyphStyle.backgroundColor),
+          label: ratio(label.color, stage.backgroundColor)
+        };
+      });
+      expect(contrasts.icon, `${colorScheme} call icon contrast`).toBeGreaterThanOrEqual(3);
+      expect(contrasts.label, `${colorScheme} call label contrast`).toBeGreaterThanOrEqual(4.5);
+
+      const accessibility = await new AxeBuilder({ page })
+        .include(".audio-call-dock")
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+        .analyze();
+      expect(accessibility.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([]);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
 
     if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
       await page.screenshot({
@@ -283,5 +333,22 @@ test.describe("mobile call acceptance", () => {
     expect(compactLandscapeMenu.bodyHeight).toBeGreaterThanOrEqual(84);
     expect(compactLandscapeMenu.actionColumns).toBe(3);
     expect(compactLandscapeMenu.sheetOverflowY).toBe("auto");
+  });
+  test("minimized companion keeps placement controls outside the full meeting stage", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const applicationCss = await loadCallStyles(page);
+    await page.setContent(activeVideoFixtureMarkup({ minimized: true }));
+    await page.addStyleTag({ content: applicationCss });
+
+    const companion = page.locator(".audio-call-dock.minimized");
+    const placement = companion.getByRole("group", { name: "Call panel position" });
+    await expect(placement).toBeVisible();
+    await expect(placement.getByRole("button")).toHaveCount(5);
+    // This desktop fixture retains the released 28px placement controls;
+    // these are separate from the full stage's 52px phone controls above.
+    await expectMinimumTargets(placement.getByRole("button"), "desktop companion placement controls", 28);
+    await expect(companion.getByRole("button", { name: "Show call" })).toBeVisible();
+    await expect(companion.locator(".active-call-details")).toBeHidden();
+    await expectNoDocumentOverflow(page);
   });
 });

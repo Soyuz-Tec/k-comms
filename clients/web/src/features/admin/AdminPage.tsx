@@ -64,7 +64,10 @@ export function AdminPage() {
   return (
     <main className="page-shell admin-page" id="main-content">
       <header className="page-heading admin-heading"><div><span className="eyebrow">Tenant administration</span><h1>Workspace control center</h1><p>Manage workspace access, policies, integrations and audit history.</p></div></header>
-      <section className="admin-stats" aria-label="Workspace summary" tabIndex={0}><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
+      <details className="admin-overview">
+        <summary><AppIcon name="activity" /><strong>{session.tenant.name}</strong><span>{users.length} people · {conversations.length} conversations</span><AppIcon name="chevronDown" /></summary>
+        <section className="admin-stats" aria-label="Workspace summary"><article><span>People</span><strong>{users.length}</strong><small>{users.filter(({ status }) => status === "active").length} active</small></article><article><span>Visible conversations</span><strong>{conversations.length}</strong><small>{conversations.filter(({ kind }) => kind === "channel").length} channels</small></article><article><span>Workspace</span><strong className="word-stat">{session.tenant.status}</strong><small>{session.tenant.slug}</small></article></section>
+      </details>
       <div className="admin-workspace">
       <nav className="admin-section-nav" aria-label="Administration sections">{sections.map(([id, label]) => <button type="button" key={id} aria-current={section === id ? "page" : undefined} onClick={() => selectSection(id)}><AppIcon name={sectionIcons[id]} /><span>{label}</span></button>)}</nav>
       <div id={`admin-section-${section}`} className="admin-section" data-admin-section={section}>

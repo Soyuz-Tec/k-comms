@@ -49,6 +49,17 @@ describe("AdminPage section routing", () => {
     session.user.role = "owner";
   });
 
+  it("keeps workspace totals available on demand without preceding every task with cards", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/admin?section=people"]}><AdminPage /></MemoryRouter>);
+    const summary = screen.getByText("0 people · 0 conversations").closest("summary")!;
+    expect(summary.parentElement).not.toHaveAttribute("open");
+    expect(screen.getByRole("heading", { name: "People directory" })).toBeVisible();
+    await user.click(summary);
+    expect(summary.parentElement).toHaveAttribute("open");
+    expect(screen.getByRole("region", { name: "Workspace summary" })).toBeVisible();
+  });
+
   it("opens a section from the URL and preserves other query parameters when navigating", async () => {
     const user = userEvent.setup();
     render(

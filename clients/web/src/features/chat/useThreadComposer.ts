@@ -67,12 +67,14 @@ export function useThreadComposer({
   const [sending, setSending] = useState(false);
   const [composer, setComposer] = useState("");
   const composerRef = useRef("");
+  const composerDirtyRef = useRef(false);
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [failedSend, setFailedSend] =
     useState<FailedThreadSend | null>(null);
 
   useEffect(() => {
     composerRef.current = "";
+    composerDirtyRef.current = false;
     setComposer("");
     setMentionedUserIds([]);
     setFailedSend(null);
@@ -80,6 +82,9 @@ export function useThreadComposer({
   }, [conversationId, targetMessageId]);
 
   const initializeDraft = useCallback((rootId: string) => {
+    // A thread can become visible before its async draft hydration finishes.
+    // Never overwrite text the user has already entered in that small window.
+    if (composerDirtyRef.current) return;
     const savedDraft = loadThreadDraft(
       tenantId,
       currentUserId,
@@ -146,6 +151,7 @@ export function useThreadComposer({
     }
     mergeReply(reply);
     composerRef.current = "";
+    composerDirtyRef.current = false;
     setComposer("");
     setMentionedUserIds([]);
     clearPendingAttachments();
@@ -225,6 +231,7 @@ export function useThreadComposer({
   }
 
   function composerChanged(value: string) {
+    composerDirtyRef.current = true;
     composerRef.current = value;
     setComposer(value);
   }

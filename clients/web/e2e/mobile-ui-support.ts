@@ -28,6 +28,8 @@ export function activeVideoFixtureMarkup(
     /** Mirrors the call control appearance preferences on the root. */
     callControls?: "opaque";
     callContrast?: "high";
+    /** Placement controls exist only on the minimized companion. */
+    minimized?: boolean;
   } = {}
 ) {
   const mode = [
@@ -42,7 +44,7 @@ export function activeVideoFixtureMarkup(
       </head>
       <body>
         <main class="app-shell">Workspace beneath the call</main>
-        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen" data-call-control-labels="visible">
+        <section class="call-dock audio-call-dock active-call-screen video-call-dock video-call-screen${options.minimized ? " minimized" : ""}" data-call-control-labels="visible">
           <div class="audio-call-dock-heading">
             <div class="call-heading-summary">
               <h2 class="call-room-title">Instant room</h2>
@@ -53,17 +55,17 @@ export function activeVideoFixtureMarkup(
               </div>
             </div>
             <div class="call-dock-heading-actions app-surface-control-cluster">
-              <div class="call-placement-controls" role="group" aria-label="Call panel position">
+              ${options.minimized ? `<div class="call-placement-controls" role="group" aria-label="Call panel position">
                 <button class="button ghost compact call-placement-handle" type="button" aria-label="Move call panel">${callFixtureIcon("grip")}</button>
                 ${["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => `
                   <button class="button ghost compact call-placement-preset" type="button" data-corner="${corner}" aria-label="Move call panel to ${corner.replace("-", " ")}" aria-pressed="${corner === "bottom-right"}">${callFixtureIcon("arrowUpRight")}</button>
                 `).join("")}
-              </div>
-              <button class="button ghost compact app-surface-control" type="button" aria-label="Minimize">${callFixtureIcon("minimize")}</button>
-              <button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>
+              </div>` : ""}
+              <button class="button ghost compact app-surface-control" type="button" aria-label="${options.minimized ? "Show call" : "Minimize"}">${callFixtureIcon("minimize")}</button>
+              ${options.minimized ? "" : `<button class="button ghost compact app-menu-trigger app-menu-trigger-overlay" type="button" aria-label="Open call menu">${callFixtureIcon("menu")}</button>`}
             </div>
           </div>
-          <div class="active-call-details">
+          <div class="active-call-details"${options.minimized ? ' inert aria-hidden="true"' : ""}>
             <section class="call-stage">
               <div class="video-participant-grid participant-count-1">
                 <article class="video-participant-tile" data-participant-id="participant-1">

@@ -22,7 +22,7 @@ const message: Message = {
 
 describe("MessageItem", () => {
   it("uses the current username as the visible self identifier", () => {
-    render(
+    const { container } = render(
       <MessageItem
         message={{
           ...message,
@@ -49,6 +49,11 @@ describe("MessageItem", () => {
 
     expect(screen.getAllByText("Ada · #A1B2C (you)")).toHaveLength(2);
     expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(container.querySelector("article > header time")).toHaveAttribute(
+      "datetime",
+      message.inserted_at
+    );
+    expect(container.querySelector(".message-meta time")).not.toBeInTheDocument();
   });
 
   it("renders explicitly resolved sender and reply labels without synthetic users", () => {

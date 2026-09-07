@@ -552,8 +552,7 @@ function PasswordField({
   const [visible, setVisible] = useState(false);
   return (
     <div className="password-field">
-      <Field {...props} label={label} hint={hint} type={visible ? "text" : "password"} />
-      <button
+      <Field {...props} label={label} hint={hint} type={visible ? "text" : "password"} trailingAction={<button
         className="password-visibility"
         type="button"
         aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
@@ -561,7 +560,7 @@ function PasswordField({
         onClick={() => setVisible((current) => !current)}
       >
         {visible ? "Hide" : "Show"}
-      </button>
+      </button>} />
     </div>
   );
 }

@@ -15,11 +15,11 @@
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid rgb(113 136 133 / 32%);
-  border-radius: 26px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   background: var(--surface-overlay);
-  box-shadow: 0 32px 90px rgb(8 31 29 / 42%);
+  box-shadow: var(--shadow-raised);
 }
 
 .canvas-template-header {
@@ -27,7 +27,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  padding: 26px 28px 16px;
+  padding: 22px 24px 16px;
 }
 
 .canvas-template-header h2,
@@ -37,9 +37,10 @@
 
 .canvas-template-header h2 {
   margin-top: 4px;
-  font-family: var(--font-display);
-  font-size: clamp(1.55rem, 3vw, 2.15rem);
-  letter-spacing: -.035em;
+  font-family: var(--font-body);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: -.025em;
 }
 
 .canvas-template-header p {
@@ -49,11 +50,9 @@
 }
 
 .canvas-template-eyebrow {
-  color: var(--accent-text);
+  color: var(--text-muted);
   font-size: var(--text-xs);
-  font-weight: 820;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  font-weight: 550;
 }
 
 .canvas-template-header > button {
@@ -64,7 +63,7 @@
   place-items: center;
   padding: 0;
   border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   background: var(--surface-raised);
 }
@@ -76,7 +75,7 @@
 }
 
 .canvas-template-search {
-  min-height: 52px;
+  min-height: 46px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
@@ -84,7 +83,7 @@
   margin: 0 28px 16px;
   padding-inline: 16px;
   border: 1px solid var(--border-default);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: var(--surface-sunken);
 }
@@ -96,7 +95,7 @@
 
 .canvas-template-search input {
   width: 100%;
-  min-height: 50px;
+  min-height: 44px;
   padding: 0;
   border: 0;
   outline: 0;
@@ -115,10 +114,10 @@
   gap: 10px;
   margin: 0 28px 16px;
   padding: 11px 14px;
-  border: 1px solid var(--accent-border);
-  border-radius: 12px;
-  color: var(--accent-text);
-  background: var(--accent-quiet);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--surface-canvas);
   font-size: .86rem;
 }
 
@@ -148,18 +147,18 @@
 }
 
 .canvas-template-categories button {
-  min-height: 48px;
+  min-height: 44px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   background: transparent;
   font: inherit;
-  font-weight: 720;
+  font-weight: 550;
   text-align: left;
 }
 
@@ -218,10 +217,10 @@
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--border-default);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   background: var(--surface-raised);
-  box-shadow: 0 7px 20px rgb(28 51 49 / 6%);
+  box-shadow: none;
   font: inherit;
   text-align: left;
   transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
@@ -230,7 +229,7 @@
 .canvas-template-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent-border);
-  box-shadow: 0 15px 32px rgb(28 51 49 / 14%);
+  box-shadow: var(--shadow-raised);
 }
 
 .canvas-template-card-copy {
@@ -263,7 +262,7 @@
   padding: 9px 14px 13px;
   color: var(--accent-text);
   font-size: .76rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .canvas-template-use svg {
@@ -368,13 +367,13 @@
   color: var(--accent-text);
   background: var(--accent-quiet);
   font: inherit;
-  font-weight: 760;
+  font-weight: 600;
 }
 
 @media (max-width: 820px) {
   .canvas-template-dialog {
     max-height: calc(var(--app-viewport-height) - 20px);
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
   }
 
   .canvas-template-header {
@@ -419,11 +418,11 @@
   .canvas-template-dialog {
     width: 100%;
     max-height: calc(var(--app-viewport-height) - max(8px, var(--safe-top)));
-    border-radius: 22px 22px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
   .canvas-template-header h2 {
-    font-size: 1.45rem;
+    font-size: 1.25rem;
   }
 
   .canvas-template-header p,

@@ -1,0 +1,49 @@
+.workspace-switcher-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: min(12vh, 100px) var(--space-4) var(--space-4);
+  background: rgb(var(--shadow-color) / 32%);
+}
+
+.workspace-switcher {
+  width: min(100%, 580px);
+  max-height: calc(var(--app-viewport-height) - 120px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow);
+}
+
+.workspace-switcher header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5); }
+.workspace-switcher h2 { margin: 0; font-size: var(--text-lg); }
+.workspace-switcher p { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--text-sm); }
+.workspace-switcher-search { display: flex; align-items: center; gap: var(--space-3); margin: 0 var(--space-4) var(--space-2); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-canvas); }
+.workspace-switcher-search:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.workspace-switcher-search input { width: 100%; min-width: 0; min-height: 48px; padding: 0; border: 0; outline: none; box-shadow: none; color: var(--text-primary); background: transparent; }
+.workspace-switcher-results { min-height: 0; overflow-y: auto; padding: var(--space-2); }
+.workspace-switcher-option { min-height: 56px; display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.workspace-switcher-option[aria-selected="true"] { background: var(--accent-quiet); border-color: var(--accent-border); }
+.workspace-switcher-option > span { flex: 1; min-width: 0; }
+.workspace-switcher-option strong, .workspace-switcher-option small { display: block; overflow-wrap: anywhere; }
+.workspace-switcher-option strong { font-size: var(--text-sm); font-weight: 600; }
+.workspace-switcher-option small { margin-top: 2px; color: var(--text-muted); }
+.workspace-switcher-option > .app-icon { color: var(--text-muted); }
+.workspace-switcher-option > .app-icon:last-child { width: 16px; height: 16px; }
+.workspace-switcher footer { display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-xs); }
+.workspace-switcher-hint { font-size: var(--text-xs); }
+@media (max-width: 760px), (max-height: 560px) {
+  .workspace-switcher-backdrop { padding-top: calc(var(--safe-top) + var(--space-4)); }
+  .workspace-switcher { max-height: calc(var(--app-viewport-height) - var(--safe-top) - var(--space-6)); }
+  .workspace-switcher header { padding-inline: var(--space-4); }
+}
+@media (forced-colors: active) {
+  .workspace-switcher-option[aria-selected="true"] { outline: 2px solid Highlight; }
+}
