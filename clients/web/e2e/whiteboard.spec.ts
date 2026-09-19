@@ -318,6 +318,34 @@ test("unsynced drawing survives reload in IndexedDB and syncs when writes recove
   await expect(page.getByRole("heading", { name: "Canvas contents, 1 object" })).toHaveCount(1);
 });
 
+test("a template survives offline reload and syncs once across browser engines", async ({ page, isMobile }, info) => {
+  const fixture = await mockWhiteboardWorkspace(page);
+  fixture.setWritesUnavailable(true);
+  await page.goto(`/app/whiteboard?conversation=${conversationId}`);
+  const controls = page.getByRole("button", { name: "Open canvas controls" });
+  if (isMobile) await controls.tap(); else await controls.click();
+  await page.getByRole("button", { name: /Start with a template/ }).click();
+  const template = page.getByRole("button", { name: /^Use .* template$/ }).first();
+  if (isMobile) await template.tap(); else await template.click();
+  await expect(page.getByText("Sync paused", { exact: true })).toBeVisible();
+  const contents = page.getByRole("heading", { name: /^Canvas contents, [1-9]\d* objects?$/ });
+  await expect(contents).toHaveCount(1);
+  const originalContents = await contents.textContent();
+  await page.reload();
+  await expect(contents).toHaveText(originalContents!);
+  await expect(page.getByText("Sync paused", { exact: true })).toBeVisible();
+  fixture.setWritesUnavailable(false);
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible({ timeout: 10_000 });
+  expect(fixture.writes).toHaveLength(1);
+  await page.reload();
+  await expect(contents).toHaveText(originalContents!);
+  await expect(page.getByText("Synced", { exact: true })).toBeVisible();
+  expect(fixture.writes).toHaveLength(1);
+  if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
+    await page.screenshot({ path: info.outputPath("recovered-template.png"), animations: "disabled" });
+  }
+});
+
 test("native undo and redo persist their result", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "Desktop keyboard history contract");
   const fixture = await mockWhiteboardWorkspace(page);

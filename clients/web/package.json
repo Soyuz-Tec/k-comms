@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/finalize-pwa.mjs",
+    "build": "tsc -b && vite build && node scripts/finalize-pwa.mjs && npm run check:assets",
+    "check:assets": "node scripts/check-asset-budgets.mjs",
+    "test:assets": "node --test scripts/check-asset-budgets.test.mjs",
     "check:pwa": "node scripts/finalize-pwa.mjs --validate",
     "pwa:icons": "node scripts/generate-pwa-icons.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:assets",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"

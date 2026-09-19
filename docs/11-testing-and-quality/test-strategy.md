@@ -20,6 +20,10 @@
 
 Fast deterministic tests run on every change. Expensive load, soak, chaos, and recovery suites run on scheduled or release-gate pipelines with versioned environments and retained evidence.
 
+Web builds enforce route and total JavaScript/CSS raw/gzip ceilings. See
+[web-performance-budgets.md](web-performance-budgets.md) for the measurement
+method, baseline, selected mobile WebKit regressions, and physical-device limits.
+
 ### ExUnit lanes and tags
 
 The unfiltered suite remains the release authority. Tags are selectors for

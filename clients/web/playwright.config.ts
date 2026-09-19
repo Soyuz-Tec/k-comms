@@ -19,7 +19,7 @@ const externalServer = process.env.K_COMMS_EXTERNAL_E2E_SERVER === "true";
  * refuses to load them.
  *
  * CI installs WebKit explicitly (.github/workflows/ci.yml) and sets CI=true,
- * so Safari coverage is preserved where it can actually run. To opt back in on
+ * so desktop and selected mobile WebKit coverage run there. To opt back in on
  * a machine without that policy, set K_COMMS_FORCE_WEBKIT=true.
  */
 const runWebKit =
@@ -98,6 +98,13 @@ export default defineConfig({
             name: "webkit",
             testIgnore: /live-(audio|video)\.spec\.ts/,
             use: { ...devices["Desktop Safari"] }
+          },
+          {
+            // A deliberate subset keeps the cross-engine gate bounded. Device
+            // emulation does not qualify physical iOS media or backgrounding.
+            name: "mobile-webkit",
+            testMatch: /(?:client-recovery|mobile-webkit|whiteboard)\.spec\.ts/,
+            use: { ...devices["iPhone 13"] }
           }
         ]
       : [])
