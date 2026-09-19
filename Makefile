@@ -19,7 +19,7 @@ RELEASE_EVIDENCE_ARGS ?=
 .PHONY: bootstrap dev stop logs shell check test test-unit test-integration \
 	test-concurrency test-coverage format web-check contracts docs-check \
 	validation-deps qualification-script-tests build container-smoke compose-validate \
-	local-release-validate kube-validate production-preflight release-evidence release clean
+	local-release-validate kube-validate production-preflight release-evidence release clean workspace-preflight
 
 bootstrap:
 	$(COMPOSE) up -d postgres minio minio-init
@@ -77,7 +77,11 @@ contracts:
 docs-check:
 	$(PYTHON) scripts/validate_docs.py
 
+workspace-preflight:
+	$(PYTHON) scripts/workspace_preflight.py
+
 qualification-script-tests:
+	$(PYTHON) scripts/test_workspace_preflight.py
 	$(PYTHON) scripts/test_instant_room_deployment_contracts.py
 	$(PYTHON) scripts/test_validate_local_release.py
 	$(PYTHON) scripts/test_qualify_local_release.py
