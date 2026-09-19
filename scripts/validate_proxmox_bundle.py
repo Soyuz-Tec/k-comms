@@ -31,6 +31,11 @@ REQUIRED_FILES = (
     "deploy/proxmox/bin/adopt-legacy-production.sh",
     "deploy/proxmox/bin/generate-runtime-env.sh",
     "deploy/proxmox/bin/service-env.py",
+    "deploy/proxmox/bin/operations.py",
+    "deploy/proxmox/bin/operations-common.sh",
+    "deploy/proxmox/bin/monitor.sh",
+    "deploy/proxmox/monitoring.json.example",
+    "scripts/test_proxmox_operations.py",
     "scripts/test_proxmox_service_env.py",
     "deploy/proxmox/bin/install.sh",
     "deploy/proxmox/bin/sync-assets.sh",
@@ -210,6 +215,17 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{name}.sh must regenerate restricted service environments")
     if "python scripts/test_proxmox_service_env.py" not in read(root, ".github/workflows/ci.yml"):
         errors.append("CI must execute service environment behavior tests")
+    if "python scripts/test_proxmox_operations.py" not in read(root, ".github/workflows/ci.yml"):
+        errors.append("CI must execute operational evidence behavior tests")
+    if "ExecStart=/opt/k-comms/bin/monitor.sh" not in read(root, "deploy/proxmox/systemd/k-comms-health.service"):
+        errors.append("health timer must run backup freshness and storage monitoring")
+    monitor_config = json.loads(read(root, "deploy/proxmox/monitoring.json.example"))
+    if monitor_config.get("alerts_enabled") is not False or monitor_config.get("deadman_enabled") is not False:
+        errors.append("external monitoring delivery must remain disabled by default")
+    for name, kind in (("backup", "backup"), ("quiesced-backup", "maintenance")):
+        document = read(root, f"deploy/proxmox/bin/{name}.sh")
+        if f"operation_begin {kind}" not in document or "operation_record" not in document:
+            errors.append(f"{name}.sh must retain operation duration and failure evidence")
     if "NoNewPrivileges=true" in postgres_quadlet:
         errors.append(
             "PostgreSQL Quadlet must permit its pinned entrypoint to drop from root"

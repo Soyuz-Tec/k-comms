@@ -763,5 +763,20 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         self.assertIn("restore.sh must regenerate restricted service environments", validate(root))
 
 
+    def test_rejects_missing_operational_evidence(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/quiesced-backup.sh"
+        path.write_text(path.read_text().replace("operation_record", "discard_record"))
+        self.assertIn("quiesced-backup.sh must retain operation duration and failure evidence", validate(root))
+
+    def test_rejects_default_external_monitoring_delivery(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/monitoring.json.example"
+        path.write_text(path.read_text().replace('"alerts_enabled": false', '"alerts_enabled": true'))
+        self.assertIn("external monitoring delivery must remain disabled by default", validate(root))
+
+
 if __name__ == "__main__":
     unittest.main()

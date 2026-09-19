@@ -83,5 +83,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0077 | Recover browser whiteboard edits locally and keep export host-owned | Accepted |
 | 0080 | Bind release promotion and failure recovery to verified evidence | Accepted |
 | 0082 | Isolate container service environments | Accepted |
+| 0084 | Record maintenance intervals and monitor recovery evidence | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

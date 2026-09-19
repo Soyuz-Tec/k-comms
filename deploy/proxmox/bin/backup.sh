@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/operations-common.sh"
 
 require_root
 for command in pg_restore podman sha256sum tar; do
@@ -22,21 +23,36 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="${K_COMMS_BACKUP_ROOT}/${timestamp}-${revision}"
 [[ ! -e "$backup_dir" ]] || die "backup destination already exists: $backup_dir"
 install -d -m 0700 "$backup_dir"
+operation_begin backup
+backup_complete=false
 
 cleanup() {
+  local exit_status=$?
+  trap - EXIT
+  set +e
   if ! unit_active k-comms-minio.service; then
-    systemctl start k-comms-minio.service || true
+    systemctl start k-comms-minio.service &&
+      wait_for_url "http://$(configured_bind_address):5900/minio/health/ready" 60 2
+    [[ $? -eq 0 ]] || exit_status=1
   fi
+  local status=failed
+  if [[ "$backup_complete" == true && "$exit_status" -eq 0 ]]; then
+    status=success
+  fi
+  operation_record "$status" --backup-path "$backup_dir" || exit_status=1
+  exit "$exit_status"
 }
 trap cleanup EXIT
 
 log "creating PostgreSQL logical backup"
+operation_phase_begin postgres
 podman exec k-comms-postgres sh -ceu \
   'pg_dump --format=custom --no-owner --no-privileges --username="$POSTGRES_USER" "$POSTGRES_DB"' \
   >"${backup_dir}/postgres.dump"
 pg_restore --list "${backup_dir}/postgres.dump" >/dev/null
 
 log "creating stopped MinIO volume snapshot"
+operation_phase_begin minio
 systemctl stop k-comms-minio.service
 minio_path="$(assert_minio_volume_path)"
 tar --create --gzip --numeric-owner \
@@ -45,6 +61,7 @@ tar --create --gzip --numeric-owner \
 systemctl start k-comms-minio.service
 wait_for_url "http://$(configured_bind_address):5900/minio/health/ready" 60 2
 
+operation_phase_begin configuration
 install -d -m 0700 "${backup_dir}/configuration"
 install -m 0600 "$K_COMMS_RUNTIME_ENV" "${backup_dir}/configuration/runtime.env"
 if [[ -f "$K_COMMS_RELEASE_ENV" ]]; then
@@ -53,6 +70,7 @@ fi
 cp -a "$K_COMMS_QUADLET_DIR"/k-comms-* "${backup_dir}/configuration/"
 install -m 0600 "$K_COMMS_ENVIRONMENT_FILE" "${backup_dir}/configuration/environment"
 
+operation_phase_begin manifest
 (
   cd "$backup_dir"
   find . -type f ! -name SHA256SUMS ! -name COMPLETE -print0 |
@@ -63,9 +81,10 @@ install -m 0600 /dev/null "${backup_dir}/COMPLETE"
 printf 'k-comms-application-backup-v1\n' >"${backup_dir}/COMPLETE"
 chmod -R go-rwx "$backup_dir"
 
+operation_phase_begin retention
 find "$K_COMMS_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +14 \
   -name '*-????????????????????????????????????????' -print0 |
   xargs -0r rm -rf --
 
-trap - EXIT
+backup_complete=true
 printf '%s\n' "$backup_dir"
