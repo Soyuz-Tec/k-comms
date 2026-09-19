@@ -16,7 +16,7 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
   }
 
   alias CommsCore.Outbox.Event
-  alias CommsCore.{Repo, RuntimePorts}
+  alias CommsCore.{Outbox, Repo, RuntimePorts}
 
   @claim_timeout_seconds 300
   @max_list_limit 100
@@ -40,6 +40,41 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
       case enqueue_event_delivery(event, endpoint) do
         :ok -> {:cont, :ok}
         {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  def erase_message_content(tenant_id, event_ids) do
+    if Repo.in_transaction?() do
+      {count, _} =
+        Repo.update_all(
+          from(delivery in WebhookDelivery,
+            where: delivery.tenant_id == ^tenant_id and delivery.outbox_event_id in ^event_ids
+          ),
+          set: [
+            payload: %{"content_erased" => true},
+            status: :failed,
+            claimed_at: nil,
+            claim_token: nil,
+            last_error_code: "content_erased",
+            updated_at: now()
+          ]
+        )
+
+      {:ok, count}
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  # The bounded provider request runs while the delivery lock is held. Erasure
+  # waits for an in-flight send, but an abandoned claim holds no transaction and
+  # can be erased immediately. Never pass a materialized request out of this fence.
+  def dispatch(claim, send_request) when is_function(send_request, 1) do
+    Repo.transaction(fn ->
+      case request(claim) do
+        {:ok, request} -> send_request.(request)
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
@@ -176,6 +211,13 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
 
         reference ->
           Repo.transaction(fn ->
+            if reference.outbox_event_id do
+              case Outbox.lock_for_dispatch(reference.outbox_event_id, tenant_id) do
+                {:ok, _event} -> :ok
+                _ -> Repo.rollback(:content_erased)
+              end
+            end
+
             endpoint =
               Repo.one(
                 from(endpoint in WebhookEndpoint,
@@ -196,6 +238,8 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
                   lock: "FOR UPDATE"
                 )
               ) || Repo.rollback(:not_found)
+
+            if source.last_error_code == "content_erased", do: Repo.rollback(:content_erased)
 
             delivery =
               create(%{
@@ -265,6 +309,12 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
 
   defp enqueue_event_delivery(%Event{} = event, %WebhookEndpoint{} = expected_endpoint) do
     Repo.transaction(fn ->
+      event =
+        case Outbox.lock_for_dispatch(event.id, event.tenant_id) do
+          {:ok, current} -> current
+          _ -> Repo.rollback(:content_erased)
+        end
+
       endpoint =
         Repo.one(
           from(endpoint in WebhookEndpoint,
@@ -299,6 +349,7 @@ defmodule CommsCore.Integrations.WebhookDeliveries do
     end)
     |> case do
       {:ok, :ok} -> :ok
+      {:error, :content_erased} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearDrafts,
   draftKey,
@@ -11,6 +11,29 @@ import {
 
 describe("scoped drafts", () => {
   beforeEach(() => window.localStorage.clear());
+
+  it("retains the latest draft in this tab when storage fails, then persists on recovery", () => {
+    storeDraft("tenant-fallback", "user-a", "conversation-1", "old draft");
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Full", "QuotaExceededError");
+    });
+    expect(storeDraft("tenant-fallback", "user-a", "conversation-1", "latest draft")).toBe("session");
+    expect(loadDraft("tenant-fallback", "user-a", "conversation-1")).toBe("latest draft");
+    expect(loadDraft("tenant-fallback", "user-b", "conversation-1")).toBe("");
+    write.mockRestore();
+    expect(storeDraft("tenant-fallback", "user-a", "conversation-1", "latest draft")).toBe("saved");
+    expect(window.localStorage.getItem(draftKey("tenant-fallback", "user-a", "conversation-1"))).toBe("latest draft");
+    clearDrafts("tenant-fallback", "user-a");
+  });
+
+  it("clears tab-only thread drafts on sign-out even when persistent storage is unavailable", () => {
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    storeThreadDraft("tenant-fallback", "user-a", "conversation-1", "root", "private text");
+    expect(loadThreadDraft("tenant-fallback", "user-a", "conversation-1", "root")).toBe("private text");
+    clearDrafts("tenant-fallback", "user-a");
+    expect(loadThreadDraft("tenant-fallback", "user-a", "conversation-1", "root")).toBe("");
+    write.mockRestore();
+  });
 
   it("does not expose one user's draft to another user in the same conversation", () => {
     storeDraft("tenant-1", "user-a", "conversation-1", "private draft");

@@ -39,6 +39,36 @@ approval, consent model, deletion contract, and retention schedule before use.
 
 Deletion semantics must be defined before selecting partitioning and archival strategies.
 
+### Derived-content completion
+
+[ADR-0078](../02-architecture/adr/0078-complete-derived-content-erasure.md) binds
+completion to removal of message content from outbox and webhook copies, terminal
+delivery state, and invalidation of user-erased whiteboard snapshots. A bounded
+webhook send that already started finishes before erasure commits; canceled or
+abandoned claims cannot start a later send. Previously delivered third-party
+copies remain subject to the receiver's deletion contract.
+
+The minute `ErasureReconcilerWorker` repairs at most 100 previously completed
+requests per run. It processes only completed, already-approved erasures missing
+`evidence.derived_erasure_version = 1`. Repair timestamps and audit records contain
+no erased content. Failed jobs remain retryable and the request is not marked
+repaired until all owner contributions commit. One request can cover many records,
+so operators must also watch transaction duration and worker queue age.
+
+After upgrade, verify the reconciler has completed and no completed request lacks
+the version marker before declaring historical copies removed. Read-only evidence
+query for a controlled operator session:
+
+```sql
+SELECT count(*) AS remaining_derived_erasure_repairs
+FROM deletion_requests
+WHERE status = 'completed'
+  AND coalesce(evidence->>'derived_erasure_version', '') <> '1';
+```
+
+Release tests use synthetic data; a zero count from those tests is not evidence
+about staging or production. Backups retain their separately governed expiration.
+
 ## Instant-room lifecycle and retention
 
 An instant room becoming idle or expired is an authorization transition, not a

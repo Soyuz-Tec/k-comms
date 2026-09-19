@@ -125,7 +125,7 @@ contexts:
       - delete_message/3
       - governance_impact/3
       - release_tenant_fingerprint_fragment/2
-      - retention_candidates/4
+      - retention_candidates/5
       - tombstone_for_erasure/3
       owner_internal_operations:
       - accept_message/2
@@ -139,6 +139,7 @@ contexts:
       - list_history/2
       - list_history_page/2
       - list_service_history/2
+      - retention_candidates/4
       - search/2
       - search/3
       - search_for_service/2
@@ -403,7 +404,9 @@ contexts:
       - mark_published/2
       - record_attempt/2
       collaboration_operations:
+      - erase_message_content/2
       - insert_and_enqueue!/1
+      - lock_for_dispatch/2
       - release_tenant_fingerprint_fragment/2
       owner_internal_operations: []
   platform_runtime:
@@ -479,6 +482,7 @@ contexts:
       - lock_call_policy/1
       - release_tenant_fingerprint_id/2
       - retention_defaults/1
+      - retention_tenant_ids/1
       owner_internal_operations:
       - authorize_audit_tenant/1
       - authorize_manage_invitations/1
@@ -514,11 +518,13 @@ contexts:
       - create_legal_hold_view/2
       - create_retention_policy_view/2
       - delete_message/2
-      - enqueue_due_retention/2
+      - enqueue_due_retention/3
       - list_deletion_request_views/2
       - list_legal_hold_views/2
       - list_retention_policy_views/2
+      - reconcile_retention_schedules/2
       - record_deletion_failure/3
+      - reconcile_completed_erasure/2
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
@@ -528,6 +534,7 @@ contexts:
       - create_deletion_request/2
       - create_legal_hold/2
       - create_retention_policy/2
+      - enqueue_due_retention/2
       - list_deletion_requests/2
       - list_legal_holds/2
       - list_retention_policies/2
@@ -554,7 +561,7 @@ contexts:
       public_operations:
       - claim_delivery/1
       - create_endpoint_view/2
-      - delivery_request/1
+      - dispatch_delivery/2
       - disable_endpoint_view/2
       - enqueue_for_event/1
       - get_endpoint_view/2
@@ -564,12 +571,14 @@ contexts:
       - replay_delivery_view/2
       - rotate_secret_view/2
       - update_endpoint_view/3
-      collaboration_operations: []
+      collaboration_operations:
+      - erase_message_content/2
       owner_internal_operations:
       - authorize_manage/1
       - authorize_read/1
       - create_delivery/1
       - create_endpoint/2
+      - delivery_request/1
       - disable_endpoint/2
       - get_endpoint/2
       - list_deliveries/1

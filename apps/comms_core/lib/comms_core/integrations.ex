@@ -44,10 +44,20 @@ defmodule CommsCore.Integrations do
           | [public_value()]
           | {:ok, public_value() | [public_value()]}
           | {:error, public_error()}
+  @type delivery_result ::
+          :ok
+          | {:ok, public_map()}
+          | {:error, public_error()}
+          | {:error, :permanent, public_error()}
 
   @spec claim_delivery(binary()) :: public_response()
   @spec create_endpoint_view(public_map(), public_map()) :: public_response()
   @spec delivery_request(public_map()) :: public_response()
+  @spec dispatch_delivery(
+          CommsCore.Integrations.WebhookDeliveryClaim.t(),
+          (CommsCore.Integrations.WebhookDispatchRequest.t() -> delivery_result())
+        ) ::
+          {:ok, delivery_result()} | {:error, atom()}
   @spec disable_endpoint_view(binary(), public_map()) :: public_response()
   @spec enqueue_for_event(public_map()) :: public_response()
   @spec get_endpoint_view(binary(), public_map()) :: public_response()
@@ -109,6 +119,11 @@ defmodule CommsCore.Integrations do
   defdelegate create_delivery(attrs), to: WebhookDeliveries, as: :create
   defdelegate claim_delivery(id), to: WebhookDeliveries, as: :claim
   defdelegate delivery_request(claim), to: WebhookDeliveries, as: :request
+  defdelegate dispatch_delivery(claim, send_request), to: WebhookDeliveries, as: :dispatch
+
+  @spec erase_message_content(binary(), [binary()]) ::
+          {:ok, non_neg_integer()} | {:error, :transaction_required}
+  defdelegate erase_message_content(tenant_id, event_ids), to: WebhookDeliveries
   defdelegate record_delivery(claim, result), to: WebhookDeliveries, as: :record
   defdelegate list_deliveries(subject, opts \\ %{}), to: WebhookDeliveries, as: :list
   defdelegate replay_delivery(id, subject), to: WebhookDeliveries, as: :replay

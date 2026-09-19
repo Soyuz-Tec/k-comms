@@ -3,14 +3,22 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6
+  sha256: 969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: complete-derived-erasure-and-bounded-retention
+      previous_manifest_sha256: dea5401dc268708bf63959e6947fe02e711c41b2ba7f826042d263bfcf5b230e
+      approved_changes:
+        - context:trust_governance:allowed_dependencies:add:webhook_management
+        - public_facade_api:sha256:27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6->969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc
+        - read_model:CommsCore.Governance.RetentionDefaultsReader:public_queries:add:CommsCore.Administration.retention_tenant_ids/1
+      adr: docs/02-architecture/adr/0078-complete-derived-content-erasure.md
+      removal_condition: Remove after this exact reviewed manifest reaches the protected base branch.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -429,7 +437,7 @@ contexts:
       - CommsCore.Moderation.ActionView
       - CommsCore.Moderation.CaseView
     internal_namespaces: [CommsCore.Governance, CommsCore.Moderation]
-    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, collaboration, calls, audit, platform_eventing]
+    allowed_dependencies: [identity_access, tenant_administration, conversations, conversation_content, collaboration, calls, webhook_management, audit, platform_eventing]
     publishes: [governance.content_restriction_changed.v1, governance.erasure_requested.v1]
     consumes: []
   audit:
@@ -884,9 +892,9 @@ read_model_exceptions:
     owners: [tenant_administration]
     access:
       public_contracts: [CommsCore.Administration.RetentionDefaults]
-      public_queries: [CommsCore.Administration.retention_defaults/1]
+      public_queries: [CommsCore.Administration.retention_defaults/1, CommsCore.Administration.retention_tenant_ids/1]
       source_tables: []
-    condition: The internal Governance reader may call only CommsCore.Administration.retention_defaults/1 and consume RetentionDefaults; it may not import TenantSettings or read or write tenant_settings directly.
+    condition: The internal Governance reader may call only the listed Administration retention queries and consume RetentionDefaults or bounded tenant IDs; it may not import TenantSettings or read or write tenant_settings directly.
 
 migration_exceptions:
   - id: historical-mixed-migrations

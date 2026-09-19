@@ -14,12 +14,14 @@ defmodule CommsCore.RuntimePorts do
     :attachment_abandon_reconciler,
     :attachment_scan,
     :deletion,
+    :erasure_reconciler,
     :ephemeral_room_lifecycle,
     :ephemeral_room_reconciler,
     :guest_admission_expiry,
     :notification_delivery,
     :outbox_publication,
     :retention,
+    :retention_reconciler,
     :webhook_delivery
   ]
 

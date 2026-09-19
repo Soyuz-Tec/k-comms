@@ -59,6 +59,23 @@ must distinguish an unchanged database from a partially migrated database.
    An unverified restart is stopped and reported as failed recovery. Successful
    deployments remove the guard and publish their current receipt only after
    application verification and timer activation succeed.
+7. Every protected staging qualification now proves host reboot recovery after
+   rollback/restore qualification and before evidence export. The SSH wrapper
+   accepts only the inventory staging address, retains strict host-key checks,
+   and uses noninteractive sudo. The root helper also checks the configured
+   staging environment, bind address, and exact running image/revision before
+   scheduling a five-second delayed systemd reboot. Production has no automatic
+   reboot step. A ten-minute overall deadline and per-command process deadlines
+   bound reconnect and recovery; a denied request, unacknowledged request, or
+   timeout fails the qualification without resubmitting the reboot request.
+8. Successful reboot proof requires a changed kernel boot ID, full application
+   and PWA readiness, both health and backup timers enabled and active, and
+   inspection of the actual service container environments. A root-only receipt
+   binds the request, previous/new boot IDs, image, revision, and verification
+   timestamp. Evidence export checks the receipt against the current boot ID.
+   Production requires this proof from the current Container attempt, no older
+   than 24 hours. Retained rollback/restore qualification within 24 hours does
+   not waive a new reboot proof for the current attempt.
 
 ## Consequences
 
@@ -68,6 +85,13 @@ require a full rerun. The protected runner needs Python 3.13, installed by the
 existing SHA-pinned setup action. GitHub API/artifact availability becomes a
 release dependency; outages block new host access while the running service
 continues unchanged.
+
+Staging is briefly unavailable during each release qualification reboot. The
+protected staging account must be authorized for the existing root deployment
+helper and transient systemd reboot scheduling. Missing privileges fail closed;
+the workflow does not install a new sudo rule or weaken SSH verification. This
+implements completion Gate 5.8 for host-service changes without relying on a
+change detector to decide when reboot proof matters.
 
 An unsafe or failed migration intentionally requires operator-led compatible
 roll-forward or separately approved recovery. The handler does not invent a
@@ -99,6 +123,12 @@ and the communication rollback preflight remain required.
 - The Proxmox contract rejects removal or reordering of pre-approval and
   pre-host-access gates, standalone production dispatch, missing attempt
   binding, and missing CI behavior tests.
+- Linux host-command fixtures reject production/wrong host identity, wrong
+  release, old qualification, denied scheduling, unchanged boot, mismatched
+  requests, and failed health/timers/environment checks. PowerShell transport
+  fixtures exercise reconnects, exact deadlines, malformed acknowledgments,
+  fixed staging destination, and termination of a stalled child process.
+  Promotion fixtures reject missing, stale, or mismatched reboot receipts.
 - A real release must still pass protected PR CI, immutable publication,
   synthetic staging qualification, independent production approval, and public
   verification. Local failure injection does not constitute production proof.

@@ -100,6 +100,12 @@ idempotency is unique per tenant, device, conversation, and client operation
 ID. A clear advances history but does not bypass retention or legal hold.
 The partial clear-generation index supports the transactional rejection of a
 scene update based on a sequence older than the board's latest clear.
+Each clear starts a new capacity epoch without removing history or resetting the
+sequence. Scene updates are limited to 100,000 per epoch, 5,000 cumulative element
+IDs (including tombstones), and 2 MiB of encoded scene JSON. An authorized clear
+remains available at capacity and immediately writes an empty snapshot. Existing
+oversized scenes require explicit clear; no history is silently truncated. See
+[ADR-0083](../02-architecture/adr/0083-bound-whiteboard-scenes-and-recover-capacity.md).
 
 `password_recovery_requests` is tenant/user scoped and stores only a reset-token
 hash, expiry, consumption time, invalidation time, and timestamps. A new request

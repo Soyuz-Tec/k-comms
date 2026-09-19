@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Commands do
   import Ecto.Query
 
   alias CommsCore.{Conversations, Repo}
-  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Snapshots, Whiteboard}
+  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Snapshots, Whiteboard, WriteFence}
 
   @maximum_operations 100_000
 
@@ -22,6 +22,13 @@ defmodule CommsCore.Whiteboards.Commands do
          {:ok, base_sequence} <- base_sequence(kind, base_sequence),
          {:ok, payload} <- Payload.validate(kind, payload) do
       Repo.transaction(fn ->
+        WriteFence.lock_author!(tenant_id, actor_user_id)
+
+        case Conversations.authorize_use_whiteboard(conversation_id, subject) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
         whiteboard = lock_or_create_whiteboard!(tenant_id, conversation_id)
 
         case existing_operation(
@@ -37,11 +44,16 @@ defmodule CommsCore.Whiteboards.Commands do
               Repo.rollback(:idempotency_conflict)
             end
 
-          nil when whiteboard.sequence >= @maximum_operations ->
-            Repo.rollback(:whiteboard_capacity_exceeded)
-
           nil ->
-            ensure_current_generation!(whiteboard, kind, base_sequence)
+            generation = current_generation(whiteboard)
+            ensure_capacity_and_generation!(whiteboard, kind, base_sequence, generation)
+
+            prepared =
+              case Snapshots.prepare(whiteboard, generation, kind, payload) do
+                {:ok, prepared} -> prepared
+                {:error, reason} -> Repo.rollback(reason)
+              end
+
             sequence = whiteboard.sequence + 1
 
             operation =
@@ -65,7 +77,7 @@ defmodule CommsCore.Whiteboards.Commands do
 
             # Inside the same transaction and under the same row lock, so the
             # snapshot can only ever describe committed operations.
-            Snapshots.maintain(whiteboard, sequence)
+            Snapshots.maintain(whiteboard, sequence, prepared)
 
             {Projector.operation(operation), :created}
         end
@@ -125,22 +137,27 @@ defmodule CommsCore.Whiteboards.Commands do
   defp base_sequence("scene.update", _), do: {:error, :invalid_whiteboard_operation}
   defp base_sequence(_kind, _value), do: {:ok, 0}
 
-  defp ensure_current_generation!(whiteboard, "scene.update", base_sequence) do
-    latest_clear_sequence =
-      Repo.one(
-        from(operation in Operation,
-          where:
-            operation.whiteboard_id == ^whiteboard.id and
-              operation.kind == "board.clear",
-          select: max(operation.sequence)
-        )
-      ) || 0
-
-    if base_sequence < latest_clear_sequence,
-      do: Repo.rollback(:stale_whiteboard_generation)
+  defp current_generation(whiteboard) do
+    Repo.one(
+      from(operation in Operation,
+        where:
+          operation.whiteboard_id == ^whiteboard.id and
+            operation.kind == "board.clear",
+        select: max(operation.sequence)
+      )
+    ) || 0
   end
 
-  defp ensure_current_generation!(_whiteboard, _kind, _base_sequence), do: :ok
+  defp ensure_capacity_and_generation!(whiteboard, "scene.update", base_sequence, generation) do
+    if base_sequence < generation,
+      do: Repo.rollback(:stale_whiteboard_generation)
+
+    if whiteboard.sequence - generation >= @maximum_operations,
+      do: Repo.rollback(:whiteboard_capacity_exceeded)
+  end
+
+  defp ensure_capacity_and_generation!(_whiteboard, "board.clear", _base_sequence, _generation),
+    do: :ok
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 end

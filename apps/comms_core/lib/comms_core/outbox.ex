@@ -3,6 +3,15 @@ defmodule CommsCore.Outbox do
   alias CommsCore.Outbox.Event
   alias CommsCore.RuntimePorts
 
+  @doc "Locks and reloads an event so erased content cannot be restored by stale fanout."
+  @spec lock_for_dispatch(String.t(), String.t()) :: {:ok, Event.t()} | :not_found | :erased
+  defdelegate lock_for_dispatch(event_id, tenant_id), to: OutboxStore
+
+  @doc "Erases message-derived event payloads inside the governance transaction."
+  @spec erase_message_content(String.t(), [String.t()]) ::
+          {:ok, [String.t()]} | {:error, :transaction_required}
+  defdelegate erase_message_content(tenant_id, message_ids), to: OutboxStore
+
   @doc false
   def release_tenant_fingerprint_fragment(repo, tenant_id)
       when is_atom(repo) and is_binary(tenant_id),

@@ -4,10 +4,11 @@ defmodule CommsCore.Messaging.RetentionCandidate do
   """
 
   @enforce_keys [:message_id, :conversation_id]
-  defstruct [:message_id, :conversation_id]
+  defstruct [:message_id, :conversation_id, :inserted_at]
 
   @type t :: %__MODULE__{
           message_id: String.t(),
-          conversation_id: String.t()
+          conversation_id: String.t(),
+          inserted_at: DateTime.t() | nil
         }
 end

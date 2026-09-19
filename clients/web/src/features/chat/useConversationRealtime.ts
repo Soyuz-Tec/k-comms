@@ -40,6 +40,7 @@ interface UseConversationRealtimeOptions {
   publishRealtimeEvent: (event: CallRealtimeEvent) => void;
   realtimeRef: Box<RealtimeConversation | null>;
   receiveMessages: (messages: Message[]) => void;
+  reconcileLoadedMessages: (current: () => boolean) => Promise<boolean>;
   refreshConversations: () => Promise<void>;
   requestCatchUpRef: Box<(afterSequence?: number, beforeSequence?: number) => void>;
   scheduleMemberRefresh: (conversationId: string) => void;
@@ -78,6 +79,7 @@ export function useConversationRealtime({
   publishRealtimeEvent,
   realtimeRef,
   receiveMessages,
+  reconcileLoadedMessages,
   refreshConversations,
   requestCatchUpRef,
   scheduleMemberRefresh,
@@ -110,6 +112,13 @@ export function useConversationRealtime({
     let catchUpRetryAttempts = 0;
     let catchUpInFlight = false;
     let pendingCatchUpRequest: CatchUpRequest | null = null;
+    let connectedOnce = false;
+    let live = false;
+    let reconciliationVersion = 0;
+    let reconciliationInFlight = false;
+    let reconciliationPending = false;
+    let reconciliationTimer: number | null = null;
+    let reconciliationAttempts = 0;
     setMessages([]);
     knownMessageIdsRef.current.clear();
     setTypingUsers(new Set());
@@ -125,6 +134,33 @@ export function useConversationRealtime({
     loadOlderRequestGenerationRef.current += 1;
     setOlderLoading(false);
     setHasOlder(false);
+
+    const reconcile = async () => {
+      if (!current || !live || reconciliationInFlight) return;
+      reconciliationPending = false;
+      reconciliationInFlight = true;
+      const version = reconciliationVersion;
+      try {
+        const changed = await reconcileLoadedMessages(() => current && live && version === reconciliationVersion);
+        if (version === reconciliationVersion) {
+          reconciliationPending ||= changed;
+          if (reconciliationAttempts > 0) setError(null);
+          reconciliationAttempts = 0;
+        }
+      } catch (reason: unknown) {
+        if (current && version === reconciliationVersion) {
+          reconciliationPending = true;
+          reconciliationAttempts += 1;
+          setError(`${errorText(reason)} Retrying changed messages…`);
+        }
+      } finally {
+        reconciliationInFlight = false;
+        if (current && live && reconciliationPending) {
+          const delay = [1_000, 2_000, 5_000, 10_000][reconciliationAttempts] ?? 15_000;
+          reconciliationTimer = window.setTimeout(() => { reconciliationTimer = null; void reconcile(); }, delay);
+        }
+      }
+    };
 
     async function catchUp(
       afterSequence: number,
@@ -262,12 +298,21 @@ export function useConversationRealtime({
                 return;
               }
               setConnectionStatus(status);
+              live = status === "live";
               if (status !== "live") {
+                reconciliationVersion += 1;
+                if (reconciliationTimer !== null) window.clearTimeout(reconciliationTimer);
+                reconciliationTimer = null;
                 setOnlineUsers(0);
                 noteRealtimeDisconnected();
               }
               if (status === "live") {
                 reconnectAttempts = 0;
+                if (connectedOnce) {
+                  reconciliationPending = true;
+                  void reconcile();
+                }
+                connectedOnce = true;
                 void refreshConversations().catch(() => undefined);
               }
             },
@@ -453,6 +498,7 @@ export function useConversationRealtime({
       requestCatchUpRef.current = () => undefined;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (catchUpRetryTimer) window.clearTimeout(catchUpRetryTimer);
+      if (reconciliationTimer !== null) window.clearTimeout(reconciliationTimer);
       realtime?.disconnect();
       if (realtimeRef.current === realtime) {
         realtimeRef.current = null;

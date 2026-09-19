@@ -57,6 +57,40 @@ defmodule CommsCore.Events.OutboxStore do
     end
   end
 
+  def lock_for_dispatch(event_id, tenant_id) do
+    unless Repo.in_transaction?(), do: raise(ArgumentError, "dispatch requires a transaction")
+
+    case Repo.one(
+           from(event in OutboxEvent,
+             where: event.id == ^event_id and event.tenant_id == ^tenant_id,
+             lock: "FOR UPDATE"
+           )
+         ) do
+      nil -> :not_found
+      %OutboxEvent{payload: %{"content_erased" => true}} -> :erased
+      %OutboxEvent{} = event -> {:ok, Event.new(event)}
+    end
+  end
+
+  def erase_message_content(tenant_id, message_ids) do
+    if Repo.in_transaction?() do
+      {_count, event_ids} =
+        Repo.update_all(
+          from(event in OutboxEvent,
+            where:
+              event.tenant_id == ^tenant_id and event.aggregate_type == "message" and
+                event.aggregate_id in ^message_ids,
+            select: event.id
+          ),
+          set: [payload: %{"content_erased" => true}, published_at: DateTime.utc_now()]
+        )
+
+      {:ok, event_ids}
+    else
+      {:error, :transaction_required}
+    end
+  end
+
   @spec mark_published(Ecto.UUID.t()) :: :ok
   def mark_published(event_id) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)

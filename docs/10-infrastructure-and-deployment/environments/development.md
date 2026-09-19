@@ -43,6 +43,23 @@ Create a registered worktree from the canonical repository instead.
 
 ## Readiness checklist
 
+Run `python scripts/workspace_preflight.py --repo <checkout>` before interpreting
+local test results. For the selected development runtime add
+`--container <container-name>` (and `--engine docker` when applicable). The check
+prints only Git identity, file paths, BEAM versions, and the workspace mount;
+it does not read container environment values or change repository state. It
+returns a nonzero status for dirty state (including index-only changes), likely
+sync-copy filenames, an outdated base, or a different runtime/mount. It uses the
+current local `origin/main`; fetch deliberately before relying on branch age.
+
+When the checkout is dirty, preserve staged and unstaged changes separately,
+plus untracked source files, before reconciliation. Compare copies by content
+and history; a `-DESKTOP-...` filename alone does not establish which copy is
+authoritative. Retain unique work on a named branch, verify preservation, and
+update through ordinary Git operations. Never reset or clean a dirty checkout
+to silence preflight. While reconciliation is pending, use a registered worktree
+and a container mounted to that exact worktree with synthetic dependencies.
+
 - [x] Canonical Windows workspace identified
 - [x] GitHub remote and protected `main` are authoritative
 - [x] Local data policy is synthetic-only

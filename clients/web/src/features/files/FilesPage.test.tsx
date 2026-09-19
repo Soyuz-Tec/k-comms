@@ -145,6 +145,38 @@ describe("FilesPage", () => {
     expect(screen.queryByText("roadmap.png")).not.toBeInTheDocument();
   });
 
+  it("states partial category scope and continues to matching files on older pages", async () => {
+    harness.files.mockResolvedValueOnce({ data: [availableFile], page: { has_more: true, next_cursor: "older" } })
+      .mockResolvedValueOnce({ data: [imageFile], page: { has_more: false, next_cursor: null } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await screen.findByText("forecast.xlsx");
+    await user.click(screen.getByRole("button", { name: "Images" }));
+    expect(screen.getByText("No images in loaded files")).toBeVisible();
+    expect(screen.queryByText("No images found")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load more files" }));
+    expect(await screen.findByText("roadmap.png")).toBeVisible();
+    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "older" }));
+  });
+
+  it("honors legacy conversation links and focuses a linked file found on an older page", async () => {
+    harness.files.mockResolvedValueOnce({ data: [availableFile], page: { has_more: true, next_cursor: "older" } })
+      .mockResolvedValueOnce({ data: [imageFile], page: { has_more: false, next_cursor: null } });
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={[`/app/files?conversation=${conversationId}&file=${imageFile.id}`]}><FilesPage /></MemoryRouter>);
+    await screen.findByText(/The linked file is not in these results yet/);
+    expect(harness.files).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: conversationId }));
+    await user.click(screen.getByRole("button", { name: "Load more files" }));
+    const target = (await screen.findByText("roadmap.png")).closest("li");
+    await waitFor(() => expect(target).toHaveFocus());
+  });
+
+  it("explains a removed or unauthorized legacy target without authorizing a download", async () => {
+    render(<MemoryRouter initialEntries={[`/app/files?conversation=${conversationId}&file=revoked-file`]}><FilesPage /></MemoryRouter>);
+    expect(await screen.findByText(/The linked file is unavailable/)).toBeVisible();
+    expect(harness.attachmentDownload).not.toHaveBeenCalled();
+  });
+
   it("opens only the existing authorized attachment download descriptor", async () => {
     const user = userEvent.setup();
     const replace = vi.fn();

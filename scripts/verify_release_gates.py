@@ -223,6 +223,20 @@ def verify_staging(client: GitHub, revision: str, image: str, run_id: int, attem
     require(now - MAX_STAGING_AGE <= timestamp(qualification.get("qualified_at"))
             <= min(captured, now) + timedelta(minutes=5),
             "Staging qualification is stale or its timestamp is invalid")
+    reboot = document.get("staging_reboot", {})
+    require(reboot.get("schema") == "k-comms-staging-reboot-receipt-v1"
+            and reboot.get("environment") == "staging" and reboot.get("revision") == revision
+            and reboot.get("image") == image and reboot.get("readiness_verified") is True
+            and reboot.get("timers_verified") is True and reboot.get("service_environments_verified") is True,
+            "Staging reboot recovery does not match the qualified release")
+    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    require(all(re.fullmatch(uuid, str(reboot.get(key, ""))) for key in
+                ("request_id", "boot_id", "previous_boot_id"))
+            and reboot["boot_id"] != reboot["previous_boot_id"],
+            "Staging reboot evidence does not prove a changed boot identity")
+    require(max(now - MAX_STAGING_AGE, timestamp(run.get("run_started_at")))
+            <= timestamp(reboot.get("verified_at")) <= min(captured, now) + timedelta(minutes=5),
+            "Staging reboot evidence is stale or predates the current attempt")
     return {"run_id": run_id, "attempt": attempt, "artifact_id": artifact["id"],
             "artifact_digest": artifact["digest"]}
 

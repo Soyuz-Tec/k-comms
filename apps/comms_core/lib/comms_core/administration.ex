@@ -112,6 +112,9 @@ defmodule CommsCore.Administration do
   defdelegate create_bootstrap_tenant(attrs), to: TenantLifecycle
   defdelegate get_bootstrap_tenant_by_slug(slug), to: TenantLifecycle
   defdelegate any_tenant?(), to: TenantLifecycle
+
+  @spec retention_tenant_ids(binary() | nil) :: [binary()]
+  defdelegate retention_tenant_ids(after_id), to: PolicyQueries
   defdelegate release_tenant_fingerprint_id(repo, tenant_slug), to: TenantLifecycle
   defdelegate delete_release_qualification_tenant(expected), to: TenantLifecycle
 

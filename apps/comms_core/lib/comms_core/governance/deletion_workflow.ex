@@ -21,7 +21,9 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     Attachments,
     AudioCalls,
     Conversations,
+    Integrations,
     Messaging,
+    Outbox,
     Repo,
     RuntimePorts,
     Whiteboards
@@ -182,6 +184,7 @@ defmodule CommsCore.Governance.DeletionWorkflow do
           messages_tombstoned: results.messages_tombstoned,
           attachments_deleted: results.attachments_deleted,
           deleted_object_count: deleted_object_count,
+          derived_erasure_version: 1,
           target_digest: target_digest(request)
         }
 
@@ -211,6 +214,67 @@ defmodule CommsCore.Governance.DeletionWorkflow do
 
   def complete_deletion_request(_id, _version, _evidence, _caller),
     do: {:error, :forbidden}
+
+  def reconcile_completed_erasure(caller, limit) when is_integer(limit) and limit in 1..100 do
+    if RuntimePorts.authorized_job_worker?(:erasure_reconciler, caller) do
+      ids =
+        Repo.all(
+          from(request in DeletionRequest,
+            where:
+              request.status == :completed and
+                fragment("coalesce(?->>'derived_erasure_version', '') <> '1'", request.evidence),
+            order_by: [asc: request.completed_at, asc: request.id],
+            limit: ^limit,
+            select: request.id
+          )
+        )
+
+      Enum.reduce_while(ids, {:ok, 0}, fn id, {:ok, count} ->
+        case repair_completed_erasure(id) do
+          {:ok, repaired?} -> {:cont, {:ok, count + if(repaired?, do: 1, else: 0)}}
+          {:error, _} -> {:halt, {:error, :erasure_repair_failed}}
+        end
+      end)
+      |> case do
+        {:ok, count} -> {:ok, %{repaired: count, has_more: length(ids) == limit}}
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  def reconcile_completed_erasure(_, _), do: {:error, :forbidden}
+
+  defp repair_completed_erasure(id) do
+    Repo.transaction(fn ->
+      request = lock_deletion_request_for_worker!(id)
+
+      if value(request.evidence || %{}, :derived_erasure_version) == 1 do
+        false
+      else
+        erase_derived_message_content!(request.tenant_id, deletion_message_ids(request))
+        erase_whiteboards(request, now()) |> owner_command_or_rollback()
+
+        evidence =
+          Map.merge(request.evidence || %{}, %{
+            "derived_erasure_version" => 1,
+            "derived_erasure_repaired_at" => DateTime.to_iso8601(now())
+          })
+
+        request |> DeletionRequest.changeset(%{evidence: evidence}) |> update_or_rollback()
+
+        audit_system!(
+          request.tenant_id,
+          "deletion_request.derived_content_repaired",
+          request.id,
+          %{derived_erasure_version: 1}
+        )
+
+        true
+      end
+    end)
+  end
 
   def record_deletion_failure(id, reason, caller) do
     if RuntimePorts.authorized_job_worker?(:deletion, caller) do
@@ -386,6 +450,8 @@ defmodule CommsCore.Governance.DeletionWorkflow do
     message_ids = plan.message_ids
     attachment_ids = Enum.map(plan.attachments, & &1.id)
 
+    erase_derived_message_content!(request.tenant_id, message_ids)
+
     content_result =
       Messaging.tombstone_for_erasure(request.tenant_id, message_ids, timestamp)
       |> owner_command_or_rollback()
@@ -408,6 +474,13 @@ defmodule CommsCore.Governance.DeletionWorkflow do
       whiteboard_operations_neutralized: whiteboard_result.whiteboard_operations_neutralized,
       revoked_session_ids: revoked_session_ids
     }
+  end
+
+  defp erase_derived_message_content!(tenant_id, message_ids) do
+    event_ids =
+      Outbox.erase_message_content(tenant_id, message_ids) |> owner_command_or_rollback()
+
+    Integrations.erase_message_content(tenant_id, event_ids) |> owner_command_or_rollback()
   end
 
   defp erase_whiteboards(%DeletionRequest{target_type: :conversation} = request, timestamp) do

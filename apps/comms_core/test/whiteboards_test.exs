@@ -110,6 +110,44 @@ defmodule CommsCore.WhiteboardsTest do
       %{subject: Fixtures.subject(account), conversation_id: account.conversation.id}
     end
 
+    test "user erasure invalidates snapshots and future rebuilding uses the sanitized log", %{
+      subject: subject,
+      conversation_id: conversation_id
+    } do
+      for step <- 1..3,
+          do:
+            append(conversation_id, subject, "erase-snapshot-#{step}", [
+              element("private-element", step, step)
+            ])
+
+      assert {:ok, %{snapshot: %{elements: [_]}}} =
+               Whiteboards.list_operations(conversation_id, subject, snapshot: true)
+
+      assert {:ok, {:ok, _}} =
+               Repo.transaction(fn ->
+                 Whiteboards.erase_for_governance(
+                   subject.tenant_id,
+                   :user,
+                   subject.user_id,
+                   DateTime.utc_now()
+                 )
+               end)
+
+      assert {:ok, %{snapshot: nil, operations: operations}} =
+               Whiteboards.list_operations(conversation_id, subject, snapshot: true)
+
+      assert scene_of([], operations) == []
+
+      append(conversation_id, subject, "after-erasure-snapshot", [
+        element("surviving-element", 1, 1)
+      ])
+
+      assert {:ok, %{snapshot: %{elements: elements}}} =
+               Whiteboards.list_operations(conversation_id, subject, snapshot: true)
+
+      assert Enum.map(elements, & &1["id"]) == ["surviving-element"]
+    end
+
     test "a snapshot reconstructs exactly what a full replay would", %{
       subject: subject,
       conversation_id: conversation_id
@@ -208,8 +246,8 @@ defmodule CommsCore.WhiteboardsTest do
 
       # Serving the pre-clear snapshot here would restore work a collaborator
       # deleted for everyone.
-      assert after_clear.snapshot == nil
-      assert Enum.map(after_clear.operations, & &1.sequence) == [clear.sequence]
+      assert after_clear.snapshot == %{elements: [], through_sequence: clear.sequence}
+      assert after_clear.operations == []
     end
 
     test "a snapshot taken after a clear covers only the new generation", %{

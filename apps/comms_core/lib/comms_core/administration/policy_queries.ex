@@ -67,6 +67,18 @@ defmodule CommsCore.Administration.PolicyQueries do
 
   def retention_defaults(_tenant_id), do: {:error, :invalid_tenant_id}
 
+  def retention_tenant_ids(after_id) do
+    TenantSettings
+    |> where([settings], settings.default_retention_days > 0)
+    |> then(fn query ->
+      if after_id, do: where(query, [settings], settings.tenant_id > ^after_id), else: query
+    end)
+    |> order_by([settings], asc: settings.tenant_id)
+    |> select([settings], settings.tenant_id)
+    |> limit(100)
+    |> Repo.all()
+  end
+
   def conversation_content_policy(subject) when is_map(subject) do
     tenant_id = value(subject, :tenant_id)
 

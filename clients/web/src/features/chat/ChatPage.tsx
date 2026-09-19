@@ -241,6 +241,7 @@ export function ChatPage() {
     activeConversationIdRef,
     composer,
     composerChanged,
+    draftPersistence,
     failedSend,
     mentionedUserIds,
     replyTo,
@@ -633,6 +634,7 @@ export function ChatPage() {
         }
         capabilities={capabilities}
         composer={composer}
+        draftPersistence={draftPersistence}
         connectionStatus={connectionStatus}
         conversationIdentifier={conversationIdentifier}
         currentUserId={session.user.id}

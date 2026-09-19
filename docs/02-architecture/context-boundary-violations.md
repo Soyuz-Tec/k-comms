@@ -22,10 +22,10 @@ Static production module references (source owner -> referenced owner).
 | `notification_delivery` | `audit`, `conversations`, `identity_access`, `platform_eventing` |
 | `operations_read_model` | `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `tenant_administration` | `audit` |
-| `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **39**. Strongly connected components: **0**.
+Edges: **41**. Strongly connected components: **0**.
 
 ### Runtime graph
 
@@ -53,9 +53,9 @@ Union of compiled references and runtime control flow.
 | `notification_delivery` | `audit`, `conversations`, `identity_access`, `platform_eventing` |
 | `operations_read_model` | `conversation_content`, `conversations`, `identity_access`, `notification_delivery`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `tenant_administration` | `audit`, `calls`, `identity_access` |
-| `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `tenant_administration` |
+| `trust_governance` | `audit`, `calls`, `collaboration`, `conversation_content`, `conversations`, `identity_access`, `platform_eventing`, `tenant_administration`, `webhook_management` |
 | `webhook_management` | `audit`, `identity_access`, `platform_eventing` |
 
-Edges: **46**. Strongly connected components: **1**.
+Edges: **48**. Strongly connected components: **1**.
 
 - `calls`, `collaboration`, `conversations`, `identity_access`, `notification_delivery`, `tenant_administration`
