@@ -222,6 +222,21 @@ describe("ChatPage durable sequence recovery", () => {
     );
   });
 
+  it("closes the old thread when a removed desktop default is replaced", async () => {
+    const user = userEvent.setup();
+    const operations = { ...harness.conversations[0]!, id: "conversation-2", title: "Operations" };
+    harness.conversations.push(operations);
+    const { rerender } = render(<MemoryRouter initialEntries={["/app"]}><ChatPage /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "Start thread" }));
+    expect(await screen.findByRole("dialog", { name: "Thread" })).toBeVisible();
+    harness.api.messageThread!.mockClear();
+    harness.conversations = [operations];
+    rerender(<MemoryRouter><ChatPage /></MemoryRouter>);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Operations" })).toBeVisible();
+    expect(harness.api.messageThread).not.toHaveBeenCalled();
+  });
+
   it("turns a search result into a reloadable focused-message deep link", async () => {
     const user = userEvent.setup();
     const result = {

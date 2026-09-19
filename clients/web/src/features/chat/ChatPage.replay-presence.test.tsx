@@ -784,7 +784,7 @@ describe("ChatPage durable sequence recovery", () => {
     await waitFor(() => expect(conversationButton).toHaveFocus());
   });
 
-  it("preserves desktop first-conversation auto-selection", async () => {
+  it("shows the desktop first conversation without rewriting an unselected URL", async () => {
     render(
       <MemoryRouter initialEntries={["/app"]}>
         <ChatPage />
@@ -792,7 +792,9 @@ describe("ChatPage durable sequence recovery", () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(screen.getByLabelText("location-search")).toHaveTextContent("?conversation=conversation-1"));
+    expect(await screen.findByRole("heading", { name: "General" })).toBeVisible();
+    expect(screen.getByLabelText("location-search")).toBeEmptyDOMElement();
+    expect(harness.api.messages).toHaveBeenCalledWith("conversation-1", expect.anything(), expect.anything());
     expect(document.querySelector("main#main-content")).toHaveClass("mobile-messages");
   });
 

@@ -57,6 +57,12 @@ for (const width of [1024, 1440]) {
       expect((await dock.boundingBox())!.width).toBe(48);
       expect(await workspace.boundingBox()).toEqual(original);
       await expect(dock.getByRole("link", { name: "Calls", exact: true })).toHaveAttribute("title", "Calls");
+      // Visibility is restored before the dock's opacity/translate reveal settles.
+      // Measure steady-state contrast without changing the motion or axe rules.
+      await expect(dock).toHaveCSS("opacity", "1");
+      await expect.poll(() => dock.evaluate((element) =>
+        element.getAnimations().filter((animation) => animation.playState !== "finished").length
+      )).toBe(0);
       const accessibility = await new AxeBuilder({ page }).include("#workspace-navigation").analyze();
       expect(accessibility.violations).toEqual([]);
     });
