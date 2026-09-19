@@ -177,6 +177,11 @@ Any failed staging gate blocks production.
 Immediately before promotion:
 
 1. Confirm the candidate is the exact staging-qualified digest.
+   The reusable workflow requires successful exact-main CI plus a trusted
+   staging artifact from the current Container run/attempt, captured within
+   24 hours. Both are rechecked after approval before SSH access. Manual
+   production requests use the complete Container chain; failed-job-only
+   reruns cannot reuse qualification from another attempt.
 2. Re-read current production receipt, image, revision, storage volumes,
    service state, backup timers, tunnel, firewall/listeners, and health.
 3. Capture authoritative record counts or other reconciliation markers without

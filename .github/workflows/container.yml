@@ -20,6 +20,9 @@ on:
       - "scripts/test_validate_proxmox_bundle.py"
       - "scripts/validate_compose_exposure.py"
       - "scripts/test_validate_compose_exposure.py"
+      - "scripts/verify_release_gates.py"
+      - "scripts/test_verify_release_gates.py"
+      - "scripts/test_proxmox_deploy_recovery.py"
       - ".github/workflows/container.yml"
       - ".github/workflows/deploy-proxmox.yml"
       # Test sources cannot reach the runtime artifact, so a test-only commit
@@ -46,6 +49,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   attestations: read
   contents: read
   packages: read
@@ -84,6 +88,9 @@ jobs:
               scripts/test_validate_proxmox_bundle.py|\
               scripts/validate_compose_exposure.py|\
               scripts/test_validate_compose_exposure.py|\
+              scripts/verify_release_gates.py|\
+              scripts/test_verify_release_gates.py|\
+              scripts/test_proxmox_deploy_recovery.py|\
               .github/workflows/container.yml|\
               .github/workflows/deploy-proxmox.yml)
                 runtime_required=true
@@ -509,5 +516,5 @@ jobs:
             echo "- Staging: deployment, backup, rollback, reactivation, and isolated restore passed"
             echo "- Production: protected approval, backup, same-digest deployment, and host verification passed"
             echo "- Public application, media, and object-storage endpoints passed"
-            echo "- Evidence artifacts: \`k-comms-staging-${REVISION}\`, \`k-comms-production-${REVISION}\`"
+            echo "- Evidence artifacts: \`k-comms-staging-${REVISION}-attempt-${GITHUB_RUN_ATTEMPT}\`, \`k-comms-production-${REVISION}-attempt-${GITHUB_RUN_ATTEMPT}\`"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -290,6 +290,45 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("deploy.sh is missing control" in error for error in errors)
         )
 
+    def test_rejects_removed_release_gate_before_or_after_approval(self) -> None:
+        for occurrence in (0, 1):
+            with self.subTest(occurrence=occurrence):
+                temporary, root = self.copied_contract()
+                self.addCleanup(temporary.cleanup)
+                path = root / ".github/workflows/deploy-proxmox.yml"
+                command = "python scripts/verify_release_gates.py"
+                parts = path.read_text(encoding="utf-8").split(command)
+                parts[occurrence] += "echo gate removed"
+                document = command.join(parts[:occurrence + 1]) + command.join(parts[occurrence + 1:])
+                path.write_text(document, encoding="utf-8")
+                self.assertTrue(any("release gates must run" in error for error in validate(root)))
+
+    def test_rejects_staging_artifact_without_attempt_binding(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "-attempt-${{ github.run_attempt }}", ""), encoding="utf-8")
+        self.assertTrue(any("release evidence workflow is missing" in error for error in validate(root)))
+
+    def test_rejects_direct_manual_production_option(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "          - staging", "          - staging\n          - production"), encoding="utf-8")
+        self.assertIn("manual production must use the complete Container release chain", validate(root))
+
+    def test_rejects_missing_recovery_or_ci_failure_injection(self) -> None:
+        for script in ("test_verify_release_gates.py", "test_proxmox_deploy_recovery.py"):
+            with self.subTest(script=script):
+                temporary, root = self.copied_contract()
+                self.addCleanup(temporary.cleanup)
+                path = root / ".github/workflows/ci.yml"
+                path.write_text(path.read_text(encoding="utf-8").replace(
+                    f"python scripts/{script}", "echo removed"), encoding="utf-8")
+                self.assertTrue(any("CI must execute release safety" in error for error in validate(root)))
+
     def test_rejects_unencoded_remote_shell(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)
@@ -577,15 +616,15 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         path = root / "deploy/proxmox/bin/deploy.sh"
         path.write_text(
             path.read_text(encoding="utf-8").replace(
-                "  --require-pwa; then",
-                "  --skip-host-tuning; then",
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa',
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --skip-host-tuning',
             ),
             encoding="utf-8",
         )
         errors = validate(root)
         self.assertTrue(
             any(
-                "deploy.sh is missing control: --require-pwa; then" in error
+                "deploy.sh is missing control:" in error and "--require-pwa" in error
                 for error in errors
             )
         )

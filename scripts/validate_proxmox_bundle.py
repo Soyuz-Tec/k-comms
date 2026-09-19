@@ -14,6 +14,7 @@ REQUIRED_FILES = (
     "Dockerfile",
     ".github/workflows/container.yml",
     ".github/workflows/deploy-proxmox.yml",
+    ".github/workflows/ci.yml",
     "deploy/proxmox/README.md",
     "deploy/proxmox/inventory.json",
     "deploy/proxmox/runtime.env.example",
@@ -50,6 +51,9 @@ REQUIRED_FILES = (
     "scripts/proxmox/qualify-staging-remote.ps1",
     "scripts/test_proxmox_native_commands.ps1",
     "scripts/test_proxmox_livekit_runtime.sh",
+    "scripts/verify_release_gates.py",
+    "scripts/test_verify_release_gates.py",
+    "scripts/test_proxmox_deploy_recovery.py",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
     "docs/02-architecture/adr/0057-managed-livekit-cloud-internet-media.md",
     "docs/02-architecture/adr/0058-automatic-merge-to-production-promotion.md",
@@ -288,7 +292,13 @@ def validate(root: Path) -> list[str]:
         "write_managed_livekit_runtime_env",
         'install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"',
         "--arg media_topology",
-        "--require-pwa; then",
+        '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa',
+        "trap finish_deployment EXIT",
+        "migration_started=true",
+        "migration_complete=true",
+        "CommsCore.Release.assert_communication_rollback_compatible!()",
+        "recovery=previous_verified",
+        "failed-deployments",
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
@@ -522,6 +532,7 @@ def validate(root: Path) -> list[str]:
         # Without this fallback every retry re-creates that state and the
         # rollback rehearsal can never run again for the release.
         "candidate receipt names itself as previous",
+        "(now - 86400 <= $qualified) and ($qualified <= now + 300)",
     ):
         if required not in staging_qualification:
             errors.append(
@@ -581,6 +592,30 @@ def validate(root: Path) -> list[str]:
             "deployment workflow must be invoked only by workflow_call or "
             "workflow_dispatch"
         )
+    gate_command = "python scripts/verify_release_gates.py"
+    if workflow.count(gate_command) != 2:
+        errors.append("release gates must run both before approval and before host access")
+    before_approval = workflow.partition("  deploy:\n")[0]
+    before_secrets = workflow.partition("      - name: Materialize protected SSH inputs")[0]
+    if gate_command not in before_approval or before_secrets.count(gate_command) != 2:
+        errors.append("release gates must precede protected approval and SSH input materialization")
+    for required in (
+        "  actions: read",
+        "--wait-seconds 2100",
+        "RELEASE_ENVIRONMENT: ${{ inputs.environment }}",
+        "RELEASE_IMAGE: ${{ inputs.image }}",
+        "RELEASE_REVISION: ${{ inputs.revision }}",
+        "name: k-comms-${{ inputs.environment }}-${{ inputs.revision }}-attempt-${{ github.run_attempt }}",
+    ):
+        if required not in workflow:
+            errors.append(f"release evidence workflow is missing: {required}")
+    manual_inputs = workflow.partition("  workflow_dispatch:\n")[2].partition("\npermissions:")[0]
+    if "          - production" in manual_inputs:
+        errors.append("manual production must use the complete Container release chain")
+    ci_workflow = read(root, ".github/workflows/ci.yml")
+    for test_script in ("test_verify_release_gates.py", "test_proxmox_deploy_recovery.py"):
+        if f"python scripts/{test_script}" not in ci_workflow:
+            errors.append(f"CI must execute release safety behavior tests: {test_script}")
 
     remote = read(root, "scripts/proxmox/deploy-remote.ps1")
     for required in (

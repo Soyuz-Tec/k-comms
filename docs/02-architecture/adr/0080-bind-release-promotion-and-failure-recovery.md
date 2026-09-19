@@ -1,0 +1,111 @@
+# ADR-0080: Bind release promotion and failure recovery to verified evidence
+
+- **Status:** Accepted
+- **Date:** 2026-09-19
+- **Owners:** Delivery, Operations, Security
+- **Related decisions:** ADR-0055, ADR-0058, ADR-0064
+- **Supersedes:** ADR-0058's standalone manual production entry point
+
+## Context
+
+The Container chain already verifies immutable artifacts, qualifies staging,
+and requires independent production approval. However, its sibling CI workflow
+can still be running when production completes, and the direct deployment form
+can select production without a staging dependency. Separately, a backup or
+preactivation failure after application shutdown leaves the old application
+stopped because recovery only handles the activation branch.
+
+The gates must enforce the documented release sequence, and failure recovery
+must distinguish an unchanged database from a partially migrated database.
+
+## Decision
+
+1. Before host access, require the latest `CI` push run on `main` for the exact
+   release SHA to have succeeded, including every required CI job. Missing,
+   skipped, cancelled, failed, malformed, or incomplete evidence fails closed.
+   The initial gate may wait up to 35 minutes; the post-approval recheck does
+   not wait. The image may be built concurrently, but cannot be deployed while
+   exact-candidate CI is incomplete.
+2. Production must belong to the current main Container run and attempt. Its
+   staging deployment job must have succeeded in that attempt. Verify the
+   GitHub-hosted staging artifact's SHA-256, provenance, environment, release
+   SHA, image digest, backup completion, and rollback/restore qualification.
+   Capture must be within the current attempt and no older than 24 hours.
+   The qualification itself must also be no older than 24 hours. Retained
+   exact-image host qualification can be reused inside that window only through
+   staging re-verification and newly captured workflow evidence; stale or invalid
+   qualification forces a new rollback and restore rehearsal.
+3. Recheck both gates after protected production approval and before creating
+   SSH credential files or accessing the host. The workflow does not approve
+   its own deployment. Artifact downloads never receive the GitHub bearer
+   token after the API redirect, and signed download URLs are never logged.
+4. The direct Deploy Proxmox form offers staging only. A forced direct
+   production call fails the Container-run proof. Manual production recovery
+   must start or rerun the complete Container chain, including staging; a
+   failed-job-only rerun cannot reuse an earlier attempt's staging artifact.
+   Root-console disaster recovery remains a separately authorized, audited
+   operational action, not an alternative routine promotion workflow.
+5. A deployment EXIT handler covers every phase after the rollback guard is
+   captured. Before migration, restore and verify the prior application on
+   failure. A failed migration leaves writers stopped because earlier
+   migrations may have committed. After successful migration, automatic
+   reactivation requires the existing communication compatibility preflight
+   against the previous revision/capabilities, then previous-image health
+   verification. No down migration or destructive restore is automatic.
+6. Failed deployments retain a root-only guard and a non-secret phase/recovery
+   record under the receipts directory. If durable evidence storage fails,
+   retain the original `/run` guard and report its location. Guard files contain
+   configuration secrets and must never be uploaded as ordinary artifacts.
+   An unverified restart is stopped and reported as failed recovery. Successful
+   deployments remove the guard and publish their current receipt only after
+   application verification and timer activation succeed.
+
+## Consequences
+
+Production cannot race exact-main CI or borrow qualification from another
+digest, workflow, or attempt. Delayed approvals can expire qualification and
+require a full rerun. The protected runner needs Python 3.13, installed by the
+existing SHA-pinned setup action. GitHub API/artifact availability becomes a
+release dependency; outages block new host access while the running service
+continues unchanged.
+
+An unsafe or failed migration intentionally requires operator-led compatible
+roll-forward or separately approved recovery. The handler does not invent a
+generic schema-rollback guarantee. Existing compatible migration discipline
+and the communication rollback preflight remain required.
+
+## Alternatives
+
+- Triggering release through `workflow_run` would introduce another privileged
+  trigger and checkout boundary. Keep the existing serialized chain and inspect
+  exact-revision evidence through read-only GitHub APIs.
+- A boolean caller input or a copied digest alone cannot prove staging. Use
+  trusted current-run job results and a digest-verified artifact instead.
+- Restarting the previous binary after every migration error may write through
+  a partially changed schema. Leave that phase stopped and retain evidence.
+- Removing independent production approval or silently restoring data would
+  weaken existing authority and recovery boundaries; neither is permitted.
+
+## Validation
+
+- Execute the real deployment script with synthetic commands and inject backup,
+  object preparation, migration, rendering, startup, health, timer, and recovery
+  failures; verify lifecycle order, compatibility checks, evidence, and success
+  cleanup on Linux.
+- Negative gate fixtures cover wrong SHA/repository/workflow/attempt, pending
+  or failed CI, missing jobs, missing/expired/mutated artifacts, wrong digest,
+  incomplete backup/rollback/restore evidence, stale capture, and credential
+  stripping on redirects.
+- The Proxmox contract rejects removal or reordering of pre-approval and
+  pre-host-access gates, standalone production dispatch, missing attempt
+  binding, and missing CI behavior tests.
+- A real release must still pass protected PR CI, immutable publication,
+  synthetic staging qualification, independent production approval, and public
+  verification. Local failure injection does not constitute production proof.
+
+## Sources
+
+The implementation uses GitHub's read-only
+[workflow runs](https://docs.github.com/en/rest/actions/workflow-runs),
+[workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs), and
+[artifact](https://docs.github.com/en/rest/actions/artifacts) APIs.
