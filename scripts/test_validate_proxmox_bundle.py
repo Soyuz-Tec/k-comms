@@ -311,6 +311,28 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             "-attempt-${{ github.run_attempt }}", ""), encoding="utf-8")
         self.assertTrue(any("release evidence workflow is missing" in error for error in validate(root)))
 
+    def test_rejects_staging_reboot_without_environment_guard(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "name: Prove staging reboot recovery for the qualified digest\n        if: inputs.environment == 'staging'",
+            "name: Prove staging reboot recovery for the qualified digest"), encoding="utf-8")
+        self.assertIn("staging reboot must be a staging-only workflow step", validate(root))
+
+    def test_rejects_reboot_evidence_or_ci_regression_removal(self) -> None:
+        for filename, marker, error in (
+            ("scripts/proxmox/export-deployment-evidence.ps1", "staging_reboot: $reboot", "deployment evidence exporter is missing"),
+            (".github/workflows/ci.yml", "python scripts/test_proxmox_staging_reboot.py", "CI must execute staging reboot behavior"),
+            ("scripts/proxmox/qualify-staging-reboot-remote.ps1", 'ValidateSet("192.168.1.23")', "staging reboot transport is missing"),
+        ):
+            with self.subTest(filename=filename):
+                temporary, root = self.copied_contract()
+                self.addCleanup(temporary.cleanup)
+                path = root / filename
+                path.write_text(path.read_text(encoding="utf-8").replace(marker, "removed"), encoding="utf-8")
+                self.assertTrue(any(error in item for item in validate(root)))
+
     def test_rejects_direct_manual_production_option(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)

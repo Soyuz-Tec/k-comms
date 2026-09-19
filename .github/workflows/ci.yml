@@ -253,6 +253,8 @@ jobs:
       - run: python scripts/test_proxmox_deploy_recovery.py
       - run: python scripts/test_proxmox_service_env.py
       - run: python scripts/test_proxmox_operations.py
+      - run: python scripts/test_proxmox_staging_reboot.py
+      - run: pwsh -NoProfile -File scripts/test_proxmox_staging_reboot.ps1
       - run: pwsh -NoProfile -File scripts/test_proxmox_native_commands.ps1
       - run: python scripts/test_validate_readiness_ledger.py
       - run: python scripts/validate_readiness_ledger.py docs/13-delivery-plan/internal-production-readiness-ledger.template.json

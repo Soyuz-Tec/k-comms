@@ -136,7 +136,7 @@ jobs:
   deploy:
     needs: verify-artifact
     runs-on: [self-hosted, x64, k-comms-deploy]
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment:
       name: ${{ inputs.environment }}
     steps:
@@ -262,6 +262,20 @@ jobs:
               Join-Path $env:GITHUB_WORKSPACE `
                   "scripts\proxmox\qualify-staging-remote.ps1"
           ) `
+              -DeployHost $env:DEPLOY_HOST `
+              -DeployUser $env:DEPLOY_USER `
+              -SshKeyPath $env:DEPLOY_KEY_PATH `
+              -KnownHostsPath $env:DEPLOY_KNOWN_HOSTS_PATH `
+              -Image "${{ inputs.image }}" `
+              -Revision "${{ inputs.revision }}"
+      - name: Prove staging reboot recovery for the qualified digest
+        if: inputs.environment == 'staging'
+        shell: pwsh
+        env:
+          DEPLOY_HOST: ${{ vars.K_COMMS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.K_COMMS_DEPLOY_USER }}
+        run: |
+          & (Join-Path $env:GITHUB_WORKSPACE "scripts/proxmox/qualify-staging-reboot-remote.ps1") `
               -DeployHost $env:DEPLOY_HOST `
               -DeployUser $env:DEPLOY_USER `
               -SshKeyPath $env:DEPLOY_KEY_PATH `
