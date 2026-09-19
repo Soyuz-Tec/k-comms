@@ -56,7 +56,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
   aardvark-dns ca-certificates curl jq nftables openssl podman postgresql-client \
-  procps qemu-guest-agent tar
+  procps python3 qemu-guest-agent tar
 
 for command in curl flock jq nft podman sha256sum sysctl systemctl; do
   require_command "$command"
@@ -72,6 +72,8 @@ install -d -m 0700 "$K_COMMS_BACKUP_ROOT"
 install -d -m 0750 "$K_COMMS_CONFIG_DIR"
 
 install -m 0755 "${BUNDLE_DIR}"/bin/*.sh "${K_COMMS_INSTALL_DIR}/bin/"
+install -m 0755 "${BUNDLE_DIR}"/bin/*.py "${K_COMMS_INSTALL_DIR}/bin/"
+generate_service_envs
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.in "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/nftables.conf.in" "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \

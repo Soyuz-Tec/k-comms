@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 K_COMMS_CONFIG_DIR=/etc/k-comms
 K_COMMS_RUNTIME_ENV="${K_COMMS_CONFIG_DIR}/runtime.env"
+K_COMMS_SERVICE_ENV_DIR="${K_COMMS_CONFIG_DIR}/service-env"
+K_COMMS_SERVICE_ENV="${K_COMMS_SERVICE_ENV_DIR}/current"
 K_COMMS_RELEASE_ENV="${K_COMMS_CONFIG_DIR}/release.env"
 K_COMMS_ENVIRONMENT_FILE="${K_COMMS_CONFIG_DIR}/environment"
 K_COMMS_QUADLET_DIR=/etc/containers/systemd
@@ -13,7 +15,7 @@ K_COMMS_BACKUP_ROOT=/var/backups/k-comms
 K_COMMS_LOCK_FILE=/run/lock/k-comms-deploy.lock
 K_COMMS_SOURCE=https://github.com/Soyuz-Tec/k-comms
 K_COMMS_CAPABILITIES=guest_identity_v1,guest_admission_expiry_worker_v1,instant_room_lifecycle_v1,instant_room_presence_lease_v1,instant_room_expiry_worker_v1,conversation_only_human_v1
-K_COMMS_MINIO_MC_IMAGE=docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
+K_COMMS_MINIO_MC_IMAGE=quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
 K_COMMS_LOCAL_LIVEKIT_TOPOLOGY=local_sidecar
 K_COMMS_MANAGED_LIVEKIT_TOPOLOGY=managed_cloud
 K_COMMS_MANAGED_LIVEKIT_CONFIRMATION=livekit-cloud-v1
@@ -131,6 +133,28 @@ assert_secure_runtime_env() {
     die "${K_COMMS_RUNTIME_ENV} must have mode 0600"
   ! grep -q 'CHANGE_ME' "$K_COMMS_RUNTIME_ENV" ||
     die "${K_COMMS_RUNTIME_ENV} still contains CHANGE_ME placeholders"
+}
+
+generate_service_envs() {
+  require_command python3
+  python3 "$(dirname -- "${BASH_SOURCE[0]}")/service-env.py" \
+    --source "${1:-$K_COMMS_RUNTIME_ENV}" \
+    --destination "${2:-$K_COMMS_SERVICE_ENV_DIR}"
+}
+
+service_environment_matches() {
+  local service=$1
+  podman inspect "k-comms-${service}" --format '{{json .Config.Env}}' |
+    python3 "$(dirname -- "${BASH_SOURCE[0]}")/service-env.py" \
+      --source "$K_COMMS_RUNTIME_ENV" --destination "$K_COMMS_SERVICE_ENV_DIR" \
+      --container "$service"
+}
+
+assert_running_service_environments() {
+  local service
+  for service in app postgres minio livekit; do
+    service_environment_matches "$service" || return 1
+  done
 }
 
 configured_livekit_topology() {

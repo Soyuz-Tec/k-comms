@@ -14,6 +14,7 @@ REQUIRED_FILES = (
     "Dockerfile",
     ".github/workflows/container.yml",
     ".github/workflows/deploy-proxmox.yml",
+    ".github/workflows/ci.yml",
     "deploy/proxmox/README.md",
     "deploy/proxmox/inventory.json",
     "deploy/proxmox/runtime.env.example",
@@ -29,6 +30,13 @@ REQUIRED_FILES = (
     "deploy/proxmox/bin/common.sh",
     "deploy/proxmox/bin/adopt-legacy-production.sh",
     "deploy/proxmox/bin/generate-runtime-env.sh",
+    "deploy/proxmox/bin/service-env.py",
+    "deploy/proxmox/bin/operations.py",
+    "deploy/proxmox/bin/operations-common.sh",
+    "deploy/proxmox/bin/monitor.sh",
+    "deploy/proxmox/monitoring.json.example",
+    "scripts/test_proxmox_operations.py",
+    "scripts/test_proxmox_service_env.py",
     "deploy/proxmox/bin/install.sh",
     "deploy/proxmox/bin/sync-assets.sh",
     "deploy/proxmox/bin/deploy.sh",
@@ -50,6 +58,9 @@ REQUIRED_FILES = (
     "scripts/proxmox/qualify-staging-remote.ps1",
     "scripts/test_proxmox_native_commands.ps1",
     "scripts/test_proxmox_livekit_runtime.sh",
+    "scripts/verify_release_gates.py",
+    "scripts/test_verify_release_gates.py",
+    "scripts/test_proxmox_deploy_recovery.py",
     "docs/02-architecture/adr/0055-proxmox-vm-release-operations.md",
     "docs/02-architecture/adr/0057-managed-livekit-cloud-internet-media.md",
     "docs/02-architecture/adr/0058-automatic-merge-to-production-promotion.md",
@@ -64,11 +75,11 @@ PINNED_INFRA_IMAGES = {
         "742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
     ),
     "minio": (
-        "docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:"
+        "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:"
         "a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2"
     ),
     "minio-client": (
-        "docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:"
+        "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:"
         "eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780"
     ),
     "livekit": (
@@ -184,6 +195,37 @@ def validate(root: Path) -> list[str]:
     postgres_quadlet = read(
         root, "deploy/proxmox/quadlet/k-comms-postgres.container"
     )
+    for service, relative in (
+        ("app", "deploy/proxmox/quadlet/k-comms-app.container.in"),
+        ("postgres", "deploy/proxmox/quadlet/k-comms-postgres.container"),
+        ("minio", "deploy/proxmox/quadlet/k-comms-minio.container.in"),
+        ("livekit", "deploy/proxmox/quadlet/k-comms-livekit.container.in"),
+    ):
+        document = read(root, relative)
+        if f"EnvironmentFile=/etc/k-comms/service-env/current/{service}.env" not in document:
+            errors.append(f"{relative}: restricted service environment is required")
+        if "EnvironmentFile=/etc/k-comms/runtime.env" in document:
+            errors.append(f"{relative}: shared host environment is forbidden in containers")
+    for relative, document in all_documents.items():
+        if relative.endswith(".sh") and ('--env-file "$K_COMMS_RUNTIME_ENV"' in document
+                                         or '--env-file "${rollback_dir}/runtime.env"' in document):
+            errors.append(f"{relative}: one-shot container exposes the shared host environment")
+    for name in ("install", "sync-assets", "deploy", "rollback", "restore", "adopt-legacy-production"):
+        if "generate_service_envs" not in read(root, f"deploy/proxmox/bin/{name}.sh"):
+            errors.append(f"{name}.sh must regenerate restricted service environments")
+    if "python scripts/test_proxmox_service_env.py" not in read(root, ".github/workflows/ci.yml"):
+        errors.append("CI must execute service environment behavior tests")
+    if "python scripts/test_proxmox_operations.py" not in read(root, ".github/workflows/ci.yml"):
+        errors.append("CI must execute operational evidence behavior tests")
+    if "ExecStart=/opt/k-comms/bin/monitor.sh" not in read(root, "deploy/proxmox/systemd/k-comms-health.service"):
+        errors.append("health timer must run backup freshness and storage monitoring")
+    monitor_config = json.loads(read(root, "deploy/proxmox/monitoring.json.example"))
+    if monitor_config.get("alerts_enabled") is not False or monitor_config.get("deadman_enabled") is not False:
+        errors.append("external monitoring delivery must remain disabled by default")
+    for name, kind in (("backup", "backup"), ("quiesced-backup", "maintenance")):
+        document = read(root, f"deploy/proxmox/bin/{name}.sh")
+        if f"operation_begin {kind}" not in document or "operation_record" not in document:
+            errors.append(f"{name}.sh must retain operation duration and failure evidence")
     if "NoNewPrivileges=true" in postgres_quadlet:
         errors.append(
             "PostgreSQL Quadlet must permit its pinned entrypoint to drop from root"
@@ -288,7 +330,13 @@ def validate(root: Path) -> list[str]:
         "write_managed_livekit_runtime_env",
         'install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV"',
         "--arg media_topology",
-        "--require-pwa; then",
+        '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa',
+        "trap finish_deployment EXIT",
+        "migration_started=true",
+        "migration_complete=true",
+        "CommsCore.Release.assert_communication_rollback_compatible!()",
+        "recovery=previous_verified",
+        "failed-deployments",
     ):
         if required not in deploy:
             errors.append(f"deploy.sh is missing control: {required}")
@@ -522,6 +570,7 @@ def validate(root: Path) -> list[str]:
         # Without this fallback every retry re-creates that state and the
         # rollback rehearsal can never run again for the release.
         "candidate receipt names itself as previous",
+        "(now - 86400 <= $qualified) and ($qualified <= now + 300)",
     ):
         if required not in staging_qualification:
             errors.append(
@@ -581,6 +630,30 @@ def validate(root: Path) -> list[str]:
             "deployment workflow must be invoked only by workflow_call or "
             "workflow_dispatch"
         )
+    gate_command = "python scripts/verify_release_gates.py"
+    if workflow.count(gate_command) != 2:
+        errors.append("release gates must run both before approval and before host access")
+    before_approval = workflow.partition("  deploy:\n")[0]
+    before_secrets = workflow.partition("      - name: Materialize protected SSH inputs")[0]
+    if gate_command not in before_approval or before_secrets.count(gate_command) != 2:
+        errors.append("release gates must precede protected approval and SSH input materialization")
+    for required in (
+        "  actions: read",
+        "--wait-seconds 2100",
+        "RELEASE_ENVIRONMENT: ${{ inputs.environment }}",
+        "RELEASE_IMAGE: ${{ inputs.image }}",
+        "RELEASE_REVISION: ${{ inputs.revision }}",
+        "name: k-comms-${{ inputs.environment }}-${{ inputs.revision }}-attempt-${{ github.run_attempt }}",
+    ):
+        if required not in workflow:
+            errors.append(f"release evidence workflow is missing: {required}")
+    manual_inputs = workflow.partition("  workflow_dispatch:\n")[2].partition("\npermissions:")[0]
+    if "          - production" in manual_inputs:
+        errors.append("manual production must use the complete Container release chain")
+    ci_workflow = read(root, ".github/workflows/ci.yml")
+    for test_script in ("test_verify_release_gates.py", "test_proxmox_deploy_recovery.py"):
+        if f"python scripts/{test_script}" not in ci_workflow:
+            errors.append(f"CI must execute release safety behavior tests: {test_script}")
 
     remote = read(root, "scripts/proxmox/deploy-remote.ps1")
     for required in (

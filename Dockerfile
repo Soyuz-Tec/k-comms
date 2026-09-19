@@ -8,6 +8,7 @@ ARG OCI_VERSION=dev
 FROM ${ELIXIR_IMAGE} AS beam-base
 ENV LANG=C.UTF-8
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
       build-essential \
       ca-certificates \
@@ -59,6 +60,7 @@ ENV LANG=C.UTF-8 \
     K_COMMS_RELEASE_REVISION=${OCI_REVISION} \
     ERL_CRASH_DUMP=/tmp/erl_crash.dump
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
