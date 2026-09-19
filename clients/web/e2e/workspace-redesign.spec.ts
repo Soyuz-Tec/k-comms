@@ -116,10 +116,24 @@ test("password controls remain aligned when field text grows", async ({ page }, 
   const password = page.getByLabel("Password", { exact: true });
   const toggle = page.getByRole("button", { name: "Show password", exact: true });
   await expect(password).toBeVisible();
+  // The status response enables the form and removes its transport warning.
+  // Measure the usable form after that reflow and the self-hosted font swap.
+  await expect(password).toBeEnabled();
+  await page.evaluate(() => document.fonts.ready);
   for (const enlarged of [false, true]) {
     if (enlarged) await page.addStyleTag({ content: "html { font-size: 20px !important; } .field label { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }" });
-    const inputBox = (await password.boundingBox())!;
-    const toggleBox = (await toggle.boundingBox())!;
+    // Both rectangles must describe the same layout; separate browser calls
+    // can straddle a reflow and report a false alignment difference.
+    const { inputBox, toggleBox } = await password.evaluate((input) => {
+      const button = input.parentElement?.querySelector("button");
+      if (!button) throw new Error("Password visibility control is missing");
+      const inputRect = input.getBoundingClientRect();
+      const toggleRect = button.getBoundingClientRect();
+      return {
+        inputBox: { y: inputRect.y, height: inputRect.height },
+        toggleBox: { y: toggleRect.y, height: toggleRect.height }
+      };
+    });
     expect(Math.abs(inputBox.y - toggleBox.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(inputBox.height - toggleBox.height)).toBeLessThanOrEqual(1);
     expect(toggleBox.height).toBeGreaterThanOrEqual(44);
