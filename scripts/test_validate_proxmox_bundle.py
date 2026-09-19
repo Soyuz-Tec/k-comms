@@ -290,6 +290,45 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             any("deploy.sh is missing control" in error for error in errors)
         )
 
+    def test_rejects_removed_release_gate_before_or_after_approval(self) -> None:
+        for occurrence in (0, 1):
+            with self.subTest(occurrence=occurrence):
+                temporary, root = self.copied_contract()
+                self.addCleanup(temporary.cleanup)
+                path = root / ".github/workflows/deploy-proxmox.yml"
+                command = "python scripts/verify_release_gates.py"
+                parts = path.read_text(encoding="utf-8").split(command)
+                parts[occurrence] += "echo gate removed"
+                document = command.join(parts[:occurrence + 1]) + command.join(parts[occurrence + 1:])
+                path.write_text(document, encoding="utf-8")
+                self.assertTrue(any("release gates must run" in error for error in validate(root)))
+
+    def test_rejects_staging_artifact_without_attempt_binding(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "-attempt-${{ github.run_attempt }}", ""), encoding="utf-8")
+        self.assertTrue(any("release evidence workflow is missing" in error for error in validate(root)))
+
+    def test_rejects_direct_manual_production_option(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / ".github/workflows/deploy-proxmox.yml"
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "          - staging", "          - staging\n          - production"), encoding="utf-8")
+        self.assertIn("manual production must use the complete Container release chain", validate(root))
+
+    def test_rejects_missing_recovery_or_ci_failure_injection(self) -> None:
+        for script in ("test_verify_release_gates.py", "test_proxmox_deploy_recovery.py"):
+            with self.subTest(script=script):
+                temporary, root = self.copied_contract()
+                self.addCleanup(temporary.cleanup)
+                path = root / ".github/workflows/ci.yml"
+                path.write_text(path.read_text(encoding="utf-8").replace(
+                    f"python scripts/{script}", "echo removed"), encoding="utf-8")
+                self.assertTrue(any("CI must execute release safety" in error for error in validate(root)))
+
     def test_rejects_unencoded_remote_shell(self) -> None:
         temporary, root = self.copied_contract()
         self.addCleanup(temporary.cleanup)
@@ -577,15 +616,15 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         path = root / "deploy/proxmox/bin/deploy.sh"
         path.write_text(
             path.read_text(encoding="utf-8").replace(
-                "  --require-pwa; then",
-                "  --skip-host-tuning; then",
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa',
+                '"${SCRIPT_DIR}/verify.sh" --environment "$environment" --skip-host-tuning',
             ),
             encoding="utf-8",
         )
         errors = validate(root)
         self.assertTrue(
             any(
-                "deploy.sh is missing control: --require-pwa; then" in error
+                "deploy.sh is missing control:" in error and "--require-pwa" in error
                 for error in errors
             )
         )
@@ -696,6 +735,47 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
             "deploy/proxmox/bin/sync-assets.sh must install the Cloudflare connector unit",
             errors,
         )
+
+
+    def test_rejects_shared_runtime_environment_in_sidecar(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/quadlet/k-comms-minio.container.in"
+        path.write_text(path.read_text().replace(
+            "EnvironmentFile=/etc/k-comms/service-env/current/minio.env",
+            "EnvironmentFile=/etc/k-comms/runtime.env"))
+        self.assertTrue(any("shared host environment is forbidden" in error for error in validate(root)))
+
+    def test_rejects_shared_runtime_environment_in_one_shot(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/deploy.sh"
+        path.write_text(path.read_text().replace(
+            '--env-file "${K_COMMS_SERVICE_ENV}/object-admin.env"',
+            '--env-file "$K_COMMS_RUNTIME_ENV"'))
+        self.assertTrue(any("one-shot container exposes" in error for error in validate(root)))
+
+    def test_rejects_missing_restore_environment_regeneration(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/restore.sh"
+        path.write_text(path.read_text().replace("generate_service_envs", ":"))
+        self.assertIn("restore.sh must regenerate restricted service environments", validate(root))
+
+
+    def test_rejects_missing_operational_evidence(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/quiesced-backup.sh"
+        path.write_text(path.read_text().replace("operation_record", "discard_record"))
+        self.assertIn("quiesced-backup.sh must retain operation duration and failure evidence", validate(root))
+
+    def test_rejects_default_external_monitoring_delivery(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/monitoring.json.example"
+        path.write_text(path.read_text().replace('"alerts_enabled": false', '"alerts_enabled": true'))
+        self.assertIn("external monitoring delivery must remain disabled by default", validate(root))
 
 
 if __name__ == "__main__":

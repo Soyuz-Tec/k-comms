@@ -30,9 +30,12 @@ if [[ -f "$existing_qualification" ]] &&
   [[ "$(current_app_image)" == "$image" ]] &&
   [[ "$(current_app_revision)" == "$revision" ]] &&
   [[ "$(jq -r '.image' "$existing_qualification")" == "$image" ]] &&
-  [[ "$(jq -r '.revision' "$existing_qualification")" == "$revision" ]]; then
+  [[ "$(jq -r '.revision' "$existing_qualification")" == "$revision" ]] &&
+  jq -e '(.qualified_at | fromdateiso8601) as $qualified |
+    (now - 86400 <= $qualified) and ($qualified <= now + 300)' \
+    "$existing_qualification" >/dev/null 2>&1; then
   "${SCRIPT_DIR}/verify.sh" --environment staging --require-pwa
-  log "the exact release already has a retained staging qualification receipt"
+  log "the exact release already has a staging qualification less than 24 hours old"
   readlink -f "$existing_qualification"
   exit 0
 fi

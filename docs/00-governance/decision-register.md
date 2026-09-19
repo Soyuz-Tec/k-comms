@@ -26,3 +26,6 @@
 | Reclaim expired instant-room whiteboards | ADR-0068 | Accepted | 2026-08-02 | Post-expiry room conversion, an approved backfill for already-expired rooms, whiteboard attachments needing blob reclamation, or an expiry policy for durable-conversation boards |
 | Materialise whiteboard scene snapshots | ADR-0069 | Accepted | 2026-08-02 | An agreed retention policy enabling log truncation, client adoption of the snapshot field, boards hitting the operation cap, or snapshot rebuild cost appearing in append latency |
 | Accept whole-element whiteboard merge | ADR-0070 | Accepted | 2026-08-02 | Reported or measured loss of concurrent edits, a replacement engine with per-property convergence, or Excalidraw gaining per-property versioning |
+| Bind release promotion and failure recovery to verified evidence | ADR-0080 | Accepted | 2026-09-19 | CI job topology changes, external release authority, runner changes, or a new migration/recovery compatibility contract |
+| Isolate container service environments | ADR-0082 | Accepted | 2026-09-19 | New runtime inputs, sidecars, credential roles, or an external secret authority |
+| Record maintenance intervals and monitor recovery evidence | ADR-0084 | Accepted | 2026-09-19 | External alert authority, outage measurement boundary, recovery objectives, or backup topology changes |

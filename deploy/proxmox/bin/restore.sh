@@ -41,12 +41,15 @@ require_file "${backup_dir}/minio-data.tar.gz"
 pg_restore --list "${backup_dir}/postgres.dump" >/dev/null
 tar --list --gzip --file "${backup_dir}/minio-data.tar.gz" >/dev/null
 acquire_deploy_lock
+generate_service_envs
 
 systemctl stop k-comms-app.service k-comms-minio.service
 recovery_failed=true
 recover_services() {
   if [[ "$recovery_failed" == true ]]; then
-    systemctl start k-comms-minio.service || true
+    if generate_service_envs; then
+      systemctl start k-comms-minio.service || true
+    fi
     log "restore failed; application writers remain stopped for operator recovery"
   fi
 }
@@ -86,6 +89,7 @@ if [[ "$restore_runtime" == true ]]; then
   install -m 0600 "${backup_dir}/configuration/release.env" "$K_COMMS_RELEASE_ENV"
 fi
 
+generate_service_envs
 systemctl start k-comms-minio.service
 wait_for_url "http://$(configured_bind_address):5900/minio/health/ready" 60 2
 systemctl start k-comms-app.service

@@ -22,12 +22,11 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Protected deployment environment
+        description: Manual staging only; use the complete Container workflow for production
         required: true
         type: choice
         options:
           - staging
-          - production
       image:
         description: Immutable GHCR image digest reference
         required: true
@@ -43,6 +42,7 @@ on:
         type: boolean
 
 permissions:
+  actions: read
   contents: read
   packages: read
   attestations: read
@@ -54,7 +54,7 @@ concurrency:
 jobs:
   verify-artifact:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,6 +78,18 @@ jobs:
             echo "Bootstrap is permitted only in staging." >&2
             exit 1
           fi
+      - name: Require exact-revision CI and same-run staging qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+          RELEASE_IMAGE: ${{ inputs.image }}
+          RELEASE_REVISION: ${{ inputs.revision }}
+        run: >-
+          python scripts/verify_release_gates.py
+          --environment "$RELEASE_ENVIRONMENT"
+          --image "$RELEASE_IMAGE"
+          --revision "$RELEASE_REVISION"
+          --wait-seconds 2100
       - name: Authenticate to GHCR without persisting a credential
         shell: bash
         env:
@@ -131,6 +143,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.revision }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
       - name: Reconfirm the approved revision is still protected main
         shell: pwsh
         run: |
@@ -142,6 +157,21 @@ jobs:
               $main -ne "${{ inputs.revision }}"
           ) {
               throw "The approved revision is no longer the current protected main"
+          }
+      - name: Recheck release evidence after approval before host access
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: ${{ inputs.environment }}
+          RELEASE_IMAGE: ${{ inputs.image }}
+          RELEASE_REVISION: ${{ inputs.revision }}
+        run: |
+          python scripts/verify_release_gates.py `
+              --environment $env:RELEASE_ENVIRONMENT `
+              --image $env:RELEASE_IMAGE `
+              --revision $env:RELEASE_REVISION
+          if ($LASTEXITCODE -ne 0) {
+              throw "Release evidence changed or expired while awaiting approval"
           }
       - name: Materialize protected SSH inputs
         shell: pwsh
@@ -265,12 +295,12 @@ jobs:
 
           - Revision: ${{ inputs.revision }}
           - Image: ${{ inputs.image }}
-          - Evidence artifact: k-comms-${{ inputs.environment }}-${{ inputs.revision }}
+          - Evidence artifact: k-comms-${{ inputs.environment }}-${{ inputs.revision }}-attempt-${{ github.run_attempt }}
           "@ | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
       - name: Retain deployment evidence with the workflow run
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: k-comms-${{ inputs.environment }}-${{ inputs.revision }}
+          name: k-comms-${{ inputs.environment }}-${{ inputs.revision }}-attempt-${{ github.run_attempt }}
           path: ${{ env.DEPLOYMENT_EVIDENCE_PATH }}
           if-no-files-found: error
           retention-days: 90
