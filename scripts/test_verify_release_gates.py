@@ -61,6 +61,14 @@ class FakeGitHub:
                 "final_deployment_receipt": "/synthetic/final.json", "initial_backup": "/synthetic/backup",
                 "rollback_receipt": "/synthetic/rollback.json", "restore_rehearsal_receipt": "/synthetic/restore.json",
             },
+            "staging_reboot": {
+                "schema": "k-comms-staging-reboot-receipt-v1", "environment": "staging",
+                "revision": REVISION, "image": IMAGE, "request_id": "11111111-1111-1111-1111-111111111111",
+                "previous_boot_id": "22222222-2222-2222-2222-222222222222",
+                "boot_id": "33333333-3333-3333-3333-333333333333",
+                "verified_at": stamp(NOW - timedelta(minutes=12)), "readiness_verified": True,
+                "timers_verified": True, "service_environments_verified": True,
+            },
         }
         self.artifacts = [{
             "id": 300, "name": f"k-comms-staging-{REVISION}-attempt-1", "expired": False,
@@ -237,6 +245,24 @@ class StagingGateTest(unittest.TestCase):
             client.repack()
             with self.assertRaises(GateError):
                 self.verify(client)
+
+    def test_reboot_evidence_requires_identity_readiness_and_current_attempt(self):
+        for key, value in (("revision", "d" * 40), ("image", IMAGE + "wrong"),
+                           ("environment", "production"), ("readiness_verified", False),
+                           ("timers_verified", False), ("service_environments_verified", False),
+                           ("request_id", "invalid"),
+                           ("boot_id", "22222222-2222-2222-2222-222222222222"),
+                           ("verified_at", stamp(NOW - timedelta(hours=2)))):
+            client = FakeGitHub()
+            client.document["staging_reboot"][key] = value
+            client.repack()
+            with self.assertRaises(GateError):
+                self.verify(client)
+        client = FakeGitHub()
+        client.document.pop("staging_reboot")
+        client.repack()
+        with self.assertRaises(GateError):
+            self.verify(client)
 
 
 class CredentialBoundaryTest(unittest.TestCase):

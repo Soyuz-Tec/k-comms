@@ -44,6 +44,7 @@ REQUIRED_FILES = (
     "deploy/proxmox/bin/backup.sh",
     "deploy/proxmox/bin/quiesced-backup.sh",
     "deploy/proxmox/bin/qualify-staging.sh",
+    "deploy/proxmox/bin/qualify-staging-reboot.sh",
     "deploy/proxmox/bin/rollback.sh",
     "deploy/proxmox/bin/restore.sh",
     "deploy/proxmox/bin/restore-rehearsal.sh",
@@ -56,6 +57,10 @@ REQUIRED_FILES = (
     "scripts/proxmox/export-deployment-evidence.ps1",
     "scripts/proxmox/native-command.ps1",
     "scripts/proxmox/qualify-staging-remote.ps1",
+    "scripts/proxmox/qualify-staging-reboot-remote.ps1",
+    "scripts/proxmox/staging-reboot.ps1",
+    "scripts/test_proxmox_staging_reboot.ps1",
+    "scripts/test_proxmox_staging_reboot.py",
     "scripts/test_proxmox_native_commands.ps1",
     "scripts/test_proxmox_livekit_runtime.sh",
     "scripts/verify_release_gates.py",
@@ -655,6 +660,24 @@ def validate(root: Path) -> list[str]:
         if f"python scripts/{test_script}" not in ci_workflow:
             errors.append(f"CI must execute release safety behavior tests: {test_script}")
 
+    reboot_step = workflow.partition("      - name: Prove staging reboot recovery for the qualified digest\n")[2].partition("      - name:")[0]
+    if not reboot_step or "if: inputs.environment == 'staging'" not in reboot_step or "qualify-staging-reboot-remote.ps1" not in reboot_step:
+        errors.append("staging reboot must be a staging-only workflow step")
+    if reboot_step and workflow.index("qualify-staging-reboot-remote.ps1") > workflow.index("      - name: Export non-secret deployment evidence"):
+        errors.append("staging reboot must precede evidence export")
+    for command in ("python scripts/test_proxmox_staging_reboot.py", "pwsh -NoProfile -File scripts/test_proxmox_staging_reboot.ps1"):
+        if command not in ci_workflow:
+            errors.append(f"CI must execute staging reboot behavior tests: {command}")
+
+    reboot_remote = read(root, "scripts/proxmox/qualify-staging-reboot-remote.ps1")
+    for required in ('ValidateSet("192.168.1.23")', "StrictHostKeyChecking=yes", "UserKnownHostsFile=", "BatchMode=yes", "sudo -n", "Invoke-KCommsBoundedNative", "ToBase64String"):
+        if required not in reboot_remote:
+            errors.append(f"staging reboot transport is missing control: {required}")
+    reboot_host = read(root, "deploy/proxmox/bin/qualify-staging-reboot.sh")
+    for required in ('"$(configured_environment)" == staging', '"$(configured_bind_address)" == 192.168.1.23', '"$boot_id" != "$previous_boot_id"', '"$(current_app_image)" == "$image"', '"$(current_app_revision)" == "$revision"', "--require-pwa", "assert_running_service_environments", "systemctl is-enabled --quiet", "systemctl is-active --quiet", "k-comms-health.timer k-comms-backup.timer", "k-comms-staging-reboot-receipt-v1"):
+        if required not in reboot_host:
+            errors.append(f"staging reboot host helper is missing control: {required}")
+
     remote = read(root, "scripts/proxmox/deploy-remote.ps1")
     for required in (
         'ValidateSet("staging", "production")',
@@ -698,6 +721,9 @@ def validate(root: Path) -> list[str]:
         "k-comms-workflow-evidence-v1",
         "sha256sum --check --strict",
         "staging-qualification.json",
+        "staging-reboot.json",
+        "/proc/sys/kernel/random/boot_id",
+        "staging_reboot: $reboot",
         "ConvertFrom-Json",
         "ToBase64String",
         "base64 -d | sudo bash",

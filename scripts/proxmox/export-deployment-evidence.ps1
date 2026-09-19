@@ -70,6 +70,7 @@ if [[ -n "$backup_path" && "$backup_path" != null ]]; then
 fi
 
 qualification=null
+reboot=null
 if [[ "$environment" == staging ]]; then
   qualification_path="$(
     readlink -f /var/lib/k-comms/receipts/staging-qualification.json
@@ -79,6 +80,15 @@ if [[ "$environment" == staging ]]; then
     k-comms-staging-qualification-receipt-v1
   test "$(jq -r '.revision' "$qualification_path")" = "$revision"
   qualification="$(cat "$qualification_path")"
+  reboot_path="$(readlink -f /var/lib/k-comms/receipts/staging-reboot.json)"
+  test -f "$reboot_path"
+  jq -e --arg revision "$revision" --arg image "$(jq -r '.image' "$receipt")" '
+    .schema == "k-comms-staging-reboot-receipt-v1" and .environment == "staging" and
+    .revision == $revision and .image == $image and .boot_id != .previous_boot_id and
+    .readiness_verified == true and .timers_verified == true and .service_environments_verified == true
+  ' "$reboot_path" >/dev/null
+  test "$(jq -r '.boot_id' "$reboot_path")" = "$(cat /proc/sys/kernel/random/boot_id)"
+  reboot="$(cat "$reboot_path")"
 fi
 
 jq -n \
@@ -91,6 +101,7 @@ jq -n \
   --argjson backup_complete "$backup_complete" \
   --arg backup_manifest_sha256 "$backup_manifest_sha256" \
   --argjson qualification "$qualification" \
+  --argjson reboot "$reboot" \
   '{
     schema: $schema,
     environment: $environment,
@@ -102,7 +113,8 @@ jq -n \
       complete: $backup_complete,
       manifest_sha256: $backup_manifest_sha256
     },
-    staging_qualification: $qualification
+    staging_qualification: $qualification,
+    staging_reboot: $reboot
   }'
 '@
 $remoteScript = $remoteScript.Replace("@@ENVIRONMENT@@", $Environment)
@@ -136,7 +148,10 @@ if (
 }
 if (
     $Environment -eq "staging" -and
-    $document.staging_qualification.revision -ne $Revision
+    ($document.staging_qualification.revision -ne $Revision -or
+     $document.staging_reboot.revision -ne $Revision -or
+     $document.staging_reboot.image -ne $document.deployment.image -or
+     $document.staging_reboot.boot_id -eq $document.staging_reboot.previous_boot_id)
 ) {
     throw "Staging qualification evidence does not match the revision"
 }

@@ -266,13 +266,19 @@ Proxmox implementation of that standard.
    waits at most 35 minutes; it cannot borrow another revision's green checks.
 4. Staging deploys the digest, runs `verify.sh`, rehearses `rollback.sh`,
    reactivates the candidate, and runs an isolated restore rehearsal against
-   the retained PostgreSQL and MinIO backup.
+   the retained PostgreSQL and MinIO backup. It then requests a protected
+   staging-only reboot and proves a changed boot ID, full application/PWA
+   readiness, enabled and active health/backup timers, and actual restricted
+   service container environments. Reconnect/recovery has a ten-minute overall
+   deadline with bounded SSH child processes. Production is never rebooted by
+   this qualification step.
 5. The same workflow automatically queues production and waits until the
    required reviewer approves the protected GitHub `production` environment.
    Before approval and again before SSH access, it verifies that this Container
    run/attempt has a successful staging job and a SHA-256-verified staging
    artifact for the same revision and image digest, with complete backup and
-   rollback/restore qualification. The qualification and its evidence capture
+   rollback/restore qualification and a reboot receipt for the current attempt.
+   The qualification and its evidence capture
    must both be no older than 24 hours; stale host qualification repeats the
    rollback and restore rehearsal. Evidence captured more than 24 hours ago,
    incomplete CI, and missing or mismatched receipts block promotion.
@@ -284,6 +290,18 @@ Proxmox implementation of that standard.
 For this VM, the one-time legacy adoption above must already have completed.
 Normal production deployments never create a new authoritative volume and do
 not need an adoption flag.
+
+Reboot proof is recorded at `/var/lib/k-comms/receipts/staging-reboot.json` as a
+root-only receipt with the exact image/revision, request ID, old/new kernel boot
+IDs, verification timestamp, and readiness/timer/service-environment results.
+Export also checks that the host is still on that verified boot. The staging
+wrapper only accepts `192.168.1.23`; the root helper independently requires the
+staging environment and bind address. Existing SSH keys/known-host pinning and
+noninteractive sudo are retained. Missing permissions, failed scheduling,
+unacknowledged requests, wrong identities, and timeouts fail closed. Investigate
+the protected staging job/host before rerunning the full chain; the wrapper
+never repeats a reboot request during reconnect. A full rerun creates a new
+request and reboot proof even when rollback/restore qualification is reusable.
 
 Manual `Deploy Proxmox` dispatch is staging-only. To recover or repeat a
 production promotion, start the complete `Container` workflow on current

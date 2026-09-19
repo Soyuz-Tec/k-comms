@@ -170,6 +170,12 @@ Required evidence:
 8. VM reboot recovery is proven when systemd, Quadlet, firewall, network,
    tunnel, timers, storage identity, or host tuning changed.
 
+The protected Proxmox chain performs staging reboot qualification for every
+candidate. Its receipt binds the exact image/revision and changed boot IDs to
+verified application/PWA readiness, timers, and service container environments.
+The production gate requires this proof from the current Container attempt.
+The workflow never automatically reboots production; see ADR-0080.
+
 Any failed staging gate blocks production.
 
 ## Gate 6: production preflight and approval
