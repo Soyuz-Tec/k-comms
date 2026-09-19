@@ -16,10 +16,60 @@ test.beforeEach(async ({ page }, testInfo) => {
 
 test("notification click-through marks read and opens the intended canonical thread", async ({ page }) => {
   let markedRead = false;
+  await installThreadNotification(page, () => { markedRead = true; });
+
+  await page.goto("/app/");
+  await page.getByRole("button", { name: /Notifications, 1 unread/ }).click();
+  await page.getByRole("button", { name: /^New mention/ }).click();
+
+  await expect.poll(() => markedRead).toBe(true);
+  await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}.*message=${messageId}`));
+  await expect(page.getByRole("dialog", { name: "Thread" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Thread" }).getByText("Message body", { exact: true })).toBeVisible();
+});
+
+for (const first of ["route", "workspace"] as const) {
+  test(`notification thread survives cold route and workspace arriving ${first} first`, async ({ page }) => {
+    await installThreadNotification(page);
+    const routeReady = Promise.withResolvers<void>();
+    const workspaceReady = Promise.withResolvers<void>();
+    await page.route(/\/src\/features\/chat\/ChatPage\.tsx(?:\?.*)?$/, async (route) => {
+      await routeReady.promise;
+      await route.fallback();
+    });
+    await page.route("**/api/v1/users", async (route) => {
+      await workspaceReady.promise;
+      await route.fallback();
+    });
+    try {
+      await page.goto("/app/", { waitUntil: "domcontentloaded" });
+      await page.getByRole("button", { name: /Notifications, 1 unread/ }).click();
+      await page.getByRole("button", { name: /^New mention/ }).click();
+      await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}.*message=${messageId}`));
+      if (first === "route") {
+        routeReady.resolve();
+        await expect(page.getByText("Opening your workspace…")).toBeVisible();
+        workspaceReady.resolve();
+      } else {
+        workspaceReady.resolve();
+        await expect(page.getByText("Loading page…")).toBeVisible();
+        routeReady.resolve();
+      }
+      await expect(page.getByRole("dialog", { name: "Thread" })).toBeVisible();
+      await expect(page.getByRole("dialog", { name: "Thread" }).getByText("Message body", { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}.*message=${messageId}`));
+    } finally {
+      workspaceReady.resolve();
+      routeReady.resolve();
+    }
+  });
+}
+
+async function installThreadNotification(page: Page, onRead = () => {}) {
   await page.route("**/api/v1/in-app-notifications**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "PATCH" && path.endsWith(`/${notificationId}/read`)) {
-      markedRead = true;
+      onRead();
       return route.fulfill({ json: { data: { ...notification(), read_at: "2026-07-12T12:01:00Z" } } });
     }
     if (path.endsWith("/unread-count")) return route.fulfill({ json: { data: { unread_count: 1 } } });
@@ -33,16 +83,7 @@ test("notification click-through marks read and opens the intended canonical thr
       }
     })
   );
-
-  await page.goto("/app/");
-  await page.getByRole("button", { name: /Notifications, 1 unread/ }).click();
-  await page.getByRole("button", { name: /^New mention/ }).click();
-
-  await expect.poll(() => markedRead).toBe(true);
-  await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}.*message=${messageId}`));
-  await expect(page.getByRole("dialog", { name: "Thread" })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Thread" }).getByText("Message body", { exact: true })).toBeVisible();
-});
+}
 
 test("mention picker excludes sender and service identities and sends explicit recipient IDs", async ({ page }) => {
   let requestBody: Record<string, unknown> | null = null;

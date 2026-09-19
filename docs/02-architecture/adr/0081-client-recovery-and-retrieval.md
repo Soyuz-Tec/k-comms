@@ -34,6 +34,19 @@ particular result outside the first recent-files page.
   and reload. Rejected lazy module loads require deliberate reload, with an
   explicit call/tab-only-draft warning; never reload automatically or retry a
   rejected React lazy promise in a loop. Recovery copy excludes error payloads.
+- Treat an explicit conversation/message URL as navigation authority. On a
+  desktop inbox without a selected conversation, display a stable default
+  locally instead of redirecting from a passive effect. Such an effect from a
+  cold route can overwrite a newer shell notification navigation before React
+  commits it. Preserve explicit unavailable targets rather than silently
+  switching their message link to another conversation; the API still enforces
+  access. Mobile retains its unselected conversation-list entry.
+  The bare desktop URL stays bare; explicit selection and context links still
+  carry the selected conversation ID. Resizing that unselected desktop entry
+  to mobile shows the conversation list. Activity reordering keeps its local
+  default stable; removal of that conversation selects an available default.
+  Scope an open thread to its conversation as well as its message so a changed
+  default cannot briefly issue the old thread read in another conversation.
 
 ## Consequences and alternatives
 
@@ -54,3 +67,7 @@ missing legacy targets. Physical-device and live two-client qualification are
 separate release checks; these deterministic tests do not establish them.
 Route tests inject render exceptions and rejected lazy imports, verify focus
 and explicit reload, and preserve state in the surrounding owner.
+Notification navigation tests cover a cold route with delayed workspace data
+in either arrival order. A deterministic effect-order regression proves an
+initial inbox selection cannot erase a pending notification destination;
+reordering conversations also cannot move an already displayed local default.

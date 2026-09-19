@@ -96,7 +96,7 @@ export function ChatPage() {
   } = useWorkspaceData();
   const onboardingStorageKey = session ? `k-comms:onboarding:${session.tenant.id}:${session.user.id}` : "k-comms:onboarding:anonymous";
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeConversationId = searchParams.get("conversation");
+  const requestedConversationId = searchParams.get("conversation");
   const linkedMessageId = safeUuid(searchParams.get("message"));
   const linkedSearchMessageId = safeUuid(searchParams.get("search_message"));
   const linkedSearchSequence = safePositiveInteger(searchParams.get("search_sequence"));
@@ -115,7 +115,7 @@ export function ChatPage() {
     next.delete("whiteboard_label");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
-  const [threadTargetId, setThreadTargetId] = useState<string | null>(null);
+  const [threadTarget, setThreadTarget] = useState<{ conversationId: string; messageId: string } | null>(null);
   const [showCreateConversation, setShowCreateConversation] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -137,10 +137,6 @@ export function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const directStartUserRef = useRef<string | null>(null);
-  const activeConversation = useMemo(
-    () => conversations.find(({ id }) => id === activeConversationId) || null,
-    [activeConversationId, conversations]
-  );
   const closeConversationPanels = useCallback(() => {
     setShowDetails(false);
     setShowBrowseChannels(false);
@@ -148,6 +144,8 @@ export function ChatPage() {
     setShowActivity(false);
   }, []);
   const {
+    activeConversation,
+    activeConversationId,
     conversationButtonRefs,
     focusComposerAfterDirect,
     isMobile,
@@ -156,13 +154,15 @@ export function ChatPage() {
     selectConversation,
     showConversationList
   } = useChatNavigation({
-    activeConversation,
-    activeConversationId,
+    requestedConversationId,
     conversations,
     setSearchParams,
     workspaceLoading,
     closeConversationPanels
   });
+  const threadTargetId = threadTarget?.conversationId === activeConversationId
+    ? threadTarget.messageId
+    : null;
   const {
     pendingAttachments,
     uploading,
@@ -234,7 +234,7 @@ export function ChatPage() {
     publishRealtimeEvent
   });
   const onConversationChanged = useCallback(
-    () => setThreadTargetId(null),
+    () => setThreadTarget(null),
     []
   );
   const {
@@ -342,8 +342,10 @@ export function ChatPage() {
   ]);
 
   useEffect(() => {
-    if (activeConversationId && linkedMessageId) setThreadTargetId(linkedMessageId);
-  }, [activeConversationId, linkedMessageId]);
+    if (requestedConversationId && linkedMessageId) {
+      setThreadTarget({ conversationId: requestedConversationId, messageId: linkedMessageId });
+    }
+  }, [requestedConversationId, linkedMessageId]);
 
   useEffect(() => {
     if (activeConversationId && linkedSearchMessageId && linkedSearchSequence) {
@@ -694,7 +696,7 @@ export function ChatPage() {
         onScroll={messageScrollChanged}
         onSend={sendMessage}
         onShowConversationList={showConversationList}
-        onThread={(message) => setThreadTargetId(message.id)}
+        onThread={(message) => setThreadTarget({ conversationId: message.conversation_id, messageId: message.id })}
         onToggleDetails={() => {
           setShowDetails((visible) => !visible);
           setShowGuestShare(false);
@@ -719,7 +721,7 @@ export function ChatPage() {
       {showDetails && activeConversation && <ConversationDetails key={`${activeConversation.id}-${membershipVersion}`} api={api} conversation={activeConversation} currentUserId={session.user.id} users={users} onClose={() => setShowDetails(false)} onLeft={() => { setConversations((current) => current.filter((conversation) => conversation.id !== activeConversation.id)); showConversationList(); void refreshConversations().catch(() => undefined); }} onUpdated={(updated) => setConversations((current) => updated.archived_at ? current.filter((conversation) => conversation.id !== updated.id) : current.map((conversation) => conversation.id === updated.id ? { ...conversation, ...updated } : conversation))} />}
       {showActivity && activeConversation && <ConversationActivityTimeline api={api} conversationId={activeConversation.id} onClose={() => setShowActivity(false)} />}
       {showGuestShare && activeConversation && <ConversationShareDialog api={api} conversation={activeConversation} canPreauthorizeAccount={session.user.role === "owner" || session.user.role === "admin"} runPrivilegedAction={runWithStepUp} onClose={() => setShowGuestShare(false)} />}
-      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTargetId(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
+      {threadTargetId && activeConversationId && <ThreadDrawer api={api} tenantId={session.tenant.id} conversationId={activeConversationId} targetMessageId={threadTargetId} currentUserId={session.user.id} maxAttachmentBytes={capabilities?.max_attachment_bytes} members={conversationMembers} users={users} retainedSenderLabels={retainedSenderLabelsById} liveMessages={messages} onClose={() => { setThreadTarget(null); if (searchParams.has("message")) { const next = new URLSearchParams(searchParams); next.delete("message"); setSearchParams(next, { replace: true }); } }} onSend={sendThreadReply} />}
       {reportTarget && <ActionDialog title="Report this message?" description="Describe why workspace moderators should review this message." impact="Moderators will receive the message reference and your explanation. The message is not deleted automatically." confirmLabel="Submit report" auditReason={{ label: "Reason for reporting this message", helpText: "Give moderators enough context to understand the concern.", minimumLength: 1 }} busy={reporting} error={reportError} onCancel={() => { if (!reporting) setReportTarget(null); }} onConfirm={(reason) => void submitReport(reason)} />}
     </main>
   );

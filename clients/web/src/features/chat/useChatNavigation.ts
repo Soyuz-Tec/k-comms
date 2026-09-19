@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
@@ -10,8 +11,7 @@ import type { Conversation } from "../../types";
 type SetSearchParams = ReturnType<typeof useSearchParams>[1];
 
 interface UseChatNavigationOptions {
-  activeConversation: Conversation | null;
-  activeConversationId: string | null;
+  requestedConversationId: string | null;
   conversations: Conversation[];
   setSearchParams: SetSearchParams;
   workspaceLoading: boolean;
@@ -19,8 +19,7 @@ interface UseChatNavigationOptions {
 }
 
 export function useChatNavigation({
-  activeConversation,
-  activeConversationId,
+  requestedConversationId,
   conversations,
   setSearchParams,
   workspaceLoading,
@@ -29,6 +28,22 @@ export function useChatNavigation({
   const [isMobile, setIsMobile] = useState(
     () => window.matchMedia?.("(max-width: 760px)").matches ?? false
   );
+  const [defaultConversationId, setDefaultConversationId] = useState<string | null>(null);
+  // The default is presentation state, not a navigation. A passive redirect
+  // from a cold route can run after a newer notification navigation and erase
+  // its message parameter before React commits that destination.
+  const activeConversationId = requestedConversationId || (
+    !isMobile && !workspaceLoading
+      ? conversations.find(({ id }) => id === defaultConversationId)?.id ?? conversations[0]?.id ?? null
+      : null
+  );
+  const activeConversation = useMemo(
+    () => conversations.find(({ id }) => id === activeConversationId) ?? null,
+    [activeConversationId, conversations]
+  );
+  useEffect(() => {
+    if (!requestedConversationId && activeConversationId) setDefaultConversationId(activeConversationId);
+  }, [activeConversationId, requestedConversationId]);
   const conversationButtonRefs = useRef(
     new Map<string, HTMLButtonElement>()
   );
@@ -46,25 +61,6 @@ export function useChatNavigation({
     query.addEventListener("change", changed);
     return () => query.removeEventListener("change", changed);
   }, []);
-
-  useEffect(() => {
-    if (workspaceLoading || conversations.length === 0 || isMobile) return;
-    if (
-      !activeConversationId ||
-      !conversations.some(({ id }) => id === activeConversationId)
-    ) {
-      setSearchParams(
-        { conversation: conversations[0]?.id || "" },
-        { replace: true }
-      );
-    }
-  }, [
-    activeConversationId,
-    conversations,
-    isMobile,
-    setSearchParams,
-    workspaceLoading
-  ]);
 
   useEffect(() => {
     const previousConversationId = previousMobileConversationRef.current;
@@ -122,6 +118,8 @@ export function useChatNavigation({
   }, []);
 
   return {
+    activeConversation,
+    activeConversationId,
     conversationButtonRefs,
     focusComposerAfterDirect,
     isMobile,
