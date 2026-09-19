@@ -105,6 +105,23 @@ and the communication rollback preflight remain required.
 
 ## Sources
 
+## Build prerequisites discovered during qualification
+
+The pinned MinIO server/client manifests are available from the vendor's Quay
+namespace after Docker Hub began rejecting fresh pulls. Use the verified identical
+SHA-256 digests from Quay in CI, Compose, Kubernetes, and Proxmox; this changes
+the retrieval registry, not object-storage bytes or storage identity. It does not
+establish ongoing vendor maintenance or substitute for dependency review.
+
+Install available Debian package updates in both BEAM build and application
+runtime stages. A digest-pinned base alone does not apply subsequently released
+security fixes to packages already present in that base. The published artifact
+remains immutable, attested, and SBOM-bound; the existing vulnerability gate
+must pass without suppression before promotion. Validate rebuilt runtime startup
+and staging qualification before production.
+
+## API sources
+
 The implementation uses GitHub's read-only
 [workflow runs](https://docs.github.com/en/rest/actions/workflow-runs),
 [workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs), and

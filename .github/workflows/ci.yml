@@ -43,8 +43,8 @@ jobs:
       K_COMMS_TEST_S3_ROOT_PASSWORD: k-comms-test-password
       # Non-secret fixture key; base64 of exactly 32 bytes, as MinIO requires.
       K_COMMS_TEST_S3_KMS_SECRET_KEY: kcomms-test-key:ay1jb21tcy1jaS1zc2UtczMtZml4dHVyZS1rZXktMDE=
-      MINIO_IMAGE: docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
-      MINIO_MC_IMAGE: docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
+      MINIO_IMAGE: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
+      MINIO_MC_IMAGE: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1

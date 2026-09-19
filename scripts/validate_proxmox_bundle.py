@@ -68,11 +68,11 @@ PINNED_INFRA_IMAGES = {
         "742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
     ),
     "minio": (
-        "docker.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:"
+        "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:"
         "a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2"
     ),
     "minio-client": (
-        "docker.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:"
+        "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:"
         "eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780"
     ),
     "livekit": (
