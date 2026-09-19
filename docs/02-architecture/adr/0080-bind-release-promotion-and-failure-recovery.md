@@ -103,8 +103,6 @@ and the communication rollback preflight remain required.
   synthetic staging qualification, independent production approval, and public
   verification. Local failure injection does not constitute production proof.
 
-## Sources
-
 ## Build prerequisites discovered during qualification
 
 The pinned MinIO server/client manifests are available from the vendor's Quay
@@ -112,6 +110,8 @@ namespace after Docker Hub began rejecting fresh pulls. Use the verified identic
 SHA-256 digests from Quay in CI, Compose, Kubernetes, and Proxmox; this changes
 the retrieval registry, not object-storage bytes or storage identity. It does not
 establish ongoing vendor maintenance or substitute for dependency review.
+The [vendor container instructions](https://github.com/minio/minio/blob/master/docs/docker/README.md)
+identify the Quay namespace; the actual digest availability was verified directly.
 
 Install available Debian package updates in both BEAM build and application
 runtime stages. A digest-pinned base alone does not apply subsequently released
