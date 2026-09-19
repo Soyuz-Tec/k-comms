@@ -26,6 +26,7 @@ import {
   updateConversationActivity
 } from "./conversationFeedReducer";
 import { useConversationRealtime } from "./useConversationRealtime";
+import { mergeReconciledMessages, readLoadedMessages } from "./reconcileLoadedMessages";
 
 interface UseConversationFeedOptions {
   api: ApiClient;
@@ -62,7 +63,13 @@ export function useConversationFeed({
   onMembershipChanged,
   publishRealtimeEvent
 }: UseConversationFeedOptions) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessagesState] = useState<Message[]>([]);
+  const messagesRef = useRef<Message[]>([]);
+  const setMessages = useCallback<Dispatch<SetStateAction<Message[]>>>((update) => {
+    const next = typeof update === "function" ? update(messagesRef.current) : update;
+    messagesRef.current = next;
+    setMessagesState(next);
+  }, []);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [olderLoading, setOlderLoading] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
@@ -168,6 +175,19 @@ export function useConversationFeed({
     []
   );
 
+  const reconcileLoadedMessages = useCallback(async (current: () => boolean) => {
+    const conversationId = activeConversationIdRef.current;
+    if (!conversationId) return false;
+    const snapshot = messagesRef.current;
+    const incoming = await readLoadedMessages(api, conversationId, snapshot, current, mergeRetainedSenderLabels);
+    if (!current() || activeConversationIdRef.current !== conversationId) return false;
+    // Update the ref synchronously so a follow-up sees this reconciliation even
+    // when React batches the render with a socket event.
+    const result = mergeReconciledMessages(messagesRef.current, snapshot, incoming);
+    setMessages(result.messages);
+    return result.changedDuringRead;
+  }, [api, mergeRetainedSenderLabels, setMessages]);
+
   useConversationRealtime({
     activeConversation,
     activeConversationId,
@@ -186,6 +206,7 @@ export function useConversationFeed({
     onMembershipChanged,
     publishRealtimeEvent,
     realtimeRef,
+    reconcileLoadedMessages,
     receiveMessages,
     refreshConversations,
     requestCatchUpRef,

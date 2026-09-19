@@ -145,6 +145,32 @@ describe("ChatPage durable sequence recovery", () => {
     );
   });
 
+  it("reconciles offline edits and deletions on reconnect without any new message", async () => {
+    harness.api.messages!.mockResolvedValueOnce({ data: [message(1), message(2)], page: { has_more: false } })
+      .mockResolvedValueOnce({ data: [{ ...message(1), body: "Edited while offline" },
+        { ...message(2), body: null, status: "deleted", deleted_at: "2026-09-19T00:00:00Z" }], page: { has_more: false } });
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByText("Message 2");
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
+    act(() => { harness.callbacks!.onStatus("reconnecting"); harness.callbacks!.onStatus("live"); });
+    expect(await screen.findByText("Edited while offline")).toBeVisible();
+    expect(screen.queryByText("Message 2")).not.toBeInTheDocument();
+    expect(harness.api.messages).toHaveBeenLastCalledWith("conversation-1", 0, 200, 3);
+  });
+
+  it("retries a failed mutation refresh without clearing the loaded conversation", async () => {
+    harness.api.messages!.mockResolvedValueOnce({ data: [message(1)], page: { has_more: false } })
+      .mockRejectedValueOnce(new Error("temporary history outage"))
+      .mockResolvedValueOnce({ data: [{ ...message(1), body: "Recovered edit" }], page: { has_more: false } });
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByText("Message 1");
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
+    act(() => { harness.callbacks!.onStatus("reconnecting"); harness.callbacks!.onStatus("live"); });
+    await waitFor(() => expect(harness.setError).toHaveBeenCalledWith(expect.stringContaining("Retrying changed messages")));
+    expect(screen.getByText("Message 1")).toBeVisible();
+    expect(await screen.findByText("Recovered edit", {}, { timeout: 4_000 })).toBeVisible();
+  });
+
   it("retains an ordinary departed guest username after sidecar reconciliation", async () => {
     const currentMembership = {
       id: "membership-current",
