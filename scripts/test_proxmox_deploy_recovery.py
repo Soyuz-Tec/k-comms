@@ -27,6 +27,7 @@ K_COMMS_SOURCE=https://github.com/Soyuz-Tec/k-comms
 K_COMMS_QUADLET_DIR="$SCRIPT_DIR/quadlet"
 K_COMMS_RELEASE_ENV="$SCRIPT_DIR/release.env"
 K_COMMS_RUNTIME_ENV="$SCRIPT_DIR/runtime.env"
+K_COMMS_SERVICE_ENV="$SCRIPT_DIR/service-env/current"
 K_COMMS_RECEIPT_DIR="$SCRIPT_DIR/receipts"
 K_COMMS_TEMPLATE_DIR="$SCRIPT_DIR"
 K_COMMS_MINIO_MC_IMAGE=fixture-minio
@@ -39,6 +40,13 @@ validate_environment() { :; }
 validate_image_ref() { :; }
 validate_revision() { :; }
 assert_secure_runtime_env() { :; }
+generate_service_envs() { :; }
+service_environment_matches() {
+  if [[ "$FAIL_AT" == legacy_env || "$FAIL_AT" == sidecar ]]; then
+    [[ -f "$SCRIPT_DIR/isolated-$1" ]]
+  fi
+}
+assert_running_service_environments() { [[ "$FAIL_AT" != env_verify ]]; }
 configured_environment() { echo production; }
 acquire_deploy_lock() { :; }
 assert_adopted_storage_ready_for_activation() { :; }
@@ -74,6 +82,10 @@ systemctl() {
       [[ "$FAIL_AT" != start ]] || return 45
       touch "$SCRIPT_DIR/running";;
     'stop k-comms-app.service') rm -f "$SCRIPT_DIR/running";;
+    restart*)
+      [[ "$FAIL_AT" != sidecar ]] || return 49
+      local service=${2#k-comms-}
+      touch "$SCRIPT_DIR/isolated-${service%.service}";;
     'enable --now k-comms-health.timer k-comms-backup.timer')
       [[ "$FAIL_AT" != timers ]] || return 46;;
   esac
@@ -114,6 +126,7 @@ class DeployRecoveryTest(unittest.TestCase):
         (root / "verify.sh").write_text(VERIFY, encoding="utf-8", newline="\n")
         (root / "backup.sh").write_text(
             '#!/usr/bin/env bash\n[[ "$FAIL_AT" != backup ]] || exit 33\n'
+            'printf "backup\\n" >> "$(dirname "$0")/calls"\n'
             'echo /synthetic/verified-backup\n', encoding="utf-8", newline="\n"
         )
         for name in ("deploy.sh", "backup.sh", "verify.sh"):
@@ -156,7 +169,7 @@ class DeployRecoveryTest(unittest.TestCase):
         self.assertIn("recovery=stopped", record)
 
     def test_post_migration_errors_require_compatibility_before_restart(self):
-        for stage in ("render", "health", "timers"):
+        for stage in ("render", "health", "timers", "env_verify"):
             with self.subTest(stage=stage):
                 result, root, calls = self.run_deployment(stage)
                 self.assertNotEqual(result.returncode, 0, result.stderr)
@@ -188,6 +201,27 @@ class DeployRecoveryTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertFalse((root / "running").exists())
         self.assertIn("recovery=stopped", self.failure_record(root))
+
+    @unittest.skipIf(os.name == "nt", "Success fixture uses a Linux receipt symlink")
+    def test_existing_sidecars_are_isolated_after_backup_before_migration(self):
+        result, root, calls = self.run_deployment("legacy_env")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        backup = calls.index("backup")
+        migrate = next(i for i, call in enumerate(calls) if "CommsCore.Release.migrate" in call)
+        for service in ("postgres", "minio", "livekit"):
+            restart = calls.index(f"systemctl restart k-comms-{service}.service")
+            self.assertLess(backup, restart)
+            self.assertLess(restart, migrate)
+        one_shots = [call for call in calls if call.startswith("podman run")]
+        self.assertTrue(any("object-admin.env" in call for call in one_shots))
+        self.assertTrue(any("/app.env" in call for call in one_shots))
+        self.assertFalse(any("/runtime.env" in call for call in one_shots))
+
+    def test_sidecar_transition_failure_recovers_previous_application(self):
+        result, root, calls = self.run_deployment("sidecar")
+        self.assertEqual(result.returncode, 49, result.stderr)
+        self.assertIn("recovery=previous_verified", self.failure_record(root))
+        self.assertFalse(any("CommsCore.Release.migrate" in call for call in calls))
 
     @unittest.skipIf(os.name == "nt", "Git Bash symlink creation depends on Windows developer mode")
     def test_success_cleans_guard_and_publishes_receipt(self):

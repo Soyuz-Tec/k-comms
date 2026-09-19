@@ -30,6 +30,8 @@ REQUIRED_FILES = (
     "deploy/proxmox/bin/common.sh",
     "deploy/proxmox/bin/adopt-legacy-production.sh",
     "deploy/proxmox/bin/generate-runtime-env.sh",
+    "deploy/proxmox/bin/service-env.py",
+    "scripts/test_proxmox_service_env.py",
     "deploy/proxmox/bin/install.sh",
     "deploy/proxmox/bin/sync-assets.sh",
     "deploy/proxmox/bin/deploy.sh",
@@ -188,6 +190,26 @@ def validate(root: Path) -> list[str]:
     postgres_quadlet = read(
         root, "deploy/proxmox/quadlet/k-comms-postgres.container"
     )
+    for service, relative in (
+        ("app", "deploy/proxmox/quadlet/k-comms-app.container.in"),
+        ("postgres", "deploy/proxmox/quadlet/k-comms-postgres.container"),
+        ("minio", "deploy/proxmox/quadlet/k-comms-minio.container.in"),
+        ("livekit", "deploy/proxmox/quadlet/k-comms-livekit.container.in"),
+    ):
+        document = read(root, relative)
+        if f"EnvironmentFile=/etc/k-comms/service-env/current/{service}.env" not in document:
+            errors.append(f"{relative}: restricted service environment is required")
+        if "EnvironmentFile=/etc/k-comms/runtime.env" in document:
+            errors.append(f"{relative}: shared host environment is forbidden in containers")
+    for relative, document in all_documents.items():
+        if relative.endswith(".sh") and ('--env-file "$K_COMMS_RUNTIME_ENV"' in document
+                                         or '--env-file "${rollback_dir}/runtime.env"' in document):
+            errors.append(f"{relative}: one-shot container exposes the shared host environment")
+    for name in ("install", "sync-assets", "deploy", "rollback", "restore", "adopt-legacy-production"):
+        if "generate_service_envs" not in read(root, f"deploy/proxmox/bin/{name}.sh"):
+            errors.append(f"{name}.sh must regenerate restricted service environments")
+    if "python scripts/test_proxmox_service_env.py" not in read(root, ".github/workflows/ci.yml"):
+        errors.append("CI must execute service environment behavior tests")
     if "NoNewPrivileges=true" in postgres_quadlet:
         errors.append(
             "PostgreSQL Quadlet must permit its pinned entrypoint to drop from root"

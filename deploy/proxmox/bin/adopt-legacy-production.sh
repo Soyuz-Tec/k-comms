@@ -254,6 +254,7 @@ bash "${SCRIPT_DIR}/install.sh" \
   --minio-volume "$minio_volume" \
   --prepare-only
 require_command pg_restore
+generate_service_envs
 
 write_release_env "$current_image" "$current_revision" "$K_COMMS_RELEASE_ENV"
 render_template \

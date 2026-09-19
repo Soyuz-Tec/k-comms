@@ -9,6 +9,7 @@ source "${SCRIPT_DIR}/common.sh"
 require_root
 require_command sysctl
 assert_secure_runtime_env
+generate_service_envs
 environment="$(configured_environment)"
 bind_address="$(configured_bind_address)"
 media_address="$(read_env_value "$K_COMMS_ENVIRONMENT_FILE" K_COMMS_MEDIA_ADDRESS)"
@@ -57,6 +58,7 @@ install -d -m 0755 \
   "${K_COMMS_INSTALL_DIR}/bin" \
   "$K_COMMS_TEMPLATE_DIR"
 install -m 0755 "${BUNDLE_DIR}"/bin/*.sh "${K_COMMS_INSTALL_DIR}/bin/"
+install -m 0755 "${BUNDLE_DIR}"/bin/*.py "${K_COMMS_INSTALL_DIR}/bin/"
 install -m 0644 "${BUNDLE_DIR}"/quadlet/*.in "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/nftables.conf.in" "$K_COMMS_TEMPLATE_DIR/"
 install -m 0644 "${BUNDLE_DIR}/sysctl/99-k-comms-livekit.conf" \

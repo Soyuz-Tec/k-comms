@@ -22,6 +22,7 @@ application, signaling, object API, and ICE ports only to the same LAN.
 
 - Quadlets: `/etc/containers/systemd/k-comms-*`
 - protected runtime configuration: `/etc/k-comms/runtime.env`
+- generated service environments: `/etc/k-comms/service-env/current/*.env`
 - current non-secret release identity: `/etc/k-comms/release.env`
 - operator scripts: `/opt/k-comms/bin`
 - immutable templates: `/opt/k-comms/templates`
@@ -30,6 +31,33 @@ application, signaling, object API, and ICE ports only to the same LAN.
 
 `runtime.env` and the Cloudflare tunnel token are always mode `0600`, remain
 outside Git, and are never included in receipts or logs.
+
+Each container receives its own allowlisted environment. The root-owned source
+remains the only configuration authority; generated directories are mode `0700`
+and files are mode `0600`. `service-env.py` rejects unclassified/duplicate inputs,
+placeholders, missing required values, unsafe permissions, and source symlinks.
+It prepares the entire set before atomically switching the active generation.
+Never edit derived files or print them into workflow logs. See ADR-0082.
+
+Install requires Python 3. On an existing VM, ensure `python3` is available
+before asset synchronization; missing dependencies fail before activation.
+Successful deployment checks the actual application and sidecar environments.
+Existing sidecars are restarted only when a mismatch requires it, after
+quiescence and backup. Failed first-time upgrades may recover the old unit's
+environment scope; that is failed-upgrade recovery, not successful isolation.
+
+To verify files without displaying values, run on the authorized host:
+
+```bash
+sudo python3 /opt/k-comms/bin/service-env.py \
+  --source /etc/k-comms/runtime.env \
+  --destination /etc/k-comms/service-env --check
+```
+
+Application/sidecar credential values and database roles are unchanged. Equal
+S3 application and MinIO administrator credentials still have equal privileges;
+credential separation requires its own tested change. Restore the protected
+source from a verified backup and let the restore command regenerate the files.
 
 The protected `/etc/k-comms/environment` file also records the storage
 identity. Fresh staging uses `k-comms-postgres-data` and
@@ -53,8 +81,9 @@ retains read-only rootfs, dropped capabilities, and no-new-privileges controls.
 
 ## Protected GitHub delivery
 
-The manual `Deploy Proxmox` workflow uses the protected `staging` or
-`production` GitHub environment. Each environment must define:
+The reusable `Deploy Proxmox` workflow uses the protected `staging` or
+`production` GitHub environment; its manual form offers staging only.
+Each environment must define:
 
 - variables `K_COMMS_DEPLOY_HOST` and `K_COMMS_DEPLOY_USER`;
 - secrets `K_COMMS_DEPLOY_SSH_KEY` and `K_COMMS_DEPLOY_HOST_KEY`; and

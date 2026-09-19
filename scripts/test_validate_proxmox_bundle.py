@@ -737,5 +737,31 @@ class ProxmoxBundleValidatorTest(unittest.TestCase):
         )
 
 
+    def test_rejects_shared_runtime_environment_in_sidecar(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/quadlet/k-comms-minio.container.in"
+        path.write_text(path.read_text().replace(
+            "EnvironmentFile=/etc/k-comms/service-env/current/minio.env",
+            "EnvironmentFile=/etc/k-comms/runtime.env"))
+        self.assertTrue(any("shared host environment is forbidden" in error for error in validate(root)))
+
+    def test_rejects_shared_runtime_environment_in_one_shot(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/deploy.sh"
+        path.write_text(path.read_text().replace(
+            '--env-file "${K_COMMS_SERVICE_ENV}/object-admin.env"',
+            '--env-file "$K_COMMS_RUNTIME_ENV"'))
+        self.assertTrue(any("one-shot container exposes" in error for error in validate(root)))
+
+    def test_rejects_missing_restore_environment_regeneration(self) -> None:
+        temporary, root = self.copied_contract()
+        self.addCleanup(temporary.cleanup)
+        path = root / "deploy/proxmox/bin/restore.sh"
+        path.write_text(path.read_text().replace("generate_service_envs", ":"))
+        self.assertIn("restore.sh must regenerate restricted service environments", validate(root))
+
+
 if __name__ == "__main__":
     unittest.main()
