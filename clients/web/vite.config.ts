@@ -51,6 +51,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: "dist",
+      manifest: true,
       sourcemap: false
     }
   };
