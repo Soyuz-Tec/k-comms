@@ -35,6 +35,7 @@ config :comms_core,
     notification_delivery: CommsWorkers.NotificationWorker,
     outbox_publication: CommsWorkers.OutboxWorker,
     retention: CommsWorkers.RetentionWorker,
+    retention_reconciler: CommsWorkers.RetentionReconcilerWorker,
     webhook_delivery: CommsWorkers.WebhookWorker
   ],
   attachment_cleanup_grace_seconds: 300,
@@ -63,7 +64,8 @@ config :comms_core, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker},
-       {"* * * * *", CommsWorkers.ErasureReconcilerWorker},
+        {"* * * * *", CommsWorkers.ErasureReconcilerWorker},
+        {"0 * * * *", CommsWorkers.RetentionReconcilerWorker},
        {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker}
      ]}
   ]

@@ -16,28 +16,44 @@ defmodule CommsCore.Governance.RetentionExecution do
   alias CommsCore.Messaging.{RetentionCandidate, RetentionScope}
   alias CommsCore.{Accounts, Conversations, Messaging, Repo, RuntimePorts}
 
-  def enqueue_due_retention(tenant_id, caller) when is_binary(tenant_id) do
+  def enqueue_due_retention(tenant_id, caller), do: enqueue_due_retention(tenant_id, caller, nil)
+
+  def enqueue_due_retention(tenant_id, caller, cursor) when is_binary(tenant_id) do
     if RuntimePorts.authorized_job_worker?(:retention, caller) do
-      case Accounts.retention_actor_id(tenant_id) do
-        {:ok, owner_id} ->
-          due = due_retention_messages(tenant_id, 100)
+      with :ok <- validate_cursor(cursor),
+           {:ok, owner_id} <- Accounts.retention_actor_id(tenant_id) do
+        {due, scanned, next_cursor} = due_retention_messages(tenant_id, 100, cursor)
 
-          enqueued =
-            Enum.count(due, fn candidate ->
-              enqueue_retention_deletion(owner_id, candidate)
-            end)
-
-          {:ok, %{enqueued: enqueued, scanned: length(due), has_more: length(due) == 100}}
-
-        {:error, :last_owner_required} = error ->
-          error
+        with {:ok, enqueued} <- enqueue_candidates(owner_id, due) do
+          {:ok,
+           %{
+             enqueued: enqueued,
+             scanned: scanned,
+             has_more: scanned == 100,
+             next_cursor: next_cursor
+           }}
+        end
       end
     else
       {:error, :forbidden}
     end
   end
 
-  def enqueue_due_retention(_tenant_id, _caller), do: {:error, :forbidden}
+  def enqueue_due_retention(_tenant_id, _caller, _cursor), do: {:error, :forbidden}
+
+  defp validate_cursor(nil), do: :ok
+
+  defp validate_cursor(%{"inserted_at" => timestamp, "message_id" => id})
+       when is_binary(timestamp) and is_binary(id) do
+    with {:ok, _, _} <- DateTime.from_iso8601(timestamp),
+         {:ok, _} <- Ecto.UUID.cast(id) do
+      :ok
+    else
+      _ -> {:error, :invalid_retention_cursor}
+    end
+  end
+
+  defp validate_cursor(_), do: {:error, :invalid_retention_cursor}
 
   def enqueue_retention_scan(tenant_id, scheduled_in, insert_retention_job) do
     options =
@@ -63,7 +79,7 @@ defmodule CommsCore.Governance.RetentionExecution do
     end
   end
 
-  defp due_retention_messages(tenant_id, limit) do
+  defp due_retention_messages(tenant_id, limit, cursor) do
     policies =
       Repo.all(
         from(p in RetentionPolicy,
@@ -82,17 +98,6 @@ defmodule CommsCore.Governance.RetentionExecution do
       if tenant_policy,
         do: tenant_policy.retention_days,
         else: configured_default_days
-
-    excluded_message_ids =
-      Repo.all(
-        from(r in DeletionRequest,
-          where:
-            r.tenant_id == ^tenant_id and r.target_type == :message and
-              r.status in [:pending, :approved, :in_progress, :completed],
-          select: r.message_id
-        )
-      )
-      |> Enum.reject(&is_nil/1)
 
     scan_started_at = now()
 
@@ -120,18 +125,48 @@ defmodule CommsCore.Governance.RetentionExecution do
         end
       end)
 
-    tenant_id
-    |> Messaging.retention_candidates(scopes, excluded_message_ids, limit)
-    |> Enum.map(fn %RetentionCandidate{} = candidate ->
-      metadata = Map.fetch!(metadata_by_conversation_id, candidate.conversation_id)
+    candidates = Messaging.retention_candidates(tenant_id, scopes, [], limit, cursor)
+    candidate_ids = Enum.map(candidates, & &1.message_id)
 
-      %{
-        tenant_id: tenant_id,
-        message_id: candidate.message_id,
-        policy_id: metadata.policy_id,
-        delete_attachments: metadata.delete_attachments
-      }
-    end)
+    excluded_ids =
+      Repo.all(
+        from(r in DeletionRequest,
+          where:
+            r.tenant_id == ^tenant_id and r.target_type == :message and
+              r.message_id in ^candidate_ids and
+              r.status in [:pending, :approved, :in_progress, :completed],
+          select: r.message_id
+        )
+      )
+      |> MapSet.new()
+
+    due =
+      candidates
+      |> Enum.reject(&MapSet.member?(excluded_ids, &1.message_id))
+      |> Enum.map(fn %RetentionCandidate{} = candidate ->
+        metadata = Map.fetch!(metadata_by_conversation_id, candidate.conversation_id)
+
+        %{
+          tenant_id: tenant_id,
+          message_id: candidate.message_id,
+          policy_id: metadata.policy_id,
+          delete_attachments: metadata.delete_attachments
+        }
+      end)
+
+    next_cursor =
+      case List.last(candidates) do
+        nil ->
+          nil
+
+        candidate ->
+          %{
+            "inserted_at" => DateTime.to_iso8601(candidate.inserted_at),
+            "message_id" => candidate.message_id
+          }
+      end
+
+    {due, length(candidates), next_cursor}
   end
 
   defp enqueue_retention_deletion(owner_id, candidate) do
@@ -176,9 +211,19 @@ defmodule CommsCore.Governance.RetentionExecution do
              true
            end
          end) do
-      {:ok, enqueued?} -> enqueued?
-      {:error, _reason} -> false
+      {:ok, enqueued?} -> {:ok, enqueued?}
+      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp enqueue_candidates(owner_id, candidates) do
+    Enum.reduce_while(candidates, {:ok, 0}, fn candidate, {:ok, count} ->
+      case enqueue_retention_deletion(owner_id, candidate) do
+        {:ok, true} -> {:cont, {:ok, count + 1}}
+        {:ok, false} -> {:cont, {:ok, count}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp insert_or_rollback(changeset) do

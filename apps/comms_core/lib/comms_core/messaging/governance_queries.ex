@@ -53,10 +53,18 @@ defmodule CommsCore.Messaging.GovernanceQueries do
           pos_integer()
         ) :: [RetentionCandidate.t()]
   def retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count)
+      when is_binary(tenant_id) do
+    retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count, nil)
+  end
+
+  def retention_candidates(_tenant_id, _scopes, _excluded_message_ids, _limit_count), do: []
+
+  def retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count, cursor)
       when is_binary(tenant_id) and is_list(scopes) and is_list(excluded_message_ids) and
              is_integer(limit_count) and limit_count > 0 do
     with true <- valid_uuid?(tenant_id),
          true <- Enum.all?(excluded_message_ids, &valid_uuid?/1),
+         {:ok, cursor} <- retention_cursor(cursor),
          {:ok, scope_filter} <- retention_scope_filter(scopes) do
       Message
       |> where(
@@ -65,14 +73,16 @@ defmodule CommsCore.Messaging.GovernanceQueries do
           message.id not in ^Enum.uniq(excluded_message_ids)
       )
       |> where(^scope_filter)
+      |> after_retention_cursor(cursor)
       |> order_by([message], asc: message.inserted_at, asc: message.id)
       |> limit(^limit_count)
-      |> select([message], {message.id, message.conversation_id})
+      |> select([message], {message.id, message.conversation_id, message.inserted_at})
       |> Repo.all()
-      |> Enum.map(fn {message_id, conversation_id} ->
+      |> Enum.map(fn {message_id, conversation_id, inserted_at} ->
         %RetentionCandidate{
           message_id: message_id,
-          conversation_id: conversation_id
+          conversation_id: conversation_id,
+          inserted_at: inserted_at
         }
       end)
     else
@@ -80,7 +90,33 @@ defmodule CommsCore.Messaging.GovernanceQueries do
     end
   end
 
-  def retention_candidates(_tenant_id, _scopes, _excluded_message_ids, _limit_count), do: []
+  def retention_candidates(_tenant_id, _scopes, _excluded_message_ids, _limit_count, _cursor),
+    do: []
+
+  defp retention_cursor(nil), do: {:ok, nil}
+
+  defp retention_cursor(%{"inserted_at" => timestamp, "message_id" => id})
+       when is_binary(timestamp) and is_binary(id) do
+    with true <- valid_uuid?(id),
+         {:ok, timestamp, _offset} <- DateTime.from_iso8601(timestamp) do
+      {:ok, {timestamp, id}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp retention_cursor(_), do: :error
+
+  defp after_retention_cursor(query, nil), do: query
+
+  defp after_retention_cursor(query, {timestamp, id}) do
+    where(
+      query,
+      [message],
+      message.inserted_at > ^timestamp or
+        (message.inserted_at == ^timestamp and message.id > ^id)
+    )
+  end
 
   @doc """
   Tombstones tenant-scoped messages as part of an existing erasure transaction.

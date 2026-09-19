@@ -82,6 +82,7 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0076 | Use opaque cursor pagination for in-app notifications | Accepted |
 | 0077 | Recover browser whiteboard edits locally and keep export host-owned | Accepted |
 | 0078 | Complete derived-content erasure and serialize dispatch | Accepted |
+| 0079 | Persist retention work atomically and page its exclusions | Accepted |
 | 0083 | Bound whiteboard scenes and recover capacity with clear epochs | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

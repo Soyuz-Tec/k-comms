@@ -315,18 +315,25 @@ defmodule CommsCore.Notifications.PushSubscriptionsConcurrencyTest do
         )
       end)
 
-    case activity.rows do
-      [["Lock", query]] when is_binary(query) ->
-        assert String.contains?(query, ~s(FROM "push_subscriptions"))
-        assert String.contains?(query, "FOR UPDATE")
+    waiting_for_endpoint? =
+      case activity.rows do
+        [["Lock", query]] when is_binary(query) ->
+          String.contains?(query, ~s(FROM "push_subscriptions")) and
+            String.contains?(query, "FOR UPDATE")
 
-      _ ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          flunk("registration did not wait for the push subscription row lock")
-        else
-          Process.sleep(10)
-          await_registration_row_lock(backend_pid, deadline)
-        end
+        _ ->
+          false
+      end
+
+    # Identity locks precede the endpoint lock. A transient wait there must not
+    # be mistaken for arrival at the barrier this test intends to exercise.
+    unless waiting_for_endpoint? do
+      if System.monotonic_time(:millisecond) >= deadline do
+        flunk("registration did not wait for the push subscription row lock")
+      else
+        Process.sleep(10)
+        await_registration_row_lock(backend_pid, deadline)
+      end
     end
   end
 

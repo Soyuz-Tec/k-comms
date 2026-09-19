@@ -21,6 +21,7 @@ defmodule CommsCore.RuntimePorts do
     :notification_delivery,
     :outbox_publication,
     :retention,
+    :retention_reconciler,
     :webhook_delivery
   ]
 

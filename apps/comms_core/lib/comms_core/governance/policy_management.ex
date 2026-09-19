@@ -2,7 +2,6 @@ defmodule CommsCore.Governance.PolicyManagement do
   @moduledoc false
 
   alias CommsCore.Governance.{LegalHolds, RetentionExecution, RetentionPolicies}
-  alias CommsCore.Repo
 
   def create_retention_policy(attrs, subject) do
     RetentionPolicies.create_retention_policy(attrs, subject, &insert_retention_job/1)
@@ -19,6 +18,7 @@ defmodule CommsCore.Governance.PolicyManagement do
   defdelegate release_legal_hold(id, attrs, subject), to: LegalHolds
 
   defdelegate enqueue_due_retention(tenant_id, caller), to: RetentionExecution
+  defdelegate enqueue_due_retention(tenant_id, caller, cursor), to: RetentionExecution
 
-  defp insert_retention_job(changeset), do: Repo.insert(changeset)
+  defp insert_retention_job(changeset), do: Oban.insert(changeset)
 end

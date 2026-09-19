@@ -22,6 +22,12 @@ and replay lock/reload the canonical outbox event before acquiring endpoint and
 delivery locks. The new Governance-to-Webhooks edge is one-way and explicit in the
 strict context manifest; no owner accesses another owner's persistence schemas.
 
+The integrated review also includes [ADR-0079](0079-atomic-bounded-retention-work.md).
+Its exact manifest transition combines this one-way dependency, the merged public
+facade registry digest, and the bounded retention tenant-inventory read query.
+This records the union of the two reviewed changes against the same protected
+base, with no additional exceptions or owner access.
+
 The worker invokes `Integrations.dispatch_delivery/2` with its provider callback.
 The core owner keeps its endpoint/delivery row locks for the bounded request.
 Erasure waits for a send already executing; abandoned claims hold no transaction

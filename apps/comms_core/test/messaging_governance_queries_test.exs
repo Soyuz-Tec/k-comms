@@ -230,6 +230,22 @@ defmodule CommsCore.MessagingGovernanceQueriesTest do
     assert remaining_tied_id == List.last(expected_tied_order)
     assert tied_conversation_id == other_conversation.id
 
+    [_, last_in_page] = Messaging.retention_candidates(account.tenant.id, scopes, [], 2)
+
+    cursor = %{
+      "inserted_at" => DateTime.to_iso8601(last_in_page.inserted_at),
+      "message_id" => last_in_page.message_id
+    }
+
+    assert [%RetentionCandidate{message_id: ^remaining_tied_id}] =
+             Messaging.retention_candidates(account.tenant.id, scopes, [], 2, cursor)
+
+    assert [] =
+             Messaging.retention_candidates(account.tenant.id, scopes, [], 2, %{
+               "inserted_at" => 123,
+               "message_id" => oldest.id
+             })
+
     refute function_exported?(RetentionScope, :__schema__, 1)
     refute function_exported?(RetentionCandidate, :__schema__, 1)
   end
