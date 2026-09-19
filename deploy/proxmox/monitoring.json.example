@@ -1,0 +1,9 @@
+{
+  "backup_max_age_seconds": 100800,
+  "health_max_age_seconds": 180,
+  "min_free_bytes": 5368709120,
+  "min_free_inode_percent": 5,
+  "alerts_enabled": false,
+  "deadman_enabled": false,
+  "hook_path": null
+}

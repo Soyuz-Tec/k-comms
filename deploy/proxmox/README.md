@@ -79,6 +79,46 @@ Quadlet therefore cannot set Linux `no-new-privileges`; a staging regression
 test proved that doing so traps `gosu` before database startup. The application
 retains read-only rootfs, dropped capabilities, and no-new-privileges controls.
 
+## Backup timing and local monitoring
+
+`backup.sh` writes root-only `backup-<id>.json` and `backup-latest.json` in the
+receipts directory. These record each phase, total elapsed time, result, and
+failed phase. The nightly wrapper also writes `maintenance-<id>.json` and
+`maintenance-latest.json`, measuring the stop request through verified recovery.
+An unconfirmed stop has unknown outage duration; failed recovery leaves an open
+interval. A failed backup remains a failed maintenance run after recovery.
+Inspect these protected receipts to size a maintenance window from measurements.
+
+The health timer now invokes `monitor.sh`, which runs full runtime verification
+and checks backup freshness/completion, the preceding healthy observation,
+available bytes, and free inodes for backups and both data volumes. Local state
+is `/var/lib/k-comms/receipts/monitoring/monitor.json` (mode `0600` in a `0700`
+directory). Storage indices `0`, `1`, and `2` denote backups, PostgreSQL, and
+MinIO respectively. A stale backup, failed maintenance, low capacity, or failed
+health/delivery check makes the systemd health service fail visibly.
+
+Optional settings are shown in `monitoring.json.example`. Install an explicitly
+reviewed copy at `/etc/k-comms/monitoring.json`, owned by root, mode `0600`.
+Defaults enable local checks only. Keep `alerts_enabled` and `deadman_enabled`
+false until an authorized receiver and escalation owner exist. For delivery,
+set `hook_path` to a root-owned mode `0700` executable in protected directories.
+The hook reads one JSON event from stdin (`alert`, `recovery`, or `heartbeat`),
+must return within 10 seconds, and receives only `PATH` and `LANG`; credentials
+belong in its own protected configuration. Its output is suppressed. Do not
+embed receiver credentials in repository files or operational receipts.
+
+Qualify alert and recovery receipt delivery with synthetic events, then stop a
+synthetic staging heartbeat to prove the external deadman detects silence.
+Record the receiver acknowledgment and response owner before claiming working
+alert delivery. Planned backup interruption can produce health alerts. Hooks
+are never invoked with the default settings, and no receiver is provisioned by
+this bundle.
+
+Local monitoring does not provide off-host backups or PostgreSQL PITR. A host
+failure requires an external receiver to detect silence and an independent
+backup copy to recover. Backup freshness checks do not reread all archive data
+each minute; retain checksum verification and staging restore rehearsal.
+
 ## Protected GitHub delivery
 
 The reusable `Deploy Proxmox` workflow uses the protected `staging` or
