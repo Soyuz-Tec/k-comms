@@ -121,7 +121,9 @@ describe("ThreadDrawer composer lifecycle", () => {
     await waitFor(() => expect(api.attachmentStatus).toHaveBeenCalledWith("attachment-1"), { timeout: 2_000 });
     await act(async () => resolveStatus?.({ data: ready }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("brief.txt: Safety scan passed"));
-    expect(screen.getByRole("button", { name: "Reply" })).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reply" })).toBeEnabled()
+    );
 
     await userActions.click(screen.getByRole("button", { name: "Reply" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(expect.objectContaining({ attachment_ids: ["attachment-1"] })));
@@ -154,8 +156,12 @@ describe("ThreadDrawer composer lifecycle", () => {
       <ThreadDrawer {...commonProps} targetMessageId="target-a" />
     );
 
-    const composerA = await screen.findByLabelText("Reply in thread");
+    await screen.findByText("Thread A root");
+    const composerA = screen.getByLabelText("Reply in thread");
     await userActions.type(composerA, "Thread A reply");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reply" })).toBeEnabled()
+    );
     await userActions.click(screen.getByRole("button", { name: "Reply" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
 
@@ -216,9 +222,13 @@ describe("ThreadDrawer composer lifecycle", () => {
       <ThreadDrawer {...commonProps} targetMessageId="target-a" />
     );
 
+    await screen.findByText("Thread A root");
     await userActions.type(
-      await screen.findByLabelText("Reply in thread"),
+      screen.getByLabelText("Reply in thread"),
       "Thread A pending send"
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reply" })).toBeEnabled()
     );
     await userActions.click(screen.getByRole("button", { name: "Reply" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
@@ -285,9 +295,13 @@ describe("ThreadDrawer composer lifecycle", () => {
       <ThreadDrawer {...commonProps} targetMessageId="target-a" />
     );
 
+    await screen.findByText("Thread A root");
     await userActions.type(
-      await screen.findByLabelText("Reply in thread"),
+      screen.getByLabelText("Reply in thread"),
       "Retry thread A"
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reply" })).toBeEnabled()
     );
     await userActions.click(screen.getByRole("button", { name: "Reply" }));
     await screen.findByRole("alert", {}, { timeout: 3_000 });
