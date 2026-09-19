@@ -10,7 +10,7 @@ import type {
 } from "react";
 import type { SendMessageInput } from "../../api";
 import { clientMessageId, errorText } from "../../lib/format";
-import { loadDraft, storeDraft } from "../../lib/drafts";
+import { loadDraft, storeDraft, type DraftPersistence } from "../../lib/drafts";
 import type { Message, MessageMetadata, Session } from "../../types";
 import type { AttachmentSendReservation } from "./useChatAttachments";
 
@@ -64,6 +64,7 @@ export function useChatComposer({
   updateConversationSummaries
 }: UseChatComposerOptions) {
   const [composer, setComposer] = useState("");
+  const [draftPersistence, setDraftPersistence] = useState<DraftPersistence>("saved");
   const [sending, setSending] = useState(false);
   const [failedSend, setFailedSend] = useState<FailedChatSend | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -115,12 +116,12 @@ export function useChatComposer({
 
   useEffect(() => {
     if (activeConversationId && tenantId && userId) {
-      storeDraft(
+      setDraftPersistence(storeDraft(
         tenantId,
         userId,
         activeConversationId,
         composer
-      );
+      ));
     }
   }, [activeConversationId, composer, tenantId, userId]);
 
@@ -277,6 +278,7 @@ export function useChatComposer({
   return {
     activeConversationIdRef,
     composer,
+    draftPersistence,
     composerChanged,
     failedSend,
     mentionedUserIds,

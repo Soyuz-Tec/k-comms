@@ -8,6 +8,7 @@ import type {
 import { Link } from "react-router";
 import { AppIcon } from "../../components/AppIcon";
 import { dayKey, formatDayLabel } from "../../lib/format";
+import type { DraftPersistence } from "../../lib/drafts";
 import type {
   ConnectionStatus,
   Conversation,
@@ -39,6 +40,7 @@ export function ConversationPane({
   callInProgress,
   capabilities,
   composer,
+  draftPersistence,
   connectionStatus,
   conversationIdentifier,
   currentUserId,
@@ -102,6 +104,7 @@ export function ConversationPane({
   callInProgress: boolean;
   capabilities: UserCapabilities | null;
   composer: string;
+  draftPersistence: DraftPersistence;
   connectionStatus: ConnectionStatus;
   conversationIdentifier: (conversation: Conversation) => string;
   currentUserId: string;
@@ -375,8 +378,10 @@ export function ConversationPane({
                   <strong>Draft to {title}</strong>
                 </span>
                 <span className="composer-draft-state">
-                  <AppIcon name="check" />
-                  Saved on this device
+                  {draftPersistence === "saved" && <AppIcon name="check" />}
+                  {draftPersistence === "saved"
+                    ? "Saved on this device"
+                    : "Kept in this tab only. Send before reloading or closing."}
                 </span>
               </div>
             )}
