@@ -246,8 +246,8 @@ defmodule CommsCore.WhiteboardsTest do
 
       # Serving the pre-clear snapshot here would restore work a collaborator
       # deleted for everyone.
-      assert after_clear.snapshot == nil
-      assert Enum.map(after_clear.operations, & &1.sequence) == [clear.sequence]
+      assert after_clear.snapshot == %{elements: [], through_sequence: clear.sequence}
+      assert after_clear.operations == []
     end
 
     test "a snapshot taken after a clear covers only the new generation", %{

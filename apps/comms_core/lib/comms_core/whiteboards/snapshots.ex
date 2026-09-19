@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Snapshots do
   import Ecto.Query
 
   alias CommsCore.Repo
-  alias CommsCore.Whiteboards.{Operation, Snapshot, Whiteboard}
+  alias CommsCore.Whiteboards.{Operation, Scene, Snapshot}
 
   # How many operations may accumulate before the scene is rematerialised.
   # Small enough that a joining client never pages through much tail; large
@@ -13,24 +13,49 @@ defmodule CommsCore.Whiteboards.Snapshots do
   # between a member conversation and a public instant room.
   @default_rebuild_interval 250
 
-  @doc """
-  Rematerialise the board's scene if enough operations have accrued.
+  # Called only under the board row lock. Stream the current generation into a
+  # bounded index; never load an entire operation history or a prior epoch.
+  def prepare(_whiteboard, _generation, "board.clear", _payload) do
+    {:ok, scene} = Scene.new()
+    {:ok, %{scene: scene, clear?: true}}
+  end
 
-  Called from inside `Commands.append/3`, whose transaction already holds the
-  board row `FOR UPDATE`. That lock is what makes this safe: the snapshot is
-  written against exactly the sequence the caller just allocated, so it can
-  never record a scene that includes an operation another writer has not
-  committed.
-
-  Snapshotting is an optimisation, never a source of truth. Any failure here
-  must leave the operation log authoritative and untouched.
-  """
-  @spec maintain(Whiteboard.t(), pos_integer()) :: :ok
-  def maintain(%Whiteboard{} = whiteboard, sequence) when is_integer(sequence) do
+  def prepare(whiteboard, generation, "scene.update", payload) do
     existing = load(whiteboard.id)
 
-    if due?(existing, sequence) do
-      rebuild(whiteboard, existing, sequence)
+    {base_elements, from_sequence} =
+      case existing do
+        %Snapshot{generation_sequence: ^generation, through_sequence: through}
+        when through >= generation ->
+          {elements(existing), through}
+
+        _ ->
+          {[], generation}
+      end
+
+    with {:ok, scene} <- Scene.new(base_elements),
+         {:ok, scene} <- project_tail(whiteboard.id, from_sequence, whiteboard.sequence, scene),
+         {:ok, scene} <- Scene.merge(scene, Map.get(payload, "elements", [])) do
+      {:ok, %{scene: scene, generation: generation, existing: existing, clear?: false}}
+    end
+  end
+
+  def maintain(whiteboard, sequence, %{clear?: true, scene: scene}) do
+    # Clear must recover even a legacy oversized snapshot without loading it.
+    existing =
+      Repo.one(
+        from(snapshot in Snapshot,
+          where: snapshot.whiteboard_id == ^whiteboard.id,
+          select: struct(snapshot, [:id])
+        )
+      )
+
+    persist(whiteboard, existing, scene, sequence, sequence)
+  end
+
+  def maintain(whiteboard, sequence, prepared) do
+    if due?(prepared.existing, sequence) do
+      persist(whiteboard, prepared.existing, prepared.scene, sequence, prepared.generation)
     end
 
     :ok
@@ -79,34 +104,14 @@ defmodule CommsCore.Whiteboards.Snapshots do
     |> max(1)
   end
 
-  defp rebuild(%Whiteboard{} = whiteboard, existing, sequence) do
-    generation = latest_clear_sequence(whiteboard.id)
-
-    # Resume from the existing snapshot only when it belongs to the current
-    # generation. A clear since then invalidates it, and folding new operations
-    # onto a pre-clear scene would restore work a collaborator deleted.
-    {base_elements, from_sequence} =
-      case existing do
-        %Snapshot{generation_sequence: ^generation, through_sequence: through}
-        when through >= generation ->
-          {elements(existing), through}
-
-        _ ->
-          {[], generation}
-      end
-
-    scene =
-      whiteboard.id
-      |> operations_between(from_sequence, sequence)
-      |> Enum.reduce(base_elements, &apply_operation/2)
-
+  defp persist(whiteboard, existing, scene, sequence, generation) do
     attrs = %{
       whiteboard_id: whiteboard.id,
       tenant_id: whiteboard.tenant_id,
       conversation_id: whiteboard.conversation_id,
       through_sequence: sequence,
       generation_sequence: generation,
-      elements: %{"elements" => scene}
+      elements: %{"elements" => Scene.elements(scene)}
     }
 
     (existing || %Snapshot{})
@@ -114,16 +119,23 @@ defmodule CommsCore.Whiteboards.Snapshots do
     |> Repo.insert_or_update!()
   end
 
-  defp operations_between(whiteboard_id, after_sequence, through_sequence) do
-    Repo.all(
+  defp project_tail(whiteboard_id, after_sequence, through_sequence, scene) do
+    Repo.stream(
       from(operation in Operation,
         where:
           operation.whiteboard_id == ^whiteboard_id and
             operation.sequence > ^after_sequence and
             operation.sequence <= ^through_sequence,
         order_by: [asc: operation.sequence]
-      )
+      ),
+      max_rows: 10
     )
+    |> Enum.reduce_while({:ok, scene}, fn operation, {:ok, current} ->
+      case Scene.merge(current, Map.get(operation.payload, "elements", [])) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp latest_clear_sequence(whiteboard_id) do
@@ -134,64 +146,4 @@ defmodule CommsCore.Whiteboards.Snapshots do
       )
     ) || 0
   end
-
-  defp apply_operation(%Operation{kind: "board.clear"}, _scene), do: []
-
-  defp apply_operation(%Operation{kind: "scene.update", payload: payload}, scene) do
-    merge(scene, Map.get(payload, "elements", []))
-  end
-
-  defp apply_operation(%Operation{}, scene), do: scene
-
-  # Reproduces the client's projection exactly: elements keep first-seen order,
-  # a later version replaces an earlier one, and equal versions are settled by
-  # the lower nonce. Divergence here would make a snapshot disagree with a full
-  # replay, which is the one thing a snapshot may never do.
-  defp merge(scene, incoming) when is_list(incoming) do
-    indexed =
-      scene
-      |> Enum.with_index()
-      |> Map.new(fn {element, position} -> {element["id"], {position, element}} end)
-
-    {merged, _next} =
-      Enum.reduce(incoming, {indexed, map_size(indexed)}, fn element, {acc, next} ->
-        id = element["id"]
-
-        case Map.fetch(acc, id) do
-          {:ok, {position, current}} ->
-            if incoming_wins?(current, element) do
-              {Map.put(acc, id, {position, element}), next}
-            else
-              {acc, next}
-            end
-
-          :error ->
-            {Map.put(acc, id, {next, element}), next + 1}
-        end
-      end)
-
-    merged
-    |> Map.values()
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(&elem(&1, 1))
-  end
-
-  defp merge(scene, _incoming), do: scene
-
-  defp incoming_wins?(current, incoming) do
-    current_version = version(current)
-    incoming_version = version(incoming)
-
-    if incoming_version == current_version do
-      nonce(incoming) < nonce(current)
-    else
-      incoming_version > current_version
-    end
-  end
-
-  defp version(element), do: integer(Map.get(element, "version"))
-  defp nonce(element), do: integer(Map.get(element, "versionNonce"))
-
-  defp integer(value) when is_integer(value), do: value
-  defp integer(_), do: 0
 end

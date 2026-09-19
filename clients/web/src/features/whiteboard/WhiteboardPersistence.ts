@@ -77,6 +77,7 @@ export class WhiteboardPersistence {
   private retryTimer: number | null = null;
   private flushCompletion: Promise<void> | null = null;
   private clearRequested = false;
+  private capacityBlocked = false;
   private stopped = false;
   private generation = 0;
   private localChangesArmed = false;
@@ -134,7 +135,7 @@ export class WhiteboardPersistence {
     }
     this.notifyPending();
     this.dependencies.onElementCount(visibleElementCount(this.dependencies.scene.current));
-    this.dependencies.onSaveStatus("unsynced");
+    this.dependencies.onSaveStatus(this.capacityBlocked ? "error" : "unsynced");
     this.scheduleFlush();
   };
 
@@ -145,6 +146,7 @@ export class WhiteboardPersistence {
     currentElements: readonly WhiteboardElementData[] = []
   ): void {
     this.generation += 1;
+    this.capacityBlocked = false;
     this.localChangesArmed = false;
     this.postClearGuardUntil = Date.now() + 1_000;
     this.cancelTimers();
@@ -262,7 +264,7 @@ export class WhiteboardPersistence {
   }
 
   private async flushPending(): Promise<void> {
-    if (this.stopped || this.clearRequested || this.flushCompletion || this.outbox.length === 0) return;
+    if (this.stopped || this.clearRequested || this.capacityBlocked || this.flushCompletion || this.outbox.length === 0) return;
     const batch = this.outbox.shift()!;
     const generation = this.generation;
     this.inFlight = batch;
@@ -273,7 +275,7 @@ export class WhiteboardPersistence {
     this.flushCompletion = null;
     if (this.stopped) return;
     this.notifyPending();
-    if (!this.clearRequested && this.outbox.length > 0 && this.retryTimer === null) {
+    if (!this.clearRequested && !this.capacityBlocked && this.outbox.length > 0 && this.retryTimer === null) {
       this.scheduleFlush(0);
     }
   }
@@ -307,6 +309,16 @@ export class WhiteboardPersistence {
           this.dependencies.onSaveStatus("error");
           this.dependencies.onError("This board was cleared elsewhere. Local unsynced changes were not applied.");
           this.dependencies.onReplayRequested();
+        }
+      } else if (isApiErrorCode(reason, "whiteboard_capacity_exceeded")) {
+        this.outbox.unshift(batch);
+        this.capacityBlocked = true;
+        if (!this.stopped) {
+          this.dependencies.onSaveStatus("error");
+          this.dependencies.onError("This board reached its capacity. " + (this.storageAvailable
+            ? "Unsynced changes are retained on this device. "
+            : "Browser recovery storage is unavailable; keep this tab open. ") +
+            "Clear the board to start a new scene.");
         }
       } else {
         this.outbox.unshift(batch);
