@@ -84,6 +84,9 @@ install -m 0600 /dev/null "$output"
   printf 'TRUSTED_PROXY_CIDRS=\n'
   printf 'ALLOW_BOOTSTRAP=false\n'
   printf 'INSTANT_ROOMS_ENABLED=true\n'
+  # Immersive stays closed until the rollout gates in
+  # docs/14-operations/K-Comms_Immersive_UI_Operations_Runbook_v6.md are met.
+  printf 'IMMERSIVE_MODE_ENABLED=false\n'
   printf 'INSTANT_ROOM_TENANT_SLUG=k-comms-staging\n'
   printf 'INSTANT_ROOM_GUEST_IDLE_TTL_SECONDS=3600\n'
   printf 'INSTANT_ROOM_REGISTERED_IDLE_TTL_SECONDS=86400\n'

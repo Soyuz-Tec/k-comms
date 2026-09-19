@@ -1,0 +1,117 @@
+# Release-chain watchdog.
+#
+# container.yml serializes the release chain on main with
+# `cancel-in-progress: false`. That is correct for a deploy that is actively
+# running -- cancelling one mid-flight would leave a half-applied release --
+# but the same setting also protects a run that is merely idling at the
+# production approval gate, which is doing nothing at all.
+#
+# The consequence is that one un-actioned approval stops every later release.
+# When that happened, the only visible symptom was a run of `cancelled`
+# Container runs, because each new push cancels the previously *queued* run
+# while the waiting one keeps holding the concurrency group. Cancelled runs
+# read as noise, so the blockage went unnoticed for six days and production
+# drifted seventeen commits behind main.
+#
+# GitHub cannot condition `cancel-in-progress` on whether a job is deploying or
+# waiting for a human, so this makes the state visible instead of trying to
+# resolve it automatically. Whether to approve or cancel stays with the
+# authorized reviewer.
+
+name: Release chain watchdog
+
+on:
+  schedule:
+    # Hourly, offset off the hour to avoid the scheduling stampede.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      threshold_hours:
+        description: Hours a release run may await approval before it is reported
+        required: false
+        default: "4"
+
+permissions:
+  actions: read
+  issues: write
+
+concurrency:
+  group: release-watchdog-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  stale-approval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report release runs stuck awaiting approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THRESHOLD_HOURS: ${{ inputs.threshold_hours || '4' }}
+          # A bare token: GitHub issue search tokenizes, and will not reliably
+          # match the HTML comment the body carries as its marker.
+          SEARCH_KEY: release-chain-watchdog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          threshold_seconds=$(( THRESHOLD_HOURS * 3600 ))
+          now=$(date -u +%s)
+
+          # `waiting` is the state a run enters when a job is blocked on a
+          # protected environment. Anything else is progressing or finished.
+          #
+          # Emitted as TSV so the loop needs no standalone jq -- gh has one
+          # built in, and one less runner dependency is one less thing to break.
+          runs=$(gh api "repos/${REPO}/actions/runs?status=waiting&per_page=100" \
+            --jq '.workflow_runs[] | select(.name == "Container")
+                  | [.head_sha, .head_branch, .updated_at, .html_url] | @tsv')
+
+          stale_file=$(mktemp)
+          stale_count=0
+          while IFS=$'\t' read -r sha branch updated url; do
+            if [ -z "$sha" ]; then continue; fi
+            age=$(( now - $(date -u -d "$updated" +%s) ))
+            if [ "$age" -ge "$threshold_seconds" ]; then
+              stale_count=$(( stale_count + 1 ))
+              printf -- '- [`%s`](%s) on `%s`, waiting **%dh**\n' \
+                "$(printf '%s' "$sha" | cut -c1-7)" "$url" "$branch" "$(( age / 3600 ))" \
+                >> "$stale_file"
+            fi
+          done <<< "$runs"
+
+          existing=$(gh issue list --repo "${REPO}" --state open \
+            --search "in:body ${SEARCH_KEY}" --json number --jq '.[0].number // empty')
+
+          if [ "$stale_count" -eq 0 ]; then
+            echo "No Container run has been awaiting approval for ${THRESHOLD_HOURS}h or more."
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "${REPO}" --comment \
+                "The release chain is moving again. Nothing has been awaiting approval beyond the ${THRESHOLD_HOURS}h threshold, so this closes automatically."
+              echo "Closed #${existing}; the chain is clear."
+            fi
+            exit 0
+          fi
+
+          echo "Found ${stale_count} release run(s) awaiting approval past the threshold:"
+          cat "$stale_file"
+
+          body_file=$(mktemp)
+          {
+            printf '<!-- %s -->\n\n' "${SEARCH_KEY}"
+            printf 'The release chain on `main` is serialized, so a run left at the production approval gate blocks **every** later release. Each new push then cancels the previously queued run, which is why the symptom looks like unrelated `cancelled` runs rather than a stopped pipeline.\n\n'
+            printf 'Awaiting approval for %sh or more:\n\n' "${THRESHOLD_HOURS}"
+            cat "$stale_file"
+            printf '\nEither approve the deployment, or cancel the run if the digest has been superseded by newer commits on `main`. Promoting a stale candidate ships old code and spends the approval for little gain.\n\n'
+            printf 'This issue closes itself once nothing is over the threshold.\n'
+          } > "$body_file"
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "${REPO}" --body-file "$body_file"
+            echo "Updated #${existing}."
+          else
+            gh issue create --repo "${REPO}" \
+              --title "Release chain blocked: a deployment is awaiting approval" \
+              --body-file "$body_file"
+          fi
