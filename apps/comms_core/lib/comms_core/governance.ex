@@ -12,6 +12,10 @@ defmodule CommsCore.Governance do
 
   alias CommsCore.{Accounts, Messaging, Repo}
 
+  @spec reconcile_retention_schedules(binary() | nil, module()) :: public_response()
+  defdelegate reconcile_retention_schedules(cursor, caller),
+    to: CommsCore.Governance.RetentionReconciliation
+
   @typedoc "Scalar values allowed across this facade boundary."
   @type public_scalar ::
           atom()
@@ -59,6 +63,7 @@ defmodule CommsCore.Governance do
   @spec create_retention_policy_view(public_map(), public_map()) :: public_response()
   @spec delete_message(binary(), public_map()) :: public_response()
   @spec enqueue_due_retention(binary(), module()) :: public_response()
+  @spec enqueue_due_retention(binary(), module(), public_map() | nil) :: public_response()
   @spec list_deletion_request_views(public_map(), public_map()) ::
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}
   @spec list_legal_hold_views(public_map(), public_map()) ::
@@ -176,6 +181,7 @@ defmodule CommsCore.Governance do
   defdelegate list_legal_holds(params, subject), to: PolicyManagement
   defdelegate release_legal_hold(id, attrs, subject), to: PolicyManagement
   defdelegate enqueue_due_retention(tenant_id, caller), to: PolicyManagement
+  defdelegate enqueue_due_retention(tenant_id, caller, cursor), to: PolicyManagement
 
   defdelegate create_deletion_request(attrs, subject), to: DeletionWorkflow
   defdelegate list_deletion_requests(params, subject), to: DeletionWorkflow

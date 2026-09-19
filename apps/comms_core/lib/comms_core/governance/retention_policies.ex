@@ -22,22 +22,13 @@ defmodule CommsCore.Governance.RetentionPolicies do
          :ok <- validate_conversation(tenant_id, value(attrs, :conversation_id)) do
       case existing_idempotent(RetentionPolicy, tenant_id, idempotency_key) do
         %RetentionPolicy{} = policy ->
-          {:ok, %{policy: policy, replayed: true}}
+          with :ok <-
+                 RetentionExecution.enqueue_retention_scan(tenant_id, 0, insert_retention_job) do
+            {:ok, %{policy: policy, replayed: true}}
+          end
 
         nil ->
-          case insert_retention_policy(attrs, subject) do
-            {:ok, result} = success ->
-              RetentionExecution.enqueue_retention_scan(
-                result.policy.tenant_id,
-                0,
-                insert_retention_job
-              )
-
-              success
-
-            {:error, _} = error ->
-              error
-          end
+          insert_retention_policy(attrs, subject, insert_retention_job)
       end
     end
   end
@@ -61,30 +52,21 @@ defmodule CommsCore.Governance.RetentionPolicies do
          {:ok, expected_version} <- expected_version(attrs),
          :ok <- require_reason_for_change(attrs, :status, :reason),
          :ok <- validate_conversation(value(subject, :tenant_id), value(attrs, :conversation_id)) do
-      result =
-        update_versioned(
-          RetentionPolicy,
-          id,
-          expected_version,
-          attrs,
-          subject,
-          &RetentionPolicy.changeset/2,
-          [:name, :scope_type, :conversation_id, :retention_days, :delete_attachments, :status],
-          "retention_policy.update"
-        )
-
-      case result do
-        {:ok, policy} = success ->
-          RetentionExecution.enqueue_retention_scan(policy.tenant_id, 0, insert_retention_job)
-          success
-
-        {:error, _} = error ->
-          error
-      end
+      update_versioned(
+        RetentionPolicy,
+        id,
+        expected_version,
+        attrs,
+        subject,
+        &RetentionPolicy.changeset/2,
+        [:name, :scope_type, :conversation_id, :retention_days, :delete_attachments, :status],
+        "retention_policy.update",
+        insert_retention_job
+      )
     end
   end
 
-  defp insert_retention_policy(attrs, subject) do
+  defp insert_retention_policy(attrs, subject, insert_retention_job) do
     id = Ecto.UUID.generate()
 
     changes = %{
@@ -105,7 +87,8 @@ defmodule CommsCore.Governance.RetentionPolicies do
       "retention_policy.create",
       "retention_policy",
       id,
-      %{scope_type: changes.scope_type, retention_days: changes.retention_days}
+      %{scope_type: changes.scope_type, retention_days: changes.retention_days},
+      insert_retention_job
     )
   end
 
@@ -117,10 +100,16 @@ defmodule CommsCore.Governance.RetentionPolicies do
     |> governance_target_result()
   end
 
-  defp insert_with_audit(key, changeset, subject, action, resource_type, id, metadata) do
+  defp insert_with_audit(key, changeset, subject, action, resource_type, id, metadata, insert_job) do
     Ecto.Multi.new()
     |> Ecto.Multi.insert(key, changeset)
     |> Audit.append(audit_command(subject, action, resource_type, id, metadata))
+    |> Ecto.Multi.run(:retention_scan, fn _repo, %{policy: policy} ->
+      case RetentionExecution.enqueue_retention_scan(policy.tenant_id, 0, insert_job) do
+        :ok -> {:ok, :scheduled}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
     |> Repo.transaction()
     |> case do
       {:ok, result} -> {:ok, %{key => Map.fetch!(result, key), replayed: false}}
@@ -136,7 +125,8 @@ defmodule CommsCore.Governance.RetentionPolicies do
          subject,
          changeset_fn,
          fields,
-         action
+         action,
+         insert_retention_job
        ) do
     Repo.transaction(fn ->
       record = lock_record!(schema, id, subject)
@@ -168,6 +158,11 @@ defmodule CommsCore.Governance.RetentionPolicies do
         end
 
       audit!(subject, action, "retention_policy", record.id, audit_metadata)
+
+      case RetentionExecution.enqueue_retention_scan(updated.tenant_id, 0, insert_retention_job) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
 
       updated
     end)

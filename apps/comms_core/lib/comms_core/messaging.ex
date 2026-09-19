@@ -109,6 +109,9 @@ defmodule CommsCore.Messaging do
   defdelegate retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count),
     to: GovernanceQueries
 
+  defdelegate retention_candidates(tenant_id, scopes, excluded_message_ids, limit_count, cursor),
+    to: GovernanceQueries
+
   defdelegate tombstone_for_erasure(tenant_id, message_ids, timestamp), to: GovernanceQueries
 
   defdelegate list_service_history(conversation_id, subject, opts \\ []), to: ServiceMessages

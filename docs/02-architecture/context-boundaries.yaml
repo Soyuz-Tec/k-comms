@@ -3,14 +3,21 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6
+  sha256: 1a01c3304e6cf1e108b4f1d6eb2651f9dab270cec6adb2b030878f74160c15d5
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+    - id: atomic-bounded-retention-work
+      previous_manifest_sha256: dea5401dc268708bf63959e6947fe02e711c41b2ba7f826042d263bfcf5b230e
+      approved_changes:
+        - public_facade_api:sha256:27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6->1a01c3304e6cf1e108b4f1d6eb2651f9dab270cec6adb2b030878f74160c15d5
+        - read_model:CommsCore.Governance.RetentionDefaultsReader:public_queries:add:CommsCore.Administration.retention_tenant_ids/1
+      adr: docs/02-architecture/adr/0079-atomic-bounded-retention-work.md
+      removal_condition: Remove after this exact reviewed manifest reaches the protected base branch.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -884,9 +891,9 @@ read_model_exceptions:
     owners: [tenant_administration]
     access:
       public_contracts: [CommsCore.Administration.RetentionDefaults]
-      public_queries: [CommsCore.Administration.retention_defaults/1]
+      public_queries: [CommsCore.Administration.retention_defaults/1, CommsCore.Administration.retention_tenant_ids/1]
       source_tables: []
-    condition: The internal Governance reader may call only CommsCore.Administration.retention_defaults/1 and consume RetentionDefaults; it may not import TenantSettings or read or write tenant_settings directly.
+    condition: The internal Governance reader may call only the listed Administration retention queries and consume RetentionDefaults or bounded tenant IDs; it may not import TenantSettings or read or write tenant_settings directly.
 
 migration_exceptions:
   - id: historical-mixed-migrations
