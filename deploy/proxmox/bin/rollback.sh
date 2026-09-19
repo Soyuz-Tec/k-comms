@@ -20,6 +20,7 @@ for command in jq podman systemctl; do
 done
 require_file "$receipt"
 acquire_deploy_lock
+generate_service_envs
 rollback_guard_dir="$(mktemp -d /run/k-comms-rollback.XXXXXX)"
 cp "${K_COMMS_QUADLET_DIR}/k-comms-app.container" \
   "${rollback_guard_dir}/app.container"
@@ -87,7 +88,7 @@ podman run --rm \
   --tmpfs /tmp:rw,noexec,nosuid,size=134217728 \
   --cap-drop all \
   --security-opt no-new-privileges \
-  --env-file "$K_COMMS_RUNTIME_ENV" \
+  --env-file "${K_COMMS_SERVICE_ENV}/app.env" \
   --env-file "$K_COMMS_RELEASE_ENV" \
   --env K_COMMS_ROLE=worker \
   --env K_COMMS_RUNTIME_PURPOSE=one_shot \

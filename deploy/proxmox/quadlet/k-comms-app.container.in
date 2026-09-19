@@ -8,7 +8,7 @@ ContainerName=k-comms-app
 Image=@@IMAGE_REF@@
 Network=k-comms.network
 NetworkAlias=app
-EnvironmentFile=/etc/k-comms/runtime.env
+EnvironmentFile=/etc/k-comms/service-env/current/app.env
 EnvironmentFile=/etc/k-comms/release.env
 Environment=K_COMMS_ROLE=all
 Environment=K_COMMS_RUNTIME_PURPOSE=application

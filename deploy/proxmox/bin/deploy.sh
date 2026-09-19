@@ -35,6 +35,7 @@ assert_secure_runtime_env
 [[ "$(configured_environment)" == "$environment" ]] ||
   die "requested environment does not match the installed VM identity"
 acquire_deploy_lock
+generate_service_envs
 assert_adopted_storage_ready_for_activation
 
 bind_address="$(configured_bind_address)"
@@ -58,13 +59,14 @@ recovery_compatible() {
   # A failed migration may have committed earlier migration files. Never infer
   # that the old binary is safe from the command's non-zero exit alone.
   [[ "$migration_complete" == true ]] || return 1
+  generate_service_envs "${rollback_dir}/runtime.env" "${rollback_dir}/service-env" || return 1
   podman run --rm \
     --network k-comms \
     --read-only \
     --tmpfs /tmp:rw,noexec,nosuid,size=134217728 \
     --cap-drop all \
     --security-opt no-new-privileges \
-    --env-file "${rollback_dir}/runtime.env" \
+    --env-file "${rollback_dir}/service-env/current/app.env" \
     --env-file "$release_candidate" \
     --env K_COMMS_ROLE=worker \
     --env K_COMMS_RUNTIME_PURPOSE=one_shot \
@@ -85,6 +87,7 @@ restore_previous_application() {
   [[ -f "${rollback_dir}/app.container" && -f "${rollback_dir}/release.env" ]] ||
     return 1
   install -m 0600 "${rollback_dir}/runtime.env" "$K_COMMS_RUNTIME_ENV" || return 1
+  generate_service_envs || return 1
   install -m 0644 "${rollback_dir}/app.container" \
     "${K_COMMS_QUADLET_DIR}/k-comms-app.container" || return 1
   install -m 0600 "${rollback_dir}/release.env" "$K_COMMS_RELEASE_ENV" || return 1
@@ -180,6 +183,16 @@ if [[ "$previous_active" == true && "$skip_backup" == false ]]; then
   backup_path="$("${SCRIPT_DIR}/backup.sh")"
 fi
 
+# Existing sidecars retain their old process environment until restarted.
+# Complete any environment transition only after quiescence and backup.
+phase=service_environments
+for service in postgres minio livekit; do
+  if ! service_environment_matches "$service"; then
+    systemctl restart "k-comms-${service}.service"
+    service_environment_matches "$service"
+  fi
+done
+
 release_candidate="${rollback_dir}/release.env.candidate"
 write_release_env "$image" "$revision" "$release_candidate"
 
@@ -187,7 +200,7 @@ log "ensuring the versioned object-storage bucket exists"
 phase=object_preparation
 podman run --rm \
   --network k-comms \
-  --env-file "$K_COMMS_RUNTIME_ENV" \
+  --env-file "${K_COMMS_SERVICE_ENV}/object-admin.env" \
   --entrypoint /bin/sh \
   "$K_COMMS_MINIO_MC_IMAGE" \
   -ceu '
@@ -208,7 +221,7 @@ run_one_shot() {
     --tmpfs /tmp:rw,noexec,nosuid,size=134217728 \
     --cap-drop all \
     --security-opt no-new-privileges \
-    --env-file "$K_COMMS_RUNTIME_ENV" \
+    --env-file "${K_COMMS_SERVICE_ENV}/app.env" \
     --env-file "$release_candidate" \
     "$@"
 }
@@ -237,6 +250,7 @@ if [[ "$bootstrap" == true ]]; then
     die "bootstrap is allowed only for the synthetic staging environment"
   log "creating the idempotent synthetic staging tenant"
   run_one_shot \
+    --env-file "${K_COMMS_SERVICE_ENV}/bootstrap.env" \
     --env K_COMMS_ROLE=worker \
     --env K_COMMS_RUNTIME_PURPOSE=one_shot \
     --env K_COMMS_LOCAL_RELEASE=false \
@@ -264,10 +278,12 @@ writers_stopped=true
 if [[ -n "$runtime_candidate" ]]; then
   install -m 0600 "$runtime_candidate" "$K_COMMS_RUNTIME_ENV"
 fi
+generate_service_envs
 install -m 0600 "$release_candidate" "$K_COMMS_RELEASE_ENV"
 systemctl daemon-reload
 systemctl start k-comms-app.service
 "${SCRIPT_DIR}/verify.sh" --environment "$environment" --require-pwa
+assert_running_service_environments
 
 phase=finalization
 media_topology="$(configured_livekit_topology)"
