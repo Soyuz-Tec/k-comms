@@ -787,11 +787,19 @@ class ValidateArchitectureTest(unittest.TestCase):
         self.assertEqual(accounts_rule["from"], "CommsCore.Accounts")
         self.assertEqual(accounts_rule["forbidden"], ["CommsCore.Conversations"])
 
-        # Reviewed transitions are single-use: each authorizes exactly one
-        # widening against one immutable base hash and is removed once it lands.
-        # The ADR-0073 widening is already present on the protected branch.
+        # ADR-0073 is already on the protected branch, so no guest-access
+        # exception may remain. Unrelated ADR-backed transitions are allowed;
+        # their exact immutable-base delta is checked by the transition tests.
         transitions = manifest["enforcement"]["reviewed_manifest_transitions"]
-        self.assertEqual(transitions, [])
+        for transition in transitions:
+            self.assertNotIn("/0073-", transition["adr"])
+            for change in transition["approved_changes"]:
+                self.assertNotIn("Guest", change)
+                self.assertNotIn("conversation_guest_", change)
+                self.assertNotEqual(
+                    change,
+                    "context:identity_access:allowed_dependencies:add:conversations",
+                )
 
     def test_repository_assigns_tenants_to_tenant_administration(self) -> None:
         root = Path(__file__).resolve().parents[1]
