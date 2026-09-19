@@ -12,9 +12,7 @@ defmodule CommsWorkers.WebhookWorker do
         :ok
 
       {:ok, %WebhookDeliveryClaim{} = claim} ->
-        with {:ok, request} <- Integrations.delivery_request(claim) do
-          result = Webhooks.deliver(request)
-
+        with {:ok, result} <- Integrations.dispatch_delivery(claim, &Webhooks.deliver/1) do
           case Integrations.record_delivery(claim, result) do
             {:ok, :recorded} -> worker_result(result)
             {:error, :stale_delivery_claim} -> :ok

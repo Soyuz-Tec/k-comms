@@ -58,6 +58,9 @@ defmodule CommsCore.Governance do
   @spec create_legal_hold_view(public_map(), public_map()) :: public_response()
   @spec create_retention_policy_view(public_map(), public_map()) :: public_response()
   @spec delete_message(binary(), public_map()) :: public_response()
+  @spec reconcile_completed_erasure(module(), pos_integer()) ::
+          {:ok, %{repaired: non_neg_integer(), has_more: boolean()}} | {:error, atom()}
+  defdelegate reconcile_completed_erasure(caller, limit), to: DeletionWorkflow
   @spec enqueue_due_retention(binary(), module()) :: public_response()
   @spec list_deletion_request_views(public_map(), public_map()) ::
           [public_value()] | {:ok, [public_value()]} | {:error, public_error()}

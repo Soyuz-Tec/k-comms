@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Commands do
   import Ecto.Query
 
   alias CommsCore.{Conversations, Repo}
-  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Snapshots, Whiteboard}
+  alias CommsCore.Whiteboards.{Operation, Payload, Projector, Snapshots, Whiteboard, WriteFence}
 
   @maximum_operations 100_000
 
@@ -22,6 +22,13 @@ defmodule CommsCore.Whiteboards.Commands do
          {:ok, base_sequence} <- base_sequence(kind, base_sequence),
          {:ok, payload} <- Payload.validate(kind, payload) do
       Repo.transaction(fn ->
+        WriteFence.lock_author!(tenant_id, actor_user_id)
+
+        case Conversations.authorize_use_whiteboard(conversation_id, subject) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
         whiteboard = lock_or_create_whiteboard!(tenant_id, conversation_id)
 
         case existing_operation(

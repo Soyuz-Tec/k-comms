@@ -403,7 +403,9 @@ contexts:
       - mark_published/2
       - record_attempt/2
       collaboration_operations:
+      - erase_message_content/2
       - insert_and_enqueue!/1
+      - lock_for_dispatch/2
       - release_tenant_fingerprint_fragment/2
       owner_internal_operations: []
   platform_runtime:
@@ -519,6 +521,7 @@ contexts:
       - list_legal_hold_views/2
       - list_retention_policy_views/2
       - record_deletion_failure/3
+      - reconcile_completed_erasure/2
       - release_legal_hold_view/3
       - transition_deletion_request_view/3
       - update_retention_policy_view/3
@@ -554,7 +557,7 @@ contexts:
       public_operations:
       - claim_delivery/1
       - create_endpoint_view/2
-      - delivery_request/1
+      - dispatch_delivery/2
       - disable_endpoint_view/2
       - enqueue_for_event/1
       - get_endpoint_view/2
@@ -564,12 +567,14 @@ contexts:
       - replay_delivery_view/2
       - rotate_secret_view/2
       - update_endpoint_view/3
-      collaboration_operations: []
+      collaboration_operations:
+      - erase_message_content/2
       owner_internal_operations:
       - authorize_manage/1
       - authorize_read/1
       - create_delivery/1
       - create_endpoint/2
+      - delivery_request/1
       - disable_endpoint/2
       - get_endpoint/2
       - list_deliveries/1

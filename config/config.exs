@@ -28,6 +28,7 @@ config :comms_core,
     attachment_abandon_reconciler: CommsWorkers.AttachmentCleanupReconcilerWorker,
     attachment_scan: CommsWorkers.AttachmentWorker,
     deletion: CommsWorkers.DeletionWorker,
+    erasure_reconciler: CommsWorkers.ErasureReconcilerWorker,
     ephemeral_room_lifecycle: CommsWorkers.EphemeralRoomLifecycleWorker,
     ephemeral_room_reconciler: CommsWorkers.EphemeralRoomReconcilerWorker,
     guest_admission_expiry: CommsWorkers.GuestAdmissionExpiryWorker,
@@ -62,6 +63,7 @@ config :comms_core, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker},
+       {"* * * * *", CommsWorkers.ErasureReconcilerWorker},
        {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker}
      ]}
   ]

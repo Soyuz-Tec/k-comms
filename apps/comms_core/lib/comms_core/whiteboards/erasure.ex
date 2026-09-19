@@ -4,7 +4,7 @@ defmodule CommsCore.Whiteboards.Erasure do
   import Ecto.Query
 
   alias CommsCore.Repo
-  alias CommsCore.Whiteboards.{Operation, Whiteboard}
+  alias CommsCore.Whiteboards.{Operation, Snapshot, Whiteboard, WriteFence}
 
   @empty_result %{
     whiteboards_deleted: 0,
@@ -110,6 +110,24 @@ defmodule CommsCore.Whiteboards.Erasure do
   end
 
   defp erase(tenant_id, :user, user_id) do
+    WriteFence.lock_author!(tenant_id, user_id)
+
+    affected =
+      from(operation in Operation,
+        where: operation.tenant_id == ^tenant_id and operation.actor_user_id == ^user_id,
+        select: operation.whiteboard_id
+      )
+
+    board_ids =
+      Repo.all(
+        from(board in Whiteboard,
+          where: board.tenant_id == ^tenant_id and board.id in subquery(affected),
+          order_by: [asc: board.id],
+          select: board.id,
+          lock: "FOR UPDATE"
+        )
+      )
+
     {operations_neutralized, _} =
       Repo.update_all(
         from(operation in Operation,
@@ -120,6 +138,12 @@ defmodule CommsCore.Whiteboards.Erasure do
         ),
         set: [payload: %{"elements" => []}]
       )
+
+    Repo.delete_all(
+      from(snapshot in Snapshot,
+        where: snapshot.tenant_id == ^tenant_id and snapshot.whiteboard_id in ^board_ids
+      )
+    )
 
     {:ok, %{@empty_result | whiteboard_operations_neutralized: operations_neutralized}}
   end
