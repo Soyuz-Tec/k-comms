@@ -64,8 +64,8 @@ config :comms_core, Oban,
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", CommsWorkers.AttachmentCleanupReconcilerWorker},
-        {"* * * * *", CommsWorkers.ErasureReconcilerWorker},
-        {"0 * * * *", CommsWorkers.RetentionReconcilerWorker},
+       {"* * * * *", CommsWorkers.ErasureReconcilerWorker},
+       {"0 * * * *", CommsWorkers.RetentionReconcilerWorker},
        {"* * * * *", CommsWorkers.EphemeralRoomReconcilerWorker}
      ]}
   ]
