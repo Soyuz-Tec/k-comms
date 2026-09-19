@@ -10,15 +10,7 @@ enforcement:
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions:
-    - id: complete-derived-erasure-and-bounded-retention
-      previous_manifest_sha256: dea5401dc268708bf63959e6947fe02e711c41b2ba7f826042d263bfcf5b230e
-      approved_changes:
-        - context:trust_governance:allowed_dependencies:add:webhook_management
-        - public_facade_api:sha256:27f1b82c9d6fa1370602e0eb445d8e8b0c089a5976bc0556859a9e72a00b21d6->969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc
-        - read_model:CommsCore.Governance.RetentionDefaultsReader:public_queries:add:CommsCore.Administration.retention_tenant_ids/1
-      adr: docs/02-architecture/adr/0078-complete-derived-content-erasure.md
-      removal_condition: Remove after this exact reviewed manifest reaches the protected base branch.
+  reviewed_manifest_transitions: []
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
