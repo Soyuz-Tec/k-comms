@@ -27,6 +27,13 @@ particular result outside the first recent-files page.
   filter, allow paginated lookup, and focus a matched row. Category filtering
   remains limited to loaded pages and explicitly describes that scope until
   all pages have been read.
+- Place route error/suspense containment below the persistent call and session
+  owners; an outer boundary also catches public-route/shell failures while
+  retaining the session provider. Route navigation resets failed content
+  without remounting healthy owners. Render failures offer retry, navigation,
+  and reload. Rejected lazy module loads require deliberate reload, with an
+  explicit call/tab-only-draft warning; never reload automatically or retry a
+  rejected React lazy promise in a loop. Recovery copy excludes error payloads.
 
 ## Consequences and alternatives
 
@@ -45,3 +52,5 @@ later events, retry after failure, full storage with conversation switching,
 sign-out cleanup, exact file source links, older-page category matches, and
 missing legacy targets. Physical-device and live two-client qualification are
 separate release checks; these deterministic tests do not establish them.
+Route tests inject render exceptions and rejected lazy imports, verify focus
+and explicit reload, and preserve state in the surrounding owner.

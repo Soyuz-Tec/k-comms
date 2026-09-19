@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { ProductShell } from "./app/ProductShell";
 import { RouteOrientation } from "./app/RouteOrientation";
+import { RouteRecoveryBoundary } from "./app/RouteRecoveryBoundary";
 import { SessionProvider, useSession } from "./app/session";
 import { WorkspaceDataProvider } from "./app/workspace-data";
 import { StepUpProvider } from "./app/step-up";
@@ -50,7 +51,7 @@ export default function App() {
   return (
     <SessionProvider>
       <BrowserRouter>
-        <ApplicationRoutes />
+        <RouteRecoveryBoundary><ApplicationRoutes /></RouteRecoveryBoundary>
       </BrowserRouter>
     </SessionProvider>
   );
