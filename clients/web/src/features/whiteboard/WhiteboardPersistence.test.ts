@@ -93,6 +93,37 @@ describe("whiteboard recovery lifecycle", () => {
     persistence.dispose();
   });
 
+  it("retains capacity-rejected work without retrying and recovers only after clear succeeds", async () => {
+    const { persistence, dependencies } = harness();
+    vi.mocked(dependencies.api.appendWhiteboardSceneUpdate).mockRejectedValueOnce({ code: "whiteboard_capacity_exceeded" });
+    persistence.handleEditorChange([element()] as never);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(storage.size).toBe(1);
+    expect(dependencies.onError).toHaveBeenLastCalledWith(expect.stringContaining("Clear the board"));
+    persistence.handleEditorChange([element("rectangle-two")] as never);
+    expect(dependencies.onSaveStatus).toHaveBeenLastCalledWith("error");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(dependencies.api.appendWhiteboardSceneUpdate).toHaveBeenCalledTimes(1);
+    expect(storage.size).toBe(2);
+
+    vi.mocked(dependencies.api.clearWhiteboard).mockRejectedValueOnce(new Error("Offline"));
+    await expect(persistence.clearBoard()).rejects.toThrow("Offline");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(storage.size).toBe(2);
+    expect(dependencies.api.appendWhiteboardSceneUpdate).toHaveBeenCalledTimes(1);
+
+    await persistence.clearBoard();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(storage.size).toBe(0);
+    await vi.advanceTimersByTimeAsync(1_001);
+    persistence.armLocalChanges();
+    persistence.handleEditorChange([element("rectangle-new")] as never);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(dependencies.api.appendWhiteboardSceneUpdate).toHaveBeenCalledTimes(2);
+    expect(storage.size).toBe(0);
+    persistence.dispose();
+  });
+
   it("bounds batches when pasting more than fifty objects", async () => {
     const { persistence, dependencies } = harness();
     persistence.handleEditorChange(Array.from({ length: 120 }, (_, id) => element("rectangle-" + id)) as never);

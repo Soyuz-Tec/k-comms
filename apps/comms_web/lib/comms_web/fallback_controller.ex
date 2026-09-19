@@ -93,7 +93,9 @@ defmodule CommsWeb.FallbackController do
     do: {422, "invalid_whiteboard_operation", "The whiteboard update is invalid"}
 
   defp error(:whiteboard_capacity_exceeded),
-    do: {409, "whiteboard_capacity_exceeded", "This whiteboard reached its operation limit"}
+    do:
+      {409, "whiteboard_capacity_exceeded",
+       "This whiteboard reached its capacity. Clear the board to start a new scene."}
 
   defp error(:call_authorization_expired),
     do: {403, "call_authorization_expired", "Call access is no longer authorized"}
