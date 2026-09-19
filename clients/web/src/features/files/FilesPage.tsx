@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { downloadUrl } from "../../api";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
+import { fileSourceMessagePath } from "../../lib/fileLinks";
 import {
   errorText,
   formatBytes,
@@ -28,11 +29,14 @@ const pageSize = 25;
 type FileCategory = "all" | "documents" | "images";
 
 export function FilesPage() {
+  const [searchParams] = useSearchParams();
+  const linkedConversationId = searchParams.get("conversation") || "";
+  const linkedFileId = searchParams.get("file") || "";
   const { api, session } = useSession();
   const { conversations, users } = useWorkspaceData();
   const [scope, setScope] = useState<FilesScope>("recent");
   const [category, setCategory] = useState<FileCategory>("all");
-  const [conversationId, setConversationId] = useState("");
+  const [conversationId, setConversationId] = useState(linkedConversationId);
   const [files, setFiles] = useState<FileSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -42,6 +46,13 @@ export function FilesPage() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const requestGeneration = useRef(0);
+  const focusedFile = useRef("");
+
+  useEffect(() => {
+    setConversationId(linkedConversationId);
+    setCategory("all");
+    focusedFile.current = "";
+  }, [linkedConversationId, linkedFileId]);
 
   const loadFiles = useCallback(async (mode: "replace" | "append", cursor?: string | null) => {
     const generation = ++requestGeneration.current;
@@ -101,6 +112,16 @@ export function FilesPage() {
     () => files.filter((file) => category === "all" || fileCategory(file) === category),
     [category, files]
   );
+  const linkedFileLoaded = files.some((file) => file.id === linkedFileId);
+  useEffect(() => {
+    if (!linkedFileId || focusedFile.current === linkedFileId || !visibleFiles.some((file) => file.id === linkedFileId)) return;
+    const row = document.getElementById(`file-${linkedFileId}`);
+    if (row) {
+      row.focus();
+      row.scrollIntoView({ block: "nearest" });
+      focusedFile.current = linkedFileId;
+    }
+  }, [linkedFileId, visibleFiles]);
   const activeFilterCount = Number(scope !== "recent") + Number(Boolean(conversationId));
   const selectedConversation = conversationById.get(conversationId);
   const selectedConversationTitle = selectedConversation
@@ -244,6 +265,12 @@ export function FilesPage() {
           </div>
         )}
 
+        {linkedFileId && !linkedFileLoaded && !loading && !error && (
+          <p role="status">{hasMore
+            ? "The linked file is not in these results yet. Load more files to continue looking."
+            : "The linked file is unavailable in these results. It may have been removed or your access may have changed."}</p>
+        )}
+        {category !== "all" && hasMore && <p role="status">Showing {category} in loaded files. Load more to search older files.</p>}
         {loading && files.length === 0 ? (
           <div className="files-state" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
@@ -259,8 +286,8 @@ export function FilesPage() {
         ) : !error && visibleFiles.length === 0 ? (
           <div className="files-state empty">
             <AppIcon name="filter" />
-            <strong>No {category} found</strong>
-            <span>No matching files in the loaded results.</span>
+            <strong>{hasMore ? `No ${category} in loaded files` : `No ${category} found`}</strong>
+            <span>{hasMore ? "Load more to search older files." : "No matching files in these results."}</span>
           </div>
         ) : (
           <>
@@ -330,7 +357,7 @@ function FileRow({
     : "a member";
   const sharedAt = file.shared_at || file.uploaded_at || file.inserted_at;
   return (
-    <li className="file-row">
+    <li className="file-row" id={`file-${file.id}`} tabIndex={-1}>
       <div className={`file-kind-mark ${fileKindTone(file)}`} aria-hidden="true">{fileExtension(file.file_name)}</div>
       <div className="file-row-copy">
         <div className="file-row-title">
@@ -364,7 +391,7 @@ function FileRow({
       </div>
       <div className="file-row-actions">
         <Link
-          to={sourceMessagePath(file)}
+          to={fileSourceMessagePath(file)}
           aria-label={`View source message for ${file.file_name}`}
         >
           <AppIcon name="externalLink" />
@@ -389,15 +416,6 @@ function mergeFiles(current: FileSummary[], incoming: FileSummary[]): FileSummar
   const byId = new Map(current.map((file) => [file.id, file]));
   incoming.forEach((file) => byId.set(file.id, file));
   return [...byId.values()];
-}
-
-function sourceMessagePath(file: FileSummary): string {
-  const query = new URLSearchParams({
-    conversation: file.conversation_id,
-    search_message: file.message_id,
-    search_sequence: String(file.conversation_sequence)
-  });
-  return `/app/?${query.toString()}`;
 }
 
 function fileExtension(fileName: string): string {

@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ApiClient } from "../../api";
 import type { Conversation, FileSummary, Message, RetainedSenderLabel, User, WhiteboardSearchResult } from "../../types";
 import { errorText, formatTime } from "../../lib/format";
+import { fileSourceMessagePath } from "../../lib/fileLinks";
 import {
   conversationParticipantIdentifier,
   duplicateDirectConversationNames,
@@ -37,7 +38,7 @@ export function SearchPanel({
   conversations: Conversation[];
   users: User[];
   onClose: () => void;
-  onSelect: (message: Message) => void;
+  onSelect: (message: Pick<Message, "id" | "conversation_id" | "conversation_sequence">) => void;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Message[]>([]);
@@ -317,7 +318,11 @@ export function SearchPanel({
         {hasSearched && <p id="message-search-summary" className="search-result-summary" role="status" aria-live="polite" aria-atomic="true">{results.length + files.length + whiteboards.length} results shown.</p>}
         {!busy && hasSearched && results.length + files.length + whiteboards.length === 0 && <p className="empty-copy">No accessible workspace content matches this search.</p>}
         {(files.length > 0 || whiteboards.length > 0) && <section className="workspace-search-related" aria-label="Files and whiteboards">
-          {files.map((file) => <a key={file.id} href={`/app/files?conversation=${encodeURIComponent(file.conversation_id)}&file=${encodeURIComponent(file.id)}`}><strong>{file.file_name}</strong><small>File · {conversationsById.get(file.conversation_id)?.title || "Conversation"}</small></a>)}
+          {files.map((file) => <a key={file.id} href={fileSourceMessagePath(file)} onClick={(event) => {
+            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            onSelect({ id: file.message_id, conversation_id: file.conversation_id, conversation_sequence: file.conversation_sequence });
+          }}><strong>{file.file_name}</strong><small>File · {conversationsById.get(file.conversation_id)?.title || "Conversation"} · View source message</small></a>)}
           {whiteboards.map((result) => <a key={`${result.conversation_id}:${result.element_id}`} href={`/app/whiteboard?conversation=${encodeURIComponent(result.conversation_id)}&focus_elements=${encodeURIComponent(result.element_id)}`}><strong>{result.text}</strong><small>Whiteboard · {conversationsById.get(result.conversation_id)?.title || "Conversation"}</small></a>)}
         </section>}
         <ol className="search-results" aria-describedby={hasSearched ? "message-search-summary" : undefined}>

@@ -17,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "../../types";
-import { loadDraft, storeDraft } from "../../lib/drafts";
+import { clearDrafts, loadDraft, storeDraft } from "../../lib/drafts";
 import { participantDisambiguator } from "../../lib/participantIdentity";
 import { ChatPage } from "./ChatPage";
 
@@ -67,6 +67,29 @@ describe("ChatPage durable sequence recovery", () => {
     expect(within(general).getByText("Active call")).toBeVisible();
     expect(general).toHaveClass("has-active-call");
     expect(within(general).getByText("1 unread")).toBeVisible();
+  });
+
+  it("keeps drafts across conversation switches without claiming persistence when storage is full", async () => {
+    const user = userEvent.setup();
+    harness.conversations.push({ ...harness.conversations[0]!, id: "conversation-2", title: "Operations" });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Full", "QuotaExceededError");
+    });
+    try {
+      render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+      await user.type(await screen.findByLabelText("Message"), "Unsaved General draft");
+      expect(screen.getByText("Kept in this tab only. Send before reloading or closing.")).toBeVisible();
+      expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
+      const conversations = screen.getByRole("navigation", { name: "Conversation list" });
+      await user.click(within(conversations).getByRole("button", { name: /Operations/ }));
+      await user.type(await screen.findByLabelText("Message"), "Operations draft");
+      await user.click(within(conversations).getByRole("button", { name: /General/ }));
+      await waitFor(() => expect(screen.getByLabelText("Message")).toHaveValue("Unsaved General draft"));
+      expect(screen.queryByText("Saved on this device")).not.toBeInTheDocument();
+    } finally {
+      write.mockRestore();
+      clearDrafts("tenant-1", "user-1");
+    }
   });
 
   it("consumes a one-shot call deep link and opens the default-off prejoin lobby", async () => {

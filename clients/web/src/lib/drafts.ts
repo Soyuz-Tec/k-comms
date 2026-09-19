@@ -1,5 +1,9 @@
 const legacyPrefix = "k-comms.draft.v1.";
 const prefix = "k-comms.draft.v2.";
+// Only drafts whose latest write failed need a tab-lifetime fallback. Empty
+// values are tombstones so an old persisted draft cannot reappear after send.
+const sessionDrafts = new Map<string, string>();
+export type DraftPersistence = "saved" | "session";
 
 function scope(tenantId: string, userId: string): string {
   return `${prefix}${encodeURIComponent(tenantId)}.${encodeURIComponent(userId)}.`;
@@ -32,6 +36,7 @@ export function loadThreadDraft(
 }
 
 function load(key: string): string {
+  if (sessionDrafts.has(key)) return sessionDrafts.get(key)!;
   try {
     return window.localStorage.getItem(key) || "";
   } catch {
@@ -44,8 +49,8 @@ export function storeDraft(
   userId: string,
   conversationId: string,
   value: string
-): void {
-  store(draftKey(tenantId, userId, conversationId), value);
+): DraftPersistence {
+  return store(draftKey(tenantId, userId, conversationId), value);
 }
 
 export function storeThreadDraft(
@@ -54,22 +59,28 @@ export function storeThreadDraft(
   conversationId: string,
   threadRootMessageId: string,
   value: string
-): void {
-  store(threadDraftKey(tenantId, userId, conversationId, threadRootMessageId), value);
+): DraftPersistence {
+  return store(threadDraftKey(tenantId, userId, conversationId, threadRootMessageId), value);
 }
 
-function store(key: string, value: string): void {
+function store(key: string, value: string): DraftPersistence {
   try {
     if (value) window.localStorage.setItem(key, value);
     else window.localStorage.removeItem(key);
+    sessionDrafts.delete(key);
+    return "saved";
   } catch {
-    // Private browsing and storage policies may disable local persistence.
+    sessionDrafts.set(key, value);
+    return "session";
   }
 }
 
 export function clearDrafts(tenantId: string, userId: string): void {
+  const scopedPrefix = scope(tenantId, userId);
+  for (const key of sessionDrafts.keys()) {
+    if (key.startsWith(scopedPrefix)) sessionDrafts.delete(key);
+  }
   try {
-    const scopedPrefix = scope(tenantId, userId);
     const removals: string[] = [];
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);

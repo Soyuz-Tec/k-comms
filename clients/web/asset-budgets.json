@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "routes": [
+    { "name": "sign-in/shared shell", "entries": ["index.html"], "raw": 2250000, "gzip": 630000 },
+    { "name": "inbox", "entries": ["index.html", "src/features/chat/ChatPage.tsx"], "raw": 2400000, "gzip": 675000 },
+    { "name": "files", "entries": ["index.html", "src/features/files/FilesPage.tsx"], "raw": 2300000, "gzip": 640000 },
+    { "name": "whiteboard", "entries": ["index.html", "src/features/whiteboard/WhiteboardPage.tsx"], "raw": 2300000, "gzip": 645000 },
+    { "name": "inbox with active call", "entries": ["index.html", "src/features/chat/ChatPage.tsx", "src/features/calls/CallPanel.tsx"], "raw": 3050000, "gzip": 845000 }
+  ],
+  "total": { "raw": 10300000, "gzip": 3250000 }
+}

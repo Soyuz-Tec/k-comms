@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { AppIcon } from "../components/AppIcon";
 import { MemberAreaLinks } from "../components/MemberAreaLinks";
@@ -20,6 +20,7 @@ import { clearMemberInstantRoomContinuity } from "../features/instant-room/membe
 import { usePwa } from "../pwa/PwaProvider";
 import { useAutoHideNavigation } from "./useAutoHideNavigation";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { RouteRecoveryBoundary } from "./RouteRecoveryBoundary";
 
 const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY =
   "k-comms.workspace-sidebar-collapsed.v1";
@@ -350,7 +351,11 @@ function ProductShellContent() {
             <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}><AppIcon name="x" /></button>
           </div>
         )}
-        <Outlet />
+        <RouteRecoveryBoundary>
+          <Suspense fallback={<main id="main-content" className="route-loading" role="status" aria-busy="true">Loading page…</main>}>
+            <Outlet />
+          </Suspense>
+        </RouteRecoveryBoundary>
         {switcherOpen && <WorkspaceSwitcher session={session} conversations={conversations ?? []} onClose={() => setSwitcherOpen(false)} />}
         {!desktopShell && !immersive && (
           <nav className="mobile-primary-nav" aria-label="Primary navigation">

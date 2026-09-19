@@ -109,6 +109,25 @@ describe("SearchPanel accessibility", () => {
     expect(screen.getByRole("status")).toHaveTextContent("3 results shown");
   });
 
+  it("opens a file's exact source message without falling back to the recent files page or reloading", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const file = {
+      id: "old-file", file_name: "Historic plan.pdf", conversation_id: "general",
+      message_id: "old-message", conversation_sequence: 7
+    };
+    const api = { searchMessagePage: vi.fn().mockResolvedValue({
+      data: [], included: { files: [file] }, page: { has_more: false, next_cursor: null }
+    }) } as unknown as ApiClient;
+    render(<SearchPanel api={api} conversations={conversations} users={users} onClose={() => undefined} onSelect={onSelect} />);
+    await user.type(screen.getByRole("searchbox"), "Historic plan");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    const link = await screen.findByRole("link", { name: /Historic plan.pdf/ });
+    expect(link).toHaveAttribute("href", "/app/?conversation=general&search_message=old-message&search_sequence=7");
+    await user.click(link);
+    expect(onSelect).toHaveBeenCalledWith({ id: "old-message", conversation_id: "general", conversation_sequence: 7 });
+  });
+
   it("retains sender labels across result pages and disambiguates duplicate names", async () => {
     const user = userEvent.setup();
     const firstDepartedId = "departed-user-1";
