@@ -17,7 +17,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { User } from "../../types";
+import type { MessagePage, User } from "../../types";
 import { participantDisambiguator } from "../../lib/participantIdentity";
 import { ChatPage } from "./ChatPage";
 
@@ -169,6 +169,34 @@ describe("ChatPage durable sequence recovery", () => {
     await waitFor(() => expect(harness.setError).toHaveBeenCalledWith(expect.stringContaining("Retrying changed messages")));
     expect(screen.getByText("Message 1")).toBeVisible();
     expect(await screen.findByText("Recovered edit", {}, { timeout: 4_000 })).toBeVisible();
+  });
+
+  it.each(["conversation switch", "another disconnect"])("discards deferred mutation reads after %s", async (interruption) => {
+    const user = userEvent.setup();
+    let resolveRead!: (page: MessagePage) => void;
+    const pending = new Promise<MessagePage>((resolve) => { resolveRead = resolve; });
+    const page = (body: string, conversationId = "conversation-1"): MessagePage => ({
+      data: [{ ...message(1), conversation_id: conversationId, body }],
+      page: { has_more: false, next_after_sequence: null, reset_required: false }
+    });
+    harness.conversations.push({ ...harness.conversations[0]!, id: "conversation-2", title: "Operations" });
+    harness.api.messages!.mockResolvedValueOnce(page("Original General"))
+      .mockImplementationOnce(() => pending)
+      .mockResolvedValueOnce(page("Operations content", "conversation-2"));
+    render(<MemoryRouter initialEntries={["/app?conversation=conversation-1"]}><ChatPage /></MemoryRouter>);
+    await screen.findByText("Original General");
+    await waitFor(() => expect(harness.callbacks).not.toBeNull());
+    act(() => { harness.callbacks!.onStatus("reconnecting"); harness.callbacks!.onStatus("live"); });
+    await waitFor(() => expect(harness.api.messages).toHaveBeenCalledTimes(2));
+    if (interruption === "conversation switch") {
+      await user.click(within(screen.getByRole("navigation", { name: "Conversation list" })).getByRole("button", { name: /Operations/ }));
+      await screen.findByText("Operations content");
+    } else {
+      act(() => harness.callbacks!.onStatus("reconnecting"));
+    }
+    await act(async () => resolveRead(page("Stale refresh result")));
+    expect(screen.queryByText("Stale refresh result")).not.toBeInTheDocument();
+    expect(screen.getByText(interruption === "conversation switch" ? "Operations content" : "Original General")).toBeVisible();
   });
 
   it("retains an ordinary departed guest username after sidecar reconciliation", async () => {
