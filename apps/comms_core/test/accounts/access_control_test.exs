@@ -9,6 +9,41 @@ defmodule CommsCore.Accounts.AccessControlTest do
 
   @moduletag :integration
 
+  test "access authority deadline uses the earliest rolling, absolute and guest expiry" do
+    account = Fixtures.account_fixture()
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    rolling = DateTime.add(timestamp, 60, :second)
+    absolute = DateTime.add(timestamp, 120, :second)
+
+    session =
+      %Session{}
+      |> Session.changeset(%{
+        tenant_id: account.tenant.id,
+        user_id: account.user.id,
+        device_id: account.device.id,
+        refresh_token_hash: :crypto.strong_rand_bytes(32),
+        expires_at: rolling,
+        absolute_expires_at: absolute,
+        last_used_at: timestamp
+      })
+      |> Repo.insert!()
+
+    subject = Fixtures.subject(%{account | session: session})
+
+    assert {:ok, %AccessGrant{effective_expires_at: ^rolling}} = Accounts.access_grant(subject)
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [expires_at: DateTime.add(timestamp, 180, :second)]
+    )
+
+    assert {:ok, %AccessGrant{effective_expires_at: ^absolute}} = Accounts.access_grant(subject)
+    guest_deadline = DateTime.add(timestamp, 30, :second)
+    account.user |> User.guest_changeset(%{guest_expires_at: guest_deadline}) |> Repo.update!()
+
+    assert {:ok, %AccessGrant{effective_expires_at: ^guest_deadline}} =
+             Accounts.access_grant(subject)
+  end
+
   test "access grants validate the active tenant, human user, device, and session" do
     account = Fixtures.account_fixture()
     subject = Fixtures.subject(account)

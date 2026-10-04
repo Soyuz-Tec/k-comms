@@ -58,6 +58,17 @@ class ServiceEnvironmentTest(unittest.TestCase):
                       (self.destination / "current/app.env").read_text())
         self.assertFalse((self.root / "never-execute").exists())
 
+    def test_telephony_controls_reach_only_the_application(self):
+        self.source.write_text(self.source.read_text().replace(
+            "TELEPHONY_PROVIDER_MODE=disabled", "TELEPHONY_PROVIDER_MODE=livekit"))
+        self.generate()
+        application = (self.destination / "current/app.env").read_text()
+        self.assertIn("TELEPHONY_PROVIDER_MODE=livekit\n", application)
+        self.assertIn("TELEPHONY_RING_TIMEOUT_SECONDS=45\n", application)
+        self.assertIn("TELEPHONY_MAX_DURATION_SECONDS=1800\n", application)
+        for service in ("postgres", "minio", "livekit", "object-admin", "bootstrap"):
+            self.assertNotIn("TELEPHONY_", (self.destination / "current" / f"{service}.env").read_text())
+
     def test_invalid_source_preserves_previous_generation_without_secret_output(self):
         self.generate()
         previous = os.readlink(self.destination / "current")

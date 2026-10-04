@@ -12,6 +12,7 @@ import {
   ExperienceModeProvider,
   useExperienceMode
 } from "../features/experience/ExperienceModeProvider";
+import { TelephonyProvider } from "../features/telephony/TelephonyProvider";
 import { NotificationCenter } from "../features/notifications/NotificationCenter";
 import { useSession } from "./session";
 import { useWorkspaceData } from "./workspace-data";
@@ -47,9 +48,11 @@ export function ProductShell() {
    */
   return (
     <CallSessionProvider>
-      <ExperienceModeProvider>
-        <ProductShellContent />
-      </ExperienceModeProvider>
+      <TelephonyProvider>
+        <ExperienceModeProvider>
+          <ProductShellContent />
+        </ExperienceModeProvider>
+      </TelephonyProvider>
     </CallSessionProvider>
   );
 }

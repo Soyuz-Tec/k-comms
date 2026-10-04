@@ -231,6 +231,9 @@ async function installAuthApi(
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
+    if (method === "GET" && path === "/api/v1/telephony/config") {
+      return json(route, { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: false } });
+    }
 
     if (method === "GET" && path === "/api/v1/status") {
       return json(route, serviceStatus(options.bootstrapEnabled === true));

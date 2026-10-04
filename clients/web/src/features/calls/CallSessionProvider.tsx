@@ -30,6 +30,7 @@ import type {
   Conversation
 } from "../../types";
 import type { CallPanelSessionState } from "./CallPanel";
+import { phoneMediaIsBusy } from "../telephony/mediaOwnership";
 import { requestCallSessionTeardown } from "./callSessionEvents";
 import type { CallReadinessMode } from "./callReadinessNavigation";
 
@@ -116,6 +117,10 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     kind: CallMediaKind,
     readinessMode: CallReadinessMode | null = null
   ) => {
+    if (phoneMediaIsBusy()) {
+      setNotice("End your phone call before starting a conversation call.");
+      return false;
+    }
     if (workspaceLoading || !capabilities) {
       setNotice("Call availability is still being checked. Try again shortly.");
       return false;

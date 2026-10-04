@@ -26,6 +26,9 @@ import "./experience-mode.css";
 const AdminPage = lazy(() =>
   import("./features/admin/AdminPage").then(({ AdminPage: page }) => ({ default: page }))
 );
+const PhonePage = lazy(() =>
+  import("./features/telephony/PhonePage").then(({ PhonePage: page }) => ({ default: page }))
+);
 const CallsPage = lazy(() =>
   import("./features/calls/CallsPage").then(({ CallsPage: page }) => ({ default: page }))
 );
@@ -144,6 +147,7 @@ function ApplicationRoutes() {
               <Route element={<ProductShell />}>
                 <Route path="/app/" element={<ChatPage />} />
                 <Route path="/app/calls" element={<CallsPage />} />
+                <Route path="/app/calls/phone" element={<PhonePage />} />
                 <Route path="/app/directory" element={<DirectoryPage />} />
                 <Route path="/app/files" element={<FilesPage />} />
                 <Route path="/app/whiteboard" element={<WhiteboardPage />} />

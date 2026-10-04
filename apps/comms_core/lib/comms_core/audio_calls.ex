@@ -7,8 +7,6 @@ defmodule CommsCore.AudioCalls do
   on one public facade.
   """
 
-  @behaviour CommsCore.Accounts.CallLifecyclePort
-  @behaviour CommsCore.Administration.CallLifecyclePort
   @behaviour CommsCore.Conversations.CallLifecyclePort
 
   alias CommsCore.AudioCalls.{Activity, Collaboration, Lifecycle}
@@ -211,10 +209,10 @@ defmodule CommsCore.AudioCalls do
   def revoke_for_call(tenant_id, call_id, reason),
     do: Lifecycle.revoke_for_call(tenant_id, call_id, reason)
 
-  @impl CommsCore.Accounts.CallLifecyclePort
+  @doc false
   def revoke_identity_access(command), do: Lifecycle.revoke_identity_access(command)
 
-  @impl CommsCore.Administration.CallLifecyclePort
+  @doc false
   def revoke_tenant_media(command), do: Lifecycle.revoke_tenant_media(command)
 
   @impl CommsCore.Conversations.CallLifecyclePort

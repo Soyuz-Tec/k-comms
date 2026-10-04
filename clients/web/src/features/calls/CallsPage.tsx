@@ -153,6 +153,7 @@ export function CallsPage() {
           </div>
         </div>
         <div className="calls-page-actions">
+          <Link className="button ghost" to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
           <Link className="button ghost" to="/app/directory">
             <AppIcon name="contact" />
             View contacts

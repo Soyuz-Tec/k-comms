@@ -247,6 +247,18 @@ class ValidateArchitectureTest(unittest.TestCase):
                 validate(root),
             )
 
+    def test_provider_adapter_can_depend_on_domain_contracts_without_reversing_edge(self) -> None:
+        with self.repository_fixture() as root:
+            self.write_mix(root, "comms_integrations", ("comms_core", "comms_observability"))
+            self.assertEqual(validate(root), [])
+
+            self.write_mix(root, "comms_core", ("comms_integrations",))
+            self.assertIn(
+                "apps/comms_core/mix.exs: forbidden umbrella dependency "
+                "comms_core -> comms_integrations",
+                validate(root),
+            )
+
     def test_rejects_an_unclassified_umbrella_application(self) -> None:
         with self.repository_fixture() as root:
             self.write_mix(root, "comms_future", ())
@@ -1730,6 +1742,7 @@ class ValidateArchitectureTest(unittest.TestCase):
             set(interfaces),
             {
                 "notification-availability-adapter",
+                "telephony-provider-webhook-verification",
                 "web-distributed-public-rate-limit",
                 "web-validation-error-rendering",
                 "worker-attachment-restore-release",
@@ -1801,7 +1814,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             "CommsCore.AudioCalls.SessionListing",
         }
 
-        self.assertEqual(calls["public_facades"], ["CommsCore.AudioCalls"])
+        self.assertEqual(
+            calls["public_facades"],
+            ["CommsCore.AudioCalls", "CommsCore.AudioCalls.LifecycleCoordinator"],
+        )
         self.assertEqual(set(calls["public_contracts"]), public_contracts)
         self.assertEqual(calls["internal_namespaces"], ["CommsCore.AudioCalls"])
         self.assertEqual(
@@ -1835,7 +1851,10 @@ class ValidateArchitectureTest(unittest.TestCase):
             declared_children.update(
                 core_module_declarations(path.read_text(encoding="utf-8"))
             )
-        self.assertEqual(declared_children, public_contracts | internal_modules)
+        self.assertEqual(
+            declared_children,
+            public_contracts | internal_modules | {"CommsCore.AudioCalls.LifecycleCoordinator"},
+        )
         self.assertTrue(
             (root / "apps/comms_core/lib/comms_core/audio_calls.ex").is_file()
         )
@@ -1869,6 +1888,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ],
                 "operations": [{"name": "revoke_identity_access", "arity": 1}],
                 "binding_key": "identity_call_lifecycle_adapter",
+                "implementation": "CommsCore.AudioCalls.LifecycleCoordinator",
             },
             "tenant-call-lifecycle": {
                 "consumer": "tenant_administration",
@@ -1877,6 +1897,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 "callers": ["CommsCore.Administration"],
                 "operations": [{"name": "revoke_tenant_media", "arity": 1}],
                 "binding_key": "tenant_call_lifecycle_adapter",
+                "implementation": "CommsCore.AudioCalls.LifecycleCoordinator",
             },
             "conversation-call-lifecycle": {
                 "consumer": "conversations",
@@ -1888,6 +1909,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                 ],
                 "operations": [{"name": "revoke_conversation_access", "arity": 1}],
                 "binding_key": "conversation_call_lifecycle_adapter",
+                "implementation": "CommsCore.AudioCalls",
             },
         }
         for collaboration_id, expected in expected_call_collaborations.items():
@@ -1917,7 +1939,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     declaration["result_contract"],
                     expected["result_contract"],
                 )
-                self.assertEqual(declaration["implementation"], "CommsCore.AudioCalls")
+                self.assertEqual(declaration["implementation"], expected["implementation"])
                 self.assertEqual(declaration["callers"], expected["callers"])
                 self.assertEqual(declaration["operations"], expected["operations"])
                 self.assertEqual(
@@ -1925,7 +1947,7 @@ class ValidateArchitectureTest(unittest.TestCase):
                     {
                         "application": "comms_core",
                         "key": expected["binding_key"],
-                        "module": "CommsCore.AudioCalls",
+                        "module": expected["implementation"],
                     },
                 )
                 self.assertEqual(declaration["transaction"], "required")

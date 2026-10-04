@@ -26,8 +26,13 @@ attestation verification, and provider approval remain explicit launch gates.
 - Revision-bound release-evidence collection that binds clean Git state, OCI metadata, deployed Kubernetes topology, and hashed qualification files without retaining secrets or evidence contents
 - Backend, browser, contract, documentation, release, manifest, container, security, load, and runtime acceptance gates
 
-SIP, recording, transcription, media egress, and true end-to-end encryption are
-explicitly deferred from this MVP.
+An opt-in [individual telephony milestone](docs/12-development-guides/telephony-first-milestone.md)
+adds one tenant number and extension, a web dialer, incoming answer/reject,
+hangup, and personal call history through LiveKit SIP. It defaults to disabled
+and requires a separately acquired number, carrier/trunk provisioning, and real
+inbound/outbound qualification before enablement. Advanced PBX features,
+recording, transcription, media egress, and true end-to-end encryption remain
+deferred.
 Messages are server-readable for authorized search, moderation, notifications,
 and multi-device recovery; TLS and encryption at rest are required.
 

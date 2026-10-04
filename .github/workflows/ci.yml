@@ -15,7 +15,7 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -43,8 +43,6 @@ jobs:
       K_COMMS_TEST_S3_ROOT_PASSWORD: k-comms-test-password
       # Non-secret fixture key; base64 of exactly 32 bytes, as MinIO requires.
       K_COMMS_TEST_S3_KMS_SECRET_KEY: kcomms-test-key:ay1jb21tcy1jaS1zc2UtczMtZml4dHVyZS1rZXktMDE=
-      MINIO_IMAGE: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:a1a8bd4ac40ad7881a245bab97323e18f971e4d4cba2c2007ec1bedd21cbaba2
-      MINIO_MC_IMAGE: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:eb4ea9884b77704230e2423e9004d2fa738dc272876b9cc41a297d29443b8780
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -59,6 +57,12 @@ jobs:
             _build
           key: ${{ runner.os }}-beam-${{ hashFiles('mix.exs', 'apps/*/mix.exs', 'mix.lock') }}
           restore-keys: ${{ runner.os }}-beam-
+      # Cached archives are verified and re-extracted; binaries are rebuilt.
+      # This cache contains no runtime data, root credentials or mc config.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/k-comms-s3-build
+          key: ${{ runner.os }}-${{ runner.arch }}-s3-source-${{ hashFiles('scripts/build_ci_s3_fixture.sh') }}
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix deps.get --check-locked
@@ -84,86 +88,14 @@ jobs:
       - run: mix ecto.migrate
       - name: Start versioned S3 integration fixture
         shell: bash
-        run: |
-          set -euo pipefail
-          docker run --detach \
-            --name k-comms-ci-minio \
-            --publish "127.0.0.1:${K_COMMS_TEST_S3_PORT}:9000" \
-            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ROOT_USER}" \
-            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_ROOT_PASSWORD}" \
-            --env "MINIO_KMS_SECRET_KEY=${K_COMMS_TEST_S3_KMS_SECRET_KEY}" \
-            "$MINIO_IMAGE" server /data
-
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent \
-              "http://${K_COMMS_TEST_S3_HOST}:${K_COMMS_TEST_S3_PORT}/minio/health/ready" \
-              >/dev/null; then
-              break
-            fi
-
-            if [ "$attempt" -eq 30 ]; then
-              docker logs k-comms-ci-minio
-              exit 1
-            fi
-
-            sleep 1
-          done
-
-          docker run --rm --network host \
-            --env "MINIO_ROOT_USER=${K_COMMS_TEST_S3_ROOT_USER}" \
-            --env "MINIO_ROOT_PASSWORD=${K_COMMS_TEST_S3_ROOT_PASSWORD}" \
-            --env "S3_APP_ACCESS_KEY_ID=${K_COMMS_TEST_S3_ACCESS_KEY_ID}" \
-            --env "S3_APP_SECRET_ACCESS_KEY=${K_COMMS_TEST_S3_SECRET_ACCESS_KEY}" \
-            --env "S3_BUCKET=${K_COMMS_TEST_S3_BUCKET}" \
-            --env "S3_ENDPOINT=http://${K_COMMS_TEST_S3_HOST}:${K_COMMS_TEST_S3_PORT}" \
-            --entrypoint /bin/sh \
-            "$MINIO_MC_IMAGE" -c '
-              set -eu
-              mc alias set local "$S3_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-              mc mb --ignore-existing "local/$S3_BUCKET"
-              mc version enable "local/$S3_BUCKET"
-              version_info="$(mc version info "local/$S3_BUCKET")"
-              printf "%s\n" "$version_info"
-              case "$version_info" in
-                *"versioning is enabled"*) ;;
-                *) echo "bucket versioning was not enabled" >&2; exit 1 ;;
-              esac
-
-              mc encrypt set sse-s3 "local/$S3_BUCKET"
-              encrypt_info="$(mc encrypt info "local/$S3_BUCKET")"
-              printf "%s\n" "$encrypt_info"
-              case "$encrypt_info" in
-                *sse-s3*) ;;
-                *) echo "bucket default encryption was not enabled" >&2; exit 1 ;;
-              esac
-
-              printf "%s" "{\"Version\":\"2012-10-17\",\"Statement\":[
-                {\"Effect\":\"Allow\",
-                 \"Action\":[\"s3:ListBucket\",\"s3:ListBucketVersions\",\"s3:GetBucketLocation\"],
-                 \"Resource\":[\"arn:aws:s3:::$S3_BUCKET\"]},
-                {\"Effect\":\"Allow\",
-                 \"Action\":[\"s3:PutObject\",\"s3:GetObject\",\"s3:GetObjectVersion\",
-                           \"s3:DeleteObject\",\"s3:DeleteObjectVersion\"],
-                 \"Resource\":[\"arn:aws:s3:::$S3_BUCKET/*\"]}]}" > /tmp/kcomms-app-policy.json
-
-              mc admin user add local "$S3_APP_ACCESS_KEY_ID" "$S3_APP_SECRET_ACCESS_KEY"
-              mc admin policy create local kcomms-app /tmp/kcomms-app-policy.json || true
-              mc admin policy attach local kcomms-app --user "$S3_APP_ACCESS_KEY_ID" || true
-
-              entities="$(mc admin policy entities local --user "$S3_APP_ACCESS_KEY_ID")"
-              printf "%s\n" "$entities"
-              case "$entities" in
-                *kcomms-app*) ;;
-                *) echo "application user is not bound to the bucket-scoped policy" >&2; exit 1 ;;
-              esac
-            '
+        run: bash scripts/ci_s3_fixture.sh start
       - name: Run full backend regression and report line-coverage baseline
         shell: bash
         run: bash scripts/run_backend_tests.sh coverage
       - name: Stop S3 integration fixture
         if: always()
         shell: bash
-        run: docker rm --force k-comms-ci-minio >/dev/null 2>&1 || true
+        run: bash scripts/ci_s3_fixture.sh stop
       - run: mix sobelow --root apps/comms_web --private --exit medium --threshold medium
       - run: mix hex.audit
       - run: MIX_ENV=prod mix deps.get --only prod --check-locked
@@ -205,6 +137,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-validation.txt
       - run: python -m pip install --requirement requirements-validation.txt
+      - run: python scripts/test_ci_s3_fixture.py
       - run: python scripts/test_validate_contracts.py
       - run: python scripts/validate_contracts.py
       - run: python scripts/validate_docs.py

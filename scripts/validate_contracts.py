@@ -312,6 +312,95 @@ def validate_mutation_contracts(openapi: dict[str, Any]) -> None:
             )
 
 
+def validate_telephony_contract(openapi: dict[str, Any]) -> None:
+    """Keep individual phone admission separate from room calls and provider auth."""
+
+    paths = openapi.get("paths", {})
+    schemas = openapi.get("components", {}).get("schemas", {})
+    authenticated_operations = {
+        ("/api/v1/telephony/config", "get"),
+        ("/api/v1/admin/telephony", "get"),
+        ("/api/v1/admin/telephony", "put"),
+        ("/api/v1/telephony/calls", "get"),
+        ("/api/v1/telephony/calls", "post"),
+        ("/api/v1/telephony/calls/{callId}", "get"),
+        *{
+            (f"/api/v1/telephony/calls/{{callId}}/{action}", "post")
+            for action in ("answer", "reject", "end", "join")
+        },
+    }
+    for path, method in sorted(authenticated_operations):
+        operation = paths.get(path, {}).get(method, {})
+        if operation.get("security") != [{"bearerAuth": []}]:
+            raise ValueError(f"Telephony {method.upper()} {path} requires bearerAuth")
+
+    webhook = paths.get("/api/v1/telephony/livekit/webhook", {}).get("post", {})
+    if webhook.get("security") != [{"livekitWebhookAuth": []}]:
+        raise ValueError("Telephony webhook requires separate livekitWebhookAuth")
+    webhook_description = webhook.get("description", "")
+    if not all(
+        phrase in webhook_description
+        for phrase in ("exact raw request bytes", "SHA-256", "Duplicate", "trunk")
+    ):
+        raise ValueError("Telephony webhook must document body-bound provider attribution")
+
+    call = schemas.get("TelephonyCall", {})
+    expected_call_fields = {
+        "id", "direction", "status", "from_number", "to_number", "extension",
+        "started_at", "answered_at", "ended_at", "connected_seconds",
+        "can_answer", "can_join", "can_end", "active_on_this_device", "end_reason",
+    }
+    if (
+        call.get("additionalProperties") is not False
+        or set(call.get("required", [])) != expected_call_fields
+        or set(call.get("properties", {})) != expected_call_fields
+    ):
+        raise ValueError("TelephonyCall must expose only the frozen individual call projection")
+    properties = call["properties"]
+    if set(properties.get("status", {}).get("enum", [])) != {
+        "ringing", "answered", "declined", "busy", "no_answer", "cancelled", "failed", "ended"
+    }:
+        raise ValueError("TelephonyCall must describe all individual call outcomes")
+    if properties.get("connected_seconds", {}).get("minimum") != 0:
+        raise ValueError("TelephonyCall connected duration must be nonnegative")
+
+    start = schemas.get("StartTelephonyCallRequest", {})
+    if (
+        start.get("additionalProperties") is not False
+        or set(start.get("required", [])) != {"destination", "idempotency_key"}
+        or set(start.get("properties", {})) != {"destination", "idempotency_key"}
+    ):
+        raise ValueError("Telephony start must require a destination and idempotency key")
+
+    credential = schemas.get("TelephonyCallCredentialResponse", {})
+    if (
+        credential.get("additionalProperties") is not False
+        or set(credential.get("required", [])) != {"data", "credential"}
+        or credential.get("properties", {}).get("credential", {}).get("$ref")
+        != "#/components/schemas/TelephonyCredential"
+    ):
+        raise ValueError("Telephony admission must use a short-lived session-capped media credential")
+
+    token = schemas.get("TelephonyCredential", {})
+    if (
+        token.get("additionalProperties") is not False
+        or set(token.get("required", [])) != {"server_url", "participant_token", "expires_in", "ice_servers"}
+        or token.get("properties", {}).get("expires_in", {}).get("minimum") != 1
+        or token.get("properties", {}).get("expires_in", {}).get("maximum") != 300
+        or token.get("properties", {}).get("participant_token", {}).get("readOnly") is not True
+    ):
+        raise ValueError("TelephonyCredential must retain bounded lifetime and read-only token")
+
+    page = schemas.get("TelephonyCallPage", {})
+    if (
+        page.get("additionalProperties") is not False
+        or set(page.get("required", [])) != {"data", "page"}
+        or page.get("properties", {}).get("page", {}).get("$ref")
+        != "#/components/schemas/CursorPage"
+    ):
+        raise ValueError("Telephony history must use bounded cursor pagination")
+
+
 def validate_message_contract(schema: dict[str, Any], openapi: dict[str, Any]) -> None:
     schema_fields = set(schema.get("properties", {}))
     schema_required = set(schema.get("required", []))
@@ -2041,6 +2130,7 @@ def main() -> None:
     validate_mutation_contracts(openapi)
     validate_message_contract(schemas["message-created.v1.json"], openapi)
     validate_call_contract(openapi)
+    validate_telephony_contract(openapi)
     validate_instant_room_contract(openapi)
     validate_guest_contract(openapi)
     validate_whiteboard_contract(openapi)

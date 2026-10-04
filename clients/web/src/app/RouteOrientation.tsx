@@ -5,6 +5,7 @@ const routeLabels: Record<string, string> = {
   "/": "Instant room",
   "/app": "Inbox",
   "/app/calls": "Calls",
+  "/app/calls/phone": "Phone",
   "/app/directory": "Directory",
   "/app/files": "Files",
   "/app/whiteboard": "Whiteboard",
@@ -19,6 +20,7 @@ const routeLabels: Record<string, string> = {
 
 const adminSectionLabels: Record<string, string> = {
   workspace: "Workspace",
+  phone: "Phone",
   people: "People",
   safety: "Safety",
   integrations: "Integrations",

@@ -55,6 +55,8 @@ defmodule CommsCore.Accounts.AccessControl do
               account_type: u.account_type,
               access_scope: u.access_scope,
               guest_expires_at: u.guest_expires_at,
+              session_expires_at: s.expires_at,
+              session_absolute_expires_at: s.absolute_expires_at,
               role: u.role,
               step_up_at: s.step_up_at,
               platform_role_grant_id: g.id,
@@ -286,6 +288,7 @@ defmodule CommsCore.Accounts.AccessControl do
       account_type: facts.account_type,
       access_scope: facts.access_scope,
       guest_expires_at: facts.guest_expires_at,
+      effective_expires_at: effective_expiry(facts),
       role: facts.role,
       step_up_at: facts.step_up_at,
       step_up_recent?: recent_step_up_at?(facts.step_up_at, timestamp),
@@ -294,6 +297,15 @@ defmodule CommsCore.Accounts.AccessControl do
       platform_role_expires_at: facts.platform_role_expires_at,
       platform_claim_verified?: platform_claim_verified?(facts, subject)
     }
+  end
+
+  defp effective_expiry(facts) do
+    deadlines = [facts.session_expires_at, facts.session_absolute_expires_at]
+
+    deadlines =
+      if facts.account_type == :guest, do: [facts.guest_expires_at | deadlines], else: deadlines
+
+    deadlines |> Enum.reject(&is_nil/1) |> Enum.min(DateTime)
   end
 
   defp recent_step_up_at?(%DateTime{} = step_up_at, timestamp) do

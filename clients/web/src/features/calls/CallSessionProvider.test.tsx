@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CallMediaKind, Conversation } from "../../types";
+import { setPhoneMediaBusy } from "../telephony/mediaOwnership";
 import {
   CallSessionProvider,
   useCallSession
@@ -173,6 +174,7 @@ function renderProvider() {
 
 describe("CallSessionProvider", () => {
   beforeEach(() => {
+    setPhoneMediaBusy(false);
     harness.mounts = 0;
     harness.unmounts = 0;
     harness.allowAudio = true;
@@ -222,6 +224,15 @@ describe("CallSessionProvider", () => {
     expect(screen.getByText(
       "Finish or cancel the current audio call lobby first."
     )).toBeVisible();
+  });
+
+  it("blocks a conversation call while phone audio owns the microphone", async () => {
+    setPhoneMediaBusy(true);
+    renderProvider();
+    await userEvent.click(screen.getByRole("button", { name: "Call execution" }));
+    expect(screen.getByLabelText("target")).toHaveTextContent("none");
+    expect(screen.getByText("End your phone call before starting a conversation call.")).toBeVisible();
+    setPhoneMediaBusy(false);
   });
 
   it("blocks direct launches when workspace policy disables the media kind", async () => {
