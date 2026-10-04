@@ -9,6 +9,9 @@ const harness = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
   close: vi.fn(),
+  resume: vi.fn(),
+  analyser: vi.fn(),
+  source: vi.fn(),
   sink: vi.fn(),
   inCall: false,
   devices: [
@@ -28,7 +31,7 @@ vi.mock("../calls/CallSessionProvider", () => ({
 }));
 
 function stream(kind: "audio" | "video") {
-  const track = { stop: vi.fn(), getSettings: () => ({ deviceId: kind === "audio" ? "mic-1" : "camera-1" }), onended: null };
+  const track = { stop: vi.fn(), getSettings: () => ({ deviceId: kind === "audio" ? "mic-1" : "camera-1" }), onended: null as (() => void) | null };
   return { track, value: { getTracks: () => [track], getAudioTracks: () => kind === "audio" ? [track] : [], getVideoTracks: () => kind === "video" ? [track] : [] } };
 }
 
@@ -40,14 +43,17 @@ describe("AudioVideoSettings", () => {
     setPhoneMediaBusy(false);
     harness.play.mockResolvedValue(undefined);
     harness.close.mockResolvedValue(undefined);
+    harness.resume.mockReset().mockResolvedValue(undefined);
+    harness.analyser.mockReset().mockImplementation(() => ({ fftSize: 256, getByteTimeDomainData: (array: Uint8Array) => array.fill(128) }));
+    harness.source.mockReset().mockImplementation(() => ({ connect: vi.fn() }));
     harness.sink.mockResolvedValue(undefined);
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: harness.getUserMedia } });
     vi.stubGlobal("AudioContext", class {
       close = harness.close;
-      resume = () => Promise.resolve();
-      createAnalyser = () => ({ fftSize: 256, getByteTimeDomainData: (array: Uint8Array) => array.fill(128) });
-      createMediaStreamSource = () => ({ connect: vi.fn() });
+      resume = harness.resume;
+      createAnalyser = harness.analyser;
+      createMediaStreamSource = harness.source;
     });
     vi.stubGlobal("Audio", class {
       src = "";
@@ -73,6 +79,7 @@ describe("AudioVideoSettings", () => {
 
   it("captures only after explicit microphone testing and releases it on Stop", async () => {
     const microphone = stream("audio");
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame");
     harness.getUserMedia.mockResolvedValue(microphone.value);
     const user = userEvent.setup();
     render(<AudioVideoSettings />);
@@ -83,6 +90,7 @@ describe("AudioVideoSettings", () => {
     await user.click(screen.getByRole("button", { name: "Stop microphone test" }));
     expect(microphone.track.stop).toHaveBeenCalledOnce();
     expect(harness.close).toHaveBeenCalledOnce();
+    expect(cancelFrame).toHaveBeenCalledOnce();
     expect(screen.getByText("Microphone is not capturing.")).toBeVisible();
   });
 
@@ -106,6 +114,113 @@ describe("AudioVideoSettings", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("permission was blocked");
     expect(screen.getByText("Microphone is not capturing.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Test microphone" })).toBeEnabled();
+  });
+
+  it("releases capture once if creating its audio context fails", async () => {
+    const microphone = stream("audio");
+    harness.getUserMedia.mockResolvedValue(microphone.value);
+    vi.stubGlobal("AudioContext", class { constructor() { throw new Error("Audio context unavailable"); } });
+    const user = userEvent.setup();
+    const view = render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Audio context unavailable");
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).not.toHaveBeenCalled();
+    view.unmount();
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+  });
+
+  it.each(["analyser", "source"] as const)("releases its stream and context once after %s setup fails", async (stage) => {
+    const microphone = stream("audio");
+    harness.getUserMedia.mockResolvedValue(microphone.value);
+    harness[stage].mockImplementation(() => { throw new Error("Microphone setup failed"); });
+    const user = userEvent.setup();
+    const view = render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Microphone setup failed");
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledOnce();
+    expect(screen.getByText("Microphone is not capturing.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Test microphone" })).toBeEnabled();
+    view.unmount();
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledOnce();
+  });
+
+  it("releases its stream and context once when audio resume fails", async () => {
+    const microphone = stream("audio");
+    harness.getUserMedia.mockResolvedValue(microphone.value);
+    harness.resume.mockRejectedValueOnce(new Error("Audio resume failed"));
+    const user = userEvent.setup();
+    render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Audio resume failed");
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledOnce();
+    expect(screen.getByText("Microphone is not capturing.")).toBeVisible();
+  });
+
+  it.each(["section closes", "Phone reserves media"] as const)("does not release capture twice when resume rejects after %s", async (cancellation) => {
+    const microphone = stream("audio");
+    harness.getUserMedia.mockResolvedValue(microphone.value);
+    let rejectResume!: (reason: Error) => void;
+    harness.resume.mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectResume = reject; }));
+    const user = userEvent.setup();
+    const view = render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    await waitFor(() => expect(harness.resume).toHaveBeenCalledOnce());
+    if (cancellation === "section closes") view.unmount();
+    else act(() => setPhoneMediaBusy(true));
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledOnce();
+    await act(async () => rejectResume(new Error("Cancelled resume failed")));
+    expect(microphone.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledOnce();
+    if (cancellation === "Phone reserves media") expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps a replacement microphone test running when an older resume rejects", async () => {
+    const previous = stream("audio");
+    const replacement = stream("audio");
+    harness.getUserMedia.mockResolvedValueOnce(previous.value).mockResolvedValueOnce(replacement.value);
+    let rejectPrevious!: (reason: Error) => void;
+    harness.resume.mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectPrevious = reject; }));
+    const user = userEvent.setup();
+    render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    await waitFor(() => expect(harness.resume).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Stop microphone test" }));
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    await screen.findByText("Microphone is capturing for this local test.");
+    await act(async () => rejectPrevious(new Error("Previous resume failed")));
+    expect(previous.track.stop).toHaveBeenCalledOnce();
+    expect(replacement.track.stop).not.toHaveBeenCalled();
+    expect(harness.close).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Microphone is capturing for this local test.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Stop microphone test" }));
+    expect(replacement.track.stop).toHaveBeenCalledOnce();
+    expect(harness.close).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores an old track-ended callback after another microphone test begins", async () => {
+    const previous = stream("audio");
+    const replacement = stream("audio");
+    harness.getUserMedia.mockResolvedValueOnce(previous.value).mockResolvedValueOnce(replacement.value);
+    const user = userEvent.setup();
+    render(<AudioVideoSettings />);
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    await screen.findByText("Microphone is capturing for this local test.");
+    const previousEnded = previous.track.onended;
+    expect(previousEnded).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Stop microphone test" }));
+    await user.click(screen.getByRole("button", { name: "Test microphone" }));
+    await screen.findByText("Microphone is capturing for this local test.");
+    act(() => previousEnded?.());
+    expect(previous.track.stop).toHaveBeenCalledOnce();
+    expect(replacement.track.stop).not.toHaveBeenCalled();
+    expect(harness.close).toHaveBeenCalledOnce();
+    expect(screen.getByText("Microphone is capturing for this local test.")).toBeVisible();
   });
 
   it("stops camera capture when the section closes", async () => {

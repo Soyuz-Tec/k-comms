@@ -9,6 +9,16 @@ interface MicrophoneTest {
   stream: MediaStream;
   context: AudioContext;
   frame?: number;
+  released: boolean;
+}
+
+function releaseMicrophoneTest(test: MicrophoneTest) {
+  if (test.released) return;
+  test.released = true;
+  if (test.frame !== undefined) cancelAnimationFrame(test.frame);
+  test.stream.getAudioTracks().forEach((track) => { track.onended = null; });
+  test.stream.getTracks().forEach((track) => track.stop());
+  void test.context.close().catch(() => {});
 }
 
 export function AudioVideoSettings() {
@@ -32,11 +42,7 @@ export function AudioVideoSettings() {
     microphoneGeneration.current += 1;
     const test = microphoneRef.current;
     microphoneRef.current = null;
-    if (test) {
-      if (test.frame !== undefined) cancelAnimationFrame(test.frame);
-      test.stream.getTracks().forEach((track) => track.stop());
-      void test.context.close().catch(() => {});
-    }
+    if (test) releaseMicrophoneTest(test);
     if (mountedRef.current) {
       setMicrophoneActive(false);
       setMicrophonePending(false);
@@ -94,6 +100,7 @@ export function AudioVideoSettings() {
     const generation = microphoneGeneration.current;
     setMicrophonePending(true);
     let stream: MediaStream | null = null;
+    let ownedTest: MicrophoneTest | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -108,7 +115,8 @@ export function AudioVideoSettings() {
         return;
       }
       const context = new AudioContext();
-      const test: MicrophoneTest = { stream, context };
+      const test: MicrophoneTest = { stream, context, released: false };
+      ownedTest = test;
       microphoneRef.current = test;
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
@@ -130,11 +138,21 @@ export function AudioVideoSettings() {
         test.frame = requestAnimationFrame(measure);
       }
       test.frame = requestAnimationFrame(measure);
-      stream.getAudioTracks().forEach((track) => { track.onended = stopMicrophone; });
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          if (microphoneRef.current === test && generation === microphoneGeneration.current) stopMicrophone();
+        };
+      });
       void loadPrejoinDevices("video", () => mountedRef.current && generation === microphoneGeneration.current);
     } catch (reason: unknown) {
-      stream?.getTracks().forEach((track) => track.stop());
-      if (!mountedRef.current || generation !== microphoneGeneration.current) return;
+      const currentRequest = mountedRef.current && generation === microphoneGeneration.current;
+      if (ownedTest) {
+        if (microphoneRef.current === ownedTest) microphoneRef.current = null;
+        releaseMicrophoneTest(ownedTest);
+      } else {
+        stream?.getTracks().forEach((track) => track.stop());
+      }
+      if (!currentRequest) return;
       stopMicrophone();
       setError(mediaErrorText(reason, "microphone"));
     }
