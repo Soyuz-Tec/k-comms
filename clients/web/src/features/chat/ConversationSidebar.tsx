@@ -91,6 +91,19 @@ export function ConversationSidebar({
   onShowBrowseChannels
 }: ConversationSidebarProps) {
   const desktopShell = useDesktopShell();
+  const contentSearchButton = (
+    <button
+      className="button ghost inbox-content-search"
+      type="button"
+      aria-label="Search workspace content"
+      title="Search messages, files, and whiteboards"
+      aria-expanded={showSearch}
+      onClick={onToggleSearch}
+    >
+      <AppIcon name="search" />
+      <span>{desktopShell ? "Search" : "Search workspace content"}</span>
+    </button>
+  );
   return (
     <aside className="conversation-sidebar" aria-label="Conversations">
       <div className="sidebar-heading">
@@ -110,6 +123,7 @@ export function ConversationSidebar({
             </span>
           </div>
           <div className="sidebar-tools">
+            {desktopShell && contentSearchButton}
             {/*
               * Notifications sat in the global phone top bar until that bar was
               * removed. They belong here rather than in a bar of their own: in a
@@ -144,9 +158,7 @@ export function ConversationSidebar({
             />
           </div>
         )}
-        <button className="button ghost inbox-content-search" type="button" aria-expanded={showSearch} onClick={onToggleSearch}>
-          <AppIcon name="search" /><span>Search workspace content</span>
-        </button>
+        {!desktopShell && contentSearchButton}
       </div>
 
       {showOnboardingSpotlight && (

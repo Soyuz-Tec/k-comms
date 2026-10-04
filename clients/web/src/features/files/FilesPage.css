@@ -868,6 +868,7 @@
 .files-heading-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .files-search { display: flex; align-items: flex-end; gap: var(--space-2); }
 .files-search .field { flex: 1; min-width: 0; }
+.files-search .files-mobile-type-picker { display: none; }
 .file-name-button { max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text-primary); text-align: left; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-name-button:hover { color: var(--accent-text); text-decoration: underline; }
 .file-details-name { display: block; overflow-wrap: anywhere; }
@@ -879,3 +880,22 @@
 .file-details-facts dt { color: var(--text-muted); }
 .file-details-facts dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .files-page-heading { align-items: flex-start; } .files-heading-actions { justify-content: flex-end; } .files-search { flex-wrap: wrap; } .files-search .field { flex-basis: 100%; } }
+
+@media (max-width: 760px), (max-height: 560px) {
+  .files-page { gap: .5rem; padding-top: .75rem; }
+  .files-page-heading { align-items: center; gap: .75rem; }
+  .files-page-heading > div:first-child { min-width: 0; }
+  .files-heading-actions { flex-wrap: nowrap; align-items: center; gap: .5rem; }
+  .files-page-heading .button { min-height: 44px; }
+  .files-heading-actions .files-advanced-filter { flex: 0 0 44px; }
+  .files-toolbar { display: none; }
+  .files-search { display: grid; grid-template-columns: minmax(0, 1fr) 44px 116px; align-items: center; gap: .5rem; }
+  .files-search .field { margin: 0; }
+  .files-search input, .files-search select { width: 100%; min-width: 0; min-height: 44px; height: 44px; font-size: var(--text-sm); }
+  .files-search .files-mobile-type-picker { display: grid; }
+  .files-search-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+  .files-search-submit { width: 44px; min-width: 44px; min-height: 44px; height: 44px; padding: 0; }
+  .files-search-submit .app-icon { width: 20px; height: 20px; }
+  .files-search-submit span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); }
+  .file-row-title .file-name-button { min-height: 44px; width: 100%; white-space: normal; overflow-wrap: anywhere; }
+}

@@ -208,9 +208,10 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Files" }),
       () => actions += 1
     );
-    await expect(page.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("button", { name: "Other files" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Images" })).toBeVisible();
+    const fileType = page.getByRole("combobox", { name: "File type", exact: true });
+    await expect(fileType).toBeVisible();
+    await expect(fileType).toHaveValue("all");
+    await expect(fileType.locator("option")).toHaveText(["All types", "Images", "Other files"]);
     await expect(page.getByText("Quarterly-plan.pdf", { exact: true })).toBeVisible();
     await countedClick(
       page.getByRole("link", { name: "View source message for Quarterly-plan.pdf" }),

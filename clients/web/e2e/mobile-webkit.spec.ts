@@ -28,7 +28,14 @@ test("image filters page the complete matching library", async ({ page }, info) 
     } });
   });
   await page.goto("/app/files");
-  await page.getByRole("button", { name: "Images", exact: true }).click();
+  const fileType = page.getByRole("combobox", { name: "File type", exact: true });
+  if (await fileType.isVisible()) {
+    await expect(fileType).toHaveValue("all");
+    await fileType.selectOption("images");
+    await expect(fileType).toHaveValue("images");
+  } else {
+    await page.getByRole("button", { name: "Images", exact: true }).click();
+  }
   await expect(page.getByText("recent-plan.png", { exact: true })).toBeVisible();
   await expect(page.getByText("plan.pdf", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Load more files" }).click();

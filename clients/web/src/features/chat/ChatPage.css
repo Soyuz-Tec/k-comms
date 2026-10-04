@@ -49,6 +49,14 @@
   font-size: var(--text-xs);
 }
 
+.conversation-sidebar .sidebar-tools .inbox-content-search {
+  width: auto;
+  min-height: 32px;
+  padding: 0 .5rem;
+  gap: .35rem;
+  white-space: nowrap;
+}
+
 .onboarding-optional-checks,
 .recipient-chips {
   display: flex;

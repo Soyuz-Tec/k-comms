@@ -168,57 +168,18 @@ export function FilesPage() {
           <h1>Files</h1>
         </div>
         <div className="files-heading-actions">
-        <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
-          <AppIcon name="paperclip" />Share a file
-        </button>
-        <button
-          className="button ghost"
-          type="button"
-          disabled={loading}
-          onClick={() => void loadFiles("replace")}
-        >
-          <AppIcon name="refresh" />
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
-        </div>
-      </header>
-
-      <form className="files-search" role="search" onSubmit={(event) => {
-        event.preventDefault();
-        const next = searchText.trim();
-        if (next && (next.length < 2 || next.length > 160)) { setSearchError("Enter between 2 and 160 characters to search filenames."); return; }
-        setSearchError(null);
-        setQuery(next);
-      }}>
-        <label className="field grow-field">Search filenames
-          <input type="search" value={searchText} maxLength={160} placeholder="Search all files you can access" onChange={(event) => setSearchText(event.currentTarget.value)} aria-invalid={Boolean(searchError)} aria-describedby={searchError ? "files-search-error" : undefined} />
-        </label>
-        <button className="button ghost" type="submit">Search files</button>
-      </form>
-      {searchError && <p id="files-search-error" role="alert">{searchError}</p>}
-      <section className="files-surface" aria-labelledby="files-list-heading">
-        <div className="files-toolbar">
-          <div className="files-toolbar-heading">
-            <span className="eyebrow">Authorized index</span>
-            <h2 id="files-list-heading">Shared files</h2>
-          </div>
-          <fieldset className="files-category-tabs">
-            <legend className="sr-only">File type</legend>
-            {([
-              ["all", "All"],
-              ["images", "Images"],
-              ["non_images", "Other files"]
-            ] as const).map(([value, label]) => (
-              <button
-                type="button"
-                key={value}
-                aria-pressed={category === value}
-                onClick={() => setCategory(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </fieldset>
+          <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
+            <AppIcon name="paperclip" />Share a file
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            disabled={loading}
+            onClick={() => void loadFiles("replace")}
+          >
+            <AppIcon name="refresh" />
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
           <details className="files-advanced-filter">
             <summary aria-label="Advanced file filters"><AppIcon name="sliders" />Filters{activeFilterCount > 0 && <span className="filter-count">{activeFilterCount}</span>}</summary>
             <div className="files-filters">
@@ -258,6 +219,52 @@ export function FilesPage() {
               </label>
             </div>
           </details>
+        </div>
+      </header>
+
+      <form className="files-search" role="search" onSubmit={(event) => {
+        event.preventDefault();
+        const next = searchText.trim();
+        if (next && (next.length < 2 || next.length > 160)) { setSearchError("Enter between 2 and 160 characters to search filenames."); return; }
+        setSearchError(null);
+        setQuery(next);
+      }}>
+        <label className="field grow-field"><span className="files-search-label">Search filenames</span>
+          <input type="search" value={searchText} maxLength={160} placeholder="Search filenames" onChange={(event) => setSearchText(event.currentTarget.value)} aria-invalid={Boolean(searchError)} aria-describedby={searchError ? "files-search-error" : undefined} />
+        </label>
+        <button className="button ghost files-search-submit" type="submit"><AppIcon name="search" /><span>Search files</span></button>
+        <label className="field files-mobile-type-picker"><span className="files-search-label">File type</span>
+          <select value={category} onChange={(event) => setCategory(event.currentTarget.value as FileCategory)}>
+            <option value="all">All types</option>
+            <option value="images">Images</option>
+            <option value="non_images">Other files</option>
+          </select>
+        </label>
+      </form>
+      {searchError && <p id="files-search-error" role="alert">{searchError}</p>}
+      <section className="files-surface" aria-labelledby="files-list-heading">
+        <div className="files-toolbar">
+          <div className="files-toolbar-heading">
+            <span className="eyebrow">Authorized index</span>
+            <h2 id="files-list-heading">Shared files</h2>
+          </div>
+          <fieldset className="files-category-tabs">
+            <legend className="sr-only">File type</legend>
+            {([
+              ["all", "All"],
+              ["images", "Images"],
+              ["non_images", "Other files"]
+            ] as const).map(([value, label]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={category === value}
+                onClick={() => setCategory(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
         </div>
 
         {(activeFilterCount > 0 || category !== "all") && (
