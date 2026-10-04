@@ -118,11 +118,21 @@ export function AudioVideoSettings() {
       const test: MicrophoneTest = { stream, context, released: false };
       ownedTest = test;
       microphoneRef.current = test;
+      const audioTracks = stream.getAudioTracks();
+      audioTracks.forEach((track) => {
+        track.onended = () => {
+          if (microphoneRef.current === test && generation === microphoneGeneration.current) stopMicrophone();
+        };
+      });
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       context.createMediaStreamSource(stream).connect(analyser);
       await context.resume();
       if (!mountedRef.current || generation !== microphoneGeneration.current) return;
+      if (audioTracks.some((track) => track.readyState === "ended")) {
+        stopMicrophone();
+        return;
+      }
       setMicrophonePending(false);
       setMicrophoneActive(true);
       const samples = new Uint8Array(analyser.fftSize);
@@ -138,11 +148,6 @@ export function AudioVideoSettings() {
         test.frame = requestAnimationFrame(measure);
       }
       test.frame = requestAnimationFrame(measure);
-      stream.getAudioTracks().forEach((track) => {
-        track.onended = () => {
-          if (microphoneRef.current === test && generation === microphoneGeneration.current) stopMicrophone();
-        };
-      });
       void loadPrejoinDevices("video", () => mountedRef.current && generation === microphoneGeneration.current);
     } catch (reason: unknown) {
       const currentRequest = mountedRef.current && generation === microphoneGeneration.current;
