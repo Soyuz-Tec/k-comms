@@ -1,10 +1,36 @@
 import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 import { installWorkspace, userId } from "./mobile-ui-support";
 import type { PhoneCall } from "../src/features/telephony/types";
 
 const number = { id: "line-1", phone_number: "+14155550123", extension: "101", user_id: userId };
 const incoming: PhoneCall = { id: "phone-1", direction: "inbound", status: "ringing", from_number: "+14155550199", to_number: number.phone_number, extension: number.extension, started_at: "2026-10-03T12:00:00Z", answered_at: null, ended_at: null, connected_seconds: 0, can_answer: true, can_join: false, can_end: false, active_on_this_device: false };
 const phonePage = (calls: PhoneCall[]) => ({ data: calls, page: { limit: 30, has_more: false, next_cursor: null } });
+
+async function denyMicrophone(page: Page) {
+  await page.addInitScript(() => {
+    const fixture = window as typeof window & {
+      __phoneMicrophoneRequests: number;
+    };
+    fixture.__phoneMicrophoneRequests = 0;
+    // Use an own value without depending on the native getter during init.
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          fixture.__phoneMicrophoneRequests += 1;
+          const denied = new Error("Synthetic microphone permission denied");
+          denied.name = "NotAllowedError";
+          throw denied;
+        }
+      }
+    });
+  });
+}
+
+function microphoneRequests(page: Page) {
+  return page.evaluate(() => (window as typeof window & { __phoneMicrophoneRequests: number }).__phoneMicrophoneRequests);
+}
 
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
@@ -30,21 +56,19 @@ test("incoming phone controls persist across routes and reject without microphon
   await installWorkspace(page);
   let ringing = true;
   let rejected = false;
-  await page.addInitScript(() => {
-    if (!navigator.mediaDevices) return;
-    navigator.mediaDevices.getUserMedia = async () => { throw new Error("Incoming notification requested microphone before consent"); };
-  });
+  await denyMicrophone(page);
   await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: true, configured: true, provider: "livekit_sip", number, can_manage: true } } }));
   await page.route("**/api/v1/telephony/calls?**", (route) => route.fulfill({ json: phonePage(ringing ? [incoming] : []) }));
   await page.route(`**/api/v1/telephony/calls/${incoming.id}/reject`, (route) => { ringing = false; rejected = true; return route.fulfill({ json: { data: { ...incoming, status: "declined", can_answer: false } } }); });
   await page.goto("/app/calls");
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
+  expect(await microphoneRequests(page)).toBe(0);
   await page.getByRole("link", { name: "Phone", exact: true }).click();
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
   await page.getByRole("button", { name: "Reject", exact: true }).click();
   await expect.poll(() => rejected).toBe(true);
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toHaveCount(0);
-  await expect(page.getByText(/requested microphone before consent/)).toHaveCount(0);
+  expect(await microphoneRequests(page)).toBe(0);
 });
 
 test("missed history queries the server and includes calls missed while busy", async ({ page }) => {
@@ -70,15 +94,16 @@ test("missed history queries the server and includes calls missed while busy", a
 test("answering an incoming call requests consent and leaves it unclaimed when microphone permission fails", async ({ page }) => {
   await installWorkspace(page);
   let claims = 0;
-  await page.addInitScript(() => {
-    if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = async () => { throw new DOMException("Synthetic microphone permission denied", "NotAllowedError"); };
-  });
+  await denyMicrophone(page);
   await page.route("**/api/v1/telephony/config", (route) => route.fulfill({ json: { data: { enabled: true, configured: true, provider: "livekit_sip", number, can_manage: true } } }));
   await page.route("**/api/v1/telephony/calls?**", (route) => route.fulfill({ json: phonePage([incoming]) }));
   await page.route(`**/api/v1/telephony/calls/${incoming.id}/answer`, (route) => { claims += 1; return route.fulfill({ status: 409, json: { error: { code: "test_unexpected_claim", detail: "Consent must precede claiming the call" } } }); });
   await page.goto("/app/calls");
+  await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
+  expect(await microphoneRequests(page)).toBe(0);
   await page.getByRole("button", { name: "Answer", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Synthetic microphone permission denied");
+  expect(await microphoneRequests(page)).toBe(1);
   expect(claims).toBe(0);
   await expect(page.getByRole("region", { name: `Incoming call from ${incoming.from_number}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Answer", exact: true })).toBeEnabled();
