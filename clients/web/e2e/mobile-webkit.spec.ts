@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures";
 import { conversationId, expectNoDocumentOverflow, installWorkspace, messageId, userId } from "./mobile-ui-support";
 import type { FileSummary } from "../src/types";
 
-test("image filters page the complete matching library", async ({ page }, info) => {
+test("image filters page the complete matching library", async ({ page, isMobile }, info) => {
   await installWorkspace(page);
   const document: FileSummary = {
     id: "new-document", conversation_id: conversationId, message_id: messageId,
@@ -28,13 +28,17 @@ test("image filters page the complete matching library", async ({ page }, info) 
     } });
   });
   await page.goto("/app/files");
+  await expect(page.getByRole("heading", { name: "Files", exact: true })).toBeVisible();
   const fileType = page.getByRole("combobox", { name: "File type", exact: true });
-  if (await fileType.isVisible()) {
+  if (isMobile) {
+    await expect(fileType).toBeVisible();
     await expect(fileType).toHaveValue("all");
     await fileType.selectOption("images");
     await expect(fileType).toHaveValue("images");
   } else {
-    await page.getByRole("button", { name: "Images", exact: true }).click();
+    const images = page.getByRole("button", { name: "Images", exact: true });
+    await expect(images).toBeVisible();
+    await images.click();
   }
   await expect(page.getByText("recent-plan.png", { exact: true })).toBeVisible();
   await expect(page.getByText("plan.pdf", { exact: true })).toHaveCount(0);
