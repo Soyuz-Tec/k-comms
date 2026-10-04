@@ -14,6 +14,12 @@ contexts:
       - get_by/1
       - get_by!/1
   calls:
+    CommsCore.AudioCalls.LifecycleCoordinator:
+      public_operations: []
+      collaboration_operations:
+      - revoke_identity_access/1
+      - revoke_tenant_media/1
+      owner_internal_operations: []
     CommsCore.AudioCalls:
       public_operations:
       - activity/3
@@ -507,6 +513,31 @@ contexts:
       public_operations:
       - export/2
       collaboration_operations: []
+      owner_internal_operations: []
+  telephony:
+    CommsCore.Telephony:
+      public_operations:
+      - admin_config/1
+      - answer/3
+      - callback/2
+      - claim_cleanup/2
+      - claim_dispatch/2
+      - complete_cleanup/3
+      - complete_dispatch/3
+      - config/1
+      - end_call/2
+      - expire/2
+      - get_call/2
+      - handle_webhook/2
+      - join/3
+      - list_calls/1
+      - list_calls/2
+      - provision/2
+      - reject/2
+      - start_outbound/2
+      collaboration_operations:
+      - revoke_identity_access/1
+      - revoke_tenant_media/1
       owner_internal_operations: []
   trust_governance:
     CommsCore.Governance:

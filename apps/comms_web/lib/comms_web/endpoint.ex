@@ -35,6 +35,7 @@ defmodule CommsWeb.Endpoint do
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     length: 2_000_000,
+    body_reader: {CommsWeb.TelephonyBodyReader, :read, []},
     json_decoder: Phoenix.json_library()
   )
 

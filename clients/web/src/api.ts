@@ -87,6 +87,9 @@ import { createAdministrationApi } from "./api/domains/administration";
 import { createNotificationsApi } from "./api/domains/notifications";
 import { createIntegrationsApi } from "./api/domains/integrations";
 import { createCallsApi } from "./api/domains/calls";
+import { createTelephonyApi } from "./api/domains/telephony";
+import type { TelephonyApi } from "./api/domains/telephony";
+import type { PhoneNumberInput } from "./features/telephony/types";
 import { createMessagingApi } from "./api/domains/messaging";
 import { createFilesApi } from "./api/domains/files";
 import { createSystemApi } from "./api/domains/system";
@@ -116,6 +119,7 @@ export class ApiClient {
   private readonly notificationsApi: NotificationsApi;
   private readonly integrationsApi: IntegrationsApi;
   private readonly callsApi: CallsApi;
+  private readonly telephonyApi: TelephonyApi;
   private readonly messagingApi: MessagingApi;
   private readonly filesApi: FilesApi;
   private readonly systemApi: SystemApi;
@@ -145,6 +149,7 @@ export class ApiClient {
     this.notificationsApi = createNotificationsApi(request);
     this.integrationsApi = createIntegrationsApi(request);
     this.callsApi = createCallsApi(request);
+    this.telephonyApi = createTelephonyApi(request);
     this.messagingApi = createMessagingApi(request, { resolveSenderLabelBatches });
     this.filesApi = createFilesApi(request, { attachmentContentType });
     this.systemApi = createSystemApi(request);
@@ -481,6 +486,17 @@ export class ApiClient {
   replayWebhookDelivery(id: string): Promise<WebhookDelivery>{
     return this.integrationsApi.replayWebhookDelivery(id);
   }
+
+  phoneConfiguration() { return this.telephonyApi.phoneConfiguration(); }
+  phoneNumberAssignment() { return this.telephonyApi.phoneNumberAssignment(); }
+  updatePhoneNumber(input: PhoneNumberInput) { return this.telephonyApi.updatePhoneNumber(input); }
+  phoneCalls(options: Parameters<TelephonyApi["phoneCalls"]>[0] = {}) { return this.telephonyApi.phoneCalls(options); }
+  phoneCall(id: string) { return this.telephonyApi.phoneCall(id); }
+  dialPhone(destination: string, idempotencyKey: string) { return this.telephonyApi.dialPhone(destination, idempotencyKey); }
+  answerPhoneCall(id: string) { return this.telephonyApi.answerPhoneCall(id); }
+  joinPhoneCall(id: string) { return this.telephonyApi.joinPhoneCall(id); }
+  rejectPhoneCall(id: string) { return this.telephonyApi.rejectPhoneCall(id); }
+  endPhoneCall(id: string) { return this.telephonyApi.endPhoneCall(id); }
 
   calls(options: CallsQueryOptions = {}): Promise<CallsPageResponse>{
     return this.callsApi.calls(options);

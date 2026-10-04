@@ -3,14 +3,39 @@ status: enforced
 decision: docs/02-architecture/adr/0043-complete-calls-boundary.md
 public_facade_api:
   path: docs/02-architecture/public-facade-api.yaml
-  sha256: 969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc
+  sha256: 0a7c777ee6aff0979ffb1a757cc931ff73006a53173abac9c841fd7339b87632
   decision: docs/02-architecture/adr/0075-freeze-public-facade-operations.md
 enforcement:
   mode: strict
   target_mode: strict
   baseline: docs/02-architecture/context-boundary-baseline.yaml
   reject_new_violations: true
-  reviewed_manifest_transitions: []
+  reviewed_manifest_transitions:
+  - id: individual-telephony-livekit-sip
+    previous_manifest_sha256: baac1554531ff05f7636293ecac76922161134122eb6b1678fe3a621337604bc
+    approved_changes:
+    - context:calls:allowed_dependencies:add:telephony
+    - context:calls:public_facades:add:CommsCore.AudioCalls.LifecycleCoordinator
+    - context:telephony:add:{"allowed_dependencies":["identity_access","tenant_administration","audit","platform_eventing"],"consumes":[],"current_contexts":["Telephony"],"fold_in":[],"internal_namespaces":["CommsCore.Telephony"],"kind":"business","public_contracts":["CommsCore.Telephony.CallView","CommsCore.Telephony.CredentialRequest","CommsCore.Telephony.ProviderCommand","CommsCore.Telephony.ProviderWebhookPort","CommsCore.Telephony.ProviderWebhookPort.Contract","CommsCore.Telephony.VerifiedProviderEvent"],"public_facades":["CommsCore.Telephony"],"publishes":["telephony.call.updated"],"responsibility":"Tenant
+      phone assignment, individual SIP/PSTN call lifecycle, device-exclusive admission, durable provider work, and call records."}
+    - public_facade_api:sha256:969c078fa2e0874826f8f16796b1423e0aa29794543a63bd704b4233c52451bc->0a7c777ee6aff0979ffb1a757cc931ff73006a53173abac9c841fd7339b87632
+    - runtime_collaborations:identity-call-lifecycle:binding:{"application":"comms_core","key":"identity_call_lifecycle_adapter","module":"CommsCore.AudioCalls"}->{"application":"comms_core","key":"identity_call_lifecycle_adapter","module":"CommsCore.AudioCalls.LifecycleCoordinator"}
+    - runtime_collaborations:identity-call-lifecycle:implementation:"CommsCore.AudioCalls"->"CommsCore.AudioCalls.LifecycleCoordinator"
+    - runtime_collaborations:tenant-call-lifecycle:binding:{"application":"comms_core","key":"tenant_call_lifecycle_adapter","module":"CommsCore.AudioCalls"}->{"application":"comms_core","key":"tenant_call_lifecycle_adapter","module":"CommsCore.AudioCalls.LifecycleCoordinator"}
+    - runtime_collaborations:tenant-call-lifecycle:implementation:"CommsCore.AudioCalls"->"CommsCore.AudioCalls.LifecycleCoordinator"
+    - table:telephony_calls:add:{"canonical_schema":"CommsCore.Telephony.Call","owner":"telephony","role":"source"}
+    - table:telephony_numbers:add:{"canonical_schema":"CommsCore.Telephony.Number","owner":"telephony","role":"source"}
+    - table:telephony_provider_events:add:{"canonical_schema":"CommsCore.Telephony.ProviderEvent","owner":"telephony","role":"source"}
+    - table:telephony_room_tombstones:add:{"canonical_schema":"CommsCore.Telephony.RoomTombstone","owner":"telephony","role":"source"}
+    - technical_interfaces:telephony-provider-webhook-verification:add:{"behaviour":"CommsCore.Telephony.ProviderWebhookPort.Contract","binding":{"application":"comms_core","key":"telephony_callback_adapter","module":"CommsIntegrations.Telephony.LiveKit"},"callers":["CommsCore.Telephony","CommsCore.Telephony.Lifecycle"],"condition":"ADR-0085
+      permits only exact raw-body verification and configured provider identity authorization through the consumer-owned contract;
+      the integration verifies the LiveKit signature/body/issuer and normalizes the event, and the core port returns the Ecto-free
+      verified event and adapter identity. No unverified body, media credential, repository object, arbitrary provider binding,
+      or new operation may cross this interface.","contracts":["CommsCore.Telephony.ProviderWebhookPort","CommsCore.Telephony.ProviderWebhookPort.Contract","CommsCore.Telephony.VerifiedProviderEvent"],"dispatch":"configured","id":"telephony-provider-webhook-verification","implementation":"CommsIntegrations.Telephony.LiveKit","interface":"CommsCore.Telephony.ProviderWebhookPort","operations":[{"arity":2,"name":"verify_webhook"},{"arity":1,"name":"authorized_adapter?"}],"owner":"telephony","transaction":"independent"}
+    - technical_interfaces:web-validation-error-rendering:callers:add:"CommsCore.Telephony.Lifecycle"
+    adr: docs/02-architecture/adr/0085-add-individual-telephony-through-livekit-sip.md
+    removal_condition: Remove this exact transition after the ADR-0085 Telephony context, lifecycle coordinator, tables, and
+      facade operations are present on the protected branch; it authorizes no later ownership or permission growth.
   reviewed_baseline_transitions:
     - id: non-media-authorization-tenant-identity-and-notification-boundaries
       previous_baseline_sha256: 4d2bdb936398ae05b0f0cce0a2131891036c40aedc05f1801c3ae353aea4f7ff
@@ -366,7 +391,7 @@ contexts:
     responsibility: Audio and video call lifecycle, admission, participants, and expiry.
     current_contexts: [AudioCalls]
     fold_in: []
-    public_facades: [CommsCore.AudioCalls]
+    public_facades: [CommsCore.AudioCalls, CommsCore.AudioCalls.LifecycleCoordinator]
     public_contracts:
       - CommsCore.AudioCalls.ActivityView
       - CommsCore.AudioCalls.CallParticipantView
@@ -378,8 +403,25 @@ contexts:
       - CommsCore.AudioCalls.ModerationTarget
       - CommsCore.AudioCalls.ProviderCall
     internal_namespaces: [CommsCore.AudioCalls]
-    allowed_dependencies: [identity_access, conversations, tenant_administration, audit, platform_eventing]
+    allowed_dependencies: [identity_access, conversations, tenant_administration, telephony, audit, platform_eventing]
     publishes: [audio_call.started.v1, audio_call.ended.v1, call.started.v1, call.ended.v1]
+    consumes: []
+  telephony:
+    kind: business
+    responsibility: Tenant phone assignment, individual SIP/PSTN call lifecycle, device-exclusive admission, durable provider work, and call records.
+    current_contexts: [Telephony]
+    fold_in: []
+    public_facades: [CommsCore.Telephony]
+    public_contracts:
+      - CommsCore.Telephony.CallView
+      - CommsCore.Telephony.CredentialRequest
+      - CommsCore.Telephony.ProviderCommand
+      - CommsCore.Telephony.ProviderWebhookPort
+      - CommsCore.Telephony.ProviderWebhookPort.Contract
+      - CommsCore.Telephony.VerifiedProviderEvent
+    internal_namespaces: [CommsCore.Telephony]
+    allowed_dependencies: [identity_access, tenant_administration, audit, platform_eventing]
+    publishes: [telephony.call.updated]
     consumes: []
   notification_delivery:
     kind: business
@@ -587,20 +629,20 @@ runtime_collaborations:
     provider: calls
     port: CommsCore.Accounts.CallLifecyclePort
     result_contract: CommsCore.Accounts.CallLifecycleReceipt
-    implementation: CommsCore.AudioCalls
+    implementation: CommsCore.AudioCalls.LifecycleCoordinator
     callers: [CommsCore.Accounts, CommsCore.Accounts.PasswordRecovery]
     operations:
       - {name: revoke_identity_access, arity: 1}
     binding:
       application: comms_core
       key: identity_call_lifecycle_adapter
-      module: CommsCore.AudioCalls
+      module: CommsCore.AudioCalls.LifecycleCoordinator
     transaction: required
     graph_semantics:
       control_flow: identity_access_to_calls
       compile_dependency: calls_to_identity_access
       static_cycle_policy: dependency_inversion
-    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while Calls revokes matching admissions and schedules durable participant eviction on the caller transaction; callers, operation, command variants, receipt, and binding may not grow without architecture review.
+    condition: IdentityAccess owns the exact CallLifecycleCommand and CallLifecycleReceipt contract while the Calls lifecycle coordinator composes room admission revocation and Telephony terminal state and durable provider teardown on the caller transaction; ADR-0085 adds the exact Telephony contribution without growing callers, operation, command variants, or receipt.
   - id: identity-initial-conversation-bootstrap
     consumer: identity_access
     provider: conversations
@@ -683,20 +725,20 @@ runtime_collaborations:
     provider: calls
     port: CommsCore.Administration.CallLifecyclePort
     result_contract: CommsCore.Administration.CallLifecycleReceipt
-    implementation: CommsCore.AudioCalls
+    implementation: CommsCore.AudioCalls.LifecycleCoordinator
     callers: [CommsCore.Administration]
     operations:
       - {name: revoke_tenant_media, arity: 1}
     binding:
       application: comms_core
       key: tenant_call_lifecycle_adapter
-      module: CommsCore.AudioCalls
+      module: CommsCore.AudioCalls.LifecycleCoordinator
     transaction: required
     graph_semantics:
       control_flow: tenant_administration_to_calls
       compile_dependency: calls_to_tenant_administration
       static_cycle_policy: dependency_inversion
-    condition: TenantAdministration owns the exact media-disable command and receipt while Calls revokes only the requested tenant media kind on the settings-update transaction; caller, operation, command variant, receipt, and binding may not grow without architecture review.
+    condition: TenantAdministration owns the exact media-disable command and receipt while the Calls lifecycle coordinator revokes the requested room media kind and, for audio, composes Telephony terminal state and durable provider teardown on the settings-update transaction; ADR-0085 preserves the caller, operation, command variant, and receipt.
   - id: tenant-invitation-identity
     consumer: tenant_administration
     provider: identity_access
@@ -740,6 +782,26 @@ runtime_collaborations:
     condition: Conversations owns the exact membership/archive revocation command and receipt while Calls revokes matching admissions on the membership or archive transaction; caller, operation, command variants, receipt, and binding may not grow without architecture review.
 
 technical_interfaces:
+  - id: telephony-provider-webhook-verification
+    owner: telephony
+    interface: CommsCore.Telephony.ProviderWebhookPort
+    callers: [CommsCore.Telephony, CommsCore.Telephony.Lifecycle]
+    operations:
+      - {name: verify_webhook, arity: 2}
+      - {name: "authorized_adapter?", arity: 1}
+    dispatch: configured
+    contracts:
+      - CommsCore.Telephony.ProviderWebhookPort
+      - CommsCore.Telephony.ProviderWebhookPort.Contract
+      - CommsCore.Telephony.VerifiedProviderEvent
+    behaviour: CommsCore.Telephony.ProviderWebhookPort.Contract
+    implementation: CommsIntegrations.Telephony.LiveKit
+    binding:
+      application: comms_core
+      key: telephony_callback_adapter
+      module: CommsIntegrations.Telephony.LiveKit
+    transaction: independent
+    condition: ADR-0085 permits only exact raw-body verification and configured provider identity authorization through the consumer-owned contract; the integration verifies the LiveKit signature/body/issuer and normalizes the event, and the core port returns the Ecto-free verified event and adapter identity. No unverified body, media credential, repository object, arbitrary provider binding, or new operation may cross this interface.
   - id: web-distributed-public-rate-limit
     owner: platform_runtime
     interface: CommsCore.PlatformRateLimits
@@ -754,13 +816,13 @@ technical_interfaces:
   - id: web-validation-error-rendering
     owner: platform_runtime
     interface: CommsCore.ValidationError
-    callers: [CommsCore.Accounts, CommsWeb.FallbackController]
+    callers: [CommsCore.Accounts, CommsCore.Telephony.Lifecycle, CommsWeb.FallbackController]
     operations:
       - {name: from, arity: 1}
     dispatch: direct
     contracts: [CommsCore.ValidationError]
     transaction: independent
-    condition: IdentityAccess converts owner-internal validation failures to the stable DTO and the web fallback renders it; neither boundary may expose Ecto.Changeset.
+    condition: IdentityAccess and Telephony convert owner-internal validation failures to the stable DTO and the web fallback renders it; no boundary may expose Ecto.Changeset.
   - id: worker-attachment-restore-release
     owner: platform_runtime
     interface: CommsCore.Release
@@ -841,6 +903,10 @@ tables:
   whiteboard_snapshots: {owner: collaboration, canonical_schema: CommsCore.Whiteboards.Snapshot, role: derived}
   audio_calls: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCall, role: source}
   audio_call_participants: {owner: calls, canonical_schema: CommsCore.AudioCalls.AudioCallParticipant, role: source}
+  telephony_numbers: {owner: telephony, canonical_schema: CommsCore.Telephony.Number, role: source}
+  telephony_calls: {owner: telephony, canonical_schema: CommsCore.Telephony.Call, role: source}
+  telephony_provider_events: {owner: telephony, canonical_schema: CommsCore.Telephony.ProviderEvent, role: source}
+  telephony_room_tombstones: {owner: telephony, canonical_schema: CommsCore.Telephony.RoomTombstone, role: source}
   notification_preferences: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Preference, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}
   notification_intents: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Intent, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications, CommsCore.Operations]}
   notification_attempts: {owner: notification_delivery, canonical_schema: CommsCore.Notifications.Attempt, role: source, access: owner_only, access_namespaces: [CommsCore.Notifications]}

@@ -22,6 +22,9 @@ defmodule CommsCore.RuntimePorts do
     :outbox_publication,
     :retention,
     :retention_reconciler,
+    :telephony_cleanup,
+    :telephony_dispatch,
+    :telephony_expiry,
     :webhook_delivery
   ]
 

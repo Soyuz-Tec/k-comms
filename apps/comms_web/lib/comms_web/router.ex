@@ -123,6 +123,12 @@ defmodule CommsWeb.Router do
     plug(CommsWeb.Plugs.RateLimit, limit: 120, window: 60, scope: :ip)
   end
 
+  pipeline :telephony_provider_api do
+    plug(:accepts, ["json"])
+    plug(CommsWeb.Plugs.RequireSecureTransport)
+    plug(CommsWeb.Plugs.RateLimit, limit: 600, window: 60, scope: :telephony_provider_ip)
+  end
+
   scope "/", CommsWeb do
     pipe_through(:api)
     get("/health/live", HealthController, :live)
@@ -137,6 +143,11 @@ defmodule CommsWeb.Router do
   scope "/api/v1", CommsWeb do
     pipe_through(:api)
     get("/status", StatusController, :show)
+  end
+
+  scope "/api/v1/telephony", CommsWeb do
+    pipe_through(:telephony_provider_api)
+    post("/livekit/webhook", TelephonyWebhookController, :create)
   end
 
   scope "/api/v1", CommsWeb do
@@ -206,6 +217,16 @@ defmodule CommsWeb.Router do
     pipe_through(:authenticated_api)
 
     get("/me", MeController, :show)
+    get("/telephony/config", TelephonyController, :config)
+    get("/telephony/calls", TelephonyController, :index)
+    get("/telephony/calls/:id", TelephonyController, :show)
+    post("/telephony/calls", TelephonyController, :create)
+    post("/telephony/calls/:id/answer", TelephonyController, :answer)
+    post("/telephony/calls/:id/reject", TelephonyController, :reject)
+    post("/telephony/calls/:id/end", TelephonyController, :end_call)
+    post("/telephony/calls/:id/join", TelephonyController, :join)
+    get("/admin/telephony", TelephonyController, :admin_config)
+    put("/admin/telephony", TelephonyController, :provision)
     patch("/me/profile", ProfileController, :update)
     post("/socket-tickets", SocketTicketController, :create)
     get("/me/devices", ProfileController, :devices)

@@ -134,7 +134,7 @@ ENFORCED_TARGET_MODES = frozenset({"strict_with_explicit_deferrals", "strict"})
 
 ALLOWED_UMBRELLA_DEPENDENCIES: dict[str, frozenset[str]] = {
     "comms_core": frozenset(),
-    "comms_integrations": frozenset({"comms_observability"}),
+    "comms_integrations": frozenset({"comms_core", "comms_observability"}),
     "comms_observability": frozenset(),
     "comms_test_support": frozenset({"comms_core"}),
     "comms_web": frozenset({"comms_core", "comms_integrations", "comms_observability"}),

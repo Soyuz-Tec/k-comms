@@ -38,6 +38,9 @@ export function mockServiceStatus(
 
 export const test = base.extend({
   page: async ({ page }, use) => {
+    await page.route("**/api/v1/telephony/config", (route) =>
+      route.fulfill({ json: { data: { enabled: false, configured: false, provider: "livekit_sip", number: null, can_manage: false } } })
+    );
     await page.route("**/api/v1/status", (route) =>
       route.fulfill({ json: mockServiceStatus() })
     );

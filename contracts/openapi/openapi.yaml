@@ -13,6 +13,7 @@ tags:
   - name: Users
   - name: Conversations
   - name: Calls
+  - name: Telephony
   - name: Messages
   - name: Attachments
   - name: Administration
@@ -927,6 +928,238 @@ paths:
               schema: {$ref: '#/components/schemas/GuestLinkResponse'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/config:
+    get:
+      tags: [Telephony]
+      operationId: getTelephonyConfiguration
+      summary: Read the current user's phone assignment and provider availability
+      description: Disabled by default. Only the assigned user receives the number; trunk identifiers are disclosed only to tenant administrators. Carrier credentials and LiveKit room identifiers are never returned.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Current phone configuration; enabled does not prove a working carrier or external call
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyConfigResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/v1/admin/telephony:
+    get:
+      tags: [Telephony, Administration]
+      operationId: getAdminTelephonyConfiguration
+      summary: Read the tenant's single phone number, extension, and trunk assignment
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Administrator phone configuration
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyConfigResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [Telephony, Administration]
+      operationId: configureTenantTelephony
+      summary: Assign one tenant number and extension to an active tenant member
+      description: Requires tenant administration and recent password verification. The number must be acquired and both trunks provisioned with the carrier and LiveKit before assignment. This endpoint does not purchase numbers, provision trunks, or enable the deployment feature flag.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigureTelephonyRequest'}
+      responses:
+        '200':
+          description: Audited tenant phone assignment
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyConfigResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '428': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls:
+    get:
+      tags: [Telephony]
+      operationId: listTelephonyCalls
+      summary: List the authenticated user's durable phone call history
+      description: Tenant and user scope come from the current human session. Records describe observed connection time, not carrier billable duration or invoices.
+      security: [{bearerAuth: []}]
+      parameters:
+        - name: scope
+          in: query
+          description: all and recent return owned history; active returns ringing/answered calls; missed returns inbound no-answer/busy calls.
+          schema: {enum: [all, recent, active, missed], default: all}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+        - name: cursor
+          in: query
+          description: Opaque continuation cursor returned by the preceding page
+          schema: {type: string}
+      responses:
+        '200':
+          description: User-owned phone records, with no provider identifiers or credentials
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallPage'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [Telephony]
+      operationId: startTelephonyCall
+      summary: Dial an external E.164 number from the assigned tenant number
+      description: Persists a ringing call and provider command before dispatch. Reusing the same idempotency key and destination refers to the same call; a changed destination conflicts. The provider's verified answer observation determines answered state. Browser media admission remains bound to the current user, session, and device.
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StartTelephonyCallRequest'}
+      responses:
+        '200':
+          description: Existing idempotent call and a fresh device-bound media credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallCredentialResponse'}
+        '201':
+          description: Outbound call and a short-lived media credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallCredentialResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls/{callId}:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    get:
+      tags: [Telephony]
+      operationId: getTelephonyCall
+      summary: Read an owned phone call and current device action permissions
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Authorized individual call record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls/{callId}/answer:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Telephony]
+      operationId: answerTelephonyCall
+      summary: Atomically claim an incoming call for the current session and device
+      description: Only one device wins. Other devices receive a conflict and cannot acquire a room token. Admission alone keeps the record ringing until provider reconciliation observes the exact SIP participant active. Call duration begins at that observed SIP answer and excludes the ringing interval.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Claimed incoming call and device-bound media credential; answered state awaits exact SIP-active evidence
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallCredentialResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls/{callId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Telephony]
+      operationId: rejectTelephonyCall
+      summary: Decline a ringing incoming call and durably request provider teardown
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Declined call record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls/{callId}/end:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Telephony]
+      operationId: endTelephonyCall
+      summary: Cancel an outbound attempt or end an answered call
+      description: Terminal state is durable before provider teardown. A repeated end request preserves the terminal record and cannot add connected duration twice.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Terminal owned phone call record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/calls/{callId}/join:
+    parameters:
+      - $ref: '#/components/parameters/AudioCallId'
+    post:
+      tags: [Telephony]
+      operationId: joinTelephonyCall
+      summary: Refresh media admission for the device that owns the active call
+      description: This action cannot answer a call on another device, admit an unassigned user, or reopen a terminal call. Every credential request rechecks current identity, session, device, and phone assignment.
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: Active call and a fresh short-lived media credential
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyCallCredentialResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '426': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /api/v1/telephony/livekit/webhook:
+    post:
+      tags: [Telephony, Integrations]
+      operationId: receiveLiveKitTelephonyEvent
+      summary: Receive a body-bound authenticated LiveKit telephony event
+      description: Verify the LiveKit HS256 JWT, issuer, expiration, and SHA-256 of the exact raw request bytes before trusting parsed fields or mutating state. Known trunk, number, SIP participant, and isolated room mappings constrain attribution. Duplicate verified events are harmless; unmatched events cannot create arbitrary tenant calls. Generic media events do not prove a SIP answer.
+      security: [{livekitWebhookAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/webhook+json:
+            schema: {type: object, additionalProperties: true}
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200': {description: 'Verified event accepted, ignored, or already processed'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '413':
+          description: Webhook exceeds the 262144-byte limit and is rejected before JSON parsing
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TelephonyPayloadTooLargeResponse'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /api/v1/calls:
     get:
       tags: [Calls]
@@ -2631,6 +2864,11 @@ paths:
 
 components:
   securitySchemes:
+    livekitWebhookAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Raw LiveKit HS256 JWT in the Authorization header; optional Bearer prefix is accepted. Requires the API key issuer and API secret signature with expiry and the standard Base64 SHA-256 of the exact raw body. Never accepted as a human session.
     bearerAuth:
       type: http
       scheme: bearer
@@ -2795,6 +3033,142 @@ components:
                   code: invalid_guest_conversion_email
                   detail: The account conversion email is invalid
   schemas:
+    TelephonyNumber:
+      type: object
+      additionalProperties: false
+      required: [id, phone_number, extension, user_id]
+      properties:
+        id: {type: string, format: uuid}
+        phone_number: {type: string, pattern: '^\+[1-9][0-9]{7,14}$'}
+        extension: {type: string, pattern: '^[0-9]{2,8}$'}
+        user_id: {type: string, format: uuid}
+        inbound_trunk_id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{2,200}$'
+          description: Returned only to tenant administrators; not a carrier credential
+        outbound_trunk_id:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{2,200}$'
+          description: Returned only to tenant administrators; not a carrier credential
+    TelephonyPayloadTooLargeResponse:
+      type: object
+      additionalProperties: false
+      required: [errors]
+      properties:
+        errors:
+          type: object
+          additionalProperties: false
+          required: [detail]
+          properties:
+            detail: {type: string}
+    TelephonyConfigResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [enabled, configured, provider, number, can_manage]
+          properties:
+            enabled: {type: boolean}
+            configured: {type: boolean}
+            provider: {const: livekit_sip}
+            number:
+              oneOf:
+                - {$ref: '#/components/schemas/TelephonyNumber'}
+                - {type: 'null'}
+            can_manage: {type: boolean}
+    ConfigureTelephonyRequest:
+      type: object
+      additionalProperties: false
+      required: [phone_number, extension, user_id, inbound_trunk_id, outbound_trunk_id, reason]
+      properties:
+        phone_number: {type: string, pattern: '^\+[1-9][0-9]{7,14}$'}
+        extension: {type: string, pattern: '^[0-9]{2,8}$'}
+        user_id: {type: string, format: uuid}
+        inbound_trunk_id: {type: string, pattern: '^[A-Za-z0-9_-]{2,200}$'}
+        outbound_trunk_id: {type: string, pattern: '^[A-Za-z0-9_-]{2,200}$'}
+        reason: {type: string, minLength: 1, maxLength: 500, description: Trimmed audit reason must contain 3 to 500 UTF-8 bytes}
+    StartTelephonyCallRequest:
+      type: object
+      additionalProperties: false
+      required: [destination, idempotency_key]
+      properties:
+        destination: {type: string, pattern: '^\+[1-9][0-9]{7,14}$'}
+        idempotency_key: {type: string, minLength: 1, maxLength: 100, description: Stable request key of at most 100 UTF-8 bytes reused only for the same destination}
+    TelephonyCall:
+      type: object
+      additionalProperties: false
+      required: [id, direction, status, from_number, to_number, extension, started_at, answered_at, ended_at, connected_seconds, can_answer, can_join, can_end, active_on_this_device, end_reason]
+      properties:
+        id: {type: string, format: uuid}
+        direction: {enum: [inbound, outbound]}
+        status:
+          enum: [ringing, answered, declined, busy, no_answer, cancelled, failed, ended]
+          description: Failed with answer_unconfirmed expresses an incoming call claimed/joined by the app whose SIP answer could not be observed before end; it makes no missed-call or successful-connection claim.
+        from_number: {type: string}
+        to_number: {type: string}
+        extension: {type: string}
+        started_at: {type: string, format: date-time}
+        answered_at: {type: [string, 'null'], format: date-time}
+        ended_at: {type: [string, 'null'], format: date-time}
+        connected_seconds:
+          type: integer
+          minimum: 0
+          description: Elapsed seconds from observed SIP answer to end, or current observation for an active answered call; zero for unanswered or answer-unconfirmed calls. This is not a carrier-rated duration.
+        can_answer: {type: boolean}
+        can_join: {type: boolean}
+        can_end: {type: boolean}
+        active_on_this_device: {type: boolean}
+        end_reason: {type: [string, 'null']}
+    TelephonyCallResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {$ref: '#/components/schemas/TelephonyCall'}
+    TelephonyCallCredentialResponse:
+      type: object
+      additionalProperties: false
+      required: [data, credential]
+      properties:
+        data: {$ref: '#/components/schemas/TelephonyCall'}
+        credential: {$ref: '#/components/schemas/TelephonyCredential'}
+    TelephonyCredential:
+      type: object
+      additionalProperties: false
+      required: [server_url, participant_token, expires_in, ice_servers]
+      properties:
+        server_url: {type: string, pattern: '^wss?://'}
+        participant_token: {type: string, readOnly: true}
+        ice_servers:
+          type: array
+          description: ICE configuration for the admitted participant; empty when no relay is configured
+          items:
+            type: object
+            additionalProperties: false
+            required: [urls]
+            properties:
+              urls:
+                type: array
+                items: {type: string}
+              username: {type: string, readOnly: true}
+              credential: {type: string, readOnly: true}
+        expires_in:
+          type: integer
+          minimum: 1
+          maximum: 300
+          description: Lifetime capped by the current session and call authorization deadline; expired authorization cannot mint a token.
+    TelephonyCallPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/TelephonyCall'}
+        page: {$ref: '#/components/schemas/CursorPage'}
     StatusResponse:
       type: object
       additionalProperties: false

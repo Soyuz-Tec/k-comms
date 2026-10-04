@@ -274,6 +274,35 @@ if config_env() == :prod do
   livekit_api_key = System.get_env("LIVEKIT_API_KEY")
   livekit_api_secret = System.get_env("LIVEKIT_API_SECRET")
 
+  telephony_provider_mode =
+    System.get_env("TELEPHONY_PROVIDER_MODE", "disabled") |> String.trim() |> String.downcase()
+
+  telephony_ring_timeout_seconds =
+    parse_bounded_integer.(
+      System.get_env("TELEPHONY_RING_TIMEOUT_SECONDS", "45"),
+      "TELEPHONY_RING_TIMEOUT_SECONDS",
+      10..90
+    )
+
+  telephony_max_duration_seconds =
+    parse_bounded_integer.(
+      System.get_env("TELEPHONY_MAX_DURATION_SECONDS", "1800"),
+      "TELEPHONY_MAX_DURATION_SECONDS",
+      60..14_400
+    )
+
+  CommsIntegrations.Telephony.Config.validate!(
+    mode: telephony_provider_mode,
+    audio_mode: audio_provider_mode,
+    server_url: livekit_server_url,
+    api_url: livekit_api_url,
+    api_key: livekit_api_key,
+    api_secret: livekit_api_secret,
+    ring_timeout_seconds: telephony_ring_timeout_seconds,
+    max_duration_seconds: telephony_max_duration_seconds,
+    allow_insecure_local_media: local_release? and development_adapters?
+  )
+
   audio_token_ttl_seconds =
     case Integer.parse(System.get_env("AUDIO_TOKEN_TTL_SECONDS", "300")) do
       {value, ""} -> value
@@ -766,8 +795,15 @@ if config_env() == :prod do
   config :comms_core,
     push_delivery_status: provider_runtime.notification_delivery_status
 
+  config :comms_core,
+    telephony_ring_timeout_seconds: telephony_ring_timeout_seconds,
+    telephony_max_duration_seconds: telephony_max_duration_seconds
+
   config :comms_integrations,
     audio_provider_mode: audio_provider_mode,
+    telephony_provider_mode: telephony_provider_mode,
+    telephony_ring_timeout_seconds: telephony_ring_timeout_seconds,
+    telephony_max_duration_seconds: telephony_max_duration_seconds,
     livekit_server_url: livekit_server_url,
     livekit_api_url: livekit_api_url,
     livekit_api_key: livekit_api_key,

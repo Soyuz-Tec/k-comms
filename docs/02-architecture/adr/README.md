@@ -88,5 +88,6 @@ ADRs capture decisions that materially constrain implementation or operation.
 | 0082 | Isolate container service environments | Accepted |
 | 0083 | Bound whiteboard scenes and recover capacity with clear epochs | Accepted |
 | 0084 | Record maintenance intervals and monitor recovery evidence | Accepted |
+| 0085 | Add individual telephony through LiveKit SIP | Accepted |
 
 Create a new ADR rather than rewriting the historical rationale of an approved decision. Supersede older ADRs explicitly.

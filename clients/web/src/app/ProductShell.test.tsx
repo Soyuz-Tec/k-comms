@@ -70,6 +70,10 @@ vi.mock("../features/calls/CallSessionProvider", () => ({
   useCallSession: () => ({ teardownCall: harness.teardownCall })
 }));
 
+vi.mock("../features/telephony/TelephonyProvider", () => ({
+  TelephonyProvider: ({ children }: { children: ReactNode }) => children
+}));
+
 vi.mock("../features/notifications/NotificationCenter", () => ({
   NotificationCenter: () => <button type="button">Notifications</button>
 }));

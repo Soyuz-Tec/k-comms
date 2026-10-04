@@ -1,0 +1,15 @@
+.phone-page { overflow-y: auto; }
+.phone-workspace { display: grid; grid-template-columns: minmax(240px, 340px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.phone-dialer, .phone-history, .phone-setup-note, .phone-admin-panel { padding: 1.25rem; border: 1px solid var(--border-default); border-radius: 1rem; background: var(--surface-raised); }
+.phone-line { display: flex; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
+.phone-dialer form, .phone-admin-panel form { display: grid; gap: 1rem; }
+.phone-history header, .phone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.phone-history header { justify-content: space-between; }
+.phone-history-list { list-style: none; padding: 0; margin: 1rem 0; }
+.phone-history-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding-block: 1rem; border-block-end: 1px solid var(--border-default); }
+.phone-history-list li > div { display: grid; gap: .35rem; overflow-wrap: anywhere; }
+.phone-call-dock { position: fixed; z-index: 170; inset-block-end: 1rem; inset-inline-end: 1rem; width: min(380px, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--border-default); border-radius: 1rem; background: var(--surface-raised); box-shadow: 0 12px 40px #0003; max-height: 65vh; overflow-y: auto; }
+.phone-call-dock p > strong, .phone-call-dock p > span { display: block; overflow-wrap: anywhere; }
+.phone-setup-note { margin-block: 1rem; }
+.phone-admin-panel { max-width: 680px; }
+@media (max-width: 720px) { .phone-workspace { grid-template-columns: minmax(0, 1fr); } .phone-call-dock { inset-block-end: calc(5rem + env(safe-area-inset-bottom)); } }

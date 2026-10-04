@@ -9,6 +9,10 @@ config :comms_core, CommsCore.Repo,
   stacktrace: true
 
 config :comms_core,
+  telephony_ring_timeout_seconds:
+    String.to_integer(System.get_env("TELEPHONY_RING_TIMEOUT_SECONDS", "45")),
+  telephony_max_duration_seconds:
+    String.to_integer(System.get_env("TELEPHONY_MAX_DURATION_SECONDS", "1800")),
   audio_participant_eviction_enforcement_seconds:
     String.to_integer(System.get_env("AUDIO_PARTICIPANT_EVICTION_ENFORCEMENT_SECONDS", "660")),
   instant_rooms_enabled:
@@ -47,6 +51,11 @@ config :comms_integrations,
   # http://livekit; both are refused unless this gate is explicitly on.
   allow_insecure_local_media: true,
   audio_provider_mode: System.get_env("AUDIO_PROVIDER_MODE", "livekit"),
+  telephony_provider_mode: System.get_env("TELEPHONY_PROVIDER_MODE", "disabled"),
+  telephony_ring_timeout_seconds:
+    String.to_integer(System.get_env("TELEPHONY_RING_TIMEOUT_SECONDS", "45")),
+  telephony_max_duration_seconds:
+    String.to_integer(System.get_env("TELEPHONY_MAX_DURATION_SECONDS", "1800")),
   livekit_server_url: System.get_env("LIVEKIT_SERVER_URL", "ws://127.0.0.1:7880"),
   livekit_api_url: System.get_env("LIVEKIT_API_URL", "http://livekit:7880"),
   livekit_api_key: System.get_env("LIVEKIT_API_KEY", "kcomms-local-api-key"),

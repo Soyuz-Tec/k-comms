@@ -45,6 +45,8 @@ defmodule CommsWeb.Plugs.RateLimit do
 
   defp client_key(conn, :authentication_ip), do: {:authentication_ip, peer(conn)}
 
+  defp client_key(conn, :telephony_provider_ip), do: {:telephony_provider_ip, peer(conn)}
+
   defp client_key(conn, :guest_admission_ip), do: {:guest_admission_ip, peer(conn)}
 
   defp client_key(conn, :guest_admission_token) do

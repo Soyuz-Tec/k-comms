@@ -75,6 +75,21 @@ defmodule CommsWeb.FallbackController do
   defp error(:step_up_required),
     do: {428, "step_up_required", "Recent password verification is required"}
 
+  defp error(:invalid_provider_webhook),
+    do: {401, "invalid_provider_webhook", "A valid provider signature is required"}
+
+  defp error(:telephony_disabled),
+    do: {503, "telephony_disabled", "Telephone calling is unavailable"}
+
+  defp error(:telephony_provider_unavailable),
+    do: {503, "provider_unavailable", "The telephone provider is unavailable"}
+
+  defp error(:invalid_provider_event),
+    do: {422, "invalid_provider_event", "The provider event could not be processed"}
+
+  defp error(:telephony_not_configured),
+    do: {409, "telephony_not_configured", "A telephone line must be assigned before calling"}
+
   defp error(:email_change_requires_verification),
     do:
       {409, "email_change_requires_verification",
@@ -174,7 +189,14 @@ defmodule CommsWeb.FallbackController do
               :call_media_kind_conflict,
               :direct_conversation_unavailable,
               :guest_link_already_revoked,
-              :guest_account_already_converted
+              :guest_account_already_converted,
+              :active_call_conflict,
+              :busy,
+              :call_ended,
+              :invalid_call_action,
+              :answer_required,
+              :answered_elsewhere,
+              :event_conflict
             ],
        do:
          {409, Atom.to_string(reason), "The operation conflicts with the current resource state"}
@@ -318,7 +340,8 @@ defmodule CommsWeb.FallbackController do
               :invalid_guest_link_max_uses,
               :invalid_guest_device,
               :invalid_ephemeral_room_title,
-              :guest_links_not_supported
+              :guest_links_not_supported,
+              :invalid_destination
             ],
        do: {422, Atom.to_string(reason), "The request could not be processed"}
 

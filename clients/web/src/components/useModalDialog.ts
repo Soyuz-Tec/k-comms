@@ -124,10 +124,19 @@ export function useModalDialog(onClose: () => void, enabled = true) {
     activeDialogs.push(dialog);
     lockBodyScroll();
     const isolated = isolateBackground(dialog);
-    const initial = dialog.querySelector<HTMLElement>("[data-initial-focus], [autofocus]")
-      ?? focusableElements(dialog)[0]
-      ?? dialog;
-    const frame = window.requestAnimationFrame(() => initial.focus());
+    const frame = window.requestAnimationFrame(() => {
+      if (activeDialogs.at(-1) !== dialog) return;
+      const focused = document.activeElement;
+      // A user can enter an asynchronously rendered field before this frame.
+      // Preserve that choice rather than moving their next keystroke elsewhere.
+      if (focused instanceof HTMLElement && focused !== dialog &&
+          dialog.contains(focused) && isAvailable(focused) && !focused.matches(":disabled")) return;
+      const initial = [...dialog.querySelectorAll<HTMLElement>("[data-initial-focus], [autofocus]")]
+        .find((element) => isAvailable(element) && !element.matches(":disabled"))
+        ?? focusableElements(dialog)[0]
+        ?? dialog;
+      initial.focus();
+    });
 
     function keyDown(event: KeyboardEvent) {
       if (activeDialogs.at(-1) !== dialog) return;

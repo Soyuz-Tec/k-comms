@@ -22,9 +22,10 @@ defmodule CommsIntegrations.MixProject do
 
   defp deps do
     [
+      {:comms_core, in_umbrella: true},
       {:comms_observability, in_umbrella: true},
       {:finch, "~> 0.20"},
-      {:mint, "~> 1.9"},
+      {:mint, "~> 1.10.2"},
       {:jason, "~> 1.4"}
     ]
   end

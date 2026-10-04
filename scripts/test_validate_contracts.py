@@ -15,6 +15,7 @@ from validate_contracts import (
     validate_guest_contract,
     validate_instant_room_contract,
     validate_instant_room_realtime_contract,
+    validate_telephony_contract,
     validate_whiteboard_contract,
     validate_whiteboard_realtime_contract,
 )
@@ -29,6 +30,36 @@ class ContractValidationTests(unittest.TestCase):
         validate_guest_contract(self.openapi)
         validate_instant_room_contract(self.openapi)
         validate_whiteboard_contract(self.openapi)
+        validate_telephony_contract(self.openapi)
+
+    def test_telephony_contract_requires_human_auth_and_separate_provider_auth(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/telephony/calls/{callId}/answer"]["post"]["security"] = []
+        with self.assertRaisesRegex(ValueError, "requires bearerAuth"):
+            validate_telephony_contract(document)
+
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/telephony/livekit/webhook"]["post"]["security"] = [{"bearerAuth": []}]
+        with self.assertRaisesRegex(ValueError, "separate livekitWebhookAuth"):
+            validate_telephony_contract(document)
+
+    def test_telephony_projection_cannot_expose_provider_room_or_token(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["TelephonyCall"]["properties"]["provider_room"] = {"type": "string"}
+        with self.assertRaisesRegex(ValueError, "frozen individual call projection"):
+            validate_telephony_contract(document)
+
+    def test_telephony_start_cannot_drop_idempotency_key(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["components"]["schemas"]["StartTelephonyCallRequest"]["required"].remove("idempotency_key")
+        with self.assertRaisesRegex(ValueError, "destination and idempotency key"):
+            validate_telephony_contract(document)
+
+    def test_telephony_provider_callback_documents_exact_body_binding(self) -> None:
+        document = copy.deepcopy(self.openapi)
+        document["paths"]["/api/v1/telephony/livekit/webhook"]["post"]["description"] = "Accept JSON."
+        with self.assertRaisesRegex(ValueError, "body-bound provider attribution"):
+            validate_telephony_contract(document)
 
     def test_whiteboard_contract_rejects_unbounded_or_unsafe_scene_data(self) -> None:
         openapi = copy.deepcopy(self.openapi)
