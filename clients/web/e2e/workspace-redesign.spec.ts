@@ -201,6 +201,15 @@ for (const width of [320, 390]) {
     const content = await people.boundingBox();
     expect(content).not.toBeNull();
     expect(content!.y, "The first administration task must begin within 320px of the viewport top").toBeLessThanOrEqual(320);
+    const sections = page.getByRole("navigation", { name: "Administration sections" }).getByRole("button");
+    await expect(sections).toHaveCount(7);
+    for (const section of await sections.all()) {
+      await expect(section).toBeVisible();
+      const target = await section.boundingBox();
+      expect(target).not.toBeNull();
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+    }
     await expectNoDocumentOverflow(page);
     await capture(page, info, `administration-content-${width}`);
     expect(state.unexpectedRequests).toEqual([]);
