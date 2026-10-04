@@ -16,6 +16,30 @@ export function guestTokenFromFragment(
   return new URLSearchParams(fragment).get("guest")?.trim() || null;
 }
 
+/** Pasted links must belong to this deployment; credentials remain in the fragment. */
+export function guestJoinTargetFromInput(value: string, origin = window.location.origin): string | null {
+  const input = value.trim();
+  if (!input || input.length > 4096 || input.includes("\\") ||
+      [...input].some((character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) return null;
+  try {
+    const url = new URL(input, origin);
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    const token = fragment.get("guest");
+    if (url.origin !== origin || !["http:", "https:"].includes(url.protocol) ||
+        url.username || url.password || !["/join", "/join/"].includes(url.pathname) ||
+        fragment.size !== 1 || !token || !/^[A-Za-z0-9._~-]{1,512}$/.test(token) ||
+        ["token", "guest", "invitation_token"].some((name) => url.searchParams.has(name))) return null;
+    const call = url.searchParams.get("call");
+    if ([...url.searchParams.keys()].some((name) => !["call", "call_readiness"].includes(name)) ||
+        url.searchParams.getAll("call").length > 1 || url.searchParams.getAll("call_readiness").length > 1 ||
+        (call !== null && call !== "audio" && call !== "video") ||
+        (url.searchParams.has("call_readiness") && (call !== "audio" || url.searchParams.get("call_readiness") !== "office"))) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export function scrubGuestTokenFragment(
   location: Location = window.location,
   history: History = window.history

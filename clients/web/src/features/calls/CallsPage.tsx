@@ -48,7 +48,13 @@ export function CallsPage() {
   const [error, setError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
   const [launcherPreference, setLauncherPreference] = useState<boolean | null>(null);
+  const launcherSearchRef = useRef<HTMLInputElement>(null);
+  const historyRef = useRef<HTMLElement>(null);
   const requestGeneration = useRef(0);
+
+  useEffect(() => {
+    if (launcherPreference === true) launcherSearchRef.current?.focus();
+  }, [launcherPreference]);
 
   const loadCalls = useCallback(async (mode: "replace" | "append", cursor?: string | null) => {
     const generation = ++requestGeneration.current;
@@ -123,8 +129,7 @@ export function CallsPage() {
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
       .slice(0, 8);
   }, [conversationQuery, conversations]);
-  const launcherExpanded = launcherPreference ?? (!loading && calls.length === 0);
-  const prioritizeLauncher = calls.length === 0 && !error;
+  const launcherExpanded = launcherPreference ?? false;
 
   if (!session) return null;
 
@@ -153,7 +158,14 @@ export function CallsPage() {
           </div>
         </div>
         <div className="calls-page-actions">
-          <Link className="button ghost" to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
+          <button className="button primary calls-start-action" type="button" onClick={() => {
+            setLauncherPreference(true);
+            launcherSearchRef.current?.focus();
+          }}><AppIcon name="plus" />Start call</button>
+          <button className="button ghost calls-join-action" type="button" onClick={() => {
+            setScope("active");
+            historyRef.current?.focus();
+          }}><AppIcon name="users" />Join active call</button>
           <Link className="button ghost" to="/app/directory">
             <AppIcon name="contact" />
             View contacts
@@ -176,7 +188,12 @@ export function CallsPage() {
         </div>
       </header>
 
-      <div className={`calls-workspace ${prioritizeLauncher ? "prioritize-launcher" : ""}`}>
+      <nav className="calls-destination-tabs" aria-label="Calling destinations">
+        <Link to="/app/calls" aria-current="page"><AppIcon name="video" />Meetings</Link>
+        <Link to="/app/calls/phone"><AppIcon name="phone" />Phone</Link>
+      </nav>
+
+      <div className="calls-workspace">
         <button
           className="calls-new-call-toggle"
           type="button"
@@ -186,7 +203,7 @@ export function CallsPage() {
         >
           {/* The glyph followed the control, not the action: a plus sat beside "Hide". */}
           <AppIcon name={launcherExpanded ? "chevronDown" : "plus"} />
-          {launcherExpanded ? "Hide call launcher" : "Start a new call"}
+          {launcherExpanded ? "Hide call launcher" : "Start call"}
         </button>
 
         <section
@@ -204,6 +221,7 @@ export function CallsPage() {
             <span className="sr-only">Find a conversation to call</span>
             <AppIcon name="search" />
             <input
+              ref={launcherSearchRef}
               type="search"
               value={conversationQuery}
               placeholder="Find a conversation"
@@ -272,7 +290,7 @@ export function CallsPage() {
           </Link>
         </section>
 
-        <section className="calls-history" aria-labelledby="call-sessions-heading">
+        <section ref={historyRef} className="calls-history" aria-labelledby="call-sessions-heading" tabIndex={-1}>
           <div className="calls-section-heading">
             <div>
               <h2 id="call-sessions-heading">Call history</h2>
@@ -414,10 +432,10 @@ function CallSessionRow({
         <p>
           <span>{call.media_kind === "video" ? "Video" : "Audio"}</span>
           <span aria-hidden="true"> · </span>
-          <span>{active || ending ? "Started" : "Ended"} by {startedByIdentifier}</span>
+          <span>Started by {startedByIdentifier}</span>
         </p>
         <p>
-          <time dateTime={time}>{formatDateTime(time)}</time>
+          <span>{active || ending ? "Started" : "Ended"} <time dateTime={time}>{formatDateTime(time)}</time></span>
           <span aria-hidden="true"> · </span>
           <span>{formatDuration(call.duration_seconds)} room duration</span>
         </p>

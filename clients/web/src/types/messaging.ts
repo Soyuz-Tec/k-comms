@@ -129,6 +129,8 @@ export interface FilesPageResponse {
 
 export interface FilesQueryOptions {
   scope?: FilesScope;
+  q?: string;
+  category?: "images" | "non_images";
   conversation_id?: string;
   limit?: number;
   cursor?: string | null;

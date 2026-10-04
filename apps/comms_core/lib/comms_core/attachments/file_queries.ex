@@ -29,6 +29,8 @@ defmodule CommsCore.Attachments.FileQueries do
           | {:error,
              :forbidden
              | :invalid_file_scope
+             | :invalid_file_category
+             | :invalid_search_query
              | :invalid_conversation_id
              | :invalid_cursor}
   def list_files(subject, params \\ %{})
@@ -36,6 +38,7 @@ defmodule CommsCore.Attachments.FileQueries do
   def list_files(subject, params) when is_map(subject) and is_map(params) do
     with {:ok, grant} <- Accounts.access_grant(subject),
          {:ok, scope} <- file_scope(value(params, :scope)),
+         {:ok, category} <- file_category(value(params, :category)),
          {:ok, conversation_id} <- optional_file_conversation(value(params, :conversation_id)),
          {:ok, search_query} <- optional_search_query(value(params, :q)),
          {:ok, cursor} <- optional_file_cursor(value(params, :cursor)) do
@@ -72,6 +75,7 @@ defmodule CommsCore.Attachments.FileQueries do
           |> maybe_filter_file_scope(scope, grant.user_id)
           |> maybe_filter_file_conversation(conversation_id)
           |> maybe_filter_file_search(search_query)
+          |> maybe_filter_file_category(category)
           |> maybe_before_file_cursor(cursor)
           |> limit(^(limit + 1))
           |> Repo.all()
@@ -112,6 +116,20 @@ defmodule CommsCore.Attachments.FileQueries do
   defp file_scope(:shared_by_me), do: {:ok, :shared_by_me}
   defp file_scope("shared_by_me"), do: {:ok, :shared_by_me}
   defp file_scope(_value), do: {:error, :invalid_file_scope}
+
+  defp file_category(nil), do: {:ok, :all}
+  defp file_category(""), do: {:ok, :all}
+  defp file_category(value) when value in [:images, "images"], do: {:ok, :images}
+  defp file_category(value) when value in [:non_images, "non_images"], do: {:ok, :non_images}
+  defp file_category(_value), do: {:error, :invalid_file_category}
+
+  defp maybe_filter_file_category(query, :all), do: query
+
+  defp maybe_filter_file_category(query, :images),
+    do: where(query, [attachment: attachment], ilike(attachment.content_type, "image/%"))
+
+  defp maybe_filter_file_category(query, :non_images),
+    do: where(query, [attachment: attachment], not ilike(attachment.content_type, "image/%"))
 
   defp optional_file_conversation(nil), do: {:ok, nil}
   defp optional_file_conversation(""), do: {:ok, nil}

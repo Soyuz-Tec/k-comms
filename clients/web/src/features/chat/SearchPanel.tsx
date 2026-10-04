@@ -31,12 +31,14 @@ export function SearchPanel({
   api,
   conversations,
   users,
+  initialConversationId,
   onClose,
   onSelect
 }: {
   api: ApiClient;
   conversations: Conversation[];
   users: User[];
+  initialConversationId?: string | null;
   onClose: () => void;
   onSelect: (message: Pick<Message, "id" | "conversation_id" | "conversation_sequence">) => void;
 }) {
@@ -44,7 +46,9 @@ export function SearchPanel({
   const [results, setResults] = useState<Message[]>([]);
   const [files, setFiles] = useState<FileSummary[]>([]);
   const [whiteboards, setWhiteboards] = useState<WhiteboardSearchResult[]>([]);
-  const [conversationId, setConversationId] = useState("all");
+  const [conversationId, setConversationId] = useState(() =>
+    conversations.some((conversation) => conversation.id === initialConversationId) ? initialConversationId! : "all"
+  );
   const [senderId, setSenderId] = useState("all");
   const [dateScope, setDateScope] = useState<DateScope>("any");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -276,9 +280,9 @@ export function SearchPanel({
 
   return (
     <div className="drawer-backdrop">
-      <aside ref={dialogRef} className="search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title">
+      <section ref={dialogRef} className="search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title">
         <header>
-          <div><span className="eyebrow">Messages, files, and whiteboards</span><h2 id="message-search-title">Search messages</h2></div>
+          <div><span className="eyebrow">Messages, files, and whiteboards</span><h2 id="message-search-title">Search workspace content</h2></div>
           <AppSurfaceControlButton
             accessibleLabel="Close search"
             kind="close"
@@ -286,7 +290,7 @@ export function SearchPanel({
           />
         </header>
         <form className="search-form message-search-form" role="search" onSubmit={(event) => void search(event)}>
-          <label className="sr-only" htmlFor="message-search">Search accessible messages</label>
+          <label className="sr-only" htmlFor="message-search">Search accessible workspace content</label>
           <input id="message-search" type="search" value={query} onChange={(event) => queryChanged(event.target.value)} placeholder="Search messages, files, and whiteboards" autoFocus data-initial-focus />
           <button className="button primary compact" type="submit" disabled={busy || !query.trim()}>{busy ? "Searching…" : "Search"}</button>
           <fieldset className="message-search-filters">
@@ -332,7 +336,7 @@ export function SearchPanel({
           })}
         </ol>
         {hasMore && <button className="button ghost full" type="button" disabled={busy || !cursor} onClick={() => void loadResults(cursor, true)}>{busy ? "Loading…" : "Load more results"}</button>}
-      </aside>
+      </section>
     </div>
   );
 }

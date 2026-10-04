@@ -301,6 +301,20 @@
     background: var(--surface-raised);
   }
 
+  .app-shell.workspace-navigation-pinned {
+    padding-left: var(--desktop-sidebar-expanded-width);
+  }
+
+  .workspace-navigation-pinned .workspace-sidebar {
+    inset: max(0px, env(titlebar-area-height, 0px)) auto 0 0;
+    max-height: none;
+    margin-block: 0;
+    border-right: 1px solid var(--border-default);
+    border-radius: 0;
+    background: var(--surface-canvas);
+    box-shadow: none;
+  }
+
   .workspace-sidebar {
     position: fixed;
     z-index: 40;

@@ -4,6 +4,7 @@
   display: grid;
   gap: 1.25rem;
   padding-bottom: calc(2rem + var(--safe-bottom));
+  container: calls-page / inline-size;
 }
 
 .calls-page-heading {
@@ -77,6 +78,33 @@
 .calls-refresh-action .app-icon {
   width: 18px;
   height: 18px;
+}
+
+.calls-destination-tabs {
+  display: flex;
+  gap: .35rem;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.calls-destination-tabs a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: .45rem;
+  padding: .6rem 1rem;
+  border-bottom: 3px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.calls-destination-tabs a[aria-current="page"] {
+  border-bottom-color: var(--accent-solid);
+  color: var(--accent-text);
+}
+
+.calls-destination-tabs a:hover {
+  background: var(--surface-canvas);
 }
 
 .calls-workspace {
@@ -323,7 +351,7 @@
 
 .calls-quick-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(5.5rem, 100%), 1fr));
   flex: 0 0 auto;
   align-items: center;
   gap: var(--space-1);
@@ -752,6 +780,51 @@
   }
 }
 
+/* Reflow against the page's available width, including a pinned navigation. */
+@container calls-page (max-width: 44rem) {
+  .calls-page-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .calls-page-actions {
+    justify-content: flex-start;
+  }
+
+  .calls-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    overflow: visible;
+  }
+
+  .calls-history {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .calls-launcher {
+    grid-column: 1;
+    grid-row: 2;
+    border-top: 1px solid var(--border-default);
+    border-right: 0;
+  }
+
+  .call-readiness-launcher {
+    grid-column: 1;
+    grid-row: 3;
+    border-right: 0;
+  }
+
+  .calls-launch-list {
+    grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    max-height: 20rem;
+  }
+
+  .calls-section-heading {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 760px), (max-height: 560px) {
   .calls-page {
     min-height: calc(var(--app-viewport-height) - var(--mobile-topbar-total) - var(--mobile-nav-total));
@@ -763,8 +836,8 @@
   }
 
   .calls-page-heading {
-    align-items: center;
-    flex-direction: row;
+    align-items: stretch;
+    flex-direction: column;
     gap: .5rem;
     padding: 0 0 .55rem;
   }
@@ -784,7 +857,8 @@
   }
 
   .calls-page-actions {
-    margin-left: auto;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .calls-page-actions .button {
@@ -800,6 +874,18 @@
   .calls-page-actions .button .app-icon {
     width: 19px;
     height: 19px;
+  }
+
+  .calls-page-actions .calls-start-action {
+    display: none;
+  }
+
+  .calls-page-actions .calls-join-action {
+    width: auto;
+    flex: 1;
+    gap: .4rem;
+    padding: .5rem .75rem;
+    font-size: .8rem;
   }
 
   .calls-workspace {
@@ -821,39 +907,19 @@
   }
 
   .calls-history {
-    order: 1;
+    order: 3;
   }
 
   .call-readiness-launcher {
-    order: 3;
+    order: 4;
   }
 
   .calls-new-call-toggle {
-    order: 4;
-  }
-
-  .calls-launcher {
-    order: 5;
-  }
-
-  /*
-   * An empty history is guidance, not the primary task. Put the call launcher
-   * first until a live or recent room gives the history something actionable.
-   */
-  .calls-workspace.prioritize-launcher .calls-new-call-toggle {
     order: 1;
   }
 
-  .calls-workspace.prioritize-launcher .calls-launcher {
+  .calls-launcher {
     order: 2;
-  }
-
-  .calls-workspace.prioritize-launcher .call-readiness-launcher {
-    order: 3;
-  }
-
-  .calls-workspace.prioritize-launcher .calls-history {
-    order: 4;
   }
 
   .calls-history,
@@ -1041,7 +1107,7 @@
   }
 
   .calls-launch-list {
-    max-height: none;
+    max-height: 18rem;
     gap: .35rem;
   }
 

@@ -26,6 +26,24 @@ function CurrentLocation() {
 }
 
 describe("WhiteboardPage workspace bar", () => {
+  it.each(["missing-conversation", ""])("does not open another board for an unavailable explicit target %s", async (target) => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={[`/app/whiteboard?conversation=${target}&focus_elements=old-shape`]}><WhiteboardPage /><CurrentLocation /></MemoryRouter>);
+    expect(screen.getByRole("alert")).toHaveTextContent("Board unavailable");
+    expect(screen.queryByRole("region", { name: /Whiteboard for/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open conversation" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Conversation" })).toHaveValue("");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Conversation" }), "conversation-two");
+    expect(screen.getByRole("region", { name: "Whiteboard for Delivery team" })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Current location")).toHaveTextContent("/app/whiteboard?conversation=conversation-two");
+    expect(screen.getByLabelText("Current location")).not.toHaveTextContent("focus_elements");
+  });
+
+  it("defaults to the first board only when no conversation was requested", () => {
+    render(<MemoryRouter initialEntries={["/app/whiteboard"]}><WhiteboardPage /></MemoryRouter>);
+    expect(screen.getByRole("region", { name: "Whiteboard for Product planning" })).toBeVisible();
+  });
   it("keeps the compact chat action named and scoped to the selected conversation", async () => {
     const user = userEvent.setup();
     render(

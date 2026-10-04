@@ -201,6 +201,9 @@ export function CallPrejoinDialog({
         <label className="checkbox-field"><input type="checkbox" checked={microphoneEnabled} disabled={joining || readinessEnabled} onChange={(event) => onMicrophoneEnabled(event.target.checked)} />Use microphone when I join</label>
         {kind === "video" && <label className="checkbox-field"><input type="checkbox" checked={cameraEnabled} disabled={joining || previewBusy} onChange={(event) => onCameraEnabled(event.target.checked)} />Use camera when I join</label>}
       </div>
+      <p className="prejoin-media-summary" role="status">You will join with your microphone {microphoneEnabled ? "on" : "off"}{kind === "video" ? ` and camera ${cameraEnabled ? "on" : "off"}` : ""}.</p>
+      {kind === "audio" && (directAudioAvailable || Boolean(onReadinessEnabled)) && <details className="prejoin-device-settings prejoin-connection-settings" open={readinessEnabled || undefined}>
+      <summary>Advanced connection options</summary>
       {kind === "audio" && directAudioAvailable && !readinessEnabled && onPreferDirectAudio && (
         <section className="prejoin-readiness-option" aria-labelledby="prejoin-direct-audio-title">
           <label className="checkbox-field">
@@ -226,17 +229,17 @@ export function CallPrejoinDialog({
               disabled={joining}
               onChange={(event) => onReadinessEnabled(event.target.checked)}
             />
-            <span><strong id="prejoin-readiness-title">Run secure office network qualification</strong><small>Checks signaling, TURN relay, microphone publishing, recovery, and a 60-second two-way conversation.</small></span>
+            <span><strong id="prejoin-readiness-title">Run connection test</strong><small>Checks signaling, TURN relay, microphone publishing, recovery, and a 60-second two-way conversation. Running the test uses your microphone.</small></span>
           </label>
           {readinessEnabled && joining && (
-            <ul className="prejoin-readiness-checks" aria-label="Office network qualification checks">
+            <ul className="prejoin-readiness-checks" aria-label="Connection test checks">
               {readinessChecks.map((check) => <li key={check.id}><span>{check.label}</span><small>{check.status}</small></li>)}
               {readinessPhase === "switching_transport" && <li><span>TURN/TLS path</span><small>running</small></li>}
             </ul>
           )}
           {readinessEnabled && readinessPhase === "failed" && (
             <div className="prejoin-readiness-failure" role="alert">
-              <strong>Office network qualification did not complete.</strong>
+              <strong>Connection test did not complete.</strong>
               {readinessFailure && <span>{readinessFailure}</span>}
               {readinessReportAvailable && onDownloadReadinessReport && (
                 <button className="button ghost compact" type="button" onClick={onDownloadReadinessReport}>
@@ -247,6 +250,7 @@ export function CallPrejoinDialog({
           )}
         </section>
       )}
+      </details>}
       <details className="prejoin-device-settings">
         <summary>Device settings</summary>
         <div className="call-device-grid prejoin-device-grid">
@@ -272,7 +276,7 @@ export function CallPrejoinDialog({
         <button className="button ghost prejoin-cancel-action" type="button" onClick={onCancel}>Cancel</button>
         {kind === "audio" ? <>
           {!readinessEnabled && <button className="button ghost" type="button" disabled={joining} onClick={() => onJoin(false, false)}>{joining ? "Joining…" : "Join muted"}</button>}
-          <button className="button primary" type="button" disabled={joining} onClick={() => onJoin(true, false)}>{joining ? (readinessEnabled ? "Checking network…" : "Joining…") : readinessEnabled ? "Run office call test" : "Join with microphone"}</button>
+          <button className="button primary" type="button" disabled={joining} onClick={() => onJoin(microphoneEnabled, false)}>{joining ? (readinessEnabled ? "Checking network…" : "Joining…") : readinessEnabled ? "Run connection test" : "Join audio call"}</button>
         </> : <button className="button primary" type="button" disabled={joining || previewBusy} onClick={() => onJoin(microphoneEnabled, cameraEnabled)}>{joining ? "Joining…" : "Join video call"}</button>}
       </div>
     </section>
@@ -334,6 +338,28 @@ export function prioritizeVideoParticipants(participants: ParticipantView[]): Pa
     .map(({ participant }) => participant);
 }
 
+export type VideoView = "automatic" | "gallery" | "speaker";
+
+export function videoParticipantsForView(
+  participants: ParticipantView[],
+  view: VideoView,
+  pinnedParticipantId: string | null
+): ParticipantView[] {
+  if (view === "automatic") return prioritizeVideoParticipants(participants);
+  return participants
+    .map((participant, index) => ({ participant, index }))
+    .sort((left, right) => {
+      const priority = (participant: ParticipantView) => {
+        if (videoParticipantPriority(participant) === 0) return 0;
+        if (view === "gallery") return 1;
+        if (participant.id === pinnedParticipantId) return 1;
+        return videoParticipantPriority(participant) + 2;
+      };
+      return priority(left.participant) - priority(right.participant) || left.index - right.index;
+    })
+    .map(({ participant }) => participant);
+}
+
 function videoParticipantPriority(participant: ParticipantView): number {
   const sharingScreen = participant.screenShareEnabled
     || participant.videoTracks.some((track) => track.source === "screen_share");
@@ -343,14 +369,19 @@ function videoParticipantPriority(participant: ParticipantView): number {
   return 3;
 }
 
-export function VideoParticipantGrid({ participants }: { participants: ParticipantView[] }) {
+export function VideoParticipantGrid({ participants, view = "automatic", pinnedParticipantId = null, onPin }: {
+  participants: ParticipantView[];
+  view?: VideoView;
+  pinnedParticipantId?: string | null;
+  onPin?: (participantId: string | null) => void;
+}) {
   const duplicateNames = duplicateParticipantNames(
     participants.map((participant) => ({
       id: participant.id,
       display_name: participant.name
     }))
   );
-  return <div className={`video-participant-grid participant-count-${Math.min(participants.length, 4)}`} role="list" aria-label="Video participants">
+  return <div className={`video-participant-grid view-${view} participant-count-${Math.min(participants.length, 4)}`} role="list" aria-label="Video participants">
     {participants.map((participant) => {
       const identifier = participantIdentifier(
         { id: participant.id, display_name: participant.name },
@@ -366,6 +397,13 @@ export function VideoParticipantGrid({ participants }: { participants: Participa
       </div>
       <div className="video-participant-caption">
         <strong>{identifier}{participant.local ? " (you)" : ""}</strong>
+        {onPin && <button
+          className="video-participant-pin"
+          type="button"
+          aria-label={`${participant.id === pinnedParticipantId ? "Unpin" : "Pin"} ${identifier} for me`}
+          aria-pressed={participant.id === pinnedParticipantId}
+          onClick={() => onPin(participant.id === pinnedParticipantId ? null : participant.id)}
+        >{participant.id === pinnedParticipantId ? "Unpin" : "Pin"}</button>}
         {/*
           * Decorative state trail. The tile's aria-label already states mic,
           * camera and speaking, so none of this is announced twice. The level

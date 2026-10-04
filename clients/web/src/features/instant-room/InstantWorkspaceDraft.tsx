@@ -8,6 +8,7 @@ import { useModalDialog } from "../../components/useModalDialog";
 import type { WhiteboardElementData } from "../../types";
 import { CanvasControls } from "../whiteboard/CanvasControls";
 import { KCommsDrawingCanvas } from "../whiteboard/KCommsDrawingCanvas";
+import { GuestLinkEntry } from "../guest/GuestLinkEntry";
 import {
   defaultGuestDisplayName,
   loadInstantWorkspaceDraft,
@@ -419,6 +420,10 @@ export function InstantWorkspaceDraft({
                     : "Create room"}
             </button>
             <small>Invite links, QR sharing, audio, and video appear inside the room.</small>
+            <details className="guest-link-entry-disclosure">
+              <summary className="button ghost full">Join by link</summary>
+              <GuestLinkEntry />
+            </details>
             <Link className="instant-draft-account-link" to={identityManaged ? "/app/" : "/sign-in"}>
               {identityManaged ? "Open your full workspace" : "Already have an account? Sign in"}
             </Link>

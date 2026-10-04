@@ -1,11 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, UpdateTenantInput } from "../../api";
 import type { TenantAdministration } from "../../types";
 import { TenantSettingsPanel } from "./TenantSettingsPanel";
 
-const runWithStepUp = vi.hoisted(() => <T,>(action: () => Promise<T>) => action());
+const runWithStepUp = vi.hoisted(() => vi.fn(<T,>(action: () => Promise<T>) => action()));
 vi.mock("../../app/step-up", () => ({
   useStepUp: () => ({ runWithStepUp }),
   stepUpWasCancelled: () => false
@@ -37,6 +37,8 @@ const state: TenantAdministration = {
 };
 
 describe("TenantSettingsPanel", () => {
+  beforeEach(() => { runWithStepUp.mockClear(); });
+
   it("announces quota usage and submits all admission limits accessibly", async () => {
     const updateTenantAdministration = vi.fn<(input: UpdateTenantInput) => Promise<TenantAdministration>>().mockResolvedValue({
       ...state,
@@ -95,5 +97,116 @@ describe("TenantSettingsPanel", () => {
     expect(await screen.findByText("At capacity")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("next admission");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("converts decimal human units exactly and reviews their impact before a versioned save", async () => {
+    const updateTenantAdministration = vi.fn().mockResolvedValue({ ...state, settings: { ...state.settings, message_edit_window_seconds: 150, max_attachment_bytes: 25_123_457, version: 3 } });
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(state), updateTenantAdministration } as unknown as ApiClient;
+    const onUpdated = vi.fn();
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={onUpdated} />);
+    await screen.findByRole("heading", { name: "Workspace settings" });
+    expect(screen.getByRole("group", { name: "Communication" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Retention" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save workspace settings" })).toBeDisabled();
+
+    const minutes = screen.getByRole("spinbutton", { name: /^Message edit window \(minutes\)/ });
+    const megabytes = screen.getByRole("spinbutton", { name: /^Attachment limit \(MB\)/ });
+    expect(minutes).toHaveValue(1440);
+    expect(megabytes).toHaveValue(26.2144);
+    await user.clear(minutes);
+    await user.type(minutes, "2.5");
+    await user.clear(megabytes);
+    await user.type(megabytes, "25.123457");
+    const review = screen.getByRole("region", { name: "Changes to review" });
+    expect(within(review).getByRole("status")).toHaveTextContent("Unsaved changes · 2 fields");
+    expect(review).toHaveTextContent("existing files are retained");
+    expect(updateTenantAdministration).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
+
+    expect(updateTenantAdministration).toHaveBeenCalledWith(expect.objectContaining({ message_edit_window_seconds: 150, max_attachment_bytes: 25_123_457, version: 2 }));
+    expect(runWithStepUp).toHaveBeenCalledOnce();
+    expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ settings: expect.objectContaining({ version: 3 }) }));
+    expect(screen.queryByRole("region", { name: "Changes to review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save workspace settings" })).toBeDisabled();
+  });
+
+  it("preserves odd-second and byte limits when editing an unrelated setting", async () => {
+    const exactState = { ...state, settings: { ...state.settings, message_edit_window_seconds: 1, max_attachment_bytes: 26_214_401 } };
+    const updateTenantAdministration = vi.fn().mockResolvedValue(exactState);
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(exactState), updateTenantAdministration } as unknown as ApiClient;
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={vi.fn()} />);
+    await user.type(await screen.findByRole("textbox", { name: "Workspace name" }), " renamed");
+    await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
+
+    expect(updateTenantAdministration).toHaveBeenCalledWith(expect.objectContaining({ message_edit_window_seconds: 1, max_attachment_bytes: 26_214_401, version: 2 }));
+  });
+
+  it.each([
+    { field: "Message edit window", value: "0.025", units: "seconds" },
+    { field: "Attachment limit", value: "25.0000001", units: "bytes" }
+  ])("rejects fractional $units before privileged verification and keeps the draft editable", async ({ field, value, units }) => {
+    const updateTenantAdministration = vi.fn();
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(state), updateTenantAdministration } as unknown as ApiClient;
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={vi.fn()} />);
+    const input = await screen.findByRole("spinbutton", { name: new RegExp(`^${field}`) });
+    await user.clear(input);
+    await user.type(input, value);
+    await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
+
+    expect(await screen.findByText(`${field}: use a value that represents whole ${units}.`)).toBeVisible();
+    expect(updateTenantAdministration).not.toHaveBeenCalled();
+    expect(runWithStepUp).not.toHaveBeenCalled();
+    expect(input).toHaveValue(Number(value));
+    expect(screen.getByRole("button", { name: "Save workspace settings" })).toBeEnabled();
+  });
+
+  it.each([1, 1_073_741_824])("preserves valid attachment boundary %i and a long legacy edit window", async (bytes) => {
+    const boundaryState = { ...state, settings: { ...state.settings, message_edit_window_seconds: 3_000_001, max_attachment_bytes: bytes } };
+    const updateTenantAdministration = vi.fn().mockResolvedValue(boundaryState);
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(boundaryState), updateTenantAdministration } as unknown as ApiClient;
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={vi.fn()} />);
+    await user.type(await screen.findByRole("textbox", { name: "Workspace name" }), " renamed");
+    await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
+
+    expect(updateTenantAdministration).toHaveBeenCalledWith(expect.objectContaining({ message_edit_window_seconds: 3_000_001, max_attachment_bytes: bytes }));
+  });
+
+  it("shows proposed capacity impact and discards all unsaved changes without an API call", async () => {
+    const updateTenantAdministration = vi.fn();
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(state), updateTenantAdministration } as unknown as ApiClient;
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={vi.fn()} />);
+    const identities = await screen.findByRole("spinbutton", { name: /^Maximum active identities/ });
+    await user.clear(identities);
+    await user.type(identities, "9");
+    expect(screen.getByText(/proposed limit is below current usage/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(identities).toHaveValue(10);
+    expect(screen.queryByRole("region", { name: "Changes to review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save workspace settings" })).toBeDisabled();
+    expect(updateTenantAdministration).not.toHaveBeenCalled();
+  });
+
+  it("keeps draft values and the original version after a server conflict", async () => {
+    const updateTenantAdministration = vi.fn().mockRejectedValue(new Error("Settings changed elsewhere. Reload before saving."));
+    const api = { tenantAdministration: vi.fn().mockResolvedValue(state), updateTenantAdministration } as unknown as ApiClient;
+    const onUpdated = vi.fn();
+    const user = userEvent.setup();
+    render(<TenantSettingsPanel api={api} onUpdated={onUpdated} />);
+    const minutes = await screen.findByRole("spinbutton", { name: /^Message edit window/ });
+    await user.clear(minutes);
+    await user.type(minutes, "5");
+    await user.click(screen.getByRole("button", { name: "Save workspace settings" }));
+
+    expect(await screen.findByText("Settings changed elsewhere. Reload before saving.")).toBeVisible();
+    expect(minutes).toHaveValue(5);
+    expect(screen.getByText("Version 2")).toBeVisible();
+    expect(updateTenantAdministration).toHaveBeenCalledWith(expect.objectContaining({ version: 2 }));
+    expect(onUpdated).not.toHaveBeenCalled();
   });
 });

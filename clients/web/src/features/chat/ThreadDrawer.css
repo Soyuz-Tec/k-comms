@@ -1,0 +1,15 @@
+.thread-drawer .thread-content { flex: 1; min-height: 0; overflow-y: auto; margin-top: .8rem; }
+.thread-drawer .thread-message-list { list-style: none; padding: 0; margin: 0; }
+.thread-drawer .thread-root { border: 1px solid var(--border-strong); border-radius: 10px; padding: .65rem; }
+.thread-drawer .thread-replies { display: grid; gap: .75rem; overflow: visible; margin-bottom: .75rem; }
+.thread-drawer .message-content { flex: 1; min-width: 0; max-width: 100%; }
+.thread-drawer .message-tools, .thread-drawer .message-actions { flex-wrap: wrap; }
+.thread-drawer .message-actions { position: static; display: flex; flex-direction: row; min-width: 0; gap: .25rem; padding: 0; border: 0; background: transparent; box-shadow: none; opacity: 1; }
+.thread-drawer .message-actions button { width: auto; }
+.thread-drawer .mobile-message-actions-trigger { display: none; }
+.thread-drawer .message-actions button, .thread-drawer .reaction-row button { min-width: 44px; min-height: 44px; }
+.thread-drawer .quick-reactions { display: inline-flex; flex-wrap: wrap; opacity: 1; }
+.thread-drawer .message-tools > .reaction-row { max-width: 100%; }
+.thread-drawer .message-content header { flex-wrap: wrap; }
+.thread-drawer .inline-edit textarea { max-width: 100%; }
+.thread-drawer .inline-edit { min-width: 0; width: 100%; }

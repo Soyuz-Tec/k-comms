@@ -117,6 +117,11 @@ for (const width of [390, 1440]) {
         ["/app/you", "#profile-settings", "profile"]
       ]) {
         await page.goto(path);
+        if (name === "calls" && width <= 760) {
+          const showLauncher = page.getByRole("button", { name: "Start call", exact: true });
+          await expect(showLauncher).toHaveAttribute("aria-expanded", "false");
+          await showLauncher.click();
+        }
         await expect(page.locator(selector).first()).toBeVisible();
         await verifyScreen(page, info, name);
         if (name === "files" && width === 390) {

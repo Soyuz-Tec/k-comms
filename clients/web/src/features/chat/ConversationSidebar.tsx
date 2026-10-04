@@ -116,7 +116,7 @@ export function ConversationSidebar({
               * communication product every notification is about a message or a
               * mention, so the inbox is the surface they are already about.
               */}
-            {!desktopShell && <NotificationCenter />}
+            {!desktopShell && <NotificationCenter conversations={conversations} />}
             <button
               className="icon-button inbox-new-button"
               type="button"
@@ -132,7 +132,7 @@ export function ConversationSidebar({
         {conversations.length > 0 && (
           <div className="sidebar-search" role="search" aria-label="Search conversations">
             <label className="sr-only" htmlFor="conversation-filter-query">
-              Filter conversations by title
+              Filter conversation titles
             </label>
             <AppIcon name="search" className="sidebar-search-glyph" />
             <input
@@ -140,26 +140,13 @@ export function ConversationSidebar({
               type="search"
               value={conversationQuery}
               onChange={(event) => onConversationQueryChange(event.target.value)}
-              placeholder="Search inbox"
+              placeholder="Filter conversation titles"
             />
-            {/*
-              * Filtering this list and searching every message are different
-              * jobs, and they used to be two identical magnifiers in two
-              * different rows. Keeping the second one here, inside the search
-              * region and labelled, makes it read as "go deeper" rather than as
-              * a duplicate of the field beside it.
-              */}
-            <button
-              className="icon-button inbox-search-trigger"
-              type="button"
-              aria-label="Search messages"
-              aria-expanded={showSearch}
-              onClick={onToggleSearch}
-            >
-              <AppIcon name="messages" />
-            </button>
           </div>
         )}
+        <button className="button ghost inbox-content-search" type="button" aria-expanded={showSearch} onClick={onToggleSearch}>
+          <AppIcon name="search" /><span>Search workspace content</span>
+        </button>
       </div>
 
       {showOnboardingSpotlight && (
@@ -236,6 +223,11 @@ export function ConversationSidebar({
           <small>
             Notification preferences remain available anytime under You.
           </small>
+          <div className="onboarding-optional-checks" aria-label="Optional setup checks">
+            <Link to="/app/you?section=audio-video">Check audio &amp; video</Link>
+            <Link to="/app/you?section=notifications">Set up notifications</Link>
+            <button className="text-button" type="button" onClick={onDismissOnboarding}>Skip for now</button>
+          </div>
         </section>
       )}
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
@@ -390,5 +390,132 @@ describe("GovernancePanel target selection", () => {
       target_id: activeMessage.id,
       reason: "Requested erasure"
     }));
+  });
+});
+
+
+describe("GovernancePanel scoped lifecycle evidence", () => {
+  it("creates retention only for the reviewed conversation", async () => {
+    const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ scope_type: "conversation", conversation_id: activeConversation.id }));
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ createRetentionPolicy })} users={[]} conversations={[activeConversation, archivedConversation]} /></StepUpProvider>);
+    const controls = within(screen.getByRole("heading", { name: "Retention policies" }).closest("section")!);
+    await user.selectOptions(controls.getByLabelText("Policy scope"), "conversation");
+    expect(controls.queryByRole("option", { name: "Archived project" })).not.toBeInTheDocument();
+    await user.selectOptions(controls.getByLabelText("Retention conversation"), activeConversation.id);
+    await user.type(controls.getByLabelText("Policy name"), "Release records");
+    await user.type(controls.getByLabelText("Retention days"), "30");
+    await user.click(controls.getByRole("button", { name: "Review policy" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Create and activate retention policy?" });
+    expect(dialog).toHaveTextContent("Conversation: Release planning");
+    expect(createRetentionPolicy).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Create and activate policy" }));
+    await waitFor(() => expect(createRetentionPolicy).toHaveBeenCalledWith({ name: "Release records", retention_days: 30, delete_attachments: false, scope_type: "conversation", conversation_id: activeConversation.id }));
+  });
+
+  it("reviews edits, preserves the draft on cancel and submits the version and audited reason", async () => {
+    const policy = policyFixture({ version: 4, scope_type: "conversation", conversation_id: activeConversation.id, status: "disabled" });
+    const updateRetentionPolicy = vi.fn().mockResolvedValue({ ...policy, name: "Revised archive", retention_days: 30, scope_type: "tenant", conversation_id: null, version: 5 });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ retentionPolicies: vi.fn().mockResolvedValue([policy]), updateRetentionPolicy })} users={[]} conversations={[activeConversation]} /></StepUpProvider>);
+    await user.click(await screen.findByRole("button", { name: "Edit policy" }));
+    const form = screen.getByRole("form", { name: "Edit retention policy Standard retention" });
+    const controls = within(form);
+    await user.clear(controls.getByLabelText("Policy name"));
+    await user.type(controls.getByLabelText("Policy name"), "Revised archive");
+    await user.clear(controls.getByLabelText("Retention days"));
+    await user.type(controls.getByLabelText("Retention days"), "30");
+    await user.selectOptions(controls.getByLabelText("Policy scope"), "tenant");
+    await user.click(controls.getByRole("button", { name: "Review policy changes" }));
+    let dialog = screen.getByRole("alertdialog", { name: "Update retention policy?" });
+    expect(dialog).toHaveTextContent("Entire workspace");
+    expect(dialog).toHaveTextContent("This policy stays disabled");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(controls.getByLabelText("Policy name")).toHaveValue("Revised archive");
+    expect(updateRetentionPolicy).not.toHaveBeenCalled();
+    await user.click(controls.getByRole("button", { name: "Review policy changes" }));
+    dialog = screen.getByRole("alertdialog", { name: "Update retention policy?" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason for this change" }), "Adjusted preservation scope");
+    await user.click(within(dialog).getByRole("button", { name: "Save policy changes" }));
+    await waitFor(() => expect(updateRetentionPolicy).toHaveBeenCalledWith(policy.id, { name: "Revised archive", retention_days: 30, delete_attachments: false, scope_type: "tenant", conversation_id: null, version: 4, reason: "Adjusted preservation scope" }));
+    expect(screen.queryByRole("form", { name: "Edit retention policy Standard retention" })).not.toBeInTheDocument();
+  });
+
+  it("loads later message targets without losing a selection and presents recorded processing evidence", async () => {
+    const message: Message = { id: "message-1", tenant_id: "tenant-1", conversation_id: activeConversation.id, sender_user_id: activeUser.id, sender_device_id: "device-1", client_message_id: "client-1", conversation_sequence: 1, body: "First release message", metadata: {}, status: "active", inserted_at: "2026-07-12T10:00:00Z", attachments: [], reactions: [] };
+    const messages = vi.fn().mockResolvedValueOnce({ data: [message], page: { has_more: true, next_after_sequence: 1 } }).mockRejectedValueOnce(new Error("Message page interrupted")).mockResolvedValueOnce({ data: [message, { ...message, id: "message-201", conversation_sequence: 201, body: "Later release target" }], page: { has_more: false, next_after_sequence: null } });
+    const request = deletionFixture({ status: "approved", execution_attempts: 2, execution_error: "legal_hold_active", execution_started_at: "2026-07-12T10:01:00Z", evidence: { eligible_count: 3 } });
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ messages, deletionRequests: vi.fn().mockResolvedValue([request]) })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+    const controls = within(screen.getByRole("heading", { name: "Deletion requests" }).closest("section")!);
+    await user.selectOptions(controls.getByLabelText("Target type"), "message");
+    await user.selectOptions(controls.getByLabelText("Message conversation"), activeConversation.id);
+    await within(controls.getByLabelText("Deletion message")).findByRole("option", { name: /First release message/ });
+    await user.selectOptions(controls.getByLabelText("Deletion message"), message.id);
+    await user.click(controls.getByRole("button", { name: "Load more messages" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Message page interrupted");
+    expect(controls.getByLabelText("Deletion message")).toHaveValue(message.id);
+    await user.click(controls.getByRole("button", { name: "Load more messages" }));
+    expect(await controls.findByRole("option", { name: /Later release target/ })).toBeVisible();
+    expect(messages).toHaveBeenLastCalledWith(activeConversation.id, 1, 200);
+    await user.type(controls.getByLabelText("Filter loaded messages"), "Later");
+    expect(controls.getByLabelText("Deletion message")).toHaveValue(message.id);
+    await user.click(controls.getByText("Request details"));
+    expect(controls.getByText("Execution attempts: 2")).toBeVisible();
+    expect(controls.getByRole("note")).toHaveTextContent("legal_hold_active");
+    expect(controls.getByText(/"eligible_count": 3/)).toBeVisible();
+  });
+});
+
+
+describe("GovernancePanel inventory concurrency", () => {
+  it("waits for the whole inventory before permitting mutations and keeps the created record", async () => {
+    let finishInventory!: (value: RetentionPolicy[]) => void;
+    const pendingInventory = new Promise<RetentionPolicy[]>((resolve) => { finishInventory = resolve; });
+    const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ name: "New records" }));
+    const createLegalHold = vi.fn();
+    const createDeletionRequest = vi.fn();
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ retentionPolicies: vi.fn().mockReturnValue(pendingInventory), createRetentionPolicy, createLegalHold, createDeletionRequest })} users={[activeUser]} conversations={[activeConversation]} /></StepUpProvider>);
+    await user.type(screen.getByLabelText("Policy name"), "New records");
+    await user.type(screen.getByLabelText("Retention days"), "90");
+    expect(screen.getByRole("button", { name: "Review policy" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create legal hold" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Request deletion" })).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText("Policy name").closest("form")!);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(createRetentionPolicy).not.toHaveBeenCalled();
+    await act(async () => { finishInventory([]); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review policy" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Review policy" }));
+    await user.click(screen.getByRole("button", { name: "Create and activate policy" }));
+    expect(await screen.findByText("New records")).toBeVisible();
+    expect(createRetentionPolicy).toHaveBeenCalledExactlyOnceWith({ name: "New records", retention_days: 90, delete_attachments: false });
+    expect(createLegalHold).not.toHaveBeenCalled();
+    expect(createDeletionRequest).not.toHaveBeenCalled();
+  });
+
+  it("retries failed inventory reads with a deferred result without discarding the policy draft", async () => {
+    let finishRetry!: (value: RetentionPolicy[]) => void;
+    const pendingRetry = new Promise<RetentionPolicy[]>((resolve) => { finishRetry = resolve; });
+    const retentionPolicies = vi.fn().mockRejectedValueOnce(new Error("Inventory temporarily unavailable")).mockReturnValueOnce(pendingRetry);
+    const createRetentionPolicy = vi.fn().mockResolvedValue(policyFixture({ name: "Preserved draft" }));
+    const user = userEvent.setup();
+    render(<StepUpProvider><GovernancePanel api={apiFixture({ retentionPolicies, createRetentionPolicy })} users={[]} conversations={[]} /></StepUpProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Inventory temporarily unavailable");
+    await user.type(screen.getByLabelText("Policy name"), "Preserved draft");
+    await user.type(screen.getByLabelText("Retention days"), "45");
+    expect(screen.getByRole("button", { name: "Review policy" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry governance inventory" }));
+    await waitFor(() => expect(retentionPolicies).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Review policy" })).toBeDisabled();
+    expect(screen.getByLabelText("Policy name")).toHaveValue("Preserved draft");
+    await act(async () => { finishRetry([]); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review policy" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Review policy" }));
+    await user.click(screen.getByRole("button", { name: "Create and activate policy" }));
+    expect(await screen.findByText("Preserved draft")).toBeVisible();
+    expect(createRetentionPolicy).toHaveBeenCalledExactlyOnceWith({ name: "Preserved draft", retention_days: 45, delete_attachments: false });
   });
 });

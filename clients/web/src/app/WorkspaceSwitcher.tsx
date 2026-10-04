@@ -106,6 +106,20 @@ export function WorkspaceSwitcher({ session, conversations, onClose }: {
             </div>
           ))}
         </div>
+        <div className="workspace-switcher-actions">
+          <button type="button" className="button ghost compact" onClick={() => {
+            onClose();
+            const params = new URLSearchParams({ search: "content" });
+            if (query.trim()) params.set("query", query.trim());
+            navigate(`/app/?${params.toString()}`);
+          }}><AppIcon name="search" />Search messages, files and boards</button>
+          <button type="button" className="button ghost compact" onClick={() => {
+            onClose();
+            const params = new URLSearchParams();
+            if (query.trim()) params.set("q", query.trim());
+            navigate(`/app/directory${params.size ? `?${params.toString()}` : ""}`);
+          }}><AppIcon name="users" />Find a person in Directory</button>
+        </div>
         <footer>
           <span role="status">{matches.length === 0 ? "No matching destination. Try another name." : matches.length > 12 ? `${matches.length} matches · keep typing to narrow results` : `${matches.length} destinations`}</span>
           <span className="workspace-switcher-hint">Arrow keys to choose · Enter to open · Esc to close</span>

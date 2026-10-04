@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { InAppNotification } from "../../types";
+import type { Conversation, InAppNotification } from "../../types";
 import { NotificationCenter, notificationDestination } from "./NotificationCenter";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
@@ -59,6 +59,75 @@ describe("NotificationCenter", () => {
       updated_count: 1,
       unread_count: 0
     });
+  });
+
+  it("filters supported categories within loaded pages and keeps older matching updates reachable", async () => {
+    const user = userEvent.setup();
+    harness.api.inAppNotifications.mockReset().mockResolvedValueOnce({
+      data: [notification({ id: "message-update", event_type: "message.created.v1", title: "New message" })],
+      meta: { unread_count: 2 }, page: { has_more: true, next_cursor: "older-page" }
+    }).mockResolvedValueOnce({
+      data: [notification({ id: "older-mention", title: "Planning mention" })],
+      meta: { unread_count: 2 }, page: { has_more: false, next_cursor: null }
+    });
+    render(<MemoryRouter><NotificationCenter /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: /Notifications, 2 unread/i }));
+    await user.selectOptions(screen.getByLabelText("Category"), "mention.created.v1");
+    expect(screen.getByText("No loaded notifications match these filters.")).toBeVisible();
+    expect(screen.getByText(/filters apply to loaded notifications/)).toBeVisible();
+    expect(harness.api.inAppNotifications).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Load more notifications" }));
+    expect(await screen.findByRole("button", { name: /^Planning mention/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^New message/ })).not.toBeInTheDocument();
+    expect(harness.api.inAppNotifications).toHaveBeenLastCalledWith(50, { filter: "all", cursor: "older-page" });
+    expect(screen.queryByRole("option", { name: "Replies" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a selected authorized conversation visible after unread refresh and resets revoked scope", async () => {
+    const user = userEvent.setup();
+    const otherId = "33333333-3333-4333-8333-333333333333";
+    const conversations = [{ id: conversationId, kind: "channel", title: "General" }, { id: otherId, kind: "group", title: "Planning" }] as Conversation[];
+    harness.api.inAppNotifications.mockReset().mockResolvedValueOnce({
+      data: [notification({ read_at: "2026-10-04T12:00:00Z" }), notification({ id: "planning", conversation_id: otherId, title: "Planning mention" })], meta: { unread_count: 1 }
+    }).mockResolvedValueOnce({ data: [notification({ id: "planning", conversation_id: otherId, title: "Planning mention" })], meta: { unread_count: 1 } });
+    const view = render(<MemoryRouter><NotificationCenter conversations={conversations} /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    await user.selectOptions(screen.getByLabelText("Conversation"), conversationId);
+    await user.click(screen.getByRole("button", { name: "Unread" }));
+    await waitFor(() => expect(harness.api.inAppNotifications).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Conversation")).toHaveValue(conversationId);
+    expect(screen.getByRole("option", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByText("No loaded notifications match these filters.")).toBeVisible();
+    view.rerender(<MemoryRouter><NotificationCenter conversations={conversations.slice(1)} /></MemoryRouter>);
+    expect(screen.getByLabelText("Conversation")).toHaveValue("all");
+    expect(screen.queryByRole("option", { name: "General" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Planning mention/ })).toBeVisible();
+  });
+
+  it("filters authorized conversations and searches descriptions locally while marking all read globally", async () => {
+    const user = userEvent.setup();
+    const otherId = "33333333-3333-4333-8333-333333333333";
+    const conversations = [
+      { id: conversationId, kind: "channel", title: "General" },
+      { id: otherId, kind: "group", title: "Planning" }
+    ] as Conversation[];
+    harness.api.inAppNotifications.mockResolvedValue({
+      data: [notification({ body: "Review roadmap" }), notification({ id: "other", conversation_id: otherId, title: "Planning mention", body: "Review roadmap" })],
+      meta: { unread_count: 2 }
+    });
+    render(<MemoryRouter><NotificationCenter conversations={conversations} /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: /Notifications, 2 unread/i }));
+    await user.selectOptions(screen.getByLabelText("Conversation"), otherId);
+    await user.type(screen.getByRole("searchbox", { name: "Search loaded notifications" }), "ROADMAP");
+    expect(screen.getByRole("button", { name: /^Planning mention/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^New mention/ })).not.toBeInTheDocument();
+    expect(harness.api.inAppNotifications).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Mark all read" })).toHaveAccessibleDescription("Marks all notifications read, including updates outside these filters.");
+    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+    await waitFor(() => expect(harness.api.markAllInAppNotificationsRead).toHaveBeenCalledTimes(1));
+    await user.selectOptions(screen.getByLabelText("Conversation"), "all");
+    expect(screen.getByRole("button", { name: /^New mention/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Mark all read" })).toBeDisabled();
   });
 
   it("marks the item read and navigates to the exact conversation thread", async () => {

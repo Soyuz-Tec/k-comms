@@ -15,6 +15,7 @@ export function MessageItem({
   replyPreview,
   seenCount,
   deliveredDeviceCount = 0,
+  idPrefix = "message",
   focused,
   onReaction,
   onAttachment,
@@ -32,6 +33,7 @@ export function MessageItem({
   replyPreview?: Message;
   seenCount: number;
   deliveredDeviceCount?: number;
+  idPrefix?: string;
   focused: boolean;
   onReaction: (emoji: string) => void;
   onAttachment: (attachment: Attachment) => void;
@@ -40,20 +42,30 @@ export function MessageItem({
    * Optional so a surface without previews renders exactly as before.
    */
   onRequestThumbnail?: (attachmentId: string) => Promise<string | null>;
-  onReply: () => void;
+  onReply?: () => void;
   onThread?: () => void;
   onEdit: (body: string) => Promise<void>;
   onDelete: () => Promise<void>;
-  onReport: () => void;
+  onReport?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body || "");
   const [busy, setBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
   const mine = message.sender_user_id === currentUserId;
   const groups = groupReactions(message, currentUserId);
+  useEffect(() => {
+    if (message.status !== "active") {
+      setEditing(false);
+      setDeleteOpen(false);
+      setEditBody("");
+      setEditError(null);
+      setDeleteError(null);
+    }
+  }, [message.status]);
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,9 +74,12 @@ export function MessageItem({
       return;
     }
     setBusy(true);
+    setEditError(null);
     try {
       await onEdit(editBody.trim());
       setEditing(false);
+    } catch (reason: unknown) {
+      setEditError(errorText(reason));
     } finally {
       setBusy(false);
     }
@@ -85,7 +100,7 @@ export function MessageItem({
 
   return (
     <>
-    <li id={`message-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
+    <li id={`${idPrefix}-${message.id}`} className={`message ${mine ? "mine" : ""} ${focused ? "focused" : ""}`}>
       {/*
         * Every message carries its sender's avatar, your own included. The
         * desktop transcript is a flat list rather than two facing columns of
@@ -104,11 +119,12 @@ export function MessageItem({
           <time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time>
         </header>
         {replyPreview && <div className="reply-preview"><strong>{replyPreview.sender_user_id === currentUserId ? selfIdentifier(replySenderName) : replySenderName || "Unknown user"}</strong><span>{replyPreview.body || "Message removed"}</span></div>}
-        {editing ? (
+        {editing && message.status === "active" ? (
           <form className="inline-edit" onSubmit={(event) => void saveEdit(event)}>
-            <label className="sr-only" htmlFor={`edit-${message.id}`}>Edit message</label>
-            <textarea id={`edit-${message.id}`} value={editBody} onChange={(event) => setEditBody(event.target.value)} rows={3} autoFocus maxLength={65_535} />
-            <div className="form-actions"><button className="button ghost compact" type="button" onClick={() => { setEditing(false); setEditBody(message.body || ""); }}>Cancel</button><button className="button primary compact" type="submit" disabled={busy || !editBody.trim()}>Save</button></div>
+            <label className="sr-only" htmlFor={`${idPrefix}-edit-${message.id}`}>Edit message</label>
+            <textarea id={`${idPrefix}-edit-${message.id}`} value={editBody} onChange={(event) => setEditBody(event.target.value)} rows={3} autoFocus maxLength={65_535} disabled={busy} />
+            {editError && <div className="form-error" role="alert">{editError}</div>}
+            <div className="form-actions"><button className="button ghost compact" type="button" disabled={busy} onClick={() => { setEditing(false); setEditBody(message.body || ""); }}>Cancel</button><button className="button primary compact" type="submit" disabled={busy || !editBody.trim()}>Save</button></div>
           </form>
         ) : <div className={`message-bubble ${message.status !== "active" ? "removed" : ""}`}>{message.status === "active" ? message.body : "Message removed"}</div>}
 
@@ -134,7 +150,7 @@ export function MessageItem({
 
         <div className="message-tools">
           <div className="reaction-row">
-            {groups.map(({ emoji, count, mine: reacted }) => <button type="button" key={emoji} className={reacted ? "reacted" : ""} aria-pressed={reacted} aria-label={`${reacted ? "Remove" : "Add"} ${emoji} reaction; ${count} total`} onClick={() => onReaction(emoji)}>{emoji} <span>{count}</span></button>)}
+            {groups.map(({ emoji, count, mine: reacted }) => <button type="button" key={emoji} className={reacted ? "reacted" : ""} aria-pressed={reacted} disabled={message.status !== "active"} aria-label={`${reacted ? "Remove" : "Add"} ${emoji} reaction; ${count} total`} onClick={() => onReaction(emoji)}>{emoji} <span>{count}</span></button>)}
             {message.status === "active" && <span className="quick-reactions" aria-label="Quick reactions">{quickReactions.filter((emoji) => !groups.some((group) => group.emoji === emoji)).map((emoji) => <button type="button" key={emoji} aria-label={`React with ${emoji}`} onClick={() => onReaction(emoji)}>{emoji}</button>)}</span>}
           </div>
           <button
@@ -146,12 +162,12 @@ export function MessageItem({
           >
             <AppIcon name="more" />
           </button>
-          <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <><button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button><button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>{mine && <button type="button" onClick={() => { setActionsOpen(false); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
+          <div className={`message-actions ${actionsOpen ? "mobile-open" : ""}`}>{onThread && <button type="button" onClick={() => { setActionsOpen(false); onThread(); }}>{threadLabel(message)}</button>}{message.status === "active" && <>{onReply && <button type="button" onClick={() => { setActionsOpen(false); onReply(); }}>Reply</button>}{onReport && <button type="button" onClick={() => { setActionsOpen(false); onReport(); }}>Report</button>}{mine && <button type="button" disabled={busy} onClick={() => { setActionsOpen(false); setEditError(null); setEditBody(message.body || ""); setEditing(true); }}>Edit</button>}{mine && <button className="danger-text" type="button" disabled={busy} onClick={() => { setActionsOpen(false); setDeleteError(null); setDeleteOpen(true); }}>Delete</button>}</>}</div>
         </div>
         {mine && (seenCount > 0 || deliveredDeviceCount > 0) && <small className="seen-copy">{deliveredDeviceCount > 0 ? `Delivered to ${deliveredDeviceCount} ${deliveredDeviceCount === 1 ? "device" : "devices"}` : "Sent"}{seenCount > 0 ? ` · Read by ${seenCount}` : ""}</small>}
       </article>
     </li>
-    {deleteOpen && <ConfirmDialog title="Delete this message?" description="This removes the message body from the conversation." impact="Conversation members will see that a message was removed. Retention and audit records remain subject to workspace policy." confirmLabel="Delete message" tone="danger" busy={busy} error={deleteError} onCancel={() => { if (!busy) setDeleteOpen(false); }} onConfirm={() => void remove()} />}
+    {deleteOpen && message.status === "active" && <ConfirmDialog title="Delete this message?" description="This removes the message body from the conversation." impact="Conversation members will see that a message was removed. Retention and audit records remain subject to workspace policy." confirmLabel="Delete message" tone="danger" busy={busy} error={deleteError} onCancel={() => { if (!busy) setDeleteOpen(false); }} onConfirm={() => void remove()} />}
     </>
   );
 }

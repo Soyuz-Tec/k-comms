@@ -5,9 +5,10 @@ import { createTelephonyApi } from "./telephony";
 describe("telephony API boundary", () => {
   it("unwraps administrator assignments from configuration and rejects an empty save result", async () => {
     const number = { id: "line-1", phone_number: "+14155550123", extension: "101", user_id: "user-1", inbound_trunk_id: "ST_in", outbound_trunk_id: "ST_out" };
-    const configuration = { enabled: false, configured: false, provider: "livekit_sip", number, can_manage: true };
+    const configuration = { enabled: false, configured: false, provider_ready: false, line_assigned: true, provider: "livekit_sip", number, can_manage: true };
     const request = vi.fn().mockResolvedValue({ data: configuration });
     const api = createTelephonyApi(request as ApiRequest);
+    expect(await api.phoneAdminConfiguration()).toEqual(configuration);
     expect(await api.phoneNumberAssignment()).toEqual(number);
     const input = { phone_number: number.phone_number, extension: number.extension, user_id: number.user_id, inbound_trunk_id: number.inbound_trunk_id, outbound_trunk_id: number.outbound_trunk_id, reason: "Initial pilot" };
     expect(await api.updatePhoneNumber(input)).toEqual(number);

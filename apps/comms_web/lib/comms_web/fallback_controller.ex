@@ -299,6 +299,7 @@ defmodule CommsWeb.FallbackController do
               :invalid_search_query,
               :search_query_required,
               :invalid_file_scope,
+              :invalid_file_category,
               :invalid_call_scope,
               :invalid_conversation_id,
               :unsupported_content_type,

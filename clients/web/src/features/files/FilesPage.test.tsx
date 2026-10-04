@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation, FileSummary, User } from "../../types";
 import { FilesPage } from "./FilesPage";
@@ -98,10 +98,10 @@ vi.mock("../../app/workspace-data", () => ({
 
 describe("FilesPage", () => {
   beforeEach(() => {
-    harness.files.mockReset().mockResolvedValue({
-      data: [availableFile, blockedFile, imageFile],
+    harness.files.mockReset().mockImplementation(async (options = {}) => ({
+      data: options.category === "images" ? [imageFile] : options.category === "non_images" ? [availableFile, blockedFile] : [availableFile, blockedFile, imageFile],
       page: { limit: 25, has_more: false, next_cursor: null }
-    });
+    }));
     harness.attachmentDownload.mockReset().mockResolvedValue({
       data: availableFile,
       download: {
@@ -129,7 +129,7 @@ describe("FilesPage", () => {
     expect(blockedDownload).toHaveAttribute("title", "This file was blocked by the safety check");
   });
 
-  it("filters the authorized page by document and image type", async () => {
+  it("requests complete server-side image and non-image categories", async () => {
     const user = userEvent.setup();
     render(<MemoryRouter><FilesPage /></MemoryRouter>);
 
@@ -137,26 +137,29 @@ describe("FilesPage", () => {
     expect(screen.getByText("roadmap.png")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Images" }));
-    expect(screen.getByText("roadmap.png")).toBeVisible();
+    expect(await screen.findByText("roadmap.png")).toBeVisible();
     expect(screen.queryByText("forecast.xlsx")).not.toBeInTheDocument();
+    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ category: "images" }));
 
-    await user.click(screen.getByRole("button", { name: "Documents" }));
-    expect(screen.getByText("forecast.xlsx")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Other files" }));
+    expect(await screen.findByText("forecast.xlsx")).toBeVisible();
     expect(screen.queryByText("roadmap.png")).not.toBeInTheDocument();
+    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ category: "non_images" }));
   });
 
-  it("states partial category scope and continues to matching files on older pages", async () => {
-    harness.files.mockResolvedValueOnce({ data: [availableFile], page: { has_more: true, next_cursor: "older" } })
-      .mockResolvedValueOnce({ data: [imageFile], page: { has_more: false, next_cursor: null } });
+  it("paginates within the selected category rather than filtering loaded pages", async () => {
+    harness.files.mockResolvedValueOnce({ data: [availableFile], page: { has_more: true, next_cursor: "older-all" } })
+      .mockResolvedValueOnce({ data: [imageFile], page: { has_more: true, next_cursor: "older-images" } })
+      .mockResolvedValueOnce({ data: [{ ...imageFile, id: "image-older", file_name: "earlier.png" }], page: { has_more: false, next_cursor: null } });
     const user = userEvent.setup();
     render(<MemoryRouter><FilesPage /></MemoryRouter>);
     await screen.findByText("forecast.xlsx");
     await user.click(screen.getByRole("button", { name: "Images" }));
-    expect(screen.getByText("No images in loaded files")).toBeVisible();
-    expect(screen.queryByText("No images found")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Load more files" }));
     expect(await screen.findByText("roadmap.png")).toBeVisible();
-    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "older" }));
+    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ category: "images", cursor: undefined }));
+    await user.click(screen.getByRole("button", { name: "Load more files" }));
+    expect(await screen.findByText("earlier.png")).toBeVisible();
+    expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ category: "images", cursor: "older-images" }));
   });
 
   it("honors legacy conversation links and focuses a linked file found on an older page", async () => {
@@ -262,9 +265,80 @@ describe("FilesPage", () => {
     await user.click(screen.getByRole("button", { name: "Shared by me" }));
     await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith({
       scope: "shared_by_me",
+      q: undefined,
+      category: undefined,
       conversation_id: undefined,
       limit: 25,
       cursor: undefined
     }));
   });
+
+  it("searches authorized filenames and validates short queries", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await screen.findByText("forecast.xlsx");
+    await user.type(screen.getByRole("searchbox", { name: "Search filenames" }), "f");
+    await user.click(screen.getByRole("button", { name: "Search files" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("between 2 and 160");
+    expect(harness.files).toHaveBeenCalledTimes(1);
+    await user.type(screen.getByRole("searchbox", { name: "Search filenames" }), "orecast");
+    await user.click(screen.getByRole("button", { name: "Search files" }));
+    await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ q: "forecast", cursor: undefined })));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(harness.files).toHaveBeenLastCalledWith(expect.objectContaining({ q: undefined })));
+  });
+
+  it("shows image details using only an approved thumbnail descriptor", async () => {
+    harness.attachmentDownload.mockResolvedValue({ data: { ...imageFile }, thumbnail_download: { url: "https://objects.example.test/preview.jpg?signature=short", approved_origin: "https://objects.example.test" } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "File details for roadmap.png" }));
+    const dialog = screen.getByRole("dialog", { name: "File details" });
+    expect(await within(dialog).findByRole("img", { name: "Preview of roadmap.png" })).toHaveAttribute("src", "https://objects.example.test/preview.jpg?signature=short");
+    expect(within(dialog).getByText("Katherine Johnson")).toBeVisible();
+    expect(within(dialog).getByRole("link", { name: "View source message" })).toHaveAttribute("href", expect.stringContaining("search_sequence=44"));
+  });
+
+  it("never requests a blocked or rich document preview", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "File details for blocked.exe" }));
+    expect(screen.getByRole("button", { name: "Download file" })).toBeDisabled();
+    expect(harness.attachmentDownload).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "File details for forecast.xlsx" }));
+    expect(harness.attachmentDownload).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unapproved thumbnail origin without rendering an image", async () => {
+    harness.attachmentDownload.mockResolvedValue({ data: { ...imageFile }, thumbnail_download: { url: "https://unapproved.test/image.png", approved_origin: "https://objects.example.test" } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: "File details for roadmap.png" }));
+    expect(await screen.findByText(/An image preview is not available/)).toBeVisible();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shares through the selected conversation's existing attachment composer", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={["/app/files"]}><FilesPage /><LocationProbe /></MemoryRouter>);
+    await user.click(screen.getByRole("button", { name: "Share a file" }));
+    expect(screen.getByRole("button", { name: "Open message composer" })).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Share in conversation" }), conversationId);
+    await user.click(screen.getByRole("button", { name: "Open message composer" }));
+    expect(screen.getByLabelText("Current location")).toHaveTextContent(`/app/?conversation=${conversationId}&compose=attachment`);
+  });
+
+  it("keeps loaded files visible after a paging failure", async () => {
+    harness.files.mockResolvedValueOnce({ data: [availableFile], page: { has_more: true, next_cursor: "older" } }).mockRejectedValueOnce(new Error("Older page unavailable"));
+    const user = userEvent.setup();
+    render(<MemoryRouter><FilesPage /></MemoryRouter>);
+    await screen.findByText("forecast.xlsx");
+    await user.click(screen.getByRole("button", { name: "Load more files" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Older page unavailable");
+    expect(screen.getByText("forecast.xlsx")).toBeVisible();
+  });
+
 });
+
+function LocationProbe() { const location = useLocation(); return <output aria-label="Current location">{location.pathname}{location.search}</output>; }

@@ -1,5 +1,6 @@
 import type { AccountSession, AuditEvent, DataResponse, DeletionRequest, Invitation, LegalHold, ListResponse, ModerationCase, OperationsSnapshot, RetentionPolicy, TenantAdministration, User, UserRole } from "../../types";
 import type { ApiDownload, ApiRequest, AuditExportFile, AuditExportInput, UpdateTenantInput } from "../contracts";
+import type { AuditPage, ModerationCaseDetail, ModerationCaseQuery } from "../../types/administration";
 
 interface AdministrationApiSupport {
   operationId: () => string;
@@ -71,6 +72,15 @@ export function createAdministrationApi(request: ApiRequest, download: ApiDownlo
         );
       },
 
+    auditEventsPage(input: AuditExportInput = {}, cursor?: string): Promise<AuditPage> {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(input)) {
+          if (value !== undefined && value !== "") params.set(key, String(value));
+        }
+        if (cursor) params.set("cursor", cursor);
+        return request<AuditPage>(`/api/v1/admin/audit-events?${params}`);
+      },
+
     exportAuditEvents(input: AuditExportInput = {}): Promise<AuditExportFile> {
         return download("/api/v1/admin/audit-events/export", {
           method: "POST",
@@ -78,10 +88,18 @@ export function createAdministrationApi(request: ApiRequest, download: ApiDownlo
         });
       },
 
-    moderationCases(): Promise<ModerationCase[]> {
-        return request<ListResponse<ModerationCase>>("/api/v1/moderation/cases").then(
+    moderationCases(input: ModerationCaseQuery = {}): Promise<ModerationCase[]> {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(input)) {
+          if (value !== undefined && value !== "") params.set(key, String(value));
+        }
+        return request<ListResponse<ModerationCase>>(`/api/v1/moderation/cases${params.size ? `?${params}` : ""}`).then(
           (response) => response.data
         );
+      },
+
+    moderationCase(id: string): Promise<ModerationCaseDetail> {
+        return request<ModerationCaseDetail>(`/api/v1/moderation/cases/${encodeURIComponent(id)}`);
       },
 
     createModerationCase(input: { subject_user_id?: string; conversation_id?: string; message_id?: string; category: string; summary: string; details?: string; priority?: string }): Promise<ModerationCase> {
@@ -105,15 +123,15 @@ export function createAdministrationApi(request: ApiRequest, download: ApiDownlo
         );
       },
 
-    createRetentionPolicy(input: { name: string; retention_days: number; delete_attachments: boolean }): Promise<RetentionPolicy> {
+    createRetentionPolicy(input: { name: string; retention_days: number; delete_attachments: boolean; scope_type?: "tenant" | "conversation"; conversation_id?: string }): Promise<RetentionPolicy> {
         return request<DataResponse<RetentionPolicy>>("/api/v1/admin/retention-policies", {
           method: "POST",
           headers: { "Idempotency-Key": operationId() },
-          body: JSON.stringify({ ...input, scope_type: "tenant", status: "active" })
+          body: JSON.stringify({ ...input, scope_type: input.scope_type || "tenant", status: "active" })
         }).then((response) => response.data);
       },
 
-    updateRetentionPolicy(id: string, input: { status: "active" | "disabled"; version: number; reason: string }): Promise<RetentionPolicy> {
+    updateRetentionPolicy(id: string, input: { status?: "active" | "disabled"; name?: string; retention_days?: number; delete_attachments?: boolean; scope_type?: "tenant" | "conversation"; conversation_id?: string | null; version: number; reason: string }): Promise<RetentionPolicy> {
         return request<DataResponse<RetentionPolicy>>(`/api/v1/admin/retention-policies/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(input)

@@ -223,6 +223,19 @@ describe("AudioCallPanel", () => {
     expect(remoteTrack.attach).toHaveBeenCalledTimes(1);
   });
 
+  it("honors an unchecked microphone when joining with the primary audio action", async () => {
+    const user = userEvent.setup();
+    render(<AudioCallPanel api={apiWith(activeCall)} conversation={conversation} enabled currentUserDisplayName="Ada" />);
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    const dialog = screen.getByRole("dialog", { name: "Join the audio call" });
+    expect(within(dialog).getByRole("checkbox", { name: "Use microphone when I join" })).not.toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Join audio call" }));
+
+    expect(await screen.findByRole("button", { name: "Unmute microphone" })).toBeVisible();
+    expect(livekit.getLocalDevices).not.toHaveBeenCalledWith("audioinput", true);
+    expect(livekit.localParticipant.setMicrophoneEnabled.mock.calls.some(([enabled]) => enabled === true)).toBe(false);
+  });
+
   it("joins with the selected microphone, supports device and mute controls, reconnects, and ends for everyone", async () => {
     const api = apiWith(activeCall);
     const user = userEvent.setup();
@@ -230,7 +243,8 @@ describe("AudioCallPanel", () => {
 
     await user.click(await screen.findByRole("button", { name: "Join audio call" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Microphone" }), "mic-2");
-    await user.click(screen.getByRole("button", { name: "Join with microphone" }));
+    await user.click(screen.getByRole("checkbox", { name: "Use microphone when I join" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Join the audio call" })).getByRole("button", { name: "Join audio call" }));
 
     // A joined audio call opens minimized, so the mute control reachable here
     // is the companion capsule's -- the device selector lives in the panel
@@ -287,7 +301,8 @@ describe("AudioCallPanel", () => {
     render(<AudioCallPanel api={api} conversation={conversation} enabled currentUserDisplayName="Ada" />);
 
     await user.click(await screen.findByRole("button", { name: "Start audio call" }));
-    await user.click(screen.getByRole("button", { name: "Join with microphone" }));
+    await user.click(screen.getByRole("checkbox", { name: "Use microphone when I join" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Start an audio call" })).getByRole("button", { name: "Join audio call" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Microphone permission was blocked");
     expect(screen.getByRole("dialog", { name: "Start an audio call" })).toBeVisible();

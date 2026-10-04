@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
 import { AppIcon } from "../../components/AppIcon";
@@ -18,6 +18,7 @@ import type {
 } from "../../types";
 import { useCallSession } from "../calls/CallSessionProvider";
 import { callAvailabilityGuidance } from "../calls/callAvailability";
+import "./DirectoryPage.css";
 
 type DirectorySection = "people" | "rooms";
 type StartMode = "message" | CallMediaKind;
@@ -28,10 +29,17 @@ interface DirectoryRoom {
   memberCount?: number;
 }
 
+interface DirectoryActionFailure {
+  id: string;
+  message: string;
+  retry: () => void;
+}
+
 const pageSize = 25;
 
 export function DirectoryPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { api, session } = useSession();
   const { launchCall } = useCallSession();
   const {
@@ -43,7 +51,7 @@ export function DirectoryPage() {
     videoCallsAvailable
   } = useWorkspaceData();
   const [section, setSection] = useState<DirectorySection>("people");
-  const [query, setQuery] = useState("");
+  const query = (searchParams.get("q") || "").slice(0, section === "people" ? 120 : 160);
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [publicRooms, setPublicRooms] = useState<PublicChannel[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -52,6 +60,8 @@ export function DirectoryPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionFailure, setActionFailure] = useState<DirectoryActionFailure | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [retryGeneration, setRetryGeneration] = useState(0);
   const requestGeneration = useRef(0);
 
@@ -66,7 +76,10 @@ export function DirectoryPage() {
   useEffect(() => {
     const generation = ++requestGeneration.current;
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
+    setActionFailure(null);
+    setPageError(null);
     setNextCursor(null);
     setHasMore(false);
 
@@ -143,24 +156,26 @@ export function DirectoryPage() {
   }
 
   async function startWithPerson(person: DirectoryPerson, mode: StartMode) {
+    const generation = requestGeneration.current;
     const actionKey = `${person.id}:${mode}`;
     setBusyAction(actionKey);
-    setError(null);
+    setActionFailure(null);
     try {
       const response = await api.directConversation(person.id);
       retainConversation(response.data);
       openConversation(response.data, mode);
     } catch (reason: unknown) {
-      setError(errorText(reason));
+      if (generation === requestGeneration.current) setActionFailure({ id: person.id, message: errorText(reason), retry: () => void startWithPerson(person, mode) });
     } finally {
-      setBusyAction(null);
+      setBusyAction((current) => current === actionKey ? null : current);
     }
   }
 
   async function openRoom(room: DirectoryRoom, mode: StartMode) {
+    const generation = requestGeneration.current;
     const actionKey = `${room.conversation.id}:${mode}`;
     setBusyAction(actionKey);
-    setError(null);
+    setActionFailure(null);
     try {
       let conversation = room.conversation;
       if (!room.joined) {
@@ -181,9 +196,9 @@ export function DirectoryPage() {
       }
       openConversation(conversation, mode);
     } catch (reason: unknown) {
-      setError(errorText(reason));
+      if (generation === requestGeneration.current) setActionFailure({ id: room.conversation.id, message: errorText(reason), retry: () => void openRoom(room, mode) });
     } finally {
-      setBusyAction(null);
+      setBusyAction((current) => current === actionKey ? null : current);
     }
   }
 
@@ -191,7 +206,7 @@ export function DirectoryPage() {
     if (!nextCursor || loadingMore) return;
     const generation = ++requestGeneration.current;
     setLoadingMore(true);
-    setError(null);
+    setPageError(null);
     try {
       if (section === "people") {
         const page = await api.directoryUsers(query.trim(), pageSize, nextCursor);
@@ -210,7 +225,7 @@ export function DirectoryPage() {
         setHasMore(page.page.has_more);
       }
     } catch (reason: unknown) {
-      if (generation === requestGeneration.current) setError(errorText(reason));
+      if (generation === requestGeneration.current) setPageError(errorText(reason));
     } finally {
       if (generation === requestGeneration.current) setLoadingMore(false);
     }
@@ -271,7 +286,12 @@ export function DirectoryPage() {
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              const next = new URLSearchParams(searchParams);
+              if (event.target.value) next.set("q", event.target.value);
+              else next.delete("q");
+              setSearchParams(next, { replace: true });
+            }}
             placeholder={`Search ${section}`}
             autoComplete="off"
             maxLength={section === "people" ? 120 : 160}
@@ -292,6 +312,7 @@ export function DirectoryPage() {
       ) : error ? null : section === "people" ? (
         <DirectoryPeople
           people={people}
+          actionFailure={actionFailure}
           busyAction={busyAction}
           audioEnabled={audioEnabled}
           videoEnabled={videoEnabled}
@@ -303,6 +324,7 @@ export function DirectoryPage() {
       ) : (
         <DirectoryRooms
           rooms={rooms}
+          actionFailure={actionFailure}
           busyAction={busyAction}
           audioEnabled={audioEnabled}
           videoEnabled={videoEnabled}
@@ -313,7 +335,13 @@ export function DirectoryPage() {
         />
       )}
 
-      {hasMore && !error && (
+      {pageError && (
+        <div className="inline-notice error directory-notice" role="alert">
+          <span>{pageError}</span>
+          <button type="button" disabled={loadingMore} onClick={() => void loadMore()}>Retry loading more {section}</button>
+        </div>
+      )}
+      {hasMore && !error && !pageError && (
         <button
           className="button ghost full directory-load-more"
           type="button"
@@ -329,6 +357,7 @@ export function DirectoryPage() {
 
 function DirectoryPeople({
   people,
+  actionFailure,
   busyAction,
   audioEnabled,
   videoEnabled,
@@ -338,6 +367,7 @@ function DirectoryPeople({
   onStart
 }: {
   people: DirectoryPerson[];
+  actionFailure: DirectoryActionFailure | null;
   busyAction: string | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
@@ -366,6 +396,7 @@ function DirectoryPeople({
           <AvatarBadge name={person.display_name} />
           <div className="directory-row-copy">
             <strong>{identifier}</strong>
+            {actionFailure?.id === person.id && <DirectoryActionError failure={actionFailure} name={identifier} />}
           </div>
           <QuickActions
             name={identifier}
@@ -385,6 +416,7 @@ function DirectoryPeople({
 
 function DirectoryRooms({
   rooms,
+  actionFailure,
   busyAction,
   audioEnabled,
   videoEnabled,
@@ -394,6 +426,7 @@ function DirectoryRooms({
   onOpen
 }: {
   rooms: DirectoryRoom[];
+  actionFailure: DirectoryActionFailure | null;
   busyAction: string | null;
   audioEnabled: boolean;
   videoEnabled: boolean;
@@ -424,6 +457,7 @@ function DirectoryRooms({
               <small>
                 {room.joined ? "Joined room" : `Public room${room.memberCount === undefined ? "" : ` · ${room.memberCount} members`}`}
               </small>
+              {actionFailure?.id === room.conversation.id && <DirectoryActionError failure={actionFailure} name={title} />}
             </div>
             <QuickActions
               name={title}
@@ -441,6 +475,10 @@ function DirectoryRooms({
       })}
     </ul>
   );
+}
+
+function DirectoryActionError({ failure, name }: { failure: DirectoryActionFailure; name: string }) {
+  return <div className="directory-action-error" role="alert"><span>{failure.message}</span><button className="button ghost compact" type="button" aria-label={`Retry action for ${name}`} onClick={failure.retry}>Retry</button></div>;
 }
 
 function QuickActions({

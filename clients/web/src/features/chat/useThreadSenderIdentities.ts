@@ -251,12 +251,12 @@ export function useThreadSenderIdentities({
   );
 
   const senderIdentifier = useCallback(
-    (userId: string): string => {
+    (userId: string, includeSelf = true): string => {
       const identity = visibleSenderIdentities.get(userId);
       const resolvedIdentifier = identity
         ? participantIdentifier(identity, duplicateVisibleSenderNames)
         : "Unknown user";
-      return userId === currentUserId
+      return includeSelf && userId === currentUserId
         ? `${resolvedIdentifier} (you)`
         : resolvedIdentifier;
     },

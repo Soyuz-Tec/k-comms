@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import { AppIcon } from "../../components/AppIcon";
@@ -19,8 +19,9 @@ import {
   AudioParticipantStage,
   CallActions,
   CallPrejoinDialog,
-  prioritizeVideoParticipants,
-  VideoParticipantGrid
+  videoParticipantsForView,
+  VideoParticipantGrid,
+  type VideoView
 } from "./CallPanelViews";
 import { useCallSession, type CallPanelProps } from "./useCallSession";
 import { formatCallDuration, mediaLabel } from "./callMedia";
@@ -188,6 +189,14 @@ export function CallPanel({
     onOpenChat,
     onSessionStateChange
   });
+  const [videoPreference, setVideoPreference] = useState<{
+    callId: string | null;
+    view: VideoView;
+    pinnedParticipantId: string | null;
+  } | null>(null);
+  const currentVideoPreference = videoPreference?.callId === call?.id ? videoPreference : null;
+  const videoView = currentVideoPreference?.view ?? "automatic";
+  const pinnedParticipantId = currentVideoPreference?.pinnedParticipantId ?? null;
   /*
    * Placement applies only to the minimized companion. Expanded -- and on the
    * Immersive stage -- the dock's position is owned by CSS, and handing it an
@@ -626,17 +635,19 @@ export function CallPanel({
                   <AppIcon name="message" />
                   Chat
                 </button>
-                <button type="button" aria-label={mobileCallLayout ? "People" : "Directory"} aria-pressed={callWorkspaceTab === "people"} onClick={() => {
+                <button type="button" aria-label={mobileCallLayout ? "People" : "Participants"} aria-pressed={callWorkspaceTab === "people"} onClick={() => {
                   setCallWorkspaceTab("people");
-                  if (onNavigate && !mobileCallLayout) {
+                }}>
+                  <AppIcon name="users" />
+                  {mobileCallLayout ? "People" : "Participants"} ({participants.length})
+                </button>
+                {onNavigate && (
+                  <button type="button" onClick={() => {
                     setMobileWorkspaceOpen(false);
                     setMinimized(true);
                     onNavigate("/app/directory");
-                  }
-                }}>
-                  <AppIcon name="users" />
-                  People ({participants.length})
-                </button>
+                  }}><AppIcon name="contact" />Invite from directory</button>
+                )}
                 {onNavigate && (
                   <button type="button" aria-pressed={callWorkspaceTab === "files"} onClick={() => {
                     setCallWorkspaceTab("files");
@@ -649,6 +660,16 @@ export function CallPanel({
                   </button>
                 )}
               </nav>
+              {joinedKind === "video" && <div className="call-view-controls" role="group" aria-label="Video layout">
+                {(["automatic", "gallery", "speaker"] as const).map((view) => <button
+                  className="button ghost compact"
+                  type="button"
+                  key={view}
+                  aria-pressed={videoView === view}
+                  onClick={() => setVideoPreference({ callId: call?.id ?? null, view, pinnedParticipantId: null })}
+                >{view === "automatic" ? "Automatic" : view === "gallery" ? "Gallery" : "Speaker"}</button>)}
+                <small>Pin changes your view. Shared screens stay first.</small>
+              </div>}
               <div className="call-workspace-body">
                 {callWorkspaceTab === "chat" && (
                   <>
@@ -666,7 +687,7 @@ export function CallPanel({
                   </>
                 )}
                 {callWorkspaceTab === "people" && (
-                  <ul className="call-workspace-people">
+                  <ul className="call-workspace-people" aria-label="In-call roster">
                     {displayParticipants.map((participant) => (
                       <li key={participant.id}>
                         <span aria-hidden="true">{initials(participant.name)}</span>
@@ -730,9 +751,14 @@ export function CallPanel({
               {(audioBlocked || videoBlocked) && <div className="inline-notice" role="status"><span>Browser media playback is paused.</span><button className="button ghost compact" type="button" onClick={() => void enablePlayback()}>{joinedKind === "audio" ? "Enable call audio" : "Enable call media"}</button></div>}
               {callReadiness.enabled && <CallReadinessPanel readiness={callReadiness} />}
               {joinedKind === "video" && (
-                <VideoParticipantGrid
-                  participants={prioritizeVideoParticipants(displayParticipants)}
-                />
+                <>
+                  <VideoParticipantGrid
+                    participants={videoParticipantsForView(displayParticipants, videoView, pinnedParticipantId)}
+                    view={videoView}
+                    pinnedParticipantId={pinnedParticipantId}
+                    onPin={(participantId) => setVideoPreference({ callId: call?.id ?? null, view: "speaker", pinnedParticipantId: participantId })}
+                  />
+                </>
               )}
               {joinedKind === "audio" && (
                 <AudioParticipantStage participants={displayParticipants} />

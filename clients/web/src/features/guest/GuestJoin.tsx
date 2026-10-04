@@ -18,6 +18,7 @@ import {
   setGuestRetryDeadline,
   withoutGuestConversion
 } from "./guestAccessPolicy";
+import { GuestLinkEntry } from "./GuestLinkEntry";
 
 export function GuestJoin({
   api,
@@ -26,6 +27,8 @@ export function GuestJoin({
   accountActionsAllowed,
   mediaActionsAllowed,
   token,
+  shareUrl,
+  onLinkEntered,
   accessEnded,
   onJoined,
   onAccountJoined
@@ -36,6 +39,8 @@ export function GuestJoin({
   accountActionsAllowed: boolean;
   mediaActionsAllowed: boolean;
   token: string | null;
+  shareUrl?: string | null;
+  onLinkEntered?: (target: string) => void;
   accessEnded: boolean;
   onJoined: (session: GuestSession) => void;
   onAccountJoined: (result: InstantRoomResult) => void;
@@ -248,6 +253,11 @@ export function GuestJoin({
               </button>
             </form>
             )}
+            {!accountSession && (
+              <Link className="button ghost full" to="/sign-in" state={{ returnTo: "/join", guestToken: token, guestShareUrl: shareUrl }}>
+                Sign in and return to this room
+              </Link>
+            )}
             <small className="guest-expiry">
               {preview.expires_at
                 ? `This invitation expires ${formatDateTime(preview.expires_at)}.`
@@ -277,6 +287,7 @@ export function GuestJoin({
                   ? "This guest session expired or was revoked. Ask the room host for a new link."
                   : "Scan the room QR code or open the unique link shared by its host."}
             </p>
+            <GuestLinkEntry onJoin={onLinkEntered} />
             <div className="guest-entry-actions">
               {token && previewRetryable && (
                 <button
@@ -302,6 +313,7 @@ export function GuestJoin({
               <Link
                 className="button ghost full"
                 to="/sign-in"
+                state={{ returnTo: "/join", ...(token ? { guestToken: token, guestShareUrl: shareUrl } : {}) }}
               >
                 Sign in to a workspace
               </Link>

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { downloadUrl } from "../../api";
+import type { ApiClient } from "../../api";
 import { useSession } from "../../app/session";
 import { useWorkspaceData } from "../../app/workspace-data";
+import { createPortal } from "react-dom";
+import { useModalDialog } from "../../components/useModalDialog";
 import { AppIcon } from "../../components/AppIcon";
 import { fileSourceMessagePath } from "../../lib/fileLinks";
 import {
@@ -26,15 +29,22 @@ import type {
 import "./FilesPage.css";
 
 const pageSize = 25;
-type FileCategory = "all" | "documents" | "images";
+type FileCategory = "all" | "non_images" | "images";
 
 export function FilesPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const linkedConversationId = searchParams.get("conversation") || "";
   const linkedFileId = searchParams.get("file") || "";
   const { api, session } = useSession();
   const { conversations, users } = useWorkspaceData();
   const [scope, setScope] = useState<FilesScope>("recent");
+  const [searchText, setSearchText] = useState("");
+  const [query, setQuery] = useState("");
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [detailsFile, setDetailsFile] = useState<FileSummary | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareConversationId, setShareConversationId] = useState("");
   const [category, setCategory] = useState<FileCategory>("all");
   const [conversationId, setConversationId] = useState(linkedConversationId);
   const [files, setFiles] = useState<FileSummary[]>([]);
@@ -63,6 +73,8 @@ export function FilesPage() {
     try {
       const page = await api.files({
         scope,
+        q: query || undefined,
+        category: category === "all" ? undefined : category,
         conversation_id: conversationId || undefined,
         limit: pageSize,
         cursor
@@ -80,7 +92,7 @@ export function FilesPage() {
         setLoadingMore(false);
       }
     }
-  }, [api, conversationId, scope]);
+  }, [api, category, conversationId, query, scope]);
 
   useEffect(() => {
     setFiles([]);
@@ -108,10 +120,7 @@ export function FilesPage() {
     () => duplicateParticipantNames(users),
     [users]
   );
-  const visibleFiles = useMemo(
-    () => files.filter((file) => category === "all" || fileCategory(file) === category),
-    [category, files]
-  );
+  const visibleFiles = files;
   const linkedFileLoaded = files.some((file) => file.id === linkedFileId);
   useEffect(() => {
     if (!linkedFileId || focusedFile.current === linkedFileId || !visibleFiles.some((file) => file.id === linkedFileId)) return;
@@ -122,7 +131,7 @@ export function FilesPage() {
       focusedFile.current = linkedFileId;
     }
   }, [linkedFileId, visibleFiles]);
-  const activeFilterCount = Number(scope !== "recent") + Number(Boolean(conversationId));
+  const activeFilterCount = Number(scope !== "recent") + Number(Boolean(conversationId)) + Number(Boolean(query));
   const selectedConversation = conversationById.get(conversationId);
   const selectedConversationTitle = selectedConversation
     ? conversationParticipantIdentifier(selectedConversation, duplicateDirectNames)
@@ -158,6 +167,10 @@ export function FilesPage() {
         <div>
           <h1>Files</h1>
         </div>
+        <div className="files-heading-actions">
+        <button className="button primary" type="button" onClick={() => { setShareConversationId(conversationId); setSharing(true); }}>
+          <AppIcon name="paperclip" />Share a file
+        </button>
         <button
           className="button ghost"
           type="button"
@@ -167,8 +180,22 @@ export function FilesPage() {
           <AppIcon name="refresh" />
           {loading ? "Refreshing…" : "Refresh"}
         </button>
+        </div>
       </header>
 
+      <form className="files-search" role="search" onSubmit={(event) => {
+        event.preventDefault();
+        const next = searchText.trim();
+        if (next && (next.length < 2 || next.length > 160)) { setSearchError("Enter between 2 and 160 characters to search filenames."); return; }
+        setSearchError(null);
+        setQuery(next);
+      }}>
+        <label className="field grow-field">Search filenames
+          <input type="search" value={searchText} maxLength={160} placeholder="Search all files you can access" onChange={(event) => setSearchText(event.currentTarget.value)} aria-invalid={Boolean(searchError)} aria-describedby={searchError ? "files-search-error" : undefined} />
+        </label>
+        <button className="button ghost" type="submit">Search files</button>
+      </form>
+      {searchError && <p id="files-search-error" role="alert">{searchError}</p>}
       <section className="files-surface" aria-labelledby="files-list-heading">
         <div className="files-toolbar">
           <div className="files-toolbar-heading">
@@ -179,8 +206,8 @@ export function FilesPage() {
             <legend className="sr-only">File type</legend>
             {([
               ["all", "All"],
-              ["documents", "Documents"],
-              ["images", "Images"]
+              ["images", "Images"],
+              ["non_images", "Other files"]
             ] as const).map(([value, label]) => (
               <button
                 type="button"
@@ -238,12 +265,16 @@ export function FilesPage() {
             <span>
               {scope === "shared_by_me" ? "Shared by me" : "Recent files"}
               {conversationId && ` · ${selectedConversationTitle}`}
-              {category !== "all" && ` · ${category === "images" ? "Images" : "Documents"}`}
+              {category !== "all" && ` · ${category === "images" ? "Images" : "Other files"}`}
+              {query && ` · Filename: ${query}`}
             </span>
             <button className="button ghost compact" type="button" onClick={() => {
               setScope("recent");
               setConversationId("");
               setCategory("all");
+              setQuery("");
+              setSearchText("");
+              setSearchError(null);
             }}>Clear filters</button>
           </div>
         )}
@@ -261,7 +292,7 @@ export function FilesPage() {
               <strong>Files could not be loaded.</strong>
               <span>{error}</span>
             </div>
-            <button type="button" onClick={() => void loadFiles("replace")}>Try again</button>
+            <button type="button" onClick={() => void loadFiles(files.length && nextCursor ? "append" : "replace", files.length ? nextCursor : undefined)}>Try again</button>
           </div>
         )}
 
@@ -270,7 +301,6 @@ export function FilesPage() {
             ? "The linked file is not in these results yet. Load more files to continue looking."
             : "The linked file is unavailable in these results. It may have been removed or your access may have changed."}</p>
         )}
-        {category !== "all" && hasMore && <p role="status">Showing {category} in loaded files. Load more to search older files.</p>}
         {loading && files.length === 0 ? (
           <div className="files-state" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
@@ -279,15 +309,9 @@ export function FilesPage() {
         ) : !error && files.length === 0 ? (
           <div className="files-state empty">
             <AppIcon name="file" />
-            <strong>No shared files</strong>
-            <span>Files shared in your conversations appear here.</span>
+            <strong>{query || category !== "all" ? "No matching files" : "No shared files"}</strong>
+            <span>{query || category !== "all" ? "Try a different filename or clear your filters." : "Files shared in your conversations appear here."}</span>
             <Link className="button ghost" to="/app/">Open Inbox</Link>
-          </div>
-        ) : !error && visibleFiles.length === 0 ? (
-          <div className="files-state empty">
-            <AppIcon name="filter" />
-            <strong>{hasMore ? `No ${category} in loaded files` : `No ${category} found`}</strong>
-            <span>{hasMore ? "Load more to search older files." : "No matching files in these results."}</span>
           </div>
         ) : (
           <>
@@ -311,13 +335,14 @@ export function FilesPage() {
                 duplicateUserNames={duplicateUserNames}
                 downloading={downloadingId === file.id}
                 onDownload={() => void openDownload(file)}
+                onDetails={() => setDetailsFile(file)}
               />
             ))}
           </ol>
           </>
         )}
 
-        {hasMore && !error && (
+        {hasMore && (
           <button
             className="files-load-more"
             type="button"
@@ -328,6 +353,11 @@ export function FilesPage() {
           </button>
         )}
       </section>
+      {detailsFile && <FileDetails file={detailsFile} conversation={conversationById.get(detailsFile.conversation_id)} owner={userById.get(detailsFile.owner_user_id)} duplicateDirectNames={duplicateDirectNames} duplicateUserNames={duplicateUserNames} onClose={() => setDetailsFile(null)} onDownload={() => void openDownload(detailsFile)} downloading={downloadingId === detailsFile.id} api={api} />}
+      {sharing && <ShareFileDialog conversations={conversations.filter((conversation) => !conversation.archived_at)} duplicateDirectNames={duplicateDirectNames} conversationId={shareConversationId} onSelect={setShareConversationId} onClose={() => setSharing(false)} onContinue={() => {
+        const params = new URLSearchParams({ conversation: shareConversationId, compose: "attachment" });
+        navigate(`/app/?${params.toString()}`);
+      }} />}
     </main>
   );
 }
@@ -339,7 +369,8 @@ function FileRow({
   duplicateDirectNames,
   duplicateUserNames,
   downloading,
-  onDownload
+  onDownload,
+  onDetails
 }: {
   file: FileSummary;
   conversation?: Conversation;
@@ -348,6 +379,7 @@ function FileRow({
   duplicateUserNames: ReadonlySet<string>;
   downloading: boolean;
   onDownload: () => void;
+  onDetails: () => void;
 }) {
   const sourceTitle = conversation
     ? conversationParticipantIdentifier(conversation, duplicateDirectNames)
@@ -361,7 +393,7 @@ function FileRow({
       <div className={`file-kind-mark ${fileKindTone(file)}`} aria-hidden="true">{fileExtension(file.file_name)}</div>
       <div className="file-row-copy">
         <div className="file-row-title">
-          <strong title={file.file_name}>{file.file_name}</strong>
+          <button className="file-name-button" type="button" onClick={onDetails} aria-label={`File details for ${file.file_name}`} title={file.file_name}>{file.file_name}</button>
           {/*
             * A status pill should mark the exception, not the rule. "Available"
             * on every row was five badges saying nothing; the ones that matter --
@@ -426,7 +458,7 @@ function fileExtension(fileName: string): string {
 
 function fileCategory(file: FileSummary): Exclude<FileCategory, "all"> {
   if (file.content_type?.toLocaleLowerCase().startsWith("image/")) return "images";
-  return "documents";
+  return "non_images";
 }
 
 function fileKindTone(file: FileSummary): string {
@@ -454,4 +486,69 @@ function downloadTitle(file: FileSummary): string {
   if (file.safety_state === "blocked") return "This file was blocked by the safety check";
   if (file.safety_state === "failed") return "The safety check failed; download remains unavailable";
   return "This file is unavailable";
+}
+
+
+function FileDetails({ file, conversation, owner, duplicateDirectNames, duplicateUserNames, onClose, onDownload, downloading, api }: {
+  file: FileSummary;
+  conversation?: Conversation;
+  owner?: User;
+  duplicateDirectNames: ReadonlySet<string>;
+  duplicateUserNames: ReadonlySet<string>;
+  onClose: () => void;
+  onDownload: () => void;
+  downloading: boolean;
+  api: Pick<ApiClient, "attachmentDownload">;
+}) {
+  const dialogRef = useModalDialog(onClose);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const safeImage = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"].includes(file.content_type.toLowerCase());
+  const available = file.downloadable && file.safety_state === "available";
+  useEffect(() => {
+    if (!safeImage || !available) return;
+    let current = true;
+    setPreviewLoading(true);
+    void api.attachmentDownload(file.id).then((response) => {
+      if (current && response.data.status === "ready" && response.data.scan_status === "clean") {
+        setPreview(downloadUrl(response.thumbnail_download));
+      }
+    }).catch(() => undefined).finally(() => { if (current) setPreviewLoading(false); });
+    return () => { current = false; };
+  }, [api, available, file.id, safeImage]);
+  return createPortal(<div className="modal-backdrop">
+    <section ref={dialogRef} className="modal-dialog file-details-dialog" role="dialog" aria-modal="true" aria-labelledby="file-details-heading" tabIndex={-1}>
+      <header className="app-dialog-heading"><h2 id="file-details-heading">File details</h2><button className="button ghost compact" type="button" data-initial-focus onClick={onClose}>Close</button></header>
+      <strong className="file-details-name">{file.file_name}</strong>
+      {safeImage && available && <div className="file-details-preview">{preview ? <img src={preview} alt={`Preview of ${file.file_name}`} referrerPolicy="no-referrer" onError={() => setPreview(null)} /> : <p role="status">{previewLoading ? "Loading approved image preview…" : "An image preview is not available. You can download the file or view its source message."}</p>}</div>}
+      <dl className="file-details-facts">
+        <div><dt>Safety</dt><dd>{safetyLabel(file.safety_state)}</dd></div>
+        <div><dt>File type</dt><dd>{file.content_type}</dd></div>
+        <div><dt>Size</dt><dd>{formatBytes(file.byte_size)}</dd></div>
+        <div><dt>Shared by</dt><dd>{owner ? participantIdentifier(owner, duplicateUserNames) : "A member"}</dd></div>
+        <div><dt>Conversation</dt><dd>{conversation ? conversationParticipantIdentifier(conversation, duplicateDirectNames) : "Conversation"}</dd></div>
+        <div><dt>Shared</dt><dd>{formatDateTime(file.shared_at || file.inserted_at)}</dd></div>
+      </dl>
+      {!available && <p role="note">{downloadTitle(file)}</p>}
+      <div className="form-actions"><Link className="button ghost" to={fileSourceMessagePath(file)}>View source message</Link><button className="button primary" type="button" disabled={!available || downloading} onClick={onDownload}>{downloading ? "Opening…" : "Download file"}</button></div>
+    </section>
+  </div>, document.body);
+}
+
+function ShareFileDialog({ conversations, duplicateDirectNames, conversationId, onSelect, onClose, onContinue }: {
+  conversations: Conversation[];
+  duplicateDirectNames: ReadonlySet<string>;
+  conversationId: string;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+  onContinue: () => void;
+}) {
+  const dialogRef = useModalDialog(onClose);
+  return createPortal(<div className="modal-backdrop"><section ref={dialogRef} className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="share-file-heading" tabIndex={-1}>
+    <header className="app-dialog-heading"><h2 id="share-file-heading">Share a file</h2><button className="button ghost compact" type="button" onClick={onClose}>Cancel</button></header>
+    <p>Choose a conversation, then use Attach file in its message composer. The file follows the existing upload and safety-check process.</p>
+    <label className="field">Share in conversation<select value={conversationId} onChange={(event) => onSelect(event.currentTarget.value)} data-initial-focus><option value="">Choose a conversation</option>{conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversationParticipantIdentifier(conversation, duplicateDirectNames)}</option>)}</select></label>
+    {conversations.length === 0 && <p>Create or join a conversation in Inbox before sharing files.</p>}
+    <div className="form-actions"><button className="button primary" type="button" disabled={!conversations.some((conversation) => conversation.id === conversationId)} onClick={onContinue}>Open message composer</button></div>
+  </section></div>, document.body);
 }

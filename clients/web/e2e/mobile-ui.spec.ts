@@ -36,7 +36,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await expect(page.locator(".mobile-workspace-heading")).toHaveCount(0);
       await expect(page.getByRole("heading", { name: "Inbox" })).toBeAttached();
       await expect(page.getByRole("button", { name: "Create conversation" })).toContainText("New");
-      await expect(page.getByRole("button", { name: "Search messages" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Search workspace content" })).toBeVisible();
       await expect(page.locator(".workspace-grid")).toHaveClass(/mobile-list/);
       await expect(page.getByRole("button", { name: "Open more menu" })).toHaveCount(0);
       const primaryNavigation = page.getByRole("navigation", { name: "Primary navigation" });
@@ -221,7 +221,7 @@ test.describe("authenticated mobile web acceptance", () => {
       await page.getByRole("tab", { name: "Profile" }).click();
       await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace administration" }).click();
       await expect(page.getByRole("heading", { name: "Workspace control center" })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Tenant settings" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Workspace settings" })).toBeVisible();
       await expectNoDocumentOverflow(page);
 
       await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "You" }).click();
@@ -336,8 +336,12 @@ test.describe("authenticated mobile web acceptance", () => {
     await expect(page.getByText("Active call")).toHaveCount(0);
   });
 
-  test("adaptive desktop navigation preserves workspace width and pin state", async ({ page }, testInfo) => {
+  test("adaptive desktop navigation reserves content space when pinned and preserves state", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(() => {
+      const key = "k-comms.workspace-sidebar-collapsed.v1";
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, "false");
+    });
     await installWorkspace(page);
     await page.goto("/app/");
 
@@ -354,8 +358,9 @@ test.describe("authenticated mobile web acceptance", () => {
     expect(expandedRailBox).not.toBeNull();
     const workspaceAfterExpand = await page.locator(".workspace-grid").boundingBox();
     expect(workspaceAfterExpand).not.toBeNull();
-    expect(workspaceAfterExpand!.x).toBe(workspaceBeforeExpand!.x);
-    expect(workspaceAfterExpand!.width).toBe(workspaceBeforeExpand!.width);
+    expect(workspaceAfterExpand!.x).toBeGreaterThanOrEqual(expandedRailBox!.x + expandedRailBox!.width);
+    expect(workspaceAfterExpand!.width).toBeLessThan(workspaceBeforeExpand!.width);
+    expect(workspaceAfterExpand!.x + workspaceAfterExpand!.width).toBeCloseTo(workspaceBeforeExpand!.x + workspaceBeforeExpand!.width, 0);
     await expect(page.getByRole("button", { name: "Use compact navigation" }))
       .toHaveAttribute("aria-pressed", "true");
 

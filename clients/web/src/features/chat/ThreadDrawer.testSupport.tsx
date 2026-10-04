@@ -12,12 +12,16 @@ export function renderDrawer({
   users = [currentUser, mentionedUser],
   drawerMembers = users.map(membership),
   liveMessages = [],
+  onMessageUpdated,
+  onReport,
   onSend = vi.fn<(input: SendMessageInput) => Promise<Message>>().mockResolvedValue(message("reply-1", 2, "Reply"))
 }: {
   api: ApiClient;
   users?: User[];
   drawerMembers?: ConversationMembership[];
   liveMessages?: Message[];
+  onMessageUpdated?: (message: Message) => void;
+  onReport?: (message: Message) => void;
   onSend?: (input: SendMessageInput) => Promise<Message>;
 }) {
   return render(
@@ -33,6 +37,8 @@ export function renderDrawer({
       liveMessages={liveMessages}
       onClose={vi.fn()}
       onSend={onSend}
+      onMessageUpdated={onMessageUpdated}
+      onReport={onReport}
     />
   );
 }

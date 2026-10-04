@@ -207,4 +207,65 @@ describe("PeoplePanel", () => {
     expect(screen.queryByRole("combobox", { name: "Status for Taylor Member" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Manage sessions for Taylor Member" })).not.toBeInTheDocument();
   });
+
+  it("combines role and status filters, reports counts, and sorts without mutating the source list", async () => {
+    const users: User[] = [
+      managedUser,
+      { ...managedUser, id: "user-2", display_name: "Morgan Moderator", role: "moderator", status: "suspended" },
+      { ...managedUser, id: "user-3", display_name: "Alex Administrator", role: "admin" }
+    ];
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockResolvedValue([]) }, users);
+    expect(screen.getByText("3 accounts")).toBeVisible();
+    expect(screen.getByText("Showing 3 of 3 accounts · 2 active in this workspace")).toBeVisible();
+    const table = screen.getByRole("region", { name: "Workspace people" });
+    const names = () => Array.from(table.querySelectorAll(".people-identity strong")).map((node) => node.textContent?.trim());
+    expect(names()).toEqual(["Alex Administrator", "Morgan Moderator", "Taylor Member"]);
+    await user.selectOptions(screen.getByLabelText("Sort people"), "name-desc");
+    expect(names()).toEqual(["Taylor Member", "Morgan Moderator", "Alex Administrator"]);
+    await user.selectOptions(screen.getByLabelText("Filter by role"), "moderator");
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "suspended");
+    expect(names()).toEqual(["Morgan Moderator"]);
+    expect(screen.getByText("Showing 1 of 3 accounts · 2 active in this workspace")).toBeVisible();
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "active");
+    expect(screen.getByText("No people match these filters.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(names()).toEqual(["Taylor Member", "Morgan Moderator", "Alex Administrator"]);
+    expect(users.map((record) => record.id)).toEqual(["user-1", "user-2", "user-3"]);
+    expect(screen.queryByText("Live API")).not.toBeInTheDocument();
+  });
+
+  it("expands existing person information without loading privileged sessions", async () => {
+    const adminUserSessions = vi.fn();
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockResolvedValue([]), adminUserSessions });
+    const view = screen.getByRole("button", { name: "View details for Taylor Member" });
+    expect(view).toHaveAttribute("aria-expanded", "false");
+    await user.click(view);
+    const details = screen.getByRole("region", { name: "Details for Taylor Member" });
+    expect(view).toHaveAttribute("aria-controls", details.id);
+    expect(within(details).getByText("Human")).toBeVisible();
+    expect(within(details).getByText("taylor@example.test")).toBeVisible();
+    expect(within(details).getByText("user-1")).toBeVisible();
+    expect(within(details).getByText("4")).toBeVisible();
+    expect(adminUserSessions).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Hide details for Taylor Member" }));
+    expect(screen.queryByRole("region", { name: "Details for Taylor Member" })).not.toBeInTheDocument();
+    expect(view).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows provided session and device IDs with lifecycle dates instead of guessed device names", async () => {
+    const adminUserSessions = vi.fn().mockResolvedValue([accountSession]);
+    const user = userEvent.setup();
+    renderPanel({ invitations: vi.fn().mockResolvedValue([invitation]), adminUserSessions });
+    expect(await screen.findByText("1 pending")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Manage sessions for Taylor Member" }));
+    const sessions = await screen.findByRole("list", { name: "Sessions for Taylor Member" });
+    expect(within(sessions).getByText(/Created .*Expires/)).toBeVisible();
+    await user.click(within(sessions).getByText("Session identifiers"));
+    expect(within(sessions).getByText("session-12345678")).toBeVisible();
+    expect(within(sessions).getByText("device-1")).toBeVisible();
+    expect(adminUserSessions).toHaveBeenCalledWith("user-1");
+    expect(within(sessions).queryByText(/Windows|Chrome|Web browser/)).not.toBeInTheDocument();
+  });
 });

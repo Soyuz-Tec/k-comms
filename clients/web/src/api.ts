@@ -322,12 +322,20 @@ export class ApiClient {
     return this.administrationApi.auditEvents(limit);
   }
 
+  auditEventsPage(input: AuditExportInput = {}, cursor?: string) {
+    return this.administrationApi.auditEventsPage(input, cursor);
+  }
+
   exportAuditEvents(input: AuditExportInput = {}): Promise<AuditExportFile>{
     return this.administrationApi.exportAuditEvents(input);
   }
 
-  moderationCases(): Promise<ModerationCase[]>{
-    return this.administrationApi.moderationCases();
+  moderationCases(input: Parameters<AdministrationApi["moderationCases"]>[0] = {}): Promise<ModerationCase[]>{
+    return this.administrationApi.moderationCases(input);
+  }
+
+  moderationCase(id: string) {
+    return this.administrationApi.moderationCase(id);
   }
 
   createModerationCase(input: { subject_user_id?: string; conversation_id?: string; message_id?: string; category: string; summary: string; details?: string; priority?: string }): Promise<ModerationCase>{
@@ -342,11 +350,11 @@ export class ApiClient {
     return this.administrationApi.retentionPolicies();
   }
 
-  createRetentionPolicy(input: { name: string; retention_days: number; delete_attachments: boolean }): Promise<RetentionPolicy>{
+  createRetentionPolicy(input: Parameters<AdministrationApi["createRetentionPolicy"]>[0]): Promise<RetentionPolicy>{
     return this.administrationApi.createRetentionPolicy(input);
   }
 
-  updateRetentionPolicy(id: string, input: { status: "active" | "disabled"; version: number; reason: string }): Promise<RetentionPolicy>{
+  updateRetentionPolicy(id: string, input: Parameters<AdministrationApi["updateRetentionPolicy"]>[1]): Promise<RetentionPolicy>{
     return this.administrationApi.updateRetentionPolicy(id, input);
   }
 
@@ -455,6 +463,10 @@ export class ApiClient {
     return this.integrationsApi.createWebhook(input);
   }
 
+  updateWebhook(id: string, input: { name?: string; url?: string; event_types?: string[]; status?: "active" | "disabled" }): Promise<WebhookEndpoint> {
+    return this.integrationsApi.updateWebhook(id, input);
+  }
+
   rotateWebhookSecret(id: string, reason?: string): Promise<{ endpoint: WebhookEndpoint; secret: string }>{
     return this.integrationsApi.rotateWebhookSecret(id, reason);
   }
@@ -488,6 +500,7 @@ export class ApiClient {
   }
 
   phoneConfiguration() { return this.telephonyApi.phoneConfiguration(); }
+  phoneAdminConfiguration() { return this.telephonyApi.phoneAdminConfiguration(); }
   phoneNumberAssignment() { return this.telephonyApi.phoneNumberAssignment(); }
   updatePhoneNumber(input: PhoneNumberInput) { return this.telephonyApi.updatePhoneNumber(input); }
   phoneCalls(options: Parameters<TelephonyApi["phoneCalls"]>[0] = {}) { return this.telephonyApi.phoneCalls(options); }
@@ -705,8 +718,8 @@ export class ApiClient {
     return this.filesApi.files(options);
   }
 
-  attachmentSafety(): Promise<AttachmentSafety[]>{
-    return this.filesApi.attachmentSafety();
+  attachmentSafety(options: { scan_status?: NonNullable<AttachmentSafety["scan_status"]>; limit?: number } = {}): Promise<AttachmentSafety[]>{
+    return this.filesApi.attachmentSafety(options);
   }
 
   retryAttachmentScan(id: string): Promise<AttachmentSafety>{

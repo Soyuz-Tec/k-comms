@@ -6,6 +6,7 @@ export function createTelephonyApi(request: ApiRequest) {
   const callPath = (id: string) => `/api/v1/telephony/calls/${encodeURIComponent(id)}`;
   return {
     phoneConfiguration: () => request<DataResponse<PhoneConfiguration>>("/api/v1/telephony/config").then(({ data }) => data),
+    phoneAdminConfiguration: () => request<DataResponse<PhoneConfiguration>>("/api/v1/admin/telephony").then(({ data }) => data),
     phoneNumberAssignment: () => request<DataResponse<PhoneConfiguration>>("/api/v1/admin/telephony").then(({ data }) => data.number),
     updatePhoneNumber: (input: PhoneNumberInput) => request<DataResponse<PhoneConfiguration>>("/api/v1/admin/telephony", { method: "PUT", body: JSON.stringify(input) }).then(({ data }) => {
       if (!data.number) throw new Error("The saved phone assignment was not returned. Refresh phone settings before retrying.");

@@ -43,10 +43,7 @@ test.describe("low-click member information architecture", () => {
           `${route.heading} primary navigation`
         );
         if (route.path === "/app/calls" && width === 390) {
-          const hideLauncher = page.getByRole("button", { name: "Hide call launcher" });
-          await expect(hideLauncher).toBeVisible();
-          await hideLauncher.click();
-          const showLauncher = page.getByRole("button", { name: "Start a new call" });
+          const showLauncher = page.getByRole("button", { name: "Start call", exact: true });
           await expect(showLauncher).toHaveAttribute("aria-expanded", "false");
           await showLauncher.click();
           await expect(page.getByRole("button", { name: "Hide call launcher" })).toHaveAttribute(
@@ -212,7 +209,7 @@ test.describe("low-click member information architecture", () => {
       () => actions += 1
     );
     await expect(page.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("button", { name: "Documents" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Other files" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Images" })).toBeVisible();
     await expect(page.getByText("Quarterly-plan.pdf", { exact: true })).toBeVisible();
     await countedClick(
@@ -227,7 +224,7 @@ test.describe("low-click member information architecture", () => {
     expect(fixture.unexpectedRequests).toEqual([]);
   });
 
-  test("a video call starts in three actions with an explicit default-off join", async ({ page }) => {
+  test("a video call starts in four actions with an explicit default-off join", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installWorkspace(page);
     await page.goto("/app/");
@@ -237,6 +234,9 @@ test.describe("low-click member information architecture", () => {
       page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Calls" }),
       () => actions += 1
     );
+    const showLauncher = page.getByRole("button", { name: "Start call", exact: true });
+    await expect(showLauncher).toHaveAttribute("aria-expanded", "false");
+    await countedClick(showLauncher, () => actions += 1);
     const launcher = page.getByRole("region", { name: "Start a call" });
     await expect(launcher).toBeVisible();
     await countedClick(launcher.getByRole("button", { name: "Video call General" }), () => actions += 1);
@@ -250,8 +250,8 @@ test.describe("low-click member information architecture", () => {
       () => actions += 1
     );
     await expect(page.getByRole("alert")).toContainText("Unable to join the video call");
-    expect(actions).toBe(3);
-    expect(actions).toBeLessThanOrEqual(3);
+    expect(actions).toBe(4);
+    expect(actions).toBeLessThanOrEqual(4);
     expect(fixture.startCallRequests).toBe(1);
     expect(fixture.unexpectedRequests).toEqual([]);
   });

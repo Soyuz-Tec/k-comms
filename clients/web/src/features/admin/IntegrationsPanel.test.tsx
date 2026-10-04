@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api";
@@ -39,7 +39,7 @@ describe("IntegrationsPanel one-time secret handling", () => {
 
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Primary");
     await user.type(screen.getByRole("textbox", { name: "HTTPS URL" }), endpoint.url);
-    await user.type(screen.getByRole("textbox", { name: "Event types" }), "message.created.v1");
+    await user.click(screen.getByRole("checkbox", { name: /Message sent/ }));
     await user.click(screen.getByRole("button", { name: "Create webhook" }));
 
     expect(await screen.findByText("one-time-secret")).toBeVisible();
@@ -66,5 +66,64 @@ describe("IntegrationsPanel one-time secret handling", () => {
 
     await waitFor(() => expect(rotateWebhookSecret).toHaveBeenCalledWith("endpoint-1", "Scheduled rotation"));
     expect(await screen.findByRole("region", { name: "One-time signing secret" })).toHaveTextContent("rotated-secret");
+  });
+});
+
+
+describe("IntegrationsPanel endpoint management", () => {
+  const endpoint = { id: "endpoint-1", name: "Primary", url: "https://hooks.example.test/k-comms", status: "disabled", secret_version: 1, event_types: ["message.created.v1", "custom.existing.v1"], inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:00:00Z" };
+  function makeApi(overrides = {}) { return { webhooks: vi.fn().mockResolvedValue([endpoint]), webhookDeliveries: vi.fn().mockResolvedValue([]), serviceAccounts: vi.fn().mockResolvedValue([]), updateWebhook: vi.fn().mockResolvedValue({ ...endpoint, status: "active" }), ...overrides } as unknown as ApiClient; }
+
+  it("edits name, destination, and events without rotating the secret", async () => {
+    const updateWebhook = vi.fn().mockResolvedValue({ ...endpoint, name: "Updated", url: "https://hooks.example.test/new" });
+    const api = makeApi({ updateWebhook });
+    const user = userEvent.setup();
+    render(<IntegrationsPanel api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Edit Primary" }));
+    const form = screen.getByRole("form", { name: "Edit webhook Primary" });
+    expect(within(form).getByRole("checkbox", { name: "custom.existing.v1 custom.existing.v1" })).toBeChecked();
+    await user.clear(within(form).getByRole("textbox", { name: "Endpoint name" }));
+    await user.type(within(form).getByRole("textbox", { name: "Endpoint name" }), "Updated");
+    await user.clear(within(form).getByRole("textbox", { name: "Endpoint HTTPS URL" }));
+    await user.type(within(form).getByRole("textbox", { name: "Endpoint HTTPS URL" }), "https://hooks.example.test/new");
+    await user.click(within(form).getByRole("checkbox", { name: /Meeting started/ }));
+    await user.click(within(form).getByRole("button", { name: "Save endpoint" }));
+    await waitFor(() => expect(updateWebhook).toHaveBeenCalledWith("endpoint-1", { name: "Updated", url: "https://hooks.example.test/new", event_types: ["message.created.v1", "custom.existing.v1", "call.started.v1"] }));
+    expect(screen.queryByRole("region", { name: "One-time signing secret" })).not.toBeInTheDocument();
+  });
+
+  it("reviews re-enabling and preserves secret and failed-delivery semantics", async () => {
+    const api = makeApi();
+    const user = userEvent.setup();
+    render(<IntegrationsPanel api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Enable" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Enable webhook endpoint?" });
+    expect(dialog).toHaveTextContent("Existing failed deliveries are not replayed automatically");
+    await user.click(within(dialog).getByRole("button", { name: "Enable endpoint" }));
+    await waitFor(() => expect(api.updateWebhook).toHaveBeenCalledWith("endpoint-1", { status: "active" }));
+    expect(await screen.findByText("Enabled")).toBeVisible();
+  });
+
+  it("keeps failed edits recoverable and leaves endpoint state unchanged", async () => {
+    const api = makeApi({ updateWebhook: vi.fn().mockRejectedValue(new Error("Endpoint configuration conflict")) });
+    const user = userEvent.setup();
+    render(<IntegrationsPanel api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Edit Primary" }));
+    await user.click(screen.getByRole("button", { name: "Save endpoint" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Endpoint configuration conflict");
+    expect(screen.getByRole("form", { name: "Edit webhook Primary" })).toBeVisible();
+    expect(screen.getByText("Disabled")).toBeVisible();
+  });
+
+  it("shows named delivery failures and blocks replay for disabled endpoints", async () => {
+    const api = makeApi({ webhookDeliveries: vi.fn().mockResolvedValue([{ id: "delivery-1", endpoint_id: "endpoint-1", event_type: "message.created.v1", status: "dead_letter", attempt_count: 5, response_status: 503, last_error_code: "http_unavailable", inserted_at: "2026-07-12T10:00:00Z", updated_at: "2026-07-12T10:10:00Z" }]) });
+    const user = userEvent.setup();
+    render(<IntegrationsPanel api={api} />);
+    await user.click(await screen.findByText("Delivery details"));
+    expect(screen.getByText("http_unavailable")).toBeVisible();
+    expect(screen.getByText("503")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Replay" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Copy failure details" })).toBeEnabled();
+    expect(screen.queryByText("Live API")).not.toBeInTheDocument();
   });
 });

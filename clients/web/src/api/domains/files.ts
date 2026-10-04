@@ -12,13 +12,19 @@ export function createFilesApi(request: ApiRequest, { attachmentContentType }: F
           scope: options.scope ?? "recent",
           limit: String(Math.max(1, Math.min(options.limit ?? 25, 100)))
         });
+        if (options.q?.trim()) query.set("q", options.q.trim());
+        if (options.category) query.set("category", options.category);
         if (options.conversation_id) query.set("conversation_id", options.conversation_id);
         if (options.cursor) query.set("cursor", options.cursor);
         return request(`/api/v1/files?${query.toString()}`);
       },
 
-    attachmentSafety(): Promise<AttachmentSafety[]> {
-        return request<ListResponse<AttachmentSafety>>("/api/v1/admin/attachment-safety").then(
+    attachmentSafety(options: { scan_status?: NonNullable<AttachmentSafety["scan_status"]>; limit?: number } = {}): Promise<AttachmentSafety[]> {
+        const query = new URLSearchParams();
+        if (options.scan_status) query.set("scan_status", options.scan_status);
+        if (options.limit !== undefined) query.set("limit", String(Math.max(1, Math.min(options.limit, 100))));
+        const suffix = query.size ? `?${query.toString()}` : "";
+        return request<ListResponse<AttachmentSafety>>(`/api/v1/admin/attachment-safety${suffix}`).then(
           (response) => response.data
         );
       },

@@ -81,6 +81,7 @@ export function GuestRoomMenu({
               <Link
                 className="guest-room-menu-action"
                 to="/sign-in"
+                state={{ returnTo: "/join" }}
                 onClick={onClose}
               >
                 <AppIcon name="logIn" />

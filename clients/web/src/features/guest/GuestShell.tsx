@@ -661,7 +661,7 @@ export function GuestShell({
                 </button>
               )}
               {identityLabel === "Host" && (
-                <Link className="button ghost" to="/sign-in">
+                <Link className="button ghost" to="/sign-in" state={{ returnTo: "/join" }}>
                   <AppIcon name="logIn" /> Sign in
                 </Link>
               )}

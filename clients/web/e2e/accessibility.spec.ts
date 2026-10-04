@@ -162,7 +162,7 @@ test("message search satisfies automated WCAG A and AA checks", async ({ page })
   await page
     .getByRole("button", { name: "Search messages" })
     .click();
-  await expect(page.getByRole("heading", { name: "Search messages" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Search workspace content" })).toBeVisible();
   await expectNoWcagFailures(page);
 });
 

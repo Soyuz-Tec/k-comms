@@ -50,7 +50,7 @@ describe("SearchPanel accessibility", () => {
     render(<Harness />);
     const trigger = screen.getByRole("button", { name: "Open search" });
     await user.click(trigger);
-    expect(screen.getByRole("dialog", { name: "Search messages" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Search workspace content" })).toBeVisible();
     expect(screen.getByRole("searchbox")).toHaveFocus();
 
     await user.keyboard("{Escape}");
@@ -107,6 +107,25 @@ describe("SearchPanel accessibility", () => {
     await waitFor(() => expect(searchMessagePage).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ cursor: "page-two" })));
     expect(screen.getByText("Third result")).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("3 results shown");
+  });
+
+  it("starts a conversation search in its current scope and can broaden it to the workspace", async () => {
+    const user = userEvent.setup();
+    const searchMessagePage = vi.fn().mockResolvedValue({ data: [], page: { has_more: false, next_cursor: null } });
+    render(<SearchPanel api={{ searchMessagePage } as unknown as ApiClient} conversations={conversations} users={users} initialConversationId="general" onClose={vi.fn()} onSelect={vi.fn()} />);
+    expect(screen.getByLabelText("Conversation")).toHaveValue("general");
+    await user.type(screen.getByRole("searchbox"), "roadmap");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(searchMessagePage).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ conversation_id: "general" })));
+    await user.selectOptions(screen.getByLabelText("Conversation"), "all");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(searchMessagePage).toHaveBeenLastCalledWith("roadmap", expect.objectContaining({ conversation_id: undefined })));
+  });
+
+  it("does not expose an inaccessible initial conversation in search scope", () => {
+    render(<SearchPanel api={{} as ApiClient} conversations={conversations} users={users} initialConversationId="unavailable" onClose={vi.fn()} onSelect={vi.fn()} />);
+    expect(screen.getByLabelText("Conversation")).toHaveValue("all");
+    expect(screen.queryByRole("option", { name: "unavailable" })).not.toBeInTheDocument();
   });
 
   it("opens a file's exact source message without falling back to the recent files page or reloading", async () => {

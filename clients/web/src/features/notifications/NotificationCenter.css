@@ -1,0 +1,7 @@
+.notification-local-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .75rem; }
+.notification-local-filters label { display: grid; gap: .3rem; min-width: 0; color: var(--text-secondary); font-size: var(--text-xs); }
+.notification-local-filters .field { margin: 0; }
+.notification-local-filters .notification-search { grid-column: 1 / -1; }
+.notification-local-filters input, .notification-local-filters select { min-height: 44px; min-width: 0; width: 100%; }
+.notification-filter-scope { color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.45; margin: .65rem 0 0; }
+@media (max-width: 380px) { .notification-local-filters { grid-template-columns: minmax(0, 1fr); } }

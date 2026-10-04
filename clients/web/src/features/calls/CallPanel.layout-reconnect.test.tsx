@@ -236,6 +236,67 @@ describe("CallPanel calls", () => {
     });
   });
 
+  it("opens the desktop roster without navigating or hiding the call, with a separate directory action", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    livekit.remoteParticipants.set("user-2", remoteParticipant("user-2", "Grace").participant);
+    render(<CallPanel api={apiWith(activeAudioCall)} conversation={conversation} audioEnabled videoEnabled currentUserDisplayName="Ada" onNavigate={onNavigate} />);
+    await user.click(await screen.findByRole("button", { name: "Join audio call" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Join the audio call" })).getByRole("button", { name: "Join muted" }));
+    await user.click(await screen.findByRole("button", { name: "Show call" }));
+    const callWindow = screen.getByRole("region", { name: "Design group" });
+    const navigation = within(callWindow).getByRole("navigation", { name: "Call workspace" });
+    await user.click(within(navigation).getByRole("button", { name: "Participants" }));
+
+    expect(within(navigation).getByRole("button", { name: "Participants" })).toHaveAttribute("aria-pressed", "true");
+    const roster = within(callWindow).getByRole("list", { name: "In-call roster" });
+    expect(within(roster).getByText("Ada (you)")).toBeVisible();
+    expect(within(roster).getByText("Grace")).toBeVisible();
+    expect(within(roster).getByRole("button", { name: "Remove" })).toBeVisible();
+    expect(callWindow).not.toHaveClass("minimized");
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(livekit.disconnect).not.toHaveBeenCalled();
+
+    await user.click(within(navigation).getByRole("button", { name: "Invite from directory" }));
+    expect(onNavigate).toHaveBeenCalledWith("/app/directory");
+    expect(callWindow).toHaveClass("minimized");
+    expect(livekit.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("changes video views and local pins without detaching media or overriding a shared screen", async () => {
+    const user = userEvent.setup();
+    const grace = remoteParticipant("user-2", "Grace", { speaking: true });
+    const linus = remoteParticipant("user-3", "Linus");
+    livekit.remoteParticipants.set("user-2", grace.participant);
+    livekit.remoteParticipants.set("user-3", linus.participant);
+    render(<CallPanel api={apiWith(activeVideoCall)} conversation={conversation} audioEnabled videoEnabled currentUserDisplayName="Ada" />);
+    await user.click(await screen.findByRole("button", { name: "Join video call" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Join the video call" })).getByRole("button", { name: "Join video call" }));
+    await screen.findByText("Connected");
+    const grid = screen.getByRole("list", { name: "Video participants" });
+    const views = screen.getByRole("group", { name: "Video layout" });
+    expect(grid).toHaveClass("view-automatic");
+    expect(grid.firstElementChild).toHaveAttribute("data-participant-id", "user-2");
+    await user.click(within(views).getByRole("button", { name: "Gallery" }));
+    expect(grid).toHaveClass("view-gallery");
+    expect(within(views).getByRole("button", { name: "Gallery" })).toHaveAttribute("aria-pressed", "true");
+    expect(grid.firstElementChild).toHaveAttribute("data-participant-id", "user-1");
+    await user.click(within(grid).getByRole("button", { name: "Pin Linus for me" }));
+    expect(grid).toHaveClass("view-speaker");
+    expect(grid.firstElementChild).toHaveAttribute("data-participant-id", "user-3");
+    expect(within(grid).getByRole("button", { name: "Unpin Linus for me" })).toHaveAttribute("aria-pressed", "true");
+
+    grace.participant.isScreenShareEnabled = true;
+    act(() => livekit.callbacks.get(livekit.events.TrackPublished)?.());
+    expect(grid.firstElementChild).toHaveAttribute("data-participant-id", "user-2");
+    expect(grace.track.attach).toHaveBeenCalledOnce();
+    expect(linus.track.attach).toHaveBeenCalledOnce();
+    expect(grace.track.detach).not.toHaveBeenCalled();
+    expect(linus.track.detach).not.toHaveBeenCalled();
+    expect(livekit.connect).toHaveBeenCalledOnce();
+    expect(livekit.disconnect).not.toHaveBeenCalled();
+  });
+
   it("keeps a mobile audio call expanded with an avatar stage, visible controls, and closable menus", async () => {
     useMobileCallLayout();
     const user = userEvent.setup();

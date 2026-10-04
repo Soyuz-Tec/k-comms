@@ -16,6 +16,13 @@ export function createIntegrationsApi(request: ApiRequest) {
         }).then((response) => ({ endpoint: response.data, secret: response.secret }));
       },
 
+    updateWebhook(id: string, input: { name?: string; url?: string; event_types?: string[]; status?: "active" | "disabled" }): Promise<WebhookEndpoint> {
+        return request<DataResponse<WebhookEndpoint>>(`/api/v1/admin/webhooks/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(input)
+        }).then((response) => response.data);
+      },
+
     rotateWebhookSecret(id: string, reason?: string): Promise<{ endpoint: WebhookEndpoint; secret: string }> {
         return request<{ data: WebhookEndpoint; secret: string }>(`/api/v1/admin/webhooks/${encodeURIComponent(id)}/rotate-secret`, {
           method: "POST",

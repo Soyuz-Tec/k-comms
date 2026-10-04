@@ -5,6 +5,10 @@ import { installWorkspace } from "./mobile-ui-support";
 test.beforeEach(async ({ page }, testInfo) => {
   test.skip(!["chromium", "webkit"].includes(testInfo.project.name), "Desktop dock coverage");
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const key = "k-comms.workspace-sidebar-collapsed.v1";
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, "false");
+  });
   await installWorkspace(page);
   await page.clock.install();
   await page.goto("/app/");

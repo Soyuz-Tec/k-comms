@@ -3,15 +3,16 @@ import type { ApiClient, SendMessageInput } from "../../api";
 import { AppSurfaceControlButton } from "../../components/AppMenuControls";
 import { useModalDialog } from "../../components/useModalDialog";
 import { AppIcon } from "../../components/AppIcon";
-import { errorText, formatBytes, formatTime } from "../../lib/format";
+import { errorText } from "../../lib/format";
 import type {
-  Attachment,
   ConversationMembership,
   Message,
   RetainedSenderLabel,
   User
 } from "../../types";
 import { MentionPicker } from "./MentionPicker";
+import { MessageItem } from "./MessageItem";
+import "./ThreadDrawer.css";
 import {
   attachmentLabel,
   useThreadAttachments
@@ -31,7 +32,9 @@ export function ThreadDrawer({
   retainedSenderLabels,
   liveMessages,
   onClose,
-  onSend
+  onSend,
+  onMessageUpdated,
+  onReport
 }: {
   api: ApiClient;
   tenantId: string;
@@ -45,6 +48,8 @@ export function ThreadDrawer({
   liveMessages: Message[];
   onClose: () => void;
   onSend: (input: SendMessageInput) => Promise<Message>;
+  onMessageUpdated?: (message: Message) => void;
+  onReport?: (message: Message) => void;
 }) {
   const [root, setRoot] = useState<Message | null>(null);
   const [replies, setReplies] = useState<Message[]>([]);
@@ -56,6 +61,11 @@ export function ThreadDrawer({
   const activeThreadKeyRef = useRef(`${conversationId}:${targetMessageId}`);
   activeThreadKeyRef.current = `${conversationId}:${targetMessageId}`;
   const requestGenerationRef = useRef(0);
+  const messagesByIdRef = useRef(new Map<string, Message>());
+  messagesByIdRef.current = new Map((root ? [root, ...replies] : replies).map((message) => [message.id, message]));
+  const liveMessagesRef = useRef(liveMessages);
+  liveMessagesRef.current = liveMessages;
+  const pendingReactionsRef = useRef(new Set<string>());
   const dialogRef = useModalDialog(onClose);
   const {
     attachmentAnnouncement,
@@ -153,6 +163,7 @@ export function ThreadDrawer({
       });
     return () => {
       current = false;
+      requestGenerationRef.current += 1;
     };
   }, [
     api,
@@ -210,9 +221,58 @@ export function ThreadDrawer({
     }
   }
 
+  function updateMessage(message: Message) {
+    // Socket removals can arrive before an earlier active edit's HTTP response.
+    // Read the latest live props as well as state, including before its effect runs.
+    const updated = retainRemovedMessage(
+      liveMessagesRef.current.find((entry) => entry.id === message.id),
+      retainRemovedMessage(messagesByIdRef.current.get(message.id), message)
+    );
+    messagesByIdRef.current.set(message.id, updated);
+    setRoot((current) => current?.id === message.id ? retainRemovedMessage(current, updated) : current);
+    setReplies((current) => current.map((reply) => reply.id === message.id ? retainRemovedMessage(reply, updated) : reply));
+    onMessageUpdated?.(updated);
+  }
+
+  async function mutateMessage(operation: () => Promise<Message>) {
+    const threadKey = activeThreadKeyRef.current;
+    const generation = requestGenerationRef.current;
+    // The existing API enforces membership, author ownership and the edit window.
+    // MessageItem keeps the edit draft or delete confirmation open on denial.
+    const updated = await operation();
+    if (activeThreadKeyRef.current === threadKey && requestGenerationRef.current === generation) updateMessage(updated);
+  }
+
+  async function toggleReaction(message: Message, emoji: string) {
+    const threadKey = activeThreadKeyRef.current;
+    const generation = requestGenerationRef.current;
+    const requestKey = `${threadKey}:${message.id}:${emoji}`;
+    if (pendingReactionsRef.current.has(requestKey)) return;
+    pendingReactionsRef.current.add(requestKey);
+    const removing = message.reactions.some((reaction) => reaction.user_id === currentUserId && reaction.emoji === emoji);
+    try {
+      if (removing) await api.removeReaction(conversationId, message.id, emoji);
+      else await api.addReaction(conversationId, message.id, emoji);
+      if (activeThreadKeyRef.current !== threadKey || requestGenerationRef.current !== generation) return;
+      const current = messagesByIdRef.current.get(message.id);
+      if (!current) return;
+      const reactions = current.reactions.filter((reaction) => !(reaction.user_id === currentUserId && reaction.emoji === emoji));
+      if (!removing) reactions.push({ user_id: currentUserId, emoji });
+      updateMessage({ ...current, reactions });
+    } catch (reason: unknown) {
+      if (activeThreadKeyRef.current === threadKey && requestGenerationRef.current === generation) setError(errorText(reason));
+    } finally {
+      pendingReactionsRef.current.delete(requestKey);
+    }
+  }
+
+  function threadMessage(message: Message) {
+    return <MessageItem key={message.id} idPrefix="thread-message" message={message} currentUserId={currentUserId} senderName={senderIdentifier(message.sender_user_id, false)} seenCount={0} focused={false} onAttachment={(attachment) => void openAttachment(attachment)} onReaction={(emoji) => void toggleReaction(message, emoji)} onEdit={(body) => mutateMessage(() => api.editMessage(message.id, body))} onDelete={() => mutateMessage(() => api.deleteMessage(message.id))} onReport={onReport ? () => onReport(message) : undefined} />;
+  }
+
   return (
     <div className="drawer-backdrop thread-backdrop">
-      <aside ref={dialogRef} className="thread-drawer" role="dialog" aria-modal="true" aria-labelledby="thread-title">
+      <section ref={dialogRef} className="thread-drawer" role="dialog" aria-modal="true" aria-labelledby="thread-title">
         <header>
           <div><span className="eyebrow">Conversation thread</span><h2 id="thread-title">Thread</h2></div>
           <AppSurfaceControlButton
@@ -224,12 +284,14 @@ export function ThreadDrawer({
         {error && <div className="form-error" role="alert">{error}</div>}
         {loading ? <div className="inline-loading" aria-busy="true"><span className="spinner" aria-hidden="true" />Loading thread…</div> : root && (
           <>
-            <ThreadMessage message={root} senderName={senderIdentifier(root.sender_user_id)} onAttachment={(attachment) => void openAttachment(attachment)} root />
+            <div className="thread-content">
+            <ol className="thread-root thread-message-list" aria-label="Thread root">{threadMessage(root)}</ol>
             <div className="thread-divider"><span>{Math.max(root.thread_reply_count || 0, replies.length)} replies</span></div>
             {hasMore && <button className="button ghost compact thread-load" type="button" disabled={loadingOlder} onClick={() => void loadOlder()}>{loadingOlder ? "Loading…" : "Load older replies"}</button>}
             <ol className="thread-replies" aria-live="polite">
-              {replies.map((message) => <ThreadMessage key={message.id} message={message} senderName={senderIdentifier(message.sender_user_id)} onAttachment={(attachment) => void openAttachment(attachment)} />)}
+              {replies.map(threadMessage)}
             </ol>
+            </div>
             <form className="thread-composer" aria-busy={sending || uploading} onSubmit={(event) => void send(event)}>
               {failedSend && <div className="failed-send" role="alert" style={{ gridColumn: "1 / -1" }}><span>Reply not sent. Your draft is safe. {failedSend.error}</span><button className="button ghost compact" type="button" disabled={sending} onClick={() => void retrySend()}>Retry</button></div>}
               {pendingAttachments.length > 0 && <div className="pending-files" aria-label="Files being attached to this thread" style={{ gridColumn: "1 / -1" }}>{pendingAttachments.map(({ attachment, localName }) => { const unsafe = ["quarantined", "scan_failed"].includes(attachment.status); const ready = attachment.status === "ready"; return <span className={`file-chip attachment-${attachment.status}`} key={attachment.id}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "check" : unsafe ? "triangleAlert" : "loader"} /></span><span>{localName}<small>{attachmentLabel(attachment)}</small></span><button type="button" aria-label={`Remove ${localName}`} onClick={() => removePendingAttachment(attachment)}><AppIcon name="x" /></button></span>; })}</div>}
@@ -243,25 +305,13 @@ export function ThreadDrawer({
             </form>
           </>
         )}
-      </aside>
+      </section>
     </div>
   );
 }
 
-function ThreadMessage({ message, senderName, onAttachment, root = false }: { message: Message; senderName: string; onAttachment: (attachment: Attachment) => void; root?: boolean }) {
-  return (
-    <article className={`thread-message ${root ? "thread-root" : ""}`}>
-      <header><strong>{senderName}</strong><time dateTime={message.inserted_at}>{formatTime(message.inserted_at)}</time></header>
-      <p className={message.status === "active" ? "" : "removed"}>{message.status === "active" ? message.body : "Message removed"}</p>
-      {message.attachments.length > 0 && <div className="message-attachments">{message.attachments.map((attachment) => <ThreadAttachment key={attachment.id} attachment={attachment} onOpen={onAttachment} />)}</div>}
-    </article>
-  );
-}
-
-function ThreadAttachment({ attachment, onOpen }: { attachment: Attachment; onOpen: (attachment: Attachment) => void }) {
-  const ready = attachment.status === "ready";
-  const unsafe = attachment.status === "quarantined" || attachment.status === "scan_failed";
-  return <button type="button" disabled={!ready} className={unsafe ? "unsafe-attachment" : ""} onClick={() => onOpen(attachment)}><span aria-hidden="true"><AppIcon className={ready || unsafe ? "" : "spin"} name={ready ? "file" : unsafe ? "triangleAlert" : "loader"} /></span><span><strong>{attachment.file_name}</strong><small>{formatBytes(attachment.byte_size)} · {attachmentLabel(attachment)}</small></span></button>;
+function retainRemovedMessage(current: Message | null | undefined, incoming: Message): Message {
+  return current && current.status !== "active" && incoming.status === "active" ? current : incoming;
 }
 
 function mergeMessages(current: Message[], incoming: Message[]): Message[] {

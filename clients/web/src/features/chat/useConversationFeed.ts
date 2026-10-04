@@ -105,6 +105,22 @@ export function useConversationFeed({
 
   const shouldAutoScroll = useCallback(() => nearBottomRef.current, []);
 
+  const updateLoadedMessage = useCallback((updated: Message) => {
+    if (updated.conversation_id !== activeConversationIdRef.current) return;
+    // A thread can load history outside the transcript's current window.
+    // Mutations must not insert that history, advance cursors or count new mail.
+    setMessages((current) => current.some((message) => message.id === updated.id)
+      ? current.map((message) => {
+          if (message.id !== updated.id) return message;
+          // Removal is terminal: a delayed active edit response cannot restore
+          // a deletion or moderation event already received over realtime.
+          return message.status !== "active" && updated.status === "active"
+            ? message
+            : updated;
+        })
+      : current);
+  }, [setMessages]);
+
   const updateConversationSummaries = useCallback(
     (incoming: Message[]) => {
       const activityByConversation = collectConversationActivity(
@@ -423,6 +439,7 @@ export function useConversationFeed({
     updateNearBottom,
     shouldAutoScroll,
     receiveMessages,
+    updateLoadedMessage,
     updateConversationSummaries,
     applyReaction,
     loadOlder,
