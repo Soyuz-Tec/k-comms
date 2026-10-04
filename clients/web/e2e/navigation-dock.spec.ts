@@ -1,6 +1,25 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { installWorkspace } from "./mobile-ui-support";
+
+async function movePointer(page: Page, x: number, y: number, buttons = 0) {
+  const point = { x, y, buttons };
+  await page.evaluate((expected) => {
+    const fixtureWindow = window as Window & { navigationPointerReceipt?: typeof expected };
+    delete fixtureWindow.navigationPointerReceipt;
+    const record = (event: PointerEvent) => {
+      if (event.clientX !== expected.x || event.clientY !== expected.y || event.buttons !== expected.buttons) return;
+      fixtureWindow.navigationPointerReceipt = { x: event.clientX, y: event.clientY, buttons: event.buttons };
+      document.removeEventListener("pointermove", record);
+    };
+    document.addEventListener("pointermove", record);
+  }, point);
+  await page.mouse.move(x, y);
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { navigationPointerReceipt?: { x: number; y: number; buttons: number } }).navigationPointerReceipt
+  )).toEqual(point);
+}
 
 test.beforeEach(async ({ page }, testInfo) => {
   test.skip(!["chromium", "webkit"].includes(testInfo.project.name), "Desktop dock coverage");
@@ -28,14 +47,16 @@ for (const width of [1024, 1440]) {
       const original = await workspace.boundingBox();
       expect(original!.x).toBe(0);
       expect(original!.width).toBe(width);
+      // Keep protocol latency outside the 250 ms hover interval, after the lazy route is ready.
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
       if (process.env.K_COMMS_VISUAL_CAPTURE === "1") {
         await page.screenshot({ path: testInfo.outputPath("compact.png") });
       }
 
       // Ordinary work and mouse movement outside the menu must not renew its timer.
-      await page.mouse.move(700, 200);
+      await movePointer(page, 700, 200);
       await page.clock.fastForward(4_000);
-      await page.mouse.move(600, 260);
+      await movePointer(page, 600, 260);
       await page.clock.fastForward(4_300);
       await expect(dock).toBeHidden();
       await expect(dock).toHaveAttribute("inert", "");
@@ -45,28 +66,30 @@ for (const width of [1024, 1440]) {
       }
 
       // Crossing the edge briefly, or dragging to it, is not a menu request.
-      await page.mouse.move(3, 180);
-      await page.mouse.move(100, 180);
+      await movePointer(page, 3, 180);
+      await movePointer(page, 100, 180);
       await page.clock.fastForward(300);
       await expect(dock).toBeHidden();
       await page.mouse.down();
-      await page.mouse.move(3, 180);
+      await movePointer(page, 3, 180, 1);
       await page.clock.fastForward(300);
       await expect(dock).toBeHidden();
       await page.mouse.up();
-      await page.mouse.move(100, 180);
-      await page.mouse.move(3, 180);
+      await movePointer(page, 100, 180);
+      await movePointer(page, 3, 180);
       await page.clock.fastForward(300);
       await expect(dock).toBeVisible();
-      expect((await dock.boundingBox())!.width).toBe(48);
-      expect(await workspace.boundingBox()).toEqual(original);
-      await expect(dock.getByRole("link", { name: "Calls", exact: true })).toHaveAttribute("title", "Calls");
+      // Accessibility analysis uses normal timers after the controlled hover assertions.
+      await page.clock.resume();
       // Visibility is restored before the dock's opacity/translate reveal settles.
-      // Measure steady-state contrast without changing the motion or axe rules.
+      // Measure steady-state geometry and contrast without changing the motion or axe rules.
       await expect(dock).toHaveCSS("opacity", "1");
       await expect.poll(() => dock.evaluate((element) =>
         element.getAnimations().filter((animation) => animation.playState !== "finished").length
       )).toBe(0);
+      expect((await dock.boundingBox())!.width).toBe(48);
+      expect(await workspace.boundingBox()).toEqual(original);
+      await expect(dock.getByRole("link", { name: "Calls", exact: true })).toHaveAttribute("title", "Calls");
       const accessibility = await new AxeBuilder({ page }).include("#workspace-navigation").analyze();
       expect(accessibility.violations).toEqual([]);
     });
